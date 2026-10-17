@@ -7,7 +7,7 @@ from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.UDRL.state import UDRLConfig
 from ajax.agents.UDRL.train_UDRL import make_train
-from ajax.extensions.base import Extension
+from ajax.extensions.base import Extension, holds_expert
 from ajax.types import EnvType
 
 
@@ -79,6 +79,13 @@ class UDRL(ActorCritic):
             action_repeat=action_repeat,
             extensions=extensions,
         )
+        if normalize_observations and holds_expert(None, self.extension_stack):
+            raise ValueError(
+                "UDRL's segment buffer keeps the observations normalised, and"
+                " an extension's expert reads the env's own: not wired yet (it"
+                " needs a raw-observation buffer field, which changes UDRL's"
+                " checkpoints). Run it without normalize_observations."
+            )
 
         self.agent_config: UDRLConfig = UDRLConfig(
             gamma=gamma,

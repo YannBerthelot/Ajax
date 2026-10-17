@@ -1,8 +1,8 @@
-"""The ImitationLoss extension: its term, its Q-filter, and its wiring into
-five actor losses.
+"""The ImitationLoss extension: its term, its Q-filter, its annealed weight,
+and its wiring into the actor losses.
 
-TD3, REDQ, ASAC, APO and SAC put the actor's mean action (``pi_mean``) and
-the raw observations into their actor-loss batch. One actor update per agent,
+TD3, REDQ, ASAC, AVG, APO, SAC and PPO put the actor's mean action
+(``pi_mean``) and the raw observations into their actor-loss batch. One actor update per agent,
 run eagerly on a tiny network, checks that the extension's term changes the
 actor gradient and has no effect at zero weight or when absent.
 """
@@ -23,6 +23,10 @@ from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC import train_ASAC
 from ajax.agents.ASAC.ASAC import ASAC
+from ajax.agents.AVG import train_AVG
+from ajax.agents.AVG.AVG import AVG
+from ajax.agents.PPO import train_PPO
+from ajax.agents.PPO.PPO import PPO
 from ajax.agents.REDQ import train_REDQ
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC import train_SAC
@@ -73,6 +77,28 @@ def test_term_is_the_scaled_squared_distance_to_the_expert() -> None:
         None, (), batch, CTX
     )
     np.testing.assert_allclose(float(again), expected, rtol=1e-6)
+
+
+def test_the_annealed_term_reaches_zero_at_its_fraction_of_training() -> None:
+    """With ``anneal_frac`` the weight is 1 at the start, half way down at
+    half that fraction, and 0 from it on; it must lie in (0, 1]."""
+    batch: dict[str, Any] = {
+        "pi_mean": jnp.array([[0.1], [-0.3]]),
+        "raw_observations": jnp.zeros((2, 3)),
+    }
+    full = float(ImitationLoss(expert_policy=EXPERT).actor_loss(None, (), batch, CTX))
+    term = ImitationLoss(expert_policy=EXPERT, anneal_frac=0.5)
+
+    def at(step: int) -> float:
+        ctx = ExtensionContext(step=jnp.asarray(step), rng=KEY, total_steps=1_000)
+        return float(term.actor_loss(None, (), batch, ctx))
+
+    np.testing.assert_allclose(at(0), full, rtol=1e-6)
+    np.testing.assert_allclose(at(250), full / 2, rtol=1e-6)
+    assert at(500) == 0.0 and at(1_000) == 0.0
+    for bad in (0.0, 1.5):
+        with pytest.raises(ValueError, match="anneal_frac"):
+            ImitationLoss(expert_policy=EXPERT, anneal_frac=bad)
 
 
 def test_agent_without_policy_mean_raises() -> None:
@@ -319,12 +345,68 @@ def _apo_update(stack: ExtensionStack) -> Any:
     return state.actor_state.params
 
 
+def _ppo_update(stack: ExtensionStack) -> Any:
+    agent = PPO(
+        "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
+    )
+    state = train_PPO.init_PPO(
+        KEY,
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+    )
+    state = _ext_state(state, stack)
+    obs, actor = _obs(agent), state.actor_state
+    extra = train_PPO._stack_actor_loss(stack, state, KEY, 1, raw_observations=obs)
+
+    def loss(params: Any) -> Any:
+        return train_PPO.policy_loss_function(
+            params,
+            actor,
+            obs,
+            actions=jnp.zeros((BATCH, 1)),
+            log_probs=jnp.zeros((BATCH, 1)),
+            gae=jnp.ones((BATCH, 1)),
+            recurrent=False,
+            clip_coef=0.2,
+            ent_coef=0.0,
+            advantage_normalization=False,
+            extra_loss_fn=extra,
+            entropy_rng=KEY,
+        )
+
+    grads, _ = jax.grad(loss, has_aux=True)(actor.params)
+    return actor.apply_gradients(grads=grads).params
+
+
+def _avg_update(stack: ExtensionStack) -> Any:
+    agent = AVG("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
+    state = train_AVG.init_AVG(
+        KEY,
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+        agent.alpha_args,
+    )
+    state = _ext_state(state, stack)
+    obs = _obs(agent)
+    raw_actions = jnp.zeros((BATCH, 1))  # the pre-squash sample AVG steps through
+    state, _ = train_AVG.update_policy(
+        state, obs, raw_actions, stack, total_timesteps=1, raw_observations=obs
+    )
+    return state.actor_state.params
+
+
 UPDATES: dict[str, Callable[[ExtensionStack], Any]] = {
     "TD3": _td3_update,
     "REDQ": _sac_family_update(REDQ, train_REDQ, _init_redq),
     "ASAC": _sac_family_update(ASAC, train_ASAC, _init_asac),
     "APO": _apo_update,
     "SAC": _sac_update,
+    "PPO": _ppo_update,
+    "AVG": _avg_update,
 }
 
 
@@ -343,3 +425,68 @@ def test_imitation_term_steers_the_actor_update(agent: str) -> None:
     absent = update(ExtensionStack())
     assert _same(update(_stack(0.0)), absent), "zero weight must change nothing"
     assert not _same(update(_stack(100.0)), absent), "the term must reach the actor"
+
+
+@pytest.mark.parametrize("geometry", [{}, {"unroll_length": 8, "num_minibatches": 2}])
+def test_ppo_trains_with_the_term_in_its_minibatches(geometry: dict) -> None:
+    """PPO's minibatches carry the raw observations the term's expert reads,
+    flat and time-preserving (``unroll_length``) alike: the term moves the
+    actor."""
+
+    def actor(*extensions: Any) -> Any:
+        agent = PPO(
+            "Pendulum-v1",
+            n_envs=2,
+            n_steps=16,
+            actor_architecture=NET,
+            critic_architecture=NET,
+            extensions=extensions,
+            **geometry,
+        )
+        return agent.train(seed=0, n_timesteps=32)[0].actor_state.params
+
+    assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())
+
+
+def test_apg_trains_with_the_term_along_its_rollout() -> None:
+    """APG's actor batch is its rollout: the observations its controller saw
+    and the controller's own actions, before their map onto each system's
+    bounds; the term moves the controller."""
+    from tests.agents.APG.test_APG import make_agent, tracking_class, tracking_env
+
+    env, params = tracking_env()
+
+    def actor(*extensions: Any) -> Any:
+        agent = make_agent(env, tracking_class(params), extensions=extensions)
+        steps = agent.env_args.n_envs * agent.agent_config.horizon
+        return agent.train(seed=0, n_timesteps=steps)[0].actor_state.params
+
+    assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())
+
+
+def test_udrl_trains_with_the_term_and_refuses_it_on_normalised_observations() -> None:
+    """Continuous UDRL's actor batch carries the env's part of each
+    observation and the policy's mean action: the term moves the actor. Its
+    segment buffer keeps normalised observations, so an expert, which reads
+    the env's own, is refused under normalize_observations."""
+    from ajax import UDRL
+
+    kw: dict[str, Any] = {
+        "n_envs": 2,
+        "n_steps": 8,
+        "batch_size": 8,
+        "n_updates_per_iter": 2,
+    }
+
+    def actor(*extensions: Any) -> Any:
+        agent = UDRL("Pendulum-v1", actor_architecture=NET, extensions=extensions, **kw)
+        return agent.train(seed=0, n_timesteps=32)[0].actor_state.params
+
+    assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())
+    with pytest.raises(ValueError, match="normalize_observations"):
+        UDRL(
+            "Pendulum-v1",
+            normalize_observations=True,
+            extensions=(ImitationLoss(EXPERT),),
+            **kw,
+        )

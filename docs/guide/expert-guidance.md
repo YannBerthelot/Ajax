@@ -87,23 +87,25 @@ Extensions that call an expert themselves, on the observations of a replay
 batch (`ImitationLoss`, `IBRL`, `LCBGatedBootstrap`, `CriticBlend`,
 `PhiRefresh`), call it as `expert(obs)`, on raw observations, where no
 expert state exists. A stateful expert is allowed there in one case only:
-when it is SAC's own `expert_policy` (the same object). They then read the
-expert's actions SAC stored at collection, computed from its tracked state,
-instead of calling it. Any other stateful expert is refused when the agent
-is built.
+when it is the agent's own `expert_policy` (the same object), on an agent
+that stores that expert's actions (SAC, TD3, REDQ, ASAC, AVG, APO). The extensions
+then read the actions the agent stored at collection, computed from the
+expert's tracked state, instead of calling it. Any other stateful expert is
+refused when the agent is built.
 
 ## Which agents take an expert
 
 | Agent | `expert_policy=` | Expert extensions |
 | --- | --- | --- |
 | [SAC](../algorithms/sac.md) | replay prefill, warm-up actions, collection extensions, the expert's evaluation return | all |
-| [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [APO](../algorithms/apo.md) | the expert's evaluation return | `CloningPretrain`, `ImitationLoss` |
-| [ASAC](../algorithms/asac.md) | not accepted | `ImitationLoss` |
-| [AVG](../algorithms/avg.md) | the expert's evaluation return | none |
+| [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [ASAC](../algorithms/asac.md), [AVG](../algorithms/avg.md), [APO](../algorithms/apo.md) | the expert's evaluation return | `CloningPretrain`, `ImitationLoss`; `IBRL`, `LCBGatedBootstrap` on TD3, REDQ and AVG; `ExpertValueMetrics` on TD3, REDQ and ASAC |
 
 The other agents (PPO, DQN, PQN, UDRL, APG and the world models) take no
-expert: `CloningPretrain` raises on them when training starts, and
-`ImitationLoss` finds no `pi_mean` in their actor batch, or no actor phase.
+expert: `CloningPretrain` raises on them when training starts. PPO, APG and
+UDRL with continuous actions take `ImitationLoss` with a stateless expert
+(UDRL without `normalize_observations`). A discrete policy has no mean
+action for it, DQN and PQN have no actor, and the world models fold no
+actor phase.
 
 With an expert, evaluations also log `Eval/episodic mean expert reward`, the
 expert's return on the same episodes as the agent's, and `Eval/expert
@@ -275,7 +277,7 @@ replay batch its filter keeps (`imitation/q_filter_frac`).
 | --- | --- |
 | Start the replay with good experience | `expert_buffer_n_steps` (on by default) |
 | Start the actor as a copy of the expert | `CloningPretrain` (SAC, TD3, REDQ, APO) |
-| Keep the actor near the expert early on | `OnlineBC` (SAC), `ImitationLoss` (SAC, TD3, REDQ, ASAC, APO) |
+| Keep the actor near the expert early on | `OnlineBC` (SAC), `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, PPO) |
 | Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC) |
 | Let the expert act while the agent is poor | `EDGEExploration`, `JSRLCurriculum`, `ValueBox` |
 | Learn a correction to the expert | `ResidualPolicy` |
@@ -313,9 +315,16 @@ These agents take `ImitationLoss`, the behaviour-cloning term of TD3+BC
 `coef · mean((μ(s) − a_E(s))²) / 4`, where `μ(s)` is the actor's mean
 action and `a_E(s)` the expert's, both in agent units. Dividing by 4 maps
 the squared distance of two actions in `[-1, 1]` to `[0, 1]`. Unlike
-`OnlineBC`, it is unweighted and needs no expert critic. Its Q-filter
-(`q_filter=True`, see [Actor](#actor)) is SAC's only for now. TD3, REDQ and
-APO can also start from a clone of the expert:
+`OnlineBC`, it is unweighted and needs no expert critic. Give the agent the
+same expert as its `expert_policy` to use a stateful one: the term then
+reads the actions the agent stored along each trajectory. With
+`anneal_frac=f`, the term's weight falls linearly from 1 to 0 at the
+fraction `f` of training, as in kickstarting (Schmitt et al., 2018), so the
+agent ends on its own objective; kickstarting uses a cross-entropy to a
+stochastic teacher and tunes the schedule, where here the expert is
+deterministic and the schedule linear. Its Q-filter (`q_filter=True`, see
+[Actor](#actor)) is SAC's only for now. These agents can also start from a
+clone of the expert:
 
 ```python
 import jax.numpy as jnp
@@ -367,8 +376,8 @@ continuous-action agent.
   update provides; the [catalogue](extensions.md#catalogue) gives each one's
   scope.
 - **Stateless queries.** An extension that calls its expert on replayed
-  observations needs a stateless expert, unless it is SAC's own (see
-  [The expert](#the-expert)).
+  observations needs a stateless expert, unless it is the agent's own on an
+  agent that stores its actions (see [The expert](#the-expert)).
 - **Budgets add up.** The prefill, cloning and `MCPretrain` collections run
   before the first training step and are not counted in `n_timesteps`.
 

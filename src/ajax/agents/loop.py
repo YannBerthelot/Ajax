@@ -51,6 +51,7 @@ from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import (
     collect_experience,
+    expert_collect_kwargs,
     preallocate_last_rollout,
     should_use_uniform_sampling,
 )
@@ -210,6 +211,10 @@ def critic_step(
         "dones": dones,
         "gamma": gamma,
         "reward_scale": reward_scale,
+        # The env's own s' and the agent's expert's action there, from its
+        # state; None where the replay keeps neither (a run without an expert).
+        "raw_next_observations": batch.raw_next_obs,
+        "next_a_expert": batch.next_a_expert,
     }
     target_q = jax.lax.stop_gradient(
         extension_stack.fold_on_target(
@@ -255,6 +260,8 @@ class TrainLoop:
     log_fn: Callable
     log_frequency: Optional[int]
     start_timestep: int = 0
+    #: The agent's ``expert_policy``, whose actions collection stores.
+    expert_policy: Any = None
 
     @classmethod
     def create(
@@ -266,6 +273,7 @@ class TrainLoop:
         logging_config: Optional[LoggingConfig] = None,
         extensions: Sequence[Extension] = (),
         start_timestep: int = 0,
+        expert_policy: Any = None,
     ) -> TrainLoop:
         """The loop of one ``make_train`` call; starts the logging worker
         when ``logging_config`` names a backend."""
@@ -283,6 +291,7 @@ class TrainLoop:
             log_fn=partial(vmap_log, run_ids=run_ids),
             log_frequency=log_frequency,
             start_timestep=start_timestep,
+            expert_policy=expert_policy,
         )
 
     @property
@@ -330,9 +339,18 @@ class TrainLoop:
 
     # -- the steps of an iteration -----------------------------------------
     def collect_kwargs(self, recurrent: bool, **kwargs: Any) -> dict:
-        """:func:`collect_experience`'s arguments for this run."""
+        """:func:`collect_experience`'s arguments for this run. With the
+        agent's expert, its action pipeline also stores the expert's actions
+        from the expert's tracked state (:func:`expert_collect_kwargs`)."""
         common = {"recurrent": recurrent, "mode": self.mode, "env_args": self.env_args}
-        return common | kwargs
+        args = common | kwargs
+        if self.expert_policy is None:
+            return args
+        pipeline = kwargs.get("action_pipeline")
+        n_envs = self.env_args.n_envs
+        return args | expert_collect_kwargs(
+            self.expert_policy, pipeline, recurrent, n_envs
+        )
 
     def post_update(self, agent_state: Any) -> Any:
         """:func:`fold_post_update` at the collector's timestep."""

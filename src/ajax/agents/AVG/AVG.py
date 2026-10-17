@@ -32,6 +32,10 @@ class AVG(ActorCritic):
         "actor_loss",
     }
     pretrain_context: frozenset = frozenset("env_args update".split())
+    # The step's transition carries what a replay batch holds: the
+    # expert's stored actions and, for a reader, the raw next observation.
+    stores_expert_actions: bool = True
+    supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
     make_train = staticmethod(make_train)
 
     def __init__(
@@ -52,7 +56,9 @@ class AVG(ActorCritic):
         beta_1: float = 0,
         beta_2: float = 0.999,
         num_critics: int = 1,
-        # Expert for the eval expert-bias metric only.
+        # Expert for CloningPretrain and the eval expert-bias metric; its
+        # actions, from its state along each trajectory, reach the
+        # extensions that read them (ImitationLoss).
         expert_policy: Optional[Callable] = None,
         # Expose the most recent ``(T=1, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout``. Off by

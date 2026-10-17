@@ -259,7 +259,16 @@ def sample_replay(
         buffer, collector.buffer_state, key, reward_statistics(collector.env_state)
     )
     batch = Transition(
-        b.obs, b.action, b.reward, b.terminated, b.truncated, b.next_obs, b.raw_obs
+        b.obs,
+        b.action,
+        b.reward,
+        b.terminated,
+        b.truncated,
+        b.next_obs,
+        b.raw_obs,
+        a_expert=b.a_expert,
+        next_a_expert=b.next_a_expert,
+        raw_next_obs=b.raw_next_obs,
     )
     return batch, None
 

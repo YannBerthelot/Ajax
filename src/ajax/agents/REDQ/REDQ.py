@@ -69,6 +69,8 @@ class REDQ(ActorCritic):
     )
     supports_memory: bool = True
     replays_transitions: bool = True
+    stores_expert_actions: bool = True
+    supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
     make_train = staticmethod(make_train)
 
     def __init__(
@@ -108,7 +110,9 @@ class REDQ(ActorCritic):
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
         # Expert for the CloningPretrain extension and the eval expert-bias
-        # metric; online BC is the ImitationLoss extension.
+        # metric; online BC is the ImitationLoss extension. Its actions,
+        # from its state along each trajectory, are stored for the
+        # extensions that read them.
         expert_policy: Optional[Callable] = None,
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground

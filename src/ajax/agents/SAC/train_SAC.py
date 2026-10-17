@@ -16,7 +16,7 @@ from ajax.agents.recurrent import (
     unsupported_recurrent_options,
 )
 from ajax.agents.SAC import core
-from ajax.agents.SAC.action_pipeline import make_action_pipeline, make_next_expert_fn
+from ajax.agents.SAC.action_pipeline import make_action_pipeline
 from ajax.agents.SAC.core import (
     TemperatureAuxiliaries,
     update_target_networks,
@@ -128,7 +128,7 @@ def init_SAC(
             "expert_state_aug_dim": (
                 expert_state_aug_dim if augment_obs_with_expert_state else 0
             ),
-            "include_expert_fields": expert_policy is not None,
+            "expert_policy": expert_policy,
             "include_raw_next_obs": store_raw_next_obs,
             "include_raw_obs": store_expert_data,
             "include_is_expert": store_expert_data,
@@ -151,13 +151,6 @@ def init_SAC(
                 augment_obs_with_expert_state=augment_obs_with_expert_state,
                 with_train_frac=max_timesteps is not None,
             )
-        )
-
-    # Seed batched expert state for stateful experts (e.g. PID integrator).
-    # The collection pipeline resets this per-env when last_done is set.
-    if expert_policy is not None and hasattr(expert_policy, "init_state"):
-        collector_state = collector_state.replace(
-            expert_state=expert_policy.init_state(env_args.n_envs)
         )
 
     # A per-env step_in_episode counter for the extensions that read it;
@@ -499,7 +492,7 @@ def update_agent(
         # expert of their own (init_SAC's store_raw_next_obs).
         raw_next_observations = batch.raw_next_obs
         # The expert's actions are stored with an expert policy
-        # (init_SAC's include_expert_fields), None without one.
+        # (the collector stores them with an expert), None without one.
         transition = Transition(
             batch.obs,
             batch.action,
@@ -750,6 +743,7 @@ def make_train(
         logging_config,
         stack.extensions,
         start_timestep=start_timestep,
+        expert_policy=expert_policy,
     )
 
     def init(key: jax.Array) -> SACState:
@@ -851,7 +845,6 @@ def make_train(
         collect_kwargs={
             "buffer": buffer,
             "action_pipeline": action_pipeline,
-            "next_expert_fn": make_next_expert_fn(expert_policy),
             "store_hidden": recurrent and agent_config.stored_state,
         },
         eval_kwargs={

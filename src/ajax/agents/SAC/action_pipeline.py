@@ -31,8 +31,8 @@ ACTION_SLOTS = ("pre_warmup", "post_warmup")
 def check_action_extensions(extension_stack: ExtensionStack, dispatched: bool) -> None:
     """Reject the ``action`` extensions the pipeline never dispatches: one
     without an ``action_slot`` of :data:`ACTION_SLOTS`, or any, or a residual
-    policy (an extension with ``build_policy_transform``), when the pipeline
-    does not dispatch (``dispatched`` False: no expert policy, or the
+    policy (an extension implementing ``transform_action``), when the
+    pipeline does not dispatch (``dispatched`` False: no expert policy, or the
     gain-policy short-circuit). SAC calls it at construction."""
     acting = [e for e in extension_stack if "action" in e.implemented_phases()]
     unslotted = [
@@ -43,7 +43,9 @@ def check_action_extensions(extension_stack: ExtensionStack, dispatched: bool) -
             f"SAC dispatches the action phase only to extensions declaring an"
             f" action_slot in {ACTION_SLOTS}; {unslotted} declare none."
         )
-    residual = [e for e in extension_stack if hasattr(e, "build_policy_transform")]
+    residual = [
+        e for e in extension_stack if "transform_action" in e.implemented_phases()
+    ]
     if (acting or residual) and not dispatched:
         raise ValueError(
             "SAC dispatches the action phase only with an expert_policy and"

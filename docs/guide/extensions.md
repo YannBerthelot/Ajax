@@ -82,6 +82,7 @@ where it may act. Every other phase keeps a default that changes nothing.
 | `actor_loss` | at each actor update | add a term to the actor loss | summed |
 | `action` | at each collection step | replace the action the agent would take | the last proposal wins |
 | `eval_action` | at evaluation | replace the evaluation action | no agent runs it yet |
+| `transform_action` | at each collection step, in the losses and at evaluation | make the executed action a function of the policy's and the expert's | the first one acts |
 | `post_update` | after each update | change the agent's state (schedules, refreshes) | in list order |
 | `eval_metrics` | at each evaluation | add metrics to the log | merged |
 
@@ -91,8 +92,9 @@ makes one call per phase: `fold_init` (every initial state, then every
 `fold_post_update` and `fold_eval_metrics`. Each call gets a random key of
 its own, on which the agent draws nothing else (`init_state` and
 `eval_metrics` split it, one sub-key per extension). On an empty stack a
-fold returns its input untouched and draws nothing. The `action` phase is the exception: SAC's action pipeline calls
-it directly (see [below](#which-agent-runs-which-phase)).
+fold returns its input untouched and draws nothing. The `action` and
+`transform_action` phases are the exceptions: SAC's action pipeline calls
+them directly (see [below](#which-agent-runs-which-phase)).
 
 ## Which agent runs which phase
 
@@ -100,7 +102,7 @@ Every agent runs `pretrain`, `post_update` and `eval_metrics`, which belong to
 the shared training loop. The others depend on what the agent's update has: a
 target, a critic, an actor, a collection step it lets an extension change.
 
-| Agent | `on_target` | `critic_loss` | `actor_loss` | `action` |
+| Agent | `on_target` | `critic_loss` | `actor_loss` | `action`, `transform_action` |
 | --- | --- | --- | --- | --- |
 | [SAC](../algorithms/sac.md) | yes | yes | yes | yes, with an `expert_policy` |
 | [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [ASAC](../algorithms/asac.md), [AVG](../algorithms/avg.md) | yes | yes | yes | no |
@@ -132,8 +134,8 @@ except ValueError as error:
 
 Two more limits:
 
-- **`action` is SAC's alone**, and only with an `expert_policy` and
-  without `use_pid_policy`. SAC's collection step offers two places for an
+- **`action` and `transform_action` are SAC's alone**, and only with an
+  `expert_policy` and without `use_pid_policy`. SAC's collection step offers two places for an
   extension to act, before and after its warm-up choice, and an extension
   says which one in its `action_slot` (`"pre_warmup"` or `"post_warmup"`).
   [Expert guidance](expert-guidance.md) explains them.
@@ -180,6 +182,7 @@ which the agent reads when it is built:
 | `expert_fields` | the fields holding an expert. The agent converts each one to [agent units](expert-guidance.md#the-expert), and a run whose extensions hold an expert keeps the replay fields only experts read. |
 | `experts()` | the experts the extension calls itself, without a state, on the observations it is given. |
 | `reads_agent_expert_actions` | the extension reads the expert's actions SAC stored at collection when its expert is SAC's own. |
+| `needs_agent_expert` | the extension reads the actions of the agent's own `expert_policy` (`OnlineBC`), so an agent without one refuses it. |
 | `fits_phi_star`, `reads_phi_star()` | the extension fits, or reads, the frozen expert critic `φ*` (below). |
 | `reads_step_in_episode` | the extension reads each copy's step within its episode, which the agent then counts. |
 | `action_slot` | where in SAC's action pipeline its `action` runs. |
@@ -200,6 +203,8 @@ offending extension) if an extension:
 - implements a phase the agent does not run;
 - reads a replay field the agent does not store (`buffer_fields`);
 - reads `φ*` without an `MCPretrain` in the stack;
+- reads the actions of the agent's `expert_policy` on an agent without
+  one (`needs_agent_expert`);
 - calls a stateful expert without its state. An extension calls its expert
   on the observations it is given, where no expert state exists. A stateful
   expert is allowed only when it is SAC's own `expert_policy` and the
@@ -227,7 +232,7 @@ says where each extension does its job. "SAC with an expert" means
 | --- | --- | --- | --- |
 | `OnlineBC` | Pulls the actor's mean action towards the expert's, weighted by `φ*`'s value at each state, fading to zero over the first `critic_warmup_frac` of training. | `actor_loss` | SAC with an expert and `MCPretrain` |
 | `ImitationLoss` | Adds `coef · mean((μ(s) − a_E(s))²) / 4`, the behaviour-cloning term of TD3+BC, towards a fixed, stateless expert it holds itself. | `actor_loss` | SAC, TD3, REDQ, ASAC, APO; the other actor batches lack `pi_mean` and raise |
-| `ResidualPolicy` | Executes `clip(a_E + scale · a_π, −1, 1)`: the policy learns a correction on top of the expert. | none (SAC reads it) | SAC with an expert, without `use_pid_policy`; other agents ignore it |
+| `ResidualPolicy` | Executes `clip(a_E + scale · a_π, −1, 1)`: the policy learns a correction on top of the expert. | `transform_action` | SAC with an expert, without `use_pid_policy` |
 | `JSRLCurriculum` | The expert acts for the first `H_t` steps of each episode, the policy afterwards; `H_t` shrinks from `episode_length` to 0 over `decay_frac` of training. | `action` | SAC with an expert |
 | `ExpertValueMetrics` | Logs the critic's value at the expert's actions (`value/q_expert_mean`), its gap to the value of the actions taken (`value/q_gap`) and, with `MCPretrain`, its gap to `φ*` (`value/phi_star_q_gap_ood`), on one replay batch per evaluation. | `eval_metrics` | SAC with an expert |
 

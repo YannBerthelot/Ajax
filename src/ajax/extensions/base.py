@@ -36,6 +36,9 @@ Phases
 ``action``       override the collection-time action (``None`` = defer;
                  the last non-None proposal in the stack wins)
 ``eval_action``  override the evaluation-time action (same rule)
+``transform_action`` make the executed action a function of the policy's
+                 and the expert's (residual RL), in collection, the
+                 losses and evaluation
 ``post_update``  hook after the update step (φ-refresh, schedules, …)
 ``eval_metrics`` extra metrics, merged into the eval log
 
@@ -86,6 +89,7 @@ PHASES: tuple[str, ...] = (
     "actor_loss",
     "action",
     "eval_action",
+    "transform_action",
     "post_update",
     "eval_metrics",
 )
@@ -192,7 +196,9 @@ def check_extension_experts(
     stores_expert_actions: bool = False,
 ) -> None:
     """Reject an extension calling a stateful expert (one with
-    ``init_state``, called ``expert(state, obs)``) without its state.
+    ``init_state``, called ``expert(state, obs)``) without its state, and
+    one reading the actions of the agent's expert (``needs_agent_expert``)
+    on an agent without an ``expert_policy``, where it would add nothing.
 
     An extension calls the experts it declares (:meth:`Extension.experts`)
     on the observations it is given, where no state of the expert exists:
@@ -201,6 +207,13 @@ def check_extension_experts(
     (``stores_expert_actions``), for an extension that reads them
     (``reads_agent_expert_actions``). Stateless experts are always allowed.
     """
+    needing = [type(ext).__name__ for ext in stack if ext.needs_agent_expert]
+    if needing and agent_expert is None:
+        raise ValueError(
+            f"{', '.join(needing)} read the actions of the agent's"
+            f" expert_policy, and {agent_name} has none: without it they would"
+            " add nothing all run. Give the agent an expert_policy."
+        )
     for ext in stack:
         for expert in ext.experts():
             if not hasattr(expert, "init_state"):
@@ -244,6 +257,9 @@ class Extension:
     #: Whether the extension reads the agent's stored actions of its expert
     #: when that expert is the agent's (check_extension_experts).
     reads_agent_expert_actions: ClassVar[bool] = False
+    #: Whether the extension reads the actions of the agent's own
+    #: ``expert_policy``, refused on an agent without one.
+    needs_agent_expert: ClassVar[bool] = False
     #: The fields holding an expert (raw observations in, env-unit actions
     #: out), which :meth:`ExtensionStack.with_experts` converts.
     expert_fields: ClassVar[frozenset[str]] = frozenset()
@@ -326,6 +342,12 @@ class Extension:
         """Override the evaluation-time action; ``None`` defers."""
         del agent_state, ext_state, obs, rng, ctx
         return None
+
+    def transform_action(self, actions: jax.Array, a_expert: jax.Array) -> jax.Array:
+        """The executed action from the policy's ``actions`` and the
+        expert's ``a_expert``; the policy's by default."""
+        del a_expert
+        return actions
 
     # -- state-threading + logging --------------------------------------
     def post_update(

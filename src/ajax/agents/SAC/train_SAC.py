@@ -16,7 +16,7 @@ from ajax.agents.recurrent import (
     unsupported_recurrent_options,
 )
 from ajax.agents.SAC import core
-from ajax.agents.SAC.action_pipeline import make_action_pipeline, make_next_expert_fn
+from ajax.agents.SAC.action_pipeline import make_action_pipeline
 from ajax.agents.SAC.core import (
     TemperatureAuxiliaries,
     update_target_networks,
@@ -25,7 +25,12 @@ from ajax.agents.SAC.core import (
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.interaction import augment_obs, reward_statistics
+from ajax.environments.interaction import (
+    augment_obs,
+    make_next_expert_fn,
+    reward_statistics,
+    with_expert_state,
+)
 from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
@@ -153,12 +158,7 @@ def init_SAC(
             )
         )
 
-    # Seed batched expert state for stateful experts (e.g. PID integrator).
-    # The collection pipeline resets this per-env when last_done is set.
-    if expert_policy is not None and hasattr(expert_policy, "init_state"):
-        collector_state = collector_state.replace(
-            expert_state=expert_policy.init_state(env_args.n_envs)
-        )
+    collector_state = with_expert_state(collector_state, expert_policy, env_args.n_envs)
 
     # A per-env step_in_episode counter for the extensions that read it;
     # left None otherwise, so the collector skips its reset/increment.

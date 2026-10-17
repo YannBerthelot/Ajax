@@ -200,22 +200,35 @@ def parse_layer(
     kernel_init: Optional[Union[str, InitializationFunction]] = None,
     bias_init: Optional[Union[str, InitializationFunction]] = None,
 ) -> Union[nn.Module, ActivationFunction]:
-    """Parse a layer representation into either a Dense or an activation
-    function. ``kernel_init="torch_linear"`` builds a :class:`TorchLinear`,
-    which draws its bias too."""
+    """Parse a layer representation into either a Dense (:func:`dense`,
+    kernel ``orthogonal(1.0)`` by default) or an activation function."""
     if not str(layer).isnumeric():
         return parse_activation(activation=layer)
-    features = int(cast("str", layer))
+    return dense(int(cast("str", layer)), kernel_init, bias_init, orthogonal(1.0))
+
+
+def dense(
+    features: int,
+    kernel_init: Optional[Union[str, InitializationFunction]],
+    bias_init: Optional[Union[str, InitializationFunction]],
+    default_kernel_init: InitializationFunction,
+    name: Optional[str] = None,
+) -> nn.Module:
+    """A Dense layer with ``kernel_init`` (``default_kernel_init`` for None)
+    and ``bias_init`` (zeros for None), as :func:`parse_initialization`
+    reads them; ``kernel_init="torch_linear"`` builds a
+    :class:`TorchLinear`, which draws its bias too."""
     if kernel_init == TORCH_LINEAR:
         if bias_init is not None:
             raise ValueError(
                 f"{TORCH_LINEAR!r} draws the biases too; got bias_init={bias_init!r}"
             )
-        return TorchLinear(features)
+        return TorchLinear(features, name=name)
     return nn.Dense(
         features,
-        kernel_init=parse_initialization(kernel_init, default=orthogonal(1.0)),
+        kernel_init=parse_initialization(kernel_init, default=default_kernel_init),
         bias_init=parse_initialization(bias_init, default=constant(0)),
+        name=name,
     )
 
 

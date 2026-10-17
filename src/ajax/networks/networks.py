@@ -22,9 +22,10 @@ from ajax.networks.memory import (
     parse_memory_config,
 )
 from ajax.networks.utils import (
+    TORCH_LINEAR,
+    dense,
     get_adam_tx,
     parse_architecture,
-    parse_initialization,
 )
 from ajax.state import (
     LOG_STD_BOUNDS,
@@ -136,6 +137,28 @@ class CNNEncoder(nn.Module):
         return feat
 
 
+def check_log_std_head(
+    state_independent: bool,
+    log_std_init: Optional[float],
+    log_std_kernel_init: Optional[Union[str, InitializationFunction]],
+) -> None:
+    """Refuse a log-std head whose start is set twice or not at all: the
+    learned parameter needs ``log_std_init`` and has no kernel; the Dense
+    head takes ``log_std_init`` as its bias unless its kernel init is
+    "torch_linear", whose layer draws the bias (``log_std_init`` None)."""
+    if state_independent:
+        if log_std_init is None or log_std_kernel_init is not None:
+            raise ValueError(
+                "A state-independent log-std is one parameter: it needs a"
+                " float log_std_init and takes no log_std_kernel_init."
+            )
+    elif (log_std_kernel_init == TORCH_LINEAR) != (log_std_init is None):
+        raise ValueError(
+            f"A {TORCH_LINEAR!r} log-std head draws its bias: log_std_init must"
+            " be None with it, and a float otherwise."
+        )
+
+
 class Actor(nn.Module):
     """The stochastic policy of SAC, REDQ, ASAC, AVG, PPO, APO and UDRL: a
     Normal (or tanh-squashed) head for continuous actions, a Categorical one
@@ -161,8 +184,17 @@ class Actor(nn.Module):
     # (ppo_continuous_action.py:129) and PureJaxRL @31756b1
     # (ppo_continuous_action.py:41).
     log_std_state_independent: bool = False
-    log_std_init: float = -1.0
+    # None only for a "torch_linear" log-std head, whose layer draws its
+    # bias: the starting std is then the layer's, not one constant.
+    log_std_init: Optional[float] = -1.0
     log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS
+    # The output layers' kernel inits (``parse_initialization`` strings or
+    # callables, or "torch_linear"), so an agent can start them as its
+    # reference code does. None keeps orthogonal(1.0) for the logits and a
+    # zero kernel for the state-dependent log-std head (std=exp(log_std_init)
+    # at init); the mean's is ``mean_kernel_init`` below.
+    logits_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    log_std_kernel_init: Optional[Union[str, InitializationFunction]] = None
     # Mean-head kernel init (a ``parse_initialization`` string or a
     # callable). None keeps ``orthogonal(0.01)``, a small initial mean.
     # brax PPO uses ``lecun_uniform`` for the mean head, which gives an
@@ -206,16 +238,17 @@ class Actor(nn.Module):
                 kernel_init=self.encoder_kernel_init,
                 layer_norm=self.encoder_layer_norm,
             )
-        kernel_init = orthogonal(1.0)
-        bias_init = parse_initialization(self.bias_init, default=constant(0.0))
-
         if self.continuous:
-            self.mean = nn.Dense(
+            check_log_std_head(
+                self.log_std_state_independent,
+                self.log_std_init,
+                self.log_std_kernel_init,
+            )
+            self.mean = dense(
                 self.action_dim,
-                kernel_init=parse_initialization(
-                    self.mean_kernel_init, default=orthogonal(0.01)
-                ),
-                bias_init=bias_init,
+                self.mean_kernel_init,
+                self.bias_init,
+                orthogonal(0.01),
                 name="mean",
             )
             # The state-dependent head's zero kernel outputs its bias at
@@ -224,10 +257,11 @@ class Actor(nn.Module):
             # the value-estimating features; flax requires it declared in
             # setup() (or an @nn.compact method).
             if not self.log_std_state_independent:
-                self.log_std = nn.Dense(
+                self.log_std = dense(
                     self.action_dim,
-                    kernel_init=nn.initializers.zeros,
-                    bias_init=nn.initializers.constant(self.log_std_init),
+                    self.log_std_kernel_init,
+                    None if self.log_std_init is None else constant(self.log_std_init),
+                    nn.initializers.zeros,
                     name="log_std",
                 )
             else:
@@ -239,10 +273,11 @@ class Actor(nn.Module):
         else:
             self.model = nn.Sequential(
                 [
-                    nn.Dense(
+                    dense(
                         self.action_dim,
-                        kernel_init=kernel_init,
-                        bias_init=bias_init,
+                        self.logits_kernel_init,
+                        self.bias_init,
+                        orthogonal(1.0),
                     ),
                     distrax.Categorical,
                 ],
@@ -306,6 +341,9 @@ class Critic(nn.Module):
     # critic, embedders before the memory, the action at the head after it;
     # cited from memory, unverified).
     query_dim: int = 0
+    # The value layer's kernel init (as Actor's output layers'); None keeps
+    # orthogonal(1.0).
+    value_kernel_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
         if self.memory is not None:
@@ -327,11 +365,7 @@ class Critic(nn.Module):
                 kernel_init=self.encoder_kernel_init,
                 layer_norm=self.encoder_layer_norm,
             )
-        self.model = nn.Dense(
-            1,
-            kernel_init=orthogonal(1.0),
-            bias_init=parse_initialization(self.bias_init, default=constant(0.0)),
-        )
+        self.model = dense(1, self.value_kernel_init, self.bias_init, orthogonal(1.0))
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
         if self.memory is None:
@@ -368,6 +402,7 @@ class MultiCritic(nn.Module):
     # on a leading axis: hidden_state leaves are (num, batch, hidden).
     memory: Optional[MemoryConfig] = None
     query_dim: int = 0  # see Critic.query_dim
+    value_kernel_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
         # x (and done) are broadcast across the ensemble; the carry is
@@ -396,6 +431,7 @@ class MultiCritic(nn.Module):
             cnn_spec=self.cnn_spec,
             memory=self.memory,
             query_dim=self.query_dim,
+            value_kernel_init=self.value_kernel_init,
         )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
@@ -474,6 +510,11 @@ def get_initialized_actor_critic(
         pass
     elif isinstance(network_config.actor_architecture, PIDPolicy):
         check_pid_actor(continuous, memory)
+        # The PID actor's log-std is one learned parameter.
+        check_log_std_head(
+            True, network_config.log_std_init, network_config.log_std_kernel_init
+        )
+        assert network_config.log_std_init is not None  # checked above
         actor = PIDActor(
             policy=network_config.actor_architecture,
             action_dim=action_dim,
@@ -498,6 +539,8 @@ def get_initialized_actor_critic(
             log_std_init=network_config.log_std_init,
             log_std_bounds=network_config.log_std_bounds,
             mean_kernel_init=network_config.mean_kernel_init,
+            logits_kernel_init=network_config.logits_kernel_init,
+            log_std_kernel_init=network_config.log_std_kernel_init,
             tanh_mean=network_config.tanh_mean,
             encoder_layer_norm=network_config.encoder_layer_norm,
             memory=memory,
@@ -514,6 +557,7 @@ def get_initialized_actor_critic(
         cnn_spec=cnn_spec,
         memory=memory,
         query_dim=action_dim if action_value and memory is not None else 0,
+        value_kernel_init=network_config.value_kernel_init,
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))

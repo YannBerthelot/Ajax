@@ -470,3 +470,99 @@ def test_mean_kernel_init_sets_the_initial_mean_head(sample_input):
     lecun = np.abs(kernel(mean_kernel_init="lecun_uniform"))
     assert 0.05 < lecun.max() <= np.sqrt(3 / 16)  # fan_in 16
     np.testing.assert_array_equal(kernel(mean_kernel_init=nn.initializers.ones), 1.0)
+
+
+@pytest.mark.parametrize("continuous", [False, True])
+def test_the_builder_sets_every_output_layers_kernel(
+    continuous, real_env_config, fast_env_config
+):
+    """logits_kernel_init, log_std_kernel_init and value_kernel_init on
+    NetworkConfig reach the logits, the state-dependent log-std and the
+    value layers."""
+    optimizer_config = OptimizerConfig(learning_rate=0.001)
+    network_config = NetworkConfig(
+        actor_architecture=ARCH,
+        critic_architecture=ARCH,
+        logits_kernel_init="zeros",
+        log_std_kernel_init="1.0",
+        value_kernel_init="zeros",
+    )
+    actor_state, critic_state = get_initialized_actor_critic(
+        jax.random.PRNGKey(0),
+        fast_env_config if continuous else real_env_config,
+        optimizer_config,
+        optimizer_config,
+        network_config,
+        continuous=continuous,
+        num_critics=1,
+    )
+    actor, critic = actor_state.params["params"], critic_state.params["params"]
+    if continuous:
+        np.testing.assert_array_equal(actor["log_std"]["kernel"], 1.0)
+    else:
+        assert not jnp.any(actor["model"]["layers_0"]["kernel"])
+    assert not jnp.any(critic["ensemble"]["model"]["kernel"])
+
+
+def test_output_layers_keep_their_defaults_or_start_as_torch_nn_linear(
+    sample_input,
+):
+    """By default the logits and the value layers start orthogonal with gain
+    1 and the log-std head with a zero kernel and log_std_init as its bias;
+    "torch_linear" draws each kernel and bias in +-1/sqrt(fan_in)."""
+
+    def actor_params(continuous, **kwargs):
+        actor = Actor(
+            action_dim=3, input_architecture=ARCH, continuous=continuous, **kwargs
+        )
+        return actor.init(jax.random.PRNGKey(0), sample_input)["params"]
+
+    def value_params(**kwargs):
+        critic = Critic(input_architecture=ARCH, **kwargs)
+        return critic.init(jax.random.PRNGKey(0), sample_input)["params"]["model"]
+
+    logits = np.asarray(actor_params(False)["model"]["layers_0"]["kernel"])
+    np.testing.assert_allclose(logits.T @ logits, np.eye(3), atol=1e-5)
+    log_std = actor_params(True)["log_std"]
+    assert not jnp.any(log_std["kernel"])
+    np.testing.assert_allclose(log_std["bias"], -1.0)
+    value = np.asarray(value_params()["kernel"])
+    np.testing.assert_allclose(value.T @ value, [[1.0]], atol=1e-5)
+
+    torch_layers = [
+        actor_params(False, logits_kernel_init="torch_linear")["model"]["layers_0"],
+        actor_params(True, log_std_kernel_init="torch_linear", log_std_init=None)[
+            "log_std"
+        ],
+        value_params(value_kernel_init="torch_linear"),
+    ]
+    bound = 1 / np.sqrt(16)  # fan_in: ARCH's 16 units
+    for layer in torch_layers:
+        for name in ("kernel", "bias"):
+            w = np.abs(np.asarray(layer[name]))
+            assert 0.2 * bound < w.max() <= bound, name
+
+
+@pytest.mark.parametrize(
+    "state_independent, log_std_init, log_std_kernel_init",
+    [
+        (False, -1.0, "torch_linear"),  # the bias set twice
+        (False, None, None),  # the bias set by nothing
+        (False, None, "zeros"),
+        (True, None, None),  # the parameter needs a start
+        (True, 0.0, "zeros"),  # the parameter has no kernel
+    ],
+)
+def test_the_log_std_head_start_is_set_exactly_once(
+    sample_input, state_independent, log_std_init, log_std_kernel_init
+):
+    actor = Actor(
+        action_dim=3,
+        input_architecture=ARCH,
+        continuous=True,
+        log_std_state_independent=state_independent,
+        log_std_init=log_std_init,
+        log_std_kernel_init=log_std_kernel_init,
+    )
+    with pytest.raises(ValueError, match="log_std_init"):
+        actor.init(jax.random.PRNGKey(0), sample_input)

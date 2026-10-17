@@ -268,7 +268,7 @@ class NetworkConfig(Replaceable):
     # The actor head's knobs; Actor (networks.py) documents each and its
     # reference.
     log_std_state_independent: bool = False
-    log_std_init: float = -1.0
+    log_std_init: Optional[float] = -1.0
     # Static, not a pytree leaf: jax rebuilds the config (tree.map,
     # unflatten) through __post_init__, whose check must then read the
     # bounds, not a leaf jax put in their place.
@@ -276,6 +276,10 @@ class NetworkConfig(Replaceable):
         pytree_node=False, default=LOG_STD_BOUNDS
     )
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    logits_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    log_std_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # The critic's value (V or Q) layer; Critic (networks.py) documents it.
+    value_kernel_init: Optional[Union[str, InitializationFunction]] = None
     tanh_mean: bool = False
     # Opt-in LayerNorm on the shared encoder's output (Encoder in
     # networks.py), for every network built from this config. Off by

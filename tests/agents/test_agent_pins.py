@@ -587,6 +587,16 @@ _GOLDEN |= {
         "nudge": 0.33622848987579346,
     },
 }
+# Re-recorded on macOS ARM CPU once AVG scaled its TD error as the authors'
+# TDErrorScaler does (a 1e-4 floor, scaled from the reward's variance before
+# any return, each return counted once): actor +0.41%, critic +6.4%.
+_GOLDEN |= {
+    "AVG": {
+        "actor": 5.7092366218566895,
+        "critic": 19.835189819335938,
+        "alpha": 0.07000000029802322,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

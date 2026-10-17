@@ -46,8 +46,9 @@ specifications: see [World models](world-models.md).
 ### Initialisers
 
 Kernels start from an orthogonal initialiser with gain 1 and biases from
-zero, except the policy's mean, whose kernel starts from
-`orthogonal(0.01)`, a near-zero first action (TD3's deterministic actor
+zero, except the policy's output layer (the mean, or the logits for
+discrete actions), whose kernel starts from `orthogonal(0.01)`: a near-zero
+first mean, or a near-uniform first policy (TD3's deterministic actor
 starts its last layer uniform in `±3e-3`, as DDPG does). Initialisers are
 named by string:
 

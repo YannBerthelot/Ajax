@@ -46,6 +46,7 @@ from ajax.agents.UDRL.train_UDRL import EvalCommand
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.evaluate import evaluate, get_deterministic_action_and_entropy_fn
 from ajax.extensions.base import Extension
+from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.instrumentation import (
     COND_METRIC_KEYS,
     EVAREST_DECOMP_KEYS,
@@ -267,13 +268,15 @@ def test_the_instrumentation_finds_the_critic_on_its_own(name: str) -> None:
     )
     kwargs = {"env_id": case.envs[-1], "n_envs": 2, **exposed, **case.kwargs}
     buffer = getattr(case.cls(**kwargs), "buffer", None)
-    agent = case.cls(
-        **kwargs,
-        extensions=[
-            ConditioningMetrics(buffer=buffer),
-            BiasVoreDecomposition(buffer=buffer),
-        ],
-    )
+    extensions = [
+        ConditioningMetrics(buffer=buffer),
+        BiasVoreDecomposition(buffer=buffer),
+    ]
+    if not case.critic:  # refused when built, naming what it lacks
+        with pytest.raises(MissingCapability, match="needs critic"):
+            case.cls(**kwargs, extensions=extensions)
+        return
+    agent = case.cls(**kwargs, extensions=extensions)
     logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
     _, out = agent.train(
         seed=42,
@@ -282,9 +285,6 @@ def test_the_instrumentation_finds_the_critic_on_its_own(name: str) -> None:
         logging_config=logging,
     )
     keys = COND_METRIC_KEYS + EVAREST_DECOMP_KEYS
-    if not case.critic:
-        assert not set(keys) & set(out), sorted(out)
-        return
     evaluated = np.asarray(out["timestep"]) >= 0
     for key in keys:
         assert np.isfinite(np.asarray(out[key])[evaluated]).all(), key

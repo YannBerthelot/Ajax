@@ -40,6 +40,10 @@ class SAC(ActorCritic):
     name: str = "SAC"
     supports_memory: bool = True
     replays_transitions: bool = True
+    capabilities: frozenset = frozenset(
+        "actor critic_ensemble discounted "
+        "obs_networks off_policy q_critic replay".split()
+    )
     # ``action`` reaches only the action pipeline's slots, and
     # ``transform_action`` the pipeline, with an expert policy
     # (check_action_extensions).
@@ -50,6 +54,14 @@ class SAC(ActorCritic):
         "action",
         "transform_action",
     }
+    pretrain_context: frozenset = frozenset("buffer env_args update".split())
+    extension_context: frozenset = frozenset(
+        "actor_optimizer_args augment_obs_with_expert_action "
+        "augment_obs_with_expert_state buffer critic_optimizer_args "
+        "env_args expert_policy expert_state_aug_dim extensions "
+        "gamma network_args num_critics recurrent reward_scale "
+        "update_target_fn update_value_fn use_train_frac".split()
+    )
     supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
     stores_expert_actions: bool = True
     make_train = staticmethod(make_train)

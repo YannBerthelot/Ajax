@@ -1,7 +1,10 @@
-"""Agents declare the extension phases they fold; others are rejected."""
+"""Agents declare what their algorithm has and the extension phases they
+fold; an extension needing anything else is refused, naming it."""
 
+import dataclasses
 import importlib
 from dataclasses import dataclass
+from typing import Any
 
 import jax.numpy as jnp
 import pytest
@@ -10,11 +13,20 @@ from ajax import PPO, SAC
 from ajax.agents.base import ActorCritic
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import (
+    PHASE_BATCH_KEYS,
     PHASES,
     Extension,
     ExtensionStack,
-    check_extension_phases,
+    check_extensions,
 )
+from ajax.extensions.capabilities import (
+    ALGORITHM_CAPABILITIES,
+    MissingCapability,
+    NotWired,
+    batch_keys,
+    run_capabilities,
+)
+from ajax.extensions.ensemble import KernelRepulsion
 from ajax.extensions.expert import JSRLCurriculum, OnlineBC, ResidualPolicy
 from ajax.extensions.pretrain import MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import CriticBlend, MCVarianceCorrection, ValueBox
@@ -31,6 +43,14 @@ class TargetTweak(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx):
         return {}
+
+
+@dataclass(frozen=True)
+class ActorNudge(Extension):
+    name: str = "actor-nudge"
+
+    def actor_loss(self, agent_state, ext_state, batch, ctx):
+        return 0.0
 
 
 @dataclass(frozen=True)
@@ -79,14 +99,18 @@ class EveryPhase(Extension):
 
 
 class LatentAgent(ActorCritic):
+    capabilities = frozenset({"q_critic"})
     supported_extension_phases = frozenset({"pretrain", "post_update", "eval_metrics"})
 
     def __init__(self, extensions=()):
+        self.config = {}
         super().__init__(env_id="CartPole-v1", n_envs=1, extensions=extensions)
 
 
 def test_unsupported_phases_are_rejected_at_construction():
-    with pytest.raises(ValueError) as error:
+    """An agent with the capability a phase needs (a critic for on_target)
+    that does not fold the phase has not wired it."""
+    with pytest.raises(NotWired) as error:
         LatentAgent(extensions=[Instrument(), TargetTweak()])
     message = str(error.value)
     assert "LatentAgent" in message
@@ -95,14 +119,76 @@ def test_unsupported_phases_are_rejected_at_construction():
     LatentAgent(extensions=[Instrument()])  # supported phases are accepted
 
 
+def test_a_phase_needing_a_capability_the_algorithm_lacks_is_missing():
+    """An actor-loss term on an agent without an actor (DQN) lacks a
+    capability, which the refusal names with its meaning."""
+    with pytest.raises(MissingCapability, match=r"actor \(a policy network"):
+        check_extensions("DQN", [ActorNudge()], {"q_critic", "critic"}, frozenset())
+
+
+def test_the_check_names_every_missing_capability_and_gap():
+    """One refusal lists each extension with all it lacks; the missing
+    capabilities come before what is not wired."""
+    has = {"actor", "q_critic", "critic"}
+    with pytest.raises(MissingCapability) as error:
+        check_extensions("X", [KernelRepulsion(), TargetTweak()], has, frozenset())
+    assert "critic_ensemble" in str(error.value)
+    assert "target-tweak" not in str(error.value)  # wiring, reported after
+    with pytest.raises(NotWired, match="takes no expert_policy"):
+        check_extensions("X", [JSRLCurriculum()], {"off_policy"}, frozenset(PHASES))
+
+
+def test_a_module_provides_capabilities_to_its_stack():
+    """MCPretrain provides phi*, which its readers need, whatever the order."""
+    has = run_capabilities(
+        {"actor", "q_critic", "critic_ensemble", "discounted"},
+        continuous=True,
+        has_expert=True,
+    )
+    reader = MCVarianceCorrection(threshold=1.0)
+    with pytest.raises(MissingCapability, match="phi_star"):
+        check_extensions("SAC", [reader], has, frozenset(PHASES))
+    check_extensions(
+        "SAC",
+        [reader, MCPretrain(expert_policy=_expert)],
+        has,
+        frozenset(PHASES),
+        context=MCPretrain.context,
+    )
+
+
+def test_run_capabilities_follow_the_environment_expert_and_critics():
+    caps = run_capabilities(
+        {"q_critic", "critic_ensemble"}, continuous=False, has_expert=False
+    )
+    assert caps == {"q_critic", "critic_ensemble", "critic", "discrete_actions"}
+    one = run_capabilities(
+        {"v_critic", "critic_ensemble"}, continuous=True, has_expert=True, num_critics=1
+    )
+    assert one == {"v_critic", "critic", "continuous_actions", "agent_expert"}
+
+
+def test_agents_declare_only_known_capabilities():
+    for name in AGENTS:
+        agent = getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)
+        assert agent.capabilities <= set(ALGORITHM_CAPABILITIES), name
+        assert agent.capabilities, name
+
+
+def test_batch_keys_read_the_rows_of_every_agent_and_its_own():
+    assert {"a_expert", "pi_mean"} <= batch_keys("SAC", "actor_loss", PHASE_BATCH_KEYS)
+    assert "critic_state" not in batch_keys("TD3", "actor_loss", PHASE_BATCH_KEYS)
+    assert batch_keys("SAC", "no_such_phase", PHASE_BATCH_KEYS) == frozenset()
+
+
 def test_agents_accept_only_the_phases_they_fold():
     """The base accepts none; every agent the loop's, no agent
     ``eval_action``, only SAC ``action`` (its pipeline's slots) and
     ``transform_action`` (its residual policy)."""
     assert ActorCritic.supported_extension_phases == frozenset()
     assert EveryPhase().implemented_phases() == frozenset(PHASES)
-    unsupported = r"\['action', 'eval_action', 'transform_action'\]"
-    with pytest.raises(ValueError, match=unsupported):
+    # PPO, on policy, lacks what replacing the executed action needs.
+    with pytest.raises(MissingCapability, match="off_policy"):
         PPO("CartPole-v1", n_envs=1, extensions=[EveryPhase()])
     for name in AGENTS:
         agent = getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)
@@ -149,12 +235,14 @@ def test_sac_applies_a_residual_policy_only_through_its_pipeline():
 @pytest.mark.parametrize("name", sorted(set(AGENTS) - {"SAC", "DreamerV3", "TDMPC2"}))
 def test_an_agent_without_a_residual_transform_refuses_a_residual_policy(name):
     """Only SAC runs ``transform_action``: any other agent would train a
-    plain policy and report it as residual, so it refuses one."""
+    plain policy and report it as residual, so it refuses one, as lacking
+    continuous actions (discrete-action agents) or not wired."""
     module = importlib.import_module(f"ajax.agents.{name}.{name}")
     agent = getattr(module, name)
     env = "CartPole-v1" if name in ("DQN", "PQN", "UDRL") else "Pendulum-v1"
-    with pytest.raises(ValueError, match=r"'residual_policy'.*transform_action"):
-        agent(env, extensions=[ResidualPolicy()])
+    kwargs = {"expert_policy": _expert} if name in ("TD3", "REDQ", "APO") else {}
+    with pytest.raises(ValueError, match=r"'residual_policy'"):
+        agent(env, extensions=[ResidualPolicy()], **kwargs)
 
 
 def test_online_bc_needs_the_agents_expert_policy():
@@ -162,7 +250,7 @@ def test_online_bc_needs_the_agents_expert_policy():
     one it would add nothing all run, so SAC refuses it at construction,
     whatever expert MCPretrain holds."""
     stack = [MCPretrain(expert_policy=_expert), OnlineBC()]
-    with pytest.raises(ValueError, match="^OnlineBC read the actions"):
+    with pytest.raises(MissingCapability, match="agent_expert"):
         SAC("Pendulum-v1", extensions=stack)
     SAC("Pendulum-v1", expert_policy=_expert, extensions=stack)
 
@@ -171,11 +259,12 @@ def test_the_phase_check_applies_to_any_stack():
     """The check ``ActorCritic`` runs at construction, also used by agents
     that are not ``ActorCritic`` (the offline multi-task TD-MPC2)."""
     supported = frozenset({"post_update", "eval_metrics"})
-    check_extension_phases("Offline", ExtensionStack([Instrument()]), supported)
-    check_extension_phases("Offline", [], supported)
-    with pytest.raises(ValueError) as error:
-        check_extension_phases("Offline", [Instrument(), TargetTweak()], supported)
-    assert "Offline does not support" in str(error.value)
+    has = {"q_critic", "critic"}
+    check_extensions("Offline", ExtensionStack([Instrument()]), has, supported)
+    check_extensions("Offline", [], has, supported)
+    with pytest.raises(NotWired) as error:
+        check_extensions("Offline", [Instrument(), TargetTweak()], has, supported)
+    assert "Offline has what" in str(error.value)
     assert "'target-tweak'" in str(error.value) and "on_target" in str(error.value)
 
 
@@ -193,15 +282,58 @@ PHI_STAR_READERS = {
 def test_a_reader_of_phi_star_needs_mc_pretrain(name: str) -> None:
     """Refused in a stack without MCPretrain (it would add nothing all run,
     or fail mid-trace), accepted with one."""
-    reader, fields = PHI_STAR_READERS[name], frozenset({"raw_next_obs"})
-    sac = ("SAC", frozenset(PHASES), fields, _expert)
-    with pytest.raises(ValueError, match=f"^{name} read the frozen expert critic"):
-        check_extension_phases(sac[0], [reader], *sac[1:])
-    check_extension_phases(
-        sac[0], [MCPretrain(expert_policy=_expert), reader], *sac[1:]
-    )
+    reader = PHI_STAR_READERS[name]
+    kwargs: dict[str, Any] = {
+        "context": SAC.extension_context,
+        "buffer_fields": SAC.supported_buffer_fields,
+        "agent_expert": _expert,
+        "takes_expert_policy": True,
+    }
+    has = run_capabilities(SAC.capabilities, continuous=True, has_expert=True)
+    with pytest.raises(MissingCapability, match=f"^SAC cannot run {name}.*phi_star"):
+        check_extensions("SAC", [reader], has, frozenset(PHASES), **kwargs)
+    stack = [MCPretrain(expert_policy=_expert), reader]
+    check_extensions("SAC", stack, has, frozenset(PHASES), **kwargs)
 
 
 def test_an_agent_refuses_a_reader_of_phi_star_without_mc_pretrain() -> None:
-    with pytest.raises(ValueError, match="SAC's extensions hold no MCPretrain"):
+    with pytest.raises(MissingCapability, match="add MCPretrain"):
         SAC("Pendulum-v1", expert_policy=_expert, extensions=[OnlineBC()])
+
+
+class _Reached(Exception):
+    """Raised by :class:`ContextSpy` with the agent context it was bound to
+    and the context fields its pretraining got."""
+
+
+@dataclass(frozen=True)
+class ContextSpy(Extension):
+    """Stops a run at its pretraining, reporting both contexts."""
+
+    bound: frozenset = frozenset()
+    name: str = "context-spy"
+
+    def bind_to_agent(self, **agent_context):
+        return dataclasses.replace(self, bound=frozenset(agent_context))
+
+    def pretrain(self, agent_state, ext_state, ctx):
+        fields = ("env_args", "update", "buffer")
+        raise _Reached(self.bound, {f for f in fields if getattr(ctx, f) is not None})
+
+    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+        return {}
+
+
+@pytest.mark.parametrize("name", AGENTS)
+def test_each_agent_declares_the_context_it_gives(name: str) -> None:
+    """``extension_context`` is the agent context make_train binds its
+    extensions to, ``pretrain_context`` the fields its loop fills for their
+    pretraining: a module needing another is refused."""
+    agent_cls = getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)
+    env = "CartPole-v1" if name in ("DQN", "PQN", "UDRL") else "Pendulum-v1"
+    agent = agent_cls(env, extensions=[ContextSpy()])
+    with pytest.raises(_Reached) as reached:
+        agent.train(seed=[0], n_timesteps=8192)
+    bound, filled = reached.value.args
+    assert bound == agent_cls.extension_context
+    assert filled == agent_cls.pretrain_context

@@ -203,7 +203,7 @@ _LAYOUT = {
 }
 
 
-@pytest.mark.parametrize("agent_name", ["APO", "ASAC", "REDQ", "SAC", "TD3"])
+@pytest.mark.parametrize("agent_name", ["APO", "ASAC", "AVG", "REDQ", "SAC", "TD3"])
 def test_cloning_pretrain_seeds_the_agents_statistics(agent_name):
     """Each agent binding CloningPretrain clones in the pretrain phase, with
     its observation layout, and starts its observation statistics from the

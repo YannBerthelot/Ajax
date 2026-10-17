@@ -8,16 +8,18 @@ collection time via a custom ``action_pipeline``.
 """
 
 from collections.abc import Sequence
-from typing import Optional, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from flax import struct
 from flax.linen.initializers import constant, orthogonal
 from flax.serialization import to_state_dict
 
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_state_action_shapes
+from ajax.networks.memory import MemoryCell, MemoryConfig, parse_memory_config
 from ajax.networks.networks import CNNEncoder, CNNSpec, Encoder, init_network_state
 from ajax.networks.utils import get_adam_tx
 from ajax.state import (
@@ -29,8 +31,10 @@ from ajax.state import (
 from ajax.types import ActivationFunction
 
 
+@struct.dataclass
 class GreedyQPolicy:
-    """Distrax-compatible wrapper around a Q-value vector.
+    """Distrax-compatible wrapper around a Q-value vector, a pytree of it
+    (so a replayed sequence's can be mapped like any distribution).
 
     Mirrors TD3's ``Deterministic`` wrapper: it exposes the minimal
     distribution interface the shared eval / interaction code expects
@@ -44,8 +48,7 @@ class GreedyQPolicy:
     time by the epsilon-greedy ``action_pipeline``.
     """
 
-    def __init__(self, q_values: jax.Array):
-        self.q_values = q_values
+    q_values: jax.Array
 
     def mode(self) -> jax.Array:
         return jnp.argmax(self.q_values, axis=-1)
@@ -105,20 +108,37 @@ class QNetwork(nn.Module):
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
     cnn_extra_obs_dim: int = 0
     cnn_spec: Optional[CNNSpec] = None
+    # Optional memory block between the encoder and the head, as the
+    # Actor's: __call__ then takes time-major (T, B, obs) with (hidden_state,
+    # done) and returns (policy, new_hidden_state) (R2D2's recurrent
+    # Q-network; Kapturowski et al. 2019).
+    memory: Optional[MemoryConfig] = None
 
     def setup(self):
         self.encoder = _build_q_encoder(self)
+        if self.memory is not None:
+            self.memory_cell = MemoryCell(self.memory)
         self.head = nn.Dense(
             self.n_actions, kernel_init=orthogonal(1.0), bias_init=constant(0.0)
         )
 
-    def __call__(self, obs: jax.Array) -> GreedyQPolicy:
+    def features(self, obs: jax.Array, hidden_state: Any, done: Any) -> tuple:
+        """The encoder's features, through the memory when there is one."""
         features = self.encoder(obs)
-        # Penultimate encoder features, exposed for plasticity/conditioning
-        # probes. `sow` is a no-op unless the caller marks "intermediates"
-        # mutable, so it costs nothing during training.
+        if self.memory is not None:
+            if hidden_state is None or done is None:
+                raise ValueError("A recurrent Q-network needs hidden_state and done.")
+            hidden_state, features = self.memory_cell(hidden_state, features, done)
+        # Penultimate features, exposed for plasticity/conditioning probes.
+        # `sow` is a no-op unless the caller marks "intermediates" mutable,
+        # so it costs nothing during training.
         self.sow("intermediates", "encoder_features", features)
-        return GreedyQPolicy(self.head(features))
+        return features, hidden_state
+
+    def __call__(self, obs: jax.Array, hidden_state: Any = None, done: Any = None):
+        features, hidden_state = self.features(obs, hidden_state, done)
+        policy = GreedyQPolicy(self.head(features))
+        return policy if self.memory is None else (policy, hidden_state)
 
 
 class DuelingQNetwork(QNetwork):
@@ -135,18 +155,19 @@ class DuelingQNetwork(QNetwork):
 
     def setup(self):
         self.encoder = _build_q_encoder(self)
+        if self.memory is not None:
+            self.memory_cell = MemoryCell(self.memory)
         init = {"kernel_init": orthogonal(1.0), "bias_init": constant(0.0)}
         self.value_head = nn.Dense(1, **init)
         self.advantage_head = nn.Dense(self.n_actions, **init)
 
-    def __call__(self, obs: jax.Array) -> GreedyQPolicy:
-        features = self.encoder(obs)
-        # See QNetwork.__call__: zero-cost probe seam for conditioning metrics.
-        self.sow("intermediates", "encoder_features", features)
+    def __call__(self, obs: jax.Array, hidden_state: Any = None, done: Any = None):
+        features, hidden_state = self.features(obs, hidden_state, done)
         value = self.value_head(features)
         advantage = self.advantage_head(features)
         q_values = value + advantage - jnp.mean(advantage, axis=-1, keepdims=True)
-        return GreedyQPolicy(q_values)
+        policy = GreedyQPolicy(q_values)
+        return policy if self.memory is None else (policy, hidden_state)
 
 
 def predict_q(
@@ -185,6 +206,7 @@ def get_initialized_q_network(
     QNetwork's constructor arguments.
     """
     cls = q_network_cls if q_network_cls is not None else QNetwork
+    memory = parse_memory_config(network_config.memory)
     network = cls(
         input_architecture=network_config.critic_architecture,
         n_actions=n_actions,
@@ -193,9 +215,18 @@ def get_initialized_q_network(
         cnn_image_shape=network_config.cnn_image_shape,
         cnn_extra_obs_dim=network_config.cnn_extra_obs_dim,
         cnn_spec=network_config.cnn_spec,
+        # Only when set: a module without the field (PQN's) takes no memory.
+        **({"memory": memory} if memory is not None else {}),
     )
     tx = get_adam_tx(**to_state_dict(optimizer_config))
     observation_shape, _ = get_state_action_shapes(env_config.env)
     # One observation: the parameters do not depend on the batch.
     init_obs = jnp.zeros((1, *observation_shape))
-    return init_network_state(init_x=init_obs, network=network, key=key, tx=tx)
+    return init_network_state(
+        init_x=init_obs,
+        network=network,
+        key=key,
+        tx=tx,
+        n_envs=env_config.n_envs,
+        memory=memory,
+    )

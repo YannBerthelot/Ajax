@@ -24,7 +24,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "6ac50dd85b7d"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "44f73a1e62eb"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0b: act on a cue seen two steps back, forget it at the episode's end ----
@@ -156,6 +156,36 @@ def _gaps_read(run: Any) -> dict:
     return {q.name: gaps.get(q.name, r.get(q.name)) for q in P0B_GAPS}
 
 
+# DQN on the cue with three actions, a = -1/2, 0 or +1/2: after cue c the
+# last step pays 1 at a = c/2 (Q 1, 0, -3), nothing after none (Q 0 for
+# every action, so its greedy action is arbitrary and unread). Read at that
+# step from a fresh carry: the greedy action gap and max_a Q.
+Q_CUE = dataclasses.replace(
+    CUE, transition=lambda st, a, k: _cue(st, a / 2.0 - 0.5, k), actions=3
+)
+
+
+def _q_read(run: Any) -> dict:
+    def read(n: R.Nets) -> dict:
+        q = R.actor_sequence(n, CUE_OBS, STARTS).q_values[-1]  # (4 reads, 3)
+        a, v = jnp.argmax(q, -1) / 2.0 - 0.5, q.max(-1)
+        return dict(zip([q.name for q in P0B[1:5]], v, strict=False)) | {
+            P0B[0].name: a[0] - a[1]
+        }
+
+    return R.per_seed(read, R.nets(run.state))
+
+
+# Ladder 1250-5000 (the target network's lag sets the later budgets' error),
+# certified 32/32 on 3000-3031.
+CASES["p0b-DQN-gru"] = Case(
+    "p0b-DQN-gru",
+    P0B[:5],
+    runs.readings(functools.partial(_p0b_agent, "DQN", Q_CUE), _q_read),
+    1250,
+    (0.5, 0.499, 0.499, 0.02, 0.02),
+    slow=True,
+)
 _reads = runs.readings(functools.partial(_p0b_agent, "APO"), _gaps_read)
 CASES["p0b-APO-gru"] = Case(
     "p0b-APO-gru", P0B_GAPS, _reads, 15_000, (0.472, 0.298, 0.296, 0.02), slow=True

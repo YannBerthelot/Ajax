@@ -297,8 +297,13 @@ action and `a_E(s)` the expert's, both in agent units. Dividing by 4 maps
 the squared distance of two actions in `[-1, 1]` to `[0, 1]`. Unlike
 `OnlineBC`, it is unweighted and needs no expert critic. Give the agent the
 same expert as its `expert_policy` to use a stateful one: the term then
-reads the actions the agent stored along each trajectory. These agents can
-also start from a clone of the expert:
+reads the actions the agent stored along each trajectory. With
+`anneal_frac=f`, the term's weight falls linearly from 1 to 0 at the
+fraction `f` of training, as in kickstarting (Schmitt et al., 2018), so the
+agent ends on its own objective; kickstarting uses a cross-entropy to a
+stochastic teacher and tunes the schedule, where here the expert is
+deterministic and the schedule linear. These agents can also start from a
+clone of the expert:
 
 ```python
 import jax.numpy as jnp

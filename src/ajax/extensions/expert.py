@@ -168,6 +168,13 @@ class OnlineBC(Extension):
         )
 
 
+def anneal_weight(step: jax.Array, total_steps: int, anneal_frac: float) -> jax.Array:
+    """1 at the start of training, falling linearly to 0 at ``anneal_frac``
+    of ``total_steps``, 0 after."""
+    progress = step / (anneal_frac * max(total_steps, 1))
+    return jnp.clip(1.0 - progress, 0.0, 1.0)
+
+
 @dataclass(frozen=True)
 class ImitationLoss(Extension):
     """Behavioural-cloning regulariser: ``coef · mean((μ(s) - a_E(s))²) / 4``.
@@ -186,14 +193,33 @@ class ImitationLoss(Extension):
     (a PID with its integral) is read from its state along the
     trajectory. SAC, TD3, REDQ and ASAC store it. An agent whose batch has
     no ``pi_mean`` (a discrete-action policy) raises at trace time.
+
+    With ``anneal_frac`` the term is multiplied by a weight falling
+    linearly from 1 to 0 at that fraction of training (:func:`anneal_weight`),
+    as in kickstarting (Schmitt et al., 2018, *Kickstarting Deep
+    Reinforcement Learning*, arXiv:1803.03835, eqs. 2-3), whose distillation
+    weight on the teacher decays so the student ends on its own RL loss.
+    Deviations from kickstarting: a squared error on the mean action
+    instead of the cross-entropy between the teacher's and the student's
+    policies (the expert is deterministic: it gives an action, not a
+    distribution); a linear schedule set by ``anneal_frac`` instead of the
+    weights population-based training tunes. ``None`` keeps the weight at 1.
     """
 
     expert_policy: Callable
     coef: float = 1.0
+    anneal_frac: Optional[float] = None
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "imitation_loss"
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     reads_agent_expert_actions: ClassVar[bool] = True
+
+    def __post_init__(self) -> None:
+        if self.anneal_frac is not None and not 0.0 < self.anneal_frac <= 1.0:
+            raise ValueError(
+                "ImitationLoss's anneal_frac is the fraction of training at"
+                f" which its weight reaches 0, in (0, 1]; got {self.anneal_frac}."
+            )
 
     def experts(self) -> tuple:
         return (self.expert_policy,)
@@ -210,7 +236,7 @@ class ImitationLoss(Extension):
         batch: Any,
         ctx: ExtensionContext,
     ) -> Any:
-        del agent_state, ext_state, ctx
+        del agent_state, ext_state
         pi_mean = batch.get("pi_mean")
         if pi_mean is None:
             raise ValueError(
@@ -231,7 +257,10 @@ class ImitationLoss(Extension):
                 obs = batch["observations"]
             a_expert = self.expert_policy(obs)
         a_expert = jax.lax.stop_gradient(a_expert)
-        return self.coef * jnp.mean(jnp.square(pi_mean - a_expert)) / 4.0
+        term = self.coef * jnp.mean(jnp.square(pi_mean - a_expert)) / 4.0
+        if self.anneal_frac is None:
+            return term
+        return anneal_weight(ctx.step, ctx.total_steps, self.anneal_frac) * term
 
 
 @dataclass(frozen=True)

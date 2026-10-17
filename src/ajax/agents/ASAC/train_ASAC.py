@@ -334,7 +334,7 @@ def update_agent(
         transition.reward,
         transition.terminated,
         agent_config.p_0,
-        tau,
+        agent_config.tau_theta,
     )
     rewards = get_episode_termination_penalized_rewards(
         episode_termination_penalty, transition.reward, transition.terminated
@@ -372,7 +372,10 @@ def update_agent(
     # In the target's units: the reward rate theta is subtracted from the
     # scaled rewards there.
     agent_state = update_theta(
-        agent_state, tau, rewards * agent_config.reward_scale, log_probs
+        agent_state,
+        agent_config.tau_theta,
+        rewards * agent_config.reward_scale,
+        log_probs,
     )
     agent_state = core.update_target_networks(agent_state, tau)
     aux = AuxiliaryLogs(

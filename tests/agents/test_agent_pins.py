@@ -219,12 +219,14 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     # Flat shuffle, GAE on the whole rollout: 4 minibatches, 2 envs.
     "PPO-flat": (PPO, {**_PENDULUM, "n_envs": 2, "n_steps": 32, "batch_size": 8}, 256),
-    # The env axis split, GAE per minibatch; brax's knobs.
+    # The env axis split, GAE per minibatch (brax's time geometry, opted
+    # into: unroll_length = n_steps); brax's knobs.
     "PPO-env-split": (
         PPO,
         {
             **_PENDULUM,
             **_SPLIT,
+            "unroll_length": 16,
             "squash": True,
             "log_std_state_independent": True,
             "log_std_init": 0.0,
@@ -275,7 +277,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "PPO-env-split-nudge": (
         PPO,
-        {**_PENDULUM, **_SPLIT, "extensions": (Nudge(),)},
+        {**_PENDULUM, **_SPLIT, "unroll_length": 16, "extensions": (Nudge(),)},
         256,
     ),
     "APO-nudge": (

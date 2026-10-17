@@ -37,7 +37,7 @@ from . import readouts as R
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
 CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 204}
 CAPS |= {"test_framework.py": 213, "test_value_chains.py": 1051}
-CAPS |= {"test_episode_ends.py": 1043, "test_bookkeeping.py": 1013}
+CAPS |= {"test_episode_ends.py": 1044, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 762, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
 CAPS |= {"test_action_box.py": 200}

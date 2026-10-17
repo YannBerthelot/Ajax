@@ -102,6 +102,7 @@ PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
     "on_target": {
         "*": "observations next_observations rewards gamma",
         "SAC TD3 REDQ ASAC AVG DQN PQN": "actions dones reward_scale",
+        "SAC TD3 REDQ ASAC AVG": "raw_next_observations next_a_expert",
         "PQN PPO APO": "terminated truncated",
         "PPO APO": "gae values",
     },

@@ -472,8 +472,9 @@ class ExpertValueMetrics(Extension):
 
     One replay batch per evaluation pays for them, not a critic pass (two
     with ``φ*``) per update for three logged numbers. ``a_E`` is the
-    expert's action stored at collection. SAC with an ``expert_policy``
-    binds its replay buffer, its expert and its observation augmentation.
+    expert's action stored at collection. A replay agent with an
+    ``expert_policy`` (SAC, TD3, REDQ, ASAC) binds its replay buffer, its
+    expert and its observation augmentation.
     """
 
     buffer: Any = None
@@ -488,8 +489,9 @@ class ExpertValueMetrics(Extension):
         buffer, expert = agent_context.get("buffer"), agent_context.get("expert_policy")
         if buffer is None or expert is None:
             raise ValueError(
-                "ExpertValueMetrics reads the replay buffer and the expert of a"
-                " SAC agent with an expert_policy."
+                "ExpertValueMetrics reads, on a replay batch, the critic at the"
+                " actions the agent stored for its expert_policy: it needs a"
+                " replay agent (SAC, TD3, REDQ, ASAC) with an expert_policy."
             )
         augment = agent_context.get("augment_obs_with_expert_action", False)
         return dataclasses.replace(

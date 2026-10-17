@@ -207,6 +207,10 @@ def critic_step(
         "dones": dones,
         "gamma": gamma,
         "reward_scale": reward_scale,
+        # The env's own s' and the agent's expert's action there, from its
+        # state; None where the replay keeps neither (a run without an expert).
+        "raw_next_observations": batch.raw_next_obs,
+        "next_a_expert": batch.next_a_expert,
     }
     target_q = jax.lax.stop_gradient(
         extension_stack.fold_on_target(

@@ -34,8 +34,7 @@ Each agent's default follows its paper or reference implementation:
 
 | Default | Agents |
 | --- | --- |
-| `("256", "relu", "256", "relu")` | SAC, ASAC, REDQ |
-| `("400", "relu", "300", "relu")` | TD3 |
+| `("256", "relu", "256", "relu")` | SAC, ASAC, REDQ, TD3 |
 | `("256", "leaky_relu", "256", "leaky_relu")` | AVG |
 | `("128", "tanh", "128", "tanh")` | PPO |
 | `("64", "tanh", "64", "tanh")` | APO |

@@ -101,9 +101,11 @@ refused when the agent is built.
 | [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [ASAC](../algorithms/asac.md), [AVG](../algorithms/avg.md), [APO](../algorithms/apo.md) | the expert's evaluation return | `CloningPretrain`, `ImitationLoss`; `IBRL`, `LCBGatedBootstrap` on TD3, REDQ and AVG; `ExpertValueMetrics` on TD3, REDQ and ASAC |
 
 The other agents (PPO, DQN, PQN, UDRL, APG and the world models) take no
-expert: `CloningPretrain` raises on them when training starts. PPO with
-continuous actions takes `ImitationLoss` with a stateless expert; on the
-others it finds no `pi_mean` in their actor batch, or no actor phase.
+expert: `CloningPretrain` raises on them when training starts. PPO, APG and
+UDRL with continuous actions take `ImitationLoss` with a stateless expert
+(UDRL without `normalize_observations`). A discrete policy has no mean
+action for it, DQN and PQN have no actor, and the world models fold no
+actor phase.
 
 With an expert, evaluations also log `Eval/episodic mean expert reward`, the
 expert's return on the same episodes as the agent's, and `Eval/expert

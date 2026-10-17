@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "7ae883857e58"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "fe5192fed58b"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -218,6 +218,7 @@ TWIN_CAL = {
     ("gymnax", "PQN"): (10_000, (0.082, 0.093, 0.075)),
     ("brax", "PPO"): (10_000, (0.075, 0.046, 0.06)),
     ("gymnax", "AVG"): (2500, (0.055, 0.044)),  # 1000: 0.29 off; cert 32/32
+    ("brax", "REDQ"): (8000, (0.052, 0.095)),  # 4000: 0.072 off; cert 32/32
 }
 P6_CELLS = [("gymnax", n) for n in (*ONE_STEP, "PPO", "PQN", "AVG")]
 P6_CELLS += [("brax", n) for n in ("SAC", "PPO", "REDQ", "TD3")]

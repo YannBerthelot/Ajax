@@ -52,7 +52,9 @@ agent, ``dones`` is where the target cut the bootstrap and ``targets`` the
 target, held constant; the critic (DQN's and PQN's ``q_state``) and the
 actor come at the differentiated parameters. The replay agents'
 ``raw_observations`` is None in a run without an expert, whose replay
-does not keep them.
+does not keep them. ``a_expert`` is the agent's ``expert_policy``'s action
+at each row, stored at collection from the expert's state along the
+trajectory; None without one.
 """
 
 from __future__ import annotations
@@ -114,7 +116,7 @@ PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
         "SAC TD3 REDQ ASAC AVG PPO APO UDRL": "actor_state",
         "SAC TD3 REDQ ASAC AVG APO UDRL": "observations",
         "SAC TD3 REDQ ASAC APO": "raw_observations pi_mean",
-        "SAC": "a_expert",
+        "SAC TD3": "a_expert",
         "UDRL": "actions",
         "APG": "rollout returns",
     },

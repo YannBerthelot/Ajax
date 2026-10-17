@@ -32,6 +32,7 @@ from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
 from ajax.environments.interaction import (
     ActionPipelineResult,
+    expert_collect_kwargs,
     get_pi,
     init_collector_state,
     with_expert_state,
@@ -139,6 +140,7 @@ def init_TD3(
         actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
         include_raw_obs=store_expert_data,
         include_is_expert=store_expert_data,
+        include_expert_fields=expert_policy is not None,
     )
     collector_state = with_expert_state(collector_state, expert_policy, env_args.n_envs)
     return TD3State(
@@ -266,8 +268,11 @@ def update_policy(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
+    a_expert: Optional[jax.Array] = None,
 ) -> Tuple[TD3State, PolicyAuxiliaries]:
-    """The deterministic policy-gradient step on ``-Q1(s, mu(s))``."""
+    """The deterministic policy-gradient step on ``-Q1(s, mu(s))``;
+    ``a_expert``, the expert's stored actions at the rows, reaches the
+    extensions (None without an expert)."""
     actor_state = agent_state.actor_state
 
     def loss_fn(params: FrozenDict) -> Tuple[jax.Array, PolicyAuxiliaries]:
@@ -280,6 +285,7 @@ def update_policy(
             "pi_mean": pi_mean,
             "actor_params": params,
             "actor_state": actor_state,
+            "a_expert": a_expert,
         }
         extra = extension_stack.fold_actor_loss(
             agent_state,
@@ -338,6 +344,7 @@ def update_agent(
             extension_stack,
             total_timesteps,
             carries,
+            a_expert=batch.a_expert,
         )
         return update_target_networks(agent_state, agent_config.tau), policy_aux
 
@@ -427,8 +434,10 @@ def make_train(
         recurrent=recurrent,
         collect_kwargs={
             "buffer": buffer,
-            "action_pipeline": action_pipeline,
             "store_hidden": recurrent and agent_config.stored_state,
+            **expert_collect_kwargs(
+                expert_policy, action_pipeline, recurrent, env_args.n_envs
+            ),
         },
         eval_kwargs={
             "expert_policy": expert_policy,

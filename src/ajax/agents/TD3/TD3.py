@@ -18,14 +18,17 @@ from ajax.types import EnvType
 class TD3(ActorCritic):
     """Twin Delayed DDPG (Fujimoto et al., 2018) for continuous action spaces.
 
-    Defaults match the original paper (Table 1 / Algorithm 1):
-      - Actor / critic: 400-300 ReLU, plain MLPs (no normalisation layer)
-      - Adam, lr=1e-3
+    Defaults are the authors' code as updated in 2019 (sfujim/TD3 a8d53f7,
+    ade6260; its README: "minor adjustments to hyperparameters ... to
+    improve performance"), not the paper's 400-300, lr 1e-3, batch 100 and
+    1e4 warm-up:
+      - Actor / critic: 256-256 ReLU, plain MLPs (no normalisation layer)
+      - Adam, lr=3e-4
       - tau=0.005, gamma=0.99
       - Exploration noise: N(0, 0.1)
       - Target policy noise: N(0, 0.2), clipped to +/-0.5
       - Policy delay: 2
-      - Replay buffer: 1e6, batch=100, learning_starts=1e4
+      - Replay buffer: 1e6, batch=256, learning_starts=25e3
     """
 
     name: str = "TD3"
@@ -41,17 +44,17 @@ class TD3(ActorCritic):
         self,
         env_id: str | EnvType,
         n_envs: int = 1,
-        actor_learning_rate: float = 1e-3,
-        critic_learning_rate: float = 1e-3,
-        actor_architecture=("400", "relu", "300", "relu"),
-        critic_architecture=("400", "relu", "300", "relu"),
+        actor_learning_rate: float = 3e-4,
+        critic_learning_rate: float = 3e-4,
+        actor_architecture=("256", "relu", "256", "relu"),
+        critic_architecture=("256", "relu", "256", "relu"),
         gamma: float = 0.99,
         env_params: Optional[EnvParams] = None,
         max_grad_norm: Optional[float] = None,
         weight_decay: float = 0.0,
         buffer_size: int = int(1e6),
-        batch_size: int = 100,
-        learning_starts: int = int(1e4),
+        batch_size: int = 256,
+        learning_starts: int = int(25e3),
         tau: float = 0.005,
         reward_scale: float = 1.0,
         num_critics: int = 2,

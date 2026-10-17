@@ -91,6 +91,8 @@ module-name = "ajax"
 
 [tool.ruff]
 line-length = 88
+# Third-party code kept verbatim (benchmarks/reference/vendor/*/README.md).
+extend-exclude = ["benchmarks/reference/vendor"]
 fix = true
 src = ["src", "tests"]
 
@@ -133,7 +135,7 @@ norecursedirs = [".*"]
 testpaths = ["tests"]
 # The benchmark scripts the tests import: they run as scripts, and the
 # world-model ones import each other as sibling modules.
-pythonpath = ["benchmarks", "benchmarks/world_models"]
+pythonpath = ["benchmarks", "benchmarks/world_models", "benchmarks/reference"]
 # An unregistered mark is an error, not a silent no-op.
 addopts = "--strict-markers"
 markers = [

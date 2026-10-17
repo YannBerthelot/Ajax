@@ -25,7 +25,7 @@ from ajax.agents.SAC.core import (
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.interaction import augment_obs
+from ajax.environments.interaction import augment_obs, reward_statistics
 from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
@@ -485,8 +485,12 @@ def update_agent(
         expert_frac_in_buffer = jnp.zeros(())
         raw_next_observations = None
     else:
+        collector = agent_state.collector_state
         batch = get_batch_from_buffer(
-            buffer, agent_state.collector_state.buffer_state, sample_key
+            buffer,
+            collector.buffer_state,
+            sample_key,
+            reward_statistics(collector.env_state),
         )
         # No expert, no stored flags: none acted.
         expert_frac_in_buffer = (

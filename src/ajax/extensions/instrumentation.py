@@ -117,9 +117,11 @@ def _sample_transitions(
     if _has_buffer(agent_state) and buffer is not None:
         # Lazy import: the rest of the module does not need flashbax.
         from ajax.buffers.utils import get_batch_from_buffer
+        from ajax.environments.interaction import reward_statistics
 
+        collector = agent_state.collector_state
         obs, terminated, _, next_obs, reward, act = get_batch_from_buffer(
-            buffer, agent_state.collector_state.buffer_state, rng
+            buffer, collector.buffer_state, rng, reward_statistics(collector.env_state)
         )[:6]
         rows = (obs, act, reward, next_obs, terminated)
         take = None

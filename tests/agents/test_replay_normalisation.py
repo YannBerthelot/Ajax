@@ -9,6 +9,7 @@ On the identity task (tests/environments/identity_env.py) the observation
 """
 
 import inspect
+from typing import Any
 
 import jax
 import numpy as np
@@ -65,3 +66,39 @@ def test_an_on_policy_agent_keeps_the_envs_normaliser() -> None:
     agent = ajax.PPO(env_id=IdentityEnv(), normalize_observations=True)
     assert not agent.env_args.normalize_obs_in_agent
     assert strip_ajax_wrappers(agent.env_args.env)[1]["normalize_obs"]
+
+
+@pytest.mark.parametrize("name", REPLAYING)
+def test_a_replay_agent_stores_the_envs_own_rewards(name: str) -> None:
+    """The replay stores the env's own reward (on the identity task the
+    executed action: twice the agent's on Box(-2, 2), itself on
+    Discrete(2)); a replayed batch divides it by the reward normaliser's
+    current statistics."""
+    from ajax.buffers.utils import get_batch_from_buffer
+    from ajax.environments.interaction import reward_statistics
+
+    case = CASES[name]
+    discrete = name == "DQN"
+    env = IdentityEnv(discrete=discrete)
+    # Any: the replay agents hold a buffer, which ActorCritic does not declare.
+    agent: Any = case.cls(env_id=env, n_envs=2, normalize_rewards=True, **case.kwargs)
+    state, _ = agent.train(seed=0, n_timesteps=24)
+    state = jax.tree.map(lambda x: x[0], state)  # the one seed
+    buffer_state = state.collector_state.buffer_state
+    assert buffer_state is not None
+    rows = buffer_state.experience
+    written = int(state.collector_state.timestep) // 2
+    paid = 1.0 if discrete else 2.0
+    np.testing.assert_allclose(
+        np.asarray(rows["reward"])[:, :written, 0],
+        paid * np.asarray(rows["action"])[:, :written, 0],
+        rtol=1e-6,
+    )
+    stats = reward_statistics(state.collector_state.env_state)
+    assert stats is not None
+    std = np.sqrt(np.mean(np.asarray(stats.mean_2) / np.asarray(stats.count)) + 1e-8)
+    batch = get_batch_from_buffer(agent.buffer, buffer_state, jax.random.PRNGKey(1))
+    replayed = get_batch_from_buffer(
+        agent.buffer, buffer_state, jax.random.PRNGKey(1), reward_stats=stats
+    )
+    np.testing.assert_allclose(replayed.reward, batch.reward / std, rtol=1e-5)

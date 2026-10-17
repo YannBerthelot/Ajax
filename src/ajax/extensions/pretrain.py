@@ -33,6 +33,7 @@ from ajax.environments.interaction import (
     augment_from_batch,
     augment_obs,
     collect_experience_from_expert_policy,
+    reward_statistics,
 )
 from ajax.environments.utils import get_state_action_shapes, raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
@@ -295,6 +296,7 @@ def refresh_phi_star(
     (s, a_expert, r, s') rows where EDGE fired the expert action.
     """
     buffer_state = agent_state.collector_state.buffer_state
+    reward_stats = reward_statistics(agent_state.collector_state.env_state)
     expert_critic_state = agent_state.expert_critic_state
 
     # Three keys: the first once drew a diagnostic batch; splitting three
@@ -306,7 +308,7 @@ def refresh_phi_star(
         expert_critic_state, step_key = carry
         sample_key, step_key = jax.random.split(step_key)
 
-        batch = get_batch_from_buffer(buffer, buffer_state, sample_key)
+        batch = get_batch_from_buffer(buffer, buffer_state, sample_key, reward_stats)
         obs, next_obs, actions = batch.obs, batch.next_obs, batch.action
 
         expert_mask = batch.is_expert[..., 0]
@@ -702,8 +704,12 @@ def pretrain_critic_bellman(
         agent_state = carry
         sample_key, rng = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=rng)
+        collector = agent_state.collector_state
         batch = get_batch_from_buffer(
-            buffer, agent_state.collector_state.buffer_state, sample_key
+            buffer,
+            collector.buffer_state,
+            sample_key,
+            reward_statistics(collector.env_state),
         )
         observations, next_observations = batch.obs, batch.next_obs
         if augment:

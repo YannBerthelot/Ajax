@@ -27,6 +27,7 @@ from ajax.agents.recurrent import (
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.environments.interaction import expert_collect_kwargs, with_expert_state
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert
 from ajax.logging.wandb_logging import LoggingConfig
@@ -104,6 +105,7 @@ def init_REDQ(
     window_size: int = 10,
     stored_state: bool = False,
     store_expert_data: bool = False,
+    expert_policy: Optional[Callable] = None,
 ) -> REDQState:
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
@@ -120,8 +122,10 @@ def init_REDQ(
         collector_extras={
             "include_raw_obs": store_expert_data,
             "include_is_expert": store_expert_data,
+            "include_expert_fields": expert_policy is not None,
         },
     )
+    collector_state = with_expert_state(collector_state, expert_policy, env_args.n_envs)
     return REDQState(
         rng=rng,
         eval_rng=eval_rng,
@@ -265,6 +269,7 @@ def update_policy(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
+    a_expert: Optional[jax.Array] = None,
 ) -> Tuple[REDQState, PolicyAuxiliaries, jax.Array]:
     """The actor step on ``alpha log pi(a|s) - mean_i Q_i(s, a)``; also
     returns its samples' log-probs (temperature)."""
@@ -276,6 +281,7 @@ def update_policy(
         total_timesteps,
         carries,
         q_reduce=jnp.mean,
+        a_expert=a_expert,
     )
     aux = PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()
@@ -335,6 +341,7 @@ def update_agent(
         extension_stack,
         total_timesteps,
         carries,
+        a_expert=batch.a_expert,
     )
     agent_state = agent_state.replace(critic_state=critic_state)
     agent_state, aux_temperature = core.update_temperature(
@@ -397,6 +404,7 @@ def make_train(
             number_of_critics=agent_config.num_critics,
             stored_state=agent_config.stored_state,
             store_expert_data=holds_expert(expert_policy, loop.stack),
+            expert_policy=expert_policy,
         )
 
     def update(agent_state: REDQState, _transition: Transition) -> Any:
@@ -414,6 +422,7 @@ def make_train(
         collect_kwargs={
             "buffer": buffer,
             "store_hidden": recurrent and agent_config.stored_state,
+            **expert_collect_kwargs(expert_policy, None, recurrent, env_args.n_envs),
         },
         eval_kwargs={
             "expert_policy": expert_policy,

@@ -565,7 +565,7 @@ def get_initialized_actor_critic(
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
-    critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config))
+    critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config), per_member=True)
     actor_key, critic_key = jax.random.split(key)
 
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
@@ -628,7 +628,7 @@ def get_initialized_critic(
         num=num_critics,
     )
 
-    critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config))
+    critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config), per_member=True)
 
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 

@@ -6,8 +6,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 import jax
 import jax.numpy as jnp
@@ -53,6 +54,10 @@ class KernelRepulsion(Extension):
 
     coef: float = 0.1
     name: str = "kernel_repulsion"
+    requires: ClassVar[frozenset[str]] = frozenset({"critic_ensemble", "q_critic"})
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "critic_loss": frozenset({"actions", "critic_params", "critic_state"})
+    }
 
     def critic_loss(
         self, agent_state: Any, ext_state: Any, batch: Any, ctx: ExtensionContext

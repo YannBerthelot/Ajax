@@ -58,12 +58,14 @@ does not keep them.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, ClassVar, Optional
 
 import jax
 import jax.numpy as jnp
 from flax import struct
+
+from ajax.extensions.capabilities import PHASE_NEEDS, check_capabilities
 
 
 @struct.dataclass
@@ -110,6 +112,7 @@ PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
         "SAC TD3 REDQ ASAC AVG DQN PQN": "actions dones reward_scale",
         "PQN PPO APO": "terminated truncated",
         "PPO APO": "gae values",
+        "SAC": "rng_key q_preds raw_next_observations next_a_expert recurrent",
     },
     "critic_loss": {
         "*": "observations targets",
@@ -129,60 +132,43 @@ PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
 }
 
 
-def check_extension_phases(
+def check_extensions(
     agent_name: str,
     stack: Iterable["Extension"],
-    supported: frozenset,
-    supported_fields: frozenset = frozenset(),
+    capabilities: Iterable[str],
+    phases: frozenset,
+    *,
+    context: Iterable[str] = (),
+    pretrain_context: Iterable[str] = (),
+    buffer_fields: Iterable[str] = (),
     agent_expert: Any = None,
+    takes_expert_policy: bool = False,
     stores_expert_actions: bool = False,
 ) -> None:
-    """Reject the extensions of ``stack`` that implement phases outside
-    ``supported`` (the phases ``agent_name``'s training loop folds), read
-    buffer fields outside ``supported_fields`` (those the agent stores on
-    an extension's declaration, ``Extension.buffer_fields``), or call a
-    stateful expert without its state (:func:`check_extension_experts`).
+    """Reject the extensions of ``stack`` that cannot run on ``agent_name``,
+    whose run has ``capabilities`` and whose code folds ``phases``, binds the
+    ``context`` keys, fills the ``pretrain_context`` fields and stores the
+    ``buffer_fields``
+    (:func:`~ajax.extensions.capabilities.check_capabilities`), or that call
+    a stateful expert without its state (:func:`check_extension_experts`).
 
-    Raises ``ValueError`` naming every offending extension and phase: an
-    extension whose phase an agent never folds would otherwise be silently
-    ignored; also on a reader of phi* without MCPretrain
-    (:func:`check_phi_star_source`). Agents call it at construction
-    (``ActorCritic.__init__``).
+    Raises a ``ValueError`` naming every offending extension: one whose phase
+    an agent never folds would otherwise be silently ignored. Agents call it
+    at construction (``ActorCritic.__init__``).
     """
     stack = tuple(stack)
-    check_extension_experts(agent_name, stack, agent_expert, stores_expert_actions)
-    missing = frozenset().union(*(e.buffer_fields for e in stack)) - supported_fields
-    if missing:
-        raise ValueError(
-            f"{agent_name} does not store the buffer fields {sorted(missing)}"
-            " its extensions read."
-        )
-    unsupported = [(ext, sorted(ext.implemented_phases() - supported)) for ext in stack]
-    details = "; ".join(
-        f"extension {ext.name!r} ({type(ext).__name__}) implements {phases}"
-        for ext, phases in unsupported
-        if phases
+    check_capabilities(
+        agent_name,
+        stack,
+        capabilities,
+        phases=phases,
+        context=context,
+        pretrain_context=pretrain_context,
+        buffer_fields=buffer_fields,
+        batch_table=PHASE_BATCH_KEYS,
+        takes_expert_policy=takes_expert_policy,
     )
-    if details:
-        raise ValueError(
-            f"{agent_name} does not support these extension phases: {details}."
-            f" Supported phases: {sorted(supported)}."
-        )
-    check_phi_star_source(agent_name, stack)
-
-
-def check_phi_star_source(agent_name: str, stack: Sequence["Extension"]) -> None:
-    """Reject extensions reading the frozen expert critic phi* in a stack
-    without one that fits it (MCPretrain): without phi* they would add
-    nothing all run (OnlineBC, CriticBlend, MCVarianceCorrection) or fail at
-    trace time (ValueBox, PhiRefresh)."""
-    readers = [type(ext).__name__ for ext in stack if ext.reads_phi_star()]
-    if readers and not any(ext.fits_phi_star for ext in stack):
-        raise ValueError(
-            f"{', '.join(readers)} read the frozen expert critic phi*, which"
-            f" MCPretrain fits, and {agent_name}'s extensions hold no"
-            " MCPretrain: add MCPretrain(expert_policy=...) to them."
-        )
+    check_extension_experts(agent_name, stack, agent_expert, stores_expert_actions)
 
 
 def holds_expert(agent_expert: Any, stack: Iterable["Extension"]) -> bool:
@@ -204,9 +190,7 @@ def check_extension_experts(
     stores_expert_actions: bool = False,
 ) -> None:
     """Reject an extension calling a stateful expert (one with
-    ``init_state``, called ``expert(state, obs)``) without its state, and
-    one reading the actions of the agent's expert (``needs_agent_expert``)
-    on an agent without an ``expert_policy``, where it would add nothing.
+    ``init_state``, called ``expert(state, obs)``) without its state.
 
     An extension calls the experts it declares (:meth:`Extension.experts`)
     on the observations it is given, where no state of the expert exists:
@@ -215,13 +199,6 @@ def check_extension_experts(
     (``stores_expert_actions``), for an extension that reads them
     (``reads_agent_expert_actions``). Stateless experts are always allowed.
     """
-    needing = [type(ext).__name__ for ext in stack if ext.needs_agent_expert]
-    if needing and agent_expert is None:
-        raise ValueError(
-            f"{', '.join(needing)} read the actions of the agent's"
-            f" expert_policy, and {agent_name} has none: without it they would"
-            " add nothing all run. Give the agent an expert_policy."
-        )
     for ext in stack:
         for expert in ext.experts():
             if not hasattr(expert, "init_state"):
@@ -262,18 +239,26 @@ class Extension:
     #: next observation). An agent stores a field only when an extension of
     #: its stack declares it, and rejects one it cannot provide.
     buffer_fields: ClassVar[frozenset[str]] = frozenset()
+    #: The capabilities it needs beyond those its phases imply (:meth:`needs`,
+    #: :mod:`ajax.extensions.capabilities`).
+    requires: ClassVar[frozenset[str]] = frozenset()
+    #: The capabilities it gives the other extensions of its stack (MCPretrain:
+    #: ``phi_star``).
+    provides: ClassVar[frozenset[str]] = frozenset()
+    #: The agent-context keys it cannot work without (:meth:`bind_to_agent`).
+    context: ClassVar[frozenset[str]] = frozenset()
+    #: The :class:`ExtensionContext` fields its ``pretrain`` reads (``env_args``,
+    #: ``update``, ``buffer``), which the agent's loop fills.
+    pretrain_context: ClassVar[frozenset[str]] = frozenset()
+    #: Per phase, the batch keys it reads beyond those every agent folding
+    #: the phase passes (``PHASE_BATCH_KEYS``).
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {}
     #: Whether the extension reads the agent's stored actions of its expert
     #: when that expert is the agent's (check_extension_experts).
     reads_agent_expert_actions: ClassVar[bool] = False
-    #: Whether the extension reads the actions of the agent's own
-    #: ``expert_policy``, refused on an agent without one.
-    needs_agent_expert: ClassVar[bool] = False
     #: The fields holding an expert (raw observations in, env-unit actions
     #: out), which :meth:`ExtensionStack.with_experts` converts.
     expert_fields: ClassVar[frozenset[str]] = frozenset()
-    #: Whether the extension fits the frozen expert critic phi* that the
-    #: extensions which :meth:`reads_phi_star` need (MCPretrain does).
-    fits_phi_star: ClassVar[bool] = False
     #: Whether the extension reads each env's step within its episode
     #: (``CollectorState.step_in_episode``), which an agent counts only then.
     reads_step_in_episode: ClassVar[bool] = False
@@ -378,10 +363,16 @@ class Extension:
         is given (without a state); none by default."""
         return ()
 
-    def reads_phi_star(self) -> bool:
-        """Whether the extension reads phi*: a stack holding one and none
-        that ``fits_phi_star`` is refused (:func:`check_phi_star_source`)."""
-        return False
+    def needs(self) -> frozenset[str]:
+        """The capabilities it needs: those its phases imply and those it
+        ``requires``."""
+        return self.requires.union(
+            *(PHASE_NEEDS.get(phase, ()) for phase in self.implemented_phases())
+        )
+
+    def reads(self) -> Mapping[str, frozenset[str]]:
+        """Per phase, the batch keys it reads (``batch_keys``)."""
+        return self.batch_keys
 
     def implemented_phases(self) -> frozenset[str]:
         """The phases this extension actually overrides (vs the no-op base)."""

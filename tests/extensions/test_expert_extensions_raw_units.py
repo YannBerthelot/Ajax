@@ -3,12 +3,17 @@ own observations, as SAC's collection and evaluation give SAC's expert."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import ClassVar
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from ajax import SAC
+from ajax.extensions.base import Extension
+from ajax.extensions.capabilities import NotWired
 from ajax.extensions.pretrain import MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import IBRL, CriticBlend, LCBGatedBootstrap
 
@@ -158,9 +163,20 @@ def test_an_agent_rejects_an_extension_reading_a_field_it_does_not_store():
         REDQ("Pendulum-v1", extensions=(IBRL(expert_policy=_RecordingExpert()),))
 
 
+@dataclass(frozen=True)
+class _NextObservationReader(Extension):
+    """A ``post_update`` (folded everywhere) reading ``raw_next_obs``."""
+
+    name: str = "next-observation-reader"
+    buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+
+    def post_update(self, agent_state, ext_state, ctx):
+        return agent_state, ext_state
+
+
 def test_an_offline_agent_rejects_an_extension_reading_a_buffer_field():
     """TDMPC2MultiTask runs the shared check too: it stores no extra buffer
-    field, so PhiRefresh (a post_update it does fold) is rejected."""
+    field, so a reader of one (in a phase it does fold) is rejected."""
     from ajax import TDMPC2MultiTask
     from ajax.agents.TDMPC2.dataset import TaskEpisodes, pool_tasks
 
@@ -176,7 +192,5 @@ def test_an_offline_agent_rejects_an_extension_reading_a_buffer_field():
             )
         ]
     )
-    with pytest.raises(ValueError, match="raw_next_obs"):
-        TDMPC2MultiTask(
-            data, extensions=(PhiRefresh(expert_policy=_RecordingExpert()),)
-        )
+    with pytest.raises(NotWired, match="raw_next_obs"):
+        TDMPC2MultiTask(data, extensions=(_NextObservationReader(),))

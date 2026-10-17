@@ -111,9 +111,32 @@ target, a critic, an actor, a collection step it lets an extension change.
 | [UDRL](../algorithms/udrl.md), [APG](../algorithms/apg.md) | no | no | yes | no |
 | [DreamerV3](../algorithms/dreamerv3.md), [TDMPC2, TDMPC2MultiTask](../algorithms/tdmpc2.md) | no | no | no | no |
 
-Each agent declares these in its `supported_extension_phases`. An extension
-that implements a phase the agent does not run is refused when the agent is
-built, instead of being silently ignored:
+## What an agent has, and what an extension needs
+
+Each agent says what its algorithm has, in `capabilities`:
+
+| Capability | Meaning | Agents |
+| --- | --- | --- |
+| `actor` | a policy network trained by gradient | all but DQN, PQN |
+| `q_critic` | a learned action value Q(s, a) | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, TDMPC2 |
+| `v_critic` | a learned state value V(s) | PPO, APO, DreamerV3 |
+| `discounted` | it maximises a discounted return | all but ASAC, APO, UDRL, APG |
+| `replay` | its updates sample stored past transitions | SAC, TD3, REDQ, ASAC, DQN, UDRL, DreamerV3, TDMPC2 |
+| `off_policy` | its update stays correct on actions its policy did not choose | all but PPO, APO, APG |
+| `critic_ensemble` | two critics or more | SAC, TD3, REDQ, ASAC, TDMPC2; AVG with `num_critics` of 2 or more |
+| `obs_networks` | its policy and value networks read the observation, not a world model's latent state (memory needs it) | all but DreamerV3, TDMPC2 |
+
+A run adds what its configuration gives: `critic` (a Q or V critic),
+`continuous_actions` or `discrete_actions` (the environment), `agent_expert`
+(the agent has an `expert_policy`), and `phi_star` when an extension of the
+stack fits it (`MCPretrain`).
+
+An extension needs what its phases imply (`on_target` and `critic_loss` a
+critic, `actor_loss` an actor, `action` an off-policy update, since the
+executed action is then not the policy's, `transform_action` continuous
+actions) and what it declares in `requires`. An extension needing nothing runs on every
+agent. When the agent is built, an extension needing something its run lacks
+is refused with `MissingCapability`, which names it:
 
 ```python
 import jax.numpy as jnp
@@ -129,8 +152,13 @@ def expert(obs):
 try:
     DQN("CartPole-v1", extensions=(ImitationLoss(expert),))
 except ValueError as error:
-    print(error)  # DQN does not support these extension phases: ... ['actor_loss'] ...
+    print(error)  # DQN cannot run ImitationLoss ('imitation_loss'), which needs actor (...), continuous_actions (...).
 ```
+
+When the run has everything but the agent's code does not pass it on yet (it
+does not fold the phase, bind the extension's context, put a batch key in
+the phase's batch or store a replay field), the refusal is `NotWired`, which
+says what is missing.
 
 Two more limits:
 
@@ -165,11 +193,11 @@ observations, before any normalisation; a replay agent keeps them only in a
 run with an expert, and passes `None` otherwise. An agent may add keys of
 its own: read its fold call.
 
-An extension that needs a key the batch lacks raises an error. It never
-falls back to adding nothing, so a misplaced extension cannot look like a
-result. `ImitationLoss` on PPO, for example, raises because PPO's actor
-batch has no `pi_mean`; `BiasVorePenalty` raises on a critic batch without
-the critic.
+An extension never falls back to adding nothing, so a misplaced extension
+cannot look like a result. One declaring the keys it reads (`batch_keys`) is
+refused when the agent is built if the batch lacks them: `ImitationLoss` on
+PPO, whose actor batch has no `pi_mean`. One reading a key it does not
+declare raises when the program is built.
 
 ## What an extension declares
 
@@ -182,17 +210,19 @@ which the agent reads when it is built:
 | `expert_fields` | the fields holding an expert. The agent converts each one to [agent units](expert-guidance.md#the-expert), and a run whose extensions hold an expert keeps the replay fields only experts read. |
 | `experts()` | the experts the extension calls itself, without a state, on the observations it is given. |
 | `reads_agent_expert_actions` | the extension reads the expert's actions SAC stored at collection when its expert is SAC's own. |
-| `needs_agent_expert` | the extension reads the actions of the agent's own `expert_policy` (`OnlineBC`), so an agent without one refuses it. |
-| `fits_phi_star`, `reads_phi_star()` | the extension fits, or reads, the frozen expert critic `φ*` (below). |
+| `requires` | the capabilities it needs beyond those its phases imply (`needs()` returns them all; an extension whose needs depend on its options overrides it). |
+| `provides` | the capabilities it gives the rest of its stack: `MCPretrain` provides `phi_star`. |
+| `context` | the agent-context keys it cannot work without (`bind_to_agent`); an agent's `extension_context` lists those it binds. |
+| `pretrain_context` | the `ExtensionContext` fields its `pretrain` reads (`update`, `buffer`: `PriorData`); an agent's `pretrain_context` lists those its loop fills. |
+| `batch_keys` | per phase, the batch keys it reads beyond those every agent folding the phase passes (`reads()` returns them). |
 | `reads_step_in_episode` | the extension reads each copy's step within its episode, which the agent then counts. |
 | `action_slot` | where in SAC's action pipeline its `action` runs. |
 
 `φ*` is a separate critic fitted to an expert's returns before training.
-`MCPretrain` fits it (`fits_phi_star`); `OnlineBC`, `CriticBlend`,
-`MCVarianceCorrection`, `ValueBox` and `PhiRefresh` read it
-(`reads_phi_star()`). Without `MCPretrain` in the stack they would add
-nothing for the whole run, or fail when the program is built, so the agent
-refuses them. `EDGEExploration` scores with `φ*` when it exists and with the
+`MCPretrain` fits it (it provides `phi_star`); `OnlineBC`, `CriticBlend`,
+`MCVarianceCorrection`, `ValueBox` and `PhiRefresh` read it (they require
+`phi_star`). Without `MCPretrain` in the stack they would add nothing for the
+whole run, or fail when the program is built, so the agent refuses them. `EDGEExploration` scores with `φ*` when it exists and with the
 agent's own critic otherwise, so it needs no `MCPretrain`.
 
 ## What is checked, and when
@@ -200,11 +230,12 @@ agent's own critic otherwise, so it needs no `MCPretrain`.
 When the agent is built, its stack is refused (`ValueError`, naming each
 offending extension) if an extension:
 
-- implements a phase the agent does not run;
-- reads a replay field the agent does not store (`buffer_fields`);
-- reads `φ*` without an `MCPretrain` in the stack;
-- reads the actions of the agent's `expert_policy` on an agent without
-  one (`needs_agent_expert`);
+- needs a capability the run lacks (`MissingCapability`): `φ*` without an
+  `MCPretrain` in the stack, the agent's `expert_policy` on an agent without
+  one, a Q critic on PPO;
+- implements a phase the agent does not run, needs context the agent does
+  not bind, reads a batch key the phase's batch lacks or a replay field the
+  agent does not store (`buffer_fields`) (`NotWired`);
 - calls a stateful expert without its state. An extension calls its expert
   on the observations it is given, where no expert state exists. A stateful
   expert is allowed only when it is SAC's own `expert_policy` and the
@@ -213,13 +244,9 @@ offending extension) if an extension:
   or makes the policy residual in a run without an `expert_policy` or with
   `use_pid_policy`.
 
-When training starts, an extension that takes context from the agent
-(below) raises if the agent does not give it what it needs: `MCPretrain`
-or `BellmanPretrain` outside SAC, `BellmanPretrain` or `ExpertValueMetrics`
-without an `expert_policy`, `CloningPretrain` on an agent that does not bind
-it, or placed after another pre-training extension, `PriorData` on an agent
-without a replay or on a replay whose rows it cannot fill. While the program is
-built, an extension raises on a batch without the keys it needs (above).
+When training starts, `CloningPretrain` raises when placed after another
+pre-training extension, and `PriorData` on a replay whose rows it cannot
+fill.
 
 ## Catalogue
 

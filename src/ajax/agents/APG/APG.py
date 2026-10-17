@@ -47,7 +47,9 @@ _DEFAULT_PID = PIDHeadConfig()
 
 class APG(ActorCritic):
     name: str = "APG"
+    capabilities: frozenset = frozenset("actor obs_networks".split())
     supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
+    pretrain_context: frozenset = frozenset()
     # Its rollout traces the env params (a system class's samples).
     supports_batched_env_params: bool = True
     supports_memory: bool = True

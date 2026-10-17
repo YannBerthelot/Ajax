@@ -74,6 +74,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
     _check_memory_final_norm(skeleton_dict, state_dict)
     _check_log_std_head(skeleton_dict, state_dict)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
+    state_dict = _with_segment_raw_obs(skeleton, state_dict)
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
     state_dict = _with_raw_obs_info(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
@@ -145,6 +146,43 @@ def _with_replay_next_obs(skeleton: Any, state_dict: Any) -> Any:
     saved = saved.replace(experience={**saved.experience, **rebuilt})
     collector = {**state_dict["collector_state"], "buffer_state": saved}
     return {**state_dict, "collector_state": collector}
+
+
+def _with_segment_raw_obs(skeleton: Any, state_dict: Any) -> Any:
+    """Give a UDRL segment buffer saved without the env's own observations
+    (``SegmentBuffer.raw_obs``), before it kept them or by a run without an
+    expert, that field when a run with an expert restores it: the env's
+    columns of its stored observations, before the command. They are the
+    env's own unless the saved run normalised them, and such a buffer is
+    refused (UDRL refused an expert with normalize_observations before the
+    field existed).
+
+    Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as
+    ``_with_replay_next_obs``.
+    """
+    raw = getattr(getattr(skeleton, "buffer", None), "raw_obs", None)
+    saved = state_dict.get("buffer") if isinstance(state_dict, dict) else None
+    if raw is None or not isinstance(saved, dict) or saved.get("raw_obs") is not None:
+        return state_dict
+    if _saved_obs_normalised(state_dict):
+        raise ValueError(
+            "This UDRL checkpoint was saved without an expert, and its segment"
+            " buffer holds normalised observations: the env's own, which an"
+            " expert reads, are gone. Resume it without the expert, or start"
+            " the run afresh."
+        )
+    rebuilt = np.asarray(saved["obs"][..., : raw.shape[-1]], raw.dtype)
+    return {**state_dict, "buffer": {**saved, "raw_obs": rebuilt}}
+
+
+def _saved_obs_normalised(saved_agent: dict) -> bool:
+    """Whether a saved agent state's environment normalised observations:
+    its state holds their statistics."""
+    env = (saved_agent.get("collector_state") or {}).get("_env_state") or {}
+    stats = env.get("normalization_info") or env.get("info", {}).get(
+        "normalization_info"
+    )
+    return bool(stats) and stats.get("obs") is not None
 
 
 def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
@@ -289,11 +327,7 @@ def _check_raw_replay(skeleton: Any, saved: dict, saved_format: int) -> None:
     collector = getattr(agent, "collector_state", None)
     if collector is None or collector.buffer_state is None:
         return
-    env = (saved_agent.get("collector_state") or {}).get("_env_state") or {}
-    stats = env.get("normalization_info") or env.get("info", {}).get(
-        "normalization_info"
-    )
-    obs_normalised = bool(stats) and stats.get("obs") is not None
+    obs_normalised = _saved_obs_normalised(saved_agent)
     if obs_normalised or reward_statistics(collector.env_state) is not None:
         raise ValueError(
             "This checkpoint was saved before a replay agent kept the"

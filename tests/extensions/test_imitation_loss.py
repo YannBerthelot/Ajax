@@ -464,11 +464,13 @@ def test_apg_trains_with_the_term_along_its_rollout() -> None:
     assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())
 
 
-def test_udrl_trains_with_the_term_and_refuses_it_on_normalised_observations() -> None:
-    """Continuous UDRL's actor batch carries the env's part of each
-    observation and the policy's mean action: the term moves the actor. Its
-    segment buffer keeps normalised observations, so an expert, which reads
-    the env's own, is refused under normalize_observations."""
+def test_udrl_trains_with_the_term_its_expert_reading_the_envs_observations() -> None:
+    """Continuous UDRL's actor batch carries the env's own observations and
+    the policy's mean action: the term moves the actor. Under
+    normalize_observations its segment buffer keeps the env's observations
+    beside the normalised ones for a run with an expert (and only then),
+    and the expert reads them: Pendulum's (cos, sin, speed), each on the
+    unit circle, which the normalised ones are not."""
     from ajax import UDRL
 
     kw: dict[str, Any] = {
@@ -476,17 +478,32 @@ def test_udrl_trains_with_the_term_and_refuses_it_on_normalised_observations() -
         "n_steps": 8,
         "batch_size": 8,
         "n_updates_per_iter": 2,
+        "normalize_observations": True,
     }
+    seen: list = []
 
-    def actor(*extensions: Any) -> Any:
+    def expert(obs: jax.Array) -> jax.Array:
+        jax.debug.callback(lambda o: seen.append(np.asarray(o)), obs)
+        return EXPERT(obs)
+
+    def run(*extensions: Any) -> Any:
         agent = UDRL("Pendulum-v1", actor_architecture=NET, extensions=extensions, **kw)
-        return agent.train(seed=0, n_timesteps=32)[0].actor_state.params
+        return agent.train(seed=0, n_timesteps=32)[0]
 
-    assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())
-    with pytest.raises(ValueError, match="normalize_observations"):
-        UDRL(
-            "Pendulum-v1",
-            normalize_observations=True,
-            extensions=(ImitationLoss(EXPERT),),
-            **kw,
-        )
+    state, plain = run(ImitationLoss(expert, coef=100.0)), run()
+    assert not _same(state.actor_state.params, plain.actor_state.params)
+    assert plain.buffer.raw_obs is None
+    filled = int(np.max(state.buffer.fill_count))  # slots, from the first
+
+    def rows(x: Any) -> np.ndarray:  # (slot, step, env, 3) -> (row, 3)
+        return np.asarray(x)[..., :filled, :, :, :].reshape(-1, 3)
+
+    def on_circle(x: np.ndarray) -> np.ndarray:
+        return np.isclose(x[:, 0] ** 2 + x[:, 1] ** 2, 1.0, atol=1e-4)
+
+    raw, normalised = rows(state.buffer.raw_obs), rows(state.buffer.obs[..., :-2])
+    assert raw.shape == (32, 3) and on_circle(raw).all()  # 2 segments x 8 x 2
+    assert not on_circle(normalised).any()
+    read = np.concatenate(seen).reshape(-1, 3)
+    held = {tuple(row) for row in raw}
+    assert read.size and all(tuple(row) in held for row in read)

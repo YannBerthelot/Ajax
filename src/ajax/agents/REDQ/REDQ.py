@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, Literal, Optional, Union
+from typing import Any, Callable, Literal, Optional, Union
 
 from gymnax import EnvParams
 
@@ -130,6 +130,26 @@ class REDQ(ActorCritic):
 
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy
+        # The initialisation of REDQ's reference code: watchernyu/REDQ
+        # @7b5d1bf applies weights_init_ (redq/algos/core.py:18-22,
+        # xavier_uniform with gain 1, bias 0) to every Linear layer of
+        # its policy and Q networks, the mean and log-std layers
+        # included (:96-98, :194-198), whatever their comments say.
+        # Recurrent REDQ (memory set) keeps Ajax's previous initialisation
+        # until Ni et al.'s, its recurrent reference (pomdp-baselines), is
+        # audited: at REDQ's, its memory cells' actors read 24-29/32.
+        reference_init: dict[str, Any] = (
+            {}
+            if memory is not None
+            else {
+                "encoder_kernel_init": "xavier_uniform",
+                "mean_kernel_init": "xavier_uniform",
+                "log_std_kernel_init": "xavier_uniform",
+                "log_std_init": 0.0,
+                "value_kernel_init": "xavier_uniform",
+            }
+        )
+
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -145,6 +165,7 @@ class REDQ(ActorCritic):
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
+            **reference_init,
             episode_length=episode_length,
             action_repeat=action_repeat,
             extensions=extensions,

@@ -198,7 +198,11 @@ class Actor(nn.Module):
                 kernel_init=self.encoder_kernel_init,
                 layer_norm=self.encoder_layer_norm,
             )
-        kernel_init = orthogonal(1.0)
+        # Discrete logits start near 0 (a near-uniform policy), as in OpenAI
+        # Baselines @ea25b9e (common/policies.py:49, init_scale=0.01), CleanRL
+        # @fe8d8a0 (ppo.py:115), PureJaxRL @31756b1 (ppo.py:33) and SB3
+        # 2.5.0 (common/policies.py:620), and like the mean head below.
+        logits_kernel_init = orthogonal(0.01)
         bias_init = parse_initialization(self.bias_init, default=constant(0.0))
 
         if self.continuous:
@@ -233,7 +237,7 @@ class Actor(nn.Module):
                 [
                     nn.Dense(
                         self.action_dim,
-                        kernel_init=kernel_init,
+                        kernel_init=logits_kernel_init,
                         bias_init=bias_init,
                     ),
                     distrax.Categorical,

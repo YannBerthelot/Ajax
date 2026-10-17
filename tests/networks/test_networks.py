@@ -418,3 +418,14 @@ def test_mean_kernel_init_sets_the_initial_mean_head(sample_input):
     lecun = np.abs(kernel(mean_kernel_init="lecun_uniform"))
     assert 0.05 < lecun.max() <= np.sqrt(3 / 16)  # fan_in 16
     np.testing.assert_array_equal(kernel(mean_kernel_init=nn.initializers.ones), 1.0)
+
+
+def test_logits_head_starts_orthogonal_with_gain_001(sample_input):
+    """The discrete head starts orthogonal with gain 0.01, PPO's reference
+    init, so the initial policy is near uniform."""
+    actor = Actor(action_dim=3, input_architecture=ARCH, continuous=False)
+    params = actor.init(jax.random.PRNGKey(0), sample_input)
+    kernel = np.asarray(params["params"]["model"]["layers_0"]["kernel"])
+    np.testing.assert_allclose(kernel.T @ kernel, 1e-4 * np.eye(3), atol=1e-9)
+    probs = actor.apply(params, sample_input).probs
+    np.testing.assert_allclose(probs, 1 / 3, atol=0.01)

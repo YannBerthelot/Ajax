@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from gymnax import EnvParams
 
@@ -141,6 +141,30 @@ class SAC(ActorCritic):
 
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy
+        # The initialisation of SAC's reference code, Glorot-uniform
+        # kernels and zero biases in both: haarnoja/sac @8258e33
+        # (sac/misc/mlp.py:24-25, :41-49: tf.contrib's
+        # xavier_initializer(), uniform by default at tensorflow 1.4, its
+        # environment.yml's) and rail-berkeley/softlearning @13cf187,
+        # the learned-temperature code (softlearning/models/
+        # feedforward.py:28-34: Keras Dense, glorot_uniform and zeros by
+        # default at tensorflow 2.4.1, its requirements'). Both draw the
+        # mean and the log-std from one output layer; here each head
+        # takes Glorot's bound for its own width.
+        # Recurrent SAC (memory set) keeps Ajax's previous initialisation
+        # until Ni et al.'s, its reference (pomdp-baselines), is audited: at
+        # the feedforward reference's, its memory cells' actors read 25-28/32.
+        reference_init: dict[str, Any] = (
+            {}
+            if memory is not None
+            else {
+                "encoder_kernel_init": "xavier_uniform",
+                "mean_kernel_init": "xavier_uniform",
+                "log_std_kernel_init": "xavier_uniform",
+                "log_std_init": 0.0,
+                "value_kernel_init": "xavier_uniform",
+            }
+        )
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -156,6 +180,7 @@ class SAC(ActorCritic):
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
+            **reference_init,
             episode_length=episode_length,
             action_repeat=action_repeat,
             extensions=extensions,

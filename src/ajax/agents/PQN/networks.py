@@ -13,7 +13,7 @@ from typing import Optional, Tuple, Union
 
 import flax.linen as nn
 import jax
-from flax.linen.initializers import constant, orthogonal
+from flax.linen.initializers import lecun_normal
 
 from ajax.agents.DQN.networks import GreedyQPolicy
 from ajax.networks.networks import CNNEncoder, CNNSpec
@@ -54,13 +54,12 @@ class PQNNetwork(nn.Module):
             )
         else:
             x = obs
+        # Every Dense starts as in PQN's reference code, flax's Dense default:
+        # mttga/purejaxql @47af6d7 (purejaxql/pqn_gymnax.py:52, :56) sets no
+        # initializer, so kernels are lecun_normal and biases zero.
         for layer in self.input_architecture:
             if str(layer).isnumeric():
-                x = nn.Dense(
-                    int(layer),
-                    kernel_init=orthogonal(2.0**0.5),
-                    bias_init=constant(0.0),
-                )(x)
+                x = nn.Dense(int(layer), kernel_init=lecun_normal())(x)
                 x = nn.LayerNorm()(x)
             else:
                 x = parse_activation(layer)(x)
@@ -68,7 +67,5 @@ class PQNNetwork(nn.Module):
         # plasticity/conditioning probes. `sow` is a no-op unless the
         # caller marks "intermediates" mutable -- zero training cost.
         self.sow("intermediates", "encoder_features", x)
-        q_values = nn.Dense(
-            self.n_actions, kernel_init=orthogonal(1.0), bias_init=constant(0.0)
-        )(x)
+        q_values = nn.Dense(self.n_actions, kernel_init=lecun_normal())(x)
         return GreedyQPolicy(q_values)

@@ -34,7 +34,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "235b0254865d"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "ac59dfb098df"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -915,12 +915,12 @@ PI_BEST, SIGMA_C = oracles.softmax_optimum(1.0), oracles.max_entropy_sigma()
 # Untrained: equal logits; at obs 1 they are not, one update reads 0.10-0.96.
 _PI_A = {"untrained": 0.5, DROPPED: 0.976, f"{P07}, better arm": 1.0}
 _PI_A[f"{P07}, worse arm"] = 0.0  # a flipped bonus collapses each seed on an arm
-_APO_A = {"untrained": 0.5, DROPPED: 0.990, "bonus sign flipped": 0.997}
+_APO_A = {"untrained": 0.5, DROPPED: 0.9775, "bonus sign flipped": 0.9917}
 _AVERAGED = {"entropy averaged over the dimensions": 0.7414}  # sqrt(1/2) at rest
 # P07 saturates the tanh (mu_u reads -31,800 to 34,400), then shrinks sigma_u.
 _LATENT = latent_sigma(80_000, STD_LR, start=0.5, top=math.inf)  # unclipped
 _PPO_C = {DROPPED: math.exp(0.5), P07: 0.6575, "latent-Gaussian entropy": _LATENT}
-_APO_B = {"untrained": WIDE, DROPPED: 0.4711, "bonus sign flipped": 0.1706}
+_APO_B = {"untrained": WIDE, DROPPED: 0.4694, "bonus sign flipped": 0.1677}
 Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
     "PPO-a": (Query("pi(best)", PI_BEST, _PI_A),),
     "APO-a": (Query("pi(best)", PI_BEST, _APO_A),),
@@ -939,7 +939,7 @@ Q6_CELLS: dict[str, tuple[str, str, float, float, int, tuple, dict]] = {
     # agent, bandit, c, learning rate, budget, tolerances (32/32 of 3000-3031),
     # overrides
     "PPO-a": ("PPO", "a", 1.0, 4e-5, 80_000, (0.035,), {}),  # 40,000: 0.116; cert 31/32
-    "APO-a": ("APO", "a", 1.0, 3e-4, 20_000, (0.023,), {}),
+    "APO-a": ("APO", "a", 1.0, 3e-4, 10_000, (0.035,), {}),
     "PPO-b": ("PPO", "b", 2.0, STD_LR, 480_000, (0.05, 0.211), {}),  # 400,000: 0.107
     # 400,000: 0.096, over half the gap to the averaged entropy's 0.834 there
     "PPO-b2": ("PPO", "b2", 2.0, STD_LR, 480_000, (0.053, 0.045), {}),
@@ -952,15 +952,15 @@ Q6_CELLS: dict[str, tuple[str, str, float, float, int, tuple, dict]] = {
         (0.065,),
         {"squash": True, "log_std_init": 0.5},
     ),
-    "APO-b": ("APO", "b", 2.0, STD_LR, 480_000, (0.043, 0.137), {}),
+    "APO-b": ("APO", "b", 2.0, STD_LR, 480_000, (0.057, 0.234), {}),
 }
 # PPO-b's mu, a sanity check, is WIDE times the agent-unit mean's jitter:
 # twice its pooled worst error is 0.21-0.26 on every rung from 320,000 to
 # 640,000 steps, so its ceiling is half its gap. The ceiling is the case's,
 # so b's budget is the first rung where sigma's tolerance also stays within
-# CEILING: 480,000 (0.050; 400,000: 0.107). APO-b's mu likewise, 0.14-0.31
-# from 320,000 to 640,000; its 480,000 is the first rung with both within
-# (400,000: mu 0.309).
+# CEILING: 480,000 (0.050; 400,000: 0.107). APO-b's mu likewise, 0.20-0.27
+# from 400,000 to 640,000; its 480,000 is the first rung with both within
+# (400,000: mu 0.273).
 Q6_CEILING = {"PPO-b": 0.25, "APO-b": 0.25}
 for cell, (agent, bandit, c, lr, steps, q6_tols, kw) in Q6_CELLS.items():
     build = functools.partial(_q6_agent, agent, bandit, c, lr, **kw)

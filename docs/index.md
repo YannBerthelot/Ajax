@@ -17,8 +17,11 @@ four ways:
 
 - **[End to end on the accelerator](guide/performance.md)**: the environment
   and the training loop compile into one JAX program, as in
-  [PureJaxRL](https://github.com/luchris429/purejaxrl), with no Python step
-  between them, on a CPU or a GPU.
+  [PureJaxRL](https://github.com/luchris429/purejaxrl),
+  [Rejax](https://github.com/keraJLi/rejax),
+  [Stoix](https://github.com/EdanToledo/Stoix) and
+  [Brax](https://github.com/google/brax)'s training agents, with no Python
+  step between them, on a CPU or a GPU.
 - **Average-reward agents**: [ASAC](algorithms/asac.md) and
   [APO](algorithms/apo.md) maximise the reward per step, with no discount, for
   tasks that never end.
@@ -29,7 +32,8 @@ four ways:
   the code behind their papers' results.
 
 [Why Ajax](getting-started/why-ajax.md) shows each with an example and
-compares Ajax with SB3, SBX and PureJaxRL, including when to use them instead.
+compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix and Rejax, including
+when to use them instead.
 
 Ajax has fourteen agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
 implements a published paper, and its page lists where it departs from it.

@@ -3,6 +3,7 @@ from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+import optax
 from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
@@ -52,6 +53,9 @@ class PolicyAuxiliaries:
     policy_std: jax.Array  # mean unsquashed std; lower = more deterministic
     q_min: jax.Array  # Q(s, π(s)): what policy optimises
     bc_term: jax.Array  # actor-loss extensions' terms (OnlineBC's: 0 after warmup)
+    # Before clipping; the loss builds these metrics before the gradient
+    # exists, update_policy fills it in.
+    grad_norm: jax.Array | float = jnp.nan
 
 
 @struct.dataclass
@@ -60,6 +64,7 @@ class ValueAuxiliaries:
     q_pred_min: jax.Array  # min over ensemble
     var_preds: jax.Array  # inter-critic variance
     expert_frac_in_buffer: jax.Array  # fraction of sampled batch flagged as expert
+    grad_norm: jax.Array  # before clipping
 
 
 @struct.dataclass
@@ -284,6 +289,7 @@ def update_value_functions(
         q_pred_min=core_aux.q_pred_min,
         var_preds=core_aux.var_preds,
         expert_frac_in_buffer=jnp.zeros(1),
+        grad_norm=optax.global_norm(grads),
     )
 
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
@@ -422,6 +428,7 @@ def update_policy(
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
+    aux = aux.replace(grad_norm=optax.global_norm(grads))
 
     temp_rng, temp_sample_key = jax.random.split(rng)
     pi = actor_dist(

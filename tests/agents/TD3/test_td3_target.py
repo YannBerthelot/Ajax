@@ -61,7 +61,7 @@ def _call_target(
         target_policy_noise=target_policy_noise,
         target_noise_clip=target_noise_clip,
         reward_scale=1.0,
-    )
+    )[0]
 
 
 def test_target_finite(gymnax_env_config, td3_state):

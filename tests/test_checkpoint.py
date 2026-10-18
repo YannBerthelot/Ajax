@@ -382,6 +382,23 @@ def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path, agent_n
         assert all(jax.tree.leaves(same)), name
 
 
+def test_another_agents_optimiser_saved_behind_a_clip_is_refused(sac_run, tmp_path):
+    """The clip shim is PPO's and APO's, whose clip moved over both
+    networks: an SAC checkpoint whose actor optimiser state sits behind a
+    clip's empty state is refused, as any other optimiser layout is."""
+    import optax
+
+    state = sac_run.out[0]
+    actor = state.actor_state
+    old = state.replace(
+        actor_state=actor.replace(opt_state=(optax.EmptyState(), actor.opt_state))
+    )
+    path = str(tmp_path / "clipped.pkl")
+    save_checkpoint(old, path)
+    with pytest.raises(ValueError):
+        restore_into(state, path)
+
+
 def test_an_apo_checkpoint_restores_only_into_its_own_hidden_widths(tmp_path):
     """APO's hidden layers were two of 128 units before its reference code's
     two of 64. Its checkpoint saved then is refused by the default network

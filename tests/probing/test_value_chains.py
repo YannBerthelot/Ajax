@@ -34,7 +34,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "626584ed5609"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "a2df3f227271"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -300,7 +300,7 @@ Q9_CELLS: dict[
 ] = {  # n_envs 1 runs PPO's legacy path, 4 with 2 minibatches the other
     "PPO": ("PPO", 625, 0.02, _PPO9),
     "PPO-minibatch": ("PPO", 1250, 0.047, _PPO9 | {"n_envs": 4, "num_minibatches": 2}),
-    "PQN": ("PQN", 1250, 0.055, {"q_lambda": L9}),
+    "PQN": ("PQN", 5000, 0.02, {"q_lambda": L9}),  # RAdam: 1250 and 2500 do not qualify
 }
 
 
@@ -444,10 +444,10 @@ PILOT_CAL = {  # budget, tolerances in query order
     "DQN-advantage": (625, (0.02, 0.5)),
     "DQN-coupling": (625, (0.02, 0.02, 0.5, 0.5)),
     "PQN-value": (40_000, (0.02,)),
-    "PQN-backprop": (2500, (0.021, 0.037)),
-    "PQN-discounting": (2500, (0.02, 0.042)),
+    "PQN-backprop": (5000, (0.021, 0.02)),  # PQN's: with RAdam, but -value, -advantage
+    "PQN-discounting": (5000, (0.02, 0.02)),
     "PQN-advantage": (40_000, (0.02, 0.498)),
-    "PQN-coupling": (2500, (0.02, 0.039, 0.47, 0.385)),
+    "PQN-coupling": (10_000, (0.05, 0.02, 0.486, 0.45)),
 }
 _TERM = re.compile(r"(V|a|Q)\(([-+]?\d)(?:, a=(\d))?\)")
 
@@ -525,7 +525,7 @@ _ON = {"normalize_observations": True}
 P1_CELLS: dict[str, tuple[str, str, int, dict]] = {  # agent, chain, budget, overrides
     "DQN": ("DQN", "discrete", 5000, _ON),
     # q_lambda 0, a one-step bootstrap: at 0.65 fault (a)'s gap shrinks to 0.17.
-    "PQN": ("PQN", "discrete", 5120, _ON | {"q_lambda": 0.0}),
+    "PQN": ("PQN", "discrete", 10_240, _ON | {"q_lambda": 0.0}),  # RAdam: 5120 fails
     "PPO-continuous": ("PPO", "continuous", 16_384, _ON),
     "PPO-discrete": ("PPO", "discrete", 2048, _ON),
     "APO-discrete": ("APO", "discrete", 4096, _ON | {"n_steps": 64, "batch_size": 64}),

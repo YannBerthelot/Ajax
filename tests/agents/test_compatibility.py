@@ -51,6 +51,8 @@ ROWS = [
     ("TDMPC2MultiTask", "dataset"),
 ]
 NETWORK_OPTIONS = ("memory", "cnn")
+#: Module options needing more than the module, each a column of its own.
+VARIANTS = {"ImitationLoss(q_filter=True)": ("ImitationLoss", {"q_filter": True})}
 
 # Why each gap is open, and the work that closes it.
 ACTION = "only SAC folds action and transform_action (batch module-reach)"
@@ -106,7 +108,8 @@ GAPS: dict[str, dict[str, str]] = {
     WORLD: {
         **dict.fromkeys(
             "CriticBlend IBRL KernelRepulsion LCBGatedBootstrap MCVarianceCorrection"
-            " OnlineBC PhiRefresh ValueBox ExpertValueMetrics".split(),
+            " OnlineBC PhiRefresh ValueBox ExpertValueMetrics"
+            " ImitationLoss(q_filter=True)".split(),
             "TDMPC2 TDMPC2MultiTask",
         ),
         **dict.fromkeys(
@@ -194,7 +197,9 @@ def verdict(agent: str, env: str, column: str) -> tuple[str, str]:
     elif column == "cnn":
         kwargs = {"cnn_image_shape": (1, 1, 1), "cnn_extra_obs_dim": 0}
     else:
-        ext = build_extension(extension_classes()[column], env)
+        name, options = VARIANTS.get(column, (column, {}))
+        ext = build_extension(extension_classes()[name], env)
+        ext = dataclasses.replace(ext, **options)  # type: ignore[type-var]
         expert = field_values(env)["expert_policy"]
         companions = (
             (MCPretrain(expert_policy=expert),) if "phi_star" in ext.needs() else ()
@@ -220,7 +225,7 @@ def verdict(agent: str, env: str, column: str) -> tuple[str, str]:
 
 
 def columns() -> list[str]:
-    return [*sorted(extension_classes()), *NETWORK_OPTIONS]
+    return [*sorted(extension_classes()), *VARIANTS, *NETWORK_OPTIONS]
 
 
 def row_label(agent: str, env: str) -> str:

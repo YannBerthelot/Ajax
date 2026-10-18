@@ -28,6 +28,7 @@ from ajax.networks.memory import MEMORY_KINDS, MemoryConfig, zeros_carry_like
 from ajax.networks.networks import (
     Actor,
     MultiCritic,
+    Squashed,
     action_value_input,
     init_network_state,
     predict_value_sequence,
@@ -61,12 +62,13 @@ def _critic(kind: str) -> Any:
 
 
 def _actor(kind: str) -> Any:
-    actor = Actor(
-        input_architecture=("16", "relu"),
-        action_dim=ACT,
-        continuous=True,
-        squash=True,
-        memory=_memory(kind),
+    actor = Squashed(
+        Actor(
+            input_architecture=("16", "relu"),
+            action_dim=ACT,
+            continuous=True,
+            memory=_memory(kind),
+        )
     )
     x = jnp.zeros((1, OBS))
     return init_network_state(

@@ -23,7 +23,7 @@ from ajax.environments.interaction import (
     reset,
     step,
 )
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import Squash
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -66,8 +66,8 @@ def mock_actor_state_continuous_squashed():
     """Fixture to create a mock actor state."""
     tx = optax.adam(learning_rate=0.001)
     return LoadedTrainState.create(
-        apply_fn=lambda params, obs: SquashedNormal(
-            jnp.zeros((obs.shape[0], 1)), jnp.ones((obs.shape[0], 1))
+        apply_fn=lambda params, obs: Squash(
+            distrax.Normal(jnp.zeros((obs.shape[0], 1)), jnp.ones((obs.shape[0], 1)))
         ),
         params={"weights": jnp.array([1.0, 2.0])},
         tx=tx,
@@ -156,7 +156,7 @@ def test_reset_then_scanned_steps_keep_the_batch_shapes(env_and_shape):
     [
         ("mock_actor_state_discrete", distrax.Categorical),
         ("mock_actor_state_continuous", distrax.Normal),
-        ("mock_actor_state_continuous_squashed", SquashedNormal),
+        ("mock_actor_state_continuous_squashed", Squash),
     ],
 )
 def test_get_pi(mock_actor_state, expected_distribution, request):
@@ -397,7 +397,7 @@ def _constant_actor(distribution):
 COLLECTORS = {
     "CartPole-v1": (lambda n: distrax.Categorical(logits=jnp.zeros((n, 2))), False),
     "Pendulum-v1": (
-        lambda n: SquashedNormal(jnp.zeros((n, 1)), jnp.ones((n, 1))),
+        lambda n: Squash(distrax.Normal(jnp.zeros((n, 1)), jnp.ones((n, 1)))),
         True,
     ),
 }

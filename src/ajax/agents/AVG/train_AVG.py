@@ -209,7 +209,7 @@ def policy_loss_function(
     loc, scale = pi.distribution.loc, pi.distribution.scale
     eps = jax.lax.stop_gradient((raw_actions - loc) / scale)
     raw = loc + scale * eps
-    log_probs = pi.log_prob_from_raw(raw)
+    log_probs = pi.log_prob_from_raw(raw).sum(-1, keepdims=True)
     q_pred = jnp.min(
         q_values(critic_states, critic_states.params, observations, jnp.tanh(raw)),
         axis=0,

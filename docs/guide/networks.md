@@ -109,7 +109,29 @@ and `squash=True`.
 | `log_std_state_independent` | `True` | one learned log standard deviation per action dimension; `False` computes it from the observation |
 | `log_std_init` | `0.0` | the initial log standard deviation |
 | `mean_kernel_init` | `None`: `orthogonal(0.01)`, a near-zero first mean | the initialiser of the mean's output layer |
-| `squash` | `False` | `tanh` on the sampled action, with the matching log-probability correction |
+| `squash` | `False` | `tanh` on the sampled action, with the matching log-probability correction ([Squashing](#squashing)) |
+
+### Squashing
+
+SAC, TD3, REDQ, ASAC, AVG, APO and UDRL's continuous policy, and PPO's with
+`squash=True`, act through `tanh`, which keeps actions in `[-1, 1]`. The
+squashing is one wrapper, not an option of each head:
+`Squashed(actor)` wraps any actor, and its policy is `squash(pi)` of the
+actor's: `Squash(pi)` for a distribution, `tanh` of the action for TD3's
+deterministic one. `Squashed` shares the actor's parameters, so they are
+saved and read under the same names as the actor's alone.
+
+`Squash` (in `ajax.networks.distributions`) takes any distrax distribution,
+its latent, `pi.distribution`. Sampling and log-probabilities are exact.
+`log_prob(action)` inverts `tanh`, which float32 cannot do once the action
+rounds to ±1; `log_prob_from_raw(raw)` reads the pre-`tanh` sample instead,
+as PPO and APO do when they recompute a log-probability. Two quantities have
+no closed form: `mean()` is `tanh` of the latent's mean, the action the
+agent evaluates with, not the mean of the squashed action; `entropy(seed)`
+is a one-sample estimate, the latent's entropy plus the `tanh`
+log-det-Jacobian at a sample, as brax estimates it. The functions `latent`,
+`sample_with_raw`, `log_prob_from_raw` and `entropy` read any policy,
+squashed or not, so code that uses them works with both.
 
 ## Image observations
 
@@ -233,8 +255,9 @@ with longer training.
   the same way).
 - **`gains="observation"`** predicts the gains from the observation with an
   MLP of `architecture`, as gain scheduling does. Read them for given
-  observations with `actor.apply_fn(params, obs, method="gains")`, an array
-  of shape `(..., 3, action_dim, n_errors)`.
+  observations with `PIDActor(policy, action_dim).apply(params, obs,
+  method="gains")`, an array of shape `(..., 3, action_dim, n_errors)`;
+  the parameters of a squashed PID actor are the same.
 
 `n_errors` is the number of errors the wrapper tracks; with several, each
 action dimension gets its own gain on each error. The gains start at zero:

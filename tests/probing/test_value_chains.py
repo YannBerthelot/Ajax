@@ -27,6 +27,7 @@ from ajax.agents.PQN.utils import compute_q_lambda_targets
 from ajax.environments.differentiable import with_transition_gradients
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import _action_bounds
+from ajax.networks.distributions import Squash
 from ajax.networks.networks import predict_value
 
 from . import agents, envs, oracles, runs
@@ -890,8 +891,8 @@ def _q6_read(env_args: Any, n: R.Nets) -> dict:
     p = R.pi(n, 1.0)
     if isinstance(p, distrax.Categorical):
         return {"pi(best)": p.probs.reshape(-1)[0]}
-    if hasattr(p, "unsquashed_stddev"):  # the tanh-Gaussian's latent
-        mu_u, sigma_u = p.unsquashed_mean(), p.unsquashed_stddev()
+    if isinstance(p, Squash):  # the tanh-Gaussian's latent
+        mu_u, sigma_u = p.distribution.mean(), p.distribution.stddev()
         return {"mu_u": mu_u.reshape(()), "sigma_u": sigma_u.reshape(())}
     mu, sigma = _executed(p, env_args)
     if mu.shape[0] == 1:

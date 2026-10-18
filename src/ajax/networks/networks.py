@@ -13,7 +13,7 @@ from flax.serialization import to_state_dict
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.modules.pid_actor import PIDActor, PIDPolicy, check_pid_actor
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import squash
 from ajax.networks.memory import (
     Carry,
     MemoryCell,
@@ -136,15 +136,14 @@ class CNNEncoder(nn.Module):
 
 class Actor(nn.Module):
     """The stochastic policy of SAC, REDQ, ASAC, AVG, PPO, APO and UDRL: a
-    Normal (or tanh-squashed) head for continuous actions, a Categorical one
-    for discrete. Expert guidance acts at the loss level, not in the
-    architecture, which keeps the policy unconstrained.
+    Normal head for continuous actions (:class:`Squashed` bounds it), a
+    Categorical one for discrete. Expert guidance acts at the loss level,
+    not in the architecture, which keeps the policy unconstrained.
     """
 
     input_architecture: Sequence[Union[str, ActivationFunction]]
     action_dim: int
     continuous: bool = False
-    squash: bool = False
     penultimate_normalization: bool = False
     bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
@@ -254,11 +253,7 @@ class Actor(nn.Module):
             else:
                 log_std = jnp.clip(self.log_std(embedding), -20, 2)
             std = jnp.exp(log_std)
-            return (
-                distrax.Normal(mean, std)
-                if not self.squash
-                else SquashedNormal(mean, std)
-            )
+            return distrax.Normal(mean, std)
         return self.model(embedding)
 
     def __call__(self, obs, hidden_state=None, done=None):
@@ -271,6 +266,23 @@ class Actor(nn.Module):
             hidden_state, embedding = self.memory_cell(hidden_state, embedding, done)
             return self._distribution(embedding), hidden_state
         return self._distribution(embedding)
+
+
+class Squashed(nn.Module):
+    """``actor`` with its policy bounded by ``tanh`` (:func:`squash`): any
+    actor, stochastic or deterministic, feedforward or recurrent. The two
+    share one scope, so the parameters are ``actor``'s alone."""
+
+    actor: nn.Module
+
+    def setup(self):
+        nn.share_scope(self, self.actor)
+
+    def __call__(self, *args, **kwargs):
+        out = self.actor(*args, **kwargs)
+        if isinstance(out, tuple):  # a recurrent actor's (policy, carry)
+            return (squash(out[0]), *out[1:])
+        return squash(out)
 
 
 class Critic(nn.Module):
@@ -435,7 +447,9 @@ def get_initialized_actor_critic(
     """
     Create actor and critic networks, their initializers and log-std head
     as ``network_config`` sets them; a prebuilt ``actor`` (TD3's
-    deterministic one) replaces the :class:`Actor` built here.
+    deterministic one) replaces the :class:`Actor` built here. ``squash``
+    wraps a continuous actor in :class:`Squashed` (discrete APO passes it
+    and keeps its Categorical).
 
     extra_obs_dim: dimensions the agent appends to obs at run time (UDRL's
     command; SAC's expert action and expert state when it augments with
@@ -471,7 +485,6 @@ def get_initialized_actor_critic(
         actor = PIDActor(
             policy=network_config.actor_architecture,
             action_dim=action_dim,
-            squash=squash,
             log_std_init=network_config.log_std_init,
         )
     else:
@@ -479,7 +492,6 @@ def get_initialized_actor_critic(
             input_architecture=network_config.actor_architecture,
             action_dim=action_dim,
             continuous=continuous,
-            squash=squash,
             penultimate_normalization=network_config.penultimate_normalization,
             bias_init=network_config.actor_bias_init,
             encoder_kernel_init=network_config.encoder_kernel_init,
@@ -493,6 +505,8 @@ def get_initialized_actor_critic(
             encoder_layer_norm=network_config.encoder_layer_norm,
             memory=memory,
         )
+    if squash and continuous:  # a discrete policy has no range to bound
+        actor = Squashed(actor)
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,

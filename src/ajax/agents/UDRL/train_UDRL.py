@@ -54,7 +54,7 @@ from ajax.evaluate import evaluate
 from ajax.extensions.base import ExtensionStack
 from ajax.log import eval_norm_info
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import Squash
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import (
     EnvironmentConfig,
@@ -304,7 +304,7 @@ def actor_loss_fn(
         log_p = pi.log_prob(actions)
         return -log_p.mean()
 
-    if isinstance(pi, SquashedNormal):
+    if isinstance(pi, Squash):
         eps = 1e-3
         target = jnp.clip(actions, -1.0 + eps, 1.0 - eps)
         return -pi.log_prob(target).sum(-1).mean()

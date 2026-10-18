@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import entropy, log_prob_from_raw
 from ajax.state import Transition
 
 
@@ -55,11 +55,12 @@ def recompute_log_prob(
     """The current policy's log-probability of the stored actions, shaped
     like :func:`rollout_actions`'s. A squashed policy recomputes it from the
     stored pre-tanh sample, never through arctanh, which is unstable as
-    ``|action| -> 1`` (:meth:`SquashedNormal.log_prob_from_raw`)."""
+    ``|action| -> 1`` (:func:`log_prob_from_raw`); an unsquashed one's
+    pre-tanh sample is its action."""
     if isinstance(pi, distrax.Categorical):
         return jnp.expand_dims(pi.log_prob(actions.squeeze(-1)), -1)
-    if isinstance(pi, SquashedNormal) and raw_actions is not None:
-        return pi.log_prob_from_raw(raw_actions)
+    if raw_actions is not None:
+        return log_prob_from_raw(pi, raw_actions).sum(-1, keepdims=True)
     return pi.log_prob(actions).sum(-1, keepdims=True)
 
 
@@ -67,17 +68,10 @@ def policy_entropy(pi: Any, rng: Optional[jax.Array] = None) -> jax.Array:
     """The per-sample entropy bonus: the joint action's entropy, summed over
     the action dimensions as CleanRL's ``ppo_continuous_action.py`` and
     baselines' ppo2 sum it (a mean would scale ``ent_coef`` by 1 / d). A
-    squashed policy's is brax's one-sample estimate of the executed action's
-    entropy, the latent Gaussian's plus the tanh log-det-Jacobian at a
-    sample drawn with ``rng`` (so its gradient reaches the mean): the latent
-    Gaussian's alone grows without bound in its scale."""
-    if isinstance(pi, SquashedNormal):
-        if rng is None:
-            raise ValueError("a squashed policy's entropy needs a key to sample")
-        return pi.effective_entropy(rng, num_samples=1)
+    squashed policy's is sampled with ``rng`` (:meth:`Squash.entropy`)."""
     if isinstance(pi, distrax.Categorical):
         return pi.entropy()
-    return pi.entropy().sum(-1)
+    return entropy(pi, rng).sum(-1)
 
 
 def clipped_surrogate(

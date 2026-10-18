@@ -11,6 +11,7 @@ from ajax.networks.networks import (
     Actor,
     Critic,
     MultiCritic,
+    Squashed,
     init_network_carry,
     init_network_state,
     predict_value_sequence,
@@ -34,9 +35,9 @@ def test_recurrent_actor_returns_dist_and_carry(kind, continuous):
         input_architecture=ARCH,
         action_dim=ACTION_DIM,
         continuous=continuous,
-        squash=continuous,
         memory=memory,
     )
+    actor = Squashed(actor) if continuous else actor
     rng = jax.random.PRNGKey(0)
     obs = jax.random.normal(rng, (T, B, OBS_DIM))
     resets = jnp.zeros((T, B), dtype=bool)

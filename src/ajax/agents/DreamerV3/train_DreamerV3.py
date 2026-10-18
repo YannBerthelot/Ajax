@@ -550,6 +550,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    end_timestep: Optional[int] = None,
     *,
     config: DreamerV3Config,
     replay_rows_per_env: int,
@@ -596,6 +597,7 @@ def make_train(
         logging_config,
         stack.extensions,
         start_timestep=start_timestep,
+        end_timestep=end_timestep,
     )
 
     def init(key: jax.Array) -> DreamerV3State:

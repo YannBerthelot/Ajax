@@ -18,7 +18,7 @@ from typing import Any, Callable, Optional, Union
 import numpy as np
 from gymnax import EnvParams
 
-from ajax.agents.base import ActorCritic, run_config
+from ajax.agents.base import ActorCritic, run_config, run_horizon, shared_counters
 from ajax.agents.DreamerV3.replay import bytes_per_row, grow_rings
 from ajax.agents.DreamerV3.state import (
     DreamerV3AgentConfig,
@@ -339,6 +339,7 @@ class DreamerV3(ActorCritic):
         logging_config: Optional[LoggingConfig] = None,
         on_ids_ready: Optional[Callable] = None,
         initial_state: Optional[BaseAgentState] = None,
+        total_timesteps: Optional[int] = None,
         **kwargs: Any,
     ) -> tuple[BaseAgentState, Any]:
         """Train for ``n_timesteps`` rows (``n_timesteps // n_envs`` ticks).
@@ -349,11 +350,22 @@ class DreamerV3(ActorCritic):
         (every ``log_frequency`` rows). Resume with
         ``initial_state=`` a returned state (or ``(state, metrics)``): the
         run continues the uninterrupted run of all the rows, schedules and
-        replay included (:meth:`_resolve_replay`).
+        replay included (:meth:`_resolve_replay`). ``total_timesteps`` is
+        the run's horizon (:meth:`ActorCritic.train`).
         """
         state: Any = initial_state
         if isinstance(state, tuple) and len(state) == 2:
             state = state[0]
+        # Refused before the replay is resolved, which records its ring on
+        # the agent: a refused call leaves the agent as it was.
+        start = (
+            0
+            if state is None
+            else int(
+                shared_counters(state, self.per_seed_update_counts).get("timestep", 0)
+            )
+        )
+        run_horizon(start, n_timesteps, total_timesteps)
         rows, state = self._resolve_replay(n_timesteps, state)
         return super().train(
             seed=seed,
@@ -362,6 +374,7 @@ class DreamerV3(ActorCritic):
             logging_config=logging_config,
             on_ids_ready=on_ids_ready,
             initial_state=state,
+            total_timesteps=total_timesteps,
             replay_rows_per_env=rows,
             **kwargs,
         )

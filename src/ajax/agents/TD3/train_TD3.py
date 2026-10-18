@@ -372,6 +372,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    end_timestep: Optional[int] = None,
     expert_policy: Optional[Callable] = None,
     action_pipeline: Optional[Callable] = None,
     extensions: Sequence = (),
@@ -400,6 +401,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        end_timestep=end_timestep,
         expert_policy=expert_policy,
     )
     if action_pipeline is None:

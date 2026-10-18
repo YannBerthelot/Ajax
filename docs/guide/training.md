@@ -63,6 +63,7 @@ state, out = agent.train(
     num_episode_test=10,  # test episodes per evaluation
     logging_config=None,  # None: no evaluation, and out is None
     initial_state=None,  # or a state to continue from
+    total_timesteps=None,  # the run's horizon; None: this call's end
 )
 ```
 
@@ -162,12 +163,33 @@ print(state.collector_state.timestep)  # [18432 18432]
 ```
 
 The second call continues from the first call's timestep. Its schedules
-(the extensions', the training fraction, the logging cadence) continue where
-they stopped instead of restarting, and run to the new horizon: the timestep
-reached plus `n_timesteps`. Each call knows only its own horizon, though, so
-a schedule set as a fraction of training, such as DQN's epsilon decay, has
-already finished at the end of a first call. To resume in another process,
-save the state first: [Checkpoints and resuming](checkpoints.md).
+(the extensions', the training fraction, the exploration, the logging's
+end) continue where they stopped instead of restarting, and run to the
+horizon `total_timesteps`. By default that is the call's own end, the
+timestep reached plus `n_timesteps`, so a schedule set as a fraction of
+training, such as DQN's epsilon decay, has already finished at the end of a
+first call. To split a run and keep the schedules of one call, pass the
+whole run's horizon to every call. A call whose `n_timesteps` would take it
+past the horizon is refused, so the last call trains the rest. An on-policy
+call trains in whole rollouts plus one and ends up to a rollout past its
+budget (the last call past the horizon, as one call does), so take the rest
+from the timestep reached:
+
+```python
+total = 16_384
+state, _ = agent.train(seed=[0, 1], n_timesteps=8_192, total_timesteps=total)
+reached = int(state.collector_state.timestep[0])  # 9216: one rollout past
+state, _ = agent.train(
+    seed=[0, 1],
+    n_timesteps=total - reached,
+    initial_state=state,
+    total_timesteps=total,
+)
+print(state.collector_state.timestep)  # [17408 17408], as one call of 16_384
+```
+
+To resume in another process, save the state first:
+[Checkpoints and resuming](checkpoints.md).
 
 The call may reuse the memory of the state you pass in. Read or save
 anything you need from it before the call.

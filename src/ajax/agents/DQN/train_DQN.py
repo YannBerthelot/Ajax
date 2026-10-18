@@ -70,6 +70,21 @@ class AuxiliaryLogs:
     value: ValueAuxiliaries
 
 
+def linear_epsilon(
+    timestep: jax.Array,
+    total_timesteps: int,
+    epsilon_start: float,
+    epsilon_end: float,
+    epsilon_decay_frac: float,
+) -> jax.Array:
+    """Epsilon at ``timestep``: linear from ``epsilon_start`` to
+    ``epsilon_end`` over the first ``epsilon_decay_frac`` of the
+    ``total_timesteps`` horizon, then flat."""
+    train_frac = timestep / total_timesteps
+    decay = jnp.clip(train_frac / epsilon_decay_frac, 0.0, 1.0)
+    return epsilon_start + decay * (epsilon_end - epsilon_start)
+
+
 def make_epsilon_greedy_pipeline(
     n_actions: int,
     epsilon_start: float,
@@ -79,10 +94,9 @@ def make_epsilon_greedy_pipeline(
 ) -> Callable:
     """Build the default DQN ``action_pipeline``: linear-decay epsilon-greedy.
 
-    Epsilon decays linearly from ``epsilon_start`` to ``epsilon_end`` over
-    the first ``epsilon_decay_frac`` of training, then stays flat. During
-    the ``learning_starts`` warmup (``uniform`` is set) actions are fully
-    random regardless of epsilon.
+    Epsilon follows :func:`linear_epsilon` over the ``total_timesteps``
+    horizon. During the ``learning_starts`` warmup (``uniform`` is set)
+    actions are fully random regardless of epsilon.
     """
 
     def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
@@ -93,10 +107,13 @@ def make_epsilon_greedy_pipeline(
         )
         greedy_action = jnp.argmax(q_values, axis=-1).astype(jnp.int32)
 
-        timestep = agent_state.collector_state.timestep
-        train_frac = timestep / total_timesteps
-        decay = jnp.clip(train_frac / epsilon_decay_frac, 0.0, 1.0)
-        epsilon = epsilon_start + decay * (epsilon_end - epsilon_start)
+        epsilon = linear_epsilon(
+            agent_state.collector_state.timestep,
+            total_timesteps,
+            epsilon_start,
+            epsilon_end,
+            epsilon_decay_frac,
+        )
 
         explore_key, random_key = jax.random.split(action_key)
         random_action = jax.random.randint(
@@ -413,6 +430,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    end_timestep: Optional[int] = None,
     epsilon_start: float = 1.0,
     epsilon_end: float = 0.05,
     epsilon_decay_frac: float = 0.5,
@@ -431,6 +449,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        end_timestep=end_timestep,
     )
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_target_fn = td_target_fn if td_target_fn is not None else compute_dqn_td_target

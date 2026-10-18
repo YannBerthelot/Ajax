@@ -2,11 +2,13 @@
 
 import os
 from types import SimpleNamespace
+from typing import ClassVar, NamedTuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import struct
 
 from ajax.checkpoint import (
     checkpoint_exists,
@@ -420,6 +422,92 @@ def test_a_checkpoint_missing_a_data_field_still_fails(sac_run, tmp_path):
         pickle.dump(saved, fh)
     with pytest.raises(ValueError, match="obs"):
         restore_into(state, path)
+
+
+@struct.dataclass
+class _Slim:
+    """A state class that deleted its field ``gone``."""
+
+    removed_fields: ClassVar[frozenset[str]] = frozenset({"gone"})
+    kept: jax.Array
+
+
+class _Pair(NamedTuple):
+    slim: _Slim
+    other: jax.Array
+
+
+@struct.dataclass
+class _Holder:
+    """A state class that deleted ``old``, holding classes that deleted
+    theirs: directly, in a NamedTuple, a list and a dict."""
+
+    removed_fields: ClassVar[frozenset[str]] = frozenset({"old"})
+    slim: _Slim
+    pair: _Pair
+    slims: list
+    by_name: dict
+
+
+def test_a_checkpoint_holding_fields_their_classes_removed_restores(tmp_path):
+    """The fields a state class lists in ``removed_fields`` are dropped on
+    restore, wherever the class sits, and the rest restores into a skeleton
+    of zeros. A field its class does not list still fails: ``gone`` on the
+    holder, which lists only ``old``."""
+    import pickle
+
+    rng = np.random.default_rng(0)
+
+    def slim():
+        return _Slim(kept=jnp.asarray(rng.normal(size=2)))
+
+    state = _Holder(
+        slim=slim(),
+        pair=_Pair(slim(), jnp.asarray(rng.normal(size=1))),
+        slims=[slim()],
+        by_name={"a": slim()},
+    )
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    saved["old"] = np.ones(3)
+    for held in (saved["slim"], saved["pair"]["slim"], saved["slims"]["0"]):
+        held["gone"] = np.ones(3)
+    saved["by_name"]["a"]["gone"] = np.ones(3)
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    skeleton = jax.tree.map(jnp.zeros_like, state)
+    restored = restore_into(skeleton, path)
+    jax.tree.map(np.testing.assert_array_equal, restored, state)
+
+    saved["gone"] = np.ones(3)
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    with pytest.raises(ValueError, match="Unknown field.*gone.*_Holder"):
+        restore_into(skeleton, path)
+
+
+def test_a_checkpoint_of_another_agent_still_fails(sac_run, tmp_path):
+    """No class lists another agent's fields: SAC's state, holding the
+    expert critic REDQ's lacks, does not restore into REDQ's."""
+    from ajax.agents.REDQ.REDQ import REDQ
+
+    net = ("8", "relu")
+    redq = REDQ(
+        env_id="Pendulum-v1",
+        n_envs=2,
+        actor_architecture=net,
+        critic_architecture=net,
+        learning_starts=10,
+        batch_size=4,
+        buffer_size=40,
+    )
+    skeleton, _ = redq.train(seed=[0], n_timesteps=0)
+    path = str(tmp_path / "sac.pkl")
+    save_checkpoint(sac_run.out[0], path)
+    with pytest.raises(ValueError, match="Unknown field.*expert_critic"):
+        restore_into(skeleton, path)
 
 
 def test_a_brax_state_saved_before_its_raw_observation_restores_it(tmp_path):

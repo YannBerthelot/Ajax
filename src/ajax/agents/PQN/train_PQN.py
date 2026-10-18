@@ -152,6 +152,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    end_timestep: Optional[int] = None,
     epsilon_start: float = 1.0,
     epsilon_end: float = 0.05,
     epsilon_decay_frac: float = 0.5,
@@ -168,6 +169,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        end_timestep=end_timestep,
     )
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss

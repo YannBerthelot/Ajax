@@ -809,6 +809,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    end_timestep: Optional[int] = None,
     extensions: Sequence = (),
 ):
     """PPO's train function: an ``n_steps`` rollout per env, then one
@@ -824,6 +825,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        end_timestep=end_timestep,
     )
 
     def init(key: jax.Array) -> PPOState:
@@ -848,7 +850,9 @@ def make_train(
             recurrent,
             loop.stack,
             total_timesteps,
-            loop.n_rollouts(agent_config.n_steps),
+            # brax's reset cadence divides the whole training: the updates
+            # of one call over the run, from 0 to its horizon.
+            loop.n_rollouts(agent_config.n_steps, total_timesteps),
         )
 
     return loop.on_policy(

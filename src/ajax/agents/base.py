@@ -48,19 +48,20 @@ def run_config(
     return config | {"algo_name": name}
 
 
-def shared_counters(state: Any) -> dict[str, jax.Array]:
+def shared_counters(state: Any, per_seed_updates: bool = False) -> dict[str, jax.Array]:
     """The counters of a resumed ``state`` (leading seed axis) its seeds
     share, as unbatched scalars: the collector's timestep, the number of
-    evaluations logged and, when every seed has done as many, the number of
-    updates (``{}`` for a state without them).
+    evaluations logged and the number of updates (``{}`` for a state
+    without them).
 
     They gate the evaluations (:func:`ajax.log.evaluate_and_log`) and the
     updates' schedules (TD3's policy delay, DQN's target refresh, PPO's
     forced resets). A fresh run computes them from constants, unbatched
     under the seed vmap; left batched, a resumed run's gate would turn
-    ``lax.cond`` into a select that runs both branches on every iteration.
-    The update counts may differ across seeds (TD-MPC2's wait on each
-    seed's episodes); they then stay batched.
+    ``lax.cond`` into a select that runs both branches on every iteration,
+    so seeds standing at different points are refused. ``per_seed_updates``
+    (:attr:`ActorCritic.per_seed_update_counts`) keeps differing update
+    counts batched instead.
     """
     collector = getattr(state, "collector_state", None)
     found = {
@@ -74,14 +75,37 @@ def shared_counters(state: Any) -> dict[str, jax.Array]:
             continue
         seeds = np.asarray(jax.device_get(value)).reshape(-1)
         if seeds.size == 0 or np.any(seeds != seeds[0]):
-            if name == "n_updates":
+            if name == "n_updates" and per_seed_updates:
                 continue
+            hint = (
+                "; an agent whose seeds update unequally by design declares"
+                " per_seed_update_counts"
+                if name == "n_updates"
+                else ""
+            )
             raise ValueError(
                 f"cannot resume: the seeds' {name} differ ({seeds.tolist()});"
-                " every seed of a resumed run must stand at the same point"
+                f" every seed of a resumed run must stand at the same point{hint}"
             )
         out[name] = jnp.asarray(seeds[0])
     return out
+
+
+def run_horizon(
+    start: int, n_timesteps: int, total_timesteps: Optional[int], unit: str = "timestep"
+) -> int:
+    """The horizon of a ``train`` call that trains ``n_timesteps`` from
+    ``start`` (its ``unit``): the run's ``total_timesteps``, by default the
+    call's end, ``start + n_timesteps``. A horizon that ends before the call
+    does is refused."""
+    end = start + n_timesteps
+    horizon = end if total_timesteps is None else int(total_timesteps)
+    if horizon < end:
+        raise ValueError(
+            f"total_timesteps={horizon} ends before this call does: it "
+            f"trains from {unit} {start} for n_timesteps={n_timesteps}"
+        )
+    return horizon
 
 
 def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
@@ -135,6 +159,13 @@ class ActorCritic:
     # state (a_expert, next_a_expert), which extensions may read
     # (check_extension_experts).
     stores_expert_actions: bool = False
+    # Whether this agent's seeds may stand at different update counts
+    # (TD-MPC2's episodic mode sets it: its updates wait on each seed's
+    # episodes). A resumed
+    # run keeps such counts batched (shared_counters); any other agent's
+    # differing counts are refused, since a batched count turns the update
+    # schedules' lax.cond into a select running both branches.
+    per_seed_update_counts: bool = False
     # Whether the agent replays stored transitions. It then normalises
     # observations itself (EnvironmentConfig.normalize_obs_in_agent): its
     # replay keeps the env's own observations, normalised with the current
@@ -373,6 +404,7 @@ class ActorCritic:
         logging_config: Optional[LoggingConfig] = None,
         on_ids_ready: Optional[Callable] = None,
         initial_state: Optional[BaseAgentState] = None,
+        total_timesteps: Optional[int] = None,
         **kwargs,
     ) -> tuple[BaseAgentState, Any]:
         """
@@ -382,10 +414,13 @@ class ActorCritic:
             n_timesteps (int): Timesteps this call trains for.
             num_episode_test (int): Number of episodes for evaluation during training.
             initial_state: a state (or ``(state, out)``) ``train`` returned,
-                to resume from: the run continues from its timestep, and its
-                schedules (training fraction, extensions, exploration, the
-                logging's end) run over the whole run, that timestep plus
-                ``n_timesteps``.
+                to resume from: the run continues from its timestep.
+            total_timesteps: the whole run's horizon, which every schedule
+                (training fraction, extensions, exploration, the logging's
+                end) runs over; ``None``: this call's end, its start (0, or
+                the resumed timestep) plus ``n_timesteps``. Pass the same
+                horizon to every call of a run split into calls to follow
+                the schedules of one call.
 
         Returns ``(state, out)``, each leaf with a leading seed axis. On the
         shared loop (``ajax.agents.loop``) ``out`` is ``None`` without a
@@ -393,6 +428,21 @@ class ActorCritic:
         """
         if isinstance(seed, int):
             seed = [seed]
+
+        # ``agent.train()`` returns ``(state, out)``: accept either form.
+        if isinstance(initial_state, tuple) and len(initial_state) == 2:
+            initial_state = initial_state[0]
+        counters = (
+            {}
+            if initial_state is None
+            else shared_counters(initial_state, self.per_seed_update_counts)
+        )
+        # The call trains from the run's timestep to its end, its schedules
+        # run to the horizon; the start and the end are passed only when
+        # they differ from 0 and the horizon, so other calls are unchanged.
+        start = int(counters.get("timestep", 0))
+        end = start + n_timesteps
+        horizon = run_horizon(start, n_timesteps, total_timesteps)
 
         if logging_config is not None:
             # A copy: the caller's config may serve another agent's run.
@@ -409,24 +459,18 @@ class ActorCritic:
         if on_ids_ready is not None:
             on_ids_ready(self.run_ids)
 
-        # ``agent.train()`` returns ``(state, out)``: accept either form.
-        if isinstance(initial_state, tuple) and len(initial_state) == 2:
-            initial_state = initial_state[0]
-        counters = {} if initial_state is None else shared_counters(initial_state)
-        # The call trains from the run's timestep to its horizon; the start
-        # is passed only when non-zero, so fresh calls are unchanged.
-        start = int(counters.get("timestep", 0))
         train_jit = self.get_make_train()(
             env_args=self.env_args,
             actor_optimizer_args=self.actor_optimizer_args,
             critic_optimizer_args=self.critic_optimizer_args,
             network_args=self.network_args,
             agent_config=self.agent_config,
-            total_timesteps=start + n_timesteps,
+            total_timesteps=horizon,
             num_episode_test=num_episode_test,
             run_ids=self.run_ids,
             logging_config=logging_config,
             **({"start_timestep": start} if start else {}),
+            **({"end_timestep": end} if end != horizon else {}),
             **kwargs,
         )
 

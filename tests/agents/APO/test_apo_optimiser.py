@@ -19,6 +19,7 @@ import pytest
 from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.APO.state import APOConfig
+from ajax.agents.PPO import train_PPO
 from ajax.agents.PPO.core import recompute_log_prob
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
@@ -84,18 +85,21 @@ def test_APO_entropy_bonus_is_its_reference_codes(env_id: str) -> None:
         np.testing.assert_allclose(grad, -0.01, rtol=1e-5)
 
 
-def test_clip_grad_norm_scales_as_torchs_clip_grad_norm() -> None:
+def test_APO_clips_with_torchs_clip_grad_norm() -> None:
     """torch 1.5.1's ``clip_grad_norm_`` multiplies every gradient by
     ``max_norm / (norm + 1e-6)`` when that is below 1: at norm 2e-6 and
-    max_norm 1e-6, by a third."""
+    max_norm 1e-6, by a third (``tf.clip_by_global_norm``, PPO's, by a
+    half)."""
+    clip = train_PPO.clip_global_norm
     grads = ({"a": jnp.array([1.2e-6, 0.0])}, {"b": jnp.array([1.6e-6])})
-    clipped = train_APO.clip_grad_norm(grads, 1e-6)
+    clipped = clip(grads, 1e-6, train_APO.TORCH_CLIP_EPS)
     np.testing.assert_allclose(clipped[0]["a"], [0.4e-6, 0.0], rtol=1e-5)
     np.testing.assert_allclose(clipped[1]["b"], [1.6e-6 / 3], rtol=1e-5)
-    kept = train_APO.clip_grad_norm(grads, 1e-5)
+    np.testing.assert_allclose(clip(grads, 1e-6)[1]["b"], [0.8e-6], rtol=1e-5)
+    kept = clip(grads, 1e-5, train_APO.TORCH_CLIP_EPS)
     for k, g in zip(jax.tree.leaves(kept), jax.tree.leaves(grads), strict=True):
         np.testing.assert_array_equal(k, g)
-    assert train_APO.clip_grad_norm(grads, None) is grads
+    assert clip(grads, None) is grads
 
 
 def _minibatches(state: Any) -> list[dict]:

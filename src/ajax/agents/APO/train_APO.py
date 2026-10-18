@@ -14,7 +14,6 @@ from typing import Any, Callable, Optional, Tuple
 import distrax
 import jax
 import jax.numpy as jnp
-import optax
 from flax.core import FrozenDict
 
 from ajax.agents.APO.state import APOConfig, APOState
@@ -31,7 +30,7 @@ from ajax.agents.PPO.core import (
     rollout_actions,
     run_epochs,
 )
-from ajax.agents.PPO.train_PPO import init_PPO
+from ajax.agents.PPO.train_PPO import init_PPO, joint_step
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
@@ -130,15 +129,9 @@ def value_loss_function(
     )
 
 
-def clip_grad_norm(grads: Any, max_norm: Optional[float]) -> Any:
-    """``grads`` scaled down to global norm ``max_norm`` when above it, as
-    torch's ``clip_grad_norm_`` scales the gradients of all the parameters
-    it is given, its ``1e-6`` included (torch 1.5.1, rlpyt's pin,
-    ``torch/nn/utils/clip_grad.py:33-37``); ``None`` leaves them."""
-    if max_norm is None:
-        return grads
-    coef = jnp.minimum(1.0, max_norm / (optax.global_norm(grads) + 1e-6))
-    return jax.tree.map(lambda g: g * coef, grads)
+#: What torch's ``clip_grad_norm_`` adds to the norm before dividing by it
+#: (torch 1.5.1, rlpyt's pin, ``torch/nn/utils/clip_grad.py:33-37``).
+TORCH_CLIP_EPS = 1e-6
 
 
 def update_networks(
@@ -215,14 +208,16 @@ def update_networks(
     grads, aux = jax.grad(loss_fn, has_aux=True)(
         (actor_state.params, critic_state.params)
     )
-    actor_grads, critic_grads = clip_grad_norm(grads, agent_config.max_grad_norm)
-    return (
-        agent_state.replace(
-            actor_state=actor_state.apply_gradients(grads=actor_grads),
-            critic_state=critic_state.apply_gradients(grads=critic_grads),
-        ),
-        aux,
+    actor_grads, critic_grads = grads
+    actor_state, critic_state = joint_step(
+        actor_state,
+        critic_state,
+        actor_grads,
+        critic_grads,
+        agent_config.max_grad_norm,
+        norm_eps=TORCH_CLIP_EPS,
     )
+    return agent_state.replace(actor_state=actor_state, critic_state=critic_state), aux
 
 
 def update_agent(

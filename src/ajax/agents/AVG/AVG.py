@@ -101,13 +101,16 @@ class AVG(ActorCritic):
         if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("AVG only supports continuous action spaces.")
 
-        # AVG's penultimate normalisation and Adam betas.
+        # AVG's penultimate normalisation and Adam betas. Adam's eps is
+        # torch's default, 1e-8, which the reference's Adams keep
+        # (gauthamvasan/avg @6b6822c avg.py:116-117, torch >= 2.7.0);
+        # Ajax's shared default is 1e-5.
         self.network_args = self.network_args.replace(penultimate_normalization=True)
         self.actor_optimizer_args = self.actor_optimizer_args.replace(
-            beta_1=beta_1, beta_2=beta_2
+            beta_1=beta_1, beta_2=beta_2, eps=1e-8
         )
         self.critic_optimizer_args = self.critic_optimizer_args.replace(
-            beta_1=beta_1, beta_2=beta_2
+            beta_1=beta_1, beta_2=beta_2, eps=1e-8
         )
         # AVG keeps its entropy coefficient at alpha_init, as its reference
         # code does (gauthamvasan/avg, avg.py): the optimizer never steps.

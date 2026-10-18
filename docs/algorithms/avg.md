@@ -52,7 +52,7 @@ Defaults are read from `AVG.__init__`.
 | `n_envs` | `1` | parallel environments |
 | `actor_learning_rate` | `6.3e-3` | Adam step size of the actor |
 | `critic_learning_rate` | `8.7e-3` | Adam step size of the critic |
-| `beta_1`, `beta_2` | `0`, `0.999` | Adam's moment decays (AVG uses `beta_1 = 0`) |
+| `beta_1`, `beta_2` | `0`, `0.999` | Adam's moment decays (AVG uses `beta_1 = 0`; Adam's epsilon is torch's 1e-8) |
 | `actor_architecture`, `critic_architecture` | `("256", "leaky_relu", "256", "leaky_relu")` | hidden layers |
 | `gamma` | `0.99` | discount |
 | `learning_starts` | `0` | steps of uniform random actions before the first update |

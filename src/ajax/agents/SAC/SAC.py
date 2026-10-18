@@ -185,6 +185,13 @@ class SAC(ActorCritic):
             action_repeat=action_repeat,
             extensions=extensions,
         )
+        # Adam's eps is TensorFlow's default, 1e-8, which softlearning's
+        # tf.train.AdamOptimizer keeps (a1253bc sac.py:236-244, :318-324);
+        # recurrent SAC's reference (Ni et al., pomdp-baselines e7c19c3
+        # policy_rnn.py:75, :93) keeps torch's, also 1e-8. Ajax's shared
+        # default is 1e-5.
+        self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=1e-8)
+        self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=1e-8)
         self.alpha_args = AlphaConfig(
             learning_rate=alpha_learning_rate, alpha_init=alpha_init
         )

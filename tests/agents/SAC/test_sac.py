@@ -28,6 +28,13 @@ def test_the_gain_policy_refuses_the_experts_action_in_the_observation():
         SAC(env_id="Pendulum-v1", augment_obs_with_expert_action=True, **kw)
 
 
+def test_adam_eps_is_the_references():
+    """softlearning's tf.train.AdamOptimizer keeps TF's eps, 1e-8 (a1253bc
+    sac.py:236-244, :318-324), not Ajax's shared 1e-5."""
+    agent = SAC(env_id="Pendulum-v1")
+    assert agent.actor_optimizer_args.eps == agent.critic_optimizer_args.eps == 1e-8
+
+
 def test_fixed_alpha_keeps_temperature_at_alpha_init():
     """``fixed_alpha=True`` skips the temperature gradient step entirely.
 

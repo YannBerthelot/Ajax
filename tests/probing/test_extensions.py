@@ -636,24 +636,34 @@ def _held(alpha: float, a_e: float) -> float:
     return float(np.tanh(res.x[0]))
 
 
-def imitation(alpha: float, a_e: float, q_filter: bool) -> Any:
-    """SAC's own stateful expert (its stored actions are the clone target)."""
+PINNED: dict[str, dict[str, Any]] = {
+    "SAC": {"fixed_alpha": True, "policy_update_start": 200}
+    | {"expert_buffer_n_steps": 0},
+}
+
+
+def imitation(agent: str, alpha: float, a_e: float, q_filter: bool) -> Any:
+    """The agent's own stateful expert (its stored actions are the clone target)."""
     expert = AgentExpert(ConstantExpert(a_e))
     clone = ImitationLoss(expert, coef=COEF, q_filter=q_filter)
-    kw: dict[str, Any] = {"fixed_alpha": True, "alpha_init": alpha}
-    kw |= {"policy_update_start": 200}
-    kw |= {"expert_policy": expert, "expert_buffer_n_steps": 0}
+    kw = PINNED[agent] | {"alpha_init": alpha}
     read = lambda n: {f"a({x})": R.action(n, float(x)) for x in (0, 1)}  # noqa: E731
-    return q7_readings("SAC", ActionChainEnv, read, (clone,), **kw)
+    kw |= {"expert_policy": expert}
+    return q7_readings(agent, ActionChainEnv, read, (clone,), **kw)
 
 
-# id: alpha, a_E, q_filter, budget, tolerance (budgets 625, 1250, 2500).
+# kind: alpha, a_E, q_filter.
+KINDS = {"imitation": (0.1, A_E, False), "q_filter": (0.1, A_E, True)}
+KINDS["q_filter-kept"] = (0.3, 1.0, True)
+# id: budget, tolerances, seeds of 3000-3031 within (budgets 625, 1250, 2500).
 IMITATION = {
-    "q7-imitation-SAC": (0.1, A_E, False, 625, 0.02),
-    "q7-q_filter-SAC": (0.1, A_E, True, 2500, 0.02),
-    "q7-q_filter-kept-SAC": (0.3, 1.0, True, 625, 0.061),
+    "q7-imitation-SAC": (625, (0.02, 0.02), 32),
+    "q7-q_filter-SAC": (2500, (0.02, 0.02), 32),
+    "q7-q_filter-kept-SAC": (625, (0.061, 0.061), 32),
 }
-for cid, (alpha, a_e, q_filter, budget, width) in IMITATION.items():
+for cid, (budget, tol, cert) in IMITATION.items():
+    kind, agent = cid[3:].rsplit("-", 1)
+    alpha, a_e, q_filter = KINDS[kind]
     free, held = oracles.maxent_mean_action(1.0, alpha), _held(alpha, a_e)
     if q_filter and a_e < free:  # every row dropped once the actor passes a_E
         truth, wrong = free, {"BC on every row (no filter, or inverted)": held}
@@ -662,11 +672,11 @@ for cid, (alpha, a_e, q_filter, budget, width) in IMITATION.items():
     CASES[cid] = Case(
         cid,
         tuple(Query(f"a({x})", truth, wrong) for x in (0, 1)),
-        imitation(alpha, a_e, q_filter),
+        imitation(agent, alpha, a_e, q_filter),
         budget,
-        (width, width),
+        tol,
         slow=True,
-        note="cert 32/32",
+        note=f"cert {cert}/32",
     )
 
 

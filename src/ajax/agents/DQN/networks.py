@@ -16,6 +16,7 @@ import jax.numpy as jnp
 from flax.linen.initializers import constant, orthogonal
 from flax.serialization import to_state_dict
 
+from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_state_action_shapes
 from ajax.networks.networks import CNNEncoder, CNNSpec, Encoder, init_network_state
 from ajax.networks.utils import get_adam_tx
@@ -153,7 +154,10 @@ def predict_q(
     q_params,
     obs: jax.Array,
 ) -> jax.Array:
-    """Return the raw Q-value vector ``Q(obs)`` of shape ``(..., n_actions)``."""
+    """Return the raw Q-value vector ``Q(obs)`` of shape ``(..., n_actions)``,
+    the observations normalised first when the agent normalises them
+    (``q_state.obs_norm_info``)."""
+    obs = apply_obs_norm(obs, getattr(q_state, "obs_norm_info", None))
     return q_state.apply_fn(q_params, obs).q_values
 
 

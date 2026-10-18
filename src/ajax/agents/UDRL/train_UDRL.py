@@ -27,7 +27,7 @@ from flax import struct
 from flax.core import FrozenDict
 from jax.tree_util import Partial as partial
 
-from ajax.agents.loop import Evaluation, TrainLoop, fold_post_update
+from ajax.agents.loop import Evaluation, TrainLoop, fold_post_update, with_obs_norm
 from ajax.agents.UDRL.buffer import (
     add_segment,
     episode_stream,
@@ -43,16 +43,18 @@ from ajax.environments.interaction import (
     step,
     update_episodic_return,
 )
+from ajax.environments.obs_norm import update_obs_norm
 from ajax.environments.utils import (
     agent_action_to_env,
     check_if_environment_has_continuous_actions,
     env_keys,
+    raw_obs_columns,
 )
 from ajax.evaluate import evaluate
 from ajax.extensions.base import ExtensionStack
 from ajax.log import eval_norm_info
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import Squash
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import (
     EnvironmentConfig,
@@ -103,25 +105,21 @@ def init_UDRL(
         num_critics=1,
         extra_obs_dim=2,  # the (d_r, d_h) command is appended to obs
     )
-    mode = env_args.mode
+    # Under normalize_observations the collector's statistics cover the
+    # env's columns: the command appended to them stays raw, then scaled.
     collector_state = init_collector_state(
-        collector_key,
-        env_args=env_args,
-        mode=mode,
-        expert_state_aug_dim=2,  # reserves 2 trailing slots in last_obs for command
+        collector_key, env_args=env_args, mode=env_args.mode
     )
 
     n_envs = env_args.n_envs
     init_cmd = jnp.tile(
         jnp.array(
             [agent_config.command_return_init, agent_config.command_horizon_init],
-            dtype=collector_state.last_obs.dtype,
+            dtype=jnp.float32,
         ),
         (n_envs, 1),
     )
-    new_last_obs = jnp.concatenate(
-        [collector_state.last_obs[:, :-2], init_cmd], axis=-1
-    )
+    new_last_obs = jnp.concatenate([collector_state.last_obs, init_cmd], axis=-1)
     collector_state = collector_state.replace(last_obs=new_last_obs)
 
     obs_dim = collector_state.last_obs.shape[-1]
@@ -180,6 +178,14 @@ def _udrl_collect_step(
     rng_step = env_keys(step_key, mode, env_args.n_envs)
 
     last_obs = cs.last_obs  # (n_envs, raw_obs_dim + 2)
+    # The observation statistics take each observation once, when it is
+    # collected and before the actor reads it (as collect_experience).
+    if cs.obs_norm_info is not None:
+        _, stats = update_obs_norm(
+            last_obs[:, :-2], cs.obs_norm_info, raw_obs_columns(env_args.env)
+        )
+        cs = cs.replace(obs_norm_info=stats)
+        agent_state = with_obs_norm(agent_state.replace(collector_state=cs))
     # Scale (dr, dh) before the actor's forward pass (paper §appendix). The
     # underlying buffer keeps raw values; the actor input is the scaled view.
     last_obs_for_actor = _scale_obs_command(
@@ -298,7 +304,7 @@ def actor_loss_fn(
         log_p = pi.log_prob(actions)
         return -log_p.mean()
 
-    if isinstance(pi, SquashedNormal):
+    if isinstance(pi, Squash):
         eps = 1e-3
         target = jnp.clip(actions, -1.0 + eps, 1.0 - eps)
         return -pi.log_prob(target).sum(-1).mean()
@@ -379,6 +385,14 @@ def training_iteration(
                 "actor_params": params,
                 "actor_state": a_state.actor_state,
             }
+            if extension_stack:
+                # For the extensions: the env's own observations at the
+                # batch's rows (the buffer holds them raw), and the policy's
+                # mean action (None for a discrete policy, which has none).
+                pi, _ = get_pi(a_state.actor_state, params, obs_b)
+                discrete = isinstance(pi, distrax.Categorical)
+                _al_batch["raw_observations"] = obs_b[..., :-2]
+                _al_batch["pi_mean"] = None if discrete else pi.mean()
             return loss + extension_stack.fold_actor_loss(
                 a_state,
                 _al_batch,
@@ -527,6 +541,7 @@ def make_train(
         start_timestep=start_timestep,
     )
     per_iter = env_args.n_envs * agent_config.n_steps
+    loop.warn_if_partial(per_iter, "n_envs x n_steps")
     num_iterations = max(loop.budget // per_iter, 1)
     evaluation = Evaluation(
         metrics=train_metrics,

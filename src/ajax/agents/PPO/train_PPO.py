@@ -1,15 +1,16 @@
-"""PPO (Schulman et al., 2017) with brax's minibatch geometries.
+"""PPO (Schulman et al., 2017), with brax's minibatch geometry as an option.
 
 Each iteration collects an ``(n_steps, n_envs)`` rollout, then runs
 ``n_epochs`` passes of a critic and an actor step on every minibatch of it
 (the clipped surrogate: :mod:`ajax.agents.PPO.core`). The rollout's
 :class:`Geometry` decides how it is minibatched and where GAE is computed:
 
-* ``time``: fragments of ``length`` steps (whole rollouts per env unless
-  ``unroll_length``) shuffled into minibatches, GAE recomputed in every
-  minibatch with the current critic (brax's ``compute_ppo_loss``);
-* ``flat``: GAE once on the whole rollout, then a flat shuffle of the
-  samples (when the fragments do not split evenly, e.g. one env);
+* ``flat`` (feedforward default): GAE once on the whole rollout, then a flat
+  shuffle of its ``n_steps * n_envs`` samples (the paper's Algorithm 1,
+  OpenAI Baselines' ppo2);
+* ``time`` (with ``unroll_length``): fragments of ``unroll_length`` steps
+  shuffled into minibatches, GAE recomputed in every minibatch with the
+  current critic (brax's ``compute_ppo_loss``);
 * ``recurrent``: GAE once on the whole rollout, then a shuffle of whole
   sequences of ``length`` steps, each replayed from the carry it started
   from.
@@ -20,8 +21,10 @@ import math
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple
 
+import distrax
 import jax
 import jax.numpy as jnp
+import optax
 from flax.core import FrozenDict
 
 from ajax.agents.loop import TrainLoop
@@ -79,8 +82,10 @@ def init_PPO(
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
+    expert_policy: Optional[Callable] = None,
 ) -> PPOState:
-    """The initial actor, critic and collector."""
+    """The initial actor, critic and collector (holding ``expert_policy``'s
+    initial state when it is stateful)."""
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
 
     continuous = check_if_environment_has_continuous_actions(
@@ -98,7 +103,9 @@ def init_PPO(
         num_critics=1,
     )
     mode = env_args.mode
-    collector_state = init_collector_state(collector_key, env_args=env_args, mode=mode)
+    collector_state = init_collector_state(
+        collector_key, env_args=env_args, mode=mode, expert_policy=expert_policy
+    )
 
     return PPOState(
         rng=rng,
@@ -199,7 +206,11 @@ def policy_loss_function(
 
     total_loss = loss_actor - ent_coef * entropy
     if extra_loss_fn is not None:
-        total_loss = total_loss + extra_loss_fn(actor_params, actor_state)
+        # A discrete policy has no mean action.
+        pi_mean = None if isinstance(pi, distrax.Categorical) else pi.mean()
+        total_loss = total_loss + extra_loss_fn(
+            actor_params, actor_state, observations, pi_mean
+        )
 
     return total_loss, PolicyAuxiliaries(
         policy_loss=total_loss,
@@ -247,15 +258,20 @@ def _stack_actor_loss(
     agent_state: PPOState,
     key: jax.Array,
     total_timesteps: int,
+    raw_observations: Optional[jax.Array] = None,
 ) -> Optional[Callable]:
     """The stack's additive actor-loss term on ``key`` as a
     ``policy_loss_function`` ``extra_loss_fn``: ``(actor_params,
-    actor_state) -> scalar``; ``None`` for an empty stack."""
+    actor_state, observations, pi_mean) -> scalar``, the minibatch's
+    ``raw_observations`` beside them; ``None`` for an empty stack."""
     if not extension_stack:
         return None
 
-    def actor_loss(actor_params, actor_state):
+    def actor_loss(actor_params, actor_state, observations, pi_mean):
         _batch = {
+            "observations": observations,
+            "raw_observations": raw_observations,
+            "pi_mean": pi_mean,
             "actor_params": actor_params,
             "actor_state": actor_state,
         }
@@ -312,7 +328,10 @@ def minibatch_geometry(
 ) -> Geometry:
     """The rollout's :class:`Geometry`.
 
-    ``time`` needs fragments that split evenly into more than one
+    ``time`` only when ``unroll_length`` asks for it (``n_steps`` gives
+    whole rollouts per env): with as many minibatches as envs, each
+    minibatch is then one env's trajectory, its advantages normalised
+    within it. It needs fragments that split evenly into more than one
     minibatch: recomputing GAE on a single minibatch, the whole rollout,
     with a critic that just stepped only makes the value targets oscillate
     (the flake of the one-env probing fixture). A recurrent rollout is a
@@ -336,15 +355,13 @@ def minibatch_geometry(
             )
         return Geometry("recurrent", num_minibatches, length)
     unroll = agent_config.unroll_length
-    if num_minibatches > 1:
-        if (
-            unroll is not None
-            and n_steps % unroll == 0
-            and n_steps // unroll * n_envs % num_minibatches == 0
-        ):
-            return Geometry("time", num_minibatches, unroll)
-        if n_envs % num_minibatches == 0:
-            return Geometry("time", num_minibatches, n_steps)
+    if (
+        unroll is not None
+        and num_minibatches > 1
+        and n_steps % unroll == 0
+        and n_steps // unroll * n_envs % num_minibatches == 0
+    ):
+        return Geometry("time", num_minibatches, unroll)
     return Geometry("flat", num_minibatches, n_steps)
 
 
@@ -361,10 +378,14 @@ def _recurrent_values(
     actor's are recomputed sequence by sequence with the current params (one
     more pass, skipped for whole-rollout sequences, whose start carry is
     exact): a sequence never starts from a zero carry mid-episode, the
-    variant that makes truncated BPTT worse than none. ``V(s_{t+1})`` is the
-    shifted sequence plus one step on the collector's last observation: at a
-    truncation, the reset observation (the usual recurrent-PPO
-    approximation; GAE masks terminal steps).
+    variant that makes truncated BPTT worse than none. The pass runs step by
+    step (the memories' acting path, equal to the sequence one), and after
+    each step reads ``V(s_{t+1})`` from the carry that consumed ``obs[t]``,
+    on ``next_obs[t]``: the next observation, or the episode's final one
+    where it ended. A time limit thus bootstraps on its own episode, as
+    sb3-contrib's RecurrentPPO does (its pre-reset LSTM state on the
+    terminal observation), not on the reset observation with a fresh
+    carry; GAE masks terminal steps.
 
     Returns the state (critic carry advanced), the values, the next values,
     the reset flags (``resets[t]``: ``obs[t]`` starts an episode) and the
@@ -380,31 +401,35 @@ def _recurrent_values(
         [initial_done[None], dones_seq[:-1].astype(bool)], axis=0
     )  # (T, B)
     obs_seqs = rollout.obs.reshape(n_sequences, length, *rollout.obs.shape[1:])
+    next_obs_seqs = rollout.next_obs.reshape(obs_seqs.shape)
     resets_seqs = resets.reshape(n_sequences, length, n_envs)
     critic, actor = agent_state.critic_state, agent_state.actor_state
+    going_on = jnp.zeros((1, n_envs), bool)
+
+    def critic_step(carry: Any, step: tuple) -> tuple[Any, tuple]:
+        obs, next_obs, step_resets = step
+        value, carry = predict_value_sequence(
+            critic, critic.params, obs[None], step_resets[None], carry
+        )
+        next_value, _ = predict_value_sequence(
+            critic, critic.params, next_obs[None], going_on, carry
+        )
+        # (num = 1, T = 1, B, 1) -> (B, 1)
+        return carry, (value.squeeze((0, 1)), next_value.squeeze((0, 1)))
 
     def critic_chunk(carry: Any, seq: tuple) -> tuple[Any, tuple]:
-        obs, seq_resets = seq
-        values, carry_next = predict_value_sequence(
-            critic_state=critic,
-            critic_params=critic.params,
-            x=obs,
-            resets=seq_resets,
-            initial_hidden=carry,
-        )
+        carry_next, values = jax.lax.scan(critic_step, carry, seq)
         return carry_next, (values, carry)
 
     assert start.critic_state.hidden_state is not None
-    critic_end, (seq_values, critic_starts) = jax.lax.scan(
+    critic_end, ((seq_values, seq_next_values), critic_starts) = jax.lax.scan(
         critic_chunk,
         jax.lax.stop_gradient(start.critic_state.hidden_state),
-        (obs_seqs, resets_seqs),
+        (obs_seqs, next_obs_seqs, resets_seqs),
     )
-    # (S, num, L, B, 1) -> (num, T, B, 1) -> (T, B, 1)
-    values = jnp.moveaxis(seq_values, 0, 1).reshape(
-        seq_values.shape[1], n_steps, *seq_values.shape[3:]
-    )
-    values = values.squeeze(0)
+    # (S, L, B, 1) -> (T, B, 1)
+    values = seq_values.reshape(n_steps, *seq_values.shape[2:])
+    next_values = seq_next_values.reshape(values.shape)
 
     initial_actor_hidden = jax.lax.stop_gradient(start.actor_state.hidden_state)
     if n_sequences > 1:
@@ -420,14 +445,6 @@ def _recurrent_values(
     else:
         actor_starts = jax.tree.map(lambda x: x[None], initial_actor_hidden)
 
-    v_last, _ = predict_value_sequence(
-        critic_state=critic,
-        critic_params=critic.params,
-        x=agent_state.collector_state.last_obs[None],
-        resets=dones_seq[-1:].astype(bool),
-        initial_hidden=critic_end,
-    )
-    next_values = jnp.concatenate([values[1:], v_last.squeeze(0)], axis=0)
     agent_state = agent_state.replace(
         critic_state=critic.replace(hidden_state=jax.lax.stop_gradient(critic_end))
     )
@@ -464,12 +481,26 @@ def _sequence_minibatches(
     }
 
 
-def _joint_clip(actor_grads: Any, critic_grads: Any) -> tuple[Any, Any]:
-    """brax's global-norm clip at 1.0, over both networks' gradients."""
-    actor_sq = sum(jnp.sum(jnp.square(g)) for g in jax.tree.leaves(actor_grads))
-    critic_sq = sum(jnp.sum(jnp.square(g)) for g in jax.tree.leaves(critic_grads))
-    scale = jnp.minimum(1.0, 1.0 / jnp.sqrt(actor_sq + critic_sq + 1e-12))
-    return jax.tree.map(lambda g: g * scale, (actor_grads, critic_grads))
+def joint_step(
+    actor: Any,
+    critic: Any,
+    actor_grads: Any,
+    critic_grads: Any,
+    max_grad_norm: Optional[float],
+) -> tuple[Any, Any]:
+    """Both networks' Adam steps on their gradients clipped to one global
+    norm, as ppo2's one optimiser clips every parameter's gradient at once
+    (tf.clip_by_global_norm, baselines ea25b9e ppo2/model.py:105-107, the
+    formula of optax's clip). Adam is per coordinate, so the two Adams are
+    one over the whole model. ``None`` leaves the gradients."""
+    if max_grad_norm is not None:
+        clip = optax.clip_by_global_norm(max_grad_norm)
+        grads, _ = clip.update((actor_grads, critic_grads), optax.EmptyState())
+        actor_grads, critic_grads = grads
+    return (
+        actor.apply_gradients(grads=actor_grads),
+        critic.apply_gradients(grads=critic_grads),
+    )
 
 
 def _normalisation_info(env_state: Any, mode: str) -> Any:
@@ -564,6 +595,9 @@ def update_agent(
         "log_probs": log_probs,
         "raw_actions": rollout.raw_action,
     }
+    if extension_stack:
+        # The environment's own observations, which an expert reads.
+        batch["raw_obs"] = rollout.raw_obs
 
     if geometry.kind == "time":
         # GAE in each minibatch, with the critic of that step.
@@ -646,7 +680,7 @@ def update_agent(
             extension_stack, agent_state, critic_key, total_timesteps
         )
         actor_extra = _stack_actor_loss(
-            extension_stack, agent_state, actor_key, total_timesteps
+            extension_stack, agent_state, actor_key, total_timesteps, mb.get("raw_obs")
         )
 
         if geometry.kind == "time":
@@ -727,12 +761,10 @@ def update_agent(
             resets=resets,
             initial_hidden=mb.get("actor_hidden"),
         )
-        if agent_config.fused_grad_clip:
-            p_grads, v_grads = _joint_clip(p_grads, v_grads)
-        agent_state = agent_state.replace(
-            critic_state=critic.apply_gradients(grads=v_grads),
-            actor_state=actor.apply_gradients(grads=p_grads),
+        actor, critic = joint_step(
+            actor, critic, p_grads, v_grads, agent_config.max_grad_norm
         )
+        agent_state = agent_state.replace(critic_state=critic, actor_state=actor)
         return agent_state, AuxiliaryLogs(policy=p_aux, value=v_aux)
 
     agent_state, aux = run_epochs(

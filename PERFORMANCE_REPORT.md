@@ -467,6 +467,22 @@ Learning check: gymnax Pendulum-v1, 20k steps, the final evaluation return
 20k steps are too few for PPO on Pendulum; its Gaussian is now read in
 normalised units (its torque std doubles), so this row only shows it runs.
 
+## Recurrent PPO bootstraps a time limit on its own episode (2026-10-17)
+
+Recurrent PPO's value pass now runs step by step (the memories' acting
+path) and, after each step, reads the next value on the step's next
+observation from the carry that consumed it: one more critic step per
+rollout step, so a time limit bootstraps on the episode's final
+observation, as sb3-contrib's `RecurrentPPO` does.
+
+CPU, PPO on CartPole, `n_envs=8`, `n_steps=128`, 8 rollouts, hidden size
+32, wall-clock of one `train` after a warm-up call, 3 trials (median),
+before -> after: GRU 8.74 s -> 9.72 s (+11%), transformer (window 16)
+11.00 s -> 10.96 s (0%). The trials spread by up to 25% (7.26-9.29 s for
+the GRU before), so the GRU's cost is near the noise; it is the extra
+critic step, which the owner accepted for the exact bootstrap. Recurrent
+PPO has no `agent_bench.py` entry.
+
 ## TD-MPC2 agent (M4b): CPU learning checks and bench entry (2026-10-03)
 
 `benchmarks/world_models/learning_checks.py` (`docs/world_models/DESIGN.md` §0, §10): TD-MPC2

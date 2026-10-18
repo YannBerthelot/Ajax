@@ -97,5 +97,45 @@ def test_differential_gae_stops_at_episode_ends(
         want[t] = delta + config.gae_lambda * (1 - end[t]) * want[t + 1]
     np.testing.assert_allclose(seen["gae"][..., 0], want[:T], atol=1e-5)
     np.testing.assert_allclose(seen["targets"][..., 0], want[:T] + v, atol=1e-5)
-    # The rate is the plain mean over every step, episode ends included.
-    np.testing.assert_allclose(rho, config.alpha * r.mean(), rtol=1e-6)
+    # The rate is the plain mean over every step, episode ends included; the
+    # first update sets it to that mean (xtma/apo seeds eta with it).
+    np.testing.assert_allclose(rho, r.mean(), rtol=1e-6)
+
+
+def test_the_rate_and_the_bias_start_at_the_first_rollouts_means() -> None:
+    """As xtma/apo (apo/algos/apg/base.py:43-50): the first update sets
+    rho and b to the rollout's mean reward and mean value, and the EMA at
+    rate alpha runs from the second update on."""
+    agent = APO(
+        "Pendulum-v1",
+        n_envs=N_ENVS,
+        n_steps=T,
+        num_minibatches=2,
+        actor_architecture=("8", "tanh"),
+        critic_architecture=("8", "tanh"),
+    )
+    config = cast(APOConfig, agent.agent_config)
+    state = train_APO.init_APO(
+        jax.random.PRNGKey(0),
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+    )
+    rollout = _rollout()
+    means = []
+    for batch in (rollout, rollout.replace(reward=rollout.reward + 1.0)):
+        critic = state.critic_state
+        v = predict_value(critic, critic.params, batch.obs)
+        means.append((float(jnp.mean(batch.reward)), float(jnp.mean(v))))
+        state, _ = train_APO.update_agent(
+            state, batch, config, ExtensionStack(()), total_timesteps=1_000
+        )
+        if len(means) == 1:
+            np.testing.assert_allclose(state.average_reward, means[0][0], rtol=1e-6)
+            np.testing.assert_allclose(state.b, means[0][1], rtol=1e-5)
+    a = config.alpha
+    rho = (1 - a) * means[0][0] + a * means[1][0]
+    b = (1 - a) * means[0][1] + a * means[1][1]
+    np.testing.assert_allclose(state.average_reward, rho, rtol=1e-6)
+    np.testing.assert_allclose(state.b, b, rtol=1e-5)

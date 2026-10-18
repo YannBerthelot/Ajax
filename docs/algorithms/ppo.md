@@ -61,21 +61,22 @@ Defaults are those of the constructor.
 | `num_minibatches` | 0 | when positive, the number of minibatches, as in Brax |
 | `n_epochs` | 10 | passes over the rollout per update, each reshuffled |
 | `actor_learning_rate`, `critic_learning_rate` | 3e-4 | Adam step sizes (each a float or a schedule) |
-| `adam_eps` | 1e-8 | Adam's epsilon |
+| `adam_eps` | 1e-5 | Adam's epsilon (ppo2's) |
 | `gamma` | 0.99 | discount |
 | `gae_lambda` | 0.95 | GAE's lambda |
 | `clip_range` | 0.2 | the ratio clip; a float or a schedule of the timestep |
 | `ent_coef` | 0 | entropy bonus weight |
-| `vf_coef` | 1.0 | critic loss weight (Brax uses 0.5) |
-| `max_grad_norm` | 0.5 | gradient clipping by global norm (`None` turns it off) |
+| `vf_coef` | 0.5 | critic loss weight, on half the squared error (ppo2's) |
+| `max_grad_norm` | 0.5 | one gradient clip by global norm over both networks (`None` turns it off) |
 | `normalize_advantage` | True | advantages standardised in each minibatch |
 | `actor_architecture`, `critic_architecture` | `("128", "tanh", "128", "tanh")` | hidden layers, as width and activation strings |
 | `normalize_observations`, `normalize_rewards` | False | running normalisation, as SB3's `VecNormalize` |
 | `reward_normalization_gamma` | None | with `normalize_rewards`, divide by the spread of the discounted return |
 | `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks (by default the longest that split into the minibatches; see the notes) |
-| `unroll_length` | None | cut each env's rollout into fragments of this length (feedforward only) |
+| `unroll_length` | None | use Brax's minibatching: fragments of this length, advantages per minibatch (feedforward only) |
 | `log_std_state_independent`, `log_std_init` | True, 0.0 | one learned log standard deviation per action dimension, and its initial value (see the notes) |
-| `actor_bias_init`, `critic_bias_init`, `encoder_kernel_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
+| `actor_bias_init`, `critic_bias_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
+| `encoder_kernel_init` | None | the hidden layers' initialiser; None is `"orthogonal(np.sqrt(2))"` (Baselines' ppo2; PureJaxRL's recurrent PPO, with `memory=`) |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | None, 0, None | convolutional encoder for flat image observations |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `expose_recent_rollout` | False | keep the last rollout on the state, for measurement extensions |
@@ -91,14 +92,15 @@ Defaults are those of the constructor.
   `batch_size` is the minibatch size.
 - **Shuffling.** Every epoch draws a new split of the rollout into
   minibatches, as OpenAI Baselines' and CleanRL's PPO do.
-- **Where the advantages are computed.** When the environments split evenly
-  into the minibatches, each minibatch holds whole rollout fragments and its
-  advantages are recomputed with the current critic, as Brax's PPO does.
-  `unroll_length` cuts the rollout into shorter fragments that bootstrap at
-  their ends; PPO refuses at construction a length that does not split the
-  rollout evenly. Otherwise the advantages are computed once on the whole
-  rollout and the samples are shuffled flat; that is the case with the
-  defaults (4 environments, 32 minibatches) and with a single environment.
+- **Where the advantages are computed.** The advantages are computed once on
+  the whole rollout and its `n_steps * n_envs` samples are shuffled flat into
+  the minibatches, as in the PPO paper's Algorithm 1 and OpenAI Baselines'
+  ppo2. `unroll_length` switches to Brax's PPO: the rollout is cut into
+  fragments of that length that bootstrap at their ends, each minibatch holds
+  whole fragments, and its advantages are recomputed with the current critic.
+  `unroll_length=n_steps` keeps each environment's whole rollout as one
+  fragment. PPO refuses at construction a length that does not split the
+  rollout evenly into the minibatches.
 - **Actions.** A continuous PPO samples an unbounded Gaussian by default;
   Ajax clips the sample to `[-1, 1]` and maps that range onto the
   environment's bounds, so on gymnax Pendulum (torque in `[-2, 2]`) one unit
@@ -119,12 +121,17 @@ Defaults are those of the constructor.
   into that network, and restoring it into the default one is refused with
   this advice. A PID policy keeps its own log standard deviation, which
   starts at `log_std_init` and is clipped to `[-20, 2]`.
-- **Brax-style options.** `fused_grad_clip` (one clip over actor and critic
-  gradients), `mean_kernel_init`, `squash`, `num_resets_per_eval` and
-  `num_evals` reproduce choices of Brax's PPO. They are off by default, as
-  is `encoder_layer_norm` (a LayerNorm on the encoder's output).
-- **Separate networks.** The actor and the critic are separate networks with
-  separate optimizers; the value loss is not clipped. An entropy bonus on a
+- **Brax-style options.** `mean_kernel_init`, `squash`,
+  `num_resets_per_eval` and `num_evals` reproduce choices of Brax's PPO.
+  They are off by default, as is `encoder_layer_norm` (a LayerNorm on the
+  encoder's output).
+- **Separate networks.** The actor and the critic are separate networks.
+  As ppo2's one optimizer, their gradients are clipped together to one
+  global norm, then each takes an Adam step (Adam is per coordinate, so
+  the two are one Adam over the whole model); the value loss is not
+  clipped. As in Baselines' ppo2,
+  their hidden layers start orthogonal with gain `sqrt(2)`, the policy's
+  output layer with gain 0.01 and the value layer with gain 1. An entropy bonus on a
   squashed policy is a one-sample estimate of the executed action's entropy,
   as in Brax.
 - **Normalisation.** With `normalize_observations=True` the loss sees the

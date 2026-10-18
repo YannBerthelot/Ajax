@@ -72,7 +72,8 @@ This budget shows the calls; it is too short to learn the swing-up.
 
 Each update first moves two running averages towards the rollout's means, at
 rate `alpha`: the reward rate `rho` (the mean reward) and `b` (the mean
-predicted value). The advantages are GAE without a discount on the
+predicted value). The first update sets them to the first rollout's means,
+as the official code does. The advantages are GAE without a discount on the
 differential reward `r - rho`. The critic fits the differential value; its
 target is shifted by `nu * b`, which pulls the values back towards a zero mean.
 Without that penalty the values are defined only up to a constant and can
@@ -104,7 +105,8 @@ drift. The actor then takes PPO's clipped step.
   `CloningPretrain` extension, and a cloning term during training the
   `ImitationLoss` extension; APO supports both
   ([Expert guidance](../guide/expert-guidance.md)). With `expert_policy` set,
-  the evaluation also reports the expert's return.
+  the rollout stores the expert's actions, from its state when it has one,
+  and the evaluation also reports the expert's return.
 - APO is the on-policy counterpart of [ASAC](asac.md), the average-reward
   off-policy agent.
 

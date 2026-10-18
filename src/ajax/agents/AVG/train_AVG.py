@@ -70,6 +70,7 @@ def init_AVG(
     alpha_args: AlphaConfig,
     num_critics: int = 1,
     window_size: int = 10,
+    expert_policy: Optional[Callable] = None,
 ) -> AVGState:
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
@@ -81,6 +82,7 @@ def init_AVG(
         network_args,
         num_critics=num_critics,
         window_size=window_size,
+        collector_extras={"expert_policy": expert_policy},
     )
     # One running statistic per scalar (reward, discount, return), shared
     # by every env.
@@ -207,7 +209,7 @@ def policy_loss_function(
     loc, scale = pi.distribution.loc, pi.distribution.scale
     eps = jax.lax.stop_gradient((raw_actions - loc) / scale)
     raw = loc + scale * eps
-    log_probs = pi.log_prob_from_raw(raw)
+    log_probs = pi.log_prob_from_raw(raw).sum(-1, keepdims=True)
     q_pred = jnp.min(
         q_values(critic_states, critic_states.params, observations, jnp.tanh(raw)),
         axis=0,
@@ -283,8 +285,12 @@ def update_policy(
     raw_actions: jax.Array,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    raw_observations: Optional[jax.Array] = None,
+    a_expert: Optional[jax.Array] = None,
 ) -> Tuple[AVGState, PolicyAuxiliaries]:
-    """The actor step through the action taken."""
+    """The actor step through the action taken; the extensions also read
+    the env's own observations, the policy's mean action and ``a_expert``,
+    the agent's expert's action from its state (None without one)."""
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     actor_state = agent_state.actor_state
 
@@ -297,10 +303,19 @@ def update_policy(
             raw_actions,
             alpha,
         )
+        # The mean action only for an extension, which reads it.
+        pi_mean = (
+            get_pi(actor_state, params, observations)[0].mean()
+            if extension_stack
+            else None
+        )
         actor_batch = {
             "observations": observations,
+            "raw_observations": raw_observations,
+            "pi_mean": pi_mean,
             "actor_params": params,
             "actor_state": actor_state,
+            "a_expert": a_expert,
         }
         extra = extension_stack.fold_actor_loss(
             agent_state,
@@ -322,8 +337,11 @@ def update_agent(
     agent_config: AVGConfig,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    stores_expert_actions: bool = False,
 ) -> Tuple[AVGState, AuxiliaryLogs]:
-    """One update on the step just taken: a critic and an actor step, both
+    """One update on the step just taken (its ``a_expert`` reaching the
+    actor-loss extensions with ``stores_expert_actions``, an agent with an
+    expert): a critic and an actor step, both
     from the current parameters (the actor's loss sees the critic before
     its step, the critic's TD target the actor before its step). ``alpha``
     is not updated.
@@ -344,6 +362,8 @@ def update_agent(
         transition.raw_action,
         extension_stack,
         total_timesteps,
+        raw_observations=transition.raw_obs,
+        a_expert=transition.a_expert if stores_expert_actions else None,
     )
     agent_state = critic_updated.replace(actor_state=policy_updated.actor_state)
     log_alpha = agent_state.alpha.params["log_alpha"]
@@ -376,6 +396,12 @@ def make_train(
 ):
     """AVG's train function: one step per env, the TD-error statistics, then
     (from ``learning_starts``) one update on that step, per iteration."""
+    agent_context = {
+        "env_args": env_args,
+        "actor_optimizer_args": actor_optimizer_args,
+        "expert_policy": expert_policy,
+    }
+    extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
     loop = TrainLoop.create(
         env_args,
         total_timesteps,
@@ -384,6 +410,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        expert_policy=expert_policy,
     )
 
     def init(key: jax.Array) -> AVGState:
@@ -395,6 +422,7 @@ def make_train(
             network_args,
             alpha_args,
             num_critics=agent_config.num_critics,
+            expert_policy=expert_policy,
         )
 
     def after_collect(agent_state: AVGState, transition: Transition) -> AVGState:
@@ -402,7 +430,12 @@ def make_train(
 
     def update(agent_state: AVGState, transition: Transition) -> Any:
         return update_agent(
-            agent_state, transition, agent_config, loop.stack, total_timesteps
+            agent_state,
+            transition,
+            agent_config,
+            loop.stack,
+            total_timesteps,
+            stores_expert_actions=expert_policy is not None,
         )
 
     return loop.off_policy(
@@ -412,6 +445,9 @@ def make_train(
         agent_config.learning_starts,
         expose_rollout=agent_config.expose_recent_rollout,
         after_collect=after_collect,
+        collect_kwargs={
+            "store_raw_next_obs": "raw_next_obs" in loop.stack.buffer_fields()
+        },
         eval_kwargs={
             "expert_policy": expert_policy,
             "value_estimate": ValueEstimate(

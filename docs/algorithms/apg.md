@@ -54,7 +54,9 @@ update's `loss`, `matching_loss` (minus the mean closed-loop return),
 `m_rmse` and `timestep`. With a `logging_config`, every `log_frequency` steps
 it also evaluates the controller on `num_episode_test` systems, drawn
 afresh at each evaluation, and sends `Eval/episodic mean reward` and
-`Eval/m_rmse` to the logging backend.
+`Eval/m_rmse` to the logging backend. `aux.evaluations` then holds what each
+update logged, NaN on the updates that did not evaluate, with or without a
+backend.
 
 The in-context controller of Busetto et al., trained in stages on a
 reference-tracking task (`train_curriculum`, the paper's Algorithm 2):
@@ -93,7 +95,7 @@ stages = [  # the nominal pendulum first, then the whole family
 | `horizon` | 100 | closed-loop steps differentiated through |
 | `learning_rate` | 5e-4 | AdamW step size |
 | `weight_decay` | 0.0 | AdamW weight decay (0 is plain Adam) |
-| `beta_1`, `beta_2` | 0.9, 0.999 | Adam's moment rates |
+| `beta_1`, `beta_2` | 0.9, 0.999 | Adam's moment rates (its epsilon is torch's 1e-8) |
 | `lr_schedule` | None | `"warmup_cosine"`: linear warmup over `warmup_steps` updates, then cosine decay |
 | `warmup_steps`, `lr_end_fraction` | 0, 0.1 | warmup length, and the final rate as a fraction of `learning_rate` |
 | `max_grad_norm` | 1.0 | gradient clipping by global norm (`None` turns it off) |
@@ -108,8 +110,8 @@ stages = [  # the nominal pendulum first, then the whole family
 `APG.contextual_controller(env, system_class, ...)` sets the paper's values:
 8 layers, 4 heads, width 128, context 100, one system per update
 (`n_envs=1`), horizon 100, betas (0.9, 0.95) with `weight_decay=0` (plain
-Adam), 5,000 warmup updates then cosine decay to a tenth of the rate, and a
-PID output layer. Its `final_norm=False` rebuilds a controller saved before
+Adam), 5,000 warmup updates then cosine decay to a tenth of the rate, no
+gradient clipping (`max_grad_norm=None`), and a PID output layer. Its `final_norm=False` rebuilds a controller saved before
 the transformer ended with its final LayerNorm (see
 [Memory](../guide/memory.md)). Such a controller's parameters also map onto
 the new network, which computes the same outputs:
@@ -138,6 +140,10 @@ the parameters only, so a resumed training state must restart its optimizer.
   `transformer_onestep.py:33` and `:156`, `train_onestep_lin_CL.py:103`).
   The paper trains each curriculum stage to a loss tolerance; Ajax gives
   each stage a fixed `n_timesteps`.
+- **Initialisation.** A transformer memory starts as the reference's GPT:
+  kernels from N(0, 0.02²), the residual projections at 0.02/√(2 `n_layers`),
+  zero biases (`transformer_onestep.py:162-166`, `:189-195`;
+  `MemoryConfig(init="nanogpt")`). Other memory kinds keep flax's.
 - **Curriculum.** `train_curriculum` resumes each stage from the previous
   one's parameters and, by default, restarts the optimizer and its schedule
   at each stage. All stages must share `n_envs`, the network and the PID

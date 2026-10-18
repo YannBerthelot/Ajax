@@ -1,0 +1,18 @@
+# Brax's trainers (PPO, APG), pinned for the reference comparisons
+# (../../README.md). brax, mujoco and jax are at the versions of Ajax's
+# uv.lock, so both sides step the same environments; gymnax serves the APG
+# comparison, which runs Brax's trainer on gymnax's Pendulum.
+[project]
+name = "refcmp-brax"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "brax==0.14.2",
+    "mujoco==3.7.0",
+    "mujoco-mjx==3.7.0",
+    "jax==0.7.2",
+    "gymnax==1.0.1",
+]
+
+[tool.uv]
+package = false

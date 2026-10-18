@@ -199,22 +199,36 @@ def parse_layer(
     layer: Union[str, ActivationFunction],
     kernel_init: Optional[Union[str, InitializationFunction]] = None,
     bias_init: Optional[Union[str, InitializationFunction]] = None,
-) -> Union[nn.Dense, ActivationFunction]:
-    """Parse a layer representation into either a Dense or an activation function"""
+) -> Union[nn.Dense, nn.LayerNorm, ActivationFunction]:
+    """Parse one architecture token: a width such as ``"256"`` gives a Dense
+    layer, ``"layernorm"`` a new LayerNorm with its own scale and bias, any
+    other name or a callable an activation (:func:`parse_activation`).
+
+    ``("256", "layernorm", "relu")`` per hidden layer is RLPD's critic MLP
+    (Ball et al., ICML 2023; ``ikostrikov/rlpd``, ``rlpd/networks/mlp.py``).
+    """
     if str(layer).isnumeric():
         return nn.Dense(
             int(cast("str", layer)),
             kernel_init=parse_initialization(kernel_init, default=orthogonal(1.0)),
             bias_init=parse_initialization(bias_init, default=constant(0)),
         )
-    return parse_activation(activation=layer)
+    if layer == "layernorm":
+        return nn.LayerNorm()
+    try:
+        return parse_activation(activation=layer)
+    except ValueError as e:
+        raise ValueError(
+            f"Unrecognized layer {layer!r}: a width such as '256', 'layernorm'"
+            f" or an activation, {sorted(_ACTIVATIONS)}"
+        ) from e
 
 
 def parse_architecture(
     architecture: Sequence[Union[str, ActivationFunction]],
     kernel_init: Optional[Union[str, InitializationFunction]] = None,
     bias_init: Optional[Union[str, InitializationFunction]] = None,
-) -> Sequence[Union[nn.Dense, ActivationFunction]]:
+) -> Sequence[Union[nn.Dense, nn.LayerNorm, ActivationFunction]]:
     """Parse a list of string/module architecture into a list of jax modules"""
     return [parse_layer(layer, kernel_init, bias_init) for layer in architecture]
 

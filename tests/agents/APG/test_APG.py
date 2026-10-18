@@ -2,6 +2,7 @@
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 from gymnax import make as make_gymnax_env
 
@@ -25,7 +26,7 @@ from ajax.environments.model_reference import (
     StepReference,
 )
 from ajax.environments.system_class import FixedSystem, UniformPerturbation
-from ajax.networks.memory import MemoryConfig
+from ajax.networks.memory import MemoryCell, MemoryConfig, init_carry
 from ajax.wrappers import InitialStateWrapper
 from tests.agents.extension_stubs import CounterExt
 
@@ -83,6 +84,13 @@ def default_run():
     agent = make_agent(env, sc)
     state, aux = agent.train(seed=0, n_timesteps=N_ENVS * HORIZON)
     return agent, sc, state, aux
+
+
+def test_adam_eps_is_torchs(env_and_class):
+    """The reference's AdamW keeps torch's eps (in-context-controller
+    transformer_onestep_CL.py:86), not Ajax's shared 1e-5."""
+    env, sc = env_and_class
+    assert make_agent(env, sc).actor_optimizer_args.eps == 1e-8
 
 
 def test_gradient_clipping_is_on_by_default_and_can_be_disabled(env_and_class):
@@ -179,11 +187,18 @@ def test_contextual_controller_configuration(env_and_class):
         weight_decay=0.01,
     )
     assert agent.network_args.memory == MemoryConfig(
-        kind="transformer", hidden_size=8, num_layers=1, num_heads=2, window=8
+        kind="transformer",
+        hidden_size=8,
+        num_layers=1,
+        num_heads=2,
+        window=8,
+        init="nanogpt",
     )
     assert agent.pid == PIDHeadConfig()  # identity init, see APG._DEFAULT_PID
     assert agent.train_kwargs["lr_schedule"] == "warmup_cosine"
-    assert agent.actor_optimizer_args.max_grad_norm == 1.0
+    # The reference's AdamW: torch's eps, no gradient clipping.
+    assert agent.actor_optimizer_args.max_grad_norm is None
+    assert agent.actor_optimizer_args.eps == 1e-8
     assert agent.actor_optimizer_args.weight_decay == 0.01
     state, aux = agent.train(seed=0, n_timesteps=4 * 2 * 8)
     assert state.actor_state.recurrent
@@ -208,7 +223,30 @@ def test_contextual_controller_rebuilds_a_transformer_without_its_final_norm(
         num_heads=2,
         window=8,
         final_norm=False,
+        init="nanogpt",
     )
+
+
+def test_a_transformer_controller_starts_as_the_reference_gpt(env_and_class):
+    """in-context-controller @7eb094c (transformer_onestep.py:162-166,
+    :189-195): normal(0.02) kernels, the residual projections at
+    0.02/sqrt(2 n_layer), zero biases. An explicit init overrides it, and
+    another kind keeps flax's."""
+    env, sc = env_and_class
+    kw = {"n_layers": 2, "n_heads": 2, "d_model": 64, "context": 8}
+    memory = APG.contextual_controller(env, sc, **kw).network_args.memory
+    x, resets = jnp.ones((3, 1, 5)), jnp.zeros((3, 1), bool)
+    carry = init_carry(memory, jax.random.PRNGKey(0), 1)
+    params = MemoryCell(memory).init(jax.random.PRNGKey(0), carry, x, resets)
+    core = params["params"]["core"]
+    for name in ("q_0", "mlp_up_1", "attn_out_0", "mlp_down_1"):
+        residual = name.startswith(("attn_out", "mlp_down"))
+        std = 0.02 / np.sqrt(4) if residual else 0.02
+        assert float(jnp.std(core[name]["kernel"])) == pytest.approx(std, rel=0.15)
+        assert (core[name]["bias"] == 0).all()
+    flax_init = MemoryConfig("transformer", 8, num_heads=2, window=8, init="flax")
+    assert APG(env, memory=flax_init).network_args.memory.init == "flax"
+    assert APG(env, memory=MemoryConfig("gru", 8)).network_args.memory.init is None
 
 
 def test_memory_only_controller_trains(env_and_class):
@@ -439,3 +477,22 @@ def test_the_controller_output_is_mapped_onto_the_torque_bounds(env_id):
         grad_own,
     )
     assert jax.tree.all(close)
+
+
+def test_apg_returns_its_evaluations_without_a_logging_backend():
+    """A logging config without a backend still evaluates, and the
+    evaluations come back on ``aux`` rather than being dropped: NaN on the
+    updates that do not evaluate. Without a logging config there are none."""
+    from ajax.logging.wandb_logging import LoggingConfig
+
+    agent = APG("Pendulum-v1", n_envs=2, horizon=4, actor_architecture=("8", "relu"))
+    logging = LoggingConfig(config={}, log_frequency=16, use_wandb=False)
+    _, aux = agent.train(
+        seed=0, n_timesteps=64, num_episode_test=1, logging_config=logging
+    )
+    reward = np.asarray(aux.evaluations["Eval/episodic mean reward"])
+    assert reward.shape == aux.loss.shape == (1, 8)
+    evaluated = np.isfinite(reward[0])
+    np.testing.assert_array_equal(evaluated, [False, True] * 4)
+    _, plain = agent.train(seed=0, n_timesteps=64)
+    assert plain.evaluations is None

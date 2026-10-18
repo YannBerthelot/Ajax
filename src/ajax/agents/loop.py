@@ -41,6 +41,7 @@ not stacked per iteration, which would cost ``seeds x iterations`` memory.
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from collections.abc import Sequence
 from typing import Any, Callable, Optional
 
@@ -50,6 +51,7 @@ from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import (
     collect_experience,
+    expert_collect_kwargs,
     preallocate_last_rollout,
     should_use_uniform_sampling,
 )
@@ -128,12 +130,31 @@ def record(rows: dict, count: jax.Array, metrics: dict) -> tuple[dict, jax.Array
     return rows, count + evaluated
 
 
-def fresh_state(init: Init, stack: ExtensionStack, total_steps: int, key: Any) -> Any:
+def fresh_state(
+    init: Init, stack: ExtensionStack, total_steps: int, key: Any, **context: Any
+) -> Any:
     """A fresh run's state: ``init(init_key)`` on ``split(key)``, then the
     extensions' initial states and one-shot pretraining on
-    ``extension_key`` (:meth:`ExtensionStack.fold_init`)."""
+    ``extension_key`` (:meth:`ExtensionStack.fold_init`; ``context``: the
+    pretraining's static context fields)."""
     init_key, extension_key = jax.random.split(key)
-    return stack.fold_init(init(init_key), extension_key, total_steps)
+    state = with_obs_norm(init(init_key))
+    return stack.fold_init(state, extension_key, total_steps, **context)
+
+
+def with_obs_norm(agent_state: Any) -> Any:
+    """An agent normalising its own observations (the collector's
+    ``obs_norm_info``) with those statistics mirrored on its networks, which
+    apply them; collection refreshes the mirror at every step, and setting
+    it at init keeps the scan carry's structure fixed."""
+    collector = getattr(agent_state, "collector_state", None)
+    stats = None if collector is None else collector.obs_norm_info
+    if stats is None:
+        return agent_state
+    return agent_state.replace(
+        actor_state=agent_state.actor_state.replace(obs_norm_info=stats),
+        critic_state=agent_state.critic_state.replace(obs_norm_info=stats),
+    )
 
 
 def fold_post_update(
@@ -190,6 +211,10 @@ def critic_step(
         "dones": dones,
         "gamma": gamma,
         "reward_scale": reward_scale,
+        # The env's own s' and the agent's expert's action there, from its
+        # state; None where the replay keeps neither (a run without an expert).
+        "raw_next_observations": batch.raw_next_obs,
+        "next_a_expert": batch.next_a_expert,
     }
     target_q = jax.lax.stop_gradient(
         extension_stack.fold_on_target(
@@ -235,6 +260,8 @@ class TrainLoop:
     log_fn: Callable
     log_frequency: Optional[int]
     start_timestep: int = 0
+    #: The agent's ``expert_policy``, whose actions collection stores.
+    expert_policy: Any = None
 
     @classmethod
     def create(
@@ -246,6 +273,7 @@ class TrainLoop:
         logging_config: Optional[LoggingConfig] = None,
         extensions: Sequence[Extension] = (),
         start_timestep: int = 0,
+        expert_policy: Any = None,
     ) -> TrainLoop:
         """The loop of one ``make_train`` call; starts the logging worker
         when ``logging_config`` names a backend."""
@@ -263,6 +291,7 @@ class TrainLoop:
             log_fn=partial(vmap_log, run_ids=run_ids),
             log_frequency=log_frequency,
             start_timestep=start_timestep,
+            expert_policy=expert_policy,
         )
 
     @property
@@ -274,10 +303,29 @@ class TrainLoop:
         """The timesteps this call trains for."""
         return self.total_timesteps - self.start_timestep
 
+    def warn_if_partial(self, per_iteration: int, unit: str) -> None:
+        """Warn when the budget is not a whole number of iterations of
+        ``per_iteration`` env steps (``unit`` names them): the iterations
+        stop at a multiple of it, not at the horizon, so the run trains
+        another number of steps than asked and an evaluation due at the
+        horizon never happens (its row stays NaN)."""
+        if self.budget % per_iteration:
+            warnings.warn(
+                f"n_timesteps={self.budget} is not a multiple of the"
+                f" {per_iteration} env steps of one iteration ({unit}): the run"
+                f" stops at a multiple of {per_iteration}, so an evaluation due"
+                f" at timestep {self.total_timesteps} does not happen (NaN)."
+                f" Pass a multiple of {per_iteration}.",
+                UserWarning,
+                stacklevel=2,
+            )
+
     def n_rollouts(self, n_steps: int) -> int:
         """The iterations of :meth:`on_policy` for ``n_steps`` rollouts: the
         budget in whole rollouts, plus one (as PPO always ran)."""
-        return self.budget // (self.env_args.n_envs * n_steps) + 1
+        per_rollout = self.env_args.n_envs * n_steps
+        self.warn_if_partial(per_rollout, "n_envs x n_steps")
+        return self.budget // per_rollout + 1
 
     @property
     def n_evaluations(self) -> int:
@@ -291,9 +339,18 @@ class TrainLoop:
 
     # -- the steps of an iteration -----------------------------------------
     def collect_kwargs(self, recurrent: bool, **kwargs: Any) -> dict:
-        """:func:`collect_experience`'s arguments for this run."""
+        """:func:`collect_experience`'s arguments for this run. With the
+        agent's expert, its action pipeline also stores the expert's actions
+        from the expert's tracked state (:func:`expert_collect_kwargs`)."""
         common = {"recurrent": recurrent, "mode": self.mode, "env_args": self.env_args}
-        return common | kwargs
+        args = common | kwargs
+        if self.expert_policy is None:
+            return args
+        pipeline = kwargs.get("action_pipeline")
+        n_envs = self.env_args.n_envs
+        return args | expert_collect_kwargs(
+            self.expert_policy, pipeline, recurrent, n_envs
+        )
 
     def post_update(self, agent_state: Any) -> Any:
         """:func:`fold_post_update` at the collector's timestep."""
@@ -412,6 +469,8 @@ class TrainLoop:
         num_updates: int,
         last_rollout: Optional[tuple[int, dict]] = None,
         evaluations: Optional[int] = None,
+        update: Optional[Update] = None,
+        buffer: Any = None,
     ) -> Callable:
         """The resumable train function: ``init`` (fresh runs only), then
         ``num_updates`` scan iterations ``iteration(agent_state, index,
@@ -420,12 +479,17 @@ class TrainLoop:
 
         ``last_rollout``, ``(length, collect_kwargs)``, pre-allocates
         ``agent_state.last_rollout`` for an agent exposing its rollouts.
+        The extensions' pretraining gets the env, ``update`` and the replay
+        ``buffer`` (:class:`ajax.extensions.base.ExtensionContext`).
         """
         rows = self.n_evaluations if evaluations is None else evaluations
+        context = {"env_args": self.env_args, "update": update, "buffer": buffer}
 
         def init_fn(key: jax.Array, index: Any) -> Any:
             del index
-            agent_state = fresh_state(init, self.stack, self.total_timesteps, key)
+            agent_state = fresh_state(
+                init, self.stack, self.total_timesteps, key, **context
+            )
             if last_rollout is not None:
                 length, collect_kwargs = last_rollout
                 agent_state = preallocate_last_rollout(
@@ -548,6 +612,7 @@ class TrainLoop:
             )
 
         if num_ticks is None:
+            self.warn_if_partial(self.env_args.n_envs, "n_envs")
             num_ticks = self.budget // self.env_args.n_envs
         return self.train(
             init,
@@ -555,6 +620,8 @@ class TrainLoop:
             num_ticks,
             last_rollout=(1, collect_args) if expose_rollout else None,
             evaluations=None if evaluation is None else evaluation.count(num_ticks),
+            update=update,
+            buffer=collect_args.get("buffer"),
         )
 
     def on_policy(

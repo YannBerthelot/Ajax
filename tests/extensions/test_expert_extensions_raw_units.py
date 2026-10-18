@@ -3,14 +3,30 @@ own observations, as SAC's collection and evaluation give SAC's expert."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import ClassVar
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from ajax import SAC
+from ajax.extensions.base import Extension
+from ajax.extensions.capabilities import NotWired
 from ajax.extensions.pretrain import MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import IBRL, CriticBlend, LCBGatedBootstrap
+
+
+@dataclass(frozen=True)
+class _NextObservationReader(Extension):
+    """A ``post_update`` (folded everywhere) reading ``raw_next_obs``."""
+
+    name: str = "next-observation-reader"
+    buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
+
+    def post_update(self, agent_state, ext_state, ctx):
+        return agent_state, ext_state
 
 
 class _RecordingExpert:
@@ -88,31 +104,46 @@ def test_the_extensions_expert_reads_raw_observations(name):
 
 
 @pytest.mark.parametrize(
-    "name, stored",
-    [("IBRL", True), ("PhiRefresh", True), ("MCPretrain", False), ("metrics", False)],
+    "agent_name, name, stored",
+    [
+        ("SAC", "IBRL", True),
+        ("SAC", "PhiRefresh", True),
+        ("SAC", "MCPretrain", False),
+        ("SAC", "metrics", False),
+        ("TD3", "reader", True),
+        ("TD3", "metrics", False),
+        ("REDQ", "reader", True),
+        ("ASAC", "metrics", False),
+    ],
 )
 def test_the_buffer_keeps_raw_next_observations_only_for_a_declared_reader(
-    name, stored
+    agent_name, name, stored
 ):
     """raw_next_obs is allocated when an extension declares it reads it
-    (Extension.buffer_fields), not for one that merely carries an expert."""
+    (Extension.buffer_fields), not for one that merely carries an expert,
+    on every replay agent."""
+    import ajax
     from ajax.extensions.expert import ExpertValueMetrics
 
     expert = _RecordingExpert()
     stacks = {
         "IBRL": (IBRL(expert_policy=expert),),
+        # Declares raw_next_obs and needs nothing else (IBRL also needs the
+        # target batch's rng_key, which SAC alone passes yet).
+        "reader": (_NextObservationReader(),),
         "PhiRefresh": (_mc(expert), PhiRefresh(expert_policy=expert)),
         "MCPretrain": (_mc(expert),),
         "metrics": (ExpertValueMetrics(),),
     }
-    agent = SAC(
+    sac_only = {"expert_buffer_n_steps": 0} if agent_name == "SAC" else {}
+    agent = getattr(ajax, agent_name)(
         "Pendulum-v1",
         n_envs=2,
         actor_architecture=("8", "relu"),
         critic_architecture=("8", "relu"),
         expert_policy=expert,
-        expert_buffer_n_steps=0,
         extensions=stacks[name],
+        **sac_only,
     )
     state, _ = agent.train(seed=0, n_timesteps=0)
     experience = state.collector_state.buffer_state.experience
@@ -152,15 +183,16 @@ def test_the_buffer_keeps_raw_observations_and_expert_flags_only_for_an_expert(
 
 
 def test_an_agent_rejects_an_extension_reading_a_field_it_does_not_store():
-    from ajax import REDQ
+    """PPO keeps no replay, so no raw next observations for a reader."""
+    from ajax import PPO
 
-    with pytest.raises(ValueError, match="raw_next_obs"):
-        REDQ("Pendulum-v1", extensions=(IBRL(expert_policy=_RecordingExpert()),))
+    with pytest.raises(NotWired, match="raw_next_obs"):
+        PPO("Pendulum-v1", extensions=(_NextObservationReader(),))
 
 
 def test_an_offline_agent_rejects_an_extension_reading_a_buffer_field():
     """TDMPC2MultiTask runs the shared check too: it stores no extra buffer
-    field, so PhiRefresh (a post_update it does fold) is rejected."""
+    field, so a reader of one (in a phase it does fold) is rejected."""
     from ajax import TDMPC2MultiTask
     from ajax.agents.TDMPC2.dataset import TaskEpisodes, pool_tasks
 
@@ -176,7 +208,5 @@ def test_an_offline_agent_rejects_an_extension_reading_a_buffer_field():
             )
         ]
     )
-    with pytest.raises(ValueError, match="raw_next_obs"):
-        TDMPC2MultiTask(
-            data, extensions=(PhiRefresh(expert_policy=_RecordingExpert()),)
-        )
+    with pytest.raises(NotWired, match="raw_next_obs"):
+        TDMPC2MultiTask(data, extensions=(_NextObservationReader(),))

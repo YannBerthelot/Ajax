@@ -21,17 +21,18 @@ class PPOConfig(BaseAgentConfig):
     normalize_advantage: bool = True
     # When > 0, decouples num_minibatches from batch_size (brax-style).
     num_minibatches: int = 0
-    # Critic loss = vf_coef * 0.5 * MSE. Brax PPO uses 0.5; Ajax legacy 1.0.
-    vf_coef: float = 1.0
-    # Brax-style joint global-norm clip across actor + critic grads.
-    fused_grad_clip: bool = False
-    # GAE-fragment length for the brax-faithful minibatcher. When set,
-    # the (T=n_steps, n_envs) rollout is sub-split into chunks of
-    # ``unroll_length`` steps before minibatching, and GAE bootstraps
-    # at every fragment boundary (matches brax's per-minibatch
-    # (T=unroll_length, B=batch_size) loss shape). When None, GAE uses
-    # the full n_steps as the fragment length (one bootstrap at the
-    # end of each rollout per env).
+    # Critic loss = vf_coef * 0.5 * MSE: ppo2's vf_coef 0.5 on its
+    # 0.5 * MSE (baselines ea25b9e ppo2/ppo2.py:22, model.py:75, :91).
+    vf_coef: float = 0.5
+    # ppo2's clip: one global norm over both networks' gradients
+    # (ppo2/model.py:105-107); None leaves them unclipped.
+    max_grad_norm: Optional[float] = 0.5
+    # Opts into brax's time geometry: the (T=n_steps, n_envs) rollout is
+    # sub-split into chunks of ``unroll_length`` steps before minibatching,
+    # and GAE, recomputed per minibatch, bootstraps at every fragment
+    # boundary (brax's per-minibatch (T=unroll_length, B=batch_size) loss
+    # shape); n_steps keeps whole rollouts per env. When None, GAE runs
+    # once on the rollout and its samples are shuffled flat.
     unroll_length: Optional[int] = None
     # Recurrent-only truncated-BPTT length. When set, each env's rollout
     # splits into (n_steps / bptt_length) contiguous sequences whose

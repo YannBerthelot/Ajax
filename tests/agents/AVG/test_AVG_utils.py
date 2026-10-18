@@ -1,5 +1,8 @@
-"""AVG's TD-error scaling folds the reward, the discount and the squared
-return into running means (one row per env), on hand-computed values."""
+"""AVG's TD-error scale is the authors' ``TDErrorScaler``
+(gauthamvasan/avg, ``incremental_rl/td_error_scaler.py``): ``sigma =
+sqrt(max(var(r) + E[G^2] var(gamma), 1e-4))``, or 1 while that variance is
+at most 0.01 and no return has been seen. Checked on hand-computed values,
+one row per env, a NaN return marking an env whose episode did not end."""
 
 import jax.numpy as jnp
 import numpy as np
@@ -8,59 +11,61 @@ import pytest
 from ajax.agents.AVG.state import RunningMoments
 from ajax.agents.AVG.utils import compute_td_error_scaling
 
+NAN = float("nan")
 
-def _info(value, count=0, mean=0.0) -> RunningMoments:
-    """Running statistics of ``value`` (a column per env) after ``count``
-    values of mean ``mean``."""
-    value = jnp.array(value)
+
+def _moments(value, count=0.0, mean=0.0, mean_2=0.0) -> RunningMoments:
+    """A statistic's latest ``value`` (a row per env) and its running count,
+    mean and sum of squared deviations, shaped as AVG's state holds them."""
     return RunningMoments(
-        value=value,
-        count=jnp.full(value.shape, count),
-        mean=jnp.full(value.shape, mean),
-        mean_2=jnp.zeros_like(value),
+        value=jnp.array(value),
+        count=jnp.full((1,), count),
+        mean=jnp.full((1, 1), mean),
+        mean_2=jnp.full((1, 1), mean_2),
     )
 
 
 @pytest.mark.parametrize(
-    "reward, gamma, G_return, count, means, unit_scaling",
+    "reward, gamma, G_return, scale, G_count",
     [
-        # the first values: their own means, and a scale of 1 until a second
-        # return arrives (the return's is squared)
-        (_info([[1.0]]), _info([[0.99]]), _info([[10.0]]), 1, (1.0, 0.99, 100.0), True),
-        (
-            _info([[2.0]], 1, 1.0),
-            _info([[0.98]], 1, 0.99),
-            _info([[20.0]], 1, 10.0),
-            2,
-            (1.5, 0.985, (10.0 + 20.0**2) / 2),
-            None,
-        ),
-        # a batch of two values a statistic: both fold in, the scale is live
-        (
-            _info([[1.0], [2.0]]),
-            _info([[0.99], [0.95]]),
-            _info([[10.0], [20.0]]),
-            2,
-            (1.5, 0.97, (10.0**2 + 20.0**2) / 2),
-            False,
-        ),
-        (
-            _info([[2.0], [4.0]], 1, 1.0),
-            _info([[0.98], [0.96]], 1, 0.99),
-            _info([[20.0], [30.0]], 1, 10.0),
-            3,
-            (7 / 3, (0.99 + 0.98 + 0.96) / 3, (10 + 20**2 + 30**2) / 3),
-            None,
-        ),
+        # No return yet and a variance under 0.01: unscaled.
+        ([[1.0], [1.05]], [[0.99], [0.99]], [[NAN], [NAN]], 1.0, 0),
+        # No return yet, but var(r) = 4 > 0.01: scaled by 2, as the authors'
+        # code does on a task without terminations.
+        ([[0.0], [4.0]], [[0.99], [0.99]], [[NAN], [NAN]], 2.0, 0),
+        # One of two envs ended with G = 3: one return, E[G^2] = 9, and the
+        # discount's variance (0.99 / 2)^2 enters.
+        ([[1.0], [1.0]], [[0.0], [0.99]], [[3.0], [NAN]], 3 * 0.99 / 2, 1),
+        # A return seen and no variance: the 1e-4 floor, sigma = 0.01.
+        ([[1.0]], [[0.0]], [[2.0]], 0.01, 1),
     ],
-    ids=["initial", "update", "initial-batched", "update-batched"],
+    ids=["unscaled", "no-return-scaled", "one-return-of-two-envs", "floor"],
 )
-def test_compute_td_error_scaling(reward, gamma, G_return, count, means, unit_scaling):
-    scaling, *updated = compute_td_error_scaling(reward, gamma, G_return)
-    for info, mean in zip(updated, means, strict=True):
-        assert jnp.all(info.count == count)
-        np.testing.assert_allclose(
-            info.mean, jnp.full(info.value.shape, mean), rtol=1e-6
-        )
-    if unit_scaling is not None:
-        assert bool(jnp.allclose(scaling, 1.0)) == unit_scaling
+def test_the_scale_is_the_authors_td_error_scaler(
+    reward, gamma, G_return, scale, G_count
+):
+    scaling, _, _, G = compute_td_error_scaling(
+        _moments(reward), _moments(gamma), _moments(G_return)
+    )
+    np.testing.assert_allclose(scaling, [[scale]], rtol=1e-5)
+    np.testing.assert_array_equal(G.count, [G_count])
+
+
+def test_the_statistics_fold_each_value_in_once():
+    """Chan et al.'s parallel update: (0, 2) then 4 give mean 2 and a sum of
+    squared deviations 8; a NaN return leaves the return's statistics as
+    they were."""
+    reward = _moments([[4.0]], count=2.0, mean=1.0, mean_2=2.0)
+    G = _moments([[NAN]], count=2.0, mean=5.0, mean_2=3.0)
+    _, reward, gamma, G_after = compute_td_error_scaling(reward, _moments([[0.5]]), G)
+    np.testing.assert_allclose(reward.count, [3.0])
+    np.testing.assert_allclose(reward.mean, [[2.0]])
+    np.testing.assert_allclose(reward.mean_2, [[8.0]])
+    np.testing.assert_allclose(gamma.count, [1.0])
+    np.testing.assert_allclose(gamma.mean, [[0.5]])
+    for before, after in zip(
+        (G.count, G.mean, G.mean_2),
+        (G_after.count, G_after.mean, G_after.mean_2),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(after, before)

@@ -20,8 +20,8 @@ dependencies = [
     "mujoco>=3.1.4,<4",
     "mujoco-mjx>=3.1.4,<4",
     # gymnax 1.0 (six-value step API: obs, state, reward, terminated,
-    # truncated, info), from the fork in [tool.uv.sources].
-    "gymnax",
+    # truncated, info). 1.0.1 is the first release without the jax<0.7 cap.
+    "gymnax>=1.0.1,<2",
     "distrax>=0.1.6",
     "tensorboardx>=2.6.4,<3",
     "playground>=0.2.0,<0.3",
@@ -31,6 +31,12 @@ dependencies = [
 # CUDA (NVIDIA GPUs, Linux only): `uv sync --extra cuda`, or depend on
 # `ajax[cuda]`. Without it JAX runs on the CPU.
 cuda = ["jax[cuda]>=0.6.2; sys_platform == 'linux'"]
+# ajax.compare.estimate's confidence sequence: `uv sync --extra compare`, or
+# depend on `ajax[compare]`. From the commit in [tool.uv.sources].
+compare = ["adastop"]
+# ajax.reproduction.load, the reference comparisons' published data:
+# `uv sync --extra reproduction`, or depend on `ajax[reproduction]`.
+reproduction = ["huggingface-hub>=0.30,<2", "pandas>=2.2,<3", "pyarrow>=15"]
 
 [project.urls]
 Homepage = "https://github.com/YannBerthelot/Ajax"
@@ -52,6 +58,12 @@ dev = [
     "ruff>=0.11.6,<0.12",
     # From the branch in [tool.uv.sources].
     "probing-environments",
+    # The compare extra, for its tests; from the commit in [tool.uv.sources].
+    "adastop",
+    # benchmarks/reference/refcmp_publish.py writes, and its tests read,
+    # the reproduction extra's Parquet tables.
+    "pandas>=2.2,<3",
+    "pyarrow>=15",
 ]
 wandb = ["wandb>=0.19.9,<0.20"]
 # The Plane3DCircle scenario of benchmarks/perf_bench.py needs target_gym;
@@ -73,17 +85,14 @@ docs = [
 default-groups = ["dev", "wandb"]
 
 [tool.uv.sources]
-# TEMPORARY: this should be `gymnax>=1.0.1,<2` from PyPI. gymnax 1.0.0
-# caps jax at <0.7 and gymnasium at <1.2, which no resolver can satisfy
-# next to distrax (jax>=0.7), so the release is unusable here. The branch below is upstream main with those
-# two caps lifted and nothing else changed; it is proposed upstream as
-# YannBerthelot:chore/relax-runtime-pins. Drop the fork and pin the PyPI
-# release once that lands.
-gymnax = { git = "https://github.com/YannBerthelot/gymnax.git", branch = "chore/relax-runtime-pins" }
 # TEMPORARY: pinned to the gymnax 1.0 migration branch. The released
 # 0.5.1 still requires `gymnax ^0.0.9`, which makes the whole graph
 # unresolvable. Restore the PyPI pin once a migrated release is cut.
 probing-environments = { git = "https://github.com/YannBerthelot/ProbingEnvironments.git", branch = "feature/gymnax-1.0-compat" }
+# TEMPORARY: this should be adastop from PyPI. Bounded_Confseq, the
+# confidence sequence behind ajax.compare.estimate, is only in upstream main
+# (added 2026-07-16); 0.1.3 predates it. Pin the first release that has it.
+adastop = { git = "https://github.com/TimotheeMathieu/adastop.git", rev = "07e7159643f11467c154266b5ef3b1be6ca8ddd8" }
 
 [tool.uv.build-backend]
 # The distribution is "Ajax"; the import name is lower case.
@@ -91,6 +100,8 @@ module-name = "ajax"
 
 [tool.ruff]
 line-length = 88
+# Third-party code kept verbatim (benchmarks/reference/vendor/*/README.md).
+extend-exclude = ["benchmarks/reference/vendor"]
 fix = true
 src = ["src", "tests"]
 
@@ -133,7 +144,7 @@ norecursedirs = [".*"]
 testpaths = ["tests"]
 # The benchmark scripts the tests import: they run as scripts, and the
 # world-model ones import each other as sibling modules.
-pythonpath = ["benchmarks", "benchmarks/world_models"]
+pythonpath = ["benchmarks", "benchmarks/world_models", "benchmarks/reference"]
 # An unregistered mark is an error, not a silent no-op.
 addopts = "--strict-markers"
 markers = [

@@ -22,8 +22,11 @@ version [SBX](https://github.com/araffin/sbx), it differs in four ways:
 
 - **[End to end on the accelerator](docs/guide/performance.md)**: the
   environment and the training loop compile into one JAX program, as in
-  [PureJaxRL](https://github.com/luchris429/purejaxrl), with no Python step
-  between them, on a CPU or a GPU.
+  [PureJaxRL](https://github.com/luchris429/purejaxrl),
+  [Rejax](https://github.com/keraJLi/rejax),
+  [Stoix](https://github.com/EdanToledo/Stoix) and
+  [Brax](https://github.com/google/brax)'s training agents, with no Python
+  step between them, on a CPU or a GPU.
 - **Average-reward agents**: [ASAC](docs/algorithms/asac.md) and
   [APO](docs/algorithms/apo.md) maximise the reward per step, with no
   discount, for tasks that never end.
@@ -34,7 +37,8 @@ version [SBX](https://github.com/araffin/sbx), it differs in four ways:
   following the code behind their papers' results.
 
 [Why Ajax](docs/getting-started/why-ajax.md) shows each with an example and
-compares Ajax with SB3, SBX and PureJaxRL, including when to use them instead.
+compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix and Rejax, including
+when to use them instead.
 
 It has fourteen agents, from SAC and PPO to DreamerV3 and TD-MPC2, each
 implementing a published paper, with the places where it departs from that
@@ -177,12 +181,15 @@ helps choose one.
   against an exact contract with no learning, written once for every agent or
   extension that shares the contract. Probes are tiny generic environments
   with known answers: each agent trains on them briefly, and each probe checks
-  one capability of the whole agent; a catalogue of planted bugs checks that
-  the probes catch them. A mismatch of convention with a reference
-  implementation is left to code review.
+  one capability of the whole agent. A catalogue of planted bugs lists the
+  probes that should catch each one; CI checks that every bug still applies
+  to the code, and planting them to run the probes is done by hand. A
+  mismatch of convention with a reference implementation is left to code
+  review.
 - **[Performance](docs/guide/performance.md)**: seeds vectorised with
   `jax.vmap`, a persistent compile cache, one per machine and JAX version, and
-  a per-agent benchmark that flags any slowdown over 10%.
+  a per-agent benchmark script, run by hand, that flags slowdowns over 10%
+  against a recorded baseline.
 
 ---
 

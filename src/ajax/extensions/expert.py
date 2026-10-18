@@ -9,12 +9,14 @@
 Each extension carries only frozen config on ``self``; the maths are the
 functions below. The expert is SAC's ``expert_policy``: OnlineBC,
 ResidualPolicy and JSRLCurriculum read the expert action SAC computes.
-ImitationLoss, for agents without an expert of their own, holds its own.
+ImitationLoss holds its own expert, and reads the actions the agent stored
+when that expert is the agent's.
 """
 
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, Optional
 
@@ -122,17 +124,21 @@ class OnlineBC(Extension):
     frozen expert critic phi* with its value range
     (``expert_critic_params``, ``expert_v_min``, ``expert_v_max``) and the
     critic phi* is applied with from the agent's state, which
-    :class:`MCPretrain` fits (refused without it). It raises on a batch
-    without ``a_expert`` (an agent other than SAC); while SAC has no expert
-    action (``a_expert`` None), the term is 0.
+    :class:`MCPretrain` fits (refused without it). The expert's action is
+    the agent's ``expert_policy``'s, so an agent without one refuses it
+    (``requires`` ``agent_expert``); it raises on a batch without ``a_expert`` (an
+    agent other than SAC). Until phi* exists the term is 0.
     """
 
     bc_coef: float = 1.0
     critic_warmup_frac: float = 0.15
     name: str = "online_bc"
-
-    def reads_phi_star(self) -> bool:
-        return True
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"agent_expert", "continuous_actions", "phi_star", "q_critic"}
+    )
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "actor_loss": frozenset({"a_expert", "observations", "pi_mean"})
+    }
 
     def actor_loss(
         self,
@@ -148,7 +154,7 @@ class OnlineBC(Extension):
                 " actor-loss batch; only SAC provides it."
             )
         a_expert = batch["a_expert"]
-        if a_expert is None or self.critic_warmup_frac <= 0:
+        if agent_state.expert_critic_params is None or self.critic_warmup_frac <= 0:
             return 0.0
         return compute_online_bc_loss(
             batch["pi_mean"],
@@ -164,6 +170,31 @@ class OnlineBC(Extension):
         )
 
 
+def anneal_weight(step: jax.Array, total_steps: int, anneal_frac: float) -> jax.Array:
+    """1 at the start of training, falling linearly to 0 at ``anneal_frac``
+    of ``total_steps``, 0 after."""
+    progress = step / (anneal_frac * max(total_steps, 1))
+    return jnp.clip(1.0 - progress, 0.0, 1.0)
+
+
+def q_filter_weight(
+    critic_state: Any,
+    observations: jax.Array,
+    a_expert: jax.Array,
+    a_policy: jax.Array,
+) -> jax.Array:
+    """The Q-filter of Nair et al. 2018 (eq. 8), ``(batch, 1)``: 1 where the
+    critic's ensemble minimum rates the expert's action above the policy's,
+    ``min_k Q_k(s, a_E) > min_k Q_k(s, π(s))``, else 0; held constant."""
+
+    def q_min(a: jax.Array) -> jax.Array:
+        x = jnp.concatenate([observations, a], axis=-1)
+        return jnp.min(predict_value(critic_state, critic_state.params, x), axis=0)
+
+    keep = q_min(a_expert) > q_min(a_policy)
+    return jax.lax.stop_gradient(keep.astype(jnp.float32))
+
+
 @dataclass(frozen=True)
 class ImitationLoss(Extension):
     """Behavioural-cloning regulariser: ``coef · mean((μ(s) - a_E(s))²) / 4``.
@@ -171,23 +202,106 @@ class ImitationLoss(Extension):
     Same form as the actor-side BC term of TD3+BC (Fujimoto & Gu, 2021),
     with a frozen expert's action as the target: ``μ(s)`` is the actor's mean action
     (``pi.mean()``, which is TD3's deterministic action), ``a_E(s)`` the
-    expert's action on the raw observation, held constant. The mean runs
-    over batch and action dims; ``/ 4`` maps the squared distance of two
+    expert's action, held constant: its call on the raw observation, or,
+    when it is the agent's ``expert_policy``, the action collection stored
+    from its tracked state (which a stateful expert, a PID with its
+    integral, needs). The mean runs over
+    batch and action dims; ``/ 4`` maps the squared distance of two
     actions in ``[-1, 1]`` to ``[0, 1]``. Unlike :class:`OnlineBC` the term
     is unweighted and needs no pre-trained expert critic.
 
-    TD3, REDQ, ASAC, APO and SAC put ``pi_mean`` and ``raw_observations``
-    in their actor-loss batch; an agent whose batch has no ``pi_mean`` (a
-    discrete-action policy) raises at trace time.
+    ``q_filter=True`` counts only the rows where the critic rates the
+    expert's action above the policy's (:func:`q_filter_weight`, at
+    ``μ(s)``) and still divides by every row, as the paper's fixed ``λ2 =
+    1/N_D`` does: the Q-filtered BC of Nair, McGrew, Andrychowicz, Zaremba
+    and Abbeel (ICRA 2018, Sec. IV-C, eq. 8). Deviations: replay rows
+    labelled with the expert's action, not a demonstration buffer (the
+    replay's expert flags would restore it); ``coef`` on the BC term, not
+    the paper's ``λ1 = 1e-3`` on the RL term and ``λ2``; SAC's mean action
+    and critic minimum, not DDPG's. Only SAC puts its critic in the
+    actor-loss batch (``critic_state``); it refuses the filter with
+    :class:`ResidualPolicy`, whose critic reads the executed action.
+    ``imitation/q_filter_frac`` logs, at each evaluation, the share of a
+    replay batch the filter keeps.
+
+    With ``anneal_frac`` the term is multiplied by a weight falling
+    linearly from 1 to 0 at that fraction of training (:func:`anneal_weight`),
+    as in kickstarting (Schmitt et al., 2018, *Kickstarting Deep
+    Reinforcement Learning*, arXiv:1803.03835, eqs. 2-3), whose distillation
+    weight on the teacher decays so the student ends on its own RL loss.
+    Deviations from kickstarting: a squared error on the mean action
+    instead of the cross-entropy between the teacher's and the student's
+    policies (the expert is deterministic: it gives an action, not a
+    distribution); a linear schedule set by ``anneal_frac`` instead of the
+    weights population-based training tunes. ``None`` keeps the weight at 1.
+
+    TD3, REDQ, ASAC, APO, SAC and PPO put ``pi_mean`` and
+    ``raw_observations`` in their actor-loss batch, and all but PPO (which
+    takes no expert) the stored ``a_expert``; an agent whose batch has no
+    ``pi_mean`` (a discrete-action policy) raises at trace time.
     """
 
     expert_policy: Callable
     coef: float = 1.0
+    q_filter: bool = False
+    anneal_frac: Optional[float] = None
+    # Agent context, bound by bind_to_agent.
+    reads_stored_expert: bool = False
+    buffer: Any = None  # the Q-filter's logged share samples it
+    augment_obs_with_expert_action: bool = False
     name: str = "imitation_loss"
+    requires: ClassVar[frozenset[str]] = frozenset({"continuous_actions"})
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "actor_loss": frozenset({"observations", "pi_mean"})
+    }
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+    reads_agent_expert_actions: ClassVar[bool] = True
+
+    def __post_init__(self) -> None:
+        if self.anneal_frac is not None and not 0.0 < self.anneal_frac <= 1.0:
+            raise ValueError(
+                "ImitationLoss's anneal_frac is the fraction of training at"
+                f" which its weight reaches 0, in (0, 1]; got {self.anneal_frac}."
+            )
 
     def experts(self) -> tuple:
-        return (self.expert_policy,)  # called on each batch, without a state
+        return (self.expert_policy,)
+
+    def needs(self) -> frozenset[str]:
+        """The filter also reads the Q critic."""
+        return super().needs() | ({"q_critic"} if self.q_filter else set())
+
+    def reads(self) -> Mapping[str, frozenset[str]]:
+        """The filter also reads the critic from the actor-loss batch."""
+        if not self.q_filter:
+            return self.batch_keys
+        return {"actor_loss": self.batch_keys["actor_loss"] | {"critic_state"}}
+
+    def bind_to_agent(self, **agent_context: Any) -> "ImitationLoss":
+        """Read the expert's stored actions when it is the agent's; with the
+        filter, bind SAC's replay buffer and observation augmentation."""
+        stored = reads_stored_expert_actions(self, agent_context)
+        bound = dataclasses.replace(self, reads_stored_expert=stored)
+        buffer = agent_context.get("buffer")
+        if not self.q_filter or buffer is None:
+            return bound
+        exts = agent_context.get("extensions", ())
+        if any("transform_action" in e.implemented_phases() for e in exts):
+            raise ValueError(
+                "ImitationLoss(q_filter=True) reads the critic at the policy's"
+                " mean action; ResidualPolicy's critic reads the executed one."
+            )
+        augment = agent_context.get("augment_obs_with_expert_action", False)
+        return dataclasses.replace(
+            bound, buffer=buffer, augment_obs_with_expert_action=augment
+        )
+
+    def _expert_actions(self, stored: Any, raw_obs: jax.Array) -> jax.Array:
+        """The expert's actions: the stored ones where the agent keeps them
+        (the agent's own expert), else its call on the raw observations."""
+        if self.reads_stored_expert and stored is not None:
+            return jax.lax.stop_gradient(stored)
+        return jax.lax.stop_gradient(self.expert_policy(raw_obs))
 
     def actor_loss(
         self,
@@ -196,18 +310,59 @@ class ImitationLoss(Extension):
         batch: Any,
         ctx: ExtensionContext,
     ) -> Any:
-        del agent_state, ext_state, ctx
+        del agent_state, ext_state
         pi_mean = batch.get("pi_mean")
         if pi_mean is None:
             raise ValueError(
-                "ImitationLoss needs the actor's mean action ('pi_mean') in the"
-                " actor-loss batch; this agent does not provide it."
+                "ImitationLoss pulls the actor's mean action ('pi_mean') towards"
+                " the expert's, and this actor-loss batch has none: a discrete"
+                " policy has no mean action (the term has no cross-entropy form"
+                " yet)."
             )
         obs = batch.get("raw_observations")
         if obs is None:
             obs = batch["observations"]
-        a_expert = jax.lax.stop_gradient(self.expert_policy(obs))
-        return self.coef * jnp.mean(jnp.square(pi_mean - a_expert)) / 4.0
+        a_expert = self._expert_actions(batch.get("a_expert"), obs)
+        sq = jnp.mean(jnp.square(pi_mean - a_expert), axis=-1, keepdims=True)
+        if self.q_filter:
+            if "critic_state" not in batch:
+                raise ValueError(
+                    "ImitationLoss(q_filter=True) needs the agent's Q-critic"
+                    " ('critic_state') in the actor-loss batch; only SAC"
+                    " provides it."
+                )
+            sq = sq * q_filter_weight(
+                batch["critic_state"],
+                batch["observations"],
+                a_expert,
+                jax.lax.stop_gradient(pi_mean),
+            )
+        if self.anneal_frac is not None:
+            sq = sq * anneal_weight(ctx.step, ctx.total_steps, self.anneal_frac)
+        return self.coef * jnp.mean(sq) / 4.0
+
+    def eval_metrics(
+        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+    ) -> dict:
+        """``imitation/q_filter_frac``, the share of a replay batch the
+        Q-filter keeps (SAC, whose buffer it binds)."""
+        from ajax.buffers.utils import get_batch_from_buffer
+        from ajax.environments.interaction import augment_obs, get_pi
+
+        del ext_state, ctx
+        if self.buffer is None:
+            return {}
+        batch = get_batch_from_buffer(
+            self.buffer, agent_state.collector_state.buffer_state, rng
+        )
+        obs = batch.obs
+        if self.augment_obs_with_expert_action:
+            obs = augment_obs(obs, expert_action=batch.a_expert)
+        actor = agent_state.actor_state  # get_pi applies its observation norm
+        pi_mean = get_pi(actor, actor.params, obs)[0].mean()
+        a_expert = self._expert_actions(batch.a_expert, batch.raw_obs)
+        keep = q_filter_weight(agent_state.critic_state, obs, a_expert, pi_mean)
+        return {"imitation/q_filter_frac": keep.mean()}
 
 
 @dataclass(frozen=True)
@@ -218,11 +373,14 @@ class ResidualPolicy(Extension):
     action pipeline applies :meth:`transform_action` at collection (its
     warmup samples uniformly), and the actor's policy gradient, the
     TD-target bootstrap and evaluation flow through the same transform.
-    Its presence alone turns residual RL on, with SAC's expert policy.
+    Its presence alone turns residual RL on, with SAC's expert policy;
+    ``transform_action`` is a phase only SAC runs, so the other agents
+    refuse it.
     """
 
     scale: float = 1.0
     name: str = "residual_policy"
+    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert"})
 
     def transform_action(self, actions: jax.Array, a_expert: jax.Array) -> jax.Array:
         """``clip(a_expert + scale·a_pi, -1, 1)`` — the residual mix."""
@@ -276,12 +434,14 @@ class JSRLCurriculum(Extension):
     :class:`~ajax.extensions.target_mods.ValueBox` use) and per-env
     ``step_in_episode`` off ``agent_state.collector_state``; the SAC
     pipeline still owns the ``step_in_episode`` increment/reset (in
-    :func:`collect_experience`).
+    :func:`collect_experience`). It writes ``_jsrl_use_expert`` back, which
+    the pipeline reads to flag the steps the expert took.
     """
 
     episode_length: int = 1000
     decay_frac: float = 0.5
     name: str = "jsrl_curriculum"
+    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert"})
     action_slot: ClassVar[str] = "pre_warmup"
     reads_step_in_episode: ClassVar[bool] = True
 
@@ -308,6 +468,8 @@ class JSRLCurriculum(Extension):
         use_expert_jsrl = use_expert_jsrl.reshape(
             (-1,) + (1,) * (post_warmup_action.ndim - 1)
         )
+        # The pipeline flags the steps the expert took (is_expert_flag).
+        obs["_jsrl_use_expert"] = use_expert_jsrl
         return jnp.where(use_expert_jsrl, expert_action, post_warmup_action)
 
 
@@ -331,14 +493,19 @@ class ExpertValueMetrics(Extension):
 
     One replay batch per evaluation pays for them, not a critic pass (two
     with ``φ*``) per update for three logged numbers. ``a_E`` is the
-    expert's action stored at collection. SAC with an ``expert_policy``
-    binds its replay buffer, its expert and its observation augmentation.
+    expert's action stored at collection. A replay agent with an
+    ``expert_policy`` (SAC, TD3, REDQ, ASAC) binds its replay buffer, its
+    expert and its observation augmentation.
     """
 
     buffer: Any = None
     expert_policy: Optional[Callable] = None
     augment_obs_with_expert_action: bool = False
     name: str = "expert_value_metrics"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"agent_expert", "q_critic", "replay"}
+    )
+    context: ClassVar[frozenset[str]] = frozenset({"buffer", "expert_policy"})
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
 
     def bind_to_agent(self, **agent_context: Any) -> "ExpertValueMetrics":
@@ -347,8 +514,9 @@ class ExpertValueMetrics(Extension):
         buffer, expert = agent_context.get("buffer"), agent_context.get("expert_policy")
         if buffer is None or expert is None:
             raise ValueError(
-                "ExpertValueMetrics reads the replay buffer and the expert of a"
-                " SAC agent with an expert_policy."
+                "ExpertValueMetrics reads, on a replay batch, the critic at the"
+                " actions the agent stored for its expert_policy: it needs a"
+                " replay agent (SAC, TD3, REDQ, ASAC) with an expert_policy."
             )
         augment = agent_context.get("augment_obs_with_expert_action", False)
         return dataclasses.replace(

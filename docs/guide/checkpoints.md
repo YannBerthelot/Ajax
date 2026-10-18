@@ -124,4 +124,13 @@ the steps the whole run does.
       mismatch and still raises;
     - a Brax environment state saved before the observation normaliser kept
       the raw observation: it is rebuilt from the saved observation and
-      statistics.
+      statistics;
+    - a UDRL segment buffer saved with a second copy of the environment's
+      own observations (`raw_obs`, kept for a run with an expert on
+      2026-10-17): the copy is dropped, since `obs` holds them. A UDRL buffer
+      of observations the environment normalised is refused: UDRL now keeps
+      them raw. Until 2026-11-17;
+    - an optimiser state saved when that optimiser clipped its network's
+      gradient (`max_grad_norm`), as PPO's two did before PPO took ppo2's
+      one clip over both networks, into an optimiser without the clip: the
+      clip holds no data, so the moments and step counts are kept.

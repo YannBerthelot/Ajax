@@ -73,7 +73,7 @@ Pinned sources:
 | T10 | TD-MPC2 | Paper era: no termination guard (any done treated as a time limit); latest: ValueError unless `episodic` | Terminations counted (episode ends off the `T`-step schedule, and true terminations on its last step); ValueError raised after the run; `episodic=True` takes them instead (T29) | Loud failure instead of silently wrong targets |
 | T11 | TD-MPC2 | Seed-phase actions unseeded (gym space RNG) | Seeded | Reproducibility |
 | T12 | TD-MPC2 | Adam state and RunningScale not checkpointed | Checkpointed | Resume fidelity |
-| T13 | TD-MPC2 | Matmul precision: TF32 (latest) / full fp32 (paper era) | `highest` in parity tests; set explicitly in the GPU report | Numerics |
+| T13 | TD-MPC2 | Matmul precision: TF32 (latest) / full fp32 (paper era) | `highest` in the parity tests; JAX's default elsewhere (not yet set for GPU runs) | Numerics |
 | T14 | TD-MPC2 MT | task_dim 64 for mt30 at 5/19/48M (an acknowledged accident) | 96 (paper) | Ajax's task set is not mt30 |
 | T15 | TD-MPC2 MT | Evaluation-time embedding renorm persisted in place | Renorm applied but not persisted at evaluation | Evaluation cannot write parameters |
 | T16 | TD-MPC2 MT | `evaluate.py` normalised score with exploration noise on; the offline trainer evaluates after its first update, then every `eval_freq` | Offline-trainer protocol (`eval_mode`, 10 episodes per task, `t0` at each episode's first step), every `log_frequency` updates of the run, the first after `log_frequency` updates; each evaluation from fresh initial states; normalised score `mean(return / 10)` (the DMC normalisation) | The trainer protocol is the one behind the paper's training curves |

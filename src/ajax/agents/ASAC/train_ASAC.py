@@ -9,7 +9,7 @@ terminations are charged a penalty learned from the non-terminal rewards
 """
 
 from collections.abc import Sequence
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -28,6 +28,7 @@ from ajax.agents.recurrent import (
     actor_dist,
     q_values,
     sample_replay,
+    unsupported_recurrent_options,
 )
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
@@ -91,6 +92,8 @@ def init_ASAC(
     window_size: int = 10,
     stored_state: bool = False,
     store_expert_data: bool = False,
+    expert_policy: Optional[Callable] = None,
+    store_raw_next_obs: bool = False,
 ) -> ASACState:
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
@@ -106,7 +109,9 @@ def init_ASAC(
         stored_state=stored_state,
         collector_extras={
             "include_raw_obs": store_expert_data,
+            "include_raw_next_obs": store_raw_next_obs,
             "include_is_expert": store_expert_data,
+            "expert_policy": expert_policy,
         },
     )
     return ASACState(
@@ -267,6 +272,7 @@ def update_policy(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
+    a_expert: Optional[jax.Array] = None,
 ) -> Tuple[ASACState, PolicyAuxiliaries]:
     """The actor step on ``alpha log pi(a|s) - min_i Q_i(s, a)``."""
     agent_state, (loss, log_probs, q_min) = core.soft_actor_step(
@@ -276,6 +282,7 @@ def update_policy(
         extension_stack,
         total_timesteps,
         carries,
+        a_expert=a_expert,
     )
     aux = PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()
@@ -357,6 +364,7 @@ def update_agent(
         extension_stack,
         total_timesteps,
         carries,
+        a_expert=transition.a_expert,
     )
     agent_state, log_probs = sample_updated_policy(agent_state, transition.obs, carries)
     # The dual-gradient step towards ``target_entropy`` (target entropy
@@ -395,11 +403,21 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    expert_policy: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """ASAC's train function: one step per env, then (from
     ``learning_starts``) one update, per iteration."""
+    agent_context = {
+        "env_args": env_args,
+        "actor_optimizer_args": actor_optimizer_args,
+        "expert_policy": expert_policy,
+        "buffer": buffer,
+    }
+    extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
     recurrent = network_args.memory is not None
+    if recurrent:
+        unsupported_recurrent_options("ASAC", expert_policy=expert_policy)
     if recurrent and extensions:
         raise NotImplementedError("Recurrent ASAC does not support extensions yet.")
     loop = TrainLoop.create(
@@ -410,6 +428,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        expert_policy=expert_policy,
     )
 
     def init(key: jax.Array) -> ASACState:
@@ -422,7 +441,9 @@ def make_train(
             alpha_args,
             buffer,
             stored_state=agent_config.stored_state,
-            store_expert_data=holds_expert(None, loop.stack),
+            store_expert_data=holds_expert(expert_policy, loop.stack),
+            expert_policy=expert_policy,
+            store_raw_next_obs="raw_next_obs" in loop.stack.buffer_fields(),
         )
 
     def update(agent_state: ASACState, _transition: Transition) -> Any:
@@ -441,4 +462,5 @@ def make_train(
             "buffer": buffer,
             "store_hidden": recurrent and agent_config.stored_state,
         },
+        eval_kwargs={"expert_policy": expert_policy},
     )

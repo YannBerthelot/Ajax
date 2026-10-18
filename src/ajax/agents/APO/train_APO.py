@@ -94,9 +94,12 @@ def update_policy(
     raw_observations: Optional[jax.Array] = None,
     raw_actions: Optional[jax.Array] = None,
     entropy_key: Optional[jax.Array] = None,
+    a_expert: Optional[jax.Array] = None,
 ) -> Tuple[APOState, PolicyAuxiliaries]:
     """The clipped-surrogate actor step on one minibatch, the extensions'
-    terms folded on ``extension_key``."""
+    terms folded on ``extension_key``; they also read ``a_expert``, the
+    expert's actions collection stored at the rows (None without an
+    expert)."""
     actor_state = agent_state.actor_state
 
     def loss_fn(params: FrozenDict) -> Tuple[jax.Array, PolicyAuxiliaries]:
@@ -118,6 +121,7 @@ def update_policy(
             "pi_mean": pi_mean,
             "actor_params": params,
             "actor_state": actor_state,
+            "a_expert": a_expert,
         }
         extra = extension_stack.fold_actor_loss(
             agent_state,
@@ -138,15 +142,17 @@ def init_APO(
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
+    expert_policy: Optional[Callable] = None,
 ) -> APOState:
-    """PPO's initial state (APO's networks: :class:`ajax.agents.APO.APO`),
-    the reward rate and the value bias at 0."""
+    """PPO's initial state (APO's networks: :class:`ajax.agents.APO.APO`)
+    with ``expert_policy``'s, and the reward rate and the value bias at 0."""
     state = init_PPO(
         key,
         env_args,
         actor_optimizer_args,
         critic_optimizer_args,
         network_args,
+        expert_policy=expert_policy,
     )
     return APOState(**vars(state), average_reward=0.0, b=0.0)
 
@@ -219,10 +225,13 @@ def update_agent(
     agent_config: APOConfig,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    stores_expert_actions: bool = False,
 ) -> Tuple[APOState, AuxiliaryLogs]:
     """One APO update on an ``(n_steps, n_envs)`` rollout: the reward-rate
     and value-bias EMAs over every step, differential GAE, then
-    ``n_epochs`` epochs of minibatch steps.
+    ``n_epochs`` epochs of minibatch steps. With ``stores_expert_actions``
+    (an agent with an expert) the rollout's ``a_expert`` reaches the
+    actor-loss extensions.
 
     The GAE is PPO's with ``gamma = 1`` on ``r - rho``, as in APO's official
     code (``xtma/apo``, ``apo/algos/utils.py``,
@@ -245,6 +254,12 @@ def update_agent(
     ) * agent_state.average_reward + agent_config.alpha * jnp.mean(transition.reward)
 
     b = (1 - agent_config.alpha) * agent_state.b + agent_config.alpha * jnp.mean(values)
+    # The first update sets both to the rollout's means, as xtma/apo does
+    # (apo/algos/apg/base.py:43-50, eta and value_bias start as None): an
+    # EMA from 0 would leave rho a fraction 0.9^k too small after k updates.
+    first = agent_state.n_updates == 0
+    average_reward = jnp.where(first, jnp.mean(transition.reward), average_reward)
+    b = jnp.where(first, jnp.mean(values), b)
     agent_state = agent_state.replace(average_reward=average_reward, b=b)
 
     gae, value_targets = _compute_gae(
@@ -296,6 +311,8 @@ def update_agent(
         "log_probs": log_probs,
         "raw_obs": transition.raw_obs,
         "raw_actions": transition.raw_action,
+        # None leaves the minibatches as they were without an expert.
+        "a_expert": transition.a_expert if stores_expert_actions else None,
     }
     shuffle_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
@@ -338,6 +355,7 @@ def update_agent(
             raw_observations=mb["raw_obs"],
             raw_actions=mb["raw_actions"],
             entropy_key=mb["entropy_key"],
+            a_expert=mb["a_expert"],
         )
         return agent_state, AuxiliaryLogs(policy=aux_policy, value=aux_value)
 
@@ -377,6 +395,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        expert_policy=expert_policy,
     )
 
     def init(key: jax.Array) -> APOState:
@@ -386,11 +405,17 @@ def make_train(
             actor_optimizer_args,
             critic_optimizer_args,
             network_args,
+            expert_policy=expert_policy,
         )
 
     def update(agent_state: APOState, rollout: Transition, _start: APOState) -> Any:
         return update_agent(
-            agent_state, rollout, agent_config, loop.stack, total_timesteps
+            agent_state,
+            rollout,
+            agent_config,
+            loop.stack,
+            total_timesteps,
+            stores_expert_actions=expert_policy is not None,
         )
 
     return loop.on_policy(

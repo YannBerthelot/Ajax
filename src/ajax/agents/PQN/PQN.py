@@ -23,6 +23,9 @@ class PQN(ActorCritic):
     """
 
     name: str = "PQN"
+    capabilities: frozenset = frozenset(
+        "discounted obs_networks off_policy q_critic".split()
+    )
     supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
     make_train = staticmethod(make_train)
 

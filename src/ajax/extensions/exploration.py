@@ -304,7 +304,18 @@ class EDGEExploration(Extension):
     lcb_asymmetric: bool = False
     epsilon_floor: float = 0.0
     name: str = "edge_exploration"
+    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert"})
     action_slot: ClassVar[str] = "pre_warmup"
+
+    def needs(self) -> frozenset[str]:
+        """The value gates compare the critic's values of the two actions;
+        the LCB and Thompson gates read its ensemble."""
+        needs = set(super().needs())
+        if self.gate != "fixed":
+            needs.add("q_critic")
+        if self.gate in ("lcb", "argmax_lcb", "thompson"):
+            needs.add("critic_ensemble")
+        return frozenset(needs)
 
     def __post_init__(self):
         if self.gate not in _VALID_GATES:

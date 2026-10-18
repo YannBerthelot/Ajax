@@ -43,11 +43,14 @@ What to know about it:
 - `AJAX_JAX_COMPILE_CACHE_DIR` moves the cache; `AJAX_NO_COMPILE_CACHE=1`
   turns it off.
 
-## Seeds are nearly free
+## Seeds share one program
 
-`train` runs all seeds as one vmapped program. Up to the point where the
-device is busy, more seeds cost almost no extra time. On the report's
-benchmarks, run on a GPU:
+`train` runs all seeds as one vmapped program, so the fixed cost of
+compiling and launching is paid once for all of them; running seeds in
+separate calls pays it again for each. Until the device is busy, extra
+seeds add little time. An early GPU measurement of SAC, from May 2026 on an
+older version of Ajax, with small replay buffers and short runs
+(`benchmarks/seed_scaling.jsonl`, `benchmarks/seed_scaling_p3d.jsonl`):
 
 | Seeds | Pendulum, wall time | Plane3DCircle, wall time |
 | --- | --- | --- |
@@ -57,18 +60,15 @@ benchmarks, run on a GPU:
 | 32 | 11.08 s | 19.12 s |
 | 100 | | 18.37 s |
 
-Thirty-two seeds give 28 times the throughput of one on Pendulum, and a
-hundred seeds 86 times on Plane3DCircle. The fixed cost of compiling and
-launching is shared by every seed, so running seeds in separate calls pays
-it again for each. On Plane3DCircle each seed past 16 added roughly 10-11 MB
-of GPU memory: memory, not compute, limits the seed count there.
+Thirty-two seeds gave 28 times the throughput of one on Pendulum, and a
+hundred seeds 86 times on Plane3DCircle. Each seed of a replay agent keeps
+its own buffer, so memory grows with the number of seeds.
 
 The scaling depends on the workload. In the report's scan of real
 hyperparameter sweeps (wide networks, critic ensembles), going from 20 to 50
 seeds made the time per seed and step worse for several method and
-environment pairs, by up to 81%, once the seeds' working set outgrew the
-GPU's caches. Measure your own configuration before settling on a seed
-count.
+environment pairs, by up to 81%. Measure your own configuration before
+settling on a seed count.
 
 ## Parallel environments
 

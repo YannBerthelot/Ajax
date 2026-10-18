@@ -77,6 +77,30 @@ def test_rollout_shapes_and_reset_flags(pendulum):
     assert jnp.array_equal(rollout.next_obs[:-1], rollout.obs[1:])
 
 
+def test_an_action_map_keeps_the_policys_action_and_the_envs(pendulum):
+    """With ``action_map`` the env is stepped with the mapped action
+    (``action``) and the rollout keeps the policy's own (``policy_action``);
+    without one there is no ``policy_action``."""
+    env, params = pendulum
+    key = jax.random.PRNGKey(0)
+    rollout, _ = closed_loop_rollout(
+        linear_policy(0.1),
+        None,
+        key,
+        env,
+        params,
+        T,
+        n_envs=B,
+        action_map=lambda action: 2.0 * action,
+    )
+    np.testing.assert_allclose(rollout.action, 2.0 * rollout.policy_action)
+    np.testing.assert_allclose(rollout.policy_action, -0.1 * rollout.obs[..., 2:3])
+    plain, _ = closed_loop_rollout(
+        linear_policy(0.1), None, key, env, params, T, n_envs=B
+    )
+    assert plain.policy_action is None
+
+
 def test_the_policy_is_told_each_episode_start(pendulum):
     """``resets`` is True at the first step and on the step after each end of
     its own env: two systems whose episodes end at the time limits 3 and 4."""

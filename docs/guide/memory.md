@@ -59,6 +59,7 @@ lstm = {"kind": "lstm", "hidden_size": 64}  # a dictionary works too
 | `window`, `num_heads` | 32, 4 | transformer: a step attends to itself and the `window - 1` steps before it in the same episode |
 | `d_state`, `d_conv`, `expand` | 16, 4, 2 | mamba: state size, causal-convolution width, inner-width multiplier |
 | `final_norm` | `True` | transformer, mamba: end with a LayerNorm, as GPT-2 and Mamba do; `False` only restores a checkpoint saved before it, and goes once none remains (an APG controller's parameters also map exactly onto the new network with `controller_params_with_final_norm`, which maps the parameters only, so a resumed training state must restart its optimizer) |
+| `init` | `None` | every kind: the block's initialisation. `None` and `"flax"` are flax's defaults; `"stacked_orthogonal"` (GRU, LSTM) starts each gate as torch's orthogonal init of the stacked gates leaves it, as Ni et al. do; `"gpt2"` (transformer) draws every kernel from N(0, 0.02²), and `"nanogpt"` also scales the residual projections by 1/√(2 `num_layers`); `"mamba"` draws the step sizes log-uniformly in [0.001, 0.1], as Mamba does |
 
 Acting and training run the same code, a sequence of one step being the
 acting case, so what the agent learns is what it executes. Each kind is
@@ -77,7 +78,10 @@ and shuffles whole pieces, never single steps, into its minibatches. A piece
 starts from the memory the policy had at its first step while collecting
 (recomputed once before the update), never from zero in the middle of an
 episode. Gradients flow through a piece but not back past its start:
-`bptt_length` is how far back backpropagation through time reaches.
+`bptt_length` is how far back backpropagation through time reaches. Where a
+time limit cut an episode, the value it bootstraps on is the critic's on the
+episode's final observation, read with the memory that episode built, as
+sb3-contrib's `RecurrentPPO` does.
 
 ### The libraries disagree on the length
 

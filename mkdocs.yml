@@ -118,7 +118,9 @@ nav:
       - Logging: guide/logging.md
       - Checkpoints and resuming: guide/checkpoints.md
       - Performance: guide/performance.md
+      - Comparing agents: guide/comparing-agents.md
       - Extensions: guide/extensions.md
+      - Compatibility: guide/compatibility.md
       - Expert guidance: guide/expert-guidance.md
       - Differentiable simulation: guide/differentiable-simulation.md
       - World models: guide/world-models.md
@@ -137,6 +139,11 @@ nav:
       - APG: algorithms/apg.md
       - DreamerV3: algorithms/dreamerv3.md
       - TD-MPC2: algorithms/tdmpc2.md
+  - Reproduction:
+      - reproduction/index.md
+      - Protocol: reproduction/protocol.md
+      - Specifications: reproduction/specs.md
+      - Results: reproduction/results.md
   - Developer guide:
       - Architecture: developer/architecture.md
       - Contributing: developer/contributing.md
@@ -169,3 +176,4 @@ nav:
       - Networks and modules: api/networks.md
       - Buffers: api/buffers.md
       - Logging, evaluation and checkpoints: api/logging.md
+      - Comparing agents: api/compare.md

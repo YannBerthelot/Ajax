@@ -94,10 +94,12 @@ def test_apply_gradients_runs_once_per_epoch_and_minibatch(extra, num_minibatche
 @pytest.mark.parametrize(
     "config, n_envs, recurrent, geometry",
     [
-        # brax's fragments; without unroll_length, whole rollouts per env
+        # brax's fragments, opted into; unroll_length = n_steps: whole rollouts
         ({"num_minibatches": 4, "unroll_length": 8}, 2, False, ("time", 4, 8)),
-        ({"num_minibatches": 2}, 4, False, ("time", 2, 32)),
-        # the fragments do not split evenly, or one minibatch: flat
+        ({"num_minibatches": 2, "unroll_length": 32}, 4, False, ("time", 2, 32)),
+        # flat by default, even where the env axis splits evenly (the paper)
+        ({"num_minibatches": 2}, 4, False, ("flat", 2, 32)),
+        ({"num_minibatches": 4}, 4, False, ("flat", 4, 32)),
         ({"num_minibatches": 4}, 2, False, ("flat", 4, 32)),
         ({"num_minibatches": 0, "batch_size": 32}, 4, False, ("flat", 1, 32)),
         # recurrent: sequences of bptt_length steps; by default the longest

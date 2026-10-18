@@ -84,9 +84,9 @@ def test_each_critic_update_gets_a_fresh_batch(monkeypatch: pytest.MonkeyPatch) 
         record(critic_obs, batch.obs)
         return update_values(agent_state, batch, *args)
 
-    def spy_policy(agent_state: Any, obs: jax.Array, *args: Any) -> Any:
+    def spy_policy(agent_state: Any, obs: jax.Array, *args: Any, **kw: Any) -> Any:
         record(actor_obs, obs)
-        return update_policy(agent_state, obs, *args)
+        return update_policy(agent_state, obs, *args, **kw)
 
     monkeypatch.setattr(train_REDQ, "update_value_functions", spy_values)
     monkeypatch.setattr(train_REDQ, "update_policy", spy_policy)
@@ -115,9 +115,9 @@ def test_the_actor_reads_the_critics_before_their_last_update(
         record(critics_out, flat_critics(agent_state))
         return agent_state, aux
 
-    def spy_policy(agent_state: Any, *args: Any) -> Any:
+    def spy_policy(agent_state: Any, *args: Any, **kw: Any) -> Any:
         record(actor_reads, flat_critics(agent_state))
-        return update_policy(agent_state, *args)
+        return update_policy(agent_state, *args, **kw)
 
     monkeypatch.setattr(train_REDQ, "update_value_functions", spy_values)
     monkeypatch.setattr(train_REDQ, "update_policy", spy_policy)

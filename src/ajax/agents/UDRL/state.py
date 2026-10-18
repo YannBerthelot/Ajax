@@ -30,14 +30,18 @@ class UDRLState(BaseAgentState):
 class UDRLConfig(BaseAgentConfig):
     """Hyperparameters for Upside-Down RL (Schmidhuber, 2019)."""
 
+    # Discounts only the Train/mean_rtg diagnostic: commands, top-K
+    # statistics and training targets are undiscounted, as in the paper.
     gamma: float = 1.0
     n_steps: int = 64
     batch_size: int = 64
     command_return_init: float = 1.0
     command_horizon_init: float = 100.0
-    # Dynamic-target settings: every iter, set the command_target to the
-    # top-K episode returns' mean + ``command_return_boost`` * std (UDRL
-    # paper §4.2). Horizon target is the mean horizon of the same top-K.
+    # Dynamic-target settings: every iter, set the command target to the
+    # top-K episode returns' mean times ``command_return_boost``, and its
+    # spread to their std: exploration draws the return command uniformly
+    # in [target, target + std] (UDRL paper §4.2). Horizon target is the
+    # mean horizon of the same top-K.
     command_topk: int = 32
     command_return_boost: float = 1.0
     # Smoothing factor on the target update: new = (1 - tau) * old + tau * proposal.

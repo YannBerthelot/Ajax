@@ -7,6 +7,7 @@ from flax.linen.initializers import orthogonal, variance_scaling
 from flax.serialization import to_state_dict
 
 from ajax.networks.utils import (
+    dense,
     get_adam_tx,
     get_initializer,
     parse_activation,
@@ -243,3 +244,14 @@ def test_parse_activation_rejects_unknown(activation):
 def test_parse_layer_lists_the_layernorm_token_on_unknown_names():
     with pytest.raises(ValueError, match="'layernorm' or an activation"):
         parse_layer("layer_norm")
+
+
+def test_dense_takes_the_default_kernel_and_a_zero_bias():
+    """dense() falls back to its default kernel initializer and zero
+    biases, and keeps the name it is given."""
+    x = jnp.ones((2, 4))
+    layer = dense(3, None, None, nn.initializers.ones, name="head")
+    params = layer.init(jax.random.PRNGKey(0), x)["params"]
+    np.testing.assert_array_equal(params["kernel"], 1.0)
+    np.testing.assert_array_equal(params["bias"], 0.0)
+    assert layer.name == "head"

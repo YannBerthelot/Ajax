@@ -118,6 +118,11 @@ class PIDLaw(nn.Module):
         return jnp.einsum("...tak,...tk->...a", self.gains(obs), terms)
 
 
+#: The PID actor's starting log-std when the network config leaves it to the
+#: Gaussian head's layer to draw (``log_std_init`` None, a "torch_linear" head).
+PID_LOG_STD_INIT = -1.0
+
+
 class PIDActor(nn.Module):
     """Stochastic PID actor: Normal around the PID output (squashed by
     :class:`~ajax.networks.networks.Squashed`)."""
@@ -127,7 +132,7 @@ class PIDActor(nn.Module):
     # The PID output through tanh as the Gaussian's mean, the agent's
     # ``tanh_mean`` (NetworkConfig), as the Actor's mean head.
     tanh_mean: bool = False
-    log_std_init: float = -1.0
+    log_std_init: float = PID_LOG_STD_INIT
     # The log-std's (low, high) clip, the agent's ``log_std_bounds``
     # (NetworkConfig); None: not clipped.
     log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS

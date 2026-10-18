@@ -201,28 +201,15 @@ def parse_layer(
     bias_init: Optional[Union[str, InitializationFunction]] = None,
 ) -> Union[nn.Module, ActivationFunction]:
     """Parse one architecture token: a width such as ``"256"`` gives a Dense
-    layer (a :class:`TorchLinear`, which draws its bias too, with
-    ``kernel_init="torch_linear"``), ``"layernorm"`` a new LayerNorm with its
-    own scale and bias, any other name or a callable an activation
-    (:func:`parse_activation`).
+    layer (:func:`dense`, kernel ``orthogonal(1.0)`` by default),
+    ``"layernorm"`` a new LayerNorm with its own scale and bias, any other
+    name or a callable an activation (:func:`parse_activation`).
 
     ``("256", "layernorm", "relu")`` per hidden layer is RLPD's critic MLP
     (Ball et al., ICML 2023; ``ikostrikov/rlpd``, ``rlpd/networks/mlp.py``).
     """
     if str(layer).isnumeric():
-        features = int(cast("str", layer))
-        if kernel_init == TORCH_LINEAR:
-            if bias_init is not None:
-                raise ValueError(
-                    f"{TORCH_LINEAR!r} draws the biases too;"
-                    f" got bias_init={bias_init!r}"
-                )
-            return TorchLinear(features)
-        return nn.Dense(
-            features,
-            kernel_init=parse_initialization(kernel_init, default=orthogonal(1.0)),
-            bias_init=parse_initialization(bias_init, default=constant(0)),
-        )
+        return dense(int(cast("str", layer)), kernel_init, bias_init, orthogonal(1.0))
     if layer == "layernorm":
         return nn.LayerNorm()
     try:
@@ -232,6 +219,31 @@ def parse_layer(
             f"Unrecognized layer {layer!r}: a width such as '256', 'layernorm'"
             f" or an activation, {sorted(_ACTIVATIONS)}"
         ) from e
+
+
+def dense(
+    features: int,
+    kernel_init: Optional[Union[str, InitializationFunction]],
+    bias_init: Optional[Union[str, InitializationFunction]],
+    default_kernel_init: InitializationFunction,
+    name: Optional[str] = None,
+) -> nn.Module:
+    """A Dense layer with ``kernel_init`` (``default_kernel_init`` for None)
+    and ``bias_init`` (zeros for None), as :func:`parse_initialization`
+    reads them; ``kernel_init="torch_linear"`` builds a
+    :class:`TorchLinear`, which draws its bias too."""
+    if kernel_init == TORCH_LINEAR:
+        if bias_init is not None:
+            raise ValueError(
+                f"{TORCH_LINEAR!r} draws the biases too; got bias_init={bias_init!r}"
+            )
+        return TorchLinear(features, name=name)
+    return nn.Dense(
+        features,
+        kernel_init=parse_initialization(kernel_init, default=default_kernel_init),
+        bias_init=parse_initialization(bias_init, default=constant(0)),
+        name=name,
+    )
 
 
 def parse_architecture(

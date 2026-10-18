@@ -40,6 +40,13 @@ def test_alpha_tracks_target_entropy(target_entropy_per_dim, expected_sign):
     assert jnp.sign(log_alpha) == expected_sign
 
 
+def test_adam_eps_is_the_references():
+    """The reference's torch.optim.Adam keeps torch's eps, 1e-8
+    (watchernyu/REDQ @7b5d1bf redq_sac.py:48, :51), not Ajax's shared 1e-5."""
+    agent = REDQ(env_id="Pendulum-v1")
+    assert agent.actor_optimizer_args.eps == agent.critic_optimizer_args.eps == 1e-8
+
+
 def test_redq_starts_every_layer_xavier_uniform():
     """watchernyu/REDQ's weights_init_ (redq/algos/core.py:18-22) starts
     every Linear layer xavier_uniform, gain 1, with a zero bias, the mean and

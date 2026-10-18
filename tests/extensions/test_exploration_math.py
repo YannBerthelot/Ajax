@@ -1,7 +1,5 @@
 """The EDGE gates' and the value box's maths."""
 
-from types import SimpleNamespace
-
 import jax
 import jax.numpy as jnp
 import numpy as np

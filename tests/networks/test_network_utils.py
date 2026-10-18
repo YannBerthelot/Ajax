@@ -2,6 +2,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 import pytest
 from flax.linen.initializers import orthogonal, variance_scaling
 from flax.serialization import to_state_dict
@@ -64,6 +65,66 @@ def test_get_adam_tx_clips_iff_given_a_norm():
     clipped = _one_step(get_adam_tx(1.0, max_grad_norm=1e-6), params, grads)["w"]
     np.testing.assert_allclose(plain, -1e-4 / (1e-4 + 1e-5), rtol=1e-4)
     np.testing.assert_allclose(clipped, -1e-6 / (1e-6 + 1e-5), rtol=1e-4)
+
+
+def _steps(tx, n=3):
+    """Every update of ``n`` steps on fixed random gradients, and the state."""
+    params = {"w": jnp.linspace(-1.0, 1.0, 5), "b": jnp.ones(2)}
+    state, updates = tx.init(params), []
+    for key in jax.random.split(jax.random.PRNGKey(0), n):
+        grads = {k: jax.random.normal(key, p.shape) for k, p in params.items()}
+        step, state = tx.update(grads, state, params)
+        params = optax.apply_updates(params, step)
+        updates.append(step)
+    return updates, state
+
+
+@pytest.mark.parametrize(
+    "ours,reference",
+    [
+        ({"eps": 1e-5}, optax.adam(1e-2, eps=1e-5)),
+        (
+            {"eps": 1e-5, "weight_decay": 0.1},
+            optax.adamw(1e-2, eps=1e-5, weight_decay=0.1),
+        ),
+        ({"eps": 1e-8, "optimizer": "radam"}, optax.radam(1e-2)),
+        (
+            {"eps": 0.01, "beta_2": 0.95, "optimizer": "centered_rmsprop"},
+            optax.rmsprop(1e-2, decay=0.95, eps=0.01, centered=True),
+        ),
+    ],
+)
+def test_each_update_rule_is_optaxs(ours, reference):
+    """Built from optax's parts, each rule steps as optax's alias does; Adam
+    and AdamW keep the alias's state tree too, so saved states restore."""
+    (got, got_state), (want, want_state) = (
+        _steps(get_adam_tx(1e-2, **ours)),
+        _steps(reference),
+    )
+    jax.tree.map(np.testing.assert_array_equal, got, want)
+    if ours.get("optimizer", "adam") == "adam":
+        assert jax.tree.structure(got_state) == jax.tree.structure(want_state)
+
+
+def test_centered_rmsprop_is_mnih_et_als_update():
+    """DQN's reference step (google-deepmind/dqn @9d9b1d1,
+    NeuralQLearner.lua:265-277): g = .95 g + .05 dw, g2 = .95 g2 + .05 dw^2,
+    w -= lr dw / sqrt(g2 - g^2 + 0.01), both averages from zero."""
+    lr = 2.5e-4
+    tx = get_adam_tx(lr, eps=0.01, beta_2=0.95, optimizer="centered_rmsprop")
+    params, state = {"w": jnp.zeros(3)}, tx.init({"w": jnp.zeros(3)})
+    g = g2 = w = np.zeros(3)
+    for dw in (np.array([1.0, -2.0, 0.5]), np.array([0.3, 0.1, -4.0])):
+        step, state = tx.update({"w": jnp.asarray(dw)}, state, params)
+        params = optax.apply_updates(params, step)
+        g, g2 = 0.95 * g + 0.05 * dw, 0.95 * g2 + 0.05 * dw**2
+        w = w - lr * dw / np.sqrt(g2 - g**2 + 0.01)
+    np.testing.assert_allclose(params["w"], w, rtol=1e-5)
+
+
+def test_an_unknown_update_rule_is_refused():
+    with pytest.raises(ValueError, match="optimizer must be one of"):
+        get_adam_tx(1e-3, optimizer="sgd")
 
 
 # ------------------------

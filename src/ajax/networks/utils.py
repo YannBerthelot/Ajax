@@ -25,9 +25,10 @@ def get_adam_tx(
     beta_1: float = 0.9,
     beta_2: float = 0.999,
     weight_decay: float = 0.0,
+    optimizer: str = "adam",
 ) -> GradientTransformationExtraArgs:
-    """Return an Adam(W) optimizer, clipping the gradients' global norm to
-    ``max_grad_norm`` when one is given.
+    """Return the optimizer ``optimizer`` names, Adam by default, clipping
+    the gradients' global norm to ``max_grad_norm`` when one is given.
 
     Unclipped by default. Global-norm clipping is a PPO-family convention
     (PPO / APO pass ``max_grad_norm=0.5``); the off-policy agents and the
@@ -35,24 +36,28 @@ def get_adam_tx(
 
     Args:
         weight_decay: Decoupled weight decay, multiplied by the learning
-            rate (``OptimizerConfig.weight_decay``); ``> 0`` selects
-            ``optax.adamw``, ``0`` keeps plain Adam.
+            rate (``OptimizerConfig.weight_decay``), between the update rule
+            and the learning rate as ``optax.adamw`` places it; ``0`` leaves
+            it out, so ``"adam"`` is ``optax.adam``.
+        optimizer: The update rule (``OptimizerConfig.optimizer``):
+            ``"adam"``, ``"radam"`` or ``"centered_rmsprop"``.
     """
     if weight_decay < 0:
         raise ValueError(f"weight_decay must be non-negative, got {weight_decay}")
-    if weight_decay > 0:
-        adam = optax.adamw(
-            learning_rate=learning_rate,
-            eps=eps,
-            b1=beta_1,
-            b2=beta_2,
-            weight_decay=weight_decay,
-        )
-    else:
-        adam = optax.adam(learning_rate=learning_rate, eps=eps, b1=beta_1, b2=beta_2)
+    rules = {
+        "adam": lambda: optax.scale_by_adam(b1=beta_1, b2=beta_2, eps=eps),
+        "radam": lambda: optax.scale_by_radam(b1=beta_1, b2=beta_2, eps=eps),
+        "centered_rmsprop": lambda: optax.scale_by_stddev(decay=beta_2, eps=eps),
+    }
+    if optimizer not in rules:
+        raise ValueError(f"optimizer must be one of {sorted(rules)}, got {optimizer!r}")
+    decay = [optax.add_decayed_weights(weight_decay)] if weight_decay > 0 else []
+    tx = optax.chain(
+        rules[optimizer](), *decay, optax.scale_by_learning_rate(learning_rate)
+    )
     if max_grad_norm is not None:
-        return optax.chain(optax.clip_by_global_norm(max_grad_norm), adam)
-    return adam
+        return optax.chain(optax.clip_by_global_norm(max_grad_norm), tx)
+    return tx
 
 
 _ACTIVATIONS: dict[str, ActivationFunction] = {

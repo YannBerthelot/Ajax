@@ -712,6 +712,22 @@ _GOLDEN |= {
         "nudge": 0.33622848987579346,
     },
 }
+# Re-recorded on macOS ARM CPU on the batch that brought APO's reference stack
+# onto main (batch/apo-reference). The stack's pins above were recorded on
+# its base, 04e2249; of main's commits since, only b35fa54 (APO seeds its
+# reward rate and value bias with the first rollout's means) re-recorded
+# APO-nudge on main. On the merged tree APO-nudge moves +0.97% (actor) and
+# +1.21% (critic) from the entropy-bonus pin, its nudge bitwise unchanged. PPO-mcc's critic moves
+# -1.8e-7 (relative), float32 rounding, as PPO's joint clip took the shared
+# formula g * (max_norm / norm) for optax's (g / norm) * max_norm.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 9.204462051391602,
+        "critic": 8.057476043701172,
+        "nudge": 0.33622848987579346,
+    },
+    "PPO-mcc": {"actor": 4.016942501068115, "critic": 5.263053894042969},
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

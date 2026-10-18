@@ -106,6 +106,11 @@ of the time, simulated from the observed spread of the scores
 of 5% is about the tightest that 96 seeds per side can confirm: on CartPole
 with a few collapsed seeds, the interval at 96 seeds is about ±19.
 
+The resolution's simulation shifts every score by the gap. When most
+scores sit at a task's maximum (every seed of a solved CartPole at 500), it
+comes out near 0, and it says nothing about a gap made of a few seeds that
+fail; the difference's interval is then the guide.
+
 ## Tracing a number
 
 Every published number leads back to what produced it. A row of

@@ -20,8 +20,8 @@ dependencies = [
     "mujoco>=3.1.4,<4",
     "mujoco-mjx>=3.1.4,<4",
     # gymnax 1.0 (six-value step API: obs, state, reward, terminated,
-    # truncated, info), from the fork in [tool.uv.sources].
-    "gymnax",
+    # truncated, info). 1.0.1 is the first release without the jax<0.7 cap.
+    "gymnax>=1.0.1,<2",
     "distrax>=0.1.6",
     "tensorboardx>=2.6.4,<3",
     "playground>=0.2.0,<0.3",
@@ -85,13 +85,6 @@ docs = [
 default-groups = ["dev", "wandb"]
 
 [tool.uv.sources]
-# TEMPORARY: this should be `gymnax>=1.0.1,<2` from PyPI. gymnax 1.0.0
-# caps jax at <0.7 and gymnasium at <1.2, which no resolver can satisfy
-# next to distrax (jax>=0.7), so the release is unusable here. The branch below is upstream main with those
-# two caps lifted and nothing else changed; it is proposed upstream as
-# YannBerthelot:chore/relax-runtime-pins. Drop the fork and pin the PyPI
-# release once that lands.
-gymnax = { git = "https://github.com/YannBerthelot/gymnax.git", branch = "chore/relax-runtime-pins" }
 # TEMPORARY: pinned to the gymnax 1.0 migration branch. The released
 # 0.5.1 still requires `gymnax ^0.0.9`, which makes the whole graph
 # unresolvable. Restore the PyPI pin once a migrated release is cut.

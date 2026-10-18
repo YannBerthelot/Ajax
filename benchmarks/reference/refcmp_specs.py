@@ -108,6 +108,11 @@ PUREJAXQL_UNMATCHED = (
 
 COMPARISONS = {
     "PPO": Comparison(
+        # Version 1 (the pilot, at c4aeac6) set fused_grad_clip, which clipped
+        # both networks at 1.0 on top of each one's own clip at 0.5, so never
+        # bound: each network was clipped on its own. Version 2 runs PPO's
+        # one clip over both networks at 0.5, as SB3 clips its optimiser.
+        version=2,
         renames={"learning_rate": ("actor_learning_rate", "critic_learning_rate")},
         # Ajax's value loss is vf_coef * 0.5 * MSE, SB3's vf_coef * MSE.
         scale={"vf_coef": 2.0},
@@ -158,6 +163,9 @@ COMPARISONS = {
         defaults={"n_envs": 8, "n_steps": 256},
     ),
     "PPO-inverted_pendulum": Comparison(
+        # Version 2 writes out Adam's eps, 1e-8 as optax's default in Brax,
+        # since Ajax's PPO default became 1e-5; version 1 ran it implicitly.
+        version=2,
         renames={
             "num_envs": "n_envs",
             "num_updates_per_batch": "n_epochs",
@@ -216,6 +224,7 @@ COMPARISONS = {
             "gae_lambda": 0.95,
             "clip_range": 0.3,
             "vf_coef": 0.5,
+            "adam_eps": 1e-8,
             "max_grad_norm": None,
             "normalize_advantage": True,
             "normalize_observations": True,

@@ -46,7 +46,9 @@ print(state.command_target_return)                # the return the agent now ask
 With a `logging_config`, every `log_frequency` steps UDRL evaluates its
 policy on `num_episode_test` episodes and `train` returns, next to the
 evaluation (`Eval/episodic mean reward`, `Eval/episodic entropy`,
-`Eval/mean episodic length`), the training metrics of those iterations
+`Eval/mean episodic length`, and `Eval/commanded return` and
+`Eval/commanded horizon`, the command each episode starts from), the
+training metrics of those iterations
 (`Train/episodic mean reward`, `Train/actor_loss`, `Train/mean_rtg`,
 `Train/mean_horizon`, `Train/n_completed_episodes`).
 

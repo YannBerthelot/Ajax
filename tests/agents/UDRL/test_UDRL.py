@@ -42,13 +42,20 @@ def test_UDRL_train_updates_actor_params():
 def test_UDRL_logs_its_training_metrics_and_evaluation_without_a_backend():
     """With a logging config and no backend, ``train`` returns a row per
     log (every 32 env steps: 4 iterations of 8) of the training metrics and
-    the shared evaluation of its policy; without one, nothing."""
+    the shared evaluation of its policy, with the command it starts from
+    (the last evaluation's: the final state's targets); without one,
+    nothing."""
     from ajax.logging.wandb_logging import LoggingConfig
 
     agent = UDRL(env_id="CartPole-v1", n_envs=1, n_steps=8, batch_size=8)
     config = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
-    _, rows = agent.train(seed=[0, 1], n_timesteps=64, logging_config=config)
+    state, rows = agent.train(seed=[0, 1], n_timesteps=64, logging_config=config)
     assert rows["timestep"].tolist() == [[32, 64], [32, 64]]
+    for key, target in (
+        ("Eval/commanded return", state.command_target_return),
+        ("Eval/commanded horizon", state.command_target_horizon),
+    ):
+        np.testing.assert_array_equal(rows[key][:, -1], target)
     finite = ("Train/actor_loss", "Eval/episodic mean reward")
     other = ("Train/episodic mean reward", "Eval/mean episodic length")
     assert set(finite + other) <= set(rows)

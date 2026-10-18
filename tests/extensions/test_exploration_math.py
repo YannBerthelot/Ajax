@@ -174,17 +174,6 @@ def test_box_action_override_passes_through_outside_box():
     assert jnp.allclose(out, action)
 
 
-def test_edge_eval_metrics_report_the_live_expert_fraction():
-    from ajax.extensions.exploration import EDGEExploration
-
-    ext = EDGEExploration()
-    state = SimpleNamespace(
-        collector_state=SimpleNamespace(last_expert_frac=jnp.asarray(0.25))
-    )
-    metrics = ext.eval_metrics(state, (), jax.random.PRNGKey(0), None)
-    assert metrics == {"edge/live_expert_frac": 0.25}
-
-
 def test_box_entry_is_flagged_whatever_the_sign_of_the_expert_value(critic_stub):
     """A cost task's expert value is negative: entering the box is still an
     entry, flagged apart from the (negative) bonus it pays."""

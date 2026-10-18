@@ -72,17 +72,95 @@ transformer and about 95 s with Mamba.
 
 ## On-policy: PPO
 
-PPO collects a rollout of `n_steps` per copy with the memory running, then
-learns from it starting from the memory each copy had when the rollout
-began. By default it backpropagates through each copy's whole rollout.
-`bptt_length` cuts the rollouts into pieces of that many steps (it must
-divide `n_steps`); each piece starts from the memory recomputed up to its
-first step, never from zero in the middle of an episode. PPO shuffles whole
-pieces, not single steps, into its minibatches (see [PPO](../algorithms/ppo.md)
-for how many). When the pieces cannot be split into that many minibatches,
-PPO warns and trains on one. Where a time limit cut an episode, the value it
-bootstraps on is the critic's on the episode's final observation, read with
-the memory that episode built, as sb3-contrib's `RecurrentPPO` does.
+PPO collects a rollout of `n_steps` per copy (`n_envs` copies) with the
+memory running, cuts each copy's rollout into pieces of `bptt_length` steps
+and shuffles whole pieces, never single steps, into its minibatches. A piece
+starts from the memory the policy had at its first step while collecting
+(recomputed once before the update), never from zero in the middle of an
+episode. Gradients flow through a piece but not back past its start:
+`bptt_length` is how far back backpropagation through time reaches. Where a
+time limit cut an episode, the value it bootstraps on is the critic's on the
+episode's final observation, read with the memory that episode built, as
+sb3-contrib's `RecurrentPPO` does.
+
+### The libraries disagree on the length
+
+No PPO paper gives one length for every task, and the reference codes fall
+into two camps:
+
+| Code or paper | Piece length | A minibatch holds |
+| --- | --- | --- |
+| OpenAI Baselines' ppo2 at `ea25b9e` (`baselines/ppo2/ppo2.py:167-180`) | each copy's whole rollout | the whole rollouts of a subset of the copies; it asserts `nenvs % nminibatches == 0` |
+| CleanRL's `ppo_atari_lstm.py` at `fe8d8a0` (`:296-313`) | the whole rollout (128 steps by default) | as Baselines, with the same assertion |
+| PureJaxRL's `ppo_rnn.py` at `31756b1` (`:258-291`) | the whole rollout (128 steps by default) | as Baselines; it reshapes the copies into minibatches, which fails when they do not divide |
+| RLlib (ray at `00a3adb`, `rllib/core/rl_module/default_model_config.py:188`) | `max_seq_len=20`: episodes cut into 20-step chunks, zero-padded and masked | whole chunks |
+| Sample Factory at `3d48f55` (`sample_factory/algo/learning/learner.py:498-516`) | `recurrence`, by default the rollout length (32 steps) | whole chunks, shuffled |
+| Pleines et al., 2022 ([arXiv:2205.11104](https://arxiv.org/abs/2205.11104)) | tuned per task by grid search; their code (`MarcoMeter/recurrent-ppo-truncated-bptt` at `a1e87a8`) uses 8 steps or whole episodes | whole chunks, zero-padded and masked |
+
+The first three share the copies between minibatches, as Huang et al.'s
+*37 Implementation Details of PPO* (2022) describes; the last three cut
+fixed-length chunks. sb3-contrib's RecurrentPPO (at `075bd5b`) has no length
+setting: it cuts at episode starts, copy changes and minibatch edges. Morad
+et al., 2024 ([arXiv:2402.09900](https://arxiv.org/abs/2402.09900)), argue
+that fixed-length chunks estimate the full gradient poorly, so a dependency
+longer than a chunk is unlikely to be learned, and found whole episodes more
+sample-efficient (with Q-learning, not PPO). All of them, and Ajax, agree on
+the rest: a piece stays in one minibatch, the memory resets when an episode
+ends, and a piece starts from the memory the policy had while collecting.
+
+### What Ajax does by default
+
+With `bptt_length=None` (the default) the number of minibatches chooses the
+length: the longest pieces that cut every rollout into equal parts and split
+exactly into the minibatches.
+
+- When `n_envs` is a multiple of the number of minibatches, a piece is a
+  copy's whole rollout and a minibatch holds the rollouts of
+  `n_envs // num_minibatches` copies: the scheme of Baselines, CleanRL and
+  PureJaxRL.
+- Otherwise each rollout is cut into `num_minibatches // gcd(n_envs,
+  num_minibatches)` equal pieces. When that count does not divide `n_steps`
+  no length splits, and PPO refuses the settings at construction.
+
+No published length fits every task, so Ajax keeps the reference codes'
+whole rollouts whenever the settings allow them, cuts the rollouts only as
+much as the requested minibatches need, and always trains on the number of
+minibatches it was asked for. That number is `num_minibatches` when
+positive, otherwise `max(n_steps, batch_size) // min(n_steps, batch_size)`
+(see [PPO](../algorithms/ppo.md)).
+
+| Settings | Minibatches | Default `bptt_length` | A minibatch holds |
+| --- | --- | --- | --- |
+| PPO's defaults: `n_envs=4`, `n_steps=2048`, `batch_size=64` | 2048 // 64 = 32 | 256: 32 // gcd(4, 32) = 8 pieces per rollout | one 256-step piece |
+| PureJaxRL's defaults: `n_envs=4`, `n_steps=128`, `num_minibatches=4` | 4 | 128, the whole rollout | one copy's rollout |
+| CleanRL's defaults: `n_envs=8`, `n_steps=128`, `num_minibatches=4` | 4 | 128, the whole rollout | two copies' rollouts |
+| `n_envs=1`, `n_steps=32`, `num_minibatches=2` | 2 | 16, half the rollout | one half |
+| `n_envs=4`, `n_steps=100`, `num_minibatches=32` | 32 | refused: 8 pieces do not divide 100 | |
+
+### Setting it
+
+- **To reproduce Baselines, CleanRL or PureJaxRL**, leave `bptt_length=None`
+  and set `num_minibatches` to a divisor of `n_envs`, as in the second and
+  third rows. PPO's defaults do not (4 copies, 32 minibatches): they learn on
+  256-step pieces, with 32 × 10 epochs = 320 gradient steps per update, as
+  the feedforward PPO takes.
+- **An explicit `bptt_length` can only shorten the pieces.** It must divide
+  the default length (256 with PPO's defaults); PPO refuses any other value.
+  For longer pieces, ask for fewer minibatches.
+- **The pieces must cover the memory horizon the task needs.** No gradient
+  crosses the start of a piece, so the memory learns to keep a cue only from
+  pieces holding both the step that shows it and the step that needs it. For
+  a cue needed k steps later, 2k-step pieces hold both for only about half
+  the places the cue can fall: make them several times longer than k. The
+  memory still crosses pieces: this limits what the policy learns to keep,
+  not what it uses once learned.
+- **Shorter pieces trade that reach for cost.** An update takes `n_epochs`
+  × the number of minibatches gradient steps, whatever `bptt_length`.
+  Shorter pieces give a GRU or an LSTM, which steps through a piece one step
+  at a time, shorter loops, and with few copies they are what allows more
+  minibatches (one copy needs k pieces for k minibatches). Pieces shorter
+  than the rollout cost one more actor pass per update, for their start
+  memories.
 
 ## Off-policy: sequence replay
 

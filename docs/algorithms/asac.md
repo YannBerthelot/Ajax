@@ -45,7 +45,7 @@ Defaults are read from `ASAC.__init__`.
 | Argument | Default | What it does |
 | --- | --- | --- |
 | `n_envs` | `1` | parallel environments |
-| `actor_learning_rate`, `critic_learning_rate`, `alpha_learning_rate` | `1e-4`, `5e-4`, `1e-4` | Adam step sizes (the authors') |
+| `actor_learning_rate`, `critic_learning_rate`, `alpha_learning_rate` | `1e-4`, `5e-4`, `1e-4` | Adam step sizes (the authors'; Adam's epsilon is torch's 1e-8) |
 | `actor_architecture`, `critic_architecture` | `("256", "relu", "256", "relu")` | hidden layers (plain MLPs) |
 | `buffer_size` | `1_000_000` | replay capacity |
 | `batch_size` | `256` | replay minibatch |

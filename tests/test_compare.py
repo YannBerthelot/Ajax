@@ -275,6 +275,6 @@ def test_resolution_is_deterministic_and_scales_with_the_scores():
     scaled = resolution(10 * a, 10 * b, n=4, K=4, reps=50, B=1_000, seed=5)
     assert scaled == pytest.approx(10 * gap, rel=1e-6)
     # Without spread, any gap is seen at once.
-    assert resolution(np.ones(8), np.ones(8), n=4, K=2, reps=20, B=500) < 0.01
+    assert resolution(np.ones(8), np.ones(8), n=4, K=2, reps=20, B=500) == 0.0
     with pytest.raises(ValueError, match="never reach"):
         resolution(a, b, n=2, K=2, reps=10, B=500)

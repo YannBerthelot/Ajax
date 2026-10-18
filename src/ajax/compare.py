@@ -274,7 +274,9 @@ def resolution(
     the observed spread rather than a known distribution: each of ``reps``
     replicates draws ``n * K`` scores with replacement from each sample,
     centred on its mean, and adds the gap to ``b``'s. The same draws serve
-    every gap, which a bisection narrows to 1/1000 of the samples' spread.
+    every gap, which a bisection narrows to 1/1000 of the samples' spread;
+    samples without spread give 0. Shifting every score says little about a
+    gap made of a few failing runs among scores at a task's maximum.
     """
     rng = np.random.default_rng(seed)
     x, y = np.asarray(a, float), np.asarray(b, float)
@@ -292,7 +294,9 @@ def resolution(
             hits += test.decisions[("a", "b")] != "equal"
         return hits / reps
 
-    spread = float(np.sqrt((x.var() + y.var()) / 2)) or 1.0
+    spread = float(np.sqrt((x.var() + y.var()) / 2))
+    if spread == 0:  # every resampled score equal: any shift shows at once
+        return 0.0
     low, high = 0.0, spread
     while detected(high) < power:
         if high > 2**20 * spread:

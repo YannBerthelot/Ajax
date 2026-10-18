@@ -218,28 +218,32 @@ def records(name: str) -> list:
     return [json.loads(line) for line in lines]
 
 
-def current(name: str, side: str) -> list:
-    """The side's records whose fingerprint matches the code and settings now."""
-    key = fingerprint(name, side)
+def current(name: str, side: str, key: str | None = None) -> list:
+    """The side's records of fingerprint ``key``: by default, the one of
+    the code and settings now."""
+    key = key or fingerprint(name, side)
     return [r for r in records(name) if (r["side"], r["fingerprint"]) == (side, key)]
 
 
-def curves(name: str, side: str) -> dict:
-    """Seed -> evaluation curve, from the current records (the first run of a
-    seed counts)."""
+def curves(name: str, side: str, key: str | None = None) -> dict:
+    """Seed -> evaluation curve, from the records of ``key`` (the first run
+    of a seed counts)."""
     by_seed: dict = {}
-    for r in current(name, side):
+    for r in current(name, side, key):
         for seed, curve in zip(r["seeds"], r["curve"], strict=True):
             by_seed.setdefault(seed, curve)
     return by_seed
 
 
-def final_scores(name: str, side: str, seeds: list, train_missing: bool) -> np.ndarray:
-    """Each seed's last evaluation, from the cache, training the missing seeds
-    (or, with ``train_missing`` False, refusing them)."""
-    recorded = curves(name, side)
+def final_scores(
+    name: str, side: str, seeds: list, key: str | None = None
+) -> np.ndarray:
+    """Each seed's last evaluation: from the records of ``key`` (refusing
+    seeds they lack), or, without ``key``, from the current ones, training
+    the missing seeds."""
+    recorded = curves(name, side, key)
     missing = [s for s in seeds if s not in recorded]
-    if missing and not train_missing:
+    if missing and key:
         raise LookupError(f"{name} {side}: no runs of seeds {missing}")
     if missing:
         record = train(name, side, missing)
@@ -250,10 +254,12 @@ def final_scores(name: str, side: str, seeds: list, train_missing: bool) -> np.n
     return np.array([recorded[s][-1] for s in seeds])
 
 
-def decide(name: str, arms=("matched",), train_missing: bool = True):
+def decide(name: str, arms=("matched",), keys: dict | None = None, spec=None):
     """AdaStop on the final returns, each arm against the reference: the
-    test and each side's scores, in seed order."""
-    n, K, alpha = COMPARISONS[name].adastop
+    test and each side's scores, in seed order. ``keys`` replays the records
+    of those fingerprints (one per side) under ``spec``; without them, the
+    current code and spec run, training what is missing."""
+    n, K, alpha = (spec or COMPARISONS[name]).adastop
     sides = ["reference", *arms]
     pairs = [(arm, "reference") for arm in arms]
     test = AdaStop(sides, n=n, K=K, alpha=alpha, comparisons=pairs)
@@ -261,7 +267,7 @@ def decide(name: str, arms=("matched",), train_missing: bool = True):
     while not test.finished:
         seeds = list(range(test.k * n, (test.k + 1) * n))
         new = {
-            s: final_scores(name, s, seeds, train_missing)
+            s: final_scores(name, s, seeds, keys and keys[s])
             for s in sides
             if s in test.active
         }
@@ -271,12 +277,37 @@ def decide(name: str, arms=("matched",), train_missing: bool = True):
     return test, scores
 
 
-def speed(name: str, side: str) -> dict:
-    """Medians over the side's current batches."""
-    steps = COMPARISONS[name].n_timesteps
-    batches = current(name, side)
+def reported(name: str, version: int | None = None) -> tuple:
+    """The spec version to report (the latest with records when None), the
+    fingerprint of each side's latest batch at that version, and the
+    matched arm's first record there."""
+    rs = records(name)
+    version = version or max(r["spec_version"] for r in rs)
+    keys = {r["side"]: r["fingerprint"] for r in rs if r["spec_version"] == version}
+    first = next(r for r in rs if r["fingerprint"] == keys["matched"])
+    return version, keys, first
+
+
+def spec_of(name: str, record: dict):
+    """The spec a record ran: the current one when the hashes agree, else
+    refcmp_specs.py at the record's commit, checked against the hash."""
+    spec, manifest = COMPARISONS[name], record.get("manifest", {})
+    if manifest.get("spec_sha256", spec_sha256(spec)) == spec_sha256(spec):
+        return spec
+    path = "benchmarks/reference/refcmp_specs.py"
+    namespace: dict = {}
+    exec(_run("git", "show", f"{manifest['ajax_commit']}:{path}"), namespace)
+    old = namespace["COMPARISONS"][name]
+    if namespace["spec_sha256"](old) != manifest["spec_sha256"]:
+        raise LookupError(f"{name}: no spec at {manifest['ajax_commit']} has its hash")
+    return old
+
+
+def speed(name: str, side: str, steps: int, key: str) -> dict:
+    """Medians over the side's batches of fingerprint ``key``."""
+    batches = current(name, side, key)
     per_million = [1e6 * b["speed"]["cpu_s"] / len(b["seeds"]) / steps for b in batches]
-    median = lambda key: float(np.median([b["speed"][key] for b in batches]))  # noqa: E731
+    median = lambda k: float(np.median([b["speed"][k] for b in batches]))  # noqa: E731
     return {
         "env_steps_per_s": median("env_steps_per_s"),
         "cpu_s_per_1m_steps": float(np.median(per_million)),
@@ -298,38 +329,42 @@ def verdict(spec, interval: tuple, reference_mean: float) -> tuple:
     return margin, "different" if high < -margin or low > margin else "inconclusive"
 
 
-def summary(name: str, arms=("matched",), reps: int = 200) -> list:
-    """One row per arm: AdaStop's decision and the seeds it took, the arm's
-    mean minus the reference's with its 95% interval, the verdict against
-    the margin, the smallest gap the budget resolves (80% power), and each
-    side's speed (medians over batches)."""
-    test, scores = decide(name, arms, train_missing=False)
-    n, K, alpha = COMPARISONS[name].adastop
-    rows = []
-    for arm in arms:
-        a, ref = scores[arm], scores["reference"]
-        gap, interval = difference(a, ref)
-        margin, word = verdict(COMPARISONS[name], interval, float(np.mean(ref)))
-        rows.append(
-            {
-                "comparison": name,
-                "arm": arm,
-                "decision": test.decisions[(arm, "reference")],
-                "seeds": len(a),
-                "reference_mean": float(np.mean(ref)),
-                "ajax_mean": float(np.mean(a)),
-                "difference": gap,
-                "interval": interval,
-                "margin": margin,
-                "verdict": word,
-                "resolution": resolution(a, ref, n, K, alpha, reps=reps),
-                "speed": {
-                    "reference": speed(name, "reference"),
-                    "ajax": speed(name, arm),
-                },
-            }
-        )
-    return rows
+def summary(name: str, reps: int = 200, version: int | None = None) -> list:
+    """The matched arm's row, from its records at spec ``version`` (the
+    latest when None), judged under the spec they ran: AdaStop's decision
+    and the seeds it took, the arm's mean minus the reference's with its
+    95% interval, the verdict against the margin, the smallest gap the
+    budget resolves (80% power), and each side's speed (medians over
+    batches)."""
+    version, keys, first = reported(name, version)
+    spec = spec_of(name, first)
+    test, scores = decide(name, keys=keys, spec=spec)
+    n, K, alpha = spec.adastop
+    a, ref = scores["matched"], scores["reference"]
+    gap, interval = difference(a, ref)
+    margin, word = verdict(spec, interval, float(np.mean(ref)))
+    sides = {"reference": "reference", "ajax": "matched"}
+    return [
+        {
+            "comparison": name,
+            "arm": "matched",
+            "spec_version": version,
+            "ajax_commit": first.get("manifest", {}).get("ajax_commit"),
+            "decision": test.decisions[("matched", "reference")],
+            "seeds": len(a),
+            "reference_mean": float(np.mean(ref)),
+            "ajax_mean": float(np.mean(a)),
+            "difference": gap,
+            "interval": interval,
+            "margin": margin,
+            "verdict": word,
+            "resolution": resolution(a, ref, n, K, alpha, reps=reps),
+            "speed": {
+                label: speed(name, side, spec.n_timesteps, keys[side])
+                for label, side in sides.items()
+            },
+        }
+    ]
 
 
 if __name__ == "__main__":

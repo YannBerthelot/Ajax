@@ -23,6 +23,7 @@ from typing import Any, Callable, Optional, Tuple, Union
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import optax
 from flax import struct
 from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
@@ -57,6 +58,7 @@ class APGAuxiliaries:
     loss: jax.Array  # objective actually minimised (incl. extension terms)
     matching_loss: jax.Array  # -mean_i sum_k r_k, the closed-loop cost
     m_rmse: jax.Array  # sqrt(matching_loss / horizon)
+    grad_norm: jax.Array  # the gradient's global norm, before clipping
     timestep: Union[int, jax.Array]
     # With a logging config, what the update evaluated and logged (NaN on
     # the updates that do not evaluate), returned whatever the backend;
@@ -257,6 +259,7 @@ def _train_metrics(agent_state: APGState, aux: APGAuxiliaries) -> dict:
         "Train/loss": aux.loss,
         "Train/matching_loss": aux.matching_loss,
         "Train/m_rmse": aux.m_rmse,
+        "Train/grad_norm": aux.grad_norm,
     }
 
 
@@ -328,6 +331,7 @@ def training_iteration(
         loss=loss,
         matching_loss=matching_loss,
         m_rmse=jnp.sqrt(jnp.maximum(matching_loss, 0.0) / horizon),
+        grad_norm=optax.global_norm(grads),
         timestep=new_timestep,
     )
     agent_state, evaluations = loop.evaluate_every(

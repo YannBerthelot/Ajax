@@ -65,7 +65,8 @@ Extensions add their own, such as `ConditioningMetrics`'s
 `Cond/critic_srank`. UDRL logs `timestep`, its training metrics
 (`Train/episodic mean reward`, `Train/actor_loss`, `Train/mean_rtg`,
 `Train/mean_horizon`, `Train/n_completed_episodes`), its evaluation's return,
-entropy and length, and its extensions' metrics. The world models log their
+entropy and length, the command the evaluation starts from (below), and its
+extensions' metrics. The world models log their
 own sets: see their pages.
 
 Each evaluation runs on episodes of its own: their initial states and noise
@@ -94,6 +95,8 @@ APO and PQN average theirs over the update's epochs and minibatches.
 | `policy/grad_norm`, `value/grad_norm` | SAC, TD3 | the global norm of the actor's and the critics' gradients, before clipping. TD3 logs 0 for the actor on the updates its `policy_delay` skips |
 | `value/q_gap` | TD3 | the mean of `abs(Q1(s, a) - Q2(s, a))` over the batch: how far the twin critics disagree |
 | `value/target_noise_clip_frac` | TD3 | the share of the target policy's noise samples that the clip to `±target_noise_clip` changed |
+| `Train/grad_norm` | APG | the global norm of the controller's gradient, before clipping (`max_grad_norm`) |
+| `Eval/commanded return`, `Eval/commanded horizon` | UDRL | the return and horizon each evaluation episode is commanded with at its start, to set beside the return and length it achieves; in normalised units when rewards are normalised |
 
 ### The value bias
 

@@ -199,17 +199,27 @@ def parse_layer(
     layer: Union[str, ActivationFunction],
     kernel_init: Optional[Union[str, InitializationFunction]] = None,
     bias_init: Optional[Union[str, InitializationFunction]] = None,
-) -> Union[nn.Dense, nn.LayerNorm, ActivationFunction]:
+) -> Union[nn.Module, ActivationFunction]:
     """Parse one architecture token: a width such as ``"256"`` gives a Dense
-    layer, ``"layernorm"`` a new LayerNorm with its own scale and bias, any
-    other name or a callable an activation (:func:`parse_activation`).
+    layer (a :class:`TorchLinear`, which draws its bias too, with
+    ``kernel_init="torch_linear"``), ``"layernorm"`` a new LayerNorm with its
+    own scale and bias, any other name or a callable an activation
+    (:func:`parse_activation`).
 
     ``("256", "layernorm", "relu")`` per hidden layer is RLPD's critic MLP
     (Ball et al., ICML 2023; ``ikostrikov/rlpd``, ``rlpd/networks/mlp.py``).
     """
     if str(layer).isnumeric():
+        features = int(cast("str", layer))
+        if kernel_init == TORCH_LINEAR:
+            if bias_init is not None:
+                raise ValueError(
+                    f"{TORCH_LINEAR!r} draws the biases too;"
+                    f" got bias_init={bias_init!r}"
+                )
+            return TorchLinear(features)
         return nn.Dense(
-            int(cast("str", layer)),
+            features,
             kernel_init=parse_initialization(kernel_init, default=orthogonal(1.0)),
             bias_init=parse_initialization(bias_init, default=constant(0)),
         )
@@ -228,7 +238,7 @@ def parse_architecture(
     architecture: Sequence[Union[str, ActivationFunction]],
     kernel_init: Optional[Union[str, InitializationFunction]] = None,
     bias_init: Optional[Union[str, InitializationFunction]] = None,
-) -> Sequence[Union[nn.Dense, nn.LayerNorm, ActivationFunction]]:
+) -> Sequence[Union[nn.Module, ActivationFunction]]:
     """Parse a list of string/module architecture into a list of jax modules"""
     return [parse_layer(layer, kernel_init, bias_init) for layer in architecture]
 
@@ -244,3 +254,30 @@ def uniform_init(bound: float) -> InitializationFunction:
         )
 
     return _init
+
+
+#: The kernel-initializer name that builds :class:`TorchLinear` layers.
+TORCH_LINEAR = "torch_linear"
+
+
+class TorchLinear(nn.Module):
+    """A dense layer that starts as torch's ``nn.Linear`` does: its kernel
+    and its bias each uniform in ``±1 / sqrt(fan_in)``.
+
+    torch 1.5.1 (``torch/nn/modules/linear.py:79-84``, at its ``v1.5.1``
+    tag) draws the weight with ``kaiming_uniform_(a=sqrt(5))``, whose bound
+    ``sqrt(3) * sqrt(2 / (1 + a**2)) / sqrt(fan_in)`` is ``1 / sqrt(fan_in)``
+    (``torch/nn/init.py:61-69, :322-327``), and the bias with the same
+    bound. A layer, not an initializer: a flax bias initializer never sees
+    the fan-in. Its parameters are a Dense layer's, at the same path.
+    """
+
+    features: int
+
+    @nn.compact
+    def __call__(self, x: jax.Array) -> jax.Array:
+        bound = 1.0 / math.sqrt(x.shape[-1])
+        init = uniform_init(bound)
+        dense = nn.Dense(self.features, kernel_init=init, bias_init=init)
+        nn.share_scope(self, dense)
+        return dense(x)

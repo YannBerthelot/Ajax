@@ -59,11 +59,12 @@ This budget shows the calls; it is too short to learn the swing-up.
 | `ent_coef` | 0 | entropy bonus weight |
 | `max_grad_norm` | 0.5 | gradient clipping by global norm |
 | `normalize_advantage` | True | advantages standardised over the whole rollout |
-| `actor_architecture`, `critic_architecture` | `("128", "tanh", "128", "tanh")` | hidden layers |
+| `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers, the official code's (see the notes) |
 | `normalize_observations`, `normalize_rewards` | False | running normalisation |
 | `reward_normalization_gamma` | None | with `normalize_rewards`, divide by the spread of the discounted return |
 | `expert_policy` | None | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
-| `actor_bias_init`, `critic_bias_init`, `encoder_kernel_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
+| `actor_bias_init`, `critic_bias_init` | None | the heads' bias initialisers by name ([Networks](../guide/networks.md)) |
+| `encoder_kernel_init` | `"torch_linear"` | the hidden layers start as torch's `nn.Linear`, as in the official code; any initialiser by name sets their kernels instead |
 | `log_std_bounds` | None | the `(low, high)` clip of the continuous actor's log-std; `None`, the official code's, leaves it unclipped (see the notes) |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `expose_recent_rollout` | False | keep the last rollout on the state, for measurement extensions |
@@ -91,6 +92,23 @@ drift. The actor then takes PPO's clipped step.
   minibatch as in Ajax's PPO.
 - **Shuffling.** Every epoch draws a new split of the rollout into
   minibatches, as APO's official code does.
+- **Hidden layers.** The actor and the critic each have two hidden layers
+  of 64 `tanh` units, as the official code's mean and value networks:
+  `xtma/apo`'s config sets only `normalize_observation`
+  (`apo/experiments/configs/mujoco/apg/mujoco_appo.py:20`), so rlpyt's
+  `MujocoFfModel` builds both with its defaults
+  (`rlpyt/models/pg/mujoco_ff_model.py:21-22, :33-49`). They start as its
+  torch `Linear` layers (`rlpyt/models/mlp.py:27-31`) do: kernel and bias
+  uniform in `±1/sqrt(fan_in)` (`encoder_kernel_init="torch_linear"`;
+  torch 1.5.1, which rlpyt's environment files pin,
+  `torch/nn/modules/linear.py:79-84`). Not the official code's: the output
+  layers start as Ajax's, the mean layer `lecun_uniform` (below) and the
+  value layer `orthogonal(1.0)`, both with zero biases, where the official
+  code leaves them at torch's default too. Until October 2026 APO's hidden
+  layers were two of 128 units, starting orthogonal with zero biases; a
+  checkpoint saved then restores into an APO whose `actor_architecture`
+  and `critic_architecture` are both `("128", "tanh", "128", "tanh")`, and
+  the default network refuses it with that advice.
 - **Actor head.** A continuous APO's actor is the official code's:
   `xtma/apo` at `bfcd997` runs rlpyt's `MujocoFfAgent` (`exp.py:17, :38`)
   from the authors' fork, `xtma/rlpyt` at `e28bb20`. It is a Gaussian whose
@@ -118,9 +136,8 @@ drift. The actor then takes PPO's clipped step.
   its MuJoCo tasks clamp it to their control range in the simulation, and
   Gymnasium's charge the control cost on the unclamped action
   (`gymnasium/envs/mujoco/hopper_v4.py:97, :138` in Gymnasium 1.2.0).
-- **Known differences, each fixed in a follow-up PR.** Three defaults are
-  not the official code's yet. The hidden layers: two of 64 `tanh` units
-  there (`mujoco_ff_model.py:22, :33`), 128 here. The optimiser: one Adam
+- **Known differences, each fixed in a follow-up PR.** Two defaults are
+  not the official code's yet. The optimiser: one Adam
   steps the actor and the critic on their summed loss
   (`apo/algos/apg/base.py:28`, `apo/algos/apg/appo.py:158`), its gradient
   clipped to norm 10 (`appo.py:111`;

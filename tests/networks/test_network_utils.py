@@ -1,3 +1,4 @@
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -186,6 +187,31 @@ def test_parse_initialization_trunc_normal_fan_in():
 def test_get_initializer_lists_the_registry_on_unknown_names():
     with pytest.raises(ValueError, match="trunc_normal_fan_in"):
         get_initializer("no_such_initializer")
+
+
+@pytest.mark.parametrize("fan_in", [3, 400])
+def test_torch_linear_layers_start_as_torch_nn_linear(fan_in):
+    """kernel_init="torch_linear" builds a layer whose kernel and bias are
+    each uniform in +-1/sqrt(fan_in), the input's width, as torch's
+    nn.Linear starts; its parameters are a Dense layer's, and it applies
+    x @ kernel + bias."""
+    x = jax.random.normal(jax.random.PRNGKey(1), (2, fan_in))
+    layer = parse_layer("300", kernel_init="torch_linear")
+    params = layer.init(jax.random.PRNGKey(0), x)
+    dense = nn.Dense(300).init(jax.random.PRNGKey(0), x)
+    assert jax.tree.map(jnp.shape, params) == jax.tree.map(jnp.shape, dense)
+    bound = 1 / np.sqrt(fan_in)
+    for name in ("kernel", "bias"):
+        w = np.asarray(params["params"][name])
+        assert 0.95 * bound < np.abs(w).max() <= bound, name
+        np.testing.assert_allclose(w.var(), bound**2 / 3, rtol=0.2, err_msg=name)
+    kernel, bias = params["params"]["kernel"], params["params"]["bias"]
+    np.testing.assert_allclose(layer.apply(params, x), x @ kernel + bias, rtol=1e-6)
+
+
+def test_torch_linear_refuses_a_bias_init():
+    with pytest.raises(ValueError, match="draws the biases too"):
+        parse_layer("8", kernel_init="torch_linear", bias_init="zeros")
 
 
 # ------------------------

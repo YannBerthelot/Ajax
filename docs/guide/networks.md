@@ -39,7 +39,8 @@ Each agent's default follows its paper or reference implementation:
 | `("256", "relu", "256", "relu")` | SAC, ASAC, REDQ |
 | `("400", "relu", "300", "relu")` | TD3 |
 | `("256", "leaky_relu", "256", "leaky_relu")` | AVG |
-| `("128", "tanh", "128", "tanh")` | PPO, APO |
+| `("128", "tanh", "128", "tanh")` | PPO |
+| `("64", "tanh", "64", "tanh")` | APO |
 | `("128", "relu", "128", "relu")` | DQN, PQN, UDRL, APG (its controller) |
 
 DreamerV3 and TD-MPC2 build their own networks to their papers'
@@ -51,8 +52,9 @@ Kernels start from an orthogonal initialiser with gain 1 and biases from
 zero, except the policy's output layer (the mean, or the logits for
 discrete actions), whose kernel starts from `orthogonal(0.01)`: a near-zero
 first mean, or a near-uniform first policy (TD3's deterministic actor
-starts its last layer uniform in `±3e-3`, as DDPG does). Initialisers are
-named by string:
+starts its last layer uniform in `±3e-3`, as DDPG does), and APO's hidden
+layers, which start as its reference code's (`"torch_linear"`, below).
+Initialisers are named by string:
 
 - `"orthogonal(0.01)"`, `"lecun_uniform"`, or any other factory in
   `flax.linen.initializers`, with its argument in brackets (`np`, `jnp` and
@@ -63,7 +65,9 @@ named by string:
 PPO and APO take three of them: `encoder_kernel_init` for the hidden
 layers' kernels, `actor_bias_init` for the policy head's bias and
 `critic_bias_init` for the value head's. PPO also takes `mean_kernel_init`
-(below).
+(below). `encoder_kernel_init="torch_linear"` starts each hidden layer as
+torch's `nn.Linear` does: its kernel and its bias both uniform in
+`±1/sqrt(fan_in)`, the fan-in being the layer's input width.
 
 ### Layer normalisation
 

@@ -379,6 +379,32 @@ def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path):
         assert all(jax.tree.leaves(same)), name
 
 
+def test_an_apo_checkpoint_restores_only_into_its_own_hidden_widths(tmp_path):
+    """APO's hidden layers were two of 128 units before its reference code's
+    two of 64. Its checkpoint saved then is refused by the default network,
+    the error naming the architecture that rebuilds its own, into which it
+    restores: flax would restore it silently, and the network would fail on
+    its first call."""
+    from ajax.agents.APO.APO import APO
+
+    kw = {"n_envs": 2, "n_steps": 8, "batch_size": 8}
+    wide = ("128", "tanh", "128", "tanh")
+
+    def skeleton(**net):
+        return APO(env_id="Pendulum-v1", **kw, **net).train(seed=0, n_timesteps=0)[0]
+
+    old = skeleton(actor_architecture=wide, critic_architecture=wide)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(old, path)
+    shapes = r"layers_0/bias has shape \(1, 128\), where the agent restoring it"
+    with pytest.raises(ValueError, match=shapes + r" has \(1, 64\)") as refused:
+        restore_into(skeleton(), path)
+    assert 'actor_architecture=("128", "tanh", "128", "tanh")' in str(refused.value)
+    restored = restore_into(old, path)
+    same = jax.tree.map(np.array_equal, restored.actor_state, old.actor_state)
+    assert all(jax.tree.leaves(same))
+
+
 def test_a_state_without_a_collector_restores(tmp_path):
     """TDMPC2MultiTask trains offline: its state holds no collector
     (collector_state None). It restores, as does a checkpoint whose root is

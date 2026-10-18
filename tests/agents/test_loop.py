@@ -193,6 +193,23 @@ def test_a_budget_off_whole_iterations_warns() -> None:
         loop.warn_if_partial(4, "n_envs")
 
 
+def test_a_split_call_warns_at_its_own_end_and_a_run_count_stays_quiet() -> None:
+    """A call to 60 of a run to 100, not whole rollouts of 32, warns about
+    timestep 60, its own end. Counting the whole run's rollouts (PPO's
+    forced-reset cadence) does not warn: that count is not the call's
+    budget."""
+    first = dataclasses.replace(
+        _loop(),
+        env_args=SimpleNamespace(n_envs=4),  # type: ignore[arg-type]
+        end_timestep=60,
+    )
+    with pytest.warns(UserWarning, match=r"evaluation due at timestep 60 "):
+        assert first.n_rollouts(8) == 60 // 32 + 1
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert first.n_rollouts(8, 100) == 100 // 32 + 1
+
+
 def test_gradient_step_applies_the_loss_gradient() -> None:
     params = {"w": jnp.asarray(3.0)}
     train_state = TrainState.create(apply_fn=None, params=params, tx=optax.sgd(0.5))

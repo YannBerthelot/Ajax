@@ -289,7 +289,7 @@ def soft_actor_step(
         )
         return loss + extra, (loss, log_probs, q)
 
-    actor_state, out = gradient_step(actor_state, loss_fn)
+    actor_state, out, _ = gradient_step(actor_state, loss_fn)
     return agent_state.replace(rng=rng, actor_state=actor_state), out
 
 

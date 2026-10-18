@@ -47,6 +47,7 @@ from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
+import optax
 from jax.tree_util import Partial as partial
 
 from ajax.environments.interaction import (
@@ -168,13 +169,15 @@ def fold_post_update(
     return stack.fold_post_update(agent_state.replace(rng=rng), step, key, total_steps)
 
 
-def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any]:
+def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any, jax.Array]:
     """One optimiser step down ``loss_fn(params) -> (loss, aux)``.
 
-    Returns the stepped train state and the loss's ``aux``.
+    Returns the stepped train state, the loss's ``aux`` and the global norm
+    of the gradients, before any clipping the optimiser does (a caller that
+    does not log it leaves it to dead-code elimination).
     """
     (_, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(train_state.params)
-    return train_state.apply_gradients(grads=grads), aux
+    return train_state.apply_gradients(grads=grads), aux, optax.global_norm(grads)
 
 
 def critic_step(
@@ -190,7 +193,7 @@ def critic_step(
     dones: jax.Array,
     gamma: Optional[float],
     reward_scale: float,
-) -> tuple[Any, Any]:
+) -> tuple[Any, Any, jax.Array]:
     """A replay agent's critic step on ``batch`` (a :class:`Transition`).
 
     Folds the extensions' ``on_target`` into ``target_q`` (held constant),
@@ -199,7 +202,7 @@ def critic_step(
     the bootstrap is cut), ``gamma`` (None for an average-reward agent) and
     ``reward_scale`` are what the target used; ``key``, split between the
     two folds, is one the agent draws nothing else on. Returns the stepped
-    critic state and ``aux``.
+    critic state, ``aux`` and the gradients' norm (:func:`gradient_step`).
     """
     step = agent_state.collector_state.timestep
     target_key, loss_key = jax.random.split(key)

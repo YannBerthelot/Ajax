@@ -91,7 +91,8 @@ PPO's clipped surrogate, the value loss and the entropy bonus.
   has only the reset observation there. Ajax keeps the final observation, so a
   truncated step bootstraps on it and is trained on, as PPO does.
 - **Advantage normalisation** runs once over the whole rollout, not per
-  minibatch as in Ajax's PPO.
+  minibatch as in Ajax's PPO; the official code's config turns it off (the
+  differences below).
 - **Shuffling.** Every epoch draws a new split of the rollout into
   minibatches, as APO's official code does.
 - **Hidden layers.** The actor and the critic each have two hidden layers
@@ -161,6 +162,29 @@ PPO's clipped surrogate, the value loss and the entropy bonus.
   leaves the mean alone. Until October 2026 the weight was 0; `ent_coef=0`
   reproduces runs from then (the parameters are unchanged, so their
   checkpoints restore).
+- **Remaining differences from the official code** (`xtma/apo` at
+  `bfcd997`, its config `apo/experiments/configs/mujoco/apg/mujoco_appo.py`,
+  on `xtma/rlpyt` at `e28bb20`), each a default the constructor can set:
+  - Advantage normalisation: off there (`normalize_advantage=False`,
+    `mujoco_appo.py:15`; `apo/algos/apg/base.py:90-98` would standardise
+    them), on here (`normalize_advantage=True`).
+  - Rollout shape: 10 environments of 200 steps there (`batch_B=10`,
+    `batch_T=200`, `mujoco_appo.py:27-28`), 2,000 samples in 20 minibatches
+    of 100 (`minibatches=20`, `:12`); 4 environments of 2,048 steps here,
+    8,192 samples in minibatches of 64. Both take 10 epochs (`:13`).
+  - Value-bias coefficient: `rm_vbias_coeff=1.0` in the config `exp.py`
+    runs (`mujoco_appo.py:7`), while the repository's sweep, `run_exp.py`,
+    tries 0, 0.03, 0.1, 0.3 and 1.0 (`run_exp.py:55`) and `APPO`'s own
+    default is 0.1 (`apo/algos/apg/appo.py:27`); `nu=0.1` here. The sweep
+    also sets the discount to 1.0 (`run_exp.py:52`, the other values
+    commented out), as Ajax's APO has none, where the config alone has
+    0.99 (`mujoco_appo.py:10`).
+  - Output layers: the mean layer starts `lecun_uniform` and the value
+    layer `orthogonal(1.0)`, with zero biases, where the official code
+    leaves both at torch's `nn.Linear` default (see Hidden layers).
+  - Episode ends and actions: time-limited steps are trained on, and the
+    sample is clipped to `[-1, 1]` before the environment (the notes
+    above).
 - `n_steps` and `batch_size` must divide one another unless
   `num_minibatches` is set; the constructor refuses them otherwise.
 - **Expert.** Cloning an expert into the actor before training is the

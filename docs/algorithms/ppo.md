@@ -114,8 +114,8 @@ Defaults are those of the constructor.
   `ea25b9e` (ppo2's `common/distributions.py:96-106`; ppo1's
   `ppo1/mlp_policy.py:36-39`, `gaussian_fixed_var=True`), CleanRL at
   `fe8d8a0` (`ppo_continuous_action.py:129`) and PureJaxRL at `31756b1`
-  (`ppo_continuous_action.py:41`). Unlike theirs, it is updated by the
-  actor's own optimizer and gradient clip, the critic having its own (see
+  (`ppo_continuous_action.py:41`). As in theirs, it is updated with the
+  rest of the model, under one gradient clip over both networks (see
   separate networks). `log_std_bounds` clips every log standard deviation
   PPO can learn, so by default none is clipped.
   `log_std_state_independent=False` with `log_std_init=-1.0` builds the

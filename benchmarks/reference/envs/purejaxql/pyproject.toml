@@ -10,11 +10,8 @@ dependencies = [
     "flax==0.10.7",
     "optax==0.2.6",
     "chex==0.1.91",
-    "gymnax",
+    "gymnax==1.0.1",
 ]
 
 [tool.uv]
 package = false
-
-[tool.uv.sources]
-gymnax = { git = "https://github.com/YannBerthelot/gymnax.git", rev = "61ff068971a6f639d33ff01c96df6d3b4600439e" }

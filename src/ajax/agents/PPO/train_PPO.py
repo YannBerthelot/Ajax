@@ -199,8 +199,7 @@ def policy_loss_function(
         pi, _ = get_pi(actor_state, actor_params, observations)
 
     new_log_probs = recompute_log_prob(pi, actions, raw_actions)
-    log_ratio = new_log_probs - log_probs
-    ratio = jnp.exp(log_ratio)
+    ratio = jnp.exp(new_log_probs - log_probs)
 
     if advantage_normalization:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
@@ -222,7 +221,7 @@ def policy_loss_function(
         old_log_probs=log_probs.mean(),
         clip_fraction=clip_fraction,
         entropy=entropy,
-        approx_kl=approximate_kl(ratio, log_ratio),
+        approx_kl=approximate_kl(new_log_probs - log_probs),
         policy_std=mean_policy_std(pi),
     )
 

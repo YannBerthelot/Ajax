@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "028503799853"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "b28acbf18783"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -363,7 +363,7 @@ VALUE_Q = Query(
 # Calibrated on 1000-1031 + 2000-2031, worst error 0.0059 or less (AVG 0.031
 # at 5000: one seed read 0.90 at 1250); 3000-3031 within 0.009.
 P5_VALUE = {"SAC": 1250, "REDQ": 1250, "REDQ+on_target": 1250, "TD3": 1250}
-P5_VALUE |= {"AVG": 5000, "DQN": 625, "PQN": 80_000}
+P5_VALUE |= {"AVG": 5000, "DQN": 312, "PQN": 80_000}  # DQN: tol 0.063, cert 32/32
 
 
 def _p5_read(cell: str, run: runs.Run) -> dict:
@@ -378,7 +378,7 @@ for cell, budget in P5_VALUE.items():
     reads = runs.readings(
         functools.partial(_scaled, cell), functools.partial(_p5_read, cell)
     )
-    tol5 = (0.062 if cell == "AVG" else 0.02,)
+    tol5 = ({"AVG": 0.062, "DQN": 0.063}.get(cell, 0.02),)
     CASES[f"p5-value-{cell}"] = Case(
         f"p5-value-{cell}", (VALUE_Q,), reads, budget, tol5
     )

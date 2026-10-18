@@ -34,7 +34,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "626584ed5609"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "709a263a5653"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -90,9 +90,9 @@ CASES["p0a-DQN"] = Case(
     "p0a-DQN",
     (*Q_S1, *(Query(f"Q(s0, a={a})", G3, Q_S0_WRONG) for a in range(3)), GREEDY),
     _three_run("DQN"),
-    1250,
-    (0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02),
-    note="at its reference init 1250 qualifies, cert 32/32 (it read 2 seeds off)",
+    625,
+    (0.021, 0.038, 0.074, 0.063, 0.061, 0.054, 0.02),
+    note="with its reference optimiser (centered RMSProp) 625 qualifies, cert 31/32",
 )
 CASES["p0a-PQN"] = Case(
     "p0a-PQN",
@@ -439,10 +439,11 @@ PILOT_CAL = {  # budget, tolerances in query order
     "PPO-advantage": (1250, (0.498,)),
     "PPO-coupling": (1250, (0.5, 0.5, 0.486, 0.495)),
     "DQN-value": (625, (0.02,)),
-    "DQN-backprop": (625, (0.02, 0.02)),
-    "DQN-discounting": (625, (0.02, 0.02)),
-    "DQN-advantage": (625, (0.02, 0.5)),
-    "DQN-coupling": (625, (0.02, 0.02, 0.5, 0.5)),
+    # DQN's, with its reference optimiser (centered RMSProp), but -value.
+    "DQN-backprop": (625, (0.036, 0.056)),
+    "DQN-discounting": (312, (0.093, 0.083)),
+    "DQN-advantage": (312, (0.062, 0.483)),
+    "DQN-coupling": (625, (0.038, 0.094, 0.487, 0.468)),
     "PQN-value": (40_000, (0.02,)),
     "PQN-backprop": (2500, (0.021, 0.037)),
     "PQN-discounting": (2500, (0.02, 0.042)),

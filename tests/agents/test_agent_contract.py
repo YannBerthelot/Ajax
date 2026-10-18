@@ -171,6 +171,13 @@ DIAGNOSTICS: dict[str, tuple[str, ...]] = {
     "APO": (*_PG, "value/grad_norm", "value/value_bias", "value/average_reward"),
     "DQN": ("policy/epsilon", "value/abs_td_error", "value/grad_norm"),
     "PQN": ("policy/epsilon", "value/abs_td_error", "value/grad_norm"),
+    "SAC": ("policy/grad_norm", "value/grad_norm"),
+    "TD3": (
+        "policy/grad_norm",
+        "value/grad_norm",
+        "value/q_gap",
+        "value/target_noise_clip_frac",
+    ),
 }
 
 

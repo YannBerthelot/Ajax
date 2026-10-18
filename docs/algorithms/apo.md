@@ -64,6 +64,7 @@ This budget shows the calls; it is too short to learn the swing-up.
 | `reward_normalization_gamma` | None | with `normalize_rewards`, divide by the spread of the discounted return |
 | `expert_policy` | None | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
 | `actor_bias_init`, `critic_bias_init`, `encoder_kernel_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
+| `log_std_bounds` | (-20.0, 2.0) | the `(low, high)` clip of the continuous actor's log-std; `None` leaves it unclipped (see the notes) |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `expose_recent_rollout` | False | keep the last rollout on the state, for measurement extensions |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
@@ -96,9 +97,14 @@ drift. The actor then takes PPO's clipped step.
   The log standard deviation is the official code's: one learnable
   parameter per action dimension, whatever the observation, starting at 0
   (a standard deviation of 1), in the authors' `rlpyt` fork at `e28bb20`
-  (`rlpyt/models/pg/mujoco_ff_model.py:24,50,78`). Unlike theirs, it is
-  clipped to `[-20, 2]` (`rlpyt/agents/pg/gaussian.py:34-38` builds the
-  Gaussian without a clip). A discrete APO ignores the head.
+  (`rlpyt/models/pg/mujoco_ff_model.py:24,50,78`). A discrete APO ignores
+  the head.
+- **Log-std clip.** Unlike the official code's, the log-std is clipped by
+  default to `[-20, 2]`, the bounds of SAC's head, which the run config
+  records (`log_std_bounds`); the official code builds its Gaussian with no
+  `min_std` or `max_std`, so with no clip
+  (`rlpyt/agents/pg/gaussian.py:34-38`). `log_std_bounds=None` removes the
+  clip. A PID policy keeps its own log-std, always clipped to `[-20, 2]`.
 - `n_steps` and `batch_size` must divide one another unless
   `num_minibatches` is set; the constructor refuses them otherwise.
 - **Expert.** Cloning an expert into the actor before training is the

@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Tuple, Union
 
 from gymnax import EnvParams
 
@@ -8,6 +8,7 @@ from ajax.agents.APO.train_APO import make_train
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
+from ajax.state import LOG_STD_BOUNDS
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -59,6 +60,14 @@ class APO(ActorCritic):
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+        # The clip of the continuous actor's log-std (Brax's head, below):
+        # SAC's bounds, a deviation from APO's official code (xtma/apo),
+        # whose agent learns an unclipped log-std parameter per action
+        # dimension starting at 0: xtma/rlpyt @e28bb20,
+        # rlpyt/models/pg/mujoco_ff_model.py:24, :50, :78 and
+        # rlpyt/agents/pg/gaussian.py:34-38 (no min_std or max_std). None
+        # removes it.
+        log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS,
         # Expert for the CloningPretrain extension and the eval expert-bias
         # metric; online BC is the ImitationLoss extension. Its actions,
         # from its state along each trajectory, are stored for the
@@ -105,13 +114,13 @@ class APO(ActorCritic):
             # an unsquashed Gaussian. The log-std is the reference's: one
             # learnable parameter per action dimension starting at 0 (std
             # 1), xtma/apo @bfcd997 on the authors' xtma/rlpyt @e28bb20
-            # (rlpyt/models/pg/mujoco_ff_model.py:24,50,78). The reference
-            # never clips it (rlpyt/agents/pg/gaussian.py:34-38); Ajax clips
-            # it to [-20, 2] (clip_log_std_param, left at its default). Like
+            # (rlpyt/models/pg/mujoco_ff_model.py:24,50,78), clipped to
+            # log_std_bounds unlike the reference's (the argument above). Like
             # brax's MLP, the encoder has no output LayerNorm (the default).
             squash=True,
             log_std_state_independent=True,
             log_std_init=0.0,
+            log_std_bounds=log_std_bounds,
             mean_kernel_init="lecun_uniform",
             episode_length=episode_length,
             action_repeat=action_repeat,

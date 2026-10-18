@@ -18,6 +18,7 @@ from ajax.networks.networks import (
     predict_value,
 )
 from ajax.state import (
+    LOG_STD_BOUNDS,
     EnvironmentConfig,
     LoadedTrainState,
     NetworkConfig,
@@ -158,7 +159,7 @@ def test_the_builder_initialises_as_the_network_config_says(fast_env_config):
         critic_bias_init="0.5",
         log_std_state_independent=True,
         log_std_init=0.3,
-        clip_log_std_param=False,
+        log_std_bounds=(-1.0, 1.0),
     )
     actor_state, critic_state = get_initialized_actor_critic(
         jax.random.PRNGKey(0),
@@ -176,12 +177,12 @@ def test_the_builder_initialises_as_the_network_config_says(fast_env_config):
     np.testing.assert_allclose(actor["mean"]["bias"], 0.25)
     np.testing.assert_allclose(actor["log_std_param"], 0.3)
     np.testing.assert_allclose(critic["ensemble"]["model"]["bias"], 0.5)
-    unclipped = {
+    beyond = {
         "params": {**actor, "log_std_param": jnp.full_like(actor["mean"]["bias"], 3.0)}
     }
     obs = jnp.zeros((1, get_state_action_shapes(fast_env_config.env)[0][-1]))
-    std = actor_state.apply_fn(unclipped, obs).stddev()
-    np.testing.assert_allclose(std, np.exp(3.0), rtol=1e-6)
+    std = actor_state.apply_fn(beyond, obs).stddev()
+    np.testing.assert_allclose(std, np.exp(1.0), rtol=1e-6)
 
 
 def test_get_initialized_actor_critic_continuous(fast_env_config):
@@ -399,17 +400,17 @@ def test_the_actor_std_starts_at_exp_log_std_init(state_independent):
     np.testing.assert_allclose(std, np.full((4, 3), np.exp(-0.5)), rtol=1e-6)
 
 
-@pytest.mark.parametrize("clip", [True, False])
+@pytest.mark.parametrize("bounds", [LOG_STD_BOUNDS, (-1.0, 0.5), None])
 @pytest.mark.parametrize("state_independent", [False, True])
-def test_only_the_log_std_parameter_can_go_unclipped(state_independent, clip):
-    """SAC's Dense head is always clipped to [-20, 2]; the state-independent
-    parameter is clipped there only with ``clip_log_std_param``."""
+def test_log_std_bounds_clip_only_the_log_std_parameter(state_independent, bounds):
+    """The state-independent parameter is clipped to ``log_std_bounds``, or
+    not at all when None; SAC's Dense head always to LOG_STD_BOUNDS."""
     actor = Actor(
         action_dim=2,
         input_architecture=ARCH,
         continuous=True,
         log_std_state_independent=state_independent,
-        clip_log_std_param=clip,
+        log_std_bounds=bounds,
     )
     obs = jax.random.normal(jax.random.PRNGKey(1), (4, 8))
     params = actor.init(jax.random.PRNGKey(0), obs)["params"]
@@ -419,8 +420,32 @@ def test_only_the_log_std_parameter_can_go_unclipped(state_independent, clip):
     else:
         params = {**params, "log_std": {**params["log_std"], "bias": log_std}}
     std = actor.apply({"params": params}, obs).stddev()
-    want = log_std if state_independent and not clip else jnp.array([2.0, -20.0])
+    low, high = (bounds or (-np.inf, np.inf)) if state_independent else LOG_STD_BOUNDS
+    want = np.clip(np.asarray(log_std), low, high)
     np.testing.assert_allclose(std, np.broadcast_to(np.exp(want), (4, 2)), rtol=1e-5)
+
+
+@pytest.mark.parametrize("bounds", [(2.0, -20.0), (1.0, 1.0)])
+def test_the_network_refuses_log_std_bounds_out_of_order(bounds):
+    """Where the network is built, not only in an agent's constructor: a
+    network config, replaced or new, and an Actor refuse swapped or equal
+    bounds, which would clip every log-std to the high one."""
+    config = NetworkConfig(actor_architecture=ARCH, critic_architecture=ARCH)
+    with pytest.raises(ValueError, match="low < high"):
+        config.replace(log_std_bounds=bounds)
+    actor = Actor(
+        action_dim=2, input_architecture=ARCH, continuous=True, log_std_bounds=bounds
+    )
+    with pytest.raises(ValueError, match="low < high"):
+        actor.init(jax.random.PRNGKey(0), jnp.zeros((1, 8)))
+
+
+def test_jax_rebuilds_a_network_config_around_any_leaves():
+    """tree.map rebuilds the config through its bounds check, which reads
+    the static bounds, not the new leaves."""
+    config = NetworkConfig(actor_architecture=ARCH, critic_architecture=ARCH)
+    rebuilt = jax.tree.map(lambda _: None, config)
+    assert rebuilt.log_std_bounds == LOG_STD_BOUNDS
 
 
 def test_mean_kernel_init_sets_the_initial_mean_head(sample_input):

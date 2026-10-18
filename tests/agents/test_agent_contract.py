@@ -530,6 +530,27 @@ CLIPS: dict[str, tuple[str, float | None]] = {
 JOINT = {"PPO"}
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        n
+        for n in sorted(CASES)
+        if "log_std_bounds" in inspect.signature(CASES[n].cls).parameters
+    ],
+)
+@pytest.mark.parametrize("bounds", [(2.0, -20.0), (1.0, 1.0)])
+def test_an_agent_refuses_log_std_bounds_out_of_order(
+    name: str, bounds: tuple[float, float]
+) -> None:
+    """Swapped or equal bounds would clip every log-std to the high one,
+    passed to the constructor or replaced on the agent's network config."""
+    with pytest.raises(ValueError, match="low < high"):
+        CASES[name].cls(env_id="Pendulum-v1", log_std_bounds=bounds)
+    agent = CASES[name].cls(env_id="Pendulum-v1")
+    with pytest.raises(ValueError, match="low < high"):
+        agent.network_args.replace(log_std_bounds=bounds)
+
+
 @pytest.mark.parametrize("name", ajax.__all__)
 def test_an_agent_clips_its_gradients_as_its_paper_does(name: str) -> None:
     """A new agent needs its row in CLIPS. The table's agents carry the

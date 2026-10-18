@@ -1,9 +1,9 @@
-"""Squash, tanh of any policy distribution: the SAC family's, PPO and APO's
-continuous actor. Its standard deviation of 1.5 puts many samples in the
-saturated region (|action| > 0.95), where recomputing a log-probability by
-inverting tanh is unstable: PPO once stored post-tanh actions and
-recomputed through ``arctanh`` (the May 2026 m4 audit); it now stores the
-pre-tanh ``raw_action`` and calls ``log_prob_from_raw``."""
+"""Squash, tanh of any policy distribution: the SAC family's continuous
+actor, and PPO's with ``squash=True``. Its standard deviation of 1.5 puts
+many samples in the saturated region (|action| > 0.95), where recomputing a
+log-probability by inverting tanh is unstable: PPO once stored post-tanh
+actions and recomputed through ``arctanh`` (the May 2026 m4 audit); it now
+stores the pre-tanh ``raw_action`` and calls ``log_prob_from_raw``."""
 
 import distrax
 import jax
@@ -51,7 +51,7 @@ def test_the_log_prob_of_a_sample_is_the_one_sampling_gave():
 
 
 def test_the_raw_sample_gives_the_sampling_log_prob():
-    """The path behind PPO and APO's ratio: from the pre-tanh draw, the
+    """The path behind a squashed PPO's ratio: from the pre-tanh draw, the
     log-probability sampling gave, without inverting tanh."""
     actions, log_probs, raw = PI.sample_with_raw(KEY)
     np.testing.assert_array_equal(jnp.tanh(raw), actions)
@@ -114,8 +114,9 @@ def test_squashed_bounds_any_actor_with_its_parameters(actor):
 
 
 def test_a_discrete_policy_is_left_unsquashed():
-    """APO passes squash=True on discrete actions too: its Categorical stays,
-    and Squash refuses one rather than tanh its action indices."""
+    """squash=True on discrete actions (APO passed it until it took its
+    reference head) leaves the Categorical as it is, and Squash refuses one
+    rather than tanh its action indices."""
     with pytest.raises(ValueError, match="continuous"):
         Squash(distrax.Categorical(logits=jnp.zeros(3)))
     env, params, _, _ = prepare_env("CartPole-v1")

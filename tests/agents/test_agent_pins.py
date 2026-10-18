@@ -667,6 +667,17 @@ _GOLDEN |= {
         "nudge": 0.3099551498889923,
     },
 }
+# Re-recorded on macOS ARM CPU once APO's continuous actor became its
+# reference code's: an unsquashed Gaussian around tanh of the mean layer,
+# its log-std unclipped (the same parameters). Relative shifts (actor,
+# critic): APO-nudge +0.042%, +0.0066%; its nudge is bitwise unchanged.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 3.8544418811798096,
+        "critic": 4.166664123535156,
+        "nudge": 0.33622848987579346,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

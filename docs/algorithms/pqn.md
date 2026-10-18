@@ -54,7 +54,7 @@ Defaults are read from `PQN.__init__`.
 | `max_grad_norm` | `10.0` | gradient clipping by global norm (the authors'); `None` turns it off |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
 | `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
-| `td_loss_fn` | `None` | the loss; `None` is the squared error, `make_huber_td_loss(delta)` the Huber loss |
+| `td_loss_fn` | `None` | the loss; `None` is half the squared error (the authors'), `make_huber_td_loss(delta)` the Huber loss |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations; `None` builds the reference network (see Notes) |
 | `expose_recent_rollout` | `False` | keep the last rollout on `state.last_rollout` for extensions |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |

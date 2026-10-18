@@ -49,7 +49,8 @@ class PQN(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
-        # TD loss: None -> MSE. Pass make_huber_td_loss(delta) for Huber.
+        # TD loss: None -> half_mse_td_loss (from train_PQN), purejaxql's.
+        # Pass make_huber_td_loss(delta) (from train_DQN) for Huber.
         td_loss_fn: Optional[Callable] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,

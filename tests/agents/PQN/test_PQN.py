@@ -6,6 +6,7 @@ import pytest
 from ajax.agents.DQN.train_DQN import make_huber_td_loss
 from ajax.agents.PQN.networks import PQNNetwork
 from ajax.agents.PQN.PQN import PQN
+from ajax.agents.PQN.train_PQN import half_mse_td_loss
 from ajax.networks.networks import MINATAR_CNN, MNIH_CNN
 
 
@@ -36,6 +37,14 @@ def test_pqn_steps_as_its_reference_optimiser():
     agent = PQN(env_id="CartPole-v1")
     for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
         assert (args.optimizer, args.eps, args.max_grad_norm) == ("radam", 1e-8, 10.0)
+
+
+def test_pqn_default_loss_is_half_the_squared_error():
+    """purejaxql's loss, 0.5 * mean((Q - G)^2) (pqn_minatar.py:285): its
+    gradient is the TD error over the batch size, what the clip of 10 sees."""
+    q, target = jnp.array([0.0, 1.0]), jnp.array([3.0, -1.0])
+    assert half_mse_td_loss(q, target) == pytest.approx(0.5 * (9.0 + 4.0) / 2)
+    assert jnp.allclose(jax.grad(half_mse_td_loss)(q, target), (q - target) / 2)
 
 
 def test_pqn_starts_every_dense_as_flax_default():

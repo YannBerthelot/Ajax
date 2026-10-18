@@ -93,7 +93,7 @@ APO and PQN average theirs over the update's epochs and minibatches.
 | `value/abs_td_error` | DQN, PQN | the mean of `abs(Q(s, a) - target)` over the batch |
 | `value/grad_norm` | DQN, PQN | the global norm of the Q-network's gradient, before clipping |
 | `policy/grad_norm`, `value/grad_norm` | SAC, TD3 | the global norm of the actor's and the critics' gradients, before clipping. TD3 logs 0 for the actor on the updates its `policy_delay` skips |
-| `value/q_gap` | TD3 | the mean of `abs(Q1(s, a) - Q2(s, a))` over the batch: how far the twin critics disagree |
+| `value/q_gap` | TD3 | the mean over the batch of the critics' spread, the largest value minus the smallest (`abs(Q1(s, a) - Q2(s, a))` for the default twin critics): how far they disagree |
 | `value/target_noise_clip_frac` | TD3 | the share of the target policy's noise samples that the clip to `±target_noise_clip` changed |
 | `Train/grad_norm` | APG | the global norm of the controller's gradient, before clipping (`max_grad_norm`) |
 | `Eval/commanded return`, `Eval/commanded horizon` | UDRL | the return and horizon each evaluation episode is commanded with at its start, to set beside the return and length it achieves; in normalised units when rewards are normalised |

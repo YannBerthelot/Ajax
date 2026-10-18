@@ -31,6 +31,7 @@ def fake_train(calls, final):
         speed = {"wall_s": 1.0, "cpu_s": 2.0, "compile_s": 0.5, "env_steps_per_s": 10}
         return {
             "side": side,
+            "spec_version": COMPARISONS[name].version,
             "implementation": protocol.implementation(name, side),
             "fingerprint": protocol.fingerprint(name, side),
             "seeds": seeds,
@@ -59,7 +60,8 @@ def test_decide_trains_only_missing_seeds_and_reuses_the_records(cache, monkeypa
     ]
     assert len((cache / "PQN.jsonl").read_text().splitlines()) == 4
     calls.clear()
-    assert protocol.decide("PQN", train_missing=False)[1] == scores and not calls
+    _, keys, _ = protocol.reported("PQN")
+    assert protocol.decide("PQN", keys=keys)[1] == scores and not calls
     row = protocol.summary("PQN", reps=10)[0]
     assert (row["decision"], row["seeds"], row["difference"]) == (
         "smaller",
@@ -88,7 +90,7 @@ def test_a_changed_setting_or_source_retrains(cache, monkeypatch, tmp_path):
     source.write_text("b")
     assert protocol.fingerprint("PQN", "matched") != first
     with pytest.raises(LookupError, match="no runs"):
-        protocol.final_scores("PQN", "matched", [0], train_missing=False)
+        protocol.final_scores("PQN", "matched", [0], key="unrecorded")
 
 
 STUB = """
@@ -152,7 +154,7 @@ def test_the_dataset_loads_back_and_the_docs_draw_from_it(cache, monkeypatch, tm
     monkeypatch.setattr(refcmp_publish, "DOCS", tmp_path)
     refcmp_publish.docs(reps=10)
     assert (
-        "| PQN | different | ±25.0 | 8 | 500.0 | 9.0 | -491.0"
+        "| PQN | v1,  | different | ±25 | 8 | 500 | 9 | -491 ["
         in (tmp_path / "results.md").read_text()
     )
     assert (tmp_path / "PQN.svg").read_text().startswith("<?xml")
@@ -201,3 +203,15 @@ def test_the_records_do_not_count_against_a_clean_tree(monkeypatch, tmp_path):
     assert calls[-1][-1] == ":!benchmarks/reference/results/protocol"
     monkeypatch.setattr(protocol, "CACHE", tmp_path)  # outside the repository
     assert protocol.clean_tree() and calls[-1][-1] == "."
+
+
+def test_a_record_is_judged_under_the_spec_it_ran(monkeypatch):
+    # The committed specs: read back from HEAD, as from any record's commit.
+    committed = COMPARISONS["PQN"]
+    head = protocol._run("git", "rev-parse", "HEAD")
+    record = {"manifest": {"ajax_commit": head, "spec_sha256": spec_sha256(committed)}}
+    monkeypatch.setitem(COMPARISONS, "PQN", dataclasses.replace(committed, margin=1.0))
+    assert protocol.spec_of("PQN", record).margin == committed.margin
+    record["manifest"]["spec_sha256"] = "0" * 64
+    with pytest.raises(LookupError, match="has its hash"):
+        protocol.spec_of("PQN", record)

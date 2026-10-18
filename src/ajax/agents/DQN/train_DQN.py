@@ -295,7 +295,8 @@ def q_gradient_step(
             )
         return loss, aux
 
-    return gradient_step(q_state, loss_fn)
+    q_state, aux, _ = gradient_step(q_state, loss_fn)
+    return q_state, aux
 
 
 @partial(

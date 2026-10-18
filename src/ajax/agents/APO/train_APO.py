@@ -132,7 +132,7 @@ def update_policy(
         )
         return loss + extra, aux
 
-    actor_state, aux = gradient_step(actor_state, loss_fn)
+    actor_state, aux, _ = gradient_step(actor_state, loss_fn)
     return agent_state.replace(actor_state=actor_state), aux
 
 
@@ -215,7 +215,7 @@ def update_value_functions(
         )
         return loss + extra, aux
 
-    critic_state, aux = gradient_step(critic_state, loss_fn)
+    critic_state, aux, _ = gradient_step(critic_state, loss_fn)
     return agent_state.replace(critic_state=critic_state), aux
 
 

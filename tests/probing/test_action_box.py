@@ -25,7 +25,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "06fbb477cbcf"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "83d687782483"  # verdict.digest(CASES): every answer, pinned
 ENV, PARAMS = envs.action_box().make()
 CONTEXTS = jnp.eye(3)  # up, down, inside
 
@@ -146,7 +146,7 @@ CELLS: dict[str, tuple] = {  # agent: family, budget, tolerances, overrides
     "REDQ": ("auto", 5000, (0.087, 0.133, 0.243), {"num_critic_updates": 5}),
     "ASAC": ("auto", 10_000, (0.067, 0.087, 0.25), LR3),
     "AVG": ("AVG", 40_000, (0.02, 0.026, 0.186), LR3),
-    "APO": ("none", 300_000, (0.02, 0.02, 0.148), dict.fromkeys(LR3, 1e-4)),
+    "APO": ("none", 300_000, (0.02, 0.02, 0.145), dict.fromkeys(LR3, 1e-4)),
     "APG": ("none", 5000, (0.02, 0.02, 0.065), {"horizon": 1}),
     "DreamerV3": ("none", 32_000, (0.074, 0.076), {}),
     "TDMPC2": ("none", 4000, (0.02, 0.02, 0.248), {"episodic": True, "horizon": 1}),
@@ -158,8 +158,8 @@ NOTES = {  # beyond choose's pick: owner decisions, rungs ruled out and why
     " steps; that is PPO's behaviour, not a defect, so the cell starts at -1",
     "REDQ": "2,500 too few: twice its worst reach error, 0.474, passed 0.25",
     "AVG": "20,000 too few: twice its worst inside error, 0.256, passed 0.25",
-    "APO": "at 3e-4 its reference head's inside action jitters (twice the worst"
-    " error 0.32-0.45 at 100,000-200,000); at 1e-4, 200,000 reads 0.300",
+    "APO": "at 3e-4 100,000 qualifies but certifies 28/32, and the inside action"
+    " drifts past it (0.60-1.68 at 150,000-300,000); at 1e-4, 200,000: 0.293",
     "DreamerV3": "owner: judged on the edges only; its inside action, 1.67 to"
     " 3.0 over 8 seeds at 48,000 steps, is backlogged. choose picks 16,000, but"
     " a seed's readings depend on the seeds trained with it: 1000-1007 trained"

@@ -181,9 +181,9 @@ def compute_td3_td_target(
         bootstrap=True,
         target_actor=True,
     ).mean()
-    raw_noise = jax.random.normal(rng, next_action.shape) * target_policy_noise
-    noise = jnp.clip(raw_noise, -target_noise_clip, target_noise_clip)
-    clip_frac = (jnp.abs(raw_noise) > target_noise_clip).mean()
+    noise = jax.random.normal(rng, next_action.shape) * target_policy_noise
+    clip_frac = (jnp.abs(noise) > target_noise_clip).mean()
+    noise = jnp.clip(noise, -target_noise_clip, target_noise_clip)
     next_action = jnp.clip(next_action + noise, -1.0, 1.0)
     q_targets = q_values(
         critic_state,

@@ -134,21 +134,25 @@ def specs_page() -> str:
 
 
 def plot(name: str, path: pathlib.Path) -> None:
-    """Each side's mean evaluation return over its current seeds, with a
-    band of two standard errors."""
+    """Each side's mean evaluation return over the reported seeds (the
+    latest spec version's), with a band of two standard errors."""
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator
 
-    spec = COMPARISONS[name]
+    _, keys, first = protocol.reported(name)
+    spec = protocol.spec_of(name, first)
     fig, ax = plt.subplots(figsize=(5, 3.2))
     for side, label in (("reference", spec.reference), ("matched", "Ajax")):
         color = COLORS["reference" if side == "reference" else "ajax"]
-        values = np.array(list(protocol.curves(name, side).values()))
-        steps = protocol.current(name, side)[0]["steps"]
+        values = np.array(list(protocol.curves(name, side, keys[side]).values()))
+        steps = protocol.current(name, side, keys[side])[0]["steps"]
         mean = values.mean(0)
         half = 2 * values.std(0, ddof=1) / np.sqrt(len(values))
         ax.fill_between(steps, mean - half, mean + half, color=color, alpha=0.2, lw=0)
         ax.plot(steps, mean, color=color, lw=2, label=f"{label} ({len(values)} seeds)")
     ax.set(title=f"{spec.agent} on {spec.env_id}", xlabel="steps", ylabel="return")
+    ax.xaxis.set_major_locator(MaxNLocator(5))
+    ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
     ax.grid(alpha=0.25)
     ax.spines[["top", "right"]].set_visible(False)
     ax.legend(frameon=False)
@@ -181,9 +185,12 @@ def docs(reps: int = 200) -> None:
         "resolution is the smallest gap its budget detects 80% of the time.",
         "Speed is measured on the CPU, medians over batches.",
         "",
-        "| Comparison | Verdict | Margin | Seeds | Reference | Ajax | Difference "
-        "| AdaStop | Resolution |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "Each row reports its comparison's latest spec version, whose settings",
+        "the [specifications](specs.md) list, and the Ajax commit it ran.",
+        "",
+        "| Comparison | Spec, Ajax | Verdict | Margin | Seeds | Reference | Ajax "
+        "| Difference | AdaStop | Resolution |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     speeds = [
         "",
@@ -196,12 +203,13 @@ def docs(reps: int = 200) -> None:
         for row in protocol.summary(name, reps=reps):
             low, high = row["interval"]
             decision = words.get(row["decision"], "Ajax smaller")
-            margin = "-" if row["margin"] is None else f"±{row['margin']:.1f}"
+            margin = "-" if row["margin"] is None else f"±{row['margin']:.3g}"
+            commit = (row["ajax_commit"] or "")[:7]
             lines.append(
-                f"| {name} | {row['verdict']} | {margin} | {row['seeds']} "
-                f"| {row['reference_mean']:.1f} | {row['ajax_mean']:.1f} "
-                f"| {row['difference']:+.1f} [{low:+.1f}, {high:+.1f}] | {decision} "
-                f"| {row['resolution']:.1f} |"
+                f"| {name} | v{row['spec_version']}, {commit} | {row['verdict']} "
+                f"| {margin} | {row['seeds']} | {row['reference_mean']:.4g} "
+                f"| {row['ajax_mean']:.4g} | {row['difference']:+.3g} "
+                f"[{low:+.3g}, {high:+.3g}] | {decision} | {row['resolution']:.2g} |"
             )
             for side, label in (
                 ("reference", COMPARISONS[name].reference),

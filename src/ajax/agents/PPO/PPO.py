@@ -112,8 +112,8 @@ class PPO(ActorCritic):
         # The Gaussian's log-std: one learned parameter per action dimension
         # starting at 0 (std 1), never clipped (log_std_bounds None), as PPO's
         # reference code has it (Actor in networks.py cites it). False and
-        # -1.0 build the state-dependent head PPO had before (SAC's, always
-        # clipped to [-20, 2]).
+        # -1.0 build the state-dependent head PPO had before (SAC's), which
+        # log_std_bounds=LOG_STD_BOUNDS clips as it was clipped then.
         log_std_state_independent: bool = True,
         log_std_init: float = 0.0,
         log_std_bounds: Optional[Tuple[float, float]] = None,

@@ -151,9 +151,9 @@ class Actor(nn.Module):
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None
     # The log-std head, every std starting at exp(log_std_init). False (the
     # default here): a Dense layer over the encoder's features
-    # (state-dependent, SAC's), always clipped to LOG_STD_BOUNDS. True: one
-    # learned log-std per action dimension, clipped to ``log_std_bounds``
-    # (None: not clipped). PPO's default is True, log_std_init 0 and no clip, as its
+    # (state-dependent, SAC's). True: one learned log-std per action
+    # dimension. Either is clipped to ``log_std_bounds`` (None: not
+    # clipped). PPO's default is True, log_std_init 0 and no clip, as its
     # reference code learns it: OpenAI Baselines @ea25b9e (ppo2's
     # common/distributions.py:96-106; ppo1's ppo1/mlp_policy.py:36-39,
     # gaussian_fixed_var=True), CleanRL @fe8d8a0
@@ -251,10 +251,10 @@ class Actor(nn.Module):
             mean = self.mean(embedding)
             if self.log_std_state_independent:
                 log_std = jnp.broadcast_to(self.log_std_param, mean.shape)
-                if self.log_std_bounds is not None:
-                    log_std = jnp.clip(log_std, *self.log_std_bounds)
             else:
-                log_std = jnp.clip(self.log_std(embedding), *LOG_STD_BOUNDS)
+                log_std = self.log_std(embedding)
+            if self.log_std_bounds is not None:
+                log_std = jnp.clip(log_std, *self.log_std_bounds)
             std = jnp.exp(log_std)
             return distrax.Normal(mean, std)
         return self.model(embedding)
@@ -489,6 +489,7 @@ def get_initialized_actor_critic(
             policy=network_config.actor_architecture,
             action_dim=action_dim,
             log_std_init=network_config.log_std_init,
+            log_std_bounds=network_config.log_std_bounds,
         )
     else:
         actor = Actor(

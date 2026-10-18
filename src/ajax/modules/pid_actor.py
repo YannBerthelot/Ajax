@@ -30,7 +30,8 @@ or clip to ``[-1, 1]``. The gains are therefore normalised: they map the
 error terms to agent units, and a PID in the env's units has gains ``h *
 K`` (small-signal, ``tanh`` near 0) and offset ``c``; zero gains command
 the box's centre (no control on a symmetric box). The stochastic agents
-explore with a learned, state-independent log-std. Gains start at zero.
+explore with a learned, state-independent log-std, clipped to the agent's
+``log_std_bounds`` (PPO's default: no clip). Gains start at zero.
 Observation normalisation (env- or agent-side) leaves the terms raw, as
 the wrapper declares them, so the gains act on the errors in the env's
 units; the gain network of ``gains="observation"`` reads the rest
@@ -40,7 +41,7 @@ normalised.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Optional, Tuple
 
 import distrax
 import flax.linen as nn
@@ -49,7 +50,7 @@ import jax.numpy as jnp
 
 from ajax.environments.pid_terms import split_pid_terms
 from ajax.networks.utils import parse_architecture
-from ajax.state import LOG_STD_BOUNDS
+from ajax.state import LOG_STD_BOUNDS, check_log_std_bounds
 
 GAIN_NAMES = ("kp", "ki", "kd")
 
@@ -123,8 +124,12 @@ class PIDActor(nn.Module):
     policy: PIDPolicy
     action_dim: int
     log_std_init: float = -1.0
+    # The log-std's (low, high) clip, the agent's ``log_std_bounds``
+    # (NetworkConfig); None: not clipped.
+    log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS
 
     def setup(self):
+        check_log_std_bounds(self.log_std_bounds)
         self.pid = PIDLaw(self.policy, self.action_dim)
         self.log_std = self.param(
             "log_std", nn.initializers.constant(self.log_std_init), (self.action_dim,)
@@ -136,7 +141,9 @@ class PIDActor(nn.Module):
     def __call__(self, obs: jax.Array) -> distrax.Distribution:
         mean = self.pid(obs)
         log_std = jnp.broadcast_to(self.log_std, mean.shape)
-        std = jnp.exp(jnp.clip(log_std, *LOG_STD_BOUNDS))
+        if self.log_std_bounds is not None:
+            log_std = jnp.clip(log_std, *self.log_std_bounds)
+        std = jnp.exp(log_std)
         return distrax.Normal(mean, std)
 
 

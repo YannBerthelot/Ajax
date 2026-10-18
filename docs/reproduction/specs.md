@@ -5,7 +5,7 @@ Written by `benchmarks/reference/refcmp_publish.py specs` from
 Each comparison is set before its runs and changed only as a new
 version (see the [protocol](protocol.md)).
 
-## PPO, version 1
+## PPO, version 2
 
 Ajax's PPO against stable-baselines3's PPO, MlpPolicy.
 
@@ -14,7 +14,7 @@ Ajax's PPO against stable-baselines3's PPO, MlpPolicy.
 - Evaluation: 10 episodes of the deterministic policy, every 14,336 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
 - Margin: ±25.
-- Spec hash: `170abf545e410a44`.
+- Spec hash: `ab1379d3e1e9ebb6`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PPO --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -38,7 +38,7 @@ Ajax settings without a reference counterpart: `num_minibatches=8`, `actor_archi
 Not matched:
 
 
-## PPO-inverted_pendulum, version 1
+## PPO-inverted_pendulum, version 2
 
 Ajax's PPO against brax.training.agents.ppo, with Brax's settings for inverted_pendulum (notebooks/training.ipynb) but the length.
 
@@ -47,7 +47,7 @@ Ajax's PPO against brax.training.agents.ppo, with Brax's settings for inverted_p
 - Evaluation: 128 episodes of the deterministic policy, every 163,840 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
 - Margin: ±50.
-- Spec hash: `0e1c3c051f961f17`.
+- Spec hash: `5f421eaf04254d20`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PPO-inverted_pendulum --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -70,7 +70,7 @@ Ajax's PPO against brax.training.agents.ppo, with Brax's settings for inverted_p
 | `episode_length` | `1000` | `episode_length` | `1000` |
 | `action_repeat` | `1` | `action_repeat` | `1` |
 
-Ajax settings without a reference counterpart: `n_steps=80`, `actor_architecture=('32', 'swish', '32', 'swish', '32', 'swish', '32', 'swish')`, `critic_architecture=('256', 'swish', '256', 'swish', '256', 'swish', '256', 'swish', '256', 'swish')`, `encoder_kernel_init='lecun_uniform'`, `mean_kernel_init='lecun_uniform'`, `squash=True`, `log_std_state_independent=False`, `log_std_init=-0.3651`.
+Ajax settings without a reference counterpart: `n_steps=80`, `adam_eps=1e-08`, `actor_architecture=('32', 'swish', '32', 'swish', '32', 'swish', '32', 'swish')`, `critic_architecture=('256', 'swish', '256', 'swish', '256', 'swish', '256', 'swish', '256', 'swish')`, `encoder_kernel_init='lecun_uniform'`, `mean_kernel_init='lecun_uniform'`, `squash=True`, `log_std_state_independent=False`, `log_std_init=-0.3651`.
 
 Not matched:
 

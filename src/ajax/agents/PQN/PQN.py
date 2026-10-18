@@ -39,7 +39,7 @@ class PQN(ActorCritic):
         num_minibatches: int = 4,
         reward_scale: float = 1.0,
         env_params: Optional[EnvParams] = None,
-        max_grad_norm: Optional[float] = None,
+        max_grad_norm: Optional[float] = 10.0,
         weight_decay: float = 0.0,
         # Linear epsilon-greedy schedule: epsilon goes from epsilon_start
         # to epsilon_end over the first epsilon_decay_frac of training.
@@ -99,6 +99,15 @@ class PQN(ActorCritic):
 
         if check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("PQN only supports discrete action spaces.")
+        # The optimiser of PQN's reference: optax.radam (its eps 1e-8) after
+        # a global clip of 10 (mttga/purejaxql @47af6d7 pqn_minatar.py:159-162,
+        # pqn_atari.py:194-197, MAX_GRAD_NORM 10 in every PQN config).
+        self.actor_optimizer_args = self.actor_optimizer_args.replace(
+            optimizer="radam", eps=1e-8
+        )
+        self.critic_optimizer_args = self.critic_optimizer_args.replace(
+            optimizer="radam", eps=1e-8
+        )
         if n_steps * self.env_args.n_envs % num_minibatches != 0:
             raise ValueError(
                 f"the rollout's n_steps * n_envs ({n_steps} * {self.env_args.n_envs})"

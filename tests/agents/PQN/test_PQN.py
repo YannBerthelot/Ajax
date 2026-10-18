@@ -30,6 +30,14 @@ def test_pqn_huber_loss_smoke():
     agent.train(seed=42, n_timesteps=256)
 
 
+def test_pqn_steps_as_its_reference_optimiser():
+    """mttga/purejaxql @47af6d7 (pqn_minatar.py:159-162): optax.radam,
+    eps 1e-8, after a global-norm clip of 10."""
+    agent = PQN(env_id="CartPole-v1")
+    for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
+        assert (args.optimizer, args.eps, args.max_grad_norm) == ("radam", 1e-8, 10.0)
+
+
 def test_pqn_starts_every_dense_as_flax_default():
     """PQN's reference code (mttga/purejaxql @47af6d7, pqn_gymnax.py:52, :56)
     sets no initializer: every Dense is lecun_normal, a normal truncated at

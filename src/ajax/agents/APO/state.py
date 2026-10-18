@@ -16,7 +16,8 @@ class APOState(BaseAgentState):
 class APOConfig(BaseAgentConfig):
     """APO's hyperparameters."""
 
-    ent_coef: float = 0.0
+    # The official code's entropy_loss_coeff (APO's constructor).
+    ent_coef: float = 0.01
     clip_range: float = 0.2
     n_steps: int = 2048
     batch_size: int = 64

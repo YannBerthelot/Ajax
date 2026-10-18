@@ -63,7 +63,11 @@ class APO(ActorCritic):
         # mujoco_appo.py:8): neither network's Adam clips its own.
         max_grad_norm: Optional[float] = 10.0,
         weight_decay: float = 0.0,
-        ent_coef: float = 0,
+        # The entropy bonus's weight, the official code's entropy_loss_coeff
+        # (mujoco_appo.py:9): the loss subtracts it times the batch mean of
+        # the policy's entropy (appo.py:155-158), the Gaussian's summed over
+        # the action dimensions (rlpyt/distributions/gaussian.py:81-103).
+        ent_coef: float = 0.01,
         # The value loss's weight in the summed loss, the official code's
         # value_loss_coeff (appo.py:27, which mujoco_appo.py leaves).
         vf_coef: float = 1.0,

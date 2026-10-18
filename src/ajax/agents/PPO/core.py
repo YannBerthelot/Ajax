@@ -93,11 +93,11 @@ def clipped_surrogate(
     return loss, (jnp.abs(ratio - 1) > clip_coef).mean()
 
 
-def approximate_kl(ratio: jax.Array, log_ratio: jax.Array) -> jax.Array:
-    """The mean of ``(r - 1) - log r``, an estimate of KL(old || new) that is
-    never negative (Schulman's "k3"), as CleanRL's ``ppo.py`` and SB3's PPO
-    log it."""
-    return jnp.mean((ratio - 1) - log_ratio)
+def approximate_kl(log_ratio: jax.Array) -> jax.Array:
+    """The mean of ``(r - 1) - log r``, ``r`` the probability ratio: an
+    estimate of KL(old || new) that is never negative (Schulman's "k3"), as
+    CleanRL's ``ppo.py`` and SB3's PPO log it."""
+    return jnp.mean((jnp.exp(log_ratio) - 1) - log_ratio)
 
 
 def explained_variance(predictions: jax.Array, targets: jax.Array) -> jax.Array:

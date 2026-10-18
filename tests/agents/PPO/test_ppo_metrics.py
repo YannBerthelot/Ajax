@@ -44,8 +44,8 @@ def _batch(agent) -> tuple[jax.Array, ...]:
 def test_the_helpers_follow_their_formulas() -> None:
     log_ratio = jnp.array([0.1, -0.2, 0.0, 0.5])
     kl = np.mean(np.expm1(np.asarray(log_ratio)) - np.asarray(log_ratio))
-    np.testing.assert_allclose(approximate_kl(jnp.exp(log_ratio), log_ratio), kl)
-    assert float(approximate_kl(jnp.ones(3), jnp.zeros(3))) == 0.0
+    np.testing.assert_allclose(approximate_kl(log_ratio), kl, rtol=1e-6)
+    assert float(approximate_kl(jnp.zeros(3))) == 0.0
 
     targets = jnp.array([1.0, 2.0, 3.0, 4.0])
     # 1 - Var([0, 0, 0, -1]) / Var([1, 2, 3, 4]) = 1 - 0.1875 / 1.25

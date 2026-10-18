@@ -31,7 +31,10 @@ from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
     ValueAuxiliaries,
+    approximate_kl,
     clipped_surrogate,
+    explained_variance,
+    mean_policy_std,
     policy_entropy,
     recompute_log_prob,
     resolve_clip_coef,
@@ -157,6 +160,7 @@ def value_loss_function(
         critic_loss=loss,
         predictions=v_preds.mean().flatten(),
         targets=value_targets.mean().flatten(),
+        explained_variance=explained_variance(v_preds, value_targets),
     )
 
 
@@ -195,7 +199,8 @@ def policy_loss_function(
         pi, _ = get_pi(actor_state, actor_params, observations)
 
     new_log_probs = recompute_log_prob(pi, actions, raw_actions)
-    ratio = jnp.exp(new_log_probs - log_probs)
+    log_ratio = new_log_probs - log_probs
+    ratio = jnp.exp(log_ratio)
 
     if advantage_normalization:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
@@ -217,6 +222,8 @@ def policy_loss_function(
         old_log_probs=log_probs.mean(),
         clip_fraction=clip_fraction,
         entropy=entropy,
+        approx_kl=approximate_kl(ratio, log_ratio),
+        policy_std=mean_policy_std(pi),
     )
 
 
@@ -726,6 +733,9 @@ def update_agent(
             actor, critic, p_grads, v_grads, agent_config.max_grad_norm
         )
         agent_state = agent_state.replace(critic_state=critic, actor_state=actor)
+        # Each network's norm before the joint clip.
+        p_aux = p_aux.replace(grad_norm=optax.global_norm(p_grads))
+        v_aux = v_aux.replace(grad_norm=optax.global_norm(v_grads))
         return agent_state, AuxiliaryLogs(policy=p_aux, value=v_aux)
 
     agent_state, aux = run_epochs(

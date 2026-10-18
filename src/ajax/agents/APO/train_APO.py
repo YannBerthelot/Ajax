@@ -13,6 +13,7 @@ from typing import Any, Callable, Optional, Tuple
 import distrax
 import jax
 import jax.numpy as jnp
+from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.APO.state import APOConfig, APOState
@@ -20,8 +21,10 @@ from ajax.agents.loop import TrainLoop, gradient_step
 from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
-    ValueAuxiliaries,
+    approximate_kl,
     clipped_surrogate,
+    explained_variance,
+    mean_policy_std,
     policy_entropy,
     recompute_log_prob,
     resolve_clip_coef,
@@ -29,6 +32,7 @@ from ajax.agents.PPO.core import (
     rollout_actions,
     run_epochs,
 )
+from ajax.agents.PPO.core import ValueAuxiliaries as PPOValueAuxiliaries
 from ajax.agents.PPO.train_PPO import init_PPO
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.environments.interaction import get_pi
@@ -42,6 +46,15 @@ from ajax.state import (
     OptimizerConfig,
     Transition,
 )
+
+
+@struct.dataclass(kw_only=True)
+class ValueAuxiliaries(PPOValueAuxiliaries):
+    """PPO's critic metrics, the value bias ``b`` the loss used and the
+    reward rate ``rho`` the targets used (filled in after the step)."""
+
+    value_bias: jax.Array
+    average_reward: jax.Array | float = jnp.nan
 
 
 def policy_loss_function(
@@ -63,7 +76,8 @@ def policy_loss_function(
     pi, _ = get_pi(actor_state, actor_params, observations)
     new_log_probs = recompute_log_prob(pi, actions, raw_actions)
     entropy = policy_entropy(pi, entropy_key)
-    ratio = jnp.exp(new_log_probs - log_probs)
+    log_ratio = new_log_probs - log_probs
+    ratio = jnp.exp(log_ratio)
     assert ratio.shape[0] == gae.shape[0], (
         f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
     )
@@ -75,6 +89,8 @@ def policy_loss_function(
         old_log_probs=log_probs.mean(),
         clip_fraction=clip_fraction,
         entropy=entropy.mean(),
+        approx_kl=approximate_kl(ratio, log_ratio),
+        policy_std=mean_policy_std(pi),
     )
     pi_mean = None if isinstance(pi, distrax.Categorical) else pi.mean()
     return total_loss, (aux, pi_mean)
@@ -132,8 +148,10 @@ def update_policy(
         )
         return loss + extra, aux
 
-    actor_state, aux, _ = gradient_step(actor_state, loss_fn)
-    return agent_state.replace(actor_state=actor_state), aux
+    actor_state, aux, grad_norm = gradient_step(actor_state, loss_fn)
+    return agent_state.replace(actor_state=actor_state), aux.replace(
+        grad_norm=grad_norm
+    )
 
 
 def init_APO(
@@ -179,6 +197,8 @@ def value_loss_function(
         critic_loss=loss,
         predictions=v_preds.mean().flatten(),
         targets=value_targets.mean().flatten(),
+        explained_variance=explained_variance(v_preds, value_targets),
+        value_bias=jnp.asarray(b),
     )
 
 
@@ -215,7 +235,8 @@ def update_value_functions(
         )
         return loss + extra, aux
 
-    critic_state, aux, _ = gradient_step(critic_state, loss_fn)
+    critic_state, aux, grad_norm = gradient_step(critic_state, loss_fn)
+    aux = aux.replace(grad_norm=grad_norm, average_reward=agent_state.average_reward)
     return agent_state.replace(critic_state=critic_state), aux
 
 

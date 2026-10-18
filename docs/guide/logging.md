@@ -75,6 +75,20 @@ rewards. A metric that is NaN (an agent that has not started updating yet,
 an expert metric without an expert) is dropped from W&B and TensorBoard,
 but kept as NaN in the returned evaluations.
 
+### Training diagnostics
+
+Beside its losses, each agent logs a few measures of how its updates go.
+Like the other training metrics, they are the last update's values; PPO
+and APO average theirs over the update's epochs and minibatches.
+
+| Name | Agents | Meaning |
+| --- | --- | --- |
+| `policy/approx_kl` | PPO, APO | the mean of `(r - 1) - log r`, `r` the ratio of the new policy's probability of each action to the old one's: an estimate of how far an update moved the policy, as CleanRL and Stable-Baselines3 log it |
+| `policy/policy_std` | PPO, APO | the mean standard deviation of the policy's Gaussian, before any squashing (SAC logs the same); NaN for a discrete policy |
+| `value/explained_variance` | PPO, APO | `1 - Var[target - V] / Var[target]` over the minibatch: 1 for a critic that predicts its targets, 0 for one no better than their mean; NaN when the targets do not vary |
+| `policy/grad_norm`, `value/grad_norm` | PPO, APO | the global norm of each network's gradient, before clipping. PPO clips the two networks' gradients together (`max_grad_norm`): the clip acts when the norm of both, `sqrt(policy² + value²)`, exceeds it |
+| `value/value_bias`, `value/average_reward` | APO | the value bias `b` and the reward rate `rho` the update used |
+
 ### The value bias
 
 `Eval/mean bias` measures how far the critic's value estimates are from

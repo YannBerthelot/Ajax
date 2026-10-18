@@ -34,7 +34,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "a2df3f227271"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "fbc46a1588cb"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -97,9 +97,11 @@ CASES["p0a-DQN"] = Case(
 CASES["p0a-PQN"] = Case(
     "p0a-PQN",
     (*Q_S1, Query("max_a Q(s0, a)", G3, Q_S0_WRONG), GREEDY),
-    _three_run("PQN", q_lambda=0.0),
-    5000,
-    (0.07, 0.041, 0.078, 0.035, 0.02),
+    # PQN's own rate, not the preset's 1e-3: with RAdam no budget from 2500
+    # to 40,000 qualified at 1e-3, the greedy Q(s0) jittering about 0.08 off.
+    _three_run("PQN", q_lambda=0.0, learning_rate=2.5e-4),
+    40_000,
+    (0.02, 0.092, 0.02, 0.055, 0.02),
     note="cert 32/32; reads the greedy Q(s0): the others drift, rarely explored",
 )
 CASES["p0a-PPO"] = Case(

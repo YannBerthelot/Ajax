@@ -86,6 +86,13 @@ def default_run():
     return agent, sc, state, aux
 
 
+def test_adam_eps_is_torchs(env_and_class):
+    """The reference's AdamW keeps torch's eps (in-context-controller
+    transformer_onestep_CL.py:86), not Ajax's shared 1e-5."""
+    env, sc = env_and_class
+    assert make_agent(env, sc).actor_optimizer_args.eps == 1e-8
+
+
 def test_gradient_clipping_is_on_by_default_and_can_be_disabled(env_and_class):
     env, sc = env_and_class
     assert make_agent(env, sc).actor_optimizer_args.max_grad_norm is not None
@@ -189,7 +196,9 @@ def test_contextual_controller_configuration(env_and_class):
     )
     assert agent.pid == PIDHeadConfig()  # identity init, see APG._DEFAULT_PID
     assert agent.train_kwargs["lr_schedule"] == "warmup_cosine"
-    assert agent.actor_optimizer_args.max_grad_norm == 1.0
+    # The reference's AdamW: torch's eps, no gradient clipping.
+    assert agent.actor_optimizer_args.max_grad_norm is None
+    assert agent.actor_optimizer_args.eps == 1e-8
     assert agent.actor_optimizer_args.weight_decay == 0.01
     state, aux = agent.train(seed=0, n_timesteps=4 * 2 * 8)
     assert state.actor_state.recurrent

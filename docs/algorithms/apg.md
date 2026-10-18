@@ -95,7 +95,7 @@ stages = [  # the nominal pendulum first, then the whole family
 | `horizon` | 100 | closed-loop steps differentiated through |
 | `learning_rate` | 5e-4 | AdamW step size |
 | `weight_decay` | 0.0 | AdamW weight decay (0 is plain Adam) |
-| `beta_1`, `beta_2` | 0.9, 0.999 | Adam's moment rates |
+| `beta_1`, `beta_2` | 0.9, 0.999 | Adam's moment rates (its epsilon is torch's 1e-8) |
 | `lr_schedule` | None | `"warmup_cosine"`: linear warmup over `warmup_steps` updates, then cosine decay |
 | `warmup_steps`, `lr_end_fraction` | 0, 0.1 | warmup length, and the final rate as a fraction of `learning_rate` |
 | `max_grad_norm` | 1.0 | gradient clipping by global norm (`None` turns it off) |
@@ -110,8 +110,8 @@ stages = [  # the nominal pendulum first, then the whole family
 `APG.contextual_controller(env, system_class, ...)` sets the paper's values:
 8 layers, 4 heads, width 128, context 100, one system per update
 (`n_envs=1`), horizon 100, betas (0.9, 0.95) with `weight_decay=0` (plain
-Adam), 5,000 warmup updates then cosine decay to a tenth of the rate, and a
-PID output layer. Its `final_norm=False` rebuilds a controller saved before
+Adam), 5,000 warmup updates then cosine decay to a tenth of the rate, no
+gradient clipping (`max_grad_norm=None`), and a PID output layer. Its `final_norm=False` rebuilds a controller saved before
 the transformer ended with its final LayerNorm (see
 [Memory](../guide/memory.md)). Such a controller's parameters also map onto
 the new network, which computes the same outputs:

@@ -88,9 +88,8 @@ class PPO(ActorCritic):
         batch_size: int = 64,
         n_epochs: int = 10,
         num_minibatches: int = 0,
-        adam_eps: float = 1e-8,
-        vf_coef: float = 1.0,
-        fused_grad_clip: bool = False,
+        adam_eps: float = 1e-5,
+        vf_coef: float = 0.5,
         unroll_length: Optional[int] = None,
         num_resets_per_eval: int = 0,
         num_evals: int = 1,
@@ -187,7 +186,7 @@ class PPO(ActorCritic):
             normalize_advantage=normalize_advantage,
             num_minibatches=num_minibatches,
             vf_coef=vf_coef,
-            fused_grad_clip=fused_grad_clip,
+            max_grad_norm=max_grad_norm,
             unroll_length=unroll_length,
             bptt_length=bptt_length,
             num_resets_per_eval=num_resets_per_eval,
@@ -210,8 +209,12 @@ class PPO(ActorCritic):
             config, self.env_args.n_envs, self.network_args.memory is not None
         )
 
-        # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
-        self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
-        self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
+        # ppo2's optimiser (baselines ea25b9e ppo2/model.py:100-107): Adam
+        # with eps 1e-5, its gradient clipped once over both networks (the
+        # config's max_grad_norm, train_PPO.joint_step), so neither
+        # network's own optimiser clips.
+        joint = {"eps": adam_eps, "max_grad_norm": None}
+        self.actor_optimizer_args = self.actor_optimizer_args.replace(**joint)
+        self.critic_optimizer_args = self.critic_optimizer_args.replace(**joint)
         # PPO's reference code never clips its log-std parameter.
         self.network_args = self.network_args.replace(clip_log_std_param=False)

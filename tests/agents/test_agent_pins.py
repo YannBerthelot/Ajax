@@ -232,7 +232,6 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             "log_std_init": 0.0,
             "normalize_observations": True,
             "ent_coef": 0.01,
-            "fused_grad_clip": True,
             "num_resets_per_eval": 1,
             "num_evals": 3,
         },
@@ -644,6 +643,30 @@ _GOLDEN |= {
 # PureJaxRL's recurrent PPO's: orthogonal with gain sqrt(2) (were
 # orthogonal(1.0)). PPO-gru moved +5.6% (actor), +5.6% (critic).
 _GOLDEN |= {"PPO-gru": {"actor": 55.2531852722168, "critic": 55.617679595947266}}
+# Re-recorded on macOS ARM CPU once PPO's optimiser became ppo2's: Adam eps
+# 1e-5 (was 1e-8), one clip at 0.5 over both networks (was each its own;
+# PPO-unroll's fused_grad_clip, which added a joint clip at 1.0, is gone)
+# and vf_coef 0.5 (was 1.0). Relative shifts (actor, critic): PPO-mcc -0.19%,
+# -0.34%; PPO-flat -0.21%, -0.02%; PPO-env-split -0.23%, -0.003%; PPO-unroll
+# -1.9%, -0.03%; PPO-gru -0.04%, +0.001%; PPO-discrete-nudge +1.2%, -0.19%;
+# PPO-env-split-nudge +5.9%, -0.02%; the nudges are unchanged.
+_GOLDEN |= {
+    "PPO-mcc": {"actor": 4.016942501068115, "critic": 5.263054847717285},
+    "PPO-flat": {"actor": 5.99110221862793, "critic": 7.436330318450928},
+    "PPO-env-split": {"actor": 6.004455089569092, "critic": 7.147724151611328},
+    "PPO-unroll": {"actor": 6.052582740783691, "critic": 7.502388000488281},
+    "PPO-gru": {"actor": 55.23348617553711, "critic": 55.618282318115234},
+    "PPO-discrete-nudge": {
+        "actor": 7.301796913146973,
+        "critic": 9.033950805664062,
+        "nudge": 0.31162577867507935,
+    },
+    "PPO-env-split-nudge": {
+        "actor": 5.6761155128479,
+        "critic": 7.247241973876953,
+        "nudge": 0.3099551498889923,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

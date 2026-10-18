@@ -61,13 +61,13 @@ Defaults are those of the constructor.
 | `num_minibatches` | 0 | when positive, the number of minibatches, as in Brax |
 | `n_epochs` | 10 | passes over the rollout per update, each reshuffled |
 | `actor_learning_rate`, `critic_learning_rate` | 3e-4 | Adam step sizes (each a float or a schedule) |
-| `adam_eps` | 1e-8 | Adam's epsilon |
+| `adam_eps` | 1e-5 | Adam's epsilon (ppo2's) |
 | `gamma` | 0.99 | discount |
 | `gae_lambda` | 0.95 | GAE's lambda |
 | `clip_range` | 0.2 | the ratio clip; a float or a schedule of the timestep |
 | `ent_coef` | 0 | entropy bonus weight |
-| `vf_coef` | 1.0 | critic loss weight (Brax uses 0.5) |
-| `max_grad_norm` | 0.5 | gradient clipping by global norm (`None` turns it off) |
+| `vf_coef` | 0.5 | critic loss weight, on half the squared error (ppo2's) |
+| `max_grad_norm` | 0.5 | one gradient clip by global norm over both networks (`None` turns it off) |
 | `normalize_advantage` | True | advantages standardised in each minibatch |
 | `actor_architecture`, `critic_architecture` | `("128", "tanh", "128", "tanh")` | hidden layers, as width and activation strings |
 | `normalize_observations`, `normalize_rewards` | False | running normalisation, as SB3's `VecNormalize` |
@@ -121,12 +121,15 @@ Defaults are those of the constructor.
   into that network, and restoring it into the default one is refused with
   this advice. A PID policy keeps its own log standard deviation, which
   starts at `log_std_init` and is clipped to `[-20, 2]`.
-- **Brax-style options.** `fused_grad_clip` (one clip over actor and critic
-  gradients), `mean_kernel_init`, `squash`, `num_resets_per_eval` and
-  `num_evals` reproduce choices of Brax's PPO. They are off by default, as
-  is `encoder_layer_norm` (a LayerNorm on the encoder's output).
-- **Separate networks.** The actor and the critic are separate networks with
-  separate optimizers; the value loss is not clipped. As in Baselines' ppo2,
+- **Brax-style options.** `mean_kernel_init`, `squash`,
+  `num_resets_per_eval` and `num_evals` reproduce choices of Brax's PPO.
+  They are off by default, as is `encoder_layer_norm` (a LayerNorm on the
+  encoder's output).
+- **Separate networks.** The actor and the critic are separate networks.
+  As ppo2's one optimizer, their gradients are clipped together to one
+  global norm, then each takes an Adam step (Adam is per coordinate, so
+  the two are one Adam over the whole model); the value loss is not
+  clipped. As in Baselines' ppo2,
   their hidden layers start orthogonal with gain `sqrt(2)`, the policy's
   output layer with gain 0.01 and the value layer with gain 1. An entropy bonus on a
   squashed policy is a one-sample estimate of the executed action's entropy,

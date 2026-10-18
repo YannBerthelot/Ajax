@@ -73,7 +73,7 @@ EXPERT, GRU = Expert(), MemoryConfig(kind="gru", hidden_size=8)
 BASE = {"learning_starts": 16, "burn_in": 2, "sequence_length": 4}
 BASE |= {"expert_buffer_n_steps": 0, "policy_update_start": 8, "alpha_update_start": 8}
 FLAGS = "normalize_observations normalize_rewards normalize_obs_running use_train_frac"
-FLAGS += " fixed_alpha store_policy_action fused_grad_clip"
+FLAGS += " fixed_alpha store_policy_action"
 FLAGS += " expose_recent_rollout encoder_layer_norm"
 FLAGS += " augment_obs_with_expert_action augment_obs_with_expert_state use_pid_policy"
 ENVS = ("Pendulum-v1", "fast", "CartPole-v1")

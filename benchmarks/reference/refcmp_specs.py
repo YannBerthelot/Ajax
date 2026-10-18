@@ -154,7 +154,6 @@ COMPARISONS = {
             "max_grad_norm": 0.5,
             "adam_eps": 1e-5,
             "encoder_kernel_init": "orthogonal(1.4142135623730951)",
-            "fused_grad_clip": True,  # SB3 clips actor and critic together
         },
         defaults={"n_envs": 8, "n_steps": 256},
     ),

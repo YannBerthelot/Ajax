@@ -25,6 +25,13 @@ def test_td3_networks_are_plain_mlps():
         assert not any("norm" in str(k).lower() for p in paths for k in p), paths
 
 
+def test_adam_eps_is_the_references():
+    """The reference's torch.optim.Adam keeps torch's eps, 1e-8 (sfujim/TD3
+    @34770cc TD3.py:83, :87), not Ajax's shared 1e-5."""
+    agent = TD3(env_id="Pendulum-v1")
+    assert agent.actor_optimizer_args.eps == agent.critic_optimizer_args.eps == 1e-8
+
+
 def test_td3_starts_every_layer_as_torch_nn_linear():
     """sfujim/TD3 (camera-ready bc98e62, as at 34770cc) never re-initialises
     its nn.Linear layers: torch's default, every kernel and bias uniform in

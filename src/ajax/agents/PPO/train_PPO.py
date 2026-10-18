@@ -23,6 +23,7 @@ from typing import Any, Callable, Optional, Tuple
 import distrax
 import jax
 import jax.numpy as jnp
+import optax
 from flax.core import FrozenDict
 
 from ajax.agents.loop import TrainLoop
@@ -441,12 +442,26 @@ def _sequence_minibatches(
     }
 
 
-def _joint_clip(actor_grads: Any, critic_grads: Any) -> tuple[Any, Any]:
-    """brax's global-norm clip at 1.0, over both networks' gradients."""
-    actor_sq = sum(jnp.sum(jnp.square(g)) for g in jax.tree.leaves(actor_grads))
-    critic_sq = sum(jnp.sum(jnp.square(g)) for g in jax.tree.leaves(critic_grads))
-    scale = jnp.minimum(1.0, 1.0 / jnp.sqrt(actor_sq + critic_sq + 1e-12))
-    return jax.tree.map(lambda g: g * scale, (actor_grads, critic_grads))
+def joint_step(
+    actor: Any,
+    critic: Any,
+    actor_grads: Any,
+    critic_grads: Any,
+    max_grad_norm: Optional[float],
+) -> tuple[Any, Any]:
+    """Both networks' Adam steps on their gradients clipped to one global
+    norm, as ppo2's one optimiser clips every parameter's gradient at once
+    (tf.clip_by_global_norm, baselines ea25b9e ppo2/model.py:105-107, the
+    formula of optax's clip). Adam is per coordinate, so the two Adams are
+    one over the whole model. ``None`` leaves the gradients."""
+    if max_grad_norm is not None:
+        clip = optax.clip_by_global_norm(max_grad_norm)
+        grads, _ = clip.update((actor_grads, critic_grads), optax.EmptyState())
+        actor_grads, critic_grads = grads
+    return (
+        actor.apply_gradients(grads=actor_grads),
+        critic.apply_gradients(grads=critic_grads),
+    )
 
 
 def _normalisation_info(env_state: Any, mode: str) -> Any:
@@ -707,12 +722,10 @@ def update_agent(
             resets=resets,
             initial_hidden=mb.get("actor_hidden"),
         )
-        if agent_config.fused_grad_clip:
-            p_grads, v_grads = _joint_clip(p_grads, v_grads)
-        agent_state = agent_state.replace(
-            critic_state=critic.apply_gradients(grads=v_grads),
-            actor_state=actor.apply_gradients(grads=p_grads),
+        actor, critic = joint_step(
+            actor, critic, p_grads, v_grads, agent_config.max_grad_norm
         )
+        agent_state = agent_state.replace(critic_state=critic, actor_state=actor)
         return agent_state, AuxiliaryLogs(policy=p_aux, value=v_aux)
 
     agent_state, aux = run_epochs(

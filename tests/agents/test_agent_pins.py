@@ -232,7 +232,6 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             "log_std_init": 0.0,
             "normalize_observations": True,
             "ent_coef": 0.01,
-            "fused_grad_clip": True,
             "num_resets_per_eval": 1,
             "num_evals": 3,
         },

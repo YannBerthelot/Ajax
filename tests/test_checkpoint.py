@@ -348,6 +348,37 @@ def test_a_ppo_checkpoint_restores_only_into_its_own_log_std_head(tmp_path):
         restore_into(old, new_path)
 
 
+def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path):
+    """PPO's networks each clipped their own gradient (get_adam_tx's chain,
+    whose clip holds an empty state) until PPO took ppo2's one clip over
+    both. A checkpoint saved then restores into today's unclipped Adams,
+    every moment and step count kept."""
+    import optax
+
+    from ajax.agents.PPO.PPO import PPO
+
+    agent = PPO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
+    skeleton = agent.train(seed=0, n_timesteps=0)[0]
+    moved = {  # moments and counts the skeleton does not hold
+        name: jax.tree.map(lambda x: x + 1, getattr(skeleton, name).opt_state)
+        for name in ("actor_state", "critic_state")
+    }
+    old = skeleton.replace(
+        **{
+            name: getattr(skeleton, name).replace(opt_state=(optax.EmptyState(), s))
+            for name, s in moved.items()
+        }
+    )
+    path = str(tmp_path / "clipped.pkl")
+    save_checkpoint(old, path)
+    restored = restore_into(skeleton, path)
+    for name, opt_state in moved.items():
+        same = jax.tree.map(
+            np.array_equal, getattr(restored, name).opt_state, opt_state
+        )
+        assert all(jax.tree.leaves(same)), name
+
+
 def test_a_state_without_a_collector_restores(tmp_path):
     """TDMPC2MultiTask trains offline: its state holds no collector
     (collector_state None). It restores, as does a checkpoint whose root is

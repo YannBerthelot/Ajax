@@ -14,7 +14,7 @@ Ajax's PPO against stable-baselines3's PPO, MlpPolicy.
 - Evaluation: 10 episodes of the deterministic policy, every 14,336 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
 - Margin: ±25.
-- Spec hash: `7aa6989237a0ab6f`.
+- Spec hash: `170abf545e410a44`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PPO --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -33,7 +33,7 @@ Ajax's PPO against stable-baselines3's PPO, MlpPolicy.
 | `net_arch` | `{'pi': [64, 64], 'vf': [64, 64]}` | - |  |
 | `activation` | `'tanh'` | - |  |
 
-Ajax settings without a reference counterpart: `num_minibatches=8`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `adam_eps=1e-05`, `encoder_kernel_init='orthogonal(1.4142135623730951)'`, `fused_grad_clip=True`.
+Ajax settings without a reference counterpart: `num_minibatches=8`, `actor_architecture=('64', 'tanh', '64', 'tanh')`, `critic_architecture=('64', 'tanh', '64', 'tanh')`, `adam_eps=1e-05`, `encoder_kernel_init='orthogonal(1.4142135623730951)'`.
 
 Not matched:
 

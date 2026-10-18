@@ -48,7 +48,6 @@ import jax
 import jax.numpy as jnp
 
 from ajax.environments.pid_terms import split_pid_terms
-from ajax.networks.distributions import SquashedNormal
 from ajax.networks.utils import parse_architecture
 
 GAIN_NAMES = ("kp", "ki", "kd")
@@ -117,11 +116,11 @@ class PIDLaw(nn.Module):
 
 
 class PIDActor(nn.Module):
-    """Stochastic PID actor: Normal (or tanh-squashed) around the PID output."""
+    """Stochastic PID actor: Normal around the PID output (squashed by
+    :class:`~ajax.networks.networks.Squashed`)."""
 
     policy: PIDPolicy
     action_dim: int
-    squash: bool = False
     log_std_init: float = -1.0
 
     def setup(self):
@@ -136,7 +135,7 @@ class PIDActor(nn.Module):
     def __call__(self, obs: jax.Array) -> distrax.Distribution:
         mean = self.pid(obs)
         std = jnp.exp(jnp.clip(jnp.broadcast_to(self.log_std, mean.shape), -20, 2))
-        return SquashedNormal(mean, std) if self.squash else distrax.Normal(mean, std)
+        return distrax.Normal(mean, std)
 
 
 def check_pid_actor(continuous: bool, memory: object) -> None:
@@ -160,13 +159,14 @@ def pid_gains(actor_params) -> dict[str, jax.Array]:
     2`` times these (the module docstring), equal on a ``[-1, 1]`` box.
 
     Observation-conditioned gains depend on the observation: read them
-    with ``actor.apply(params, obs, method="gains")``.
+    with ``PIDActor(policy, action_dim).apply(params, obs, method="gains")``
+    (a squashed actor's parameters are the same).
     """
     law = actor_params["params"]["pid"]
     if "kp" not in law:
         raise ValueError(
             "These PID gains are predicted from the observation: read them"
-            ' with actor.apply(params, obs, method="gains").'
+            ' with PIDActor(policy, action_dim).apply(params, obs, method="gains").'
         )
     return {name: law[name] for name in GAIN_NAMES}
 

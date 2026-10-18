@@ -9,9 +9,10 @@ et al. 2024, "One controller to rule them all", arXiv:2411.06482).
 Sampling returns *batched* params: every leaf carries a leading axis of
 size ``n``, one entry per parallel environment. :func:`ajax.environments
 .interaction.reset` / :func:`~ajax.environments.interaction.step` detect
-that leading axis and vmap over it, so a batched ``EnvParams`` can be
-used anywhere an unbatched one is accepted (gymnax only: brax envs do not
-take per-step params).
+that leading axis and vmap over it (gymnax only: brax envs do not take
+per-step params). APG, DreamerV3 and TDMPC2 train on them; the agents of
+the shared loop compile them as a static argument and refuse them when
+built (``ActorCritic.supports_batched_env_params``).
 """
 
 from __future__ import annotations

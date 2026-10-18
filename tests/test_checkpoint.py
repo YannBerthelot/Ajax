@@ -350,6 +350,37 @@ def test_a_ppo_checkpoint_restores_only_into_its_own_log_std_head(tmp_path):
         restore_into(old, new_path)
 
 
+def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path):
+    """PPO's networks each clipped their own gradient (get_adam_tx's chain,
+    whose clip holds an empty state) until PPO took ppo2's one clip over
+    both. A checkpoint saved then restores into today's unclipped Adams,
+    every moment and step count kept."""
+    import optax
+
+    from ajax.agents.PPO.PPO import PPO
+
+    agent = PPO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
+    skeleton = agent.train(seed=0, n_timesteps=0)[0]
+    moved = {  # moments and counts the skeleton does not hold
+        name: jax.tree.map(lambda x: x + 1, getattr(skeleton, name).opt_state)
+        for name in ("actor_state", "critic_state")
+    }
+    old = skeleton.replace(
+        **{
+            name: getattr(skeleton, name).replace(opt_state=(optax.EmptyState(), s))
+            for name, s in moved.items()
+        }
+    )
+    path = str(tmp_path / "clipped.pkl")
+    save_checkpoint(old, path)
+    restored = restore_into(skeleton, path)
+    for name, opt_state in moved.items():
+        same = jax.tree.map(
+            np.array_equal, getattr(restored, name).opt_state, opt_state
+        )
+        assert all(jax.tree.leaves(same)), name
+
+
 def test_a_state_without_a_collector_restores(tmp_path):
     """TDMPC2MultiTask trains offline: its state holds no collector
     (collector_state None). It restores, as does a checkpoint whose root is
@@ -482,20 +513,20 @@ def test_a_checkpoint_of_another_agent_still_fails(sac_run, tmp_path):
 def test_a_brax_state_saved_before_its_raw_observation_restores_it(tmp_path):
     """A brax env state saved before the observation normaliser kept the raw
     observation in its info restores with it, un-normalised from the saved
-    observation and statistics."""
+    observation and statistics. PPO normalises through the env (a replay
+    agent normalises observations itself)."""
     import pickle
 
-    from ajax.agents.SAC.SAC import SAC
+    from ajax.agents.PPO.PPO import PPO
 
     net = ("8", "relu")
-    agent = SAC(
+    agent = PPO(
         env_id="fast",
         n_envs=2,
         actor_architecture=net,
         critic_architecture=net,
-        learning_starts=100,
-        batch_size=4,
-        buffer_size=40,
+        n_steps=8,
+        batch_size=8,
         normalize_observations=True,
     )
     state, _ = agent.train(seed=0, n_timesteps=16)
@@ -509,3 +540,143 @@ def test_a_brax_state_saved_before_its_raw_observation_restores_it(tmp_path):
         pickle.dump(saved, fh)
     got = restore_into(state, path).collector_state.env_state.info["raw_obs"]
     np.testing.assert_allclose(got, want, rtol=1e-6)
+
+
+def test_a_checkpoint_of_another_shape_is_refused(sac_run, tmp_path):
+    """A checkpoint saved by an agent of another size (here wider critic
+    layers) is refused, naming the leaf, instead of grafted onto the
+    skeleton."""
+    state = sac_run.out[0]
+    path = str(tmp_path / "wider.pkl")
+    params = state.critic_state.params
+    wider = jax.tree.map(lambda x: np.zeros(x.shape[:-1] + (x.shape[-1] + 1,)), params)
+    save_checkpoint(
+        state.replace(critic_state=state.critic_state.replace(params=wider)), path
+    )
+    with pytest.raises(ValueError, match=r"does not fit.*critic_state.*params"):
+        restore_into(state, path)
+
+
+def _without_format(path: str) -> None:
+    """Rewrite the checkpoint at ``path`` as one written before checkpoints
+    stated their format."""
+    import pickle
+
+    from ajax.checkpoint import FORMAT_KEY
+
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    assert saved.pop(FORMAT_KEY) == 1
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+
+
+@pytest.mark.parametrize("normalised", ["rewards", "observations"])
+def test_a_replay_checkpoint_from_before_raw_replay_is_refused(tmp_path, normalised):
+    """A replay agent's checkpoint from before its replay kept the env's own
+    observations and rewards holds rows normalised with statistics that
+    are gone: refused, saying why, when the run normalised them. Without
+    normalisation an old checkpoint restores, and a new one always does."""
+    from ajax.agents.SAC.SAC import SAC
+
+    net = ("8", "relu")
+    kw = {"n_envs": 2, "actor_architecture": net, "critic_architecture": net}
+    kw |= {"learning_starts": 100, "batch_size": 4, "buffer_size": 40}
+    agent = SAC(env_id="Pendulum-v1", normalize_rewards=normalised == "rewards", **kw)
+    state, _ = agent.train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "new.pkl")
+    save_checkpoint(state, path)
+    restore_into(state, path)
+    if normalised == "observations":
+        # The env's observation statistics, as an old SAC run saved them.
+        import pickle
+
+        with open(path, "rb") as fh:
+            saved = pickle.load(fh)
+        env = saved["collector_state"]["_env_state"]
+        saved["collector_state"]["_env_state"] = {
+            "normalization_info": {"obs": {"mean": np.zeros(3)}},
+            **env,
+        }
+        with open(path, "wb") as fh:
+            pickle.dump(saved, fh)
+    _without_format(path)
+    with pytest.raises(ValueError, match="before a replay agent kept"):
+        restore_into(state, path)
+    plain, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=0, n_timesteps=16)
+    save_checkpoint(plain, path)
+    _without_format(path)
+    restore_into(plain, path)
+
+
+def test_a_checkpoint_with_a_longer_replay_restores(sac_run, tmp_path):
+    """A replay outgrows its skeleton legitimately (the world models size
+    theirs to the run, which a resumed run's skeleton does not cover yet):
+    only the networks and optimizer states must fit."""
+    state = sac_run.out[0]
+    buffer = state.collector_state.buffer_state
+    rows = {
+        k: np.concatenate([v, v], axis=2) if np.ndim(v) > 2 else v
+        for k, v in buffer.experience.items()
+    }
+    longer = state.collector_state.replace(buffer_state=buffer.replace(experience=rows))
+    path = str(tmp_path / "longer.pkl")
+    save_checkpoint(state.replace(collector_state=longer), path)
+    restored = restore_into(state, path).collector_state.buffer_state.experience
+    assert restored["obs"].shape[2] == 2 * buffer.experience["obs"].shape[2]
+
+
+def _udrl(**kw):
+    from ajax.agents.UDRL.UDRL import UDRL
+
+    net = ("8", "relu")
+    sizes = {"n_envs": 2, "n_steps": 8, "batch_size": 8, "n_updates_per_iter": 1}
+    return UDRL(env_id="Pendulum-v1", actor_architecture=net, **sizes, **kw)
+
+
+def _resaved(path: str, change) -> dict:
+    """The checkpoint at ``path`` as ``change`` leaves its pickled dict."""
+    import pickle
+
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    change(saved)
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    return saved
+
+
+@pytest.mark.parametrize("copy", [True, False], ids=["raw_obs", "none"])
+def test_a_udrl_buffer_saved_with_a_raw_obs_field_restores(tmp_path, copy):
+    """On 2026-10-17 UDRL's segment buffer held the env's own observations
+    twice, in obs and, for a run with an expert, in raw_obs (None without
+    one): a checkpoint written then restores, the copy dropped."""
+    state, _ = _udrl().train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state, path)
+
+    def with_field(saved: dict) -> None:
+        obs = saved["buffer"]["obs"]
+        saved["buffer"]["raw_obs"] = obs[..., :-2] if copy else None
+
+    saved = _resaved(path, with_field)
+    restored = restore_into(state, path).buffer
+    np.testing.assert_array_equal(restored.obs, saved["buffer"]["obs"])
+
+
+def test_a_udrl_buffer_the_env_normalised_is_refused(tmp_path):
+    """A UDRL checkpoint saved while the env normalised its observations (its
+    env state holds their statistics) keeps each row at the statistics of
+    its collection: refused, saying why, since UDRL now normalises the raw
+    rows it reads."""
+    state, _ = _udrl(normalize_observations=True).train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state, path)
+    stats = {"count": 1.0, "mean": 0.0, "mean_2": 1.0}
+
+    def env_normalised(saved: dict) -> None:
+        saved["collector_state"]["_env_state"]["normalization_info"] = {"obs": stats}
+
+    _resaved(path, env_normalised)
+    with pytest.raises(ValueError, match="environment normalised"):
+        restore_into(state, path)

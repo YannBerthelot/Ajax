@@ -44,7 +44,7 @@ src/ajax/
 │   ├── row_collector.py the world models' collector: one row per env per tick
 │   ├── differentiable.py  closed-loop rollouts you can backpropagate through (APG)
 │   └── model_reference.py, system_class.py, pid_terms.py   tracking tasks, parameter distributions, PID error terms
-├── networks/            actor and critic networks, memory blocks, SquashedNormal, the world models' layers
+├── networks/            actor and critic networks, memory blocks, Squash, the world models' layers
 ├── modules/             the PID actor and PID output head
 ├── buffers/             replay buffers (flashbax)
 ├── logging/             LoggingConfig; the W&B and TensorBoard worker
@@ -81,7 +81,7 @@ once no downstream project used them rather than kept as aliases.
 | Was | Is |
 | --- | --- |
 | `ajax.agents.obs_norm` | `ajax.environments.obs_norm` |
-| `ajax.agents.SAC.utils.SquashedNormal` | `ajax.networks.distributions.SquashedNormal` |
+| `ajax.agents.SAC.utils.SquashedNormal`, then `ajax.networks.distributions.SquashedNormal(loc, scale)` | `ajax.networks.distributions.Squash(distrax.Normal(loc, scale))` |
 | `NormalizationInfo` in `ajax.agents.AVG.utils` and `.state` | `RunningMoments` in `ajax.agents.AVG.state` |
 | `ajax.plane.get_mode` | `jax.default_backend()` |
 | the `_obs_noise_sigma` hook on an env | `ObservationNoiseWrapper` in `ajax.wrappers` |

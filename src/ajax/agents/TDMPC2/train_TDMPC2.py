@@ -554,6 +554,8 @@ def make_train(
         start_timestep=start_timestep,
         end_timestep=end_timestep,
     )
+    # The schedule counts each env's steps, n_timesteps // n_envs.
+    loop.warn_if_partial(env_args.n_envs, "n_envs")
 
     def init(key: jax.Array) -> TDMPC2State:
         return init_TDMPC2(

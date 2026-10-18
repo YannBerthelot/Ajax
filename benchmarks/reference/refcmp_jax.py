@@ -1,0 +1,99 @@
+"""purejaxql's PQN as a reference, and the evaluator of final policies.
+
+usage: python refcmp_jax.py NAME reference FIRST_SEED N_SEEDS (refcmp_worker)
+
+Imports nothing from Ajax, so the references stay independent of the code
+they check.
+"""
+
+import pathlib
+import sys
+import types
+
+import gymnax
+import jax
+import jax.numpy as jnp
+from gymnax.wrappers.purerl import LogWrapper
+from refcmp_worker import main
+
+VENDOR = pathlib.Path(__file__).parent / "vendor" / "purejaxql"
+
+
+def evaluate_final(policy, env_id: str, key: jax.Array, n: int):
+    """Returns ``(n,)`` of one deterministic episode each: ``policy(obs)``
+    answers in ``[-1, 1]``, mapped onto the env's action bounds. The shared
+    evaluator for agents whose own evaluation differs (APG)."""
+    env, params = gymnax.make(env_id)
+    space = env.action_space(params)
+    obs, state = jax.vmap(env.reset, (0, None))(jax.random.split(key, n), params)
+
+    def step(carry, key):
+        obs, state, ret, alive = carry
+        action = space.low + (policy(obs) + 1.0) / 2.0 * (space.high - space.low)
+        keys = jax.random.split(key, n)
+        obs, state, reward, term, trunc, _ = jax.vmap(env.step, (0, 0, 0, None))(
+            keys, state, action, params
+        )
+        ret = ret + reward * alive
+        return (obs, state, ret, alive * (1.0 - (term | trunc))), None
+
+    init = (obs, state, jnp.zeros(n), jnp.ones(n))
+    keys = jax.random.split(key, params.max_steps_in_episode)
+    (_, _, ret, _), _ = jax.lax.scan(step, init, keys)
+    return ret
+
+
+class _FiveValueStep:
+    """gymnax >= 1.0 steps return ``terminated, truncated``; purejaxql, written
+    for gymnax 0.0.x, expects one ``done``. Merges them (purejaxql treats a
+    time limit as a termination) and keeps only LogWrapper's episode stats,
+    whose leaves are per env as purejaxql's test metrics need."""
+
+    def __init__(self, env):
+        self._env = env
+
+    def __getattr__(self, name):
+        return getattr(self._env, name)
+
+    def step(self, key, state, action, params=None):
+        obs, state, reward, term, trunc, info = self._env.step(
+            key, state, action, params
+        )
+        info = {k: v for k, v in info.items() if k.startswith("returned_episode")}
+        return obs, state, reward, jnp.logical_or(term, trunc), info
+
+
+def load_purejaxql():
+    """purejaxql's pqn_gymnax module, unmodified. Its CLI imports (hydra,
+    omegaconf, wandb, safetensors) serve only its entry point and are stubbed
+    when missing; LogWrapper is swapped for the five-value adapter."""
+    for name in ("hydra", "omegaconf", "wandb", "safetensors", "safetensors.flax"):
+        try:
+            __import__(name)
+        except ImportError:
+            stub = types.ModuleType(name)
+            stub.main = lambda **_: lambda f: f
+            stub.OmegaConf = stub.load_file = stub.save_file = None
+            sys.modules[name] = stub
+    sys.path.insert(0, str(VENDOR))
+    import pqn_gymnax
+
+    pqn_gymnax.LogWrapper = lambda env: _FiveValueStep(LogWrapper(env))
+    return pqn_gymnax
+
+
+def run_purejaxql(spec, seeds):
+    config = dict(spec.reference_config, NUM_SEEDS=len(seeds))
+    train = jax.jit(jax.vmap(load_purejaxql().make_train(config)))
+    metrics = train(jnp.stack([jax.random.PRNGKey(s) for s in seeds]))["metrics"]
+    every = spec.eval_every // (config["NUM_ENVS"] * config["NUM_STEPS"])
+    tests = metrics["test/returned_episode_returns"][:, every - 1 :: every]
+    return tests.tolist()
+
+
+if __name__ == "__main__":
+    main(
+        lambda spec, _, seeds: run_purejaxql(spec, seeds),
+        lambda spec, _: dict(spec.reference_config),
+        ("jax", "jaxlib", "flax", "optax", "chex", "gymnax"),
+    )

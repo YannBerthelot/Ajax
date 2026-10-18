@@ -127,7 +127,16 @@ class DreamerV3(ActorCritic):
     """
 
     name: str = "DreamerV3"
+    capabilities: frozenset = frozenset(
+        "actor discounted off_policy replay v_critic".split()
+    )
     supported_extension_phases: frozenset = LOOP_PHASES
+    pretrain_context: frozenset = frozenset("env_args update".split())
+    extension_context: frozenset = frozenset(
+        "agent_config env_args gamma total_timesteps".split()
+    )
+    # Its row collector steps with the env params as traced values.
+    supports_batched_env_params: bool = True
     make_train = staticmethod(make_train)
 
     def __init__(

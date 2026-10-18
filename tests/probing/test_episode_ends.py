@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "f80cd6b36d5b"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "6b2d50df4b1a"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -214,9 +214,9 @@ ONE_STEP = {"SAC": 5000, "REDQ": 1000, "TD3": 5000, "DQN": 5000}
 # Calibrated on seeds 1000-1031 and 2000-2031 (5000 fails for each: worst
 # 0.057 to 0.075); certified on 3000-3031, 32/32 for each.
 TWIN_CAL = {
-    ("gymnax", "PPO"): (10_000, (0.058, 0.08, 0.086)),
+    ("gymnax", "PPO"): (10_000, (0.071, 0.056, 0.099)),
     ("gymnax", "PQN"): (10_000, (0.082, 0.093, 0.075)),
-    ("brax", "PPO"): (10_000, (0.075, 0.046, 0.06)),
+    ("brax", "PPO"): (5000, (0.068, 0.087, 0.089)),
     ("gymnax", "AVG"): (2500, (0.055, 0.044)),  # 1000: 0.29 off; cert 32/32
 }
 P6_CELLS = [("gymnax", n) for n in (*ONE_STEP, "PPO", "PQN", "AVG")]
@@ -653,6 +653,7 @@ TD9 = {"A": (0.0, 1.0), "B": (0.854, 1.427), "C": (0.723, 1.362)} | D0
 # + 2000-2031, certified 32/32 on 3000-3031 each. The spread must stay near
 # 0.015: large buffers and rollouts, and the target networks read (the same
 # fixed point, the SGD jitter averaged out).
+_P9_PPO = {"n_steps": 4096, "num_minibatches": 2, "gae_lambda": 0.5, "batch_size": 64}
 P9_CELLS: dict[str, tuple] = {
     "SAC": (("td", 1, 0.0), TD9, 40_000, (0.059, 0.091), {"buffer_size": 16384}),
     "DQN": (
@@ -667,8 +668,8 @@ P9_CELLS: dict[str, tuple] = {
         {"A": (0.0, 1.0), "B": (1.102, 1.940), "C": (1.028, 2.066), "P10": (0.0, 1.663)}
         | D0,
         320_000,  # 160,000 failed: 0.128
-        (0.04, 0.056),
-        {"n_steps": 4096, "num_minibatches": 2, "gae_lambda": 0.5, "batch_size": 64},
+        (0.045, 0.06),
+        _P9_PPO | {"unroll_length": 4096},  # brax's time geometry, opted into
     ),
     "PQN": (
         ("q_lambda", 512, 0.65),
@@ -699,7 +700,7 @@ P9_CELLS |= {
         {"A": (0.0, 1.0), "B": (1.758, 2.507), "C": (1.698, 2.777)} | D0,
         240_000,  # 160,000 failed: 0.169
         (0.09, 0.095),
-        P9_CELLS["PPO"][4] | {"normalize_observations": True},
+        _P9_PPO | {"normalize_observations": True},
     ),
 }
 

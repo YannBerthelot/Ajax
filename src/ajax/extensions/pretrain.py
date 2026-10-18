@@ -13,6 +13,8 @@ refreshes MCPretrain's critic during training.
   on the expert buffer.
 * :class:`PhiRefresh`          — periodic self-consistent refresh of the
   frozen expert critic during training (the ``post_update`` phase).
+* :class:`PriorData`           — a transition dataset in the replay, and the
+  agent's own updates on it before acting.
 """
 
 from __future__ import annotations
@@ -24,22 +26,30 @@ from typing import Any, Callable, ClassVar, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.cloning import pre_train
+from ajax.agents.loop import with_obs_norm
+from ajax.buffers.dataset import TransitionDataset, fill_replay
 from ajax.buffers.utils import get_batch_from_buffer
+from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     augment_from_batch,
     augment_obs,
     collect_experience_from_expert_policy,
+    reward_statistics,
+    with_reward_statistics,
 )
+from ajax.environments.obs_norm import update_obs_norm
 from ajax.environments.utils import get_state_action_shapes, raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.state import EnvironmentConfig, LoadedTrainState
 from ajax.types import BufferType, NormalizationInfo
+from ajax.utils import online_normalize
 
 
 @struct.dataclass
@@ -295,6 +305,7 @@ def refresh_phi_star(
     (s, a_expert, r, s') rows where EDGE fired the expert action.
     """
     buffer_state = agent_state.collector_state.buffer_state
+    reward_stats = reward_statistics(agent_state.collector_state.env_state)
     expert_critic_state = agent_state.expert_critic_state
 
     # Three keys: the first once drew a diagnostic batch; splitting three
@@ -306,7 +317,7 @@ def refresh_phi_star(
         expert_critic_state, step_key = carry
         sample_key, step_key = jax.random.split(step_key)
 
-        batch = get_batch_from_buffer(buffer, buffer_state, sample_key)
+        batch = get_batch_from_buffer(buffer, buffer_state, sample_key, reward_stats)
         obs, next_obs, actions = batch.obs, batch.next_obs, batch.action
 
         expert_mask = batch.is_expert[..., 0]
@@ -384,6 +395,8 @@ class CloningPretrain(Extension):
     augment_obs_with_expert_state: bool = False
     use_train_frac: bool = False
     name: str = "cloning_pretrain"
+    requires: ClassVar[frozenset[str]] = frozenset({"actor", "continuous_actions"})
+    context: ClassVar[frozenset[str]] = frozenset({"actor_optimizer_args", "env_args"})
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
 
     def bind_to_agent(self, **agent_context: Any) -> "CloningPretrain":
@@ -531,8 +544,12 @@ class MCPretrain(Extension):
     expert_state_aug_dim: int = 0
     use_phi_refresh: bool = False
     name: str = "mc_pretrain"
+    requires: ClassVar[frozenset[str]] = frozenset({"critic", "discounted"})
+    provides: ClassVar[frozenset[str]] = frozenset({"phi_star"})
+    context: ClassVar[frozenset[str]] = frozenset(
+        {"critic_optimizer_args", "env_args", "gamma", "network_args", "reward_scale"}
+    )
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
-    fits_phi_star: ClassVar[bool] = True
 
     def bind_to_agent(self, **agent_context: Any) -> "MCPretrain":
         """Copy the agent's context (``env_args``, ``network_args``,
@@ -702,8 +719,12 @@ def pretrain_critic_bellman(
         agent_state = carry
         sample_key, rng = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=rng)
+        collector = agent_state.collector_state
         batch = get_batch_from_buffer(
-            buffer, agent_state.collector_state.buffer_state, sample_key
+            buffer,
+            collector.buffer_state,
+            sample_key,
+            reward_statistics(collector.env_state),
         )
         observations, next_observations = batch.obs, batch.next_obs
         if augment:
@@ -753,19 +774,25 @@ class BellmanPretrain(Extension):
     update_target_fn: Optional[Callable] = None
     augment_obs_with_expert_action: bool = False
     name: str = "bellman_pretrain"
+    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert", "critic", "replay"})
+    context: ClassVar[frozenset[str]] = frozenset(
+        {
+            "buffer",
+            "gamma",
+            "recurrent",
+            "reward_scale",
+            "update_target_fn",
+            "update_value_fn",
+        }
+    )
 
     def bind_to_agent(self, **agent_context: Any) -> "BellmanPretrain":
         """Copy the agent's buffer, ``gamma``, ``reward_scale``, ``recurrent``
-        and critic updates (``update_value_fn``, ``update_target_fn``).
-        Raises ``ValueError`` when the agent has no ``expert_policy``: its
-        buffer then holds no expert prefill to pre-train on."""
+        and critic updates (``update_value_fn``, ``update_target_fn``). It
+        requires ``agent_expert``: without one the buffer holds no expert
+        prefill to pre-train on."""
         if self.update_value_fn is not None or "update_value_fn" not in agent_context:
             return self
-        if agent_context.get("expert_policy") is None:
-            raise ValueError(
-                "BellmanPretrain pre-trains the critic on the agent's expert"
-                " prefill; give the agent an expert_policy."
-            )
         return dataclasses.replace(
             self,
             buffer=agent_context["buffer"],
@@ -828,15 +855,16 @@ class PhiRefresh(Extension):
     augment_obs_with_expert_action: bool = False
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "phi_refresh"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"discounted", "phi_star", "q_critic", "replay"}
+    )
+    context: ClassVar[frozenset[str]] = frozenset({"buffer", "gamma", "reward_scale"})
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
     reads_agent_expert_actions: ClassVar[bool] = True
 
     def experts(self) -> tuple:
         return (self.expert_policy,)
-
-    def reads_phi_star(self) -> bool:
-        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
         """Copy the agent's ``buffer``, ``gamma``, ``reward_scale`` and
@@ -896,4 +924,93 @@ class PhiRefresh(Extension):
         return new_state, ext_state
 
 
-__all__ = ["BellmanPretrain", "CloningPretrain", "MCPretrain", "PhiRefresh"]
+@dataclass(frozen=True)
+class PriorData(Extension):
+    """Prior data in the replay, and the agent's own updates on it before
+    acting (offline-to-online RL).
+
+    Adds ``dataset``'s rows to the agent's replay, where they stay
+    (:func:`ajax.buffers.dataset.fill_replay`), and to its observation and
+    reward normalisers, each row counted once as collection counts its own;
+    then runs ``offline_updates`` of the agent's update on that replay: its
+    critic, actor and target steps and its extensions' loss terms, but no
+    ``post_update`` between them. ``offline_updates=0`` is RLPD's prior
+    data in the replay (Ball et al. 2023) without its symmetric sampling.
+    Ajax's warm-up acts uniformly: pair it with ``learning_starts=0``.
+
+    Needs the replay and update an off-policy loop hands the ``pretrain``
+    phase (``pretrain_context``): any agent but SAC, TD3, REDQ, ASAC and DQN
+    refuses it when built.
+    """
+
+    dataset: TransitionDataset
+    offline_updates: int = 0
+    name: str = "prior_data"
+    requires: ClassVar[frozenset[str]] = frozenset({"off_policy", "replay"})
+    pretrain_context: ClassVar[frozenset[str]] = frozenset({"buffer", "update"})
+
+    def pretrain(
+        self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
+    ) -> tuple[Any, Any]:
+        agent_update = ctx.update
+        if ctx.buffer is None or agent_update is None:
+            raise ValueError(
+                "PriorData adds its rows to the agent's replay: give it to an"
+                " agent replaying transitions (SAC, TD3, REDQ, ASAC, DQN)."
+            )
+        collector = agent_state.collector_state
+        replay = fill_replay(ctx.buffer, collector.buffer_state, self.dataset)
+        collector = collector.replace(buffer_state=replay)
+        agent_state = self.with_statistics(
+            agent_state.replace(collector_state=collector), ctx
+        )
+
+        def update(agent_state: Any, _: None) -> tuple[Any, None]:
+            return agent_update(agent_state, None)[0], None
+
+        agent_state, _ = jax.lax.scan(
+            update, agent_state, None, length=self.offline_updates
+        )
+        return agent_state, ext_state
+
+    def with_statistics(self, agent_state: Any, ctx: ExtensionContext) -> Any:
+        """``agent_state`` with the dataset in the normalisers it has: its
+        own observation statistics, mirrored on its networks, and the env's
+        reward statistics, of the reward or, with the normaliser's
+        ``gamma``, of the discounted return of the episode so far (its
+        running return left as it is)."""
+        data, collector = self.dataset, agent_state.collector_state
+        env = ctx.env_args.env
+        _, obs_stats = update_obs_norm(
+            jnp.asarray(data.obs), collector.obs_norm_info, raw_obs_columns(env)
+        )
+        collector = collector.replace(obs_norm_info=obs_stats)
+        stats = reward_statistics(collector.env_state)
+        if stats is not None:
+            gamma = strip_ajax_wrappers(env)[1].get("gamma") or 0.0
+            returns, g = np.zeros_like(data.reward), 0.0
+            for t, end in enumerate(data.terminated | data.truncated):
+                g = data.reward[t] + gamma * g
+                returns[t], g = g, 0.0 if end else g
+            returns = jnp.asarray(returns)[:, None]
+            _, count, mean, mean_2, var = online_normalize(
+                returns,
+                stats.count,
+                stats.mean,
+                stats.mean_2,
+                shift=False,
+                returns=returns,
+            )
+            stats = NormalizationInfo(var, count, mean, mean_2, stats.returns)
+            env_state = with_reward_statistics(collector.env_state, stats)
+            collector = collector.replace(_env_state=env_state)
+        return with_obs_norm(agent_state.replace(collector_state=collector))
+
+
+__all__ = [
+    "BellmanPretrain",
+    "CloningPretrain",
+    "MCPretrain",
+    "PhiRefresh",
+    "PriorData",
+]

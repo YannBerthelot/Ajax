@@ -185,8 +185,8 @@ def test_the_actor_loss_takes_the_executed_action(
     seen: list[tuple] = []
     update_agent = train_AVG.update_agent
 
-    def spy(agent_state: Any, transition: Transition, *a: Any) -> Any:
-        updated, aux = update_agent(agent_state, transition, *a)
+    def spy(agent_state: Any, transition: Transition, *a: Any, **kw: Any) -> Any:
+        updated, aux = update_agent(agent_state, transition, *a, **kw)
         record = lambda *x: seen.append(x)  # noqa: E731
         critic = agent_state.critic_state
         jax.debug.callback(record, critic, transition, aux.policy.q_min)

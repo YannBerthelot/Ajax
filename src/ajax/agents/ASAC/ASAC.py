@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 from gymnax import EnvParams
 
@@ -22,12 +22,22 @@ class ASAC(ActorCritic):
     """Average-Reward Soft Actor-Critic (ASAC) from Adamczyk et al. 2025. See https://arxiv.org/abs/2501.09080v2"""
 
     name: str = "ASAC"
+    capabilities: frozenset = frozenset(
+        "actor critic_ensemble obs_networks off_policy q_critic replay".split()
+    )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",
         "actor_loss",
     }
+    pretrain_context: frozenset = frozenset("buffer env_args update".split())
     supports_memory: bool = True
+    replays_transitions: bool = True
+    stores_expert_actions: bool = True
+    supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
+    extension_context: frozenset = frozenset(
+        "actor_optimizer_args buffer env_args expert_policy".split()
+    )
     make_train = staticmethod(make_train)
 
     def __init__(
@@ -66,6 +76,11 @@ class ASAC(ActorCritic):
         normalize_observations: bool = False,
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
+        # Expert for the CloningPretrain extension and the eval expert-bias
+        # metric; online BC is the ImitationLoss extension. Its actions,
+        # from its state along each trajectory, are stored for the
+        # extensions that read them.
+        expert_policy: Optional[Callable] = None,
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground
         # envs (ActorCritic).
@@ -81,6 +96,8 @@ class ASAC(ActorCritic):
         """
         self.config = run_config(locals(), self.name)
 
+        # Read by the extension check in the base initialiser.
+        self.expert_policy = expert_policy
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -122,4 +139,8 @@ class ASAC(ActorCritic):
         self.buffer = make_replay_buffer(
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
-        self.train_kwargs = {"buffer": self.buffer, "alpha_args": self.alpha_args}
+        self.train_kwargs = {
+            "buffer": self.buffer,
+            "alpha_args": self.alpha_args,
+            "expert_policy": self.expert_policy,
+        }

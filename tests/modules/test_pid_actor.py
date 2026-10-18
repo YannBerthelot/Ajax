@@ -15,9 +15,9 @@ from ajax.agents.TD3.networks import (
 )
 from ajax.evaluate import evaluate
 from ajax.modules.pid_actor import PIDActor, PIDLaw, PIDPolicy, pid_gains
-from ajax.networks.distributions import SquashedNormal
+from ajax.networks.distributions import Squash
 from ajax.networks.memory import MemoryConfig
-from ajax.networks.networks import get_initialized_actor_critic
+from ajax.networks.networks import Squashed, get_initialized_actor_critic
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 from tests.environments import paid_action
 
@@ -65,10 +65,10 @@ def test_gains_start_at_zero_and_exploration_is_state_independent():
 
 
 def test_the_squashed_actor_squashes_the_pid_output():
-    actor = PIDActor(PIDPolicy(n_errors=2), action_dim=2, squash=True)
+    actor = Squashed(PIDActor(PIDPolicy(n_errors=2), action_dim=2))
     params = _set_gains(actor.init(jax.random.PRNGKey(0), OBS), GAINS)
     dist = actor.apply(params, OBS)
-    assert isinstance(dist, SquashedNormal)
+    assert isinstance(dist, Squash)
     np.testing.assert_allclose(dist.distribution.loc, _by_hand(OBS, GAINS), 1e-6)
 
 
@@ -126,10 +126,17 @@ def _build(memory=None, td3=False):
 def test_the_factories_build_pid_actors():
     obs = jnp.ones((3, 5))
     actor, _ = _build()
-    assert isinstance(actor.apply_fn.__self__, PIDActor)
-    assert isinstance(actor.apply_fn(actor.params, obs), SquashedNormal)
+    assert isinstance(actor.apply_fn.__self__.actor, PIDActor)
+    assert isinstance(actor.apply_fn(actor.params, obs), Squash)
+    # The squashed actor's parameters are the PID actor's: its gains read off them.
+    assert PIDActor(PIDPolicy(), 1).apply(actor.params, obs, method="gains").shape == (
+        3,
+        3,
+        1,
+        1,
+    )
     actor, _ = _build(td3=True)
-    assert isinstance(actor.apply_fn.__self__, DeterministicPIDActor)
+    assert isinstance(actor.apply_fn.__self__.actor, DeterministicPIDActor)
     params = _set_gains(actor.params, {g: jnp.full((1, 1), 0.2) for g in GAINS})
     np.testing.assert_allclose(actor.apply_fn(params, obs).mean(), jnp.tanh(0.6))
 

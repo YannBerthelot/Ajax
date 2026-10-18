@@ -5,17 +5,20 @@ PyTorch library of reinforcement-learning agents, with more agents in
 [sb3-contrib](https://github.com/Stable-Baselines-Team/stable-baselines3-contrib).
 [SBX](https://github.com/araffin/sbx) is its JAX version.
 [PureJaxRL](https://github.com/luchris429/purejaxrl) is a set of single-file
-JAX implementations. Ajax differs from them in four ways:
+JAX implementations. Ajax is built around four things:
 
 1. [End to end on the accelerator](#end-to-end-on-the-accelerator): the
-   environment and the training loop compile into one JAX program.
+   environment and the training loop compile into one JAX program, as in
+   PureJaxRL and the
+   [other end-to-end JAX libraries](#other-end-to-end-jax-libraries).
 2. [Average-reward agents](#average-reward-agents): ASAC and APO, for tasks
    that never end.
 3. [Expert-guided agents](#expert-guided-agents): agents that learn from a
    controller you already have.
-4. [World models](#world-models): DreamerV3 and TD-MPC2.
+4. [World models](#world-models): DreamerV3 and TD-MPC2, in the same
+   compiled program as the environment.
 
-This page shows each one, [compares the four libraries](#comparison) and
+This page shows each one, [compares the libraries](#comparison) and
 says [when another library fits better](#when-to-use-something-else). The
 examples run on a laptop CPU in under a minute each, except the world-model
 one.
@@ -182,6 +185,26 @@ Ajax cells link to its documentation.
 "None listed" means the page cited does not list one; it is not a claim
 about every fork or companion project.
 
+### Other end-to-end JAX libraries
+
+These also compile the environment and the training loop into one JAX
+program, as their repositories read on 17 October 2026:
+
+- **[Brax's training agents][brax-agents]**: PPO, SAC, APG, ARS, ES and
+  behaviour cloning, which can run DAgger online from a teacher policy. They
+  train across devices and hosts. Ajax's [APG](../algorithms/apg.md) adds
+  recurrent memory and Busetto et al.'s contextual controller.
+- **[Stoix][stoix]**: about 25 algorithms, among them R2D2, MPO and MuZero.
+  Its Anakin architecture runs end to end with a JAX environment, and
+  Sebulba trains on environments not written in JAX. It trains across
+  devices.
+- **[Rejax][rejax]**: PPO, SAC, DQN and its variants, PQN, IQN and TD3. The
+  whole run is jitted, and it can be vmapped over seeds and over
+  hyperparameters ([README][rejax]).
+
+CleanRL's [QDagger][cleanrl-qdagger] also learns from a teacher policy, for
+DQN.
+
 [sb3-algos]: https://stable-baselines3.readthedocs.io/en/master/guide/algos.html
 [sb3-vec]: https://stable-baselines3.readthedocs.io/en/master/guide/vec_envs.html
 [sb3-env]: https://stable-baselines3.readthedocs.io/en/master/guide/custom_env.html
@@ -193,6 +216,10 @@ about every fork or companion project.
 [pjx-files]: https://github.com/luchris429/purejaxrl/tree/main/purejaxrl
 [pjx-ppo]: https://github.com/luchris429/purejaxrl/blob/main/purejaxrl/ppo.py
 [sbx-src]: https://github.com/araffin/sbx/blob/master/sbx/common/on_policy_algorithm.py
+[brax-agents]: https://github.com/google/brax/tree/main/brax/training/agents
+[stoix]: https://github.com/EdanToledo/Stoix
+[rejax]: https://github.com/keraJLi/rejax
+[cleanrl-qdagger]: https://docs.cleanrl.dev/rl-algorithms/qdagger/
 
 ## When to use something else
 
@@ -200,7 +227,15 @@ about every fork or companion project.
   steps in Python, an external simulator or a real system cannot run inside
   Ajax's compiled program ([Environments](../guide/environments.md)). SB3
   and SBX take environments with the Gymnasium interface, and SB3 ships a
-  checker for it ([custom envs][sb3-env], [README][sbx]).
+  checker for it ([custom envs][sb3-env], [README][sbx]). For such
+  environments at scale, Stoix has its Sebulba architecture ([Stoix][stoix]).
+- **You train on several devices.** Ajax runs on one device for now; it has
+  no `pmap` or sharding. Brax's training agents and Stoix train across
+  devices ([Brax][brax-agents], [Stoix][stoix]).
+- **You want a hyperparameter sweep in one program.** Ajax compiles the
+  hyperparameters into the program, so each trial of a sweep compiles anew
+  ([Performance](../guide/performance.md)). Rejax vmaps over
+  hyperparameters as well as seeds ([README][rejax]).
 - **You want a mature, stable library.** SB3 describes itself as stable, with
   development focused on bug fixes and maintenance, and lists documentation,
   high code coverage and type hints among its features ([README][sb3]). It

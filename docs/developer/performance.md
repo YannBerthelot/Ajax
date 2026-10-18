@@ -13,7 +13,9 @@ about 10% slower on the standardised benchmark run is investigated to its
 root cause **before** the change lands. Small deltas that are understood are
 written down in [PERFORMANCE_REPORT.md](../../PERFORMANCE_REPORT.md).
 Benchmarks run on CPU by default, so they never compete with an experiment
-using the GPU.
+using the GPU. The benchmark is run by hand
+([Checking a change](#checking-a-change)); CI only tests the script itself
+(`tests/benchmarks`).
 
 A regression is not automatically a veto. The recurrent replay rework of
 October 2026 made SAC with memory 17-24% slower in exchange for exact
@@ -117,14 +119,19 @@ the baseline itself, capture on the same kind of machine and pass
 
 ### Recorded results
 
-The `benchmarks/*.jsonl` files are records that `PERFORMANCE_REPORT.md`
-cites; keep scratch measurements outside the repository.
+The `benchmarks/*.jsonl` files are the recorded results; keep scratch
+measurements outside the repository.
 
 | File | What it holds |
 | --- | --- |
 | `agent_baseline.jsonl` | the current baseline (above) |
 | `agent_refactor_before.jsonl`, `agent_refactor_after.jsonl` | the agents before (13, the since-deleted SafeSAC included) and after (12) the 2026 refactoring, at a1658d9 and 91ee10f, compile cache off; SAC, TD3, REDQ and ASAC timed collection only |
-| `agent_phase*.jsonl`, `agent_sac_rework.jsonl`, `agent_backbone_lift.jsonl`, ... | the steps of earlier reworks |
+| `results.jsonl` | `perf_bench.py` scenarios, May 2026, on a GPU |
+| `seed_scaling.jsonl`, `seed_scaling_p3d.jsonl` | the seed-scaling runs of the user guide's [Performance](../guide/performance.md) page, May 2026, on a GPU |
+
+Older records (per-phase benchmarks, the compile-cache and bf16
+experiments) were removed on 2026-10-12; git history has them before
+`d05a9f2`.
 
 ## Recording a result
 

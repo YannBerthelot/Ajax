@@ -17,8 +17,8 @@ from ajax.types import EnvType, InitializationFunction
 
 def _check_minibatch_geometry(config: PPOConfig, n_envs: int, recurrent: bool) -> None:
     """Refuse an ``unroll_length`` the update could not use (it would fall
-    back to whole rollouts); warn when a recurrent rollout's sequences force
-    one minibatch where more were asked for."""
+    back to the flat shuffle); warn when a recurrent rollout's sequences
+    force one minibatch where more were asked for."""
     wanted = resolve_num_minibatches(config)
     geometry = minibatch_geometry(config, config.n_steps, n_envs, recurrent)
     unroll = config.unroll_length
@@ -42,11 +42,26 @@ def _check_minibatch_geometry(config: PPOConfig, n_envs: int, recurrent: bool) -
         )
 
 
+#: The hidden layers of PPO's reference code: OpenAI Baselines' ppo2 @ea25b9e
+#: builds its MLP with ortho_init(sqrt(2)) layers (baselines/common/models.py:96),
+#: as CleanRL @fe8d8a0 (ppo.py:94) and PureJaxRL @31756b1 (ppo.py:25-42) do;
+#: its output layers (orthogonal 0.01 for the policy, 1.0 for the value) are
+#: the networks' defaults. ppo1, the paper's earlier code, used normc
+#: instead; the owner chose ppo2 (2026-10-17). Recurrent PPO's references
+#: start the layers before the memory the same way: PureJaxRL @31756b1
+#: (ppo_rnn.py:53-55) and popjaxrl @12e5d42 (ppo_gru.py:45-47), whose GRU
+#: keeps flax's defaults (ppo_rnn.py:35, ppo_gru.py:30), as Ajax's does.
+PPO_HIDDEN_INIT = "orthogonal(np.sqrt(2))"
+
+
 class PPO(ActorCritic):
     """Proximal Policy Optimization (Schulman et al., 2017) for discrete and
     continuous action spaces."""
 
     name: str = "PPO"
+    capabilities: frozenset = frozenset(
+        "actor discounted obs_networks v_critic".split()
+    )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",
@@ -73,9 +88,8 @@ class PPO(ActorCritic):
         batch_size: int = 64,
         n_epochs: int = 10,
         num_minibatches: int = 0,
-        adam_eps: float = 1e-8,
-        vf_coef: float = 1.0,
-        fused_grad_clip: bool = False,
+        adam_eps: float = 1e-5,
+        vf_coef: float = 0.5,
         unroll_length: Optional[int] = None,
         num_resets_per_eval: int = 0,
         num_evals: int = 1,
@@ -92,6 +106,8 @@ class PPO(ActorCritic):
         reward_normalization_gamma: Optional[float] = None,
         actor_bias_init: Optional[Union[str, InitializationFunction]] = None,
         critic_bias_init: Optional[Union[str, InitializationFunction]] = None,
+        # The hidden layers' initialiser; None is PPO's reference's
+        # (PPO_HIDDEN_INIT), with or without memory.
         encoder_kernel_init: Optional[Union[str, InitializationFunction]] = None,
         # The Gaussian's log-std: one learned, unclipped parameter per action
         # dimension starting at 0 (std 1), as PPO's reference code has it
@@ -120,6 +136,9 @@ class PPO(ActorCritic):
         # (ActorCritic).
         action_repeat: int = 1,
     ) -> None:
+        # Resolved before run_config, so the logged config holds what runs.
+        if encoder_kernel_init is None:
+            encoder_kernel_init = PPO_HIDDEN_INIT
         self.config = run_config(locals(), self.name)
 
         super().__init__(
@@ -167,7 +186,7 @@ class PPO(ActorCritic):
             normalize_advantage=normalize_advantage,
             num_minibatches=num_minibatches,
             vf_coef=vf_coef,
-            fused_grad_clip=fused_grad_clip,
+            max_grad_norm=max_grad_norm,
             unroll_length=unroll_length,
             bptt_length=bptt_length,
             num_resets_per_eval=num_resets_per_eval,
@@ -190,8 +209,12 @@ class PPO(ActorCritic):
             config, self.env_args.n_envs, self.network_args.memory is not None
         )
 
-        # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
-        self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
-        self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
+        # ppo2's optimiser (baselines ea25b9e ppo2/model.py:100-107): Adam
+        # with eps 1e-5, its gradient clipped once over both networks (the
+        # config's max_grad_norm, train_PPO.joint_step), so neither
+        # network's own optimiser clips.
+        joint = {"eps": adam_eps, "max_grad_norm": None}
+        self.actor_optimizer_args = self.actor_optimizer_args.replace(**joint)
+        self.critic_optimizer_args = self.critic_optimizer_args.replace(**joint)
         # PPO's reference code never clips its log-std parameter.
         self.network_args = self.network_args.replace(clip_log_std_param=False)

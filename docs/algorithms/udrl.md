@@ -62,7 +62,7 @@ evaluation (`Eval/episodic mean reward`, `Eval/episodic entropy`,
 | `actor_learning_rate` | 3e-4 | Adam step size |
 | `actor_architecture` | `("128", "relu", "128", "relu")` | hidden layers |
 | `max_grad_norm` | None | gradient clipping by global norm |
-| `gamma` | 1.0 | discount of the returns in the commands |
+| `gamma` | 1.0 | discount of the returns-to-go logged as `Train/mean_rtg`, a diagnostic only: commands, the top-K statistics and the training targets sum rewards undiscounted, as in the paper |
 | `command_return_init`, `command_horizon_init` | 1.0, 100.0 | the first command |
 | `command_topk` | 32 | best episodes the next command is built from |
 | `command_return_boost` | 1.0 | multiplies the top episodes' mean return |
@@ -91,10 +91,11 @@ Each iteration:
 
 ## Notes
 
-- **Deviation: segments, not episodes.** The replay stores fixed-length
-  segments rather than whole episodes, so arrays keep a fixed shape. A training
-  command therefore spans at most `n_steps` steps. The top-K statistics read
-  episodes whole across segments.
+- **Segments, read as episodes.** The replay stores fixed-length segments
+  rather than whole episodes, so arrays keep a fixed shape. The sampler and
+  the top-K statistics read episodes whole across segments, so a training
+  command can span any part of an episode the replay holds, not only one
+  segment.
 - **Evaluation.** Each evaluated episode starts from the current command
   (`state.command_target_return` and its horizon), without the random spread
   that collection adds, and the command decreases as in collection. The

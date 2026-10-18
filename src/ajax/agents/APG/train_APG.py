@@ -16,6 +16,7 @@ training draws, and reports the deterministic closed-loop return and
 M-RMSE, i.e. the paper's validation metric, at the logging frequency.
 """
 
+import dataclasses
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple, Union
 
@@ -57,6 +58,10 @@ class APGAuxiliaries:
     matching_loss: jax.Array  # -mean_i sum_k r_k, the closed-loop cost
     m_rmse: jax.Array  # sqrt(matching_loss / horizon)
     timestep: Union[int, jax.Array]
+    # With a logging config, what the update evaluated and logged (NaN on
+    # the updates that do not evaluate), returned whatever the backend;
+    # None without one.
+    evaluations: Optional[dict] = None
 
 
 # A controller factory builds the policy network from the agent's context.
@@ -195,7 +200,7 @@ def rollout_returns(
     (the env's own system without a ``system_class``), and the rollout.
     The controller acts in ``[-1, 1]``, mapped onto each system's action
     bounds (:func:`agent_action_to_env`, differentiable): ``Rollout.action``
-    is what the env received.
+    is what the env received, ``Rollout.policy_action`` the controller's.
 
     ``stateful`` (a static flag) defaults to whether the actor carries a
     hidden state, which ``init_APG`` sets exactly for a stateful controller.
@@ -210,18 +215,14 @@ def rollout_returns(
         zeros_carry_like(agent_state.actor_state.hidden_state, n) if stateful else None
     )
     policy_step = make_policy_step(agent_state.actor_state, params, stateful)
-
-    def mapped_step(carry, obs, resets):
-        action, carry = policy_step(carry, obs, resets)
-        return agent_action_to_env(action, env_args.env, env_params), carry
-
     rollout, _ = closed_loop_rollout(
-        mapped_step,
+        policy_step,
         carry,
         roll_key,
         env_args.env,
         env_params,
         horizon,
+        action_map=lambda action: agent_action_to_env(action, env_args.env, env_params),
     )
     return rollout.reward.sum(0), rollout
 
@@ -292,9 +293,20 @@ def training_iteration(
             env_args.n_envs,
         )
         matching_loss = -returns.mean()
+        # Along the rollout: what the controller saw (APG normalises no
+        # observation, so they are the env's own) and its actions.
+        actor_batch = {
+            "rollout": rollout,
+            "returns": returns,
+            "actor_params": params,
+            "actor_state": agent_state.actor_state,
+            "observations": rollout.obs,
+            "raw_observations": rollout.obs,
+            "pi_mean": rollout.policy_action,
+        }
         loss = matching_loss + loop.stack.fold_actor_loss(
             agent_state,
-            {"rollout": rollout, "actor_params": params, "returns": returns},
+            actor_batch,
             timestep,
             ext_key,
             loop.total_timesteps,
@@ -318,8 +330,10 @@ def training_iteration(
         m_rmse=jnp.sqrt(jnp.maximum(matching_loss, 0.0) / horizon),
         timestep=new_timestep,
     )
-    agent_state, _ = loop.evaluate_every(agent_state, aux, index, iteration, evaluation)
-    return agent_state, aux
+    agent_state, evaluations = loop.evaluate_every(
+        agent_state, aux, index, iteration, evaluation
+    )
+    return agent_state, dataclasses.replace(aux, evaluations=evaluations)
 
 
 def make_train(
@@ -393,6 +407,7 @@ def make_train(
         start_timestep=start_timestep,
         end_timestep=end_timestep,
     )
+    loop.warn_if_partial(per_update, "n_envs x horizon")
     evaluation = Evaluation(
         metrics=_train_metrics,
         every=loop.log_frequency and max(loop.log_frequency // per_update, 1),

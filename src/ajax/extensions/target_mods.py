@@ -26,6 +26,7 @@ SAC keeps them when an extension carries an expert) and ``recurrent``.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, Optional, Tuple
 
@@ -83,6 +84,13 @@ def box_compute_threshold(
     return v_min + (v_max - v_min) * train_frac
 
 
+def box_entered(in_box: jax.Array, last_in_box: Optional[jax.Array]) -> jax.Array:
+    """Where the step enters the value box: inside it now, not before."""
+    if last_in_box is None:
+        last_in_box = jnp.zeros_like(in_box)
+    return (last_in_box < 0.5) & (in_box > 0.5)
+
+
 def box_compute_state(
     obs: jax.Array,
     a_exp: jax.Array,
@@ -105,14 +113,8 @@ def box_compute_state(
         axis=0,
     )
     in_box = v_box > threshold
-
-    if last_in_box is None:
-        last_in_box = jnp.zeros_like(in_box)
-
     entry_bonus = jnp.where(
-        (last_in_box < 0.5) & (in_box > 0.5),
-        v_box,
-        jnp.zeros_like(v_box),
+        box_entered(in_box, last_in_box), v_box, jnp.zeros_like(v_box)
     )
     return in_box, entry_bonus, v_box
 
@@ -126,11 +128,25 @@ def box_action_override(
     return jnp.where(in_box, expert_action, action)
 
 
+def discounted(name: str, gamma: Any) -> Any:
+    """The target's discount ``gamma``, which a bootstrap bonus scales;
+    refused on an average-reward agent (ASAC, APO: ``gamma`` None), whose
+    target has no discount and for which the bonus has no form."""
+    if gamma is None:
+        raise ValueError(
+            f"{name} adds a discounted bonus, gamma (1 - d) x [...], to a"
+            " discounted Bellman target; this agent's target is"
+            " average-reward (no gamma), for which the bonus has no form."
+        )
+    return gamma
+
+
 def _next_target_q(
-    ext: Any, agent_state: Any, batch: dict
+    ext: Any, agent_state: Any, batch: dict, rng: jax.Array
 ) -> tuple[jax.Array, jax.Array]:
     """The target critics' ensemble at ``s'`` for the expert's action and
-    for a policy sample: ``(Q_target(s', a_E), Q_target(s', a'))``."""
+    for a policy sample on ``rng``: ``(Q_target(s', a_E), Q_target(s',
+    a'))``."""
     next_observations = batch["next_observations"]
     critic_state = agent_state.critic_state
 
@@ -148,7 +164,7 @@ def _next_target_q(
         done=batch["dones"],
         recurrent=batch.get("recurrent", False),
     )
-    key, _ = jax.random.split(batch["rng_key"])
+    key, _ = jax.random.split(rng)
     next_actions, _ = next_pi.sample_and_log_prob(seed=key)
     return q(next_expert_actions), q(next_actions)
 
@@ -166,6 +182,10 @@ class IBRL(Extension):
     expert_policy: Callable
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "ibrl"
+    requires: ClassVar[frozenset[str]] = frozenset({"actor", "discounted", "q_critic"})
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "on_target": frozenset({"dones", "next_a_expert", "raw_next_observations"})
+    }
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
     reads_agent_expert_actions: ClassVar[bool] = True
@@ -186,9 +206,11 @@ class IBRL(Extension):
         target: jax.Array,
         ctx: ExtensionContext,
     ) -> jax.Array:
-        del ext_state, ctx
-        dones, gamma = batch["dones"], batch["gamma"]
-        q_expert, q_policy = _next_target_q(self, agent_state, batch)
+        del ext_state
+        dones, gamma = batch["dones"], discounted("IBRL", batch["gamma"])
+        # SAC's target hands its own key; the shared critic step, none.
+        rng = batch.get("rng_key", ctx.rng)
+        q_expert, q_policy = _next_target_q(self, agent_state, batch, rng)
         min_q_expert = jnp.min(q_expert, axis=0, keepdims=False)
         min_q_policy = jnp.min(q_policy, axis=0, keepdims=False)
         gap = jax.lax.stop_gradient(
@@ -212,6 +234,12 @@ class LCBGatedBootstrap(Extension):
     lcb_temperature: float = 1.0
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "lcb_gated_bootstrap"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"actor", "critic_ensemble", "discounted", "q_critic"}
+    )
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "on_target": frozenset({"dones", "next_a_expert", "raw_next_observations"})
+    }
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
     reads_agent_expert_actions: ClassVar[bool] = True
@@ -234,8 +262,9 @@ class LCBGatedBootstrap(Extension):
     ) -> jax.Array:
         del ext_state
         # beta anneals as the EDGE gate's, on the collector's timestep.
-        dones, gamma = batch["dones"], batch["gamma"]
-        q_expert, q_policy = _next_target_q(self, agent_state, batch)
+        dones, gamma = batch["dones"], discounted("LCBGatedBootstrap", batch["gamma"])
+        rng = batch.get("rng_key", ctx.rng)
+        q_expert, q_policy = _next_target_q(self, agent_state, batch, rng)
         beta = lcb_beta(
             agent_state.collector_state.timestep,
             ctx.total_steps,
@@ -272,15 +301,20 @@ class CriticBlend(Extension):
     critic_warmup_frac: float = 0.15
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "critic_blend"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"discounted", "phi_star", "q_critic"}
+    )
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "on_target": frozenset(
+            {"dones", "next_a_expert", "raw_next_observations", "reward_scale"}
+        )
+    }
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
     reads_agent_expert_actions: ClassVar[bool] = True
 
     def experts(self) -> tuple:
         return (self.expert_policy,)
-
-    def reads_phi_star(self) -> bool:
-        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "CriticBlend":
         """Read the expert's stored actions when it is the agent's."""
@@ -332,9 +366,12 @@ class MCVarianceCorrection(Extension):
 
     threshold: float
     name: str = "mc_variance_correction"
-
-    def reads_phi_star(self) -> bool:
-        return True
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"critic_ensemble", "phi_star", "q_critic"}
+    )
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "on_target": frozenset({"actions", "q_preds"})
+    }
 
     def on_target(
         self,
@@ -375,16 +412,18 @@ class ValueBox(Extension):
     ``expert_policy``, at which it also measures the expert's value, and
     ``observations``, the critics' input, augmented when it is) and the box
     bounds off the agent state (so a resumed run keeps them), and writes
-    ``in_value_box`` / ``entry_bonus`` back into the dict for the pipeline
-    to record on the transition. The override (:func:`box_action_override`)
-    comes after the warmup / post-warmup choice (``action_slot``).
+    ``in_value_box``, ``entry_bonus`` and ``box_entry`` back into the dict
+    for the pipeline to record on the transition. An entry ends the agent's
+    episode: the expert's value, paid as the bonus, replaces the bootstrap,
+    whatever its sign. The override (:func:`box_action_override`) comes
+    after the warmup / post-warmup choice (``action_slot``).
     """
 
     name: str = "value_box"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"agent_expert", "phi_star", "q_critic"}
+    )
     action_slot: ClassVar[str] = "post_warmup"
-
-    def reads_phi_star(self) -> bool:
-        return True
 
     def action(
         self,
@@ -396,9 +435,9 @@ class ValueBox(Extension):
     ) -> jax.Array | None:
         """Override with ``a_expert`` inside the value box, its bounds the
         MC-pretrain v_min/v_max on :class:`SACState`; writes
-        ``in_value_box`` and ``entry_bonus`` into ``obs`` for the pipeline's
-        bookkeeping (buffer-write suppression, reward shaping,
-        ``is_expert_flag``).
+        ``in_value_box``, ``entry_bonus`` and ``box_entry`` into ``obs`` for
+        the pipeline's bookkeeping (reward shaping, the entry's
+        termination, ``is_expert_flag``).
         """
         del ext_state, rng
         env_action = obs["env_action"]
@@ -418,6 +457,9 @@ class ValueBox(Extension):
         )
         obs["in_value_box"] = in_value_box
         obs["entry_bonus"] = entry_bonus
+        obs["box_entry"] = box_entered(
+            in_value_box, agent_state.collector_state.last_in_box
+        ).astype(jnp.float32)
         return box_action_override(env_action, expert_action, in_value_box)
 
 

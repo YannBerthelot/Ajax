@@ -37,7 +37,11 @@ from ajax.agents.DQN.networks import (
 from ajax.agents.DQN.state import DQNConfig, DQNState
 from ajax.agents.loop import TrainLoop, gradient_step
 from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.interaction import ActionPipelineResult, init_collector_state
+from ajax.environments.interaction import (
+    ActionPipelineResult,
+    init_collector_state,
+    reward_statistics,
+)
 from ajax.environments.utils import get_action_dim
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack
@@ -341,8 +345,12 @@ def update_agent(
     sample_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
 
+    collector = agent_state.collector_state
     batch = get_batch_from_buffer(
-        buffer, agent_state.collector_state.buffer_state, sample_key
+        buffer,
+        collector.buffer_state,
+        sample_key,
+        reward_statistics(collector.env_state),
     )
     observations, actions, rewards = batch.obs, batch.action, batch.reward
     terminated, next_observations = batch.terminated, batch.next_obs

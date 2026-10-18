@@ -46,6 +46,7 @@ from ajax.agents.UDRL.train_UDRL import EvalCommand
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.evaluate import evaluate, get_deterministic_action_and_entropy_fn
 from ajax.extensions.base import Extension
+from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.instrumentation import (
     COND_METRIC_KEYS,
     EVAREST_DECOMP_KEYS,
@@ -267,13 +268,15 @@ def test_the_instrumentation_finds_the_critic_on_its_own(name: str) -> None:
     )
     kwargs = {"env_id": case.envs[-1], "n_envs": 2, **exposed, **case.kwargs}
     buffer = getattr(case.cls(**kwargs), "buffer", None)
-    agent = case.cls(
-        **kwargs,
-        extensions=[
-            ConditioningMetrics(buffer=buffer),
-            BiasVoreDecomposition(buffer=buffer),
-        ],
-    )
+    extensions = [
+        ConditioningMetrics(buffer=buffer),
+        BiasVoreDecomposition(buffer=buffer),
+    ]
+    if not case.critic:  # refused when built, naming what it lacks
+        with pytest.raises(MissingCapability, match="needs critic"):
+            case.cls(**kwargs, extensions=extensions)
+        return
+    agent = case.cls(**kwargs, extensions=extensions)
     logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
     _, out = agent.train(
         seed=42,
@@ -282,9 +285,6 @@ def test_the_instrumentation_finds_the_critic_on_its_own(name: str) -> None:
         logging_config=logging,
     )
     keys = COND_METRIC_KEYS + EVAREST_DECOMP_KEYS
-    if not case.critic:
-        assert not set(keys) & set(out), sorted(out)
-        return
     evaluated = np.asarray(out["timestep"]) >= 0
     for key in keys:
         assert np.isfinite(np.asarray(out[key])[evaluated]).all(), key
@@ -301,8 +301,8 @@ def test_the_evaluation_key_is_apart_from_the_training_key(
 
     seen, fresh_state = [], loop.fresh_state
 
-    def recording(*args: Any) -> Any:
-        state = fresh_state(*args)
+    def recording(*args: Any, **kwargs: Any) -> Any:
+        state = fresh_state(*args, **kwargs)
         record = lambda *keys: seen.append([np.asarray(k) for k in keys])  # noqa: E731
         jax.debug.callback(record, state.rng, state.eval_rng)
         return state
@@ -519,7 +519,8 @@ def test_no_agent_class_lets_its_seeds_update_unequally() -> None:
 
 
 #: Each agent's gradient clip (its option, its default). PPO clips at its
-#: paper's global norm 0.5 and APO, built on PPO, keeps it; the other
+#: paper's global norm 0.5, over both networks at once (JOINT), and APO,
+#: built on PPO, keeps the 0.5; the other
 #: references do not clip, and PPO's 0.5 copied onto them once froze SAC's
 #: temperature (6b2d529). APG's 1.0 is a recorded deviation (APG.py); the
 #: world models clip as their papers do.
@@ -534,16 +535,63 @@ CLIPS: dict[str, tuple[str, float | None]] = {
     "TDMPC2": ("grad_clip_norm", 20.0),
     "TDMPC2MultiTask": ("grad_clip_norm", 20.0),
 }
+#: The agents whose clip is over the actor's and the critic's gradients at
+#: once: their config holds it, and neither network's optimizer clips.
+JOINT = {"PPO"}
 
 
 @pytest.mark.parametrize("name", ajax.__all__)
 def test_an_agent_clips_its_gradients_as_its_paper_does(name: str) -> None:
     """A new agent needs its row in CLIPS. The table's agents carry the
-    default to both optimizers."""
+    default to both optimizers, or to their config (JOINT)."""
     option, default = CLIPS[name]
     cls = getattr(ajax, name)
     assert inspect.signature(cls).parameters[option].default == default
     if name in CASES:
         agent = cls(env_id=CASES[name].envs[0])
+        own = None if name in JOINT else default
         for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
-            assert args.max_grad_norm == default
+            assert args.max_grad_norm == own
+        if name in JOINT:
+            assert getattr(agent.agent_config, option) == default
+
+
+class _Stop(Exception):
+    """Raised where a test has seen what it needs, before any compilation."""
+
+
+def _stop(*args: Any, **kwargs: Any) -> Any:
+    raise _Stop
+
+
+def test_train_logs_its_run_config_without_touching_the_callers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One LoggingConfig reused across agents: each run logs the caller's
+    keys and its own, and the caller's dict stays as it was, so PPO's run
+    does not inherit SAC's keys."""
+    from tests.agents.test_agent_pins import _multitask
+
+    # The module, which its class's name shadows on the package.
+    multitask_module = importlib.import_module("ajax.agents.TDMPC2.TDMPC2MultiTask")
+
+    seen: list[dict] = []
+
+    def record(run_id: str, config: LoggingConfig, run_seed: int) -> None:
+        seen.append(config.config)
+
+    monkeypatch.setattr(base, "init_logging", record)
+    monkeypatch.setattr(multitask_module, "init_logging", record)
+    logging = LoggingConfig(config={"user": 1}, use_wandb=False)
+    for agent in (SAC(env_id="Pendulum-v1"), PPO(env_id="Pendulum-v1")):
+        monkeypatch.setattr(agent, "get_make_train", lambda: _stop)
+        with pytest.raises(_Stop):
+            agent.train(seed=0, n_timesteps=8, logging_config=logging)
+    multitask = _multitask()
+    monkeypatch.setattr(multitask, "_init", _stop)
+    with pytest.raises(_Stop):
+        multitask.train(seed=0, n_timesteps=8, logging_config=logging)
+    assert logging.config == {"user": 1}
+    assert [c["algo_name"] for c in seen] == ["SAC", "PPO", "TDMPC2MultiTask"]
+    assert all(c["user"] == 1 for c in seen)
+    assert "buffer_size" in seen[0] and "buffer_size" not in seen[1]

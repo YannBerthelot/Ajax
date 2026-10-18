@@ -75,12 +75,14 @@ extensions were given.
 | `actor_loss(agent_state, ext_state, batch, ctx)` | a term added to the actor loss | summed | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, APG, UDRL |
 | `action(agent_state, ext_state, obs, rng, ctx)` | an action, or `None` to defer | the last non-`None` wins | SAC with an expert policy (below) |
 | `eval_action(agent_state, ext_state, obs, rng, ctx)` | an action, or `None` | the last non-`None` wins | no agent yet |
+| `transform_action(actions, a_expert)` | the executed action, from the policy's and the expert's | the first one acts | SAC with an expert policy, in collection, its losses and evaluation |
 | `post_update(agent_state, ext_state, ctx)` | `(agent_state, ext_state)` | in order | every agent, after each update |
 | `eval_metrics(agent_state, ext_state, rng, ctx)` | a dict of metrics | merged | every agent, at each evaluation |
 
 Each phase the stack folds is one `ExtensionStack` method, `fold_<phase>`
 (`fold_init` runs `init_state` then `pretrain`), and an agent calls it once
-where the phase applies; SAC's action pipeline dispatches `action` itself.
+where the phase applies; SAC's action pipeline dispatches `action` and
+`transform_action` itself.
 Each agent lists the phases it folds in
 `supported_extension_phases`. An extension implementing any other phase is
 rejected when the agent is built, instead of being silently ignored.
@@ -120,7 +122,7 @@ agent against that list:
 | | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, UDRL | `actor_state` |
 | | SAC, TD3, REDQ, ASAC, AVG, APO, UDRL | `observations` |
 | | SAC, TD3, REDQ, ASAC, APO | `raw_observations`, `pi_mean` |
-| | SAC | `a_expert` |
+| | SAC | `a_expert`, `critic_state` |
 | | UDRL | `actions` |
 | | APG | `rollout`, `returns` |
 
@@ -269,21 +271,28 @@ on an empty batch (`tests/extensions/test_no_silent_noop.py`).
 
 ## What an extension declares
 
-Some of what an extension reads is not in the batch. It says so with class
-attributes and methods the agent checks at construction:
+An extension says what it needs with class attributes and methods the
+agent checks at construction, against what its algorithm has
+(`capabilities`) and what its code passes on (the phases it folds, the
+context it binds, its batches and replay fields;
+`ajax.extensions.capabilities`):
 
 | Declaration | What it says | What the agent does |
 | --- | --- | --- |
+| `requires` (class attribute, a frozenset) and `needs()` | the capabilities it needs beyond those its phases imply (`on_target`, `critic_loss`: `critic`; `actor_loss`: `actor`; `action`: `off_policy`; `transform_action`: `continuous_actions`) | refuses it when its run lacks one (`MissingCapability`, naming each); `needs()` returns them all and may depend on the extension's options |
+| `provides` (class attribute) | the capabilities it gives its stack | adds them to the run's: `MCPretrain` provides `phi_star`, which its readers require |
+| `context` (class attribute) | the agent-context keys it cannot work without | refuses it when its `extension_context`, the keys its `make_train` binds, lacks one (`NotWired`) |
+| `pretrain_context` (class attribute) | the `ExtensionContext` fields its `pretrain` reads (`env_args`, `update`, `buffer`) | refuses it when its loop does not fill one: its `pretrain_context` (`NotWired`) |
+| `batch_keys` (class attribute) and `reads()` | per phase, the batch keys it reads beyond those every agent folding the phase passes | refuses it when `PHASE_BATCH_KEYS` lists none of them for the agent (`NotWired`) |
 | `buffer_fields` (class attribute, a frozenset) | replay fields beyond the agent's own that the extension reads, such as `raw_next_obs`, the environment's own next observation | stores them only when an extension declares them; rejects the ones it cannot store (only SAC stores `raw_next_obs`) |
 | `expert_fields` (class attribute) and `experts()` | the fields holding an expert, written in env units, and the experts the extension calls itself | reads every expert in `expert_fields` in agent units (`ExtensionStack.with_experts`); keeps the raw observations and expert flags in replay for a run with an expert; refuses a stateful expert (one with `init_state`) that `experts()` would call without its state |
 | `reads_agent_expert_actions` (class attribute) | the extension reads the expert actions the agent stored, when its expert is the agent's `expert_policy` | lets a stateful expert through for it, on an agent that stores those actions (SAC) |
-| `reads_phi_star()` / `fits_phi_star` | the extension reads, or fits, the frozen expert critic phi\* | refuses a stack holding a reader and no fitter; `MCPretrain` is the fitter |
 | `reads_step_in_episode` (class attribute) | the extension reads each env's step within its episode | SAC counts it only then (`JSRLCurriculum` reads it) |
 | `action_slot` (class attribute) | where in SAC's action pipeline an `action` override applies: `"pre_warmup"` or `"post_warmup"` | SAC dispatches `action` only to extensions with a slot, and only with an `expert_policy` |
 
-`reads_phi_star` is a method, so a reader can depend on its configuration.
-`EDGEExploration` does not declare it: it reads phi\* when `MCPretrain` ran
-and the live critic otherwise.
+`EDGEExploration` does not require `phi_star`: it reads phi\* when
+`MCPretrain` ran and the live critic otherwise. Its value gates require a Q
+critic (its `needs()` depends on its `gate`).
 
 These checks run when the agent is built:
 
@@ -318,9 +327,7 @@ class PhiStarReader(Extension):
     """Reads the frozen expert critic phi*, which only MCPretrain fits."""
 
     name: str = "phi-star-reader"
-
-    def reads_phi_star(self):
-        return True
+    requires: ClassVar[frozenset[str]] = frozenset({"phi_star"})
 
 
 for build in (
@@ -332,9 +339,9 @@ for build in (
         build()
     except ValueError as error:
         print(error)
-# PQN does not support these extension phases: extension 'actor-nudge' (ActorNudge) implements ['actor_loss']. ...
-# TD3 does not store the buffer fields ['raw_next_obs'] its extensions read.
-# PhiStarReader read the frozen expert critic phi*, which MCPretrain fits, and SAC's extensions hold no MCPretrain: ...
+# PQN cannot run ActorNudge ('actor-nudge'), which needs actor (a policy network trained by gradient).
+# TD3 has what its extensions need, but does not pass it on yet: NextObservationReader ('next-observation-reader'): TD3 stores no ['raw_next_obs'] yet.
+# SAC cannot run PhiStarReader ('phi-star-reader'), which needs phi_star (add MCPretrain(expert_policy=...), which fits phi*, to the extensions).
 ```
 
 If the agent you target does not fold a phase you need, adding the fold to

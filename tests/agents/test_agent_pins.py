@@ -219,18 +219,19 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     # Flat shuffle, GAE on the whole rollout: 4 minibatches, 2 envs.
     "PPO-flat": (PPO, {**_PENDULUM, "n_envs": 2, "n_steps": 32, "batch_size": 8}, 256),
-    # The env axis split, GAE per minibatch; brax's knobs.
+    # The env axis split, GAE per minibatch (brax's time geometry, opted
+    # into: unroll_length = n_steps); brax's knobs.
     "PPO-env-split": (
         PPO,
         {
             **_PENDULUM,
             **_SPLIT,
+            "unroll_length": 16,
             "squash": True,
             "log_std_state_independent": True,
             "log_std_init": 0.0,
             "normalize_observations": True,
             "ent_coef": 0.01,
-            "fused_grad_clip": True,
             "num_resets_per_eval": 1,
             "num_evals": 3,
         },
@@ -275,7 +276,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "PPO-env-split-nudge": (
         PPO,
-        {**_PENDULUM, **_SPLIT, "extensions": (Nudge(),)},
+        {**_PENDULUM, **_SPLIT, "unroll_length": 16, "extensions": (Nudge(),)},
         256,
     ),
     "APO-nudge": (
@@ -546,6 +547,12 @@ _GOLDEN |= {
     "APG-nudge": {"actor": 35.83795928955078, "nudge": 0.27262088656425476},
     "APG-pid-nudge": {"actor": 36.834327697753906, "nudge": 0.27262088656425476},
 }
+# Re-recorded on macOS ARM CPU once APG's Adam eps became torch's 1e-8 (was
+# 1e-5). Relative shifts (actor): APG -2.4e-5, APG-pid -2.4e-5.
+_GOLDEN |= {
+    "APG-nudge": {"actor": 35.83708953857422, "nudge": 0.27262088656425476},
+    "APG-pid-nudge": {"actor": 36.83342742919922, "nudge": 0.27262088656425476},
+}
 # Re-recorded on macOS ARM CPU once PPO's default log-std became its
 # reference code's: one unclipped parameter per action dimension at 0, not
 # a Dense head at -1. The actor loses the head's kernel; relative shifts
@@ -563,6 +570,102 @@ _GOLDEN |= {
         "nudge": 0.3099551498889923,
     },
     "PPO-gru": {"actor": 52.301292419433594, "critic": 52.665245056152344},
+}
+# Re-recorded on macOS ARM CPU once feedforward PPO shuffled its rollout flat
+# by default (GAE once, as in the paper): with 2 envs and 2 minibatches this
+# run took brax's time geometry before. Actor +0.52%, critic +0.98%, nudge
+# +6.6%. Every other PPO pin is unchanged.
+_GOLDEN |= {
+    "PPO-discrete-nudge": {
+        "actor": 5.850821495056152,
+        "critic": 5.0791544914245605,
+        "nudge": 0.31162577867507935,
+    },
+}
+# Re-recorded on macOS ARM CPU once APO seeded its reward rate and value
+# bias with the first rollout's means, as xtma/apo does, instead of an EMA
+# from 0: actor -0.67%, critic +1.64%, nudge unchanged.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 3.8270583152770996,
+        "critic": 4.234889984130859,
+        "nudge": 0.33622848987579346,
+    },
+}
+# Re-recorded on macOS ARM CPU once AVG scaled its TD error as the authors'
+# TDErrorScaler does (a 1e-4 floor, scaled from the reward's variance before
+# any return, each return counted once): actor +0.41%, critic +6.4%.
+_GOLDEN |= {
+    "AVG": {
+        "actor": 5.7092366218566895,
+        "critic": 19.835189819335938,
+        "alpha": 0.07000000029802322,
+    },
+}
+# Re-recorded on macOS ARM CPU once the discrete logits head started at
+# orthogonal(0.01), not 1.0: the head's kernel loses most of its initial
+# squared norm (2.0 at gain 1 for 16 x 2). Relative shifts: PPO-discrete-nudge
+# (from the flat-geometry pin above) actor -39.9%, critic +0.78%; UDRL-nudge
+# actor -9.3%; both nudges unchanged.
+_GOLDEN |= {
+    "PPO-discrete-nudge": {
+        "actor": 3.514505386352539,
+        "critic": 5.118714809417725,
+        "nudge": 0.31162577867507935,
+    },
+    "UDRL-nudge": {"actor": 21.728490829467773, "nudge": 0.3160724639892578},
+}
+
+# Re-recorded on macOS ARM CPU once PPO's hidden layers became Baselines' ppo2's:
+# orthogonal with gain sqrt(2) (were orthogonal(1.0)); PPO-gru, recurrent,
+# keeps its. Relative shifts (actor, critic): PPO-mcc +99.2%, +58.9%;
+# PPO-flat +99.9%, +66.2%; PPO-env-split +99.3%, +74.2%; PPO-unroll +96.8%,
+# +66.7%; PPO-discrete-nudge +105.4%, +76.8%; PPO-env-split-nudge +103.5%,
+# +71.4%. The nudges are bitwise unchanged.
+_GOLDEN |= {
+    "PPO-mcc": {"actor": 4.02446985244751, "critic": 5.281169891357422},
+    "PPO-flat": {"actor": 6.003925800323486, "critic": 7.437717914581299},
+    "PPO-env-split": {"actor": 6.0180745124816895, "critic": 7.147911071777344},
+    "PPO-unroll": {"actor": 6.1724958419799805, "critic": 7.504622459411621},
+    "PPO-discrete-nudge": {
+        "actor": 7.218266487121582,
+        "critic": 9.050727844238281,
+        "nudge": 0.31162577867507935,
+    },
+    "PPO-env-split-nudge": {
+        "actor": 5.358870983123779,
+        "critic": 7.248394966125488,
+        "nudge": 0.3099551498889923,
+    },
+}
+
+# Re-recorded on macOS ARM CPU once recurrent PPO's hidden layers became
+# PureJaxRL's recurrent PPO's: orthogonal with gain sqrt(2) (were
+# orthogonal(1.0)). PPO-gru moved +5.6% (actor), +5.6% (critic).
+_GOLDEN |= {"PPO-gru": {"actor": 55.2531852722168, "critic": 55.617679595947266}}
+# Re-recorded on macOS ARM CPU once PPO's optimiser became ppo2's: Adam eps
+# 1e-5 (was 1e-8), one clip at 0.5 over both networks (was each its own;
+# PPO-unroll's fused_grad_clip, which added a joint clip at 1.0, is gone)
+# and vf_coef 0.5 (was 1.0). Relative shifts (actor, critic): PPO-mcc -0.19%,
+# -0.34%; PPO-flat -0.21%, -0.02%; PPO-env-split -0.23%, -0.003%; PPO-unroll
+# -1.9%, -0.03%; PPO-gru -0.04%, +0.001%; PPO-discrete-nudge +1.2%, -0.19%;
+# PPO-env-split-nudge +5.9%, -0.02%; the nudges are unchanged.
+_GOLDEN |= {
+    "PPO-mcc": {"actor": 4.016942501068115, "critic": 5.263054847717285},
+    "PPO-flat": {"actor": 5.99110221862793, "critic": 7.436330318450928},
+    "PPO-env-split": {"actor": 6.004455089569092, "critic": 7.147724151611328},
+    "PPO-unroll": {"actor": 6.052582740783691, "critic": 7.502388000488281},
+    "PPO-gru": {"actor": 55.23348617553711, "critic": 55.618282318115234},
+    "PPO-discrete-nudge": {
+        "actor": 7.301796913146973,
+        "critic": 9.033950805664062,
+        "nudge": 0.31162577867507935,
+    },
+    "PPO-env-split-nudge": {
+        "actor": 5.6761155128479,
+        "critic": 7.247241973876953,
+        "nudge": 0.3099551498889923,
+    },
 }
 
 

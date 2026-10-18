@@ -1,3 +1,5 @@
+import dataclasses
+import inspect
 from collections.abc import Sequence
 from functools import partial
 from typing import Any, Callable, Optional, Tuple, Union
@@ -8,12 +10,14 @@ import numpy as np
 from gymnax import EnvParams
 
 from ajax.environments.create import prepare_env
+from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import ExpertInAgentUnits
 from ajax.extensions.base import (
     Extension,
     ExtensionStack,
-    check_extension_phases,
+    check_extensions,
 )
+from ajax.extensions.capabilities import run_capabilities
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -125,12 +129,28 @@ class ActorCritic:
     # to True; every other agent gets a loud error instead of a silent
     # misconfiguration when `memory` is provided.
     supports_memory: bool = False
+    # Whether the agent takes per-copy (batched) env params, one system per
+    # env (ajax.environments.system_class). The shared loop's collector
+    # compiles env_args as a static argument, which jax cannot hash with
+    # array leaves.
+    supports_batched_env_params: bool = False
+    # What the algorithm has (ajax.extensions.capabilities'
+    # ALGORITHM_CAPABILITIES), whatever the state of the code: an extension
+    # needing anything else is refused at construction, naming it.
+    capabilities: frozenset = frozenset()
     # Extension phases this agent's training loop folds; an extension that
     # implements any other phase is rejected at construction instead of
     # being silently ignored. Each agent declares the phases it folds (on
     # the shared loop: ajax.agents.loop.LOOP_PHASES plus its update's); the
     # default accepts none.
     supported_extension_phases: frozenset = frozenset()
+    # The keys of the agent context its make_train binds its extensions to
+    # (Extension.bind_to_agent); an extension needing another is refused.
+    extension_context: frozenset = frozenset()
+    # The ExtensionContext fields its loop fills for its extensions'
+    # pretraining (the shared loop: env_args; off-policy also update, and
+    # buffer with a replay).
+    pretrain_context: frozenset = frozenset({"env_args"})
     # Replay-buffer fields beyond its own this agent stores on an
     # extension's declaration (Extension.buffer_fields); any other is
     # rejected at construction.
@@ -146,6 +166,13 @@ class ActorCritic:
     # differing counts are refused, since a batched count turns the update
     # schedules' lax.cond into a select running both branches.
     per_seed_update_counts: bool = False
+    # Whether the agent replays stored transitions. It then normalises
+    # observations itself (EnvironmentConfig.normalize_obs_in_agent): its
+    # replay keeps the env's own observations, normalised with the current
+    # statistics when read, as SB3's replay buffer does under VecNormalize.
+    # The env's normaliser would leave each row at the statistics of its
+    # collection.
+    replays_transitions: bool = False
     # Set, before this initialiser, by the agents that take an expert.
     expert_policy: Any
     #: The agent's train module's ``make_train`` (:meth:`get_make_train`).
@@ -228,7 +255,7 @@ class ActorCritic:
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
-            normalize_obs=normalize_observations,
+            normalize_obs=normalize_observations and not self.replays_transitions,
             normalize_reward=normalize_rewards,
             gamma=reward_normalization_gamma,
             n_envs=n_envs,
@@ -237,12 +264,20 @@ class ActorCritic:
             action_repeat=action_repeat,
         )
 
+        if env_params_is_batched(env_params) and not self.supports_batched_env_params:
+            raise ValueError(
+                f"{type(self).__name__} takes one env_params for every copy of"
+                " the environment; these carry one system per copy (a"
+                " SystemClass sample). APG, DreamerV3 and TDMPC2 take"
+                " per-copy systems; APG also samples them, with system_class."
+            )
         self.env_args = EnvironmentConfig(
             env=env,
             env_params=env_params,
             n_envs=n_envs,
             continuous=continuous,
             action_repeat=action_repeat,
+            normalize_obs_in_agent=normalize_observations and self.replays_transitions,
         )
 
         self.network_args = NetworkConfig(
@@ -307,16 +342,34 @@ class ActorCritic:
             self._experts_in_agent_units[id(expert)] = (expert, wrapped)
         return self._experts_in_agent_units[id(expert)][1]
 
+    def run_capabilities(self) -> frozenset[str]:
+        """The capabilities of this run
+        (:func:`~ajax.extensions.capabilities.run_capabilities`)."""
+        return run_capabilities(
+            self.capabilities,
+            continuous=self.env_args.continuous,
+            # Set before this initialiser by the agents that take one.
+            has_expert=getattr(self, "expert_policy", None) is not None,
+            num_critics=self.config.get("num_critics"),
+        )
+
     def _check_extension_phases(self) -> None:
-        """Reject extensions implementing phases this agent never folds, or
-        reading buffer fields it does not store."""
-        check_extension_phases(
+        """Reject extensions this agent cannot run
+        (:func:`~ajax.extensions.base.check_extensions`); without extensions
+        there is nothing to check."""
+        if not self.extension_stack:
+            return
+        check_extensions(
             type(self).__name__,
             self.extension_stack,
+            self.run_capabilities(),
             self.supported_extension_phases,
-            self.supported_buffer_fields,
-            # Set before this initialiser by the agents that take one.
+            context=self.extension_context,
+            pretrain_context=self.pretrain_context,
+            buffer_fields=self.supported_buffer_fields,
             agent_expert=getattr(self, "expert_policy", None),
+            takes_expert_policy="expert_policy"
+            in inspect.signature(type(self).__init__).parameters,
             stores_expert_actions=self.stores_expert_actions,
         )
 
@@ -392,7 +445,10 @@ class ActorCritic:
         horizon = run_horizon(start, n_timesteps, total_timesteps)
 
         if logging_config is not None:
-            logging_config.config.update(self.config)
+            # A copy: the caller's config may serve another agent's run.
+            logging_config = dataclasses.replace(
+                logging_config, config={**logging_config.config, **self.config}
+            )
             self.run_ids = [new_run_id() for _ in range(len(seed))]
             for run_id, run_seed in zip(self.run_ids, seed, strict=False):
                 init_logging(run_id, logging_config, run_seed=int(run_seed))

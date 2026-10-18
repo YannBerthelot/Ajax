@@ -8,6 +8,7 @@ from ajax.agents.PPO.train_PPO import _force_reset, _normalisation_info
 from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import collect_experience, reset
 from ajax.networks.memory import MEMORY_KINDS, MemoryConfig, zeros_carry_like
+from ajax.networks.networks import get_initialized_actor_critic
 from tests.probing import readouts
 
 
@@ -111,3 +112,59 @@ def test_ppo_defaults_to_its_reference_log_std():
     args = PPO("Pendulum-v1").network_args
     assert args.log_std_state_independent and args.log_std_init == 0.0
     assert not args.clip_log_std_param
+
+
+def _gain(kernel) -> float:
+    """The gain of an orthogonal kernel: sqrt of its Gram matrix's diagonal,
+    after checking the Gram matrix is that times the identity."""
+    k = np.asarray(kernel)
+    gram = k.T @ k if k.shape[0] >= k.shape[1] else k @ k.T
+    gain2 = float(np.mean(np.diag(gram)))
+    np.testing.assert_allclose(gram, gain2 * np.eye(len(gram)), atol=1e-4 * gain2)
+    return float(np.sqrt(gain2))
+
+
+@pytest.mark.parametrize("memory", [None, MemoryConfig("gru", 16)], ids=["ff", "gru"])
+@pytest.mark.parametrize(
+    "env_id, continuous", [("CartPole-v1", False), ("Pendulum-v1", True)]
+)
+def test_ppo_starts_its_layers_as_baselines_ppo2(env_id, continuous, memory):
+    """Baselines' ppo2 @ea25b9e: hidden layers orthogonal with gain sqrt(2)
+    (common/models.py:96), the policy's output 0.01 (common/policies.py:49),
+    the value 1 (:63, a2c/utils.py:58), zero biases; the run config records
+    that init. Recurrent PPO's reference, PureJaxRL @31756b1, starts the
+    layers before its memory the same way (ppo_rnn.py:53-55) and keeps
+    flax's GRU (:35): recurrent kernels orthogonal with gain 1, per gate."""
+    from ajax.agents.PPO.PPO import PPO_HIDDEN_INIT
+
+    agent = PPO(env_id, memory=memory)
+    assert agent.config["encoder_kernel_init"] == PPO_HIDDEN_INIT
+    actor_state, critic_state = get_initialized_actor_critic(
+        jax.random.PRNGKey(0),
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+        continuous=continuous,
+        num_critics=1,
+    )
+    actor = actor_state.params["params"]
+    critic = jax.tree.map(lambda x: x[0], critic_state.params["params"]["ensemble"])
+    out = actor["mean"] if continuous else actor["model"]["layers_0"]
+    gains = {
+        "actor hidden 0": (actor["encoder"]["network"]["layers_0"], np.sqrt(2)),
+        "actor hidden 1": (actor["encoder"]["network"]["layers_2"], np.sqrt(2)),
+        "policy output": (out, 0.01),
+        "critic hidden 0": (critic["encoder"]["network"]["layers_0"], np.sqrt(2)),
+        "critic hidden 1": (critic["encoder"]["network"]["layers_2"], np.sqrt(2)),
+        "value": (critic["model"], 1.0),
+    }
+    for name, (layer, gain) in gains.items():
+        np.testing.assert_allclose(
+            _gain(layer["kernel"]), gain, rtol=1e-4, err_msg=name
+        )
+        np.testing.assert_array_equal(layer["bias"], 0.0, err_msg=name)
+    if memory is not None:
+        gru = actor["memory_cell"]["core"]["gru_0"]
+        for gate in ("hr", "hz", "hn"):
+            np.testing.assert_allclose(_gain(gru[gate]["kernel"]), 1.0, rtol=1e-4)

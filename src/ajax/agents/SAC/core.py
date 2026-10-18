@@ -249,10 +249,12 @@ def soft_actor_step(
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
     q_reduce: Callable[..., jax.Array] = jnp.min,
+    a_expert: Optional[jax.Array] = None,
 ) -> Tuple[S, Tuple[jax.Array, jax.Array, jax.Array]]:
     """One actor step on :func:`soft_policy_loss` plus the extensions'
-    actor-loss terms. Returns the state and ``(loss, log_probs, q)``, the
-    SAC loss before the extensions' terms."""
+    actor-loss terms, which also read ``a_expert``, the expert's stored
+    actions at the rows (None without an expert). Returns the state and
+    ``(loss, log_probs, q)``, the SAC loss before the extensions' terms."""
     # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
     # default partitionable threefry, so the agent's own draws are unchanged.
     rng, policy_key, ext_key = jax.random.split(agent_state.rng, 3)
@@ -276,6 +278,7 @@ def soft_actor_step(
             "pi_mean": pi.mean(),
             "actor_params": params,
             "actor_state": actor_state,
+            "a_expert": a_expert,
         }
         extra = extension_stack.fold_actor_loss(
             agent_state,

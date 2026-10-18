@@ -27,6 +27,7 @@ from ajax.agents.PQN.utils import compute_q_lambda_targets
 from ajax.environments.differentiable import with_transition_gradients
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import _action_bounds
+from ajax.networks.distributions import Squash
 from ajax.networks.networks import predict_value
 
 from . import agents, envs, oracles, runs
@@ -34,7 +35,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "5f817a573b2d"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "3e02966e3735"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -110,9 +111,9 @@ CASES["p0a-PPO"] = Case(
         Query("V(s0)", G3, {"uniform policy": G3 * 0.5, "no discount": 1.0}),
     ),
     _three_run("PPO"),
-    10_000,
-    (0.02, 0.068, 0.043),
-    note="at 5000 one seed read V(s1) 0.672; cert 32/32",
+    5000,
+    (0.02, 0.036, 0.02),
+    note="at its reference init 5000 qualifies; cert 32/32 (it read V(s1) 0.672)",
 )
 
 
@@ -291,15 +292,16 @@ Q9_WRONG = {
         "Q02: Q(lambda) scan runs forward": alias_value(16, forward=True),
     },
 }
-# PPO without gradient clipping: with the default 0.5 the legacy path's
+# PPO without gradient clipping: with the default 0.5 the flat path's
 # critic leaves the fixed point in transient spikes and no budget met the
 # rule (worst over 32 seeds 0.075 to 0.104); unclipped, 0.0002 from 625.
 _PPO9 = {"gae_lambda": L9, "max_grad_norm": None}
+_TIME9 = {"n_envs": 4, "num_minibatches": 2, "unroll_length": 32}  # whole rollouts
 Q9_CELLS: dict[
     str, tuple[str, int, float, dict]
-] = {  # n_envs 1 runs PPO's legacy path, 4 with 2 minibatches the other
+] = {  # n_envs 1 runs PPO's flat path, _TIME9 brax's time geometry
     "PPO": ("PPO", 625, 0.02, _PPO9),
-    "PPO-minibatch": ("PPO", 1250, 0.047, _PPO9 | {"n_envs": 4, "num_minibatches": 2}),
+    "PPO-minibatch": ("PPO", 1250, 0.023, _PPO9 | _TIME9),
     "PQN": ("PQN", 2500, 0.02, {"q_lambda": L9}),
 }
 
@@ -433,11 +435,11 @@ PILOT_CAL = {  # budget, tolerances in query order
     "SAC-discounting": (10_000, (0.093, 0.02)),
     "SAC-advantage": (5000, (0.333,)),
     "SAC-coupling": (5000, (0.333, 0.341, 0.329, 0.342)),
-    "PPO-value": (1250, (0.02,)),
-    "PPO-backprop": (1250, (0.059, 0.05)),
-    "PPO-discounting": (10_000, (0.077, 0.067)),
-    "PPO-advantage": (1250, (0.498,)),
-    "PPO-coupling": (1250, (0.5, 0.5, 0.486, 0.495)),
+    "PPO-value": (625, (0.065,)),
+    "PPO-backprop": (1250, (0.02, 0.02)),
+    "PPO-discounting": (5000, (0.02, 0.02)),
+    "PPO-advantage": (625, (0.5,)),
+    "PPO-coupling": (625, (0.5, 0.5, 0.309, 0.289)),
     "DQN-value": (1250, (0.02,)),
     "DQN-backprop": (1250, (0.02, 0.02)),
     "DQN-discounting": (1250, (0.02, 0.02)),
@@ -527,7 +529,7 @@ P1_CELLS: dict[str, tuple[str, str, int, dict]] = {  # agent, chain, budget, ove
     # q_lambda 0, a one-step bootstrap: at 0.65 fault (a)'s gap shrinks to 0.17.
     "PQN": ("PQN", "discrete", 5120, _ON | {"q_lambda": 0.0}),
     "PPO-continuous": ("PPO", "continuous", 16_384, _ON),
-    "PPO-discrete": ("PPO", "discrete", 2048, _ON),
+    "PPO-discrete": ("PPO", "discrete", 4096, _ON),
     "APO-discrete": ("APO", "discrete", 4096, _ON | {"n_steps": 64, "batch_size": 64}),
     "AVG": ("AVG", "continuous", 10_000, {"gamma": G, "n_envs": 1}),  # its defaults
     "SAC": ("SAC", "continuous", 5000, _ON),
@@ -628,8 +630,8 @@ P1_CASES = {  # cell, queries, tolerances (none for a live defect: half the gap)
     "SAC-running": ("SAC-running", (EVAL_C, Q_SOFT), (0.037, 0.075)),
     "ASAC": ("ASAC", (EVAL_A, ASAC_GAP), (0.02, 0.056)),
     "AVG": ("AVG", (EVAL_C,), (0.084,)),
-    "PPO-continuous": ("PPO-continuous", (V_CONTINUOUS,), (0.07,)),
-    "PPO-discrete": ("PPO-discrete", (V_DISCRETE,), (0.046,)),
+    "PPO-continuous": ("PPO-continuous", (V_CONTINUOUS,), (0.069,)),
+    "PPO-discrete": ("PPO-discrete", (V_DISCRETE,), (0.072,)),
     "DQN-c": ("DQN", (EVAL_D, Q_GREEDY, Q_A2), ()),
     "PQN-c": ("PQN", (EVAL_D, Q_A2), ()),
     "PQN-a": ("PQN", (Q_GREEDY,), ()),
@@ -889,8 +891,8 @@ def _q6_read(env_args: Any, n: R.Nets) -> dict:
     p = R.pi(n, 1.0)
     if isinstance(p, distrax.Categorical):
         return {"pi(best)": p.probs.reshape(-1)[0]}
-    if hasattr(p, "unsquashed_stddev"):  # the tanh-Gaussian's latent
-        mu_u, sigma_u = p.unsquashed_mean(), p.unsquashed_stddev()
+    if isinstance(p, Squash):  # the tanh-Gaussian's latent
+        mu_u, sigma_u = p.distribution.mean(), p.distribution.stddev()
         return {"mu_u": mu_u.reshape(()), "sigma_u": sigma_u.reshape(())}
     mu, sigma = _executed(p, env_args)
     if mu.shape[0] == 1:
@@ -936,9 +938,9 @@ Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
 Q6_CELLS: dict[str, tuple[str, str, float, float, int, tuple, dict]] = {
     # agent, bandit, c, learning rate, budget, tolerances (32/32 of 3000-3031),
     # overrides
-    "PPO-a": ("PPO", "a", 1.0, 4e-5, 80_000, (0.035,), {}),  # 40,000: 0.116; cert 31/32
+    "PPO-a": ("PPO", "a", 1.0, 4e-5, 80_000, (0.02,), {}),  # 40,000: 0.116; cert 32/32
     "APO-a": ("APO", "a", 1.0, 3e-4, 20_000, (0.023,), {}),
-    "PPO-b": ("PPO", "b", 2.0, STD_LR, 480_000, (0.05, 0.211), {}),  # 400,000: 0.107
+    "PPO-b": ("PPO", "b", 2.0, STD_LR, 480_000, (0.05, 0.209), {}),  # 400,000: 0.107
     # 400,000: 0.096, over half the gap to the averaged entropy's 0.834 there
     "PPO-b2": ("PPO", "b2", 2.0, STD_LR, 480_000, (0.053, 0.045), {}),
     "PPO-c": (  # 60,000 failed: 0.164
@@ -947,7 +949,7 @@ Q6_CELLS: dict[str, tuple[str, str, float, float, int, tuple, dict]] = {
         0.1,
         STD_LR,
         80_000,
-        (0.065,),
+        (0.066,),
         {"squash": True, "log_std_init": 0.5},
     ),
     "APO-c": ("APO", "c", 0.1, 3e-4, 80_000, (0.062,), {}),  # half the gap to 1.0

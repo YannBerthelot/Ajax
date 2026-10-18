@@ -94,7 +94,11 @@ cover a whole family:
 
 `sample(rng, n)` returns parameters with a leading axis of `n`, one system
 per parallel environment. Ajax's gymnax `reset` and `step` notice that axis
-and simulate each environment with its own system.
+and simulate each environment with its own system. APG trains on such
+parameters (its `system_class`, or a sample passed as `env_params`), and
+DreamerV3 and TDMPC2 take a sample as `env_params`. The other agents
+compile `env_params` into their collection step as a constant, so they take
+one system for every copy and refuse a sample when built.
 
 ## Tracking tasks: model-reference control
 
@@ -117,7 +121,10 @@ gymnax environment into such a task:
   M-RMSE. The error is computed from the observation the plant returns, so
   sensor noise on the plant (an
   [`ObservationNoiseWrapper`](environments.md#sensor-noise) under the task)
-  reaches the controller and the reward alike.
+  reaches the controller and the reward alike. On the step a plant episode
+  ends, the reward scores the plant's last output before its reset, and the
+  final observation a time limit bootstraps on is in the controller's view
+  too, so any agent can train on the task.
 
 All three are plain `jnp`, so the task stays differentiable when the plant
 is. `ajax.wrappers.InitialStateWrapper(env, fn)` sets each episode's initial

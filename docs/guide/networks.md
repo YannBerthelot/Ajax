@@ -26,7 +26,9 @@ state, _ = agent.train(seed=0, n_timesteps=2_048)
 ```
 
 The activations are `relu`, `tanh`, `leaky_relu`, `swish`, `silu` and `mish`;
-a callable works too. The agent adds its output heads after the hidden
+a callable works too. `"layernorm"` adds a LayerNorm where it stands, so
+`("256", "layernorm", "relu", "256", "layernorm", "relu")` is RLPD's critic
+(Ball et al., 2023). The agent adds its output heads after the hidden
 layers: the policy's mean and standard deviation, the value, the Q-values.
 DQN and PQN take a single `architecture` for their Q-network.
 
@@ -46,8 +48,9 @@ specifications: see [World models](world-models.md).
 ### Initialisers
 
 Kernels start from an orthogonal initialiser with gain 1 and biases from
-zero, except the policy's mean, whose kernel starts from
-`orthogonal(0.01)`, a near-zero first action (TD3's deterministic actor
+zero, except the policy's output layer (the mean, or the logits for
+discrete actions), whose kernel starts from `orthogonal(0.01)`: a near-zero
+first mean, or a near-uniform first policy (TD3's deterministic actor
 starts its last layer uniform in `±3e-3`, as DDPG does). Initialisers are
 named by string:
 
@@ -106,7 +109,29 @@ and `squash=True`.
 | `log_std_state_independent` | `True` | one learned log standard deviation per action dimension; `False` computes it from the observation |
 | `log_std_init` | `0.0` | the initial log standard deviation |
 | `mean_kernel_init` | `None`: `orthogonal(0.01)`, a near-zero first mean | the initialiser of the mean's output layer |
-| `squash` | `False` | `tanh` on the sampled action, with the matching log-probability correction |
+| `squash` | `False` | `tanh` on the sampled action, with the matching log-probability correction ([Squashing](#squashing)) |
+
+### Squashing
+
+SAC, TD3, REDQ, ASAC, AVG, APO and UDRL's continuous policy, and PPO's with
+`squash=True`, act through `tanh`, which keeps actions in `[-1, 1]`. The
+squashing is one wrapper, not an option of each head:
+`Squashed(actor)` wraps any actor, and its policy is `squash(pi)` of the
+actor's: `Squash(pi)` for a distribution, `tanh` of the action for TD3's
+deterministic one. `Squashed` shares the actor's parameters, so they are
+saved and read under the same names as the actor's alone.
+
+`Squash` (in `ajax.networks.distributions`) takes any distrax distribution,
+its latent, `pi.distribution`. Sampling and log-probabilities are exact.
+`log_prob(action)` inverts `tanh`, which float32 cannot do once the action
+rounds to ±1; `log_prob_from_raw(raw)` reads the pre-`tanh` sample instead,
+as PPO and APO do when they recompute a log-probability. Two quantities have
+no closed form: `mean()` is `tanh` of the latent's mean, the action the
+agent evaluates with, not the mean of the squashed action; `entropy(seed)`
+is a one-sample estimate, the latent's entropy plus the `tanh`
+log-det-Jacobian at a sample, as brax estimates it. The functions `latent`,
+`sample_with_raw`, `log_prob_from_raw` and `entropy` read any policy,
+squashed or not, so code that uses them works with both.
 
 ## Image observations
 
@@ -230,8 +255,9 @@ with longer training.
   the same way).
 - **`gains="observation"`** predicts the gains from the observation with an
   MLP of `architecture`, as gain scheduling does. Read them for given
-  observations with `actor.apply_fn(params, obs, method="gains")`, an array
-  of shape `(..., 3, action_dim, n_errors)`.
+  observations with `PIDActor(policy, action_dim).apply(params, obs,
+  method="gains")`, an array of shape `(..., 3, action_dim, n_errors)`;
+  the parameters of a squashed PID actor are the same.
 
 `n_errors` is the number of errors the wrapper tracks; with several, each
 action dimension gets its own gain on each error. The gains start at zero:

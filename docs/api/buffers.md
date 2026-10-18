@@ -7,4 +7,6 @@ R2D2-style. The world models keep their own replay
 
 ::: ajax.buffers.utils
 
+::: ajax.buffers.dataset
+
 ::: ajax.agents.recurrent

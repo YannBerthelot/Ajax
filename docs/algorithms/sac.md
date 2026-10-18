@@ -99,7 +99,7 @@ expert is written in the environment's units and receives the raw
 | `augment_obs_with_expert_action`, `augment_obs_with_expert_state` | `False` | append the expert's action or internal state to the observation |
 | `use_train_frac` | `False` | append the training fraction to the observation |
 | `target_entropy_initial_per_dim`, `target_entropy_ramp_frac` | `None`, `0.5` | move the target entropy linearly from this start to `target_entropy_per_dim` over that fraction of training |
-| `normalize_obs_running` | `False` | agent-side observation normalisation, which also covers the appended expert columns |
+| `normalize_obs_running` | `False` | `normalize_observations` under its old name: warns, and will be removed ([Environments](../guide/environments.md#normalisation)) |
 | `store_policy_action` | `False` | store the policy's sampled action in the replay instead of the executed one (an off-policy-correctness ablation) |
 
 Cloning the expert into the actor before training is the `CloningPretrain`

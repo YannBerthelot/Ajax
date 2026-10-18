@@ -28,12 +28,23 @@ class TD3(ActorCritic):
     """
 
     name: str = "TD3"
+    capabilities: frozenset = frozenset(
+        "actor critic_ensemble discounted "
+        "obs_networks off_policy q_critic replay".split()
+    )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",
         "actor_loss",
     }
+    pretrain_context: frozenset = frozenset("buffer env_args update".split())
+    extension_context: frozenset = frozenset(
+        "actor_optimizer_args buffer env_args expert_policy".split()
+    )
     supports_memory: bool = True
+    replays_transitions: bool = True
+    stores_expert_actions: bool = True
+    supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
     make_train = staticmethod(make_train)
 
     def __init__(
@@ -72,7 +83,9 @@ class TD3(ActorCritic):
         normalize_rewards: bool = False,
         reward_normalization_gamma: Optional[float] = None,
         # Expert for the CloningPretrain extension and the eval expert-bias
-        # metric; online BC is the ImitationLoss extension.
+        # metric; online BC is the ImitationLoss extension. Its actions,
+        # from its state along each trajectory, are stored for the
+        # extensions that read them.
         expert_policy: Optional[Callable] = None,
         # Collection-time action selection override (used downstream).
         action_pipeline: Optional[Callable] = None,

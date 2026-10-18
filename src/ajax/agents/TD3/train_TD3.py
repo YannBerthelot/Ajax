@@ -63,7 +63,7 @@ class ValueAuxiliaries:
     critic_loss: jax.Array
     target_q: jax.Array
     q_pred_min: jax.Array
-    q_gap: jax.Array  # mean |Q1 - Q2|
+    q_gap: jax.Array  # mean max - min over the critics: |Q1 - Q2| for two
     target_noise_clip_frac: jax.Array  # share of the target noise clipped
     grad_norm: jax.Array | float = jnp.nan  # as the policy's
 

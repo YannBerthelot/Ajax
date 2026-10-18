@@ -108,12 +108,12 @@ class APG(ActorCritic):
             lr_schedule: ``None`` (constant) or ``"warmup_cosine"``
                 (linear warmup over ``warmup_steps`` updates, cosine decay
                 to ``learning_rate * lr_end_fraction`` at the last update).
-            max_grad_norm: global-norm gradient clipping, on by default.
-                Deliberate deviation from the reference code (which does
-                not clip): BPTT over 100 steps of a nonlinear plant across
-                a system class diverged without it in our runs (the loss
-                rose 1.2 -> 1.7 M-RMSE within a stage) and was stable with
-                it. ``None`` disables.
+            max_grad_norm: global-norm gradient clipping, on by default:
+                BPTT over 100 steps of a nonlinear plant across a system
+                class diverged without it in our runs (the loss rose 1.2 ->
+                1.7 M-RMSE within a stage) and was stable with it. ``None``
+                disables, as :meth:`contextual_controller` does by default
+                (the reference code does not clip).
             actor_architecture: MLP encoder in front of the memory/output;
                 ``()`` for a linear embedding only (the paper's choice).
             memory: :class:`MemoryConfig` (or dict) for a memory-augmented
@@ -155,11 +155,15 @@ class APG(ActorCritic):
         self.env_args = self.env_args.replace(
             env=with_transition_gradients(self.env_args.env)
         )
+        # Adam's eps is torch's default, 1e-8, which the reference's AdamW
+        # keeps (buswayne/in-context-controller at 7eb094ce17:
+        # transformer_onestep_CL.py:86); Ajax's shared default is 1e-5.
         self.actor_optimizer_args = OptimizerConfig(
             learning_rate=learning_rate,
             max_grad_norm=max_grad_norm,
             beta_1=beta_1,
             beta_2=beta_2,
+            eps=1e-8,
             weight_decay=weight_decay,
         )
         self.agent_config: APGConfig = APGConfig(horizon=horizon)
@@ -195,6 +199,7 @@ class APG(ActorCritic):
         pid: Optional[PIDHeadConfig] = _DEFAULT_PID,
         beta_2: float = 0.95,
         lr_schedule: Optional[str] = "warmup_cosine",
+        max_grad_norm: Optional[float] = None,
         actor_architecture: Sequence[str] = (),
         **kwargs: Any,
     ) -> "APG":
@@ -202,13 +207,18 @@ class APG(ActorCritic):
 
         Defaults follow the paper (Table 2: 8 layers, 4 heads, context 100,
         width 128, ``b=1`` system per iteration, ``N=100`` horizon) and the
-        reference code (AdamW betas (0.9, 0.95), 5k-step warmup then
-        cosine decay to ``lr/10``). Deviations, each backed by runs on the
-        pendulum tracking test bed: actions are tanh-bounded (Ajax
-        convention; the reference leaves ``u`` unbounded), gradients are
-        clipped (see :class:`APG`), and the PID head starts at the
-        identity rather than the reference's all-ones coefficients (see
-        ``_DEFAULT_PID``). Not backed by runs: the LayerNorms, ``ln_f``
+        reference code (AdamW betas (0.9, 0.95), eps 1e-8, 5k-step warmup
+        then cosine decay to ``lr/10``, no gradient clipping). Deviations,
+        each backed by runs on the pendulum tracking test bed: actions are
+        tanh-bounded (Ajax convention; the reference leaves ``u``
+        unbounded), and the PID head starts at the identity rather than
+        the reference's all-ones coefficients (see ``_DEFAULT_PID``). Not
+        reproduced: the reference (buswayne/in-context-controller at
+        7eb094ce17) sets its scheduled rate on its first parameter group
+        only (``train_onestep_lin_CL.py:241``), so its LayerNorm weights
+        keep the peak rate, and decays only tensors of two or more
+        dimensions (``transformer_onestep_CL.py:72-77``; moot at
+        ``weight_decay=0``). Not backed by runs: the LayerNorms, ``ln_f``
         included, keep a bias and flax's epsilon 1e-6, where the reference's
         have no bias and epsilon 1e-5 (buswayne/in-context-controller at
         7eb094ce17: ``transformer_onestep.py:33`` calls ``F.layer_norm``
@@ -231,6 +241,7 @@ class APG(ActorCritic):
             beta_2=beta_2,
             lr_schedule=lr_schedule,
             warmup_steps=warmup_steps,
+            max_grad_norm=max_grad_norm,
             actor_architecture=actor_architecture,
             memory=MemoryConfig(
                 kind="transformer",

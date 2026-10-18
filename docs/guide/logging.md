@@ -78,8 +78,8 @@ but kept as NaN in the returned evaluations.
 ### Training diagnostics
 
 Beside its losses, each agent logs a few measures of how its updates go.
-Like the other training metrics, they are the last update's values; PPO
-and APO average theirs over the update's epochs and minibatches.
+Like the other training metrics, they are the last update's values; PPO,
+APO and PQN average theirs over the update's epochs and minibatches.
 
 | Name | Agents | Meaning |
 | --- | --- | --- |
@@ -88,6 +88,9 @@ and APO average theirs over the update's epochs and minibatches.
 | `value/explained_variance` | PPO, APO | `1 - Var[target - V] / Var[target]` over the minibatch: 1 for a critic that predicts its targets, 0 for one no better than their mean; NaN when the targets do not vary |
 | `policy/grad_norm`, `value/grad_norm` | PPO, APO | the global norm of each network's gradient, before clipping. PPO clips the two networks' gradients together (`max_grad_norm`): the clip acts when the norm of both, `sqrt(policy² + value²)`, exceeds it |
 | `value/value_bias`, `value/average_reward` | APO | the value bias `b` and the reward rate `rho` the update used |
+| `policy/epsilon` | DQN, PQN | the exploration rate of the epsilon-greedy schedule at the current timestep |
+| `value/abs_td_error` | DQN, PQN | the mean of `abs(Q(s, a) - target)` over the batch |
+| `value/grad_norm` | DQN, PQN | the global norm of the Q-network's gradient, before clipping |
 
 ### The value bias
 

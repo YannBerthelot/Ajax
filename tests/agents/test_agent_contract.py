@@ -169,6 +169,8 @@ _PG = ("policy/approx_kl", "policy/grad_norm", "value/explained_variance")
 DIAGNOSTICS: dict[str, tuple[str, ...]] = {
     "PPO": (*_PG, "value/grad_norm"),
     "APO": (*_PG, "value/grad_norm", "value/value_bias", "value/average_reward"),
+    "DQN": ("policy/epsilon", "value/abs_td_error", "value/grad_norm"),
+    "PQN": ("policy/epsilon", "value/abs_td_error", "value/grad_norm"),
 }
 
 

@@ -8,12 +8,15 @@ registered margin. AdaStop names the difference it detected, and the
 resolution is the smallest gap its budget detects 80% of the time.
 Speed is measured on the CPU, medians over batches.
 
-| Comparison | Verdict | Margin | Seeds | Reference | Ajax | Difference | AdaStop | Resolution |
-|---|---|---|---|---|---|---|---|---|
-| PPO | similar | ±25.0 | 96 | 493.8 | 485.5 | -8.4 [-22.0, +3.7] | none shown | 12.0 |
-| PPO-inverted_pendulum | similar | ±50.0 | 96 | 1000.0 | 1000.0 | +0.0 [+0.0, +0.0] | none shown | 0.0 |
-| PQN | similar | ±25.0 | 96 | 498.0 | 499.9 | +1.9 [-0.1, +4.7] | none shown | 0.0 |
-| PQN-Asterix | inconclusive | ±0.1 | 96 | 2.3 | 2.5 | +0.2 [+0.0, +0.3] | none shown | 0.2 |
+Each row reports its comparison's latest spec version, whose settings
+the [specifications](specs.md) list, and the Ajax commit it ran.
+
+| Comparison | Spec, Ajax | Verdict | Margin | Seeds | Reference | Ajax | Difference | AdaStop | Resolution |
+|---|---|---|---|---|---|---|---|---|---|
+| PPO | v1, c4aeac6 | similar | ±25 | 96 | 493.8 | 485.5 | -8.36 [-22, +3.73] | none shown | 12 |
+| PPO-inverted_pendulum | v1, df60228 | similar | ±50 | 96 | 1000 | 1000 | +0 [+0, +0] | none shown | 0 |
+| PQN | v1, 7938ae7 | similar | ±25 | 96 | 498 | 499.9 | +1.92 [-0.0527, +4.71] | none shown | 0.0084 |
+| PQN-Asterix | v1, f1c5012 | inconclusive | ±0.115 | 96 | 2.292 | 2.455 | +0.162 [+0.0287, +0.298] | none shown | 0.2 |
 
 ## Speed
 

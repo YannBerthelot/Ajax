@@ -185,8 +185,8 @@ state, aux = agent.train(seed=0, n_timesteps=8 * 100 * 200)  # 200 updates
 print(aux.m_rmse[0, 0], aux.m_rmse[0, -1])  # (seeds, updates): falls from about 1.7 to 0.45
 ```
 
-`train` always returns every update's `loss`, `matching_loss`, `m_rmse` and
-`timestep`, with a seed axis first. With a `logging_config`, it also
+`train` always returns every update's `loss`, `matching_loss`, `m_rmse`,
+`grad_norm` and `timestep`, with a seed axis first. With a `logging_config`, it also
 evaluates on freshly drawn systems every `log_frequency` steps. The
 [APG page](../algorithms/apg.md) lists every hyperparameter.
 

@@ -265,31 +265,31 @@ says where each extension does its job. "SAC with an expert" means
 | `OnlineBC` | Pulls the actor's mean action towards the expert's, weighted by `φ*`'s value at each state, fading to zero over the first `critic_warmup_frac` of training. | `actor_loss` | SAC with an expert and `MCPretrain` |
 | `ImitationLoss` | Adds `coef · mean((μ(s) − a_E(s))²) / 4`, the behaviour-cloning term of TD3+BC, towards a fixed expert it holds. When that expert is the agent's `expert_policy`, it reads the actions the agent stored, so the expert may be stateful. With `anneal_frac`, its weight falls linearly to 0 at that fraction of training (kickstarting). With `q_filter=True` a row counts only where the critic rates the expert's action above the policy's (Q-filtered BC), and evaluations log the share of a replay batch it keeps (`imitation/q_filter_frac`; not on AVG, which keeps no replay). | `actor_loss`, `eval_metrics` | SAC, TD3, REDQ, ASAC, AVG, APO, and PPO, APG and UDRL with a stateless expert (they take none); a discrete policy has no mean action and raises (no cross-entropy form yet). `q_filter=True`: SAC, TD3, REDQ, ASAC and AVG, without `ResidualPolicy`; refused where the critic rates states, not actions (PPO, APO), or there is none (APG, UDRL) |
 | `ResidualPolicy` | Executes `clip(a_E + scale · a_π, −1, 1)`: the policy learns a correction on top of the expert. | `transform_action` | SAC with an expert, without `use_pid_policy` |
-| `JSRLCurriculum` | The expert acts for the first `H_t` steps of each episode, the policy afterwards; `H_t` shrinks from `episode_length` to 0 over `decay_frac` of training. | `action` | SAC with an expert |
+| `JSRLCurriculum` | The expert acts for the first `H_t` steps of each episode, the policy afterwards; `H_t` shrinks from `episode_length` to 0 over `decay_frac` of training. Logs `jsrl/horizon` and `jsrl/expert_frac`. | `action`, `eval_metrics` | SAC with an expert |
 | `ExpertValueMetrics` | Logs the critic's value at the expert's actions (`value/q_expert_mean`), its gap to the value of the actions taken (`value/q_gap`) and, with `MCPretrain`, its gap to `φ*` (`value/phi_star_q_gap_ood`), on one replay batch per evaluation. | `eval_metrics` | SAC, TD3, REDQ, ASAC with an expert |
 
 **Exploration** (`ajax.extensions.exploration`)
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `EDGEExploration` | Lets the expert act in place of the policy, step by step, as a gate (`gate=`) decides. `"fixed"`: with probability `fixed_prob`; `"argmax"`: whenever the critic rates the expert's action higher; `"boltzmann"`: with a probability that grows with that gap. These three fade out over `decay_frac` of training. `"lcb"`, `"argmax_lcb"` and `"thompson"` also weigh the critics' disagreement. Logs `edge/live_expert_frac`. | `action`, `eval_metrics` | SAC with an expert |
+| `EDGEExploration` | Lets the expert act in place of the policy, step by step, as a gate (`gate=`) decides. `"fixed"`: with probability `fixed_prob`; `"argmax"`: whenever the critic rates the expert's action higher; `"boltzmann"`: with a probability that grows with that gap. These three fade out over `decay_frac` of training. `"lcb"`, `"argmax_lcb"` and `"thompson"` also weigh the critics' disagreement. Logs `edge/live_expert_frac` and its gate's schedule (`edge/decay` or `edge/beta`). | `action`, `eval_metrics` | SAC with an expert |
 
 **Changing the critic's target** (`ajax.extensions.target_mods`)
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
 | `IBRL` | Adds `γ(1 − d) · max(Q(s′, a_E) − Q(s′, a′), 0)` to the target, so the values match acting with whichever of expert and policy looks better. | `on_target` | SAC, TD3, REDQ, AVG; refused on an average-reward target (ASAC, APO), which has no discount for the bonus |
-| `LCBGatedBootstrap` | Blends the policy's and the expert's next-action values in the target, weighted by a sigmoid of their pessimistic (lower-confidence-bound) scores. | `on_target` | SAC, TD3, REDQ, AVG; refused on an average-reward target (ASAC, APO) |
-| `CriticBlend` | Blends the target with a one-step target on `φ*`, `(1 − α) y + α y_E`, with `α` falling from 1 to 0 over `critic_warmup_frac`. | `on_target` | SAC with `MCPretrain` |
+| `LCBGatedBootstrap` | Blends the policy's and the expert's next-action values in the target, weighted by a sigmoid of their pessimistic (lower-confidence-bound) scores. Logs its pessimism `lcb_bootstrap/beta`. | `on_target`, `eval_metrics` | SAC, TD3, REDQ, AVG; refused on an average-reward target (ASAC, APO) |
+| `CriticBlend` | Blends the target with a one-step target on `φ*`, `(1 − α) y + α y_E`, with `α` falling from 1 to 0 over `critic_warmup_frac`. Logs `α` as `critic_blend/expert_weight`. | `on_target`, `eval_metrics` | SAC with `MCPretrain` |
 | `MCVarianceCorrection` | Where the critics disagree by more than `threshold` (variance), uses `φ*`'s value as the target. | `on_target` | SAC with `MCPretrain` |
-| `ValueBox` | Lets the expert act where its value under `φ*` exceeds a threshold that rises from the lowest to the highest expert value over training. | `action` | SAC with an expert and `MCPretrain` |
+| `ValueBox` | Lets the expert act where its value under `φ*` exceeds a threshold that rises from the lowest to the highest expert value over training. Logs `value_box/threshold`, `value_box/in_box_frac` and `value_box/expert_frac`. | `action`, `eval_metrics` | SAC with an expert and `MCPretrain` |
 
 **Pre-training** (`ajax.extensions.pretrain`)
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
 | `CloningPretrain` | Rolls the expert out for `n_steps` steps per copy and trains the actor to reproduce its actions (`epochs` passes in batches of `batch_size`, at the actor's learning rate); the agent's observation statistics start from the dataset's. | `pretrain` | SAC, TD3, REDQ, APO (other agents raise when training starts) |
-| `MCPretrain` | Rolls the expert out, fits `φ*` to its Monte-Carlo returns, records its value range, and by default nudges the agent's own critic towards it. | `pretrain` | SAC (other agents raise when training starts) |
+| `MCPretrain` | Rolls the expert out, fits `φ*` to its Monte-Carlo returns, records its value range, and by default nudges the agent's own critic towards it. Logs the range, `mc_pretrain/v_min` and `mc_pretrain/v_max`. | `pretrain`, `eval_metrics` | SAC (other agents raise when training starts) |
 | `BellmanPretrain` | Runs `n_steps` ordinary critic updates on the replay buffer, which holds the expert's prefill, before training. Its values bootstrap from an untrained critic; kept for ablations. | `pretrain` | SAC with an expert |
 | `PhiRefresh` | Every `interval` steps, refits `φ*` for `steps` updates on the replay rows where the expert acted. | `post_update` | SAC with an expert and `MCPretrain` |
 | `PriorData` | Adds a transition dataset (`ajax.buffers.dataset`) to the replay, where it stays, and to the observation and reward statistics, then runs `offline_updates` of the agent's own update on it before acting. Pair it with `learning_starts=0`. | `pretrain` | SAC, TD3, REDQ, ASAC, DQN (other agents raise when training starts) |

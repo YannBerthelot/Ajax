@@ -163,6 +163,23 @@ CASES = {
 }
 AGENTS = pytest.mark.parametrize("name", sorted(CASES))
 
+_PG = ("policy/approx_kl", "policy/grad_norm", "value/explained_variance")
+#: Training diagnostics each agent logs (docs/guide/logging.md), finite at
+#: every evaluation of a run that updates.
+DIAGNOSTICS: dict[str, tuple[str, ...]] = {
+    "PPO": (*_PG, "value/grad_norm"),
+    "APO": (*_PG, "value/grad_norm", "value/value_bias", "value/average_reward"),
+    "DQN": ("policy/epsilon", "value/abs_td_error", "value/grad_norm"),
+    "PQN": ("policy/epsilon", "value/abs_td_error", "value/grad_norm"),
+    "SAC": ("policy/grad_norm", "value/grad_norm"),
+    "TD3": (
+        "policy/grad_norm",
+        "value/grad_norm",
+        "value/q_gap",
+        "value/target_noise_clip_frac",
+    ),
+}
+
 
 @pytest.mark.parametrize(
     "name, env_id", [(n, e) for n in sorted(CASES) for e in CASES[n].envs]
@@ -245,6 +262,8 @@ def test_a_run_folds_its_extensions_and_keeps_its_rollout(name: str) -> None:
     evaluated = np.asarray(out["timestep"]) >= 0
     assert evaluated.any(axis=1).all()
     np.testing.assert_array_equal(np.asarray(out[METRIC])[evaluated], 1.0)
+    for metric in DIAGNOSTICS.get(name, ()):
+        assert np.isfinite(np.asarray(out[metric])[evaluated]).all(), metric
     if case.rollout is None:
         assert state.last_rollout is None
         return

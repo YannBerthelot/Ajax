@@ -15,6 +15,7 @@ own code is the LayerNorm network, the Q(lambda) target, and this
 on-policy training loop.
 """
 
+import functools
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple
 
@@ -24,7 +25,9 @@ import jax.numpy as jnp
 from ajax.agents.DQN.networks import predict_q, q_network_value
 from ajax.agents.DQN.train_DQN import (
     AuxiliaryLogs,
+    PolicyAuxiliaries,
     init_DQN,
+    linear_epsilon,
     make_epsilon_greedy_pipeline,
     mse_td_loss,
     q_gradient_step,
@@ -53,10 +56,12 @@ def update_agent(
     td_loss_fn: Callable,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    epsilon_schedule: Callable[[Any], jax.Array],
 ) -> Tuple[PQNState, AuxiliaryLogs]:
     """One PQN update on an ``(n_steps, n_envs)`` rollout: Q(lambda)
     targets bootstrapped on the current network (no target network), then
-    ``n_epochs`` epochs of TD steps, the rollout reshuffled each epoch."""
+    ``n_epochs`` epochs of TD steps, the rollout reshuffled each epoch;
+    also logs ``epsilon_schedule`` at the collector's timestep."""
     next_q = predict_q(
         agent_state.actor_state,
         agent_state.actor_state.params,
@@ -137,7 +142,10 @@ def update_agent(
     # (n_epochs, num_minibatches, ...) -> one (1,) value per metric.
     value_aux = jax.tree.map(lambda x: x.mean().reshape((1,)), value_aux)
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
-    return agent_state, AuxiliaryLogs(value=value_aux)
+    epsilon = epsilon_schedule(agent_state.collector_state.timestep).reshape((1,))
+    return agent_state, AuxiliaryLogs(
+        value=value_aux, policy=PolicyAuxiliaries(epsilon=epsilon)
+    )
 
 
 def make_train(
@@ -173,6 +181,13 @@ def make_train(
     )
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
+    epsilon_schedule = functools.partial(
+        linear_epsilon,
+        total_timesteps=total_timesteps,
+        epsilon_start=epsilon_start,
+        epsilon_end=epsilon_end,
+        epsilon_decay_frac=epsilon_decay_frac,
+    )
 
     def init(key: jax.Array) -> PQNState:
         return init_DQN(
@@ -189,7 +204,13 @@ def make_train(
         agent_state: PQNState, rollout: Transition, _start: PQNState
     ) -> Tuple[PQNState, AuxiliaryLogs]:
         return update_agent(
-            agent_state, rollout, agent_config, td_loss_fn, loop.stack, total_timesteps
+            agent_state,
+            rollout,
+            agent_config,
+            td_loss_fn,
+            loop.stack,
+            total_timesteps,
+            epsilon_schedule,
         )
 
     action_pipeline = make_epsilon_greedy_pipeline(

@@ -249,7 +249,7 @@ def update_value_functions(
         )
 
     # ASAC is average-reward: no gamma, None tells the extensions so.
-    critic_state, aux = critic_step(
+    critic_state, aux, _ = critic_step(
         agent_state,
         batch,
         target_q,

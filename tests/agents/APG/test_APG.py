@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 import pytest
 from gymnax import make as make_gymnax_env
 
@@ -121,6 +122,27 @@ class _FixedStepReference(StepReference):
     def sample(self, rng):
         del rng
         return StepReference.sample(self, jax.random.PRNGKey(0))
+
+
+def test_an_update_logs_its_gradient_norm_before_the_clip(default_run):
+    """The first update's norm is that of the matching loss's gradient at
+    the initial controller, on the rollout key the update draws."""
+    agent, sc, _, aux = default_run
+    init_key = jax.random.split(jax.random.PRNGKey(0))[0]  # fresh_state's
+    args = (agent.env_args, agent.actor_optimizer_args, agent.network_args)
+    state = init_APG(init_key, *args, agent.pid, agent.squash)
+    roll_key = jax.random.split(state.rng, 3)[1]
+
+    def loss(params):
+        returns, _ = rollout_returns(
+            state, params, roll_key, agent.env_args, sc, HORIZON, N_ENVS
+        )
+        return -returns.mean()
+
+    grads = jax.grad(loss)(state.actor_state.params)
+    expected = float(optax.global_norm(grads))
+    np.testing.assert_allclose(aux.grad_norm[0, 0], expected, rtol=1e-4)
+    assert expected > agent.actor_optimizer_args.max_grad_norm  # the clip binds
 
 
 def test_training_reduces_matching_loss():

@@ -246,7 +246,7 @@ def update_value_functions(
             carries,
         )
 
-    critic_state, aux = critic_step(
+    critic_state, aux, _ = critic_step(
         agent_state,
         batch,
         target_q,

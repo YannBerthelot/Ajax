@@ -239,7 +239,8 @@ on `TrainLoop.train`, and evaluates its command-conditioned policy every
 
 Two helpers serve the replay agents: `gradient_step(train_state, loss_fn)`,
 one optimiser step, and `critic_step(...)`, a replay critic step that folds
-the extensions' `on_target` and `critic_loss` phases. TD3, REDQ, ASAC and AVG
+the extensions' `on_target` and `critic_loss` phases. Both also return the
+gradients' global norm, before the optimiser clips them. TD3, REDQ, ASAC and AVG
 use `critic_step`; SAC builds its own critic step, with the same folds.
 
 ## Agent state

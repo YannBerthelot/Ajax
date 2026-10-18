@@ -20,6 +20,7 @@ Differences from the SAC/TD3 template in this codebase:
     one mechanism, no boolean flag.
 """
 
+import functools
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple
 
@@ -61,6 +62,15 @@ class ValueAuxiliaries:
     critic_loss: jax.Array
     target_q: jax.Array
     q_pred_mean: jax.Array
+    abs_td_error: jax.Array
+    # The loss builds these metrics before the gradient exists; the step
+    # fills it in.
+    grad_norm: jax.Array | float = jnp.nan
+
+
+@struct.dataclass
+class PolicyAuxiliaries:
+    epsilon: jax.Array
 
 
 @struct.dataclass
@@ -68,6 +78,22 @@ class AuxiliaryLogs:
     # Nested one level deep so ajax.log.flatten_dict names the metrics
     # ``value/<field>``, as the other agents' auxiliaries are named.
     value: ValueAuxiliaries
+    policy: PolicyAuxiliaries
+
+
+def linear_epsilon(
+    timestep: jax.Array | int,
+    total_timesteps: int,
+    epsilon_start: float,
+    epsilon_end: float,
+    epsilon_decay_frac: float,
+) -> jax.Array:
+    """Epsilon at ``timestep``: linear from ``epsilon_start`` to
+    ``epsilon_end`` over the first ``epsilon_decay_frac`` of training, then
+    flat."""
+    train_frac = timestep / total_timesteps
+    decay = jnp.clip(train_frac / epsilon_decay_frac, 0.0, 1.0)
+    return epsilon_start + decay * (epsilon_end - epsilon_start)
 
 
 def linear_epsilon(
@@ -269,6 +295,7 @@ def q_loss_fn(
         critic_loss=loss.flatten(),
         target_q=target_q.mean().flatten(),
         q_pred_mean=q_taken.mean().flatten(),
+        abs_td_error=jnp.abs(q_taken - target_q).mean().flatten(),
     )
     return loss, aux
 
@@ -286,7 +313,7 @@ def q_gradient_step(
     """One step of the Q-network (``agent_state.actor_state``) down the TD
     loss plus the extensions' critic-loss terms, folded on ``key`` (drawn
     for them alone; ``None`` without extensions). Returns the stepped
-    Q-network and the loss's metrics."""
+    Q-network and the loss's metrics, with the gradients' norm."""
     q_state = agent_state.actor_state
 
     def loss_fn(params: Any) -> Tuple[jax.Array, ValueAuxiliaries]:
@@ -312,7 +339,8 @@ def q_gradient_step(
             )
         return loss, aux
 
-    return gradient_step(q_state, loss_fn)
+    q_state, aux, grad_norm = gradient_step(q_state, loss_fn)
+    return q_state, aux.replace(grad_norm=grad_norm)
 
 
 @partial(
@@ -327,6 +355,7 @@ def q_gradient_step(
         "td_loss_fn",
         "extension_stack",
         "total_timesteps",
+        "epsilon_schedule",
     ],
 )
 def update_agent(
@@ -341,7 +370,11 @@ def update_agent(
     td_loss_fn: Callable,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    epsilon_schedule: Callable[[Any], jax.Array],
 ) -> Tuple[DQNState, AuxiliaryLogs]:
+    """One gradient step on a replay batch, and the target network's
+    update every ``target_update_interval`` steps; also logs
+    ``epsilon_schedule`` at the collector's timestep."""
     sample_key, rng = jax.random.split(agent_state.rng)
     agent_state = agent_state.replace(rng=rng)
 
@@ -414,7 +447,10 @@ def update_agent(
         actor_state=q_state,
         n_updates=agent_state.n_updates + 1,
     )
-    return agent_state, AuxiliaryLogs(value=value_aux)
+    epsilon = epsilon_schedule(agent_state.collector_state.timestep)
+    return agent_state, AuxiliaryLogs(
+        value=value_aux, policy=PolicyAuxiliaries(epsilon=epsilon)
+    )
 
 
 def make_train(
@@ -454,6 +490,13 @@ def make_train(
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_target_fn = td_target_fn if td_target_fn is not None else compute_dqn_td_target
     td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
+    epsilon_schedule = functools.partial(
+        linear_epsilon,
+        total_timesteps=total_timesteps,
+        epsilon_start=epsilon_start,
+        epsilon_end=epsilon_end,
+        epsilon_decay_frac=epsilon_decay_frac,
+    )
 
     def init(key: jax.Array) -> DQNState:
         return init_DQN(
@@ -479,6 +522,7 @@ def make_train(
             td_loss_fn=td_loss_fn,
             extension_stack=loop.stack,
             total_timesteps=total_timesteps,
+            epsilon_schedule=epsilon_schedule,
         )
         # Carry-only scan: only the final-step aux is materialised.
         return final_aux_scan(

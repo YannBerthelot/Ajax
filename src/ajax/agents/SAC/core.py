@@ -37,6 +37,7 @@ class CoreCriticAux:
     critic_loss: jax.Array
     q_pred_min: jax.Array
     var_preds: jax.Array
+    q_gap: jax.Array  # mean (max - min) over the critics: |Q1 - Q2| for two
 
 
 @struct.dataclass
@@ -209,6 +210,7 @@ def critic_loss_fn(
         critic_loss=total_loss,
         q_pred_min=q_pred_min.mean().flatten(),
         var_preds=var_preds.mean().flatten(),
+        q_gap=(jnp.max(q_preds, axis=0) - q_pred_min).mean().flatten(),
     )
 
 
@@ -290,7 +292,7 @@ def soft_actor_step(
         )
         return loss + extra, (loss, log_probs, q)
 
-    actor_state, out = gradient_step(actor_state, loss_fn)
+    actor_state, out, _ = gradient_step(actor_state, loss_fn)
     return agent_state.replace(rng=rng, actor_state=actor_state), out
 
 

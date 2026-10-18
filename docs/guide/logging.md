@@ -65,7 +65,8 @@ Extensions add their own, such as `ConditioningMetrics`'s
 `Cond/critic_srank`. UDRL logs `timestep`, its training metrics
 (`Train/episodic mean reward`, `Train/actor_loss`, `Train/mean_rtg`,
 `Train/mean_horizon`, `Train/n_completed_episodes`), its evaluation's return,
-entropy and length, and its extensions' metrics. The world models log their
+entropy and length, the command the evaluation starts from (below), and its
+extensions' metrics. The world models log their
 own sets: see their pages.
 
 Each evaluation runs on episodes of its own: their initial states and noise
@@ -74,6 +75,44 @@ Returns are in the environment's units even when the agent normalises
 rewards. A metric that is NaN (an agent that has not started updating yet,
 an expert metric without an expert) is dropped from W&B and TensorBoard,
 but kept as NaN in the returned evaluations.
+
+### Training diagnostics
+
+Beside its losses, each agent logs a few measures of how its updates go.
+Like the other training metrics, they are the last update's values; PPO,
+APO and PQN average theirs over the update's epochs and minibatches.
+
+| Name | Agents | Meaning |
+| --- | --- | --- |
+| `policy/approx_kl` | PPO, APO | the mean of `(r - 1) - log r`, `r` the ratio of the new policy's probability of each action to the old one's: an estimate of how far an update moved the policy, as CleanRL and Stable-Baselines3 log it |
+| `policy/policy_std` | PPO, APO | the mean standard deviation of the policy's Gaussian, before any squashing (SAC logs the same); NaN for a discrete policy |
+| `value/explained_variance` | PPO, APO | `1 - Var[target - V] / Var[target]` over the minibatch: 1 for a critic that predicts its targets, 0 for one no better than their mean; NaN when the targets do not vary |
+| `policy/grad_norm`, `value/grad_norm` | PPO, APO | the global norm of each network's gradient, before clipping. PPO clips the two networks' gradients together (`max_grad_norm`): the clip acts when the norm of both, `sqrt(policy² + value²)`, exceeds it |
+| `value/value_bias`, `value/average_reward` | APO | the value bias `b` and the reward rate `rho` the update used |
+| `policy/epsilon` | DQN, PQN | the exploration rate of the epsilon-greedy schedule at the current timestep |
+| `value/abs_td_error` | DQN, PQN | the mean of `abs(Q(s, a) - target)` over the batch |
+| `value/grad_norm` | DQN, PQN | the global norm of the Q-network's gradient, before clipping |
+| `policy/grad_norm`, `value/grad_norm` | SAC, TD3 | the global norm of the actor's and the critics' gradients, before clipping. TD3 logs 0 for the actor on the updates its `policy_delay` skips |
+| `value/q_gap` | TD3 | the mean over the batch of the critics' spread, the largest value minus the smallest (`abs(Q1(s, a) - Q2(s, a))` for the default twin critics): how far they disagree |
+| `value/target_noise_clip_frac` | TD3 | the share of the target policy's noise samples that the clip to `±target_noise_clip` changed |
+| `Train/grad_norm` | APG | the global norm of the controller's gradient, before clipping (`max_grad_norm`) |
+| `Eval/commanded return`, `Eval/commanded horizon` | UDRL | the return and horizon each evaluation episode is commanded with at its start, to set beside the return and length it achieves; in normalised units when rewards are normalised |
+
+### Extension metrics
+
+The expert-guided extensions log their schedules and how often the expert
+acts, read from the agent state at each evaluation:
+
+| Name | Extension | Meaning |
+| --- | --- | --- |
+| `edge/live_expert_frac` | `EDGEExploration` | the share of envs the expert drove on the last collection step |
+| `edge/decay`, `edge/beta` | `EDGEExploration` | the gate's schedule: the decay (`"fixed"`, `"argmax"`, `"boltzmann"`) or the LCB pessimism (`"lcb"`, `"argmax_lcb"`); the `"thompson"` gate has none |
+| `jsrl/horizon`, `jsrl/expert_frac` | `JSRLCurriculum` | the guide horizon `H_t`, and the share of envs the expert drove on the last collection step |
+| `lcb_bootstrap/beta` | `LCBGatedBootstrap` | the LCB pessimism `β` |
+| `critic_blend/expert_weight` | `CriticBlend` | the weight `α` of the expert's target in the blend |
+| `value_box/threshold` | `ValueBox` | the expert value above which the expert acts |
+| `value_box/in_box_frac`, `value_box/expert_frac` | `ValueBox` | the shares of envs inside the box and driven by the expert on the last collection step |
+| `mc_pretrain/v_min`, `mc_pretrain/v_max` | `MCPretrain` | the expert's value range, which `ValueBox`'s threshold runs between |
 
 ### The value bias
 

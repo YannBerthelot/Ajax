@@ -51,7 +51,8 @@ print(aux.matching_loss[:, ::20])  # minus the closed-loop return
 
 `train` returns `(state, aux)` whatever the logging: `aux` holds every
 update's `loss`, `matching_loss` (minus the mean closed-loop return),
-`m_rmse` and `timestep`. With a `logging_config`, every `log_frequency` steps
+`m_rmse`, `grad_norm` (the gradient's global norm, before clipping) and
+`timestep`. With a `logging_config`, every `log_frequency` steps
 it also evaluates the controller on `num_episode_test` systems, drawn
 afresh at each evaluation, and sends `Eval/episodic mean reward` and
 `Eval/m_rmse` to the logging backend. `aux.evaluations` then holds what each

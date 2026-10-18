@@ -217,9 +217,24 @@ def test_gradient_step_applies_the_loss_gradient() -> None:
     def loss_fn(p):
         return p["w"] ** 2, {"w": p["w"]}
 
-    stepped, aux = gradient_step(train_state, loss_fn)
+    stepped, aux, grad_norm = gradient_step(train_state, loss_fn)
     assert float(stepped.params["w"]) == 3.0 - 0.5 * 6.0
     assert float(aux["w"]) == 3.0 and int(stepped.step) == 1
+    assert float(grad_norm) == 6.0
+
+
+def test_gradient_step_reports_the_norm_before_the_clip() -> None:
+    """The norm is the raw gradients': an optimiser that clips them to 1
+    steps by 1, and the reported norm stays 6."""
+    params = {"w": jnp.asarray(3.0), "v": jnp.asarray(0.0)}
+    tx = optax.chain(optax.clip_by_global_norm(1.0), optax.sgd(1.0))
+    train_state = TrainState.create(apply_fn=None, params=params, tx=tx)
+
+    def loss_fn(p):
+        return p["w"] ** 2 + 0.0 * p["v"], None
+
+    stepped, _, grad_norm = gradient_step(train_state, loss_fn)
+    assert float(stepped.params["w"]) == 2.0 and float(grad_norm) == 6.0
 
 
 # --- Where a replayed target stops bootstrapping ------------------------------
@@ -254,7 +269,7 @@ def test_the_extensions_see_the_cuts_the_target_used() -> None:
     def value_loss(params, target_q):
         return jnp.mean((params["w"] - target_q) ** 2), target_q
 
-    _, seen = critic_step(
+    _, seen, grad_norm = critic_step(
         state,
         _ENDS,
         jnp.zeros((4, 1)),
@@ -268,6 +283,8 @@ def test_the_extensions_see_the_cuts_the_target_used() -> None:
         reward_scale=1.0,
     )
     np.testing.assert_array_equal(seen[:, 0], [0, 0, 1, 1])
+    # d/dw mean((w - target)^2) at w = 0 on the target [0, 0, 1, 1]: -1.
+    assert float(grad_norm) == 1.0
 
 
 # --- Evaluations without a logging backend -----------------------------------

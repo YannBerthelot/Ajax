@@ -441,6 +441,10 @@ class JSRLCurriculum(Extension):
     pipeline still owns the ``step_in_episode`` increment/reset (in
     :func:`collect_experience`). It writes ``_jsrl_use_expert`` back, which
     the pipeline reads to flag the steps the expert took.
+
+    Evaluations log the guide horizon ``H_t`` (``jsrl/horizon``) and the
+    share of envs the expert drove on the last collection step
+    (``jsrl/expert_frac``).
     """
 
     episode_length: int = 1000
@@ -463,11 +467,7 @@ class JSRLCurriculum(Extension):
         post_warmup_action = obs["post_warmup_action"]
         expert_action = obs["expert_action"]
 
-        total_timesteps = max(int(ctx.total_steps), 1)
-        global_t = agent_state.collector_state.timestep
-        train_frac = global_t / jnp.maximum(total_timesteps, 1)
-        curriculum_progress = jnp.clip(train_frac / self.decay_frac, 0.0, 1.0)
-        H_t = self.episode_length * (1.0 - curriculum_progress)
+        H_t = self.horizon(agent_state.collector_state.timestep, ctx.total_steps)
         step_in_ep = agent_state.collector_state.step_in_episode
         use_expert_jsrl = step_in_ep.astype(jnp.float32) < H_t
         use_expert_jsrl = use_expert_jsrl.reshape(
@@ -476,6 +476,24 @@ class JSRLCurriculum(Extension):
         # The pipeline flags the steps the expert took (is_expert_flag).
         obs["_jsrl_use_expert"] = use_expert_jsrl
         return jnp.where(use_expert_jsrl, expert_action, post_warmup_action)
+
+    def horizon(self, timestep: Any, total_steps: int) -> jax.Array:
+        """``H_t``: ``episode_length`` at the start, falling linearly to 0 at
+        ``decay_frac`` of the run."""
+        total_timesteps = max(int(total_steps), 1)
+        train_frac = timestep / jnp.maximum(total_timesteps, 1)
+        curriculum_progress = jnp.clip(train_frac / self.decay_frac, 0.0, 1.0)
+        return self.episode_length * (1.0 - curriculum_progress)
+
+    def eval_metrics(
+        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+    ) -> dict:
+        del ext_state, rng
+        collector = agent_state.collector_state
+        return {
+            "jsrl/horizon": self.horizon(collector.timestep, ctx.total_steps),
+            "jsrl/expert_frac": collector.last_expert_frac,
+        }
 
 
 __all__ = [

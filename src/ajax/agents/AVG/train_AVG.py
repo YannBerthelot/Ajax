@@ -263,7 +263,7 @@ def update_value_functions(
             agent_state.scaling_coef,
         )
 
-    critic_state, aux = critic_step(
+    critic_state, aux, _ = critic_step(
         agent_state,
         transition,
         target_q,
@@ -328,7 +328,7 @@ def update_policy(
         )
         return loss + extra, aux
 
-    actor_state, aux = gradient_step(actor_state, loss_fn)
+    actor_state, aux, _ = gradient_step(actor_state, loss_fn)
     return agent_state.replace(actor_state=actor_state), aux
 
 

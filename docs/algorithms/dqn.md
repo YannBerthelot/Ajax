@@ -5,7 +5,7 @@ them. It regresses the Q-network on temporal-difference targets computed
 with a separate target network, refreshed every few hundred updates, and
 samples its training data from a replay buffer. It explores with an
 epsilon-greedy rule whose epsilon decays linearly during training. Double
-DQN, the dueling network and the Huber loss are options of the same agent.
+DQN, the dueling network and the squared loss are options of the same agent.
 
 **Papers.** Mnih et al., *Human-level control through deep reinforcement
 learning*, Nature 2015. Options: van Hasselt et al., *Deep Reinforcement
@@ -42,13 +42,13 @@ The variants compose through three arguments:
 ```python
 from ajax import DQN
 from ajax.agents.DQN.networks import DuelingQNetwork
-from ajax.agents.DQN.train_DQN import compute_double_dqn_td_target, make_huber_td_loss
+from ajax.agents.DQN.train_DQN import compute_double_dqn_td_target, mse_td_loss
 
 agent = DQN(
     "CartPole-v1",
     td_target_fn=compute_double_dqn_td_target,  # Double DQN
     q_network_cls=DuelingQNetwork,               # dueling heads
-    td_loss_fn=make_huber_td_loss(delta=1.0),    # Huber instead of MSE
+    td_loss_fn=mse_td_loss,                      # squared error instead of Huber
 )
 state, _ = agent.train(seed=0, n_timesteps=2_000)
 ```
@@ -60,7 +60,7 @@ Defaults are read from `DQN.__init__`.
 | Argument | Default | What it does |
 | --- | --- | --- |
 | `n_envs` | `1` | parallel environments |
-| `learning_rate` | `1e-3` | Adam step size |
+| `learning_rate` | `2.5e-4` | step size of centered RMSProp (see Notes) |
 | `architecture` | `("128", "relu", "128", "relu")` | hidden layers of the Q-network |
 | `gamma` | `0.99` | discount |
 | `buffer_size` | `100_000` | replay capacity |
@@ -76,7 +76,7 @@ Defaults are read from `DQN.__init__`.
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
 | `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
 | `td_target_fn` | `None` | the target; `None` is vanilla DQN, `compute_double_dqn_td_target` is Double DQN |
-| `td_loss_fn` | `None` | the loss; `None` is the squared error, `make_huber_td_loss(delta)` the Huber loss |
+| `td_loss_fn` | `None` | the loss; `None` is the Huber loss with delta 1, `mse_td_loss` the squared error |
 | `q_network_cls` | `None` | the network; `None` is `QNetwork`, `DuelingQNetwork` the dueling one |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations; `None` builds the reference network (see Notes) |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
@@ -98,9 +98,14 @@ Defaults are read from `DQN.__init__`.
   every action is uniform. Evaluation is greedy.
 - **Time limits.** A transition cut by a time limit bootstraps on its final
   observation; only a termination stops the bootstrap.
-- **Loss.** The default is the squared TD error. The original DQN clipped
-  the TD error; the Huber loss of `make_huber_td_loss(1.0)` is its smooth
-  analogue, less sensitive to outlier targets.
+- **Loss.** The default is the Huber loss with delta 1, whose gradient is
+  the TD error clipped to [-1, 1], as the original DQN clips it.
+  `make_huber_td_loss(delta)` sets another delta; `mse_td_loss` is the
+  squared error.
+- **Optimiser.** The authors' centered RMSProp (Graves 2013): each step is
+  the gradient over `sqrt(E[g^2] - E[g]^2 + eps)`, both averages decaying
+  at 0.95. Their eps is 0.01 on a gradient summed over the batch; on Ajax's
+  mean loss the same step takes `eps = 0.01 / batch_size**2`.
 - **Network.** A plain MLP without LayerNorm (Mnih et al.'s network has
   none) and a linear head. It lives in `state.actor_state`, so the shared
   evaluation reads it like any actor. As in the authors' Torch7 code, every

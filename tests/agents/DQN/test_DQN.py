@@ -8,7 +8,11 @@ from ajax.agents.DQN.networks import (
     QNetwork,
     get_initialized_q_network,
 )
-from ajax.agents.DQN.train_DQN import compute_double_dqn_td_target, make_huber_td_loss
+from ajax.agents.DQN.train_DQN import (
+    compute_double_dqn_td_target,
+    huber_1_td_loss,
+    make_huber_td_loss,
+)
 from ajax.networks.networks import MINATAR_CNN, MNIH_CNN, CNNEncoder, CNNSpec
 from ajax.networks.utils import TORCH_LINEAR
 from tests.agents.init_checks import assert_torch_linear
@@ -29,6 +33,29 @@ def test_dqn_variants_smoke():
         q_network_cls=DuelingQNetwork,
     )
     agent.train(seed=42, n_timesteps=200)
+
+
+@pytest.mark.parametrize("batch_size", [32, 64])
+def test_dqn_steps_as_its_reference_optimiser(batch_size):
+    """google-deepmind/dqn @9d9b1d1 (NeuralQLearner.lua:265-277, run_gpu:25):
+    centered RMSProp at lr 2.5e-4, both averages at 0.95, eps 0.01 on a
+    gradient summed over the batch, so 0.01 / batch_size**2 on a mean."""
+    agent = DQN(env_id="CartPole-v1", batch_size=batch_size)
+    for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
+        assert (args.optimizer, args.learning_rate, args.beta_2) == (
+            "centered_rmsprop",
+            2.5e-4,
+            0.95,
+        )
+        assert args.eps == pytest.approx(0.01 / batch_size**2)
+
+
+def test_the_default_loss_clips_the_td_error_at_one():
+    """Huber 1 (NeuralQLearner.lua:224-226, clip_delta=1): its gradient is
+    the TD error clipped to [-1, 1]."""
+    q, target = jnp.array([0.0, 0.0, 0.0]), jnp.array([3.0, -0.5, -2.0])
+    grad = jax.grad(huber_1_td_loss)(q, target) * q.size
+    assert jnp.allclose(grad, jnp.array([-1.0, 0.5, 1.0]))
 
 
 @pytest.mark.parametrize("cls", [QNetwork, DuelingQNetwork])

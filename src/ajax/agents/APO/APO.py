@@ -36,6 +36,12 @@ class APO(ActorCritic):
         self,
         env_id: str | EnvType,
         n_envs: int = 4,
+        # APO's official code steps the whole model with one Adam at 3e-4,
+        # unscheduled, torch's other defaults (xtma/apo @bfcd997,
+        # apo/algos/apg/base.py:28; apo/experiments/configs/mujoco/apg/
+        # mujoco_appo.py:5, :16). Adam acts per coordinate, so the two
+        # networks' Adams, stepped together on one gradient
+        # (train_APO.update_networks), are that Adam, each at its rate.
         actor_learning_rate: float = 3e-4,
         critic_learning_rate: float = 3e-4,
         # The hidden layers of APO's official code: xtma/apo @bfcd997 sets
@@ -52,9 +58,15 @@ class APO(ActorCritic):
         actor_architecture=("64", "tanh", "64", "tanh"),
         critic_architecture=("64", "tanh", "64", "tanh"),
         env_params: Optional[EnvParams] = None,
-        max_grad_norm: Optional[float] = 0.5,
+        # The official code's clip of the gradient's global norm over the
+        # whole model, actor and critic at once (apo/algos/apg/appo.py:111,
+        # mujoco_appo.py:8): neither network's Adam clips its own.
+        max_grad_norm: Optional[float] = 10.0,
         weight_decay: float = 0.0,
         ent_coef: float = 0,
+        # The value loss's weight in the summed loss, the official code's
+        # value_loss_coeff (appo.py:27, which mujoco_appo.py leaves).
+        vf_coef: float = 1.0,
         clip_range: float = 0.2,
         n_steps: int = 2048,
         batch_size: int = 64,
@@ -103,7 +115,7 @@ class APO(ActorCritic):
             actor_architecture=actor_architecture,
             critic_architecture=critic_architecture,
             env_params=env_params,
-            max_grad_norm=max_grad_norm,
+            max_grad_norm=None,  # the clip is over both networks (above)
             weight_decay=weight_decay,
             normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
@@ -152,6 +164,8 @@ class APO(ActorCritic):
             num_minibatches=num_minibatches,
             alpha=alpha,
             nu=nu,
+            vf_coef=vf_coef,
+            max_grad_norm=max_grad_norm,
             expose_recent_rollout=expose_recent_rollout,
         )
         if num_minibatches <= 0 and max(n_steps, batch_size) % min(n_steps, batch_size):
@@ -161,7 +175,8 @@ class APO(ActorCritic):
                 " (or set num_minibatches)."
             )
 
-        # Adam's eps: brax's 1e-8 by default, not ActorCritic's 1e-5.
+        # Adam's eps: 1e-8, torch's default the official code keeps, not
+        # ActorCritic's 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=adam_eps)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=adam_eps)
         self.train_kwargs = {

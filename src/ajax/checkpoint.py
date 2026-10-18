@@ -216,8 +216,9 @@ def _without_own_gradient_clip(skeleton: Any, saved: Any) -> Any:
     gradient first (``get_adam_tx``'s ``max_grad_norm``: a chain whose clip
     holds an empty state) the layout of the unclipped optimiser restoring
     it. The clip holds no data, so every moment and step count is kept.
-    PPO's networks clipped their own gradients until PPO took ppo2's one
-    clip over both (``train_PPO.joint_step``).
+    PPO's and APO's networks clipped their own gradients until each took its
+    reference code's one clip over both (``train_PPO.joint_step``,
+    ``train_APO.update_networks``).
 
     Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as
     ``_with_replay_next_obs``.

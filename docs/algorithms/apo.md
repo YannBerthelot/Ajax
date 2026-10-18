@@ -50,14 +50,15 @@ This budget shows the calls; it is too short to learn the swing-up.
 | `batch_size` | 64 | sets the number of minibatches, as in [PPO](ppo.md) |
 | `num_minibatches` | 0 | when positive, the number of minibatches |
 | `n_epochs` | 10 | passes over the rollout per update, each reshuffled |
-| `actor_learning_rate`, `critic_learning_rate` | 3e-4 | Adam step sizes |
+| `actor_learning_rate`, `critic_learning_rate` | 3e-4 | the step sizes of the one Adam over both networks (see the notes) |
 | `adam_eps` | 1e-8 | Adam's epsilon |
+| `vf_coef` | 1 | the value loss's weight in the summed loss |
 | `alpha` | 0.1 | update rate of the running averages of the reward rate and of the values |
 | `nu` | 0.1 | weight of the value-bias penalty |
 | `gae_lambda` | 0.95 | GAE's lambda (there is no discount) |
 | `clip_range` | 0.2 | the ratio clip |
 | `ent_coef` | 0 | entropy bonus weight |
-| `max_grad_norm` | 0.5 | gradient clipping by global norm |
+| `max_grad_norm` | 10 | clips the gradient's global norm over both networks at once (`None` turns it off) |
 | `normalize_advantage` | True | advantages standardised over the whole rollout |
 | `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers, the official code's (see the notes) |
 | `normalize_observations`, `normalize_rewards` | False | running normalisation |
@@ -79,7 +80,8 @@ as the official code does. The advantages are GAE without a discount on the
 differential reward `r - rho`. The critic fits the differential value; its
 target is shifted by `nu * b`, which pulls the values back towards a zero mean.
 Without that penalty the values are defined only up to a constant and can
-drift. The actor then takes PPO's clipped step.
+drift. Each minibatch then takes one step of both networks down the sum of
+PPO's clipped surrogate and the value loss.
 
 ## Notes
 
@@ -136,14 +138,23 @@ drift. The actor then takes PPO's clipped step.
   its MuJoCo tasks clamp it to their control range in the simulation, and
   Gymnasium's charge the control cost on the unclamped action
   (`gymnasium/envs/mujoco/hopper_v4.py:97, :138` in Gymnasium 1.2.0).
-- **Known differences, each fixed in a follow-up PR.** Two defaults are
-  not the official code's yet. The optimiser: one Adam
-  steps the actor and the critic on their summed loss
-  (`apo/algos/apg/base.py:28`, `apo/algos/apg/appo.py:158`), its gradient
-  clipped to norm 10 (`appo.py:111`;
-  `apo/experiments/configs/mujoco/apg/mujoco_appo.py:8`), where Ajax steps
-  each network with its own Adam, clipped to norm 0.5. The entropy bonus:
-  0.01 there (`mujoco_appo.py:9`), `ent_coef=0` here.
+- **Optimiser.** As in the official code, one Adam steps the whole model
+  (`apo/algos/apg/base.py:28`) at 3e-4, without a schedule
+  (`apo/experiments/configs/mujoco/apg/mujoco_appo.py:5, :16`), down the
+  clipped surrogate plus `vf_coef` (1, `appo.py:27`) times the value loss
+  minus `ent_coef` times the entropy (`apo/algos/apg/appo.py:145-158`),
+  once per minibatch. Its gradient is clipped to global norm 10 over every
+  parameter, actor and critic at once (`appo.py:106-112`,
+  `mujoco_appo.py:8`), with torch's formula (torch 1.5.1,
+  `torch/nn/utils/clip_grad.py:33-37`). Adam acts on each coordinate on its
+  own, so Ajax keeps one Adam state per network, both stepped together on
+  that one gradient: the same optimiser, with a learning rate per network
+  as torch's parameter groups allow. Until October 2026 each network took
+  its own step, clipped to norm 0.5 on its own; a checkpoint saved then
+  restores, its moments and step counts kept.
+- **Known difference, fixed in a follow-up PR.** The entropy bonus is not
+  the official code's yet: 0.01 there (`mujoco_appo.py:9`), `ent_coef=0`
+  here.
 - `n_steps` and `batch_size` must divide one another unless
   `num_minibatches` is set; the constructor refuses them otherwise.
 - **Expert.** Cloning an expert into the actor before training is the

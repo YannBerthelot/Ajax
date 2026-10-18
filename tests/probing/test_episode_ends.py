@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "660a8a1e4aea"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "b42f03dfd5a5"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -698,8 +698,8 @@ P9_CELLS |= {
     "APO": (
         ("apo", 4096, 0.5),
         {"A": (0.0, 1.0), "B": (1.758, 2.507), "C": (1.698, 2.777)} | D0,
-        240_000,  # 160,000 failed: 0.144
-        (0.073, 0.08),
+        240_000,  # 160,000 failed: 0.133
+        (0.072, 0.081),
         _P9_PPO | {"normalize_observations": True},
     ),
 }
@@ -954,8 +954,8 @@ CASES["q1-APO-constant"] = Case(
     "q1-APO-constant",
     (Query("b", 0.0, GROWS), Query("V(1)", 0.0, GROWS)),
     _q1_apo(APO_CONST, {"V(1)": 1.0}),
-    10_000,  # 5000: twice the worst errors 0.211, 0.197; cert 32/32
-    (0.055, 0.049),
+    15_000,  # 10,000: twice the worst errors 0.230, 0.212; cert 32/32
+    (0.079, 0.074),
 )
 FIXED = "reset obs inside a rollout, final obs at its end (the old GAE), sign fixed"
 RESET_OBS = "the reset observation bootstrapped at every end, sign fixed"
@@ -1022,9 +1022,9 @@ CASES["q1-APO-truncation"] = Case(
         for i, name in enumerate(("b", "V(A)", "V(B)"))
     ),
     _q1_apo(APO_TRUNC, {"V(A)": -1.0, "V(B)": 1.0}),
-    5000,
-    (0.04, 0.046, 0.03),
-    note="7500 and 10,000 drift further (twice b's worst error 0.052, 0.054); cert 32/32",
+    7500,
+    (0.02, 0.037, 0.02),
+    note="5000: twice the worst errors 0.085, 0.197, 0.176; cert 32/32",
 )
 
 

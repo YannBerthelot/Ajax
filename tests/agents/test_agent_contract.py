@@ -509,16 +509,16 @@ def test_every_src_agent_is_in_actor_critics() -> None:
 
 
 #: Each agent's gradient clip (its option, its default). PPO clips at its
-#: paper's global norm 0.5, over both networks at once (JOINT), and APO,
-#: built on PPO, keeps the 0.5; the other
-#: references do not clip, and PPO's 0.5 copied onto them once froze SAC's
-#: temperature (6b2d529). APG's 1.0 is a recorded deviation (APG.py); the
-#: world models clip as their papers do.
+#: paper's global norm 0.5, and APO at its official code's 10, each over
+#: both networks at once (JOINT); the other references do not clip, and
+#: PPO's 0.5 copied onto them once froze SAC's temperature (6b2d529). APG's
+#: 1.0 is a recorded deviation (APG.py); the world models clip as their
+#: papers do.
 CLIPS: dict[str, tuple[str, float | None]] = {
     **dict.fromkeys(
         "ASAC AVG DQN PQN REDQ SAC TD3 UDRL".split(), ("max_grad_norm", None)
     ),
-    "APO": ("max_grad_norm", 0.5),
+    "APO": ("max_grad_norm", 10.0),
     "PPO": ("max_grad_norm", 0.5),
     "APG": ("max_grad_norm", 1.0),
     "DreamerV3": ("agc", 0.3),
@@ -527,7 +527,7 @@ CLIPS: dict[str, tuple[str, float | None]] = {
 }
 #: The agents whose clip is over the actor's and the critic's gradients at
 #: once: their config holds it, and neither network's optimizer clips.
-JOINT = {"PPO"}
+JOINT = {"APO", "PPO"}
 
 
 @pytest.mark.parametrize(

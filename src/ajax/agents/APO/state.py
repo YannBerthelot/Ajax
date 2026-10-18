@@ -1,3 +1,5 @@
+from typing import Optional
+
 import jax.numpy as jnp
 from flax import struct
 
@@ -26,3 +28,7 @@ class APOConfig(BaseAgentConfig):
     nu: float = 0.1
     # When > 0, decouples num_minibatches from batch_size (brax-style).
     num_minibatches: int = 0
+    vf_coef: float = 1.0
+    # The global-norm clip of both networks' gradients at once
+    # (train_APO.update_networks); None, no clip.
+    max_grad_norm: Optional[float] = 10.0

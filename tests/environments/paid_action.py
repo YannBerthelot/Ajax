@@ -3,7 +3,8 @@
 The reward is the action the env was stepped with, so a return reads the
 executed action back. By default every episode is one terminating step from
 the observation ``OBS``; with ``length``, episodes of that many steps end at
-the time limit (fixed-length and non-terminating, as TD-MPC2 needs).
+the time limit (fixed-length and non-terminating, as TD-MPC2 needs). With
+``dim`` the box has that many dimensions; the first is paid.
 ``OBS`` doubles as PID error terms ``(e, I, D)`` for a
 :class:`~ajax.modules.pid_actor.PIDPolicy`. Transitions keep gradients, as
 APG needs.
@@ -32,10 +33,13 @@ class PaidAction(environment.Environment):
     transition_gradients_enabled = True
 
     def __init__(
-        self, box: tuple[float, float] = BOX, length: Optional[int] = None
+        self,
+        box: tuple[float, float] = BOX,
+        length: Optional[int] = None,
+        dim: int = 1,
     ) -> None:
         super().__init__()
-        self.box, self.length = box, length
+        self.box, self.length, self.dim = box, length, dim
 
     @property
     def default_params(self) -> Params:
@@ -56,13 +60,13 @@ class PaidAction(environment.Environment):
         return spaces.Box(-jnp.inf, jnp.inf, OBS.shape)
 
     def action_space(self, params=None):
-        return spaces.Box(*self.box, (1,))
+        return spaces.Box(*self.box, (self.dim,))
 
 
 def make(
-    box: tuple[float, float] = BOX, length: Optional[int] = None
+    box: tuple[float, float] = BOX, length: Optional[int] = None, dim: int = 1
 ) -> tuple[PaidAction, Params]:
-    env = PaidAction(box, length)
+    env = PaidAction(box, length, dim)
     return env, env.default_params
 
 

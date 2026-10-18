@@ -24,6 +24,7 @@ from ajax.agents.PPO.core import recompute_log_prob
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
 from ajax.networks.networks import predict_value
+from tests.environments import paid_action
 
 B, VALUE_BIAS = 16, 0.3
 
@@ -36,15 +37,20 @@ def test_APO_defaults_to_its_reference_codes_optimiser() -> None:
         assert (args.learning_rate, args.eps, args.max_grad_norm) == (3e-4, 1e-8, None)
 
 
-@pytest.mark.parametrize("env_id", ["Pendulum-v1", "CartPole-v1"])
+@pytest.mark.parametrize("env_id", ["Pendulum-v1", "paid-action-3d", "CartPole-v1"])
 def test_APO_entropy_bonus_is_its_reference_codes(env_id: str) -> None:
     """At APO's defaults and zero advantages (a zero surrogate), its policy
     loss is the official code's entropy term (``appo.py:155-156``): minus
     0.01 times the batch mean of the entropy, the Gaussian's ``log_std +
     log sqrt(2 pi e)`` summed over the action dimensions
-    (``rlpyt/distributions/gaussian.py:81-97``), so the term lowers the
-    log-std's loss gradient by 0.01."""
-    agent = APO(env_id=env_id, n_envs=2)
+    (``rlpyt/distributions/gaussian.py:81-97``), so the term lowers each
+    log-std's loss gradient by 0.01. On the three-dimensional box a mean
+    over the dimensions would give a third of both."""
+    if env_id == "paid-action-3d":
+        env, env_params = paid_action.make(dim=3)
+        agent = APO(env_id=env, env_params=env_params, n_envs=2)
+    else:
+        agent = APO(env_id=env_id, n_envs=2)
     config = cast(APOConfig, agent.agent_config)
     args = (agent.actor_optimizer_args, agent.critic_optimizer_args)
     key = jax.random.PRNGKey(0)
@@ -75,7 +81,9 @@ def test_APO_entropy_bonus_is_its_reference_codes(env_id: str) -> None:
         )[0]
 
     if continuous:
-        entropy = 0.3 + 0.5 * np.log(2 * np.pi * np.e)
+        action_dim = params["params"]["log_std_param"].shape[-1]
+        assert action_dim == (3 if env_id == "paid-action-3d" else 1)
+        entropy = action_dim * (0.3 + 0.5 * np.log(2 * np.pi * np.e))
     else:
         probs = np.asarray(pi.probs)
         entropy = float(np.mean(-np.sum(probs * np.log(probs), -1)))

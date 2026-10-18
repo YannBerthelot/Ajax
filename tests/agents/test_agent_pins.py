@@ -548,6 +548,12 @@ _GOLDEN |= {
     "APG-nudge": {"actor": 35.83795928955078, "nudge": 0.27262088656425476},
     "APG-pid-nudge": {"actor": 36.834327697753906, "nudge": 0.27262088656425476},
 }
+# Re-recorded on macOS ARM CPU once APG's Adam eps became torch's 1e-8 (was
+# 1e-5). Relative shifts (actor): APG -2.4e-5, APG-pid -2.4e-5.
+_GOLDEN |= {
+    "APG-nudge": {"actor": 35.83708953857422, "nudge": 0.27262088656425476},
+    "APG-pid-nudge": {"actor": 36.83342742919922, "nudge": 0.27262088656425476},
+}
 # Re-recorded on macOS ARM CPU once PPO's default log-std became its
 # reference code's: one unclipped parameter per action dimension at 0, not
 # a Dense head at -1. The actor loses the head's kernel; relative shifts

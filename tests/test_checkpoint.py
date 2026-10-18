@@ -384,10 +384,10 @@ def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path, agent_n
 
 def test_an_apo_checkpoint_restores_only_into_its_own_hidden_widths(tmp_path):
     """APO's hidden layers were two of 128 units before its reference code's
-    two of 64. Its checkpoint saved then is refused by the default network,
+    two of 64. Its checkpoint saved then is refused by the default network
+    (the leaf-shape check, test_a_checkpoint_of_another_shape_is_refused),
     the error naming the architecture that rebuilds its own, into which it
-    restores: flax would restore it silently, and the network would fail on
-    its first call."""
+    restores."""
     from ajax.agents.APO.APO import APO
 
     kw = {"n_envs": 2, "n_steps": 8, "batch_size": 8}
@@ -399,8 +399,8 @@ def test_an_apo_checkpoint_restores_only_into_its_own_hidden_widths(tmp_path):
     old = skeleton(actor_architecture=wide, critic_architecture=wide)
     path = str(tmp_path / "old.pkl")
     save_checkpoint(old, path)
-    shapes = r"layers_0/bias has shape \(1, 128\), where the agent restoring it"
-    with pytest.raises(ValueError, match=shapes + r" has \(1, 64\)") as refused:
+    shapes = r"\['layers_0'\]\['bias'\] is \(1, 128\) in the checkpoint, \(1, 64\)"
+    with pytest.raises(ValueError, match=r"does not fit.*" + shapes) as refused:
         restore_into(skeleton(), path)
     assert 'actor_architecture=("128", "tanh", "128", "tanh")' in str(refused.value)
     restored = restore_into(old, path)
@@ -494,8 +494,9 @@ def test_a_checkpoint_of_another_shape_is_refused(sac_run, tmp_path):
     save_checkpoint(
         state.replace(critic_state=state.critic_state.replace(params=wider)), path
     )
-    with pytest.raises(ValueError, match=r"does not fit.*critic_state.*params"):
+    with pytest.raises(ValueError, match=r"does not fit.*critic_state.*params") as e:
         restore_into(state, path)
+    assert "APO" not in str(e.value)  # the APO hint is for an APO only
 
 
 def _without_format(path: str) -> None:

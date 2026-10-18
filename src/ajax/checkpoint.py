@@ -25,6 +25,8 @@ import jax
 import numpy as np
 from flax import serialization
 
+from ajax.agents.APO.state import APOState
+
 
 def _to_host_numpy(state: Any) -> Any:
     return jax.tree.map(
@@ -73,7 +75,6 @@ def restore_into(skeleton: Any, path: str) -> Any:
     skeleton_dict = serialization.to_state_dict(skeleton)
     _check_memory_final_norm(skeleton_dict, state_dict)
     _check_log_std_head(skeleton_dict, state_dict)
-    _check_param_shapes(skeleton_dict, state_dict)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
     state_dict = _without_segment_raw_obs(skeleton, state_dict)
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
@@ -113,7 +114,27 @@ def _check_leaf_shapes(skeleton: Any, restored: Any) -> None:
             "The checkpoint does not fit this agent's state: "
             + "; ".join(bad[:5])
             + (f"; and {len(bad) - 5} more" if len(bad) > 5 else "")
+            + _apo_widths_hint(skeleton)
         )
+
+
+def _apo_widths_hint(skeleton: Any) -> str:
+    """For an APO, how to restore a checkpoint of its former default
+    network: its hidden layers were two of 128 units before they became its
+    reference code's two of 64.
+
+    Expand-then-contract (CLAUDE.md, refactoring rule 10): delete the hint
+    once no such checkpoint remains.
+    """
+    if not isinstance(skeleton, APOState):
+        return ""
+    wide = '("128", "tanh", "128", "tanh")'
+    return (
+        f". APO's default hidden layers were {wide} before they became its"
+        " reference code's two of 64 units: an APO checkpoint saved then"
+        f" restores into APO(..., actor_architecture={wide},"
+        f" critic_architecture={wide}), its other settings unchanged."
+    )
 
 
 #: Next-observation fields a replay buffer gained, by the field each is
@@ -324,35 +345,6 @@ def _check_log_std_head(skeleton: Any, saved: Any) -> None:
     for key, value in skeleton.items():
         if key in saved:
             _check_log_std_head(value, saved[key])
-
-
-def _check_param_shapes(skeleton: Any, saved: Any, path: tuple = ()) -> None:
-    """Refuse, saying how to restore it, a checkpoint whose network
-    parameters have other shapes than the network restoring them: flax
-    restores them silently, and the network fails on its first call with a
-    shape error that does not say why. APO's default hidden layers were two
-    of 128 units before they became its reference code's two of 64.
-
-    Expand-then-contract (CLAUDE.md, refactoring rule 10): delete the APO
-    hint once no such checkpoint remains.
-    """
-    if isinstance(skeleton, dict) and isinstance(saved, dict):
-        for key, value in skeleton.items():
-            if key in saved:
-                _check_param_shapes(value, saved[key], (*path, key))
-        return
-    if "params" in path and np.shape(skeleton) != np.shape(saved):
-        wide = '("128", "tanh", "128", "tanh")'
-        raise ValueError(
-            f"This checkpoint's {'/'.join(map(str, path))} has shape"
-            f" {np.shape(saved)}, where the agent restoring it has"
-            f" {np.shape(skeleton)}: restore it into an agent built with the"
-            " network it was saved from. APO's default hidden layers were"
-            f" {wide} before they became its reference code's two of 64 units:"
-            f" an APO checkpoint saved then restores into APO(...,"
-            f" actor_architecture={wide}, critic_architecture={wide}), its"
-            " other settings unchanged."
-        )
 
 
 def _with_raw_obs_info(skeleton: Any, state_dict: Any) -> Any:

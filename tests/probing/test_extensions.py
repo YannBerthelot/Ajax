@@ -34,7 +34,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "71ff233e0fe5"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "c069dc2402a7"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -620,10 +620,14 @@ CASES["q7-online_bc-SAC"] = Case(
 # a_E)^2 / 4 peaks (_held). Q-filtered (Nair et al. 2018, eq. 8), it clones
 # a_E = 0.8 only below it and settles at the max-entropy optimum (0.94 at
 # alpha 0.1); an expert above that (1.0 at alpha 0.3) it keeps cloning.
+# TD3 (alpha None) has no entropy: it holds a_E + 2 / coef, and filtered goes
+# on to a = 1, which no expert beats (no kept case).
 COEF = 100.0
 
 
-def _held(alpha: float, a_e: float) -> float:
+def _held(alpha: float | None, a_e: float) -> float:
+    if alpha is None:
+        return min(a_e + 2.0 / COEF, 1.0)
     x, w = np.polynomial.hermite_e.hermegauss(64)
 
     def loss(p: np.ndarray) -> float:
@@ -636,35 +640,57 @@ def _held(alpha: float, a_e: float) -> float:
     return float(np.tanh(res.x[0]))
 
 
+# alpha pinned: a zero learning rate (Adam's step scales by it); AVG never
+# updates it. REDQ: 5 critic updates a step, not 20. AVG: learning rates
+# 1e-3, not 6.3e-3 and 8.7e-3, at which its filtered policy wanders by 0.05.
+_LR0 = {"alpha_learning_rate": 0.0}
 PINNED: dict[str, dict[str, Any]] = {
     "SAC": {"fixed_alpha": True, "policy_update_start": 200}
     | {"expert_buffer_n_steps": 0},
+    "TD3": {},
+    "REDQ": _LR0 | {"num_critic_updates": 5},
+    "ASAC": _LR0,
+    "AVG": {"actor_learning_rate": 1e-3, "critic_learning_rate": 1e-3},
 }
 
 
-def imitation(agent: str, alpha: float, a_e: float, q_filter: bool) -> Any:
+def imitation(agent: str, alpha: float | None, a_e: float, q_filter: bool) -> Any:
     """The agent's own stateful expert (its stored actions are the clone target)."""
     expert = AgentExpert(ConstantExpert(a_e))
     clone = ImitationLoss(expert, coef=COEF, q_filter=q_filter)
-    kw = PINNED[agent] | {"alpha_init": alpha}
+    kw = PINNED[agent] | ({} if alpha is None else {"alpha_init": alpha})
     read = lambda n: {f"a({x})": R.action(n, float(x)) for x in (0, 1)}  # noqa: E731
     kw |= {"expert_policy": expert}
     return q7_readings(agent, ActionChainEnv, read, (clone,), **kw)
 
 
-# kind: alpha, a_E, q_filter.
-KINDS = {"imitation": (0.1, A_E, False), "q_filter": (0.1, A_E, True)}
+# kind: alpha (TD3: none), a_E, q_filter.
+KINDS: dict[str, tuple[float | None, float, bool]] = {"imitation": (0.1, A_E, False)}
+KINDS["q_filter"] = (0.1, A_E, True)
 KINDS["q_filter-kept"] = (0.3, 1.0, True)
-# id: budget, tolerances, seeds of 3000-3031 within (budgets 625, 1250, 2500).
+# id: budget, tolerances, seeds of 3000-3031 within (ladders 625-2500, AVG to 40000).
 IMITATION = {
     "q7-imitation-SAC": (625, (0.02, 0.02), 32),
     "q7-q_filter-SAC": (2500, (0.02, 0.02), 32),
     "q7-q_filter-kept-SAC": (625, (0.061, 0.061), 32),
+    "q7-imitation-TD3": (1250, (0.02, 0.02), 32),
+    "q7-q_filter-TD3": (1250, (0.077, 0.02), 32),
+    "q7-imitation-REDQ": (625, (0.02, 0.02), 32),
+    "q7-q_filter-REDQ": (1250, (0.053, 0.027), 32),
+    "q7-q_filter-kept-REDQ": (625, (0.043, 0.036), 32),
+    "q7-imitation-ASAC": (625, (0.02, 0.02), 32),
+    "q7-q_filter-ASAC": (1250, (0.051, 0.024), 32),
+    "q7-q_filter-kept-ASAC": (625, (0.041, 0.033), 32),
+    "q7-imitation-AVG": (5000, (0.061, 0.02), 32),
+    "q7-q_filter-AVG": (10000, (0.03, 0.048), 32),
+    "q7-q_filter-kept-AVG": (2500, (0.046, 0.028), 32),
 }
 for cid, (budget, tol, cert) in IMITATION.items():
     kind, agent = cid[3:].rsplit("-", 1)
     alpha, a_e, q_filter = KINDS[kind]
-    free, held = oracles.maxent_mean_action(1.0, alpha), _held(alpha, a_e)
+    alpha = None if agent == "TD3" else alpha
+    free = 1.0 if alpha is None else oracles.maxent_mean_action(1.0, alpha)
+    held = _held(alpha, a_e)
     if q_filter and a_e < free:  # every row dropped once the actor passes a_E
         truth, wrong = free, {"BC on every row (no filter, or inverted)": held}
     else:

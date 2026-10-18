@@ -119,10 +119,9 @@ agent against that list:
 | | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN | `actions` |
 | | DQN, PQN | `q_state` |
 | `actor_loss` | every agent folding it | `actor_params` |
-| | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, UDRL | `actor_state` |
-| | SAC, TD3, REDQ, ASAC, AVG, APO, UDRL | `observations` |
-| | SAC, TD3, REDQ, ASAC, APO | `raw_observations`, `pi_mean` |
-| | SAC | `a_expert`, `critic_state` |
+| | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, UDRL, APG | `actor_state`, `observations`, `raw_observations`, `pi_mean` |
+| | SAC, TD3, REDQ, ASAC, AVG, APO | `a_expert` |
+| | SAC, TD3, REDQ, ASAC, AVG | `critic_state` |
 | | UDRL | `actions` |
 | | APG | `rollout`, `returns` |
 

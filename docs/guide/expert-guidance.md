@@ -240,7 +240,7 @@ needs `MCPretrain`.
 
 `ImitationLoss(expert, q_filter=True)` adds the unweighted cloning term
 (see [below](#imitation-for-td3-redq-asac-and-apo)) only on the rows where
-SAC's critic rates the expert's action above the policy's mean action,
+the agent's critics rate the expert's action above the policy's mean action,
 `min_k Q_k(s, a_E) > min_k Q_k(s, μ(s))`: the Q-filter of Nair et al.
 (ICRA 2018, Sec. IV-C). Where the agent already does better than the
 expert, it stops copying it, with no schedule to tune: a PID that is good
@@ -248,7 +248,11 @@ near the setpoint and poor in transients keeps guiding only where it still
 helps. Unlike the paper, the rows are replay rows labelled with the
 expert's action, not a separate demonstration buffer, and `coef` weights
 the cloning term in place of the paper's two weights. The filter needs a
-critic that ranks actions: pair it with the expert prefill, as the paper
+critic that ranks actions, a Q critic: SAC, TD3, REDQ, ASAC and AVG have
+one, PPO and APO a state-value critic, which cannot rank actions. The
+minimum runs over all the agent's critics, though TD3's actor follows its
+first and REDQ's the mean of its ensemble. Pair it with the expert
+prefill, as the paper
 pairs it with demonstrations. With `ResidualPolicy`, whose critic reads
 the executed action rather than the policy's, it is refused.
 
@@ -268,7 +272,8 @@ Besides the expert's return and the bias above, `ExpertValueMetrics` logs
 the critic's value at the expert's actions (`value/q_expert_mean`) and its
 gap to the value of the actions taken (`value/q_gap`). `EDGEExploration` logs
 `edge/live_expert_frac`, and `ImitationLoss(q_filter=True)` the share of a
-replay batch its filter keeps (`imitation/q_filter_frac`).
+replay batch its filter keeps (`imitation/q_filter_frac`; not on AVG, which
+keeps no replay).
 
 ## Choosing the pieces
 
@@ -277,7 +282,7 @@ replay batch its filter keeps (`imitation/q_filter_frac`).
 | Start the replay with good experience | `expert_buffer_n_steps` (on by default) |
 | Start the actor as a copy of the expert | `CloningPretrain` (SAC, TD3, REDQ, APO) |
 | Keep the actor near the expert early on | `OnlineBC` (SAC), `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, PPO) |
-| Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC) |
+| Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC, TD3, REDQ, ASAC, AVG) |
 | Let the expert act while the agent is poor | `EDGEExploration`, `JSRLCurriculum`, `ValueBox` |
 | Learn a correction to the expert | `ResidualPolicy` |
 | Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` |
@@ -294,7 +299,7 @@ built, or when training starts for those that take context from it:
 | `OnlineBC` | SAC with an `expert_policy`, whose actions it clones | when built |
 | `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `PhiRefresh` | SAC, which keeps the raw next observations they read | when built |
 | `BellmanPretrain`, `ExpertValueMetrics` | SAC with an `expert_policy` | when training starts |
-| `ImitationLoss(q_filter=True)` | SAC, without `ResidualPolicy` | when training starts |
+| `ImitationLoss(q_filter=True)` | a Q critic (SAC, TD3, REDQ, ASAC, AVG); without `ResidualPolicy` | when built; with `ResidualPolicy`, when training starts |
 | `CloningPretrain` | SAC, TD3, REDQ or APO; first among the pre-training extensions | when training starts |
 
 The extensions that hold an expert themselves (`CloningPretrain`,
@@ -322,7 +327,8 @@ fraction `f` of training, as in kickstarting (Schmitt et al., 2018), so the
 agent ends on its own objective; kickstarting uses a cross-entropy to a
 stochastic teacher and tunes the schedule, where here the expert is
 deterministic and the schedule linear. Its Q-filter (`q_filter=True`, see
-[Actor](#actor)) is SAC's only for now. These agents can also start from a
+[Actor](#actor)) runs on TD3, REDQ and ASAC too; APO's critic rates
+states, not actions, so it refuses the filter. These agents can also start from a
 clone of the expert:
 
 ```python

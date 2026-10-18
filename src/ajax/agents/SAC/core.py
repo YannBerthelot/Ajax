@@ -279,6 +279,7 @@ def soft_actor_step(
             "actor_params": params,
             "actor_state": actor_state,
             "a_expert": a_expert,
+            "critic_state": agent_state.critic_state,
         }
         extra = extension_stack.fold_actor_loss(
             agent_state,

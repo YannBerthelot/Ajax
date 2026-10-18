@@ -98,6 +98,22 @@ APO and PQN average theirs over the update's epochs and minibatches.
 | `Train/grad_norm` | APG | the global norm of the controller's gradient, before clipping (`max_grad_norm`) |
 | `Eval/commanded return`, `Eval/commanded horizon` | UDRL | the return and horizon each evaluation episode is commanded with at its start, to set beside the return and length it achieves; in normalised units when rewards are normalised |
 
+### Extension metrics
+
+The expert-guided extensions log their schedules and how often the expert
+acts, read from the agent state at each evaluation:
+
+| Name | Extension | Meaning |
+| --- | --- | --- |
+| `edge/live_expert_frac` | `EDGEExploration` | the share of envs the expert drove on the last collection step |
+| `edge/decay`, `edge/beta` | `EDGEExploration` | the gate's schedule: the decay (`"fixed"`, `"argmax"`, `"boltzmann"`) or the LCB pessimism (`"lcb"`, `"argmax_lcb"`); the `"thompson"` gate has none |
+| `jsrl/horizon`, `jsrl/expert_frac` | `JSRLCurriculum` | the guide horizon `H_t`, and the share of envs the expert drove on the last collection step |
+| `lcb_bootstrap/beta` | `LCBGatedBootstrap` | the LCB pessimism `β` |
+| `critic_blend/expert_weight` | `CriticBlend` | the weight `α` of the expert's target in the blend |
+| `value_box/threshold` | `ValueBox` | the expert value above which the expert acts |
+| `value_box/in_box_frac`, `value_box/expert_frac` | `ValueBox` | the shares of envs inside the box and driven by the expert on the last collection step |
+| `mc_pretrain/v_min`, `mc_pretrain/v_max` | `MCPretrain` | the expert's value range, which `ValueBox`'s threshold runs between |
+
 ### The value bias
 
 `Eval/mean bias` measures how far the critic's value estimates are from

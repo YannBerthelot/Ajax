@@ -225,7 +225,8 @@ class LCBGatedBootstrap(Extension):
 
     Scores the policy and expert next-actions by an LCB rule and
     soft-blends the two TD targets with ``p_expert =
-    σ((score_e - score_p)/lcb_temperature)``. ``β`` anneals over training.
+    σ((score_e - score_p)/lcb_temperature)``. ``β`` anneals over training;
+    evaluations log it (``lcb_bootstrap/beta``).
     """
 
     expert_policy: Callable
@@ -265,12 +266,7 @@ class LCBGatedBootstrap(Extension):
         dones, gamma = batch["dones"], discounted("LCBGatedBootstrap", batch["gamma"])
         rng = batch.get("rng_key", ctx.rng)
         q_expert, q_policy = _next_target_q(self, agent_state, batch, rng)
-        beta = lcb_beta(
-            agent_state.collector_state.timestep,
-            ctx.total_steps,
-            self.lcb_beta_init,
-            self.lcb_beta_decay_k,
-        )
+        beta = self.beta(agent_state.collector_state.timestep, ctx.total_steps)
         score_e, score_p = lcb_score(q_expert, beta), lcb_score(q_policy, beta)
         q_min_e = jnp.min(q_expert, axis=0, keepdims=False)
         q_min_p = jnp.min(q_policy, axis=0, keepdims=False)
@@ -284,6 +280,19 @@ class LCBGatedBootstrap(Extension):
         gap_lcb = jax.lax.stop_gradient(gamma * (1.0 - dones) * (min_q_lcb - q_min_p))
         return target + gap_lcb
 
+    def beta(self, timestep: Any, total_steps: int) -> jax.Array:
+        """The LCB pessimism ``β`` at ``timestep`` (:func:`lcb_beta`)."""
+        return lcb_beta(
+            timestep, total_steps, self.lcb_beta_init, self.lcb_beta_decay_k
+        )
+
+    def eval_metrics(
+        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+    ) -> dict:
+        del ext_state, rng
+        timestep = agent_state.collector_state.timestep
+        return {"lcb_bootstrap/beta": self.beta(timestep, ctx.total_steps)}
+
 
 @dataclass(frozen=True)
 class CriticBlend(Extension):
@@ -293,7 +302,8 @@ class CriticBlend(Extension):
     the one-step target on the frozen expert critic ``V_E(s') = φ*(s',
     a_E(s'))``, so the blend stays a Bellman target (``V_E(s')`` alone has
     no reward, discount or terminal mask). ``α`` decays linearly to 0 over
-    ``critic_warmup_frac`` of training. Requires the frozen expert critic
+    ``critic_warmup_frac`` of training; evaluations log it
+    (``critic_blend/expert_weight``). Requires the frozen expert critic
     :class:`MCPretrain` fits (refused without it).
     """
 
@@ -348,11 +358,26 @@ class CriticBlend(Extension):
         expert_target = (
             rewards + batch["gamma"] * (1.0 - batch["dones"]) * v_expert_next
         )
-        total_timesteps = max(int(ctx.total_steps), 1)
-        train_frac = agent_state.collector_state.timestep / total_timesteps
-        alpha_blend_val = jnp.maximum(1.0 - train_frac / self.critic_warmup_frac, 0.0)
+        alpha_blend_val = self.expert_weight(
+            agent_state.collector_state.timestep, ctx.total_steps
+        )
         target_new = blend_modify_target(target, expert_target, alpha_blend_val)
         return jax.lax.stop_gradient(target_new)
+
+    def expert_weight(self, timestep: Any, total_steps: int) -> jax.Array:
+        """``α``: 1 at the start, falling linearly to 0 at
+        ``critic_warmup_frac`` of the run."""
+        train_frac = timestep / max(int(total_steps), 1)
+        return jnp.maximum(1.0 - train_frac / self.critic_warmup_frac, 0.0)
+
+    def eval_metrics(
+        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+    ) -> dict:
+        del ext_state, rng
+        timestep = agent_state.collector_state.timestep
+        return {
+            "critic_blend/expert_weight": self.expert_weight(timestep, ctx.total_steps)
+        }
 
 
 @dataclass(frozen=True)
@@ -417,6 +442,12 @@ class ValueBox(Extension):
     episode: the expert's value, paid as the bonus, replaces the bootstrap,
     whatever its sign. The override (:func:`box_action_override`) comes
     after the warmup / post-warmup choice (``action_slot``).
+
+    Evaluations log the threshold (``value_box/threshold``), the share of
+    envs inside the box and the share the expert drove on the last
+    collection step (``value_box/in_box_frac``, ``value_box/expert_frac``);
+    the bounds are :class:`MCPretrain`'s (``mc_pretrain/v_min``,
+    ``mc_pretrain/v_max``).
     """
 
     name: str = "value_box"
@@ -443,10 +474,7 @@ class ValueBox(Extension):
         env_action = obs["env_action"]
         expert_action = obs["expert_action"]
 
-        train_frac = ctx.step / ctx.total_steps
-        threshold = box_compute_threshold(
-            agent_state.expert_v_min, agent_state.expert_v_max, train_frac
-        )
+        threshold = self.threshold(agent_state, ctx.step, ctx.total_steps)
         in_value_box, entry_bonus, _ = box_compute_state(
             obs["observations"],
             expert_action,
@@ -461,6 +489,26 @@ class ValueBox(Extension):
             in_value_box, agent_state.collector_state.last_in_box
         ).astype(jnp.float32)
         return box_action_override(env_action, expert_action, in_value_box)
+
+    def threshold(self, agent_state: Any, step: Any, total_steps: int) -> jax.Array:
+        """The box's threshold at ``step``: MCPretrain's ``v_min`` rising
+        linearly to its ``v_max`` over the run."""
+        return box_compute_threshold(
+            agent_state.expert_v_min, agent_state.expert_v_max, step / total_steps
+        )
+
+    def eval_metrics(
+        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+    ) -> dict:
+        del ext_state, rng
+        collector = agent_state.collector_state
+        return {
+            "value_box/threshold": self.threshold(
+                agent_state, ctx.step, ctx.total_steps
+            ),
+            "value_box/in_box_frac": jnp.mean(collector.last_in_box),
+            "value_box/expert_frac": collector.last_expert_frac,
+        }
 
 
 __all__ = [

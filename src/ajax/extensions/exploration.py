@@ -291,7 +291,10 @@ class EDGEExploration(Extension):
     * ``epsilon_floor``   — minimum policy-pick probability (Thompson).
 
     The expert is SAC's ``expert_policy``: the gate compares the action it
-    gave the pipeline with the policy's.
+    gave the pipeline with the policy's. Evaluations log the share of envs
+    the expert drove on the last collection step (``edge/live_expert_frac``)
+    and the gate's schedule: ``edge/beta`` for the LCB gates, ``edge/decay``
+    for the fixed, argmax and Boltzmann gates (the Thompson gate has none).
     """
 
     gate: str = "fixed"
@@ -427,9 +430,23 @@ class EDGEExploration(Extension):
     def eval_metrics(
         self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
     ) -> dict:
-        """The fraction of envs an expert drove on the last collection step."""
-        del ext_state, rng, ctx
-        return {"edge/live_expert_frac": agent_state.collector_state.last_expert_frac}
+        """The fraction of envs an expert drove on the last collection step,
+        and the gate's schedule at the collector's timestep."""
+        del ext_state, rng
+        collector = agent_state.collector_state
+        metrics = {"edge/live_expert_frac": collector.last_expert_frac}
+        if self.gate in ("lcb", "argmax_lcb"):
+            metrics["edge/beta"] = lcb_beta(
+                collector.timestep,
+                ctx.total_steps,
+                self.lcb_beta_init,
+                self.lcb_beta_decay_k,
+            )
+        elif self.gate != "thompson":
+            metrics["edge/decay"] = edge_compute_decay(
+                collector.timestep, ctx.total_steps, self.decay_frac
+            )
+        return metrics
 
 
 __all__ = ["EDGEExploration"]

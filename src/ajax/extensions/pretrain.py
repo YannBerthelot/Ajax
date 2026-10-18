@@ -522,7 +522,8 @@ class MCPretrain(Extension):
     the agent's ``weight_decay`` (like its gradient clipping and learning-
     rate schedule) also decays ``φ*`` while it fits the MC returns.
     ``use_phi_refresh`` keeps ``φ*``'s optimiser state for a
-    :class:`PhiRefresh` in the same stack.
+    :class:`PhiRefresh` in the same stack. Evaluations log the value range
+    (``mc_pretrain/v_min``, ``mc_pretrain/v_max``).
     """
 
     expert_policy: Callable
@@ -684,6 +685,15 @@ class MCPretrain(Extension):
                 s=self.online_light_lr_scale,
             )
         return agent_state, ext_state
+
+    def eval_metrics(
+        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+    ) -> dict:
+        del ext_state, rng, ctx
+        return {
+            "mc_pretrain/v_min": agent_state.expert_v_min,
+            "mc_pretrain/v_max": agent_state.expert_v_max,
+        }
 
 
 @partial(

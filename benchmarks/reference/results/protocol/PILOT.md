@@ -96,3 +96,41 @@ purejaxql run one program for all 4 seeds.
   nav. Commit ec5ce78 adds it, one line in `mkdocs.yml`. No code, spec or
   lockfile changed.
 - Nothing was uploaded and no pull request was opened.
+
+## After the pilot
+
+- **Reporting.** By the time the pilot was reviewed, main had moved on
+  (#172, #183, #185), so the records no longer matched the current code's
+  fingerprint and `report` refused them. Reports now replay each
+  comparison's latest spec version with records, under the spec those
+  records ran, read from the commit in their manifests when it has
+  changed since. The results page names that version and commit.
+- **PPO's specs are now version 2.** #183 removed `fused_grad_clip` from
+  the CartPole spec after its results existed, which the spec-hash test
+  caught. That option did not do what the spec said: it clipped both
+  networks at 1.0 on top of each network's own clip at 0.5, a joint clip
+  that cannot bind. The pilot's Ajax PPO on CartPole therefore clipped
+  each network on its own, where SB3 clips once over both; the spec
+  listed nothing unmatched. Version 2 runs PPO's new single clip over both
+  networks at 0.5, as SB3 does. PPO-inverted_pendulum's version 2 writes
+  out Adam's eps, 1e-8 as in Brax, which version 1 had by Ajax's old
+  default.
+- **What would change if PPO ran again on today's main:**
+  - **#172** (squashing as a wrapper): nothing. It is a restructure that
+    re-recorded no pin, and CartPole's policy is not squashed.
+  - **#183** (PPO's optimiser, ppo2's):
+    - CartPole: the clip, from one per network to one over both (version
+      2). Adam's eps 1e-5 and the value weight were written out, so they
+      stay.
+    - inverted_pendulum: only Adam's eps, from 1e-8 to 1e-5, which version
+      2 pins back to 1e-8. Its arm does not clip.
+  - **#185** (gymnax 1.0.1 from PyPI): no environment of the pilot. The
+    fork and 1.0.1 differ only in SpaceInvaders-MinAtar; the reference
+    projects now pin 1.0.1 as Ajax does.
+  - Any change to `src/ajax` or `uv.lock` changes Ajax's fingerprint, and
+    the gymnax pin changes the references', so a re-run trains every seed
+    again.
+- **Fixed since:** the results page prints three significant figures, the
+  plots' x axes fewer labels, and the resolution is 0, not the bisection's
+  floor, when every score is equal.
+

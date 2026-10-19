@@ -50,7 +50,7 @@ def test_a_q_step_reports_the_td_error_size_and_gradient_norm() -> None:
     actions = jax.random.randint(keys[1], (8, 1), 0, 2)
     targets = jax.random.normal(keys[2], (8, 1))
 
-    _, aux = q_gradient_step(
+    _, aux, _ = q_gradient_step(
         state, obs, actions, targets, mse_td_loss, ExtensionStack(()), None, 1
     )
     q = state.actor_state

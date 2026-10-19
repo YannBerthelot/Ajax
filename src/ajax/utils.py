@@ -1,4 +1,3 @@
-from dataclasses import fields
 from typing import Any, Optional
 
 import jax
@@ -98,17 +97,3 @@ def online_denormalize(
     return x_norm * jnp.mean(std, axis=-2, keepdims=True) + jnp.mean(
         mean, axis=-2, keepdims=True
     )
-
-
-def fill_with_nan(dataclass):
-    """An instance of the (possibly nested) metrics ``dataclass`` whose every
-    leaf is a ``(1,)`` NaN: an update's metrics on an iteration that skips
-    the update (the logger drops NaN values)."""
-    nan = jnp.ones(1) * jnp.nan
-    values = {}
-    for field in fields(dataclass):
-        sub = field.type
-        values[field.name] = (
-            fill_with_nan(sub) if hasattr(sub, "__dataclass_fields__") else nan
-        )
-    return dataclass(**values)

@@ -76,7 +76,7 @@ def test_ppo_losses_report_kl_std_and_explained_variance() -> None:
     actor, critic = state.actor_state, state.critic_state
     obs, actions, log_probs, gae, targets = _batch(agent)
 
-    _, p_aux = train_PPO.policy_loss_function(
+    _, (p_aux, _) = train_PPO.policy_loss_function(
         actor.params, actor, obs, actions, log_probs, gae, False, 0.2, 0.0, True
     )
     pi, _ = get_pi(actor, actor.params, obs)
@@ -86,7 +86,9 @@ def test_ppo_losses_report_kl_std_and_explained_variance() -> None:
     )
     np.testing.assert_allclose(p_aux.policy_std, np.mean(pi.stddev()), rtol=1e-6)
 
-    _, v_aux = train_PPO.value_loss_function(critic.params, critic, obs, targets, False)
+    _, (v_aux, _) = train_PPO.value_loss_function(
+        critic.params, critic, obs, targets, False
+    )
     v = np.asarray(predict_value(critic, critic.params, obs).squeeze(0))
     t = np.asarray(targets)
     np.testing.assert_allclose(

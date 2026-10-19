@@ -62,7 +62,7 @@ from ajax.environments.utils import (
     env_keys,
 )
 from ajax.evaluate import ValueEstimate
-from ajax.extensions.base import ExtensionStack
+from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import (
     get_initialized_actor_critic,
@@ -130,9 +130,10 @@ def value_loss_function(
     extra_loss_fn: Optional[Callable] = None,
     resets: Optional[jax.Array] = None,
     initial_hidden: Optional[Any] = None,
-) -> Tuple[jax.Array, ValueAuxiliaries]:
+) -> Tuple[jax.Array, Tuple[ValueAuxiliaries, dict]]:
     """``vf_coef * 0.5 * MSE(V(obs), targets)`` plus ``extra_loss_fn``'s
-    term. A recurrent critic replays the sequence from ``initial_hidden``,
+    term, with the metrics and ``extra_loss_fn``'s (``{}`` without one). A
+    recurrent critic replays the sequence from ``initial_hidden``,
     ``resets`` flagging the observations that start an episode."""
     if recurrent:
         assert resets is not None and initial_hidden is not None
@@ -152,17 +153,20 @@ def value_loss_function(
     v_preds = v_preds.squeeze(0)  # the single critic keeps the ensemble axis
 
     loss = vf_coef * 0.5 * jnp.mean((v_preds - value_targets) ** 2)
+    metrics: dict = {}
     if extra_loss_fn is not None:
-        loss = loss + extra_loss_fn(
+        extra, metrics = extra_loss_fn(
             critic_params, critic_states, observations, value_targets
         )
+        loss = loss + extra
 
-    return loss, ValueAuxiliaries(
+    aux = ValueAuxiliaries(
         critic_loss=loss,
         predictions=v_preds.mean().flatten(),
         targets=value_targets.mean().flatten(),
         explained_variance=explained_variance(v_preds, value_targets),
     )
+    return loss, (aux, metrics)
 
 
 def policy_loss_function(
@@ -181,7 +185,7 @@ def policy_loss_function(
     entropy_rng: Optional[jax.Array] = None,
     resets: Optional[jax.Array] = None,
     initial_hidden: Optional[Any] = None,
-) -> Tuple[jax.Array, PolicyAuxiliaries]:
+) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, dict]]:
     """The clipped surrogate minus ``ent_coef`` times the entropy bonus,
     plus ``extra_loss_fn``'s term; with ``advantage_normalization`` the
     advantages are normalised per minibatch. A recurrent actor replays the
@@ -209,14 +213,14 @@ def policy_loss_function(
     entropy = policy_entropy(pi, entropy_rng).mean()
 
     total_loss = loss_actor - ent_coef * entropy
+    metrics: dict = {}
     if extra_loss_fn is not None:
         # A discrete policy has no mean action.
         pi_mean = None if isinstance(pi, distrax.Categorical) else pi.mean()
-        total_loss = total_loss + extra_loss_fn(
-            actor_params, actor_state, observations, pi_mean
-        )
+        extra, metrics = extra_loss_fn(actor_params, actor_state, observations, pi_mean)
+        total_loss = total_loss + extra
 
-    return total_loss, PolicyAuxiliaries(
+    aux = PolicyAuxiliaries(
         policy_loss=total_loss,
         log_probs=new_log_probs.mean(),
         old_log_probs=log_probs.mean(),
@@ -225,6 +229,7 @@ def policy_loss_function(
         approx_kl=approximate_kl(new_log_probs - log_probs),
         policy_std=mean_policy_std(pi),
     )
+    return total_loss, (aux, metrics)
 
 
 def _stack_critic_loss(
@@ -235,8 +240,9 @@ def _stack_critic_loss(
 ) -> Optional[Callable]:
     """The stack's additive critic-loss term on ``key`` as a
     ``value_loss_function`` ``extra_loss_fn``: ``(critic_params,
-    critic_states, observations, value_targets) -> scalar``; ``None`` for an
-    empty stack. The extensions read their state from ``agent_state``.
+    critic_states, observations, value_targets) -> (term, metrics)``;
+    ``None`` for an empty stack. The extensions read their state from
+    ``agent_state``.
     """
     if not extension_stack:
         return None
@@ -268,7 +274,7 @@ def _stack_actor_loss(
 ) -> Optional[Callable]:
     """The stack's additive actor-loss term on ``key`` as a
     ``policy_loss_function`` ``extra_loss_fn``: ``(actor_params,
-    actor_state, observations, pi_mean) -> scalar``, the minibatch's
+    actor_state, observations, pi_mean) -> (term, metrics)``, the minibatch's
     ``raw_observations`` beside them; ``None`` for an empty stack."""
     if not extension_stack:
         return None
@@ -617,6 +623,7 @@ def update_agent(
     if extension_stack:
         # The environment's own observations, which an expert reads.
         batch["raw_obs"] = rollout.raw_obs
+    rollout_metrics: dict = {}  # the extensions' on the rollout's targets
 
     if geometry.kind == "time":
         # GAE in each minibatch, with the critic of that step.
@@ -666,7 +673,7 @@ def update_agent(
                 "next_values": next_values,
                 "gamma": agent_config.gamma,
             }
-            value_targets = extension_stack.fold_on_target(
+            value_targets, rollout_metrics = extension_stack.fold_on_target(
                 agent_state,
                 target_batch,
                 value_targets,
@@ -691,6 +698,7 @@ def update_agent(
     def minibatch_step(agent_state: PPOState, mb: dict) -> tuple[PPOState, Any]:
         """A critic and an actor step, both from the state before either."""
         ent_rng, ext_rng, new_rng = jax.random.split(agent_state.rng, 3)
+        target_metrics: dict = {}
         agent_state = agent_state.replace(rng=new_rng)
         critic, actor = agent_state.critic_state, agent_state.actor_state
         # The extensions' target and loss terms, each on a key of its own.
@@ -740,7 +748,7 @@ def update_agent(
                     "next_values": next_values,
                     "gamma": agent_config.gamma,
                 }
-                value_targets = extension_stack.fold_on_target(
+                value_targets, target_metrics = extension_stack.fold_on_target(
                     agent_state,
                     target_batch,
                     value_targets,
@@ -752,7 +760,9 @@ def update_agent(
             gae, value_targets = mb["gae"], mb["targets"]
 
         resets = mb.get("resets")
-        (_, v_aux), v_grads = jax.value_and_grad(value_loss_function, has_aux=True)(
+        (_, (v_aux, v_metrics)), v_grads = jax.value_and_grad(
+            value_loss_function, has_aux=True
+        )(
             critic.params,
             critic,
             mb["obs"],
@@ -763,7 +773,9 @@ def update_agent(
             resets=resets,
             initial_hidden=mb.get("critic_hidden"),
         )
-        (_, p_aux), p_grads = jax.value_and_grad(policy_loss_function, has_aux=True)(
+        (_, (p_aux, p_metrics)), p_grads = jax.value_and_grad(
+            policy_loss_function, has_aux=True
+        )(
             actor.params,
             actor,
             mb["obs"],
@@ -787,11 +799,14 @@ def update_agent(
         # Each network's norm before the joint clip.
         p_aux = p_aux.replace(grad_norm=optax.global_norm(p_grads))
         v_aux = v_aux.replace(grad_norm=optax.global_norm(v_grads))
-        return agent_state, AuxiliaryLogs(policy=p_aux, value=v_aux)
+        metrics = merge_metrics(target_metrics, v_metrics, p_metrics)
+        return agent_state, AuxiliaryLogs(policy=p_aux, value=v_aux, extensions=metrics)
 
     agent_state, aux = run_epochs(
         agent_state, shuffle_key, minibatches, minibatch_step, agent_config.n_epochs
     )
+    # The flat and recurrent updates fold on_target once, over the rollout.
+    aux = aux.replace(extensions=merge_metrics(rollout_metrics, aux.extensions))
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
 
     # brax's num_resets_per_eval: every env reset every reset_every updates.

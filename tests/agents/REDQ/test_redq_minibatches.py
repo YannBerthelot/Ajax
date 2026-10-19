@@ -111,9 +111,9 @@ def test_the_actor_reads_the_critics_before_their_last_update(
 
     def spy_values(agent_state: Any, *args: Any) -> Any:
         record(critics_in, flat_critics(agent_state))
-        agent_state, aux = update_values(agent_state, *args)
+        agent_state, *out = update_values(agent_state, *args)
         record(critics_out, flat_critics(agent_state))
-        return agent_state, aux
+        return agent_state, *out
 
     def spy_policy(agent_state: Any, *args: Any, **kw: Any) -> Any:
         record(actor_reads, flat_critics(agent_state))

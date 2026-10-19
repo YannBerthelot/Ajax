@@ -72,8 +72,10 @@ def test_bias_vore_penalty_alpha_half_is_zero():
 def test_bias_vore_penalty_scales_the_residual_variance():
     """The penalty is ``loss_scale * coeff * Var(q_taken - target)``."""
     ext = BiasVorePenalty(alpha=0.3, loss_scale=0.5)
-    penalty = ext.critic_loss(None, None, _q_network_batch(), None)
+    penalty, metrics = ext.critic_loss(None, None, _q_network_batch(), None)
     assert float(penalty) == pytest.approx(0.5 * evarest_coeff(0.3) * 32 / 9)
+    assert metrics["bias_vore/penalty"] is penalty
+    assert float(metrics["bias_vore/residual_var"]) == pytest.approx(32 / 9)
 
 
 def test_bias_vore_penalty_coeff_matches_paper_formula():

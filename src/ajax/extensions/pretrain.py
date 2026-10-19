@@ -740,7 +740,7 @@ def pretrain_critic_bellman(
         if augment:
             observations, next_observations = augment_from_batch(batch)
         # The plain Bellman target: no extension's target or loss term.
-        agent_state, _ = update_value_fn(
+        agent_state, *_ = update_value_fn(
             observations=observations,
             actions=batch.action,
             next_observations=next_observations,

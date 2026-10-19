@@ -28,7 +28,7 @@ from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.evaluate import ValueEstimate
-from ajax.extensions.base import ExtensionStack, holds_expert
+from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import action_value
 from ajax.perf_utils import final_aux_scan
@@ -66,6 +66,7 @@ class AuxiliaryLogs:
     temperature: TemperatureAuxiliaries
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
+    extensions: dict  # the extensions' training metrics
 
 
 def q_ensemble_divergence(q_preds: jax.Array) -> Tuple[jax.Array, jax.Array]:
@@ -213,7 +214,7 @@ def update_value_functions(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
-) -> Tuple[REDQState, ValueAuxiliaries]:
+) -> Tuple[REDQState, ValueAuxiliaries, dict]:
     """One critic step of the ensemble on the random-subset target."""
     # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
     # default partitionable threefry, so the agent's own draws are unchanged.
@@ -246,7 +247,7 @@ def update_value_functions(
             carries,
         )
 
-    critic_state, aux, _ = critic_step(
+    critic_state, aux, _, metrics = critic_step(
         agent_state,
         batch,
         target_q,
@@ -259,7 +260,7 @@ def update_value_functions(
         gamma=agent_config.gamma,
         reward_scale=agent_config.reward_scale,
     )
-    return agent_state.replace(rng=rng, critic_state=critic_state), aux
+    return agent_state.replace(rng=rng, critic_state=critic_state), aux, metrics
 
 
 def update_policy(
@@ -270,10 +271,11 @@ def update_policy(
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
-) -> Tuple[REDQState, PolicyAuxiliaries, jax.Array]:
+) -> Tuple[REDQState, PolicyAuxiliaries, jax.Array, dict]:
     """The actor step on ``alpha log pi(a|s) - mean_i Q_i(s, a)``; also
-    returns its samples' log-probs (temperature)."""
-    agent_state, (loss, log_probs, q_mean) = core.soft_actor_step(
+    returns its samples' log-probs (temperature) and the extensions'
+    metrics."""
+    agent_state, (loss, log_probs, q_mean), metrics = core.soft_actor_step(
         agent_state,
         observations,
         raw_observations,
@@ -286,7 +288,7 @@ def update_policy(
     aux = PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()
     )
-    return agent_state, aux, log_probs
+    return agent_state, aux, log_probs, metrics
 
 
 def update_agent(
@@ -317,7 +319,7 @@ def update_agent(
             agent_config.burn_in,
             agent_config.stored_state,
         )
-        agent_state, aux_value = update_value_functions(
+        agent_state, aux_value, value_metrics = update_value_functions(
             agent_state.replace(rng=rng),
             batch,
             agent_config,
@@ -326,15 +328,16 @@ def update_agent(
             carries,
         )
         agent_state = core.update_target_networks(agent_state, agent_config.tau)
-        return agent_state, (aux_value, batch, carries, critics_before)
+        return agent_state, (aux_value, value_metrics, batch, carries, critics_before)
 
     # Carry-only scan: only the last critic step's metrics, batch and
     # critics before it are kept.
-    agent_state, (aux_value, batch, carries, critics_before) = final_aux_scan(
+    agent_state, last = final_aux_scan(
         critic_update_step, agent_state, length=agent_config.num_critic_updates
     )
+    aux_value, value_metrics, batch, carries, critics_before = last
     critic_state = agent_state.critic_state
-    agent_state, aux_policy, log_probs = update_policy(
+    agent_state, aux_policy, log_probs, policy_metrics = update_policy(
         agent_state.replace(critic_state=critic_state.replace(params=critics_before)),
         batch.obs,
         batch.raw_obs,
@@ -347,7 +350,12 @@ def update_agent(
     agent_state, aux_temperature = core.update_temperature(
         agent_state, log_probs, jnp.asarray(agent_config.target_entropy)
     )
-    aux = AuxiliaryLogs(temperature=aux_temperature, policy=aux_policy, value=aux_value)
+    aux = AuxiliaryLogs(
+        temperature=aux_temperature,
+        policy=aux_policy,
+        value=aux_value,
+        extensions=merge_metrics(value_metrics, policy_metrics),
+    )
     return agent_state, aux
 
 
@@ -421,7 +429,6 @@ def make_train(
     return loop.off_policy(
         init,
         update,
-        AuxiliaryLogs,
         agent_config.learning_starts,
         recurrent=recurrent,
         collect_kwargs={

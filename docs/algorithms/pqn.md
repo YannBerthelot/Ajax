@@ -96,7 +96,9 @@ evenly into `num_minibatches`; PQN raises otherwise.
 
 ## Results
 
-The repository records no learning curves for PQN yet. Unit tests
+The [reproduction results](../reproduction/results.md) set PQN beside its
+authors' code (purejaxql) on CartPole and Asterix-MinAtar, with learning
+curves. Unit tests
 (`tests/agents/PQN` and the contracts every agent shares) check its pieces
 against exact contracts, without learning. The probes (`tests/probing`)
 train it briefly on tiny environments with known answers: its Q(lambda)

@@ -31,8 +31,9 @@ version [SBX](https://github.com/araffin/sbx), it differs in four ways:
   [APO](docs/algorithms/apo.md) maximise the reward per step, with no
   discount, for tasks that never end.
 - **[Expert-guided agents](docs/guide/expert-guidance.md)**: learn from a
-  controller you already have, by cloning, imitation, residual policies or
-  hand-over.
+  controller you already have, or from recorded transitions, by cloning,
+  imitation, residual policies, hand-over or prior data in the replay
+  ([methods below](#learning-from-an-expert-or-from-data)).
 - **[World models](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2,
   following the code behind their papers' results.
 
@@ -45,8 +46,9 @@ implementing a published paper, with the places where it departs from that
 paper written down. Several seeds train side by side in one program, on a CPU
 or a GPU. Research features (learning from an expert, exploration rules,
 diagnostics) are *extensions*, passed as `extensions=(...)` rather than added
-as new arguments to the agents; an agent refuses one that needs a training
-phase it does not run.
+as new arguments to the agents. An agent refuses, when built, an extension
+it cannot run; the [compatibility table](docs/guide/compatibility.md) shows
+which agent runs which.
 
 ---
 
@@ -61,12 +63,20 @@ cd Ajax
 uv sync   # creates .venv with the locked dependencies
 ```
 
-Use uv rather than pip: gymnax currently comes from a fork pinned in
-`pyproject.toml` (`[tool.uv.sources]`), which pip does not read. uv installs
-JAX for the CPU; on a Linux machine with an NVIDIA GPU, add CUDA with
-`uv sync --extra cuda` (a project that depends on Ajax asks for `ajax[cuda]`).
-[Installation](docs/getting-started/installation.md) covers the optional
-dependency groups.
+uv installs the versions in `uv.lock`, which CI tests, with JAX for the CPU;
+on a Linux machine with an NVIDIA GPU, add CUDA with `uv sync --extra cuda`
+(a project that depends on Ajax asks for `ajax[cuda]`).
+
+pip works too, with JAX pinned to the locked version. pip does not read
+`uv.lock`, and it would pick JAX 0.11, on which the flax version Ajax uses
+fails when training starts:
+
+```bash
+pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git" "jax==0.7.2"
+```
+
+[Installation](docs/getting-started/installation.md) covers the extras
+(`cuda`, `compare`, `reproduction`) and the dependency groups.
 
 ## Quickstart
 
@@ -137,17 +147,43 @@ helps choose one.
 
 ---
 
+## Learning from an expert or from data
+
+Each method is an extension or an agent option. The last column lists the
+agents that accept it, as the [compatibility table](docs/guide/compatibility.md),
+generated from the code, does.
+
+| Method | In Ajax | Agents |
+| --- | --- | --- |
+| Behaviour cloning before training | `CloningPretrain` | SAC, TD3, REDQ, ASAC, AVG, APO |
+| TD3+BC's actor term (Fujimoto and Gu, 2021); kickstarting (Schmitt et al., 2018) with `anneal_frac` | `ImitationLoss` | SAC, TD3, REDQ, ASAC, AVG, APO; PPO, APG, UDRL with a stateless expert; continuous actions only |
+| Q-filtered behaviour cloning (Nair et al., 2018) | `ImitationLoss(q_filter=True)` | SAC, TD3, REDQ, ASAC, AVG |
+| IBRL targets (Hu et al., 2023) | `IBRL` | SAC, TD3, REDQ, AVG |
+| Residual RL (Johannink et al., 2019) | `ResidualPolicy` | SAC |
+| Jump-start RL hand-over (Uchendu et al., 2023) | `JSRLCurriculum` | SAC |
+| Expert transitions in the replay before training | `expert_buffer_n_steps` | SAC |
+| Prior data in the replay, as RLPD (Ball et al., 2023) without its symmetric sampling, then optional offline updates | `PriorData` with a transition dataset (`ajax.buffers.dataset`) | SAC, TD3, REDQ, ASAC, DQN |
+| Offline multi-task training on pooled datasets (TD-MPC2, Hansen et al., 2024) | `TDMPC2MultiTask` | its own agent |
+| Features developed with Ajax, with no external reference: EDGE exploration, LCB-gated targets, a value-gated hand-over, an expert critic fitted to Monte-Carlo returns and the extensions that read it | `EDGEExploration`, `LCBGatedBootstrap`, `ValueBox`, `MCPretrain`, ... | SAC (LCB: SAC, TD3, REDQ) |
+
+Not in Ajax yet: interactive imitation such as DAgger, adversarial imitation
+such as GAIL, and offline RL algorithms such as CQL or IQL.
+[Expert guidance](docs/guide/expert-guidance.md) explains the expert's
+conventions and how the pieces combine.
+
+---
+
 ## What else is in the box
 
-- **[Extensions](docs/guide/extensions.md)**: nineteen of them, for expert
+- **[Extensions](docs/guide/extensions.md)**: twenty of them, for expert
   guidance, exploration, critic-target changes, actor and critic
-  pre-training, ensemble diversity and critic diagnostics, passed as
-  `extensions=(...)`; the catalogue says which agents run each one.
-- **[Expert guidance](docs/guide/expert-guidance.md)**: learn from an existing
-  controller by behaviour cloning, imitation, residual policies, JSRL hand-over,
-  IBRL targets or EDGE exploration. The expert reads the environment's raw
-  observations and answers in the environment's action units; an expert with
-  a state, such as a PID's integral, gets it back at every step.
+  pre-training, prior data, ensemble diversity and critic diagnostics, passed
+  as `extensions=(...)`; the [compatibility table](docs/guide/compatibility.md)
+  says which agents run each one.
+- **[Expert guidance](docs/guide/expert-guidance.md)**: the expert reads the
+  environment's raw observations and answers in the environment's action
+  units; an expert with a state, such as a PID's integral, gets it back at
+  every step.
 - **[Recurrent memory](docs/guide/memory.md)**: a GRU, LSTM, transformer or
   Mamba block for PPO, SAC, TD3, REDQ, ASAC and APG, with R2D2-style sequence
   replay (burn-in, stored state) for the replay agents.
@@ -163,7 +199,9 @@ helps choose one.
   initialisers named by strings, a CNN encoder for image observations (PPO,
   DQN, PQN, UDRL), and a PID controller as the actor of SAC, TD3, REDQ, ASAC,
   AVG, PPO or APO, with learned fixed gains that deploy as a plain PID, or
-  gains scheduled on the observation.
+  gains scheduled on the observation. Where an agent starts from its
+  reference code's initialisation and optimiser settings, its algorithm page
+  says so and cites the code.
 - **[Environments](docs/guide/environments.md)**: gymnax, Brax and MuJoCo
   Playground by id, `n_envs` copies in parallel, terminations kept apart from
   time limits (a truncated episode still bootstraps), `episode_length` and
@@ -172,8 +210,18 @@ helps choose one.
   Every continuous agent acts in `[-1, 1]`, mapped onto the environment's
   action bounds.
 - **[Logging](docs/guide/logging.md)**: `train` returns every evaluation as
-  arrays, and a background worker sends them to Weights & Biases or
-  TensorBoard.
+  arrays, with training diagnostics (gradient norms, PPO's approximate KL,
+  explained variance, ...) and each extension's own metrics, and a background
+  worker sends them to Weights & Biases or TensorBoard.
+- **[Comparing agents](docs/guide/comparing-agents.md)**: `ajax.compare` runs
+  AdaStop (Mathieu et al., 2024), which trains more seeds only while the
+  answer is unclear, and `ajax.compare.estimate` gives one agent's metrics
+  confidence intervals that stay valid however many seeds are added.
+- **[Reproduction](docs/reproduction/index.md)**: Ajax agents trained beside
+  a reference implementation (Stable-Baselines3, Brax, the authors' code) on
+  the same JAX environment, run on demand from
+  [`benchmarks/reference`](benchmarks/reference/README.md), under a written
+  protocol; the results so far cover PPO and PQN.
 - **[Checkpoints and resuming](docs/guide/checkpoints.md)**: pass a state back
   to train further, or save it and resume in another process; the tests
   check that a split run matches the run left whole.
@@ -199,7 +247,8 @@ helps choose one.
 | --- | --- |
 | **[Getting started](docs/getting-started/installation.md)** | Installation and a guided quickstart |
 | **[User guide](docs/guide/training.md)** | Training, environments, networks, memory, logging, checkpoints, performance |
-| **[Research features](docs/guide/extensions.md)** | Extensions, expert guidance, differentiable simulation, world models |
+| **[Research features](docs/guide/extensions.md)** | Extensions, compatibility, expert guidance, comparing agents, differentiable simulation, world models |
+| **[Reproduction](docs/reproduction/index.md)** | Ajax against reference implementations: protocol, specifications, results |
 | **[Algorithms](docs/algorithms/index.md)** | One page per agent: the paper, when to use it, an example, its parameters and deviations |
 | **[API reference](https://yannberthelot.github.io/Ajax/api/agents/)** | Generated from the docstrings |
 | **[Developer guide](docs/developer/architecture.md)** | Architecture, contributing, writing an extension, testing, performance |

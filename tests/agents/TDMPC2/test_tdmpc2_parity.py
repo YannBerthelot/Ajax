@@ -57,11 +57,13 @@ from .reference_params import (
     LOGGED,
     POST_STEP_Q_TOL,
     SCALAR_TOL,
+    SCALE_TOL,
     ErrorReport,
     Fixture,
     ajax_config,
     check_final_params,
     load_fixture,
+    logged_tol,
     reference_config,
     torch_to_ajax,
     update_inputs,
@@ -209,8 +211,8 @@ def test_update_matches_reference_over_four_updates(fx, ref_config, config):
             q = core.reduce_q_pair(logits[noise.pi_pair], "avg", config.two_hot)
             report.check("pi_q", q, fx[p + "pi_q"][..., 0], POST_STEP_Q_TOL)
             for name in LOGGED:
-                report.check(name, aux[name], fx[p + name], SCALAR_TOL)
-            report.check("q_scale", state.q_scale.value, fx[p + "pi_scale"], SCALAR_TOL)
+                report.check(name, aux[name], fx[p + name], logged_tol(name))
+            report.check("q_scale", state.q_scale.value, fx[p + "pi_scale"], SCALE_TOL)
             report.check(
                 "pi_entropy",
                 aux["pi_entropy"],

@@ -37,14 +37,15 @@ from . import readouts as R
 # cells' faults: faults/ + 5, this note + 1; PriorData's cell: faults/ + 2,
 # this note + 1; imitation on TD3, REDQ, ASAC, AVG: test_extensions + 25,
 # faults/ + 4, this note + 1; APO's q7-cloning rate note: test_extensions
-# + 4, this note + 1.
+# + 4, this note + 1; DAgger's two cells: test_imitation 103, faults/ + 3,
+# this note + 2.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 217}
-CAPS |= {"test_framework.py": 217, "test_value_chains.py": 1051}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 220}
+CAPS |= {"test_framework.py": 219, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1045, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 791, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
-CAPS |= {"test_action_box.py": 201}
+CAPS |= {"test_action_box.py": 201, "test_imitation.py": 103}
 
 
 def _modules() -> list:

@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "1ea81725bf2b"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "3599265054cc"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -362,7 +362,7 @@ VALUE_Q = Query(
 )
 # Calibrated on 1000-1031 + 2000-2031, worst error 0.0059 or less (AVG, at
 # its reference initialisation, 0.0091 at 2500); 3000-3031 within 0.009.
-P5_VALUE = {"SAC": 1250, "REDQ": 1250, "REDQ+on_target": 1250, "TD3": 1250}
+P5_VALUE = {"SAC": 1250, "REDQ": 1250, "REDQ+on_target": 1250, "TD3": 625}
 P5_VALUE |= {"AVG": 2500, "DQN": 1250, "PQN": 80_000}
 
 
@@ -684,7 +684,7 @@ P9_CELLS: dict[str, tuple] = {
 _ON9 = {"normalize_observations": True, "buffer_size": 16384}
 _REDQ9 = _ON9 | {"num_critic_updates": 2}
 P9_CELLS |= {
-    "TD3": (("td", 1, 0.0), TD9, 30_000, (0.072, 0.099), _ON9),
+    "TD3": (("td", 1, 0.0), TD9, 30_000, (0.058, 0.086), _ON9),
     "REDQ": (("td", 1, 0.0), TD9, 10_000, (0.069, 0.091), _REDQ9),
     "AVG": (
         ("gae", 1, 0.0),

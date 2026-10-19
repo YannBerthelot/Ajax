@@ -764,6 +764,16 @@ _GOLDEN |= {
     "PQN-nudge": {"actor": 33.91205596923828, "nudge": 0.33566388487815857},
 }
 
+# Re-recorded on macOS ARM CPU once TD3's layers became its reference code's:
+# torch's nn.Linear default, every kernel and bias uniform in +-1/sqrt(fan_in)
+# (were orthogonal(1.0) hidden and Q layers and a uniform(+-3e-3) actor head,
+# zero biases). Relative shifts (actor, critic): TD3 +299.6%, +153.4%;
+# TD3-mcc +640.8%, +258.6%.
+_GOLDEN |= {
+    "TD3": {"actor": 15.652060508728027, "critic": 29.05111312866211},
+    "TD3-mcc": {"actor": 17.76249885559082, "critic": 28.460254669189453},
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

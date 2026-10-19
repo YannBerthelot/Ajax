@@ -10,9 +10,12 @@ target, and then improve on it.
 In Ajax, an expert is any function you pass to an agent or to an
 [extension](extensions.md). SAC uses it the most: it fills the replay buffer
 with the expert's experience and lets the expert extensions shape
-collection, the critic and the actor. SAC, TD3, REDQ and APO can clone it
-before training, and they and ASAC can imitate it through an extra
-actor-loss term.
+collection, the critic and the actor. SAC, TD3, REDQ, ASAC, AVG and APO can
+clone it before training, and those and PPO, APG and UDRL can imitate it
+through an extra actor-loss term. Recorded transitions, from an expert or
+any earlier run, can start a replay agent's buffer (`PriorData`).
+[Choosing the pieces](#choosing-the-pieces) names each method, its paper and
+the agents that run it.
 
 ## The expert
 
@@ -277,37 +280,41 @@ keeps no replay).
 
 ## Choosing the pieces
 
-| You want to | Use |
-| --- | --- |
-| Start the replay with good experience | `expert_buffer_n_steps` (on by default) |
-| Start the actor as a copy of the expert | `CloningPretrain` (SAC, TD3, REDQ, APO) |
-| Keep the actor near the expert early on | `OnlineBC` (SAC), `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, PPO) |
-| Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC, TD3, REDQ, ASAC, AVG) |
-| Let the expert act while the agent is poor | `EDGEExploration`, `JSRLCurriculum`, `ValueBox` |
-| Learn a correction to the expert | `ResidualPolicy` |
-| Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` |
-| Make the target account for the expert | `IBRL`, `LCBGatedBootstrap` |
-| Measure how the critic rates the expert | `ExpertValueMetrics` |
+The agents in brackets are those that accept each piece, as
+[Compatibility](compatibility.md) lists them from the code. "Developed with
+Ajax" marks a feature with no external reference.
+
+| You want to | Use | Method |
+| --- | --- | --- |
+| Start the replay with good experience | `expert_buffer_n_steps` (SAC, on by default); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
+| Start the actor as a copy of the expert | `CloningPretrain` (SAC, TD3, REDQ, ASAC, AVG, APO) | behaviour cloning |
+| Keep the actor near the expert early on | `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO; PPO, APG, UDRL with a stateless expert), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |
+| Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC, TD3, REDQ, ASAC, AVG) | Q-filtered behaviour cloning (Nair et al., 2018) |
+| Let the expert act while the agent is poor | `JSRLCurriculum`, `EDGEExploration`, `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
+| Learn a correction to the expert | `ResidualPolicy` (SAC) | residual RL (Johannink et al., 2019) |
+| Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` (SAC) | developed with Ajax |
+| Make the target account for the expert | `IBRL` (SAC, TD3, REDQ, AVG), `LCBGatedBootstrap` (SAC, TD3, REDQ) | IBRL (Hu et al., 2023); the LCB gate developed with Ajax |
+| Measure how the critic rates the expert | `ExpertValueMetrics` (SAC, TD3, REDQ, ASAC) | |
 
 Some pieces need others. The agent refuses wrong combinations when it is
-built, or when training starts for those that take context from it:
+built:
 
 | Extension | Needs | Refused |
 | --- | --- | --- |
 | `EDGEExploration`, `JSRLCurriculum`, `ValueBox`, `ResidualPolicy` | SAC with an `expert_policy` and without `use_pid_policy` | when built |
 | `OnlineBC`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox`, `PhiRefresh` | `MCPretrain` in the stack | when built |
 | `OnlineBC` | SAC with an `expert_policy`, whose actions it clones | when built |
-| `IBRL`, `LCBGatedBootstrap`, `CriticBlend`, `PhiRefresh` | SAC, which keeps the raw next observations they read | when built |
-| `BellmanPretrain`, `ExpertValueMetrics` | SAC with an `expert_policy` | when training starts |
+| `IBRL`, `LCBGatedBootstrap` | a discounted agent that keeps the raw next observations they read; `LCBGatedBootstrap` also a critic ensemble | when built |
+| `BellmanPretrain`, `ExpertValueMetrics` | an `expert_policy` and the agent's replay | when built |
 | `ImitationLoss(q_filter=True)` | a Q critic (SAC, TD3, REDQ, ASAC, AVG); without `ResidualPolicy` | when built; with `ResidualPolicy`, when training starts |
-| `CloningPretrain` | SAC, TD3, REDQ or APO; first among the pre-training extensions | when training starts |
+| `CloningPretrain` | SAC, TD3, REDQ, ASAC, AVG or APO; first among the pre-training extensions | the agent when built, the order when training starts |
 
 The extensions that hold an expert themselves (`CloningPretrain`,
 `MCPretrain`, `PhiRefresh`, `IBRL`, `LCBGatedBootstrap`, `CriticBlend`,
 `ImitationLoss`) take it as their first argument. Pass the same object you
 give the agent. The target extensions, `PhiRefresh` and `ImitationLoss`
-then read the actions SAC stored at collection rather than calling the
-expert again.
+then read the actions the agent stored at collection rather than calling
+the expert again.
 `CloningPretrain` must have it when SAC's observations carry the expert's
 action or state, and `MCPretrain` when they carry its state; they are
 refused otherwise.
@@ -375,7 +382,7 @@ continuous-action agent.
 
 ## Limits and caveats
 
-- **No memory.** Recurrent SAC, TD3 and REDQ refuse an expert and
+- **No memory.** Recurrent SAC, TD3, REDQ and ASAC refuse an expert and
   extensions.
 - **SAC is the hub.** Most expert extensions read quantities only SAC's
   update provides; the [catalogue](extensions.md#catalogue) gives each one's

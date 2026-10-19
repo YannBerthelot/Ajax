@@ -809,6 +809,13 @@ _GOLDEN |= {
     "TD3": {"actor": 15.433494567871094, "critic": 27.067062377929688},
     "TD3-mcc": {"actor": 17.501985549926758, "critic": 28.56537628173828},
 }
+# Re-recorded on macOS ARM CPU once TD3's Adam eps became torch's 1e-8 (was
+# 1e-5). Relative shifts (actor, critic): TD3 -9.9e-5, +5.3e-6; TD3-mcc
+# +9.0e-5, -6.9e-4.
+_GOLDEN |= {
+    "TD3": {"actor": 15.431966781616211, "critic": 27.06720542907715},
+    "TD3-mcc": {"actor": 17.503564834594727, "critic": 28.545764923095703},
+}
 
 # Re-recorded on macOS ARM CPU once REDQ's layers became its reference code's:
 # xavier_uniform kernels and zero biases, the mean and log-std layers included

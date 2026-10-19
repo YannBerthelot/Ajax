@@ -46,7 +46,7 @@ updated in 2019, not the paper's: see [Notes](#notes).
 | Argument | Default | What it does |
 | --- | --- | --- |
 | `n_envs` | `1` | parallel environments |
-| `actor_learning_rate`, `critic_learning_rate` | `3e-4` | Adam step sizes |
+| `actor_learning_rate`, `critic_learning_rate` | `3e-4` | Adam step sizes (Adam's epsilon is torch's 1e-8) |
 | `actor_architecture`, `critic_architecture` | `("256", "relu", "256", "relu")` | hidden layers (plain MLPs) |
 | `gamma` | `0.99` | discount |
 | `buffer_size` | `1_000_000` | replay capacity |

@@ -339,3 +339,26 @@ def test_the_gains_are_normalised_on_a_wider_box():
     u = 0.4 * e + 0.2 * i + 0.1 * d
     paid = evaluate(env, actor, 2, jax.random.PRNGKey(0), params)[0]
     np.testing.assert_allclose(paid, paid_action.HIGH * jnp.tanh(u), rtol=1e-6)
+
+
+@pytest.mark.parametrize("name", ["SAC", "REDQ", "AVG"])
+def test_an_agents_gaussian_head_settings_leave_its_pid_actor_alone(name):
+    """SAC, REDQ and AVG start their Gaussian heads as their reference code
+    does (a log-std bias of 0); a PID policy in that actor's place keeps the
+    PID actor's own log-std start, PID_LOG_STD_INIT."""
+    import ajax
+
+    env, params = setpoint_env.make()
+    agent = getattr(ajax, name)(env, env_params=params, actor_architecture=PIDPolicy())
+    actor, _ = get_initialized_actor_critic(
+        jax.random.PRNGKey(0),
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+        continuous=True,
+        action_value=True,
+        squash=True,
+        num_critics=1,
+    )
+    np.testing.assert_allclose(actor.params["params"]["log_std"], PID_LOG_STD_INIT)

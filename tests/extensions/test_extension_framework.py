@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 import ajax.extensions
 from ajax.agents.SAC.action_pipeline import _dispatch_actions
@@ -115,9 +116,51 @@ def test_stack_folds_transforms_and_sums_losses():
         [AddTarget(1.0), AddTarget(10.0), ConstCriticLoss(0.25), ConstCriticLoss(0.75)]
     )
     agent, step, rng = _FakeAgentState(ext_state=((),) * 4), 0, jax.random.PRNGKey(0)
-    target = stack.fold_on_target(agent, None, jnp.asarray(0.0), step, rng, 100)
-    assert float(target) == 11.0
-    assert float(stack.fold_critic_loss(agent, None, step, rng, 100)) == 1.0
+    target, metrics = stack.fold_on_target(
+        agent, None, jnp.asarray(0.0), step, rng, 100
+    )
+    assert float(target) == 11.0 and metrics == {}
+    total, metrics = stack.fold_critic_loss(agent, None, step, rng, 100)
+    assert float(total) == 1.0 and metrics == {}
+
+
+def test_a_phase_may_return_its_metrics_beside_its_value():
+    """A phase returning ``(value, metrics)``: the fold uses the value and
+    merges the metrics, those of a phase returning its value alone being
+    none; two extensions logging one name raise."""
+
+    class Logged(Extension):
+        def __init__(self, name):
+            self.name = name
+
+        def on_target(self, agent_state, ext_state, batch, target, ctx):
+            return target + 1.0, {f"{self.name}/target": target}
+
+        def critic_loss(self, agent_state, ext_state, batch, ctx):
+            return 0.5, {f"{self.name}/critic": jnp.asarray(2.0)}
+
+        def actor_loss(self, agent_state, ext_state, batch, ctx):
+            return 0.25, {f"{self.name}/actor": jnp.asarray(3.0)}
+
+    stack = ExtensionStack([Logged("a"), AddTarget(10.0), Logged("b")])
+    agent, step, rng = _FakeAgentState(ext_state=((),) * 3), 0, jax.random.PRNGKey(0)
+    target, metrics = stack.fold_on_target(agent, None, jnp.asarray(0.0), step, rng, 9)
+    assert float(target) == 12.0
+    assert {k: float(v) for k, v in metrics.items()} == {
+        "a/target": 0.0,
+        "b/target": 11.0,
+    }
+    for fold, name, total in (
+        (stack.fold_critic_loss, "critic", 1.0),
+        (stack.fold_actor_loss, "actor", 0.5),
+    ):
+        term, metrics = fold(agent, None, step, rng, 9)
+        assert float(term) == total and sorted(metrics) == [f"a/{name}", f"b/{name}"]
+
+    twice = ExtensionStack([Logged("a"), Logged("a")])
+    agent = _FakeAgentState(ext_state=((),) * 2)
+    with pytest.raises(ValueError, match="a/critic"):
+        twice.fold_critic_loss(agent, None, step, rng, 9)
 
 
 def test_eval_metrics_merge_with_a_key_per_extension():
@@ -245,9 +288,10 @@ def test_fold_helpers_empty_stack_zero_cost():
     assert stack.fold_init_states(agent, rng) is agent
     assert stack.fold_pretrain(agent, step, rng, 100) is agent
     assert stack.fold_post_update(agent, step, rng, 100) is agent
-    assert stack.fold_on_target(agent, batch, target, step, rng, 100) is target
-    assert stack.fold_critic_loss(agent, batch, step, rng, 100) == 0.0
-    assert stack.fold_actor_loss(agent, batch, step, rng, 100) == 0.0
+    folded, metrics = stack.fold_on_target(agent, batch, target, step, rng, 100)
+    assert folded is target and metrics == {}
+    assert stack.fold_critic_loss(agent, batch, step, rng, 100) == (0.0, {})
+    assert stack.fold_actor_loss(agent, batch, step, rng, 100) == (0.0, {})
     assert stack.fold_eval_metrics(agent, step, rng, 100) == {}
 
 
@@ -263,7 +307,7 @@ def test_fold_helpers_route_through_phase():
     rng = jax.random.PRNGKey(0)
     step = jnp.asarray(0)
 
-    out = stack.fold_on_target(
+    out, _ = stack.fold_on_target(
         agent, batch=None, target=jnp.asarray(0.0), step=step, rng=rng, total_steps=100
     )
     assert float(out) == 11.0
@@ -278,7 +322,9 @@ def test_fold_helpers_route_through_phase():
     # actor_loss fold returns the additive scalar.
     stack3 = ExtensionStack([ConstActorLoss()])
     agent3 = _FakeAgentState(ext_state=((),))
-    val = stack3.fold_actor_loss(agent3, batch=None, step=step, rng=rng, total_steps=10)
+    val, _ = stack3.fold_actor_loss(
+        agent3, batch=None, step=step, rng=rng, total_steps=10
+    )
     assert float(val) == 0.25
 
 

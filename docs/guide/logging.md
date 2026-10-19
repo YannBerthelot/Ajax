@@ -122,6 +122,24 @@ agent state at each evaluation:
 A pretraining result is the same at every evaluation. It is NaN in a run
 resumed from a checkpoint saved before the results were kept.
 
+Others log what they compute in the agent's update, its targets or its
+losses ([Writing an extension](../developer/writing-an-extension.md#logging-what-a-phase-computes)).
+Like the agent's training metrics, they are the last update's values, or
+the mean over the update's epochs and minibatches (PPO, APO, PQN; UDRL's
+over its updates):
+
+| Name | Extension | Meaning |
+| --- | --- | --- |
+| `ibrl/bonus` | `IBRL` | the mean bonus the target gains |
+| `ibrl/expert_wins` | `IBRL` | the share of the batch where the expert's next action has the higher value |
+| `lcb_bootstrap/p_expert` | `LCBGatedBootstrap` | the mean weight of the expert's next action in the target |
+| `critic_blend/target_gap` | `CriticBlend` | the mean of the expert's target minus the Bellman target |
+| `mc_variance/replaced_frac` | `MCVarianceCorrection` | the share of targets replaced by `φ*`'s value |
+| `kernel_repulsion/term`, `kernel_repulsion/kernel`, `kernel_repulsion/bandwidth` | `KernelRepulsion` | the term added to the critic loss, the critics' mean kernel and its bandwidth |
+| `bias_vore/penalty`, `bias_vore/residual_var` | `BiasVorePenalty` | the term added to the critic loss and the variance of the critic's residual it scales |
+| `imitation/term`, `imitation/mse` | `ImitationLoss` | the term added to the actor loss, and the mean squared distance between the policy's mean action and the expert's, before the Q-filter and the schedule |
+| `online_bc/term`, `online_bc/weight` | `OnlineBC` | the term added to the actor loss and its schedule's weight |
+
 ### The value bias
 
 `Eval/mean bias` measures how far the critic's value estimates are from

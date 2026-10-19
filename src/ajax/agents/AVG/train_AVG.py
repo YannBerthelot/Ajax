@@ -25,7 +25,7 @@ from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.environments.interaction import get_pi
 from ajax.evaluate import ValueEstimate
-from ajax.extensions.base import ExtensionStack
+from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import action_value
 from ajax.state import (
@@ -59,6 +59,7 @@ class AuxiliaryLogs:
     temperature: TemperatureAuxiliaries
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
+    extensions: dict  # the extensions' training metrics
 
 
 def init_AVG(
@@ -227,7 +228,7 @@ def update_value_functions(
     agent_config: AVGConfig,
     extension_stack: ExtensionStack,
     total_timesteps: int,
-) -> Tuple[AVGState, ValueAuxiliaries]:
+) -> Tuple[AVGState, ValueAuxiliaries, dict]:
     """The critic step on the scaled TD error of ``transition``."""
     # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
     # default partitionable threefry, so the agent's own draws are unchanged.
@@ -263,7 +264,7 @@ def update_value_functions(
             agent_state.scaling_coef,
         )
 
-    critic_state, aux, _ = critic_step(
+    critic_state, aux, _, metrics = critic_step(
         agent_state,
         transition,
         target_q,
@@ -276,7 +277,7 @@ def update_value_functions(
         gamma=agent_config.gamma,
         reward_scale=agent_config.reward_scale,
     )
-    return agent_state.replace(rng=rng, critic_state=critic_state), aux
+    return agent_state.replace(rng=rng, critic_state=critic_state), aux, metrics
 
 
 def update_policy(
@@ -287,14 +288,15 @@ def update_policy(
     total_timesteps: int,
     raw_observations: Optional[jax.Array] = None,
     a_expert: Optional[jax.Array] = None,
-) -> Tuple[AVGState, PolicyAuxiliaries]:
+) -> Tuple[AVGState, PolicyAuxiliaries, dict]:
     """The actor step through the action taken; the extensions also read
     the env's own observations, the policy's mean action and ``a_expert``,
-    the agent's expert's action from its state (None without one)."""
+    the agent's expert's action from its state (None without one). Also
+    returns the extensions' metrics."""
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     actor_state = agent_state.actor_state
 
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, PolicyAuxiliaries]:
+    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, Any]:
         loss, aux = policy_loss_function(
             params,
             actor_state,
@@ -318,7 +320,7 @@ def update_policy(
             "a_expert": a_expert,
             "critic_state": agent_state.critic_state,
         }
-        extra = extension_stack.fold_actor_loss(
+        extra, metrics = extension_stack.fold_actor_loss(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
@@ -326,10 +328,10 @@ def update_policy(
             jax.random.split(agent_state.rng, 4)[3],
             total_timesteps,
         )
-        return loss + extra, aux
+        return loss + extra, (aux, metrics)
 
-    actor_state, aux, _ = gradient_step(actor_state, loss_fn)
-    return agent_state.replace(actor_state=actor_state), aux
+    actor_state, (aux, metrics), _ = gradient_step(actor_state, loss_fn)
+    return agent_state.replace(actor_state=actor_state), aux, metrics
 
 
 def update_agent(
@@ -353,11 +355,11 @@ def update_agent(
     Algorithm 1, writes the critic's update line before the actor's; the
     paper's runs come from that code.
     """
-    critic_updated, aux_value = update_value_functions(
+    critic_updated, aux_value, value_metrics = update_value_functions(
         agent_state, transition, agent_config, extension_stack, total_timesteps
     )
     assert transition.raw_action is not None
-    policy_updated, aux_policy = update_policy(
+    policy_updated, aux_policy, policy_metrics = update_policy(
         agent_state,
         transition.obs,
         transition.raw_action,
@@ -376,6 +378,7 @@ def update_agent(
         ),
         policy=aux_policy,
         value=aux_value,
+        extensions=merge_metrics(value_metrics, policy_metrics),
     )
     return agent_state, aux
 
@@ -444,7 +447,6 @@ def make_train(
     return loop.off_policy(
         init,
         update,
-        AuxiliaryLogs,
         agent_config.learning_starts,
         expose_rollout=agent_config.expose_recent_rollout,
         after_collect=after_collect,

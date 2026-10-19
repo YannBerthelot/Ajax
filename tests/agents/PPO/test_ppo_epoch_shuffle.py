@@ -3,8 +3,8 @@
 OpenAI baselines' ppo2 and CleanRL's ``ppo.py`` shuffle inside their epoch
 loop; APO's official code (``xtma/apo``, ``APPO.optimize_agent``) draws
 ``iterate_mb_idxs(..., shuffle=True)`` once per epoch. One update runs on a
-synthetic rollout whose observation ``(t, e, 0)`` names its row; the critic
-step records the observations of every minibatch it trains on.
+synthetic rollout whose observation ``(t, e, 0)`` names its row; the critic's
+loss (APO's minibatch step) records the observations of every minibatch.
 """
 
 from __future__ import annotations
@@ -122,13 +122,13 @@ def test_ppo_reshuffles_every_epoch(
 def test_apo_reshuffles_every_epoch(monkeypatch: pytest.MonkeyPatch) -> None:
     agent = APO(**SMALL)
     seen: list[np.ndarray] = []
-    update_values = train_APO.update_value_functions
+    update_networks = train_APO.update_networks
 
-    def spy(agent_state: Any, obs: jax.Array, *args: Any) -> Any:
-        _record(seen, obs)
-        return update_values(agent_state, obs, *args)
+    def spy(agent_state: Any, minibatch: dict, *args: Any) -> Any:
+        _record(seen, minibatch["obs"])
+        return update_networks(agent_state, minibatch, *args)
 
-    monkeypatch.setattr(train_APO, "update_value_functions", spy)
+    monkeypatch.setattr(train_APO, "update_networks", spy)
     state = train_APO.init_APO(
         jax.random.PRNGKey(0),
         agent.env_args,

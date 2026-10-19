@@ -26,6 +26,9 @@ import jax
 import numpy as np
 from flax import serialization
 
+from ajax.agents.APO.state import APOState
+from ajax.agents.PPO.state import PPOState
+
 
 def _to_host_numpy(state: Any) -> Any:
     return jax.tree.map(
@@ -78,7 +81,8 @@ def restore_into(skeleton: Any, path: str) -> Any:
     state_dict = _with_replay_next_obs(skeleton, state_dict)
     state_dict = _without_segment_raw_obs(skeleton, state_dict)
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
-    state_dict = _without_own_gradient_clip(skeleton_dict, state_dict)
+    if _took_a_joint_clip(skeleton):
+        state_dict = _without_own_gradient_clip(skeleton_dict, state_dict)
     state_dict = _with_raw_obs_info(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
     _check_leaf_shapes(skeleton, restored)
@@ -114,7 +118,27 @@ def _check_leaf_shapes(skeleton: Any, restored: Any) -> None:
             "The checkpoint does not fit this agent's state: "
             + "; ".join(bad[:5])
             + (f"; and {len(bad) - 5} more" if len(bad) > 5 else "")
+            + _apo_widths_hint(skeleton)
         )
+
+
+def _apo_widths_hint(skeleton: Any) -> str:
+    """For an APO, how to restore a checkpoint of its former default
+    network: its hidden layers were two of 128 units before they became its
+    reference code's two of 64.
+
+    Expand-then-contract (CLAUDE.md, refactoring rule 10): delete the hint
+    once no such checkpoint remains.
+    """
+    if not isinstance(skeleton, APOState):
+        return ""
+    wide = '("128", "tanh", "128", "tanh")'
+    return (
+        f". APO's default hidden layers were {wide} before they became its"
+        " reference code's two of 64 units: an APO checkpoint saved then"
+        f" restores into APO(..., actor_architecture={wide},"
+        f" critic_architecture={wide}), its other settings unchanged."
+    )
 
 
 #: Next-observation fields a replay buffer gained, by the field each is
@@ -212,6 +236,16 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
     return out
 
 
+def _took_a_joint_clip(skeleton: Any) -> bool:
+    """Whether ``skeleton`` is a PPO's or an APO's state, the two agents
+    whose networks each clipped their own gradient until one clip over both
+    took its place (``train_PPO.joint_step``). PPO's state is
+    ``BaseAgentState`` itself (``PPOState``); every other agent has its own
+    state class. Another agent's optimiser saved behind a clip is refused,
+    as flax refuses any other optimiser layout."""
+    return type(skeleton) is PPOState or isinstance(skeleton, APOState)
+
+
 def _without_removed_fields(skeleton: Any, saved: Any) -> Any:
     """Drop the saved fields a state class deleted and lists in its
     ``removed_fields`` (a ``ClassVar[frozenset[str]]``), at any depth, so a
@@ -251,8 +285,9 @@ def _without_own_gradient_clip(skeleton: Any, saved: Any) -> Any:
     gradient first (``get_adam_tx``'s ``max_grad_norm``: a chain whose clip
     holds an empty state) the layout of the unclipped optimiser restoring
     it. The clip holds no data, so every moment and step count is kept.
-    PPO's networks clipped their own gradients until PPO took ppo2's one
-    clip over both (``train_PPO.joint_step``).
+    PPO's and APO's networks clipped their own gradients until each took its
+    reference code's one clip over both (``train_PPO.joint_step``); only
+    their states take it (:func:`_took_a_joint_clip`).
 
     Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as
     ``_with_replay_next_obs``.

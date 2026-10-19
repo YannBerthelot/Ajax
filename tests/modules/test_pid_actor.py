@@ -14,11 +14,22 @@ from ajax.agents.TD3.networks import (
     get_initialized_td3_actor_critic,
 )
 from ajax.evaluate import evaluate
-from ajax.modules.pid_actor import PIDActor, PIDLaw, PIDPolicy, pid_gains
+from ajax.modules.pid_actor import (
+    PID_LOG_STD_INIT,
+    PIDActor,
+    PIDLaw,
+    PIDPolicy,
+    pid_gains,
+)
 from ajax.networks.distributions import Squash
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import Squashed, get_initialized_actor_critic
-from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
+from ajax.state import (
+    LOG_STD_BOUNDS,
+    EnvironmentConfig,
+    NetworkConfig,
+    OptimizerConfig,
+)
 from tests.environments import paid_action
 
 from . import setpoint_env
@@ -64,12 +75,43 @@ def test_gains_start_at_zero_and_exploration_is_state_independent():
     np.testing.assert_allclose(dist.stddev(), jnp.exp(-0.5))
 
 
+@pytest.mark.parametrize("bounds", [LOG_STD_BOUNDS, (-1.0, 0.5), None])
+def test_the_log_std_is_clipped_to_its_bounds(bounds):
+    """The log-std is clipped to ``log_std_bounds``, or not at all when
+    None, as the Actor's heads are."""
+    actor = PIDActor(PIDPolicy(n_errors=2), action_dim=2, log_std_bounds=bounds)
+    params = actor.init(jax.random.PRNGKey(0), OBS)
+    log_std = jnp.array([3.0, -25.0])  # beyond either bound
+    params = {"params": {**params["params"], "log_std": log_std}}
+    want = np.exp(np.clip(np.asarray(log_std), *(bounds or (-np.inf, np.inf))))
+    std = actor.apply(params, OBS).stddev()
+    np.testing.assert_allclose(std, np.broadcast_to(want, (5, 2)), rtol=1e-5)
+
+
+@pytest.mark.parametrize("bounds", [(2.0, -20.0), (1.0, 1.0)])
+def test_the_pid_actor_refuses_log_std_bounds_out_of_order(bounds):
+    """As the Actor does: they would clip every log-std to the high one."""
+    actor = PIDActor(PIDPolicy(n_errors=2), action_dim=2, log_std_bounds=bounds)
+    with pytest.raises(ValueError, match="low < high"):
+        actor.init(jax.random.PRNGKey(0), OBS)
+
+
 def test_the_squashed_actor_squashes_the_pid_output():
     actor = Squashed(PIDActor(PIDPolicy(n_errors=2), action_dim=2))
     params = _set_gains(actor.init(jax.random.PRNGKey(0), OBS), GAINS)
     dist = actor.apply(params, OBS)
     assert isinstance(dist, Squash)
     np.testing.assert_allclose(dist.distribution.loc, _by_hand(OBS, GAINS), 1e-6)
+
+
+def test_tanh_mean_samples_unsquashed_around_the_bounded_pid_output():
+    """``tanh_mean`` (APO's reference head): a Normal around tanh(u), not a
+    squashed one."""
+    actor = PIDActor(PIDPolicy(n_errors=2), action_dim=2, tanh_mean=True)
+    params = _set_gains(actor.init(jax.random.PRNGKey(0), OBS), GAINS)
+    dist = actor.apply(params, OBS)
+    assert type(dist) is distrax.Normal
+    np.testing.assert_allclose(dist.mean(), jnp.tanh(_by_hand(OBS, GAINS)), 1e-6)
 
 
 def test_observation_gains_with_a_constant_network_are_the_fixed_ones():
@@ -106,20 +148,31 @@ def test_bad_policies_raise(kwargs):
         PIDPolicy(**kwargs)
 
 
-def _build(memory=None, td3=False):
+def _build(
+    memory=None, td3=False, log_std_bounds=LOG_STD_BOUNDS, tanh_mean=False, **net_fields
+):
+    """The PID actor and its critic, squashed unless ``tanh_mean``;
+    ``net_fields`` set more of the network config."""
     env, params = setpoint_env.make()
     env_config = EnvironmentConfig(
         env=env, env_params=params, n_envs=2, continuous=True
     )
     net = NetworkConfig(actor_architecture=PIDPolicy(), critic_architecture=("8",))
-    net = net.replace(memory=memory)
+    net = net.replace(memory=memory, log_std_bounds=log_std_bounds)
+    net = net.replace(tanh_mean=tanh_mean, **net_fields)
     opt = OptimizerConfig(learning_rate=1e-3)
     if td3:
         return get_initialized_td3_actor_critic(
             jax.random.PRNGKey(0), env_config, opt, opt, net
         )
     return get_initialized_actor_critic(
-        jax.random.PRNGKey(0), env_config, opt, opt, net, continuous=True, squash=True
+        jax.random.PRNGKey(0),
+        env_config,
+        opt,
+        opt,
+        net,
+        continuous=True,
+        squash=not tanh_mean,
     )
 
 
@@ -139,6 +192,45 @@ def test_the_factories_build_pid_actors():
     assert isinstance(actor.apply_fn.__self__.actor, DeterministicPIDActor)
     params = _set_gains(actor.params, {g: jnp.full((1, 1), 0.2) for g in GAINS})
     np.testing.assert_allclose(actor.apply_fn(params, obs).mean(), jnp.tanh(0.6))
+
+
+def test_the_factory_gives_the_pid_actor_its_log_std_bounds():
+    """The network config's bounds reach the PID actor: None leaves a
+    log-std of 3 unclipped (the default bounds would clip it to 2)."""
+    actor, _ = _build(log_std_bounds=None)
+    params = {"params": {**actor.params["params"], "log_std": jnp.full((1,), 3.0)}}
+    dist = actor.apply_fn(params, jnp.ones((3, 5)))
+    np.testing.assert_allclose(dist.distribution.scale, np.exp(3.0), rtol=1e-6)
+
+
+def test_the_factory_gives_the_pid_actor_its_tanh_mean():
+    """The network config's ``tanh_mean`` reaches the PID actor: gains 0.5
+    on the three unit terms give u = 1.5 and a mean of tanh(1.5)."""
+    actor, _ = _build(tanh_mean=True)
+    params = _set_gains(actor.params, {g: jnp.full((1, 1), 0.5) for g in GAINS})
+    dist = actor.apply_fn(params, jnp.ones((3, 5)))
+    np.testing.assert_allclose(dist.mean(), jnp.tanh(1.5), rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "log_std_init, log_std_kernel_init, start",
+    [
+        (-0.5, None, -0.5),
+        (0.0, "xavier_uniform", 0.0),  # SAC's and REDQ's Gaussian head
+        (None, "torch_linear", PID_LOG_STD_INIT),  # ASAC's: the head draws it
+    ],
+)
+def test_the_pid_actor_starts_its_log_std_whatever_head_the_agent_sets(
+    log_std_init, log_std_kernel_init, start
+):
+    """An agent's log-std head settings are for its Gaussian MLP actor: a
+    PID actor in its place ignores the kernel init and starts its one
+    parameter at log_std_init, or at its own default when the head's layer
+    would have drawn it."""
+    actor, _ = _build(
+        log_std_init=log_std_init, log_std_kernel_init=log_std_kernel_init
+    )
+    np.testing.assert_allclose(actor.params["params"]["log_std"], start)
 
 
 @pytest.mark.parametrize("td3", [False, True])

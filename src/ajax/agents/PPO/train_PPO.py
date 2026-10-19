@@ -487,22 +487,35 @@ def _sequence_minibatches(
     }
 
 
+def clip_global_norm(grads: Any, max_norm: Optional[float], eps: float = 0.0) -> Any:
+    """``grads`` (any tree) times ``min(1, max_norm / (norm + eps))``, their
+    global ``norm`` taken over every leaf at once; ``None`` leaves them.
+
+    With ``eps`` 0 it is ``tf.clip_by_global_norm``, ppo2's (baselines
+    ea25b9e ppo2/model.py:105-107); torch's ``clip_grad_norm_``, which APO's
+    reference code calls, adds 1e-6 to the norm (torch 1.5.1,
+    ``torch/nn/utils/clip_grad.py:33-37``)."""
+    if max_norm is None:
+        return grads
+    coef = jnp.minimum(1.0, max_norm / (optax.global_norm(grads) + eps))
+    return jax.tree.map(lambda g: g * coef, grads)
+
+
 def joint_step(
     actor: Any,
     critic: Any,
     actor_grads: Any,
     critic_grads: Any,
     max_grad_norm: Optional[float],
+    norm_eps: float = 0.0,
 ) -> tuple[Any, Any]:
-    """Both networks' Adam steps on their gradients clipped to one global
-    norm, as ppo2's one optimiser clips every parameter's gradient at once
-    (tf.clip_by_global_norm, baselines ea25b9e ppo2/model.py:105-107, the
-    formula of optax's clip). Adam is per coordinate, so the two Adams are
-    one over the whole model. ``None`` leaves the gradients."""
-    if max_grad_norm is not None:
-        clip = optax.clip_by_global_norm(max_grad_norm)
-        grads, _ = clip.update((actor_grads, critic_grads), optax.EmptyState())
-        actor_grads, critic_grads = grads
+    """Both networks' Adam steps on their gradients clipped together
+    (:func:`clip_global_norm`), as ppo2's one optimiser, and APO's
+    reference code's, clip every parameter's gradient at once. Adam is per
+    coordinate, so the two Adams are one over the whole model."""
+    actor_grads, critic_grads = clip_global_norm(
+        (actor_grads, critic_grads), max_grad_norm, norm_eps
+    )
     return (
         actor.apply_gradients(grads=actor_grads),
         critic.apply_gradients(grads=critic_grads),

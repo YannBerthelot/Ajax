@@ -228,6 +228,21 @@ class BaseAgentConfig(Replaceable):
     expose_recent_rollout: bool = False
 
 
+#: SAC's ``(low, high)`` clip of a Gaussian actor's log-std: the default of
+#: ``NetworkConfig.log_std_bounds``, which clips every log-std head (the
+#: Actor's Dense head or parameter, the PID actor's); PPO's is None.
+LOG_STD_BOUNDS: Tuple[float, float] = (-20.0, 2.0)
+
+
+def check_log_std_bounds(bounds: Optional[Tuple[float, float]]) -> None:
+    """Swapped or equal bounds make ``jnp.clip`` return the high one for
+    every input: the std would be silently constant."""
+    if bounds is not None and not bounds[0] < bounds[1]:
+        raise ValueError(
+            f"log_std_bounds is (low, high) with low < high, got {bounds}."
+        )
+
+
 @struct.dataclass
 class NetworkConfig(Replaceable):
     # Hidden layers, or a PIDPolicy: the actor is then a PID controller
@@ -258,9 +273,19 @@ class NetworkConfig(Replaceable):
     # The actor head's knobs; Actor (networks.py) documents each and its
     # reference.
     log_std_state_independent: bool = False
-    log_std_init: float = -1.0
-    clip_log_std_param: bool = True
+    log_std_init: Optional[float] = -1.0
+    # Static, not a pytree leaf: jax rebuilds the config (tree.map,
+    # unflatten) through __post_init__, whose check must then read the
+    # bounds, not a leaf jax put in their place.
+    log_std_bounds: Optional[Tuple[float, float]] = flax.struct.field(
+        pytree_node=False, default=LOG_STD_BOUNDS
+    )
     mean_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    logits_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    log_std_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # The critic's value (V or Q) layer; Critic (networks.py) documents it.
+    value_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    tanh_mean: bool = False
     # Opt-in LayerNorm on the shared encoder's output (Encoder in
     # networks.py), for every network built from this config. Off by
     # default: the SAC, TD3, PPO and DQN papers use plain MLPs. Agents
@@ -268,6 +293,9 @@ class NetworkConfig(Replaceable):
     # ``agent.network_args.replace(encoder_layer_norm=True)``.
     encoder_layer_norm: bool = False
     squash: bool = False
+
+    def __post_init__(self):
+        check_log_std_bounds(self.log_std_bounds)
 
 
 @struct.dataclass

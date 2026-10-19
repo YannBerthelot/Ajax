@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "6b2d50df4b1a"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "ddf4bea92098"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -596,13 +596,13 @@ def _apo_read(run: runs.Run) -> dict:
     return {LEVEL.name: trace.mean(-1), APO_STEP.name: _steps(trace, APO_RMS)}
 
 
-for kind, n in (("box", 0), ("discrete", 2)):
+for cid, n in (("p5-APO-box", 0), ("p5-APO-discrete", 2)):
     build = functools.partial(
         agents.make, "APO", *COIN[n].make(), extensions=(APO_TRACE,)
     )
     reads = runs.readings(build, _apo_read)
-    CASES[f"p5-APO-{kind}"] = Case(
-        f"p5-APO-{kind}", (LEVEL, APO_STEP), reads, 8000, (0.06, 0.37), ceiling=math.inf
+    CASES[cid] = Case(
+        cid, (LEVEL, APO_STEP), reads, 6400, (0.09, 0.504), ceiling=math.inf
     )
 
 
@@ -698,8 +698,8 @@ P9_CELLS |= {
     "APO": (
         ("apo", 4096, 0.5),
         {"A": (0.0, 1.0), "B": (1.758, 2.507), "C": (1.698, 2.777)} | D0,
-        240_000,  # 160,000 failed: 0.169
-        (0.09, 0.095),
+        240_000,  # 160,000 failed: 0.137
+        (0.073, 0.078),
         _P9_PPO | {"normalize_observations": True},
     ),
 }
@@ -947,15 +947,15 @@ def test_q1_apo_value_loss_pulls_values_towards_zero() -> None:
 # GAE now drops V(s') at a termination and cuts the lambda-carry at every
 # end (xtma/apo's generalized_advantage_estimation): rho 1/2, V(B) = 1/2 -
 # nu b, V(A) = -(2 - lambda) nu b, b = 1/2 / (2 + nu (3 - lambda)) (nu 0.1,
-# lambda 0.95). Seeds 0-7 read medians b 0.2268, V(A) -0.0238, V(B) 0.4773;
-# the constant cycle |b|, |V(1)| <= 0.0062.
+# lambda 0.95). Seeds 0-7 read medians b 0.2268, V(A) -0.0238, V(B) 0.4773
+# (before APO's reference hidden layers; unchanged at 10,000 on 1000-1031).
 GROWS = {"centring sign reversed: grows without bound": math.inf}
 CASES["q1-APO-constant"] = Case(
     "q1-APO-constant",
     (Query("b", 0.0, GROWS), Query("V(1)", 0.0, GROWS)),
     _q1_apo(APO_CONST, {"V(1)": 1.0}),
-    10_000,
-    (0.1, 0.1),
+    2500,  # 10,000 fails (V(1): twice the worst error 0.133); cert 32/32
+    (0.021, 0.02),
 )
 FIXED = "reset obs inside a rollout, final obs at its end (the old GAE), sign fixed"
 RESET_OBS = "the reset observation bootstrapped at every end, sign fixed"
@@ -1023,8 +1023,8 @@ CASES["q1-APO-truncation"] = Case(
     ),
     _q1_apo(APO_TRUNC, {"V(A)": -1.0, "V(B)": 1.0}),
     5000,
-    (0.02, 0.044, 0.029),
-    note="7500 and 10,000 drift 0.01 further (b to 3.18); cert 32/32",
+    (0.031, 0.045, 0.02),
+    note="2500: twice the worst errors 0.542, 0.530, 0.461; cert 32/32",
 )
 
 

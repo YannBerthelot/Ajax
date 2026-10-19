@@ -4,7 +4,8 @@ PPO for the average-reward criterion: each rollout updates an EMA of the
 reward rate ``rho`` (``alpha`` its rate) and of the mean value ``b``; the
 advantages are GAE on the differential TD error ``r - rho + V(s') - V(s)``
 (no discount, cut at episode ends), and the critic fits the differential value with the
-value-bias penalty ``nu b``.
+value-bias penalty ``nu b``. Each minibatch takes one step of both networks
+down their summed loss, its gradient clipped over both at once.
 """
 
 from collections.abc import Sequence
@@ -13,11 +14,12 @@ from typing import Any, Callable, Optional, Tuple
 import distrax
 import jax
 import jax.numpy as jnp
+import optax
 from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.APO.state import APOConfig, APOState
-from ajax.agents.loop import TrainLoop, gradient_step
+from ajax.agents.loop import TrainLoop
 from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
@@ -33,7 +35,7 @@ from ajax.agents.PPO.core import (
     run_epochs,
 )
 from ajax.agents.PPO.core import ValueAuxiliaries as PPOValueAuxiliaries
-from ajax.agents.PPO.train_PPO import init_PPO
+from ajax.agents.PPO.train_PPO import init_PPO, joint_step
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
@@ -69,10 +71,10 @@ def policy_loss_function(
     raw_actions: Optional[jax.Array] = None,
     entropy_key: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, Optional[jax.Array]]]:
-    """PPO's clipped surrogate with PPO's entropy bonus (a squashed policy's
-    executed action's, sampled with ``entropy_key``); also returns the
-    policy mean for extensions (``None`` for a discrete policy, which has no
-    mean action)."""
+    """PPO's clipped surrogate with PPO's entropy bonus (APO's Gaussian's,
+    exact; a squashed policy's executed action's, sampled with
+    ``entropy_key``); also returns the policy mean for extensions (``None``
+    for a discrete policy, which has no mean action)."""
     pi, _ = get_pi(actor_state, actor_params, observations)
     new_log_probs = recompute_log_prob(pi, actions, raw_actions)
     entropy = policy_entropy(pi, entropy_key)
@@ -93,64 +95,6 @@ def policy_loss_function(
     )
     pi_mean = None if isinstance(pi, distrax.Categorical) else pi.mean()
     return total_loss, (aux, pi_mean)
-
-
-def update_policy(
-    agent_state: APOState,
-    observations: jax.Array,
-    actions: jax.Array,
-    gae: jax.Array,
-    log_probs: jax.Array,
-    clip_coef: float,
-    ent_coef: float,
-    extension_stack: ExtensionStack,
-    total_timesteps: int,
-    extension_key: jax.Array,
-    raw_observations: Optional[jax.Array] = None,
-    raw_actions: Optional[jax.Array] = None,
-    entropy_key: Optional[jax.Array] = None,
-    a_expert: Optional[jax.Array] = None,
-) -> Tuple[APOState, PolicyAuxiliaries]:
-    """The clipped-surrogate actor step on one minibatch, the extensions'
-    terms folded on ``extension_key``; they also read ``a_expert``, the
-    expert's actions collection stored at the rows (None without an
-    expert)."""
-    actor_state = agent_state.actor_state
-
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, PolicyAuxiliaries]:
-        loss, (aux, pi_mean) = policy_loss_function(
-            params,
-            actor_state,
-            observations=observations,
-            actions=actions,
-            log_probs=log_probs,
-            gae=gae,
-            clip_coef=clip_coef,
-            ent_coef=ent_coef,
-            raw_actions=raw_actions,
-            entropy_key=entropy_key,
-        )
-        actor_batch = {
-            "observations": observations,
-            "raw_observations": raw_observations,
-            "pi_mean": pi_mean,
-            "actor_params": params,
-            "actor_state": actor_state,
-            "a_expert": a_expert,
-        }
-        extra = extension_stack.fold_actor_loss(
-            agent_state,
-            actor_batch,
-            agent_state.collector_state.timestep,
-            extension_key,
-            total_timesteps,
-        )
-        return loss + extra, aux
-
-    actor_state, aux, grad_norm = gradient_step(actor_state, loss_fn)
-    return agent_state.replace(actor_state=actor_state), aux.replace(
-        grad_norm=grad_norm
-    )
 
 
 def init_APO(
@@ -181,17 +125,19 @@ def value_loss_function(
     value_targets: jax.Array,
     nu: float,
     b: float | jax.Array,
+    vf_coef: float = 1.0,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """The differential value loss ``0.5 (V(s) - (target - nu b))^2``.
+    """The differential value loss ``vf_coef 0.5 (V(s) - (target - nu b))^2``.
 
     APO's official code (``xtma/apo``, ``apo/algos/apg/``) subtracts
     ``nu b`` from the critic's target, so with ``b`` the mean value each fit
     pulls the values back towards zero mean (Ma et al., 2021, the value
     bias penalty); adding it would push them away and let ``|b|`` grow.
+    ``vf_coef`` is its ``value_loss_coeff`` (``appo.py:152-153``).
     """
     # The single critic still has the ensemble's leading axis.
     v_preds = predict_value(critic_states, critic_params, observations).squeeze(0)
-    loss = 0.5 * jnp.mean((v_preds - (value_targets - nu * b)) ** 2)
+    loss = vf_coef * 0.5 * jnp.mean((v_preds - (value_targets - nu * b)) ** 2)
     return loss, ValueAuxiliaries(
         critic_loss=loss,
         predictions=v_preds.mean().flatten(),
@@ -201,42 +147,103 @@ def value_loss_function(
     )
 
 
-def update_value_functions(
+#: What torch's ``clip_grad_norm_`` adds to the norm before dividing by it
+#: (torch 1.5.1, rlpyt's pin, ``torch/nn/utils/clip_grad.py:33-37``).
+TORCH_CLIP_EPS = 1e-6
+
+
+def update_networks(
     agent_state: APOState,
-    observations: jax.Array,
-    value_targets: jax.Array,
-    nu: float,
+    minibatch: dict,
+    agent_config: APOConfig,
     b: jax.Array,
     extension_stack: ExtensionStack,
     total_timesteps: int,
-    extension_key: jax.Array,
-) -> Tuple[APOState, ValueAuxiliaries]:
-    """The critic step on one minibatch, the extensions' terms folded on
-    ``extension_key``."""
-    critic_state = agent_state.critic_state
+) -> Tuple[APOState, AuxiliaryLogs]:
+    """One step of both networks on ``minibatch`` (``update_agent``'s), as
+    APO's official code takes it (``xtma/apo``, ``apo/algos/apg/``): one
+    Adam over the whole model (``base.py:28``) down the clipped surrogate
+    plus ``vf_coef`` times the value loss minus ``ent_coef`` times the
+    entropy (``appo.py:145-158``), its gradient clipped to global norm
+    ``max_grad_norm`` over every parameter (``appo.py:106-112``).
 
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, ValueAuxiliaries]:
-        loss, aux = value_loss_function(
-            params, critic_state, observations, value_targets, nu, b
+    Adam is per coordinate, so the two networks' own Adams, stepped together
+    on that one gradient, are that Adam (each its learning rate, as torch's
+    parameter groups would). The extensions' critic and actor terms join the
+    sum, on two keys drawn from the minibatch's extension key; the actor's
+    also read ``a_expert``, the expert's actions collection stored at the
+    rows (None without an expert).
+    """
+    actor_state, critic_state = agent_state.actor_state, agent_state.critic_state
+    critic_key, actor_key = jax.random.split(minibatch["extension_key"])
+    timestep = agent_state.collector_state.timestep
+
+    def loss_fn(params: tuple) -> Tuple[jax.Array, AuxiliaryLogs]:
+        actor_params, critic_params = params
+        policy_loss, (policy_aux, pi_mean) = policy_loss_function(
+            actor_params,
+            actor_state,
+            observations=minibatch["obs"],
+            actions=minibatch["actions"],
+            log_probs=minibatch["log_probs"],
+            gae=minibatch["gae"],
+            clip_coef=resolve_clip_coef(agent_config, timestep),
+            ent_coef=agent_config.ent_coef,
+            raw_actions=minibatch["raw_actions"],
+            entropy_key=minibatch["entropy_key"],
         )
-        loss_batch = {
-            "observations": observations,
-            "targets": value_targets,
-            "critic_params": params,
+        value_loss, value_aux = value_loss_function(
+            critic_params,
+            critic_state,
+            minibatch["obs"],
+            minibatch["targets"],
+            agent_config.nu,
+            b,
+            agent_config.vf_coef,
+        )
+        critic_batch = {
+            "observations": minibatch["obs"],
+            "targets": minibatch["targets"],
+            "critic_params": critic_params,
             "critic_state": critic_state,
         }
+        actor_batch = {
+            "observations": minibatch["obs"],
+            "raw_observations": minibatch["raw_obs"],
+            "pi_mean": pi_mean,
+            "actor_params": actor_params,
+            "actor_state": actor_state,
+            "a_expert": minibatch["a_expert"],
+        }
         extra = extension_stack.fold_critic_loss(
-            agent_state,
-            loss_batch,
-            agent_state.collector_state.timestep,
-            extension_key,
-            total_timesteps,
+            agent_state, critic_batch, timestep, critic_key, total_timesteps
+        ) + extension_stack.fold_actor_loss(
+            agent_state, actor_batch, timestep, actor_key, total_timesteps
         )
-        return loss + extra, aux
+        loss = policy_loss + value_loss + extra
+        return loss, AuxiliaryLogs(policy=policy_aux, value=value_aux)
 
-    critic_state, aux, grad_norm = gradient_step(critic_state, loss_fn)
-    aux = aux.replace(grad_norm=grad_norm, average_reward=agent_state.average_reward)
-    return agent_state.replace(critic_state=critic_state), aux
+    grads, aux = jax.grad(loss_fn, has_aux=True)(
+        (actor_state.params, critic_state.params)
+    )
+    actor_grads, critic_grads = grads
+    actor_state, critic_state = joint_step(
+        actor_state,
+        critic_state,
+        actor_grads,
+        critic_grads,
+        agent_config.max_grad_norm,
+        norm_eps=TORCH_CLIP_EPS,
+    )
+    # Each network's gradient norm before the joint clip, as PPO logs them.
+    aux = AuxiliaryLogs(
+        policy=aux.policy.replace(grad_norm=optax.global_norm(actor_grads)),
+        value=aux.value.replace(
+            grad_norm=optax.global_norm(critic_grads),
+            average_reward=agent_state.average_reward,
+        ),
+    )
+    return agent_state.replace(actor_state=actor_state, critic_state=critic_state), aux
 
 
 def update_agent(
@@ -349,35 +356,9 @@ def update_agent(
         return parts | {"entropy_key": keys, "extension_key": ext_keys}
 
     def step(agent_state: APOState, mb: dict) -> Tuple[APOState, AuxiliaryLogs]:
-        """A critic, then an actor step on one minibatch."""
-        critic_key, actor_key = jax.random.split(mb["extension_key"])
-        agent_state, aux_value = update_value_functions(
-            agent_state,
-            mb["obs"],
-            mb["targets"],
-            agent_config.nu,
-            b,
-            extension_stack,
-            total_timesteps,
-            critic_key,
+        return update_networks(
+            agent_state, mb, agent_config, b, extension_stack, total_timesteps
         )
-        agent_state, aux_policy = update_policy(
-            agent_state,
-            mb["obs"],
-            mb["actions"],
-            mb["gae"],
-            mb["log_probs"],
-            resolve_clip_coef(agent_config, agent_state.collector_state.timestep),
-            agent_config.ent_coef,
-            extension_stack,
-            total_timesteps,
-            actor_key,
-            raw_observations=mb["raw_obs"],
-            raw_actions=mb["raw_actions"],
-            entropy_key=mb["entropy_key"],
-            a_expert=mb["a_expert"],
-        )
-        return agent_state, AuxiliaryLogs(policy=aux_policy, value=aux_value)
 
     agent_state, aux = run_epochs(
         agent_state, shuffle_key, minibatches, step, agent_config.n_epochs

@@ -350,16 +350,19 @@ def test_a_ppo_checkpoint_restores_only_into_its_own_log_std_head(tmp_path):
         restore_into(old, new_path)
 
 
-def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path):
-    """PPO's networks each clipped their own gradient (get_adam_tx's chain,
-    whose clip holds an empty state) until PPO took ppo2's one clip over
-    both. A checkpoint saved then restores into today's unclipped Adams,
-    every moment and step count kept."""
+@pytest.mark.parametrize("agent_name", ["PPO", "APO"])
+def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path, agent_name):
+    """PPO's and APO's networks each clipped their own gradient
+    (get_adam_tx's chain, whose clip holds an empty state) until each took
+    its reference code's one clip over both. A checkpoint saved then
+    restores into today's unclipped Adams, every moment and step count
+    kept."""
     import optax
 
-    from ajax.agents.PPO.PPO import PPO
+    import ajax
 
-    agent = PPO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
+    agent_cls = getattr(ajax, agent_name)
+    agent = agent_cls(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
     skeleton = agent.train(seed=0, n_timesteps=0)[0]
     moved = {  # moments and counts the skeleton does not hold
         name: jax.tree.map(lambda x: x + 1, getattr(skeleton, name).opt_state)
@@ -379,6 +382,49 @@ def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path):
             np.array_equal, getattr(restored, name).opt_state, opt_state
         )
         assert all(jax.tree.leaves(same)), name
+
+
+def test_another_agents_optimiser_saved_behind_a_clip_is_refused(sac_run, tmp_path):
+    """The clip shim is PPO's and APO's, whose clip moved over both
+    networks: an SAC checkpoint whose actor optimiser state sits behind a
+    clip's empty state is refused, as any other optimiser layout is."""
+    import optax
+
+    state = sac_run.out[0]
+    actor = state.actor_state
+    old = state.replace(
+        actor_state=actor.replace(opt_state=(optax.EmptyState(), actor.opt_state))
+    )
+    path = str(tmp_path / "clipped.pkl")
+    save_checkpoint(old, path)
+    with pytest.raises(ValueError):
+        restore_into(state, path)
+
+
+def test_an_apo_checkpoint_restores_only_into_its_own_hidden_widths(tmp_path):
+    """APO's hidden layers were two of 128 units before its reference code's
+    two of 64. Its checkpoint saved then is refused by the default network
+    (the leaf-shape check, test_a_checkpoint_of_another_shape_is_refused),
+    the error naming the architecture that rebuilds its own, into which it
+    restores."""
+    from ajax.agents.APO.APO import APO
+
+    kw = {"n_envs": 2, "n_steps": 8, "batch_size": 8}
+    wide = ("128", "tanh", "128", "tanh")
+
+    def skeleton(**net):
+        return APO(env_id="Pendulum-v1", **kw, **net).train(seed=0, n_timesteps=0)[0]
+
+    old = skeleton(actor_architecture=wide, critic_architecture=wide)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(old, path)
+    shapes = r"\['layers_0'\]\['bias'\] is \(1, 128\) in the checkpoint, \(1, 64\)"
+    with pytest.raises(ValueError, match=r"does not fit.*" + shapes) as refused:
+        restore_into(skeleton(), path)
+    assert 'actor_architecture=("128", "tanh", "128", "tanh")' in str(refused.value)
+    restored = restore_into(old, path)
+    same = jax.tree.map(np.array_equal, restored.actor_state, old.actor_state)
+    assert all(jax.tree.leaves(same))
 
 
 def test_a_state_without_a_collector_restores(tmp_path):
@@ -553,8 +599,9 @@ def test_a_checkpoint_of_another_shape_is_refused(sac_run, tmp_path):
     save_checkpoint(
         state.replace(critic_state=state.critic_state.replace(params=wider)), path
     )
-    with pytest.raises(ValueError, match=r"does not fit.*critic_state.*params"):
+    with pytest.raises(ValueError, match=r"does not fit.*critic_state.*params") as e:
         restore_into(state, path)
+    assert "APO" not in str(e.value)  # the APO hint is for an APO only
 
 
 def _without_format(path: str) -> None:

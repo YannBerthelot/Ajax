@@ -108,10 +108,12 @@ def test_a_split_run_resets_on_the_one_calls_cadence():
 
 def test_ppo_defaults_to_its_reference_log_std():
     """One learned log-std per action dimension, starting at 0 and never
-    clipped, as Baselines, CleanRL and PureJaxRL learn it."""
-    args = PPO("Pendulum-v1").network_args
+    clipped, as Baselines, CleanRL and PureJaxRL learn it; the run config
+    records the bounds the network is built with."""
+    agent = PPO("Pendulum-v1")
+    args = agent.network_args
     assert args.log_std_state_independent and args.log_std_init == 0.0
-    assert not args.clip_log_std_param
+    assert args.log_std_bounds is None and agent.config["log_std_bounds"] is None
 
 
 def _gain(kernel) -> float:

@@ -20,17 +20,19 @@ of gains:
   (gain scheduling); with a constant network it is the fixed policy.
 
 Each agent's own output rules apply to ``u`` as to any actor's mean: SAC,
-REDQ, ASAC, AVG and APO squash it with ``tanh``, TD3 too (deterministic),
-PPO samples around it unsquashed (unless ``squash=True``). Like every
-action, ``u`` is in agent units, ``[-1, 1]``, mapped onto the env's box
-``[low, high]`` (:func:`ajax.environments.utils.agent_action_to_env`): the
-deployed controller is ``c + h * sat(u)``, with centre ``c = (high + low) /
-2``, half-range ``h = (high - low) / 2`` and ``sat`` the agent's ``tanh``
-or clip to ``[-1, 1]``. The gains are therefore normalised: they map the
+REDQ, ASAC and AVG squash it with ``tanh``, TD3 too (deterministic); APO
+takes ``tanh(u)`` as its mean (its ``tanh_mean``) and samples around it
+unsquashed, PPO around ``u`` (unless ``squash=True``). Like every action,
+``u`` is in agent units, ``[-1, 1]``, mapped onto the env's box ``[low,
+high]`` (:func:`ajax.environments.utils.agent_action_to_env`): the deployed
+controller is ``c + h * sat(u)``, with centre ``c = (high + low) / 2``,
+half-range ``h = (high - low) / 2`` and ``sat`` the agent's ``tanh`` or clip
+to ``[-1, 1]``. The gains are therefore normalised: they map the
 error terms to agent units, and a PID in the env's units has gains ``h *
 K`` (small-signal, ``tanh`` near 0) and offset ``c``; zero gains command
 the box's centre (no control on a symmetric box). The stochastic agents
-explore with a learned, state-independent log-std. Gains start at zero.
+explore with a learned, state-independent log-std, clipped to the agent's
+``log_std_bounds`` (PPO's and APO's default: no clip). Gains start at zero.
 Observation normalisation (env- or agent-side) leaves the terms raw, as
 the wrapper declares them, so the gains act on the errors in the env's
 units; the gain network of ``gains="observation"`` reads the rest
@@ -40,7 +42,7 @@ normalised.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Optional, Tuple
 
 import distrax
 import flax.linen as nn
@@ -49,6 +51,7 @@ import jax.numpy as jnp
 
 from ajax.environments.pid_terms import split_pid_terms
 from ajax.networks.utils import parse_architecture
+from ajax.state import LOG_STD_BOUNDS, check_log_std_bounds
 
 GAIN_NAMES = ("kp", "ki", "kd")
 
@@ -115,15 +118,27 @@ class PIDLaw(nn.Module):
         return jnp.einsum("...tak,...tk->...a", self.gains(obs), terms)
 
 
+#: The PID actor's starting log-std when the network config leaves it to the
+#: Gaussian head's layer to draw (``log_std_init`` None, a "torch_linear" head).
+PID_LOG_STD_INIT = -1.0
+
+
 class PIDActor(nn.Module):
     """Stochastic PID actor: Normal around the PID output (squashed by
     :class:`~ajax.networks.networks.Squashed`)."""
 
     policy: PIDPolicy
     action_dim: int
-    log_std_init: float = -1.0
+    # The PID output through tanh as the Gaussian's mean, the agent's
+    # ``tanh_mean`` (NetworkConfig), as the Actor's mean head.
+    tanh_mean: bool = False
+    log_std_init: float = PID_LOG_STD_INIT
+    # The log-std's (low, high) clip, the agent's ``log_std_bounds``
+    # (NetworkConfig); None: not clipped.
+    log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS
 
     def setup(self):
+        check_log_std_bounds(self.log_std_bounds)
         self.pid = PIDLaw(self.policy, self.action_dim)
         self.log_std = self.param(
             "log_std", nn.initializers.constant(self.log_std_init), (self.action_dim,)
@@ -134,7 +149,12 @@ class PIDActor(nn.Module):
 
     def __call__(self, obs: jax.Array) -> distrax.Distribution:
         mean = self.pid(obs)
-        std = jnp.exp(jnp.clip(jnp.broadcast_to(self.log_std, mean.shape), -20, 2))
+        if self.tanh_mean:
+            mean = jnp.tanh(mean)
+        log_std = jnp.broadcast_to(self.log_std, mean.shape)
+        if self.log_std_bounds is not None:
+            log_std = jnp.clip(log_std, *self.log_std_bounds)
+        std = jnp.exp(log_std)
         return distrax.Normal(mean, std)
 
 

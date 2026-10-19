@@ -1,3 +1,4 @@
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -6,6 +7,7 @@ from flax.linen.initializers import orthogonal, variance_scaling
 from flax.serialization import to_state_dict
 
 from ajax.networks.utils import (
+    dense,
     get_adam_tx,
     get_initializer,
     parse_activation,
@@ -188,6 +190,31 @@ def test_get_initializer_lists_the_registry_on_unknown_names():
         get_initializer("no_such_initializer")
 
 
+@pytest.mark.parametrize("fan_in", [3, 400])
+def test_torch_linear_layers_start_as_torch_nn_linear(fan_in):
+    """kernel_init="torch_linear" builds a layer whose kernel and bias are
+    each uniform in +-1/sqrt(fan_in), the input's width, as torch's
+    nn.Linear starts; its parameters are a Dense layer's, and it applies
+    x @ kernel + bias."""
+    x = jax.random.normal(jax.random.PRNGKey(1), (2, fan_in))
+    layer = parse_layer("300", kernel_init="torch_linear")
+    params = layer.init(jax.random.PRNGKey(0), x)
+    dense = nn.Dense(300).init(jax.random.PRNGKey(0), x)
+    assert jax.tree.map(jnp.shape, params) == jax.tree.map(jnp.shape, dense)
+    bound = 1 / np.sqrt(fan_in)
+    for name in ("kernel", "bias"):
+        w = np.asarray(params["params"][name])
+        assert 0.95 * bound < np.abs(w).max() <= bound, name
+        np.testing.assert_allclose(w.var(), bound**2 / 3, rtol=0.2, err_msg=name)
+    kernel, bias = params["params"]["kernel"], params["params"]["bias"]
+    np.testing.assert_allclose(layer.apply(params, x), x @ kernel + bias, rtol=1e-6)
+
+
+def test_torch_linear_refuses_a_bias_init():
+    with pytest.raises(ValueError, match="draws the biases too"):
+        parse_layer("8", kernel_init="torch_linear", bias_init="zeros")
+
+
 # ------------------------
 # Tests for parse_activation
 # ------------------------
@@ -217,3 +244,14 @@ def test_parse_activation_rejects_unknown(activation):
 def test_parse_layer_lists_the_layernorm_token_on_unknown_names():
     with pytest.raises(ValueError, match="'layernorm' or an activation"):
         parse_layer("layer_norm")
+
+
+def test_dense_takes_the_default_kernel_and_a_zero_bias():
+    """dense() falls back to its default kernel initializer and zero
+    biases, and keeps the name it is given."""
+    x = jnp.ones((2, 4))
+    layer = dense(3, None, None, nn.initializers.ones, name="head")
+    params = layer.init(jax.random.PRNGKey(0), x)["params"]
+    np.testing.assert_array_equal(params["kernel"], 1.0)
+    np.testing.assert_array_equal(params["bias"], 0.0)
+    assert layer.name == "head"

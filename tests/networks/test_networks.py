@@ -1,3 +1,4 @@
+import distrax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -13,11 +14,13 @@ from ajax.networks.networks import (
     Critic,
     Encoder,
     MultiCritic,
+    Squashed,
     get_initialized_actor_critic,
     get_initialized_critic,
     predict_value,
 )
 from ajax.state import (
+    LOG_STD_BOUNDS,
     EnvironmentConfig,
     LoadedTrainState,
     NetworkConfig,
@@ -158,7 +161,8 @@ def test_the_builder_initialises_as_the_network_config_says(fast_env_config):
         critic_bias_init="0.5",
         log_std_state_independent=True,
         log_std_init=0.3,
-        clip_log_std_param=False,
+        log_std_bounds=(-1.0, 1.0),
+        tanh_mean=True,
     )
     actor_state, critic_state = get_initialized_actor_critic(
         jax.random.PRNGKey(0),
@@ -176,12 +180,13 @@ def test_the_builder_initialises_as_the_network_config_says(fast_env_config):
     np.testing.assert_allclose(actor["mean"]["bias"], 0.25)
     np.testing.assert_allclose(actor["log_std_param"], 0.3)
     np.testing.assert_allclose(critic["ensemble"]["model"]["bias"], 0.5)
-    unclipped = {
+    beyond = {
         "params": {**actor, "log_std_param": jnp.full_like(actor["mean"]["bias"], 3.0)}
     }
     obs = jnp.zeros((1, get_state_action_shapes(fast_env_config.env)[0][-1]))
-    std = actor_state.apply_fn(unclipped, obs).stddev()
-    np.testing.assert_allclose(std, np.exp(3.0), rtol=1e-6)
+    pi = actor_state.apply_fn(beyond, obs)
+    np.testing.assert_allclose(pi.stddev(), np.exp(1.0), rtol=1e-6)
+    np.testing.assert_allclose(pi.mean(), np.tanh(0.25), rtol=1e-6)
 
 
 def test_get_initialized_actor_critic_continuous(fast_env_config):
@@ -399,17 +404,17 @@ def test_the_actor_std_starts_at_exp_log_std_init(state_independent):
     np.testing.assert_allclose(std, np.full((4, 3), np.exp(-0.5)), rtol=1e-6)
 
 
-@pytest.mark.parametrize("clip", [True, False])
+@pytest.mark.parametrize("bounds", [LOG_STD_BOUNDS, (-1.0, 0.5), None])
 @pytest.mark.parametrize("state_independent", [False, True])
-def test_only_the_log_std_parameter_can_go_unclipped(state_independent, clip):
-    """SAC's Dense head is always clipped to [-20, 2]; the state-independent
-    parameter is clipped there only with ``clip_log_std_param``."""
+def test_log_std_bounds_clip_either_log_std_head(state_independent, bounds):
+    """The state-independent parameter and SAC's Dense head are both clipped
+    to ``log_std_bounds``, or not at all when None."""
     actor = Actor(
         action_dim=2,
         input_architecture=ARCH,
         continuous=True,
         log_std_state_independent=state_independent,
-        clip_log_std_param=clip,
+        log_std_bounds=bounds,
     )
     obs = jax.random.normal(jax.random.PRNGKey(1), (4, 8))
     params = actor.init(jax.random.PRNGKey(0), obs)["params"]
@@ -419,8 +424,56 @@ def test_only_the_log_std_parameter_can_go_unclipped(state_independent, clip):
     else:
         params = {**params, "log_std": {**params["log_std"], "bias": log_std}}
     std = actor.apply({"params": params}, obs).stddev()
-    want = log_std if state_independent and not clip else jnp.array([2.0, -20.0])
+    want = np.clip(np.asarray(log_std), *(bounds or (-np.inf, np.inf)))
     np.testing.assert_allclose(std, np.broadcast_to(np.exp(want), (4, 2)), rtol=1e-5)
+
+
+@pytest.mark.parametrize("bounds", [(2.0, -20.0), (1.0, 1.0)])
+def test_the_network_refuses_log_std_bounds_out_of_order(bounds):
+    """Where the network is built, not only in an agent's constructor: a
+    network config, replaced or new, and an Actor refuse swapped or equal
+    bounds, which would clip every log-std to the high one."""
+    config = NetworkConfig(actor_architecture=ARCH, critic_architecture=ARCH)
+    with pytest.raises(ValueError, match="low < high"):
+        config.replace(log_std_bounds=bounds)
+    actor = Actor(
+        action_dim=2, input_architecture=ARCH, continuous=True, log_std_bounds=bounds
+    )
+    with pytest.raises(ValueError, match="low < high"):
+        actor.init(jax.random.PRNGKey(0), jnp.zeros((1, 8)))
+
+
+def test_jax_rebuilds_a_network_config_around_any_leaves():
+    """tree.map rebuilds the config through its bounds check, which reads
+    the static bounds, not the new leaves."""
+    config = NetworkConfig(actor_architecture=ARCH, critic_architecture=ARCH)
+    rebuilt = jax.tree.map(lambda _: None, config)
+    assert rebuilt.log_std_bounds == LOG_STD_BOUNDS
+
+
+def test_tanh_mean_bounds_the_mean_not_the_samples():
+    """``tanh_mean`` (APO's reference head) passes the mean layer through
+    tanh and leaves the Gaussian unsquashed: a sample beyond [-1, 1] has the
+    Normal's log-probability around tanh of the layer. Its parameters are
+    the tanh-squashed head's, whose deterministic action, tanh of the same
+    layer, it keeps."""
+    kw = {"action_dim": 2, "input_architecture": ARCH, "continuous": True}
+    kw |= {"log_std_state_independent": True, "log_std_init": 0.0}
+    obs = jax.random.normal(jax.random.PRNGKey(1), (4, 8))
+    params = Actor(**kw).init(jax.random.PRNGKey(0), obs)
+    squashed = Squashed(Actor(**kw))
+    init = squashed.init(jax.random.PRNGKey(0), obs)
+    assert jax.tree.structure(init) == jax.tree.structure(params)
+    mean = {**params["params"]["mean"], "bias": jnp.array([3.0, -3.0])}
+    params = {"params": {**params["params"], "mean": mean}}
+    layer = Actor(**kw).apply(params, obs).mean()
+    pi = Actor(tanh_mean=True, **kw).apply(params, obs)
+    assert type(pi) is distrax.Normal
+    np.testing.assert_allclose(pi.mean(), np.tanh(layer), rtol=1e-6)
+    np.testing.assert_allclose(squashed.apply(params, obs).mean(), pi.mean(), 1e-6)
+    x = jnp.full((4, 2), 1.7)
+    want = jax.scipy.stats.norm.logpdf(x, np.tanh(layer), 1.0)
+    np.testing.assert_allclose(pi.log_prob(x), want, rtol=1e-5)
 
 
 def test_mean_kernel_init_sets_the_initial_mean_head(sample_input):
@@ -448,3 +501,100 @@ def test_logits_head_starts_orthogonal_with_gain_001(sample_input):
     np.testing.assert_allclose(kernel.T @ kernel, 1e-4 * np.eye(3), atol=1e-9)
     probs = actor.apply(params, sample_input).probs
     np.testing.assert_allclose(probs, 1 / 3, atol=0.01)
+
+
+@pytest.mark.parametrize("continuous", [False, True])
+def test_the_builder_sets_every_output_layers_kernel(
+    continuous, real_env_config, fast_env_config
+):
+    """logits_kernel_init, log_std_kernel_init and value_kernel_init on
+    NetworkConfig reach the logits, the state-dependent log-std and the
+    value layers."""
+    optimizer_config = OptimizerConfig(learning_rate=0.001)
+    network_config = NetworkConfig(
+        actor_architecture=ARCH,
+        critic_architecture=ARCH,
+        logits_kernel_init="zeros",
+        log_std_kernel_init="1.0",
+        value_kernel_init="zeros",
+    )
+    actor_state, critic_state = get_initialized_actor_critic(
+        jax.random.PRNGKey(0),
+        fast_env_config if continuous else real_env_config,
+        optimizer_config,
+        optimizer_config,
+        network_config,
+        continuous=continuous,
+        num_critics=1,
+    )
+    actor, critic = actor_state.params["params"], critic_state.params["params"]
+    if continuous:
+        np.testing.assert_array_equal(actor["log_std"]["kernel"], 1.0)
+    else:
+        assert not jnp.any(actor["model"]["layers_0"]["kernel"])
+    assert not jnp.any(critic["ensemble"]["model"]["kernel"])
+
+
+def test_output_layers_keep_their_defaults_or_start_as_torch_nn_linear(
+    sample_input,
+):
+    """By default the logits start orthogonal with gain 0.01, the value layer
+    with gain 1 and the log-std head with a zero kernel and log_std_init as
+    its bias; "torch_linear" draws each kernel and bias in
+    +-1/sqrt(fan_in)."""
+
+    def actor_params(continuous, **kwargs):
+        actor = Actor(
+            action_dim=3, input_architecture=ARCH, continuous=continuous, **kwargs
+        )
+        return actor.init(jax.random.PRNGKey(0), sample_input)["params"]
+
+    def value_params(**kwargs):
+        critic = Critic(input_architecture=ARCH, **kwargs)
+        return critic.init(jax.random.PRNGKey(0), sample_input)["params"]["model"]
+
+    logits = np.asarray(actor_params(False)["model"]["layers_0"]["kernel"])
+    np.testing.assert_allclose(logits.T @ logits, 1e-4 * np.eye(3), atol=1e-9)
+    log_std = actor_params(True)["log_std"]
+    assert not jnp.any(log_std["kernel"])
+    np.testing.assert_allclose(log_std["bias"], -1.0)
+    value = np.asarray(value_params()["kernel"])
+    np.testing.assert_allclose(value.T @ value, [[1.0]], atol=1e-5)
+
+    torch_layers = [
+        actor_params(False, logits_kernel_init="torch_linear")["model"]["layers_0"],
+        actor_params(True, log_std_kernel_init="torch_linear", log_std_init=None)[
+            "log_std"
+        ],
+        value_params(value_kernel_init="torch_linear"),
+    ]
+    bound = 1 / np.sqrt(16)  # fan_in: ARCH's 16 units
+    for layer in torch_layers:
+        for name in ("kernel", "bias"):
+            w = np.abs(np.asarray(layer[name]))
+            assert 0.2 * bound < w.max() <= bound, name
+
+
+@pytest.mark.parametrize(
+    "state_independent, log_std_init, log_std_kernel_init",
+    [
+        (False, -1.0, "torch_linear"),  # the bias set twice
+        (False, None, None),  # the bias set by nothing
+        (False, None, "zeros"),
+        (True, None, None),  # the parameter needs a start
+        (True, 0.0, "zeros"),  # the parameter has no kernel
+    ],
+)
+def test_the_log_std_head_start_is_set_exactly_once(
+    sample_input, state_independent, log_std_init, log_std_kernel_init
+):
+    actor = Actor(
+        action_dim=3,
+        input_architecture=ARCH,
+        continuous=True,
+        log_std_state_independent=state_independent,
+        log_std_init=log_std_init,
+        log_std_kernel_init=log_std_kernel_init,
+    )
+    with pytest.raises(ValueError, match="log_std_init"):
+        actor.init(jax.random.PRNGKey(0), sample_input)

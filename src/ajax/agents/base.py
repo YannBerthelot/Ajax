@@ -27,6 +27,7 @@ from ajax.logging.wandb_logging import (
 from ajax.networks.memory import MemoryConfig, parse_memory_config
 from ajax.networks.networks import CNNSpec
 from ajax.state import (
+    LOG_STD_BOUNDS,
     BaseAgentConfig,
     BaseAgentState,
     EnvironmentConfig,
@@ -201,8 +202,13 @@ class ActorCritic:
         cnn_spec: Optional[CNNSpec] = None,
         # Brax-style actor head knobs (see NetworkConfig).
         log_std_state_independent: bool = False,
-        log_std_init: float = -1.0,
+        log_std_init: Optional[float] = -1.0,
+        log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS,
         mean_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+        logits_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+        log_std_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+        value_kernel_init: Optional[Union[str, InitializationFunction]] = None,
+        tanh_mean: bool = False,
         encoder_layer_norm: bool = False,
         squash: bool = False,
         episode_length: Optional[int] = None,
@@ -292,7 +298,12 @@ class ActorCritic:
             cnn_spec=cnn_spec,
             log_std_state_independent=log_std_state_independent,
             log_std_init=log_std_init,
+            log_std_bounds=log_std_bounds,
             mean_kernel_init=mean_kernel_init,
+            logits_kernel_init=logits_kernel_init,
+            log_std_kernel_init=log_std_kernel_init,
+            value_kernel_init=value_kernel_init,
+            tanh_mean=tanh_mean,
             encoder_layer_norm=encoder_layer_norm,
             squash=squash,
         )

@@ -3,6 +3,8 @@ recomputed here from the same networks and batch."""
 
 from __future__ import annotations
 
+from typing import cast
+
 import distrax
 import jax
 import jax.numpy as jnp
@@ -176,19 +178,36 @@ def _apo_state(agent):
 
 
 def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
+    """APO steps both networks at once (train_APO.update_networks); each
+    network's logged gradient norm is that of its own loss term, taken
+    before the joint clip, as PPO logs them."""
     agent = APO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
+    config = agent.agent_config
     state = _apo_state(agent).replace(average_reward=jnp.asarray(0.3))
     obs, actions, log_probs, gae, targets = _batch(agent)
-    stack, b, nu = ExtensionStack(()), jnp.asarray(0.7), 0.1
+    stack, b = ExtensionStack(()), jnp.asarray(0.7)
+    minibatch = {
+        "obs": obs,
+        "actions": actions,
+        "log_probs": log_probs,
+        "gae": gae,
+        "targets": targets,
+        "raw_actions": None,  # APO's reference head is unsquashed
+        "raw_obs": None,
+        "a_expert": None,
+        "entropy_key": KEY,
+        "extension_key": KEY,
+    }
+    _, aux = train_APO.update_networks(state, minibatch, config, b, stack, 1)
+    v_aux, p_aux = cast(train_APO.ValueAuxiliaries, aux.value), aux.policy
 
-    _, v_aux = train_APO.update_value_functions(
-        state, obs, targets, nu, b, stack, 1, KEY
-    )
     critic = state.critic_state
     v_grads = jax.grad(
-        lambda p: train_APO.value_loss_function(p, critic, obs, targets, nu, b)[0]
+        lambda p: train_APO.value_loss_function(
+            p, critic, obs, targets, config.nu, b, config.vf_coef
+        )[0]
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
     assert float(v_aux.value_bias) == np.float32(0.7)
@@ -199,33 +218,17 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
         v_aux.explained_variance, 1 - np.var(t - v) / np.var(t), rtol=1e-5
     )
 
-    # APO's policy is squashed: the actions are pre-tanh samples.
-    _, p_aux = train_APO.update_policy(
-        state,
-        obs,
-        actions,
-        gae,
-        log_probs,
-        0.2,
-        0.0,
-        stack,
-        1,
-        KEY,
-        raw_actions=actions,
-        entropy_key=KEY,
-    )
     actor = state.actor_state
+    clip = train_APO.resolve_clip_coef(config, state.collector_state.timestep)
     p_grads = jax.grad(
         lambda p: train_APO.policy_loss_function(
-            p, actor, obs, actions, log_probs, gae, 0.2, 0.0, actions, KEY
+            p, actor, obs, actions, log_probs, gae, clip, config.ent_coef, None, KEY
         )[0]
     )(actor.params)
     np.testing.assert_allclose(p_aux.grad_norm, optax.global_norm(p_grads), rtol=1e-6)
     pi, _ = get_pi(actor, actor.params, obs)
-    log_ratio = np.asarray(recompute_log_prob(pi, actions, actions) - log_probs)
+    log_ratio = np.asarray(recompute_log_prob(pi, actions, None) - log_probs)
     np.testing.assert_allclose(
         p_aux.approx_kl, np.mean(np.expm1(log_ratio) - log_ratio), rtol=1e-5
     )
-    np.testing.assert_allclose(
-        p_aux.policy_std, np.mean(pi.distribution.stddev()), rtol=1e-6
-    )
+    np.testing.assert_allclose(p_aux.policy_std, np.mean(pi.stddev()), rtol=1e-6)

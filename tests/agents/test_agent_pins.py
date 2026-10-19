@@ -667,6 +667,67 @@ _GOLDEN |= {
         "nudge": 0.3099551498889923,
     },
 }
+# Re-recorded on macOS ARM CPU once APO's continuous actor became its
+# reference code's: an unsquashed Gaussian around tanh of the mean layer,
+# its log-std unclipped (the same parameters). Relative shifts (actor,
+# critic): APO-nudge +0.042%, +0.0066%; its nudge is bitwise unchanged.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 3.8544418811798096,
+        "critic": 4.166664123535156,
+        "nudge": 0.33622848987579346,
+    },
+}
+# Re-recorded on macOS ARM CPU once APO's hidden layers became its reference
+# code's: two of 64 tanh units (were 128), starting as torch's nn.Linear
+# (kernel and bias uniform in +-1/sqrt(fan_in); were orthogonal, zero bias).
+# Relative shifts (actor, critic): APO-nudge +137%, +91%; its nudge is
+# bitwise unchanged.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 9.124271392822266,
+        "critic": 7.960622310638428,
+        "nudge": 0.33622848987579346,
+    },
+}
+# Re-recorded on macOS ARM CPU once APO's optimiser became its reference
+# code's: one step of both networks on their summed loss, the gradient
+# clipped to norm 10 over both at once (was each network's own Adam step,
+# clipped to 0.5 on its own). Relative shifts (actor, critic): APO-nudge
+# -0.087%, +0.0016%; its nudge is bitwise unchanged.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 9.116347312927246,
+        "critic": 7.960748672485352,
+        "nudge": 0.33622848987579346,
+    },
+}
+# Re-recorded on macOS ARM CPU once APO's entropy bonus became its reference
+# code's, ent_coef 0.01 (was 0). Relative shifts (actor, critic): APO-nudge
+# -3.0e-6, +1.1e-6; its nudge is bitwise unchanged.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 9.11631965637207,
+        "critic": 7.960757732391357,
+        "nudge": 0.33622848987579346,
+    },
+}
+# Re-recorded on macOS ARM CPU on the batch that brought APO's reference stack
+# onto main (batch/apo-reference). The stack's pins above were recorded on
+# its base, 04e2249; of main's commits since, only b35fa54 (APO seeds its
+# reward rate and value bias with the first rollout's means) re-recorded
+# APO-nudge on main. On the merged tree APO-nudge moves +0.97% (actor) and
+# +1.21% (critic) from the entropy-bonus pin, its nudge bitwise unchanged. PPO-mcc's critic moves
+# -1.8e-7 (relative), float32 rounding, as PPO's joint clip took the shared
+# formula g * (max_norm / norm) for optax's (g / norm) * max_norm.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 9.204462051391602,
+        "critic": 8.057476043701172,
+        "nudge": 0.33622848987579346,
+    },
+    "PPO-mcc": {"actor": 4.016942501068115, "critic": 5.263053894042969},
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

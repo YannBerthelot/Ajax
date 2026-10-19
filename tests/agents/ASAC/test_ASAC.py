@@ -56,4 +56,6 @@ def test_temperature_and_theta_read_one_sample_of_the_policy(monkeypatch):
         batch_size=4,
     )
     agent.train(seed=0, n_timesteps=8)
-    assert len(seen) == 2 and seen[0] is seen[1]
+    # The update is traced twice: once for it, once for the structure of
+    # the NaN metrics before learning_starts (TrainLoop.maybe_update).
+    assert len(seen) == 4 and seen[0] is seen[1] and seen[2] is seen[3]

@@ -105,7 +105,8 @@ def test_one_member_is_optax_s_global_clip():
 def test_the_critic_optimizer_clips_each_critic_on_its_own():
     """A quiet critic keeps its own step while its twin's huge gradient is
     clipped: Adam's first step ``g / (|g| + eps)`` reads the clip's scale
-    on gradients of 1e-4 (eps 1e-5), so a joint clip would shrink it."""
+    on gradients of 1e-4 (SAC's eps 1e-8), so a joint clip, which scales
+    them near eps, would shrink it."""
     from ajax.agents.SAC.SAC import SAC
     from ajax.networks.networks import get_initialized_actor_critic
 
@@ -121,9 +122,9 @@ def test_the_critic_optimizer_clips_each_critic_on_its_own():
     scale = lambda x: jnp.array([1e3, 1e-4]).reshape(2, *[1] * (x.ndim - 1))  # noqa: E731
     grads = jax.tree.map(lambda x: jnp.ones_like(x) * scale(x), critic.params)
     step, _ = critic.tx.update(grads, critic.opt_state, critic.params)
-    lr = agent.critic_optimizer_args.learning_rate
+    lr, eps = agent.critic_optimizer_args.learning_rate, agent.critic_optimizer_args.eps
     for leaf in jax.tree.leaves(step):
-        np.testing.assert_allclose(leaf[1], -lr * 1e-4 / (1e-4 + 1e-5), rtol=1e-4)
+        np.testing.assert_allclose(leaf[1], -lr * 1e-4 / (1e-4 + eps), rtol=1e-4)
 
 
 def _steps(tx, n=3):

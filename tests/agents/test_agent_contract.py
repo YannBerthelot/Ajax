@@ -539,14 +539,14 @@ def test_no_agent_class_lets_its_seeds_update_unequally() -> None:
 
 #: Each agent's gradient clip (its option, its default). PPO clips at its
 #: paper's global norm 0.5, and APO at its official code's 10, each over
-#: both networks at once (JOINT); the other references do not clip, and
-#: PPO's 0.5 copied onto them once froze SAC's temperature (6b2d529). APG's
+#: both networks at once (JOINT); PQN at purejaxql's 10; the other
+#: references do not clip, and PPO's 0.5 copied onto them once froze SAC's
+#: temperature (6b2d529). APG's
 #: 1.0 is a recorded deviation (APG.py); the world models clip as their
 #: papers do.
 CLIPS: dict[str, tuple[str, float | None]] = {
-    **dict.fromkeys(
-        "ASAC AVG DQN PQN REDQ SAC TD3 UDRL".split(), ("max_grad_norm", None)
-    ),
+    **dict.fromkeys("ASAC AVG DQN REDQ SAC TD3 UDRL".split(), ("max_grad_norm", None)),
+    "PQN": ("max_grad_norm", 10.0),
     "APO": ("max_grad_norm", 10.0),
     "PPO": ("max_grad_norm", 0.5),
     "APG": ("max_grad_norm", 1.0),

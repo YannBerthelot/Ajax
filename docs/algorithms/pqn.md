@@ -41,7 +41,7 @@ Defaults are read from `PQN.__init__`.
 | Argument | Default | What it does |
 | --- | --- | --- |
 | `n_envs` | `8` | parallel environments |
-| `learning_rate` | `2.5e-4` | Adam step size |
+| `learning_rate` | `2.5e-4` | RAdam step size (the authors' optimiser, `optax.radam`) |
 | `architecture` | `("128", "relu", "128", "relu")` | hidden layers; each Dense is followed by a LayerNorm |
 | `gamma` | `0.99` | discount |
 | `q_lambda` | `0.65` | the lambda of the Q(lambda) returns |
@@ -51,10 +51,10 @@ Defaults are read from `PQN.__init__`.
 | `epsilon_start`, `epsilon_end` | `1.0`, `0.05` | exploration rate at the start and the end of its decay |
 | `epsilon_decay_frac` | `0.5` | fraction of the run over which epsilon decays |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
-| `max_grad_norm` | `None` | gradient clipping |
+| `max_grad_norm` | `10.0` | gradient clipping by global norm (the authors'); `None` turns it off |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
 | `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
-| `td_loss_fn` | `None` | the loss; `None` is the squared error, `make_huber_td_loss(delta)` the Huber loss |
+| `td_loss_fn` | `None` | the loss; `None` is half the squared error (the authors'), `make_huber_td_loss(delta)` the Huber loss |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations; `None` builds the reference network (see Notes) |
 | `expose_recent_rollout` | `False` | keep the last rollout on `state.last_rollout` for extensions |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |

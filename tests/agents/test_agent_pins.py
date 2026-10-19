@@ -801,6 +801,14 @@ _GOLDEN |= {
     "PQN": {"actor": 33.92633056640625},
     "PQN-nudge": {"actor": 33.91205596923828, "nudge": 0.33566388487815857},
 }
+# Re-recorded on macOS ARM CPU once PQN stepped as its authors' code: RAdam
+# (eps 1e-8) after a global clip of 10, on half the squared error (were Adam,
+# eps 1e-5, unclipped, on the squared error). Relative shifts (actor): PQN
+# +0.28%, PQN-nudge +0.32%; the nudge is unchanged.
+_GOLDEN |= {
+    "PQN": {"actor": 34.02167510986328},
+    "PQN-nudge": {"actor": 34.01959228515625, "nudge": 0.33566388487815857},
+}
 
 # Re-recorded on macOS ARM CPU once TD3's layers became its reference code's:
 # torch's nn.Linear default, every kernel and bias uniform in +-1/sqrt(fan_in)

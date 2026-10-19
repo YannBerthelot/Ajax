@@ -675,8 +675,8 @@ P9_CELLS: dict[str, tuple] = {
     "PQN": (
         ("q_lambda", 512, 0.65),
         {"A": (0.394, 1.198), "B": (0.902, 1.562), "C": (0.766, 1.527)} | D0,
-        80_000,  # at its reference initialisation; 160,000 qualifies too
-        (0.089, 0.075),
+        320_000,  # with RAdam; 80,000 and 160,000 do not qualify
+        (0.064, 0.078),
         {"learning_rate": 2.5e-4, "n_steps": 512, "num_minibatches": 2, "n_epochs": 3},
     ),
 }

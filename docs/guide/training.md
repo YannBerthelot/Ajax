@@ -35,7 +35,7 @@ and one `architecture` for their Q-network instead of an actor and a critic.
 | `env_params` | gymnax environment parameters | [Environments](environments.md) |
 | `episode_length`, `action_repeat` | episode length and repeat of a Brax or Playground id | [Environments](environments.md) |
 | `normalize_observations`, `normalize_rewards` | running normalisation | [Environments](environments.md) |
-| `max_grad_norm` | global-norm gradient clipping (`None`: off) | |
+| `max_grad_norm` | global-norm gradient clipping (`None`: off); twin and ensemble critics are each clipped on their own | |
 | `weight_decay` | decoupled (AdamW) weight decay of the network optimisers, multiplied by the learning rate: each step multiplies the parameters by `1 - lr * weight_decay` (`0`: plain Adam) | |
 | `memory` | a recurrent memory block | [Memory](memory.md) |
 | `extensions` | research features: experts, exploration, diagnostics | [Extensions](extensions.md) |

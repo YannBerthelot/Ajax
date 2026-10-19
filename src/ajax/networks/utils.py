@@ -18,6 +18,31 @@ from optax import GradientTransformationExtraArgs
 from ajax.types import ActivationFunction, InitializationFunction
 
 
+def clip_by_member_norm(max_norm: float) -> optax.GradientTransformation:
+    """``optax.clip_by_global_norm`` applied to each member of an ensemble on
+    its own: every leaf's leading axis indexes a member, as a
+    :class:`~ajax.networks.networks.MultiCritic`'s vmapped parameters do.
+    Each member is its own network in the references, clipped alone (ASAC:
+    BobMak/asac @4b68862, darer/Models.py:299-301)."""
+
+    def update_fn(updates: optax.Updates, state: optax.EmptyState, params=None):
+        del params
+        leaves = jax.tree.leaves(updates)
+        if len({leaf.shape[0] for leaf in leaves}) != 1:
+            raise ValueError("every leaf's leading axis must index the members")
+        norm = jnp.sqrt(
+            sum(jnp.sum(jnp.square(g).reshape(g.shape[0], -1), axis=1) for g in leaves)
+        )
+
+        def clip(g: jax.Array) -> jax.Array:
+            n = norm.reshape((-1,) + (1,) * (g.ndim - 1)).astype(g.dtype)
+            return jnp.where(n < max_norm, g, (g / n) * max_norm)
+
+        return jax.tree.map(clip, updates), state
+
+    return optax.GradientTransformation(lambda _: optax.EmptyState(), update_fn)
+
+
 def get_adam_tx(
     learning_rate: Union[float, Callable[[int], float]] = 1e-3,
     max_grad_norm: Optional[float] = None,
@@ -25,9 +50,11 @@ def get_adam_tx(
     beta_1: float = 0.9,
     beta_2: float = 0.999,
     weight_decay: float = 0.0,
+    per_member: bool = False,
 ) -> GradientTransformationExtraArgs:
     """Return an Adam(W) optimizer, clipping the gradients' global norm to
-    ``max_grad_norm`` when one is given.
+    ``max_grad_norm`` when one is given; with ``per_member``, each ensemble
+    member's norm on its own (:func:`clip_by_member_norm`).
 
     Unclipped by default. Global-norm clipping is a PPO-family convention
     (PPO passes ``max_grad_norm=0.5``; APO clips both its networks'
@@ -53,7 +80,8 @@ def get_adam_tx(
     else:
         adam = optax.adam(learning_rate=learning_rate, eps=eps, b1=beta_1, b2=beta_2)
     if max_grad_norm is not None:
-        return optax.chain(optax.clip_by_global_norm(max_grad_norm), adam)
+        clip = clip_by_member_norm if per_member else optax.clip_by_global_norm
+        return optax.chain(clip(max_grad_norm), adam)
     return adam
 
 

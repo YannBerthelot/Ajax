@@ -2,11 +2,13 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 import pytest
 from flax.linen.initializers import orthogonal, variance_scaling
 from flax.serialization import to_state_dict
 
 from ajax.networks.utils import (
+    clip_by_member_norm,
     dense,
     get_adam_tx,
     get_initializer,
@@ -64,6 +66,64 @@ def test_get_adam_tx_clips_iff_given_a_norm():
     clipped = _one_step(get_adam_tx(1.0, max_grad_norm=1e-6), params, grads)["w"]
     np.testing.assert_allclose(plain, -1e-4 / (1e-4 + 1e-5), rtol=1e-4)
     np.testing.assert_allclose(clipped, -1e-6 / (1e-6 + 1e-5), rtol=1e-4)
+
+
+def _members(key: jax.Array) -> dict:
+    """Two members, the first's norm 30x the second's."""
+    k1, k2 = jax.random.split(key)
+    tree = {"w": jax.random.normal(k1, (2, 3, 4)), "b": jax.random.normal(k2, (2, 4))}
+    return jax.tree.map(
+        lambda x: x * jnp.array([30.0, 1.0]).reshape(2, *[1] * (x.ndim - 1)), tree
+    )
+
+
+def test_clip_by_member_norm_clips_each_member_as_optax_clips_it_alone():
+    """Each member is clipped by its own norm, exactly as optax clips that
+    member's tree alone: the large one shrinks, the small one is untouched."""
+    grads, cap = _members(jax.random.PRNGKey(0)), 5.0
+    got, _ = clip_by_member_norm(cap).update(grads, optax.EmptyState())
+    for m in range(2):
+        alone = jax.tree.map(lambda x, m=m: x[m], grads)
+        want, _ = optax.clip_by_global_norm(cap).update(alone, optax.EmptyState())
+        for k in grads:
+            np.testing.assert_array_equal(got[k][m], want[k])
+    np.testing.assert_array_equal(got["b"][1], grads["b"][1])
+    with pytest.raises(ValueError, match="leading axis"):
+        clip_by_member_norm(cap).update({"a": jnp.ones((2, 1)), "b": jnp.ones(3)}, None)
+
+
+def test_one_member_is_optax_s_global_clip():
+    """PPO's and APO's critics are one-member ensembles: per-member clipping
+    is their default clip (0.5), up to rounding (CI's reduction order)."""
+    grads = jax.tree.map(lambda x: x[:1], _members(jax.random.PRNGKey(1)))
+    got, _ = clip_by_member_norm(0.5).update(grads, optax.EmptyState())
+    want, _ = optax.clip_by_global_norm(0.5).update(grads, optax.EmptyState())
+    for k in grads:
+        np.testing.assert_allclose(got[k], want[k], rtol=1e-6)
+
+
+def test_the_critic_optimizer_clips_each_critic_on_its_own():
+    """A quiet critic keeps its own step while its twin's huge gradient is
+    clipped: Adam's first step ``g / (|g| + eps)`` reads the clip's scale
+    on gradients of 1e-4 (eps 1e-5), so a joint clip would shrink it."""
+    from ajax.agents.SAC.SAC import SAC
+    from ajax.networks.networks import get_initialized_actor_critic
+
+    agent = SAC("Pendulum-v1", critic_architecture=("8", "relu"), max_grad_norm=1.0)
+    _, critic = get_initialized_actor_critic(
+        jax.random.PRNGKey(0),
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+        num_critics=2,
+    )
+    scale = lambda x: jnp.array([1e3, 1e-4]).reshape(2, *[1] * (x.ndim - 1))  # noqa: E731
+    grads = jax.tree.map(lambda x: jnp.ones_like(x) * scale(x), critic.params)
+    step, _ = critic.tx.update(grads, critic.opt_state, critic.params)
+    lr = agent.critic_optimizer_args.learning_rate
+    for leaf in jax.tree.leaves(step):
+        np.testing.assert_allclose(leaf[1], -lr * 1e-4 / (1e-4 + 1e-5), rtol=1e-4)
 
 
 # ------------------------

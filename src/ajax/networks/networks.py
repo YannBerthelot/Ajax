@@ -102,6 +102,28 @@ class CNNSpec(NamedTuple):
     kernel_init: Optional[str] = None
 
 
+#: Mnih et al. (2015)'s network: google-deepmind/dqn @9d9b1d1
+#: (dqn/convnet_atari3.lua:10-13; no padding, convnet.lua:27-33).
+MNIH_CNN = CNNSpec((32, 64, 64), (8, 4, 3), (4, 2, 1), 512, "VALID")
+#: MinAtar's network (Young & Tian, 2019): one 3x3 convolution of 16 channels,
+#: no padding, then 128 units (kenjyoung/MinAtar @4241f24, examples/dqn.py:72,
+#: :79-80), the one purejaxql's MinAtar PQN also builds (mttga/purejaxql
+#: @47af6d7, purejaxql/pqn_minatar.py:38-50).
+MINATAR_CNN = CNNSpec((16,), (3,), (1,), 128, "VALID")
+
+
+def reference_cnn(image_shape: Tuple[int, int, int]) -> CNNSpec:
+    """Mnih et al.'s network when the image fits it, 36 pixels a side or
+    more (its three VALID convolutions leave nothing of less), else
+    MinAtar's, made for MinAtar's 10 x 10 images."""
+    if min(image_shape[:2]) < 3:
+        raise ValueError(
+            f"No reference network reads a {image_shape[:2]} image (MinAtar's"
+            " needs 3 pixels a side); pass a cnn_spec."
+        )
+    return MNIH_CNN if min(image_shape[:2]) >= 36 else MINATAR_CNN
+
+
 def _conv(
     features: int, kernel: Tuple, strides: Tuple, spec: CNNSpec, in_channels: int
 ) -> nn.Conv:

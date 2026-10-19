@@ -163,7 +163,8 @@ agent = PQN(
 state, _ = agent.train(seed=0, n_timesteps=2_048)
 ```
 
-`CNNSpec()` with no arguments is the default encoder: two ReLU convolutions
+DQN and PQN default to their reference codes' networks (see their pages);
+PPO and UDRL to `CNNSpec()`. `CNNSpec()` with no arguments is this encoder: two ReLU convolutions
 of 16 and 32 channels (kernels 4 and 3, stride 2, `"SAME"` padding), then a
 128-wide dense layer, all at flax's default initialisation. The image is
 read in height, width, channels order. `padding` takes flax's padding

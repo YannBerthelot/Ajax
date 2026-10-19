@@ -444,7 +444,6 @@ def make_train(
     return loop.off_policy(
         init,
         update,
-        AuxiliaryLogs,
         agent_config.learning_starts,
         expose_rollout=agent_config.expose_recent_rollout,
         after_collect=after_collect,

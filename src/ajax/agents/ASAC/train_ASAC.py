@@ -324,6 +324,7 @@ def update_agent(
     agent_config: ASACConfig,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    fixed_alpha: bool,
 ) -> Tuple[ASACState, AuxiliaryLogs]:
     """One update on a replay batch: the termination penalty, then the
     critic, actor, temperature, ``theta`` and target steps."""
@@ -342,7 +343,7 @@ def update_agent(
         transition.reward,
         transition.terminated,
         agent_config.p_0,
-        tau,
+        agent_config.tau_theta,
     )
     rewards = get_episode_termination_penalized_rewards(
         episode_termination_penalty, transition.reward, transition.terminated
@@ -371,13 +372,20 @@ def update_agent(
     agent_state, log_probs = sample_updated_policy(agent_state, transition.obs, carries)
     # The dual-gradient step towards ``target_entropy`` (target entropy
     # per dimension times the action dimension).
-    agent_state, aux_temperature = core.update_temperature(
+    # ``fixed_alpha`` drops the step but keeps its logged auxiliaries, as
+    # SAC's does.
+    tempered, aux_temperature = core.update_temperature(
         agent_state, log_probs, jnp.asarray(agent_config.target_entropy)
     )
+    if not fixed_alpha:
+        agent_state = tempered
     # In the target's units: the reward rate theta is subtracted from the
     # scaled rewards there.
     agent_state = update_theta(
-        agent_state, tau, rewards * agent_config.reward_scale, log_probs
+        agent_state,
+        agent_config.tau_theta,
+        rewards * agent_config.reward_scale,
+        log_probs,
     )
     agent_state = core.update_target_networks(agent_state, tau)
     aux = AuxiliaryLogs(
@@ -409,6 +417,7 @@ def make_train(
     end_timestep: Optional[int] = None,
     expert_policy: Optional[Callable] = None,
     extensions: Sequence = (),
+    fixed_alpha: bool = True,
 ):
     """ASAC's train function: one step per env, then (from
     ``learning_starts``) one update, per iteration."""
@@ -454,7 +463,13 @@ def make_train(
     def update(agent_state: ASACState, _transition: Transition) -> Any:
         # The step just collected is in the buffer: ASAC samples it from there.
         return update_agent(
-            agent_state, buffer, recurrent, agent_config, loop.stack, total_timesteps
+            agent_state,
+            buffer,
+            recurrent,
+            agent_config,
+            loop.stack,
+            total_timesteps,
+            fixed_alpha,
         )
 
     return loop.off_policy(

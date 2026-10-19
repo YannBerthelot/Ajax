@@ -124,6 +124,11 @@ raises.
   log-std from one output layer; Ajax's two heads each take Glorot's bound
   for their own width (about 1% wider with 256 inputs). With `memory=`, SAC
   keeps its previous initialisation until Ni et al.'s is audited.
+- **Standard deviation.** The log-std is clipped to `[-20, 2]` and the
+  standard deviation is its exponential, as in `haarnoja/sac` and in
+  `softlearning` at the time of the learned-temperature paper. Later
+  `softlearning` (its TensorFlow 2 port, 2020) uses `softplus(x) + 1e-5`
+  instead; Ajax keeps the paper-era form.
 - **Updates per step.** Each iteration steps every env once, then makes one
   update: `num_critic_updates` critic steps, one actor step, one temperature
   step and one target update. With `n_envs=4` that is one update per four

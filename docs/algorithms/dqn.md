@@ -78,7 +78,7 @@ Defaults are read from `DQN.__init__`.
 | `td_target_fn` | `None` | the target; `None` is vanilla DQN, `compute_double_dqn_td_target` is Double DQN |
 | `td_loss_fn` | `None` | the loss; `None` is the squared error, `make_huber_td_loss(delta)` the Huber loss |
 | `q_network_cls` | `None` | the network; `None` is `QNetwork`, `DuelingQNetwork` the dueling one |
-| `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations |
+| `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations; `None` builds the reference network (see Notes) |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
@@ -105,8 +105,16 @@ Defaults are read from `DQN.__init__`.
   none) and a linear head. It lives in `state.actor_state`, so the shared
   evaluation reads it like any actor. As in the authors' Torch7 code, every
   layer of the MLP and the head starts as `nn.Linear` does, kernel and bias
-  uniform in `±1/sqrt(fan_in)`; the image encoder keeps Ajax's CNN
-  initialisation (its layers are not Mnih et al.'s).
+  uniform in `±1/sqrt(fan_in)`.
+- **Images.** With `cnn_image_shape` and no `cnn_spec`, DQN builds Mnih et
+  al.'s network (`MNIH_CNN`: 32, 64 and 64 channels, kernels 8, 4 and 3,
+  strides 4, 2 and 1, no padding, then 512 units) when the image is at
+  least 36 pixels a side, the smallest it fits. Smaller images, such as
+  MinAtar's 10 x 10, get MinAtar's network (`MINATAR_CNN`: one 3 x 3
+  convolution of 16 channels, then 128 units). Both start as the MLP does.
+  The authors' first convolution is given a padding argument of 1; Ajax
+  does not pad it, as the paper describes. On 84 x 84 images both read 20 x
+  20.
 - **Extensions.** `on_target` extensions reshape the target; `critic_loss`
   extensions add a term to the TD loss, with its gradient.
 

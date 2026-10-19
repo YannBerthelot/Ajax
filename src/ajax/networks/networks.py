@@ -1,3 +1,4 @@
+import math
 from collections.abc import Sequence
 from typing import Any, NamedTuple, Optional, Tuple, Union
 
@@ -7,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax.core import FrozenDict
-from flax.linen.initializers import constant, orthogonal
+from flax.linen.initializers import constant, lecun_normal, orthogonal
 from flax.serialization import to_state_dict
 
 from ajax.environments.obs_norm import apply_obs_norm
@@ -31,6 +32,8 @@ from ajax.networks.utils import (
     dense,
     get_adam_tx,
     parse_architecture,
+    parse_initialization,
+    uniform_init,
 )
 from ajax.state import (
     LOG_STD_BOUNDS,
@@ -81,13 +84,69 @@ class CNNSpec(NamedTuple):
     ``CNNSpec()`` is :class:`CNNEncoder`'s default architecture. Each
     ``kernel_sizes`` / ``strides`` entry may be an ``int`` (square) or an
     ``(h, w)`` tuple. A ``NamedTuple`` -> hashable, so it is safe as a flax
-    module field and as a :class:`NetworkConfig` field.
+    module field and as a :class:`NetworkConfig` field. ``padding`` is
+    flax's ``nn.Conv`` padding; ``layer_norm`` puts a LayerNorm after every
+    convolution and the projection, before its ReLU; ``kernel_init`` names
+    every layer's initializer as :func:`~ajax.networks.utils.dense` reads
+    it, ``"torch_linear"`` drawing kernel and bias uniform in
+    ``+-1/sqrt(fan_in)`` (torch's and Torch7's default); None is flax's
+    lecun_normal with zero biases.
     """
 
     channels: Tuple[int, ...] = (16, 32)
     kernel_sizes: Tuple = (4, 3)
     strides: Tuple = (2, 2)
     feature_dim: int = 128
+    padding: str = "SAME"
+    layer_norm: bool = False
+    kernel_init: Optional[str] = None
+
+
+#: Mnih et al. (2015)'s network: google-deepmind/dqn @9d9b1d1
+#: (dqn/convnet_atari3.lua:10-13; no padding, convnet.lua:27-33).
+MNIH_CNN = CNNSpec((32, 64, 64), (8, 4, 3), (4, 2, 1), 512, "VALID")
+#: MinAtar's network (Young & Tian, 2019): one 3x3 convolution of 16 channels,
+#: no padding, then 128 units (kenjyoung/MinAtar @4241f24, examples/dqn.py:72,
+#: :79-80), the one purejaxql's MinAtar PQN also builds (mttga/purejaxql
+#: @47af6d7, purejaxql/pqn_minatar.py:38-50).
+MINATAR_CNN = CNNSpec((16,), (3,), (1,), 128, "VALID")
+
+
+def reference_cnn(image_shape: Tuple[int, int, int]) -> CNNSpec:
+    """Mnih et al.'s network when the image fits it, 36 pixels a side or
+    more (its three VALID convolutions leave nothing of less), else
+    MinAtar's, made for MinAtar's 10 x 10 images."""
+    if min(image_shape[:2]) < 3:
+        raise ValueError(
+            f"No reference network reads a {image_shape[:2]} image (MinAtar's"
+            " needs 3 pixels a side); pass a cnn_spec."
+        )
+    return MNIH_CNN if min(image_shape[:2]) >= 36 else MINATAR_CNN
+
+
+def _conv(
+    features: int, kernel: Tuple, strides: Tuple, spec: CNNSpec, in_channels: int
+) -> nn.Conv:
+    """``spec``'s convolution; torch_linear's bound reads the fan-in, the
+    kernel's area times the input channels."""
+    bias_init = constant(0.0)
+    if spec.kernel_init == TORCH_LINEAR:
+        bound = 1.0 / math.sqrt(kernel[0] * kernel[1] * in_channels)
+        kernel_init = bias_init = uniform_init(bound)
+    else:
+        kernel_init = parse_initialization(spec.kernel_init, lecun_normal())
+    return nn.Conv(
+        features,
+        kernel_size=kernel,
+        strides=strides,
+        padding=spec.padding,
+        kernel_init=kernel_init,
+        bias_init=bias_init,
+    )
+
+
+def _maybe_norm(spec: CNNSpec, x: jax.Array) -> jax.Array:
+    return nn.LayerNorm()(x) if spec.layer_norm else x
 
 
 class CNNEncoder(nn.Module):
@@ -131,12 +190,12 @@ class CNNEncoder(nn.Module):
             # tuple -- the latter for non-square images (e.g. octax's 64x32).
             ks = k if isinstance(k, tuple) else (k, k)
             st = s if isinstance(s, tuple) else (s, s)
-            img = nn.Conv(c, kernel_size=ks, strides=st)(img)
-            img = nn.relu(img)
+            img = _conv(c, ks, st, spec, img.shape[-1])(img)
+            img = nn.relu(_maybe_norm(spec, img))
         # Flatten the spatial+channel dims while preserving leading batch dims.
         img = img.reshape(*img.shape[:-3], -1)
-        feat = nn.Dense(spec.feature_dim)(img)
-        feat = nn.relu(feat)
+        feat = dense(spec.feature_dim, spec.kernel_init, None, lecun_normal())(img)
+        feat = nn.relu(_maybe_norm(spec, feat))
         if extra is not None:
             feat = jnp.concatenate([feat, extra], axis=-1)
         return feat
@@ -585,7 +644,7 @@ def get_initialized_actor_critic(
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
-    critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config))
+    critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config), per_member=True)
     actor_key, critic_key = jax.random.split(key)
 
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
@@ -648,7 +707,7 @@ def get_initialized_critic(
         num=num_critics,
     )
 
-    critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config))
+    critic_tx = get_adam_tx(**to_state_dict(critic_optimizer_config), per_member=True)
 
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 

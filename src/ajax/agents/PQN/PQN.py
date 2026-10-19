@@ -9,7 +9,7 @@ from ajax.agents.PQN.state import PQNConfig
 from ajax.agents.PQN.train_PQN import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
-from ajax.networks.networks import CNNSpec
+from ajax.networks.networks import CNNSpec, reference_cnn
 from ajax.types import EnvType
 
 
@@ -69,6 +69,13 @@ class PQN(ActorCritic):
         action_repeat: int = 1,
     ) -> None:
         self.config = run_config(locals(), self.name)
+        # The image network of PQN's reference, purejaxql: Mnih et al.'s, or
+        # MinAtar's for images too small for it (reference_cnn), each layer
+        # he_normal and followed by a LayerNorm.
+        if cnn_image_shape is not None and cnn_spec is None:
+            cnn_spec = reference_cnn(cnn_image_shape)._replace(
+                kernel_init="he_normal", layer_norm=True
+            )
 
         # PQN has a single Q-network; forward `architecture`/`learning_rate`
         # to both actor/critic slots of the base class.

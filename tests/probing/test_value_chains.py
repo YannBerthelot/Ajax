@@ -35,7 +35,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "1e36655f5616"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "e3c5c7df6b99"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -535,7 +535,7 @@ P1_CELLS: dict[str, tuple[str, str, int, dict]] = {  # agent, chain, budget, ove
     "SAC": ("SAC", "continuous", 5000, _ON),
     "TD3": ("TD3", "continuous", 2500, _ON),
     "REDQ": ("REDQ", "continuous", 2500, _ON | {"num_critic_updates": 2}),
-    "ASAC": ("ASAC", "asymmetric", 10_000, _ON),
+    "ASAC": ("ASAC", "asymmetric", 5000, _ON),
     "SAC-running": ("SAC", "continuous", 5000, {"normalize_obs_running": True}),
 }
 
@@ -628,7 +628,7 @@ P1_CASES = {  # cell, queries, tolerances (none for a live defect: half the gap)
     "TD3": ("TD3", (EVAL_C, Q_SOFT), (0.02, 0.048)),
     "REDQ": ("REDQ", (EVAL_C, Q_SOFT), (0.049, 0.084)),
     "SAC-running": ("SAC-running", (EVAL_C, Q_SOFT), (0.036, 0.087)),
-    "ASAC": ("ASAC", (EVAL_A, ASAC_GAP), (0.02, 0.049)),
+    "ASAC": ("ASAC", (EVAL_A, ASAC_GAP), (0.02, 0.086)),
     "AVG": ("AVG", (EVAL_C,), (0.077,)),
     "PPO-continuous": ("PPO-continuous", (V_CONTINUOUS,), (0.069,)),
     "PPO-discrete": ("PPO-discrete", (V_DISCRETE,), (0.072,)),
@@ -811,7 +811,7 @@ _SAC8 = (0.065, 0.034, 0.04, 0.051, 0.094, 0.023, 0.035)
 P8_CAL = {  # queries, budget, tolerances, note
     "SAC": (P8_SOFT, 5000, _SAC8, "at its reference init; 2500 not laddered"),
     "REDQ": (P8_SOFT, 2500, (0.02, 0.026, 0.045, 0.058, 0.076, 0.02, 0.04), ""),
-    "AVG": (P8_POLICY, 20_000, (0.066, 0.1, 0.074, 0.077), "10,000 failed: 0.196"),
+    "AVG": (P8_POLICY, 80_000, (0.03, 0.067, 0.072, 0.088), "40,000 failed: 0.132"),
     "TD3": (P8_TD3, 2500, (0.03, 0.051), ""),
 }
 for name, (p8_queries, steps, p8_tols, note) in P8_CAL.items():

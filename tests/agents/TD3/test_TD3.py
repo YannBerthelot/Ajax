@@ -40,16 +40,16 @@ def test_td3_starts_every_layer_as_torch_nn_linear():
     actor = actor_state.params["params"]
     critic = jax.tree.map(lambda x: x[0], critic_state.params["params"]["ensemble"])
     obs_dim, act_dim = 3, 1  # Pendulum
-    layers = {  # name: (params, fan_in); TD3's 400-300 hidden layers
+    layers = {  # name: (params, fan_in); TD3's 256-256 hidden layers
         "actor hidden 0": (actor["hidden"]["layers_0"], obs_dim),
-        "actor hidden 1": (actor["hidden"]["layers_2"], 400),
-        "actor head": (actor["head"], 300),
+        "actor hidden 1": (actor["hidden"]["layers_2"], 256),
+        "actor head": (actor["head"], 256),
         "critic hidden 0": (
             critic["encoder"]["network"]["layers_0"],
             obs_dim + act_dim,
         ),
-        "critic hidden 1": (critic["encoder"]["network"]["layers_2"], 400),
-        "Q": (critic["model"], 300),
+        "critic hidden 1": (critic["encoder"]["network"]["layers_2"], 256),
+        "Q": (critic["model"], 256),
     }
     for name, (layer, fan_in) in layers.items():
         bound = 1 / np.sqrt(fan_in)
@@ -76,7 +76,7 @@ def test_recurrent_td3_keeps_its_previous_initialisation():
     )
     actor = actor_state.params["params"]
     hidden = np.asarray(actor["hidden"]["layers_2"]["kernel"])
-    np.testing.assert_allclose(hidden.T @ hidden, np.eye(300), atol=1e-4)
+    np.testing.assert_allclose(hidden.T @ hidden, np.eye(256), atol=1e-4)
     head = np.asarray(actor["head"]["kernel"])
     assert 1e-3 < np.abs(head).max() <= 3e-3
     np.testing.assert_array_equal(actor["head"]["bias"], 0.0)

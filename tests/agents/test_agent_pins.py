@@ -754,6 +754,26 @@ _GOLDEN |= {
         "alpha": 0.9727535247802734,
     },
 }
+# Re-recorded on macOS ARM CPU once ASAC fixed its temperature at 0.2 by
+# default (was learned from 1.0). Relative shifts (actor, critic, alpha):
+# ASAC -0.1%, +0.0%, -79.4%.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 17.239709854125977,
+        "critic": 27.024330139160156,
+        "alpha": 0.19999998807907104,
+    },
+}
+# Re-recorded on macOS ARM CPU once ASAC's learning rates (actor 1e-4,
+# critics 5e-4) and gradient clip (10, each critic alone) became its
+# authors'. Relative shifts (actor, critic, alpha): +0.24%, +1.27%, 0.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 17.280670166015625,
+        "critic": 27.36642837524414,
+        "alpha": 0.19999998807907104,
+    },
+}
 
 # Re-recorded on macOS ARM CPU once PQN's layers became its reference code's:
 # flax's lecun_normal kernels (were orthogonal(sqrt(2)) hidden layers and an
@@ -772,6 +792,13 @@ _GOLDEN |= {
 _GOLDEN |= {
     "TD3": {"actor": 15.652060508728027, "critic": 29.05111312866211},
     "TD3-mcc": {"actor": 17.76249885559082, "critic": 28.460254669189453},
+}
+# Re-recorded on macOS ARM CPU once TD3's defaults became its authors' 2019
+# code: the run takes the default learning rate, now 3e-4 (was 1e-3).
+# Relative shifts (actor, critic): TD3 -1.4%, -6.8%; TD3-mcc -1.5%, +0.4%.
+_GOLDEN |= {
+    "TD3": {"actor": 15.433494567871094, "critic": 27.067062377929688},
+    "TD3-mcc": {"actor": 17.501985549926758, "critic": 28.56537628173828},
 }
 
 # Re-recorded on macOS ARM CPU once REDQ's layers became its reference code's:

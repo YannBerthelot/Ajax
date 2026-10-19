@@ -40,18 +40,18 @@ This budget only shows the call; Pendulum needs more steps to be solved.
 
 ## Key hyperparameters
 
-Defaults are read from `TD3.__init__`; the class docstring ties them to the
-paper.
+Defaults are read from `TD3.__init__`. They are the authors' code as
+updated in 2019, not the paper's: see [Notes](#notes).
 
 | Argument | Default | What it does |
 | --- | --- | --- |
 | `n_envs` | `1` | parallel environments |
-| `actor_learning_rate`, `critic_learning_rate` | `1e-3` | Adam step sizes |
-| `actor_architecture`, `critic_architecture` | `("400", "relu", "300", "relu")` | hidden layers (plain MLPs) |
+| `actor_learning_rate`, `critic_learning_rate` | `3e-4` | Adam step sizes |
+| `actor_architecture`, `critic_architecture` | `("256", "relu", "256", "relu")` | hidden layers (plain MLPs) |
 | `gamma` | `0.99` | discount |
 | `buffer_size` | `1_000_000` | replay capacity |
-| `batch_size` | `100` | replay minibatch |
-| `learning_starts` | `10_000` | steps of uniform random actions before the first update |
+| `batch_size` | `256` | replay minibatch |
+| `learning_starts` | `25_000` | steps of uniform random actions before the first update |
 | `tau` | `0.005` | Polyak rate of the target networks |
 | `num_critics` | `2` | critics; the target takes their minimum |
 | `policy_delay` | `2` | critic steps per actor and target update |
@@ -73,6 +73,11 @@ extension; a cloning term during training, of the TD3+BC form, is `ImitationLoss
 
 ## Notes
 
+- **Defaults.** The authors updated their code's hyperparameters in 2019
+  "to improve performance": 256-256 layers, learning rate `3e-4`, batch
+  256 and a 25,000-step warm-up. Ajax uses these. The paper's run used
+  400-300 layers, `1e-3`, batch 100 and 10,000 steps; pass them to
+  reproduce it.
 - **Actor.** A deterministic MLP ending in `tanh`. As in the authors' code,
   every layer of the actor and the critics, the actor's last included,
   starts as torch's `nn.Linear` does: kernel and bias uniform in

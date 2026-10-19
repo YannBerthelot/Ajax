@@ -13,6 +13,7 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.extensions.base import Extension
+from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
@@ -151,17 +152,20 @@ class REDQ(ActorCritic):
         # Recurrent REDQ (memory set) keeps Ajax's previous initialisation
         # until Ni et al.'s, its recurrent reference (pomdp-baselines), is
         # audited: at REDQ's, its memory cells' actors read 24-29/32.
-        reference_init: dict[str, Any] = (
-            {}
-            if memory is not None
-            else {
+        reference_init: dict[str, Any] = {}
+        if memory is None:
+            reference_init = {
                 "encoder_kernel_init": "xavier_uniform",
-                "mean_kernel_init": "xavier_uniform",
-                "log_std_kernel_init": "xavier_uniform",
-                "log_std_init": 0.0,
                 "value_kernel_init": "xavier_uniform",
             }
-        )
+            # The Gaussian head's settings are the MLP actor's: a PID actor in
+            # its place keeps its own log-std start (PID_LOG_STD_INIT).
+            if not isinstance(actor_architecture, PIDPolicy):
+                reference_init |= {
+                    "mean_kernel_init": "xavier_uniform",
+                    "log_std_kernel_init": "xavier_uniform",
+                    "log_std_init": 0.0,
+                }
 
         super().__init__(
             env_id=env_id,

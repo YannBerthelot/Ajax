@@ -27,6 +27,7 @@ from ajax.agents.recurrent import (
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.buffers.dataset import TransitionDataset
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -374,6 +375,7 @@ def make_train(
     start_timestep: int = 0,
     end_timestep: Optional[int] = None,
     expert_policy: Optional[Callable] = None,
+    offline_data: Optional[TransitionDataset] = None,
     extensions: Sequence = (),
 ):
     """REDQ's train function: one step per env, then (from
@@ -402,6 +404,7 @@ def make_train(
         start_timestep=start_timestep,
         end_timestep=end_timestep,
         expert_policy=expert_policy,
+        offline_data=offline_data,
     )
 
     def init(key: jax.Array) -> REDQState:

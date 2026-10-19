@@ -26,6 +26,14 @@ runs them in the same order (:meth:`TrainLoop.off_policy`)::
                     fold the extensions' post_update
                 evaluate and log every evaluation.every ticks
 
+A replay agent given a dataset trains offline instead
+(:meth:`TrainLoop.offline`)::
+
+    fresh run:  the replay and the normalisers start from the dataset
+    iterate:    state, aux = update(state, None)   # no environment step
+                fold the extensions' post_update
+                evaluate and log every log_frequency updates
+
 The result is :func:`ajax.perf_utils.build_resumable_train`'s jitted
 ``train(key, index, initial_state, resume_from_state)``, which
 :meth:`ajax.agents.base.ActorCritic.train` vmaps over seeds. It returns
@@ -317,6 +325,8 @@ class TrainLoop:
     end_timestep: Optional[int] = None
     #: The agent's ``expert_policy``, whose actions collection stores.
     expert_policy: Any = None
+    #: A transition dataset to train on alone (:meth:`offline`).
+    offline_data: Optional[TransitionDataset] = None
 
     @classmethod
     def create(
@@ -330,6 +340,7 @@ class TrainLoop:
         start_timestep: int = 0,
         end_timestep: Optional[int] = None,
         expert_policy: Any = None,
+        offline_data: Optional[TransitionDataset] = None,
     ) -> TrainLoop:
         """The loop of one ``make_train`` call; starts the logging worker
         when ``logging_config`` names a backend."""
@@ -349,6 +360,7 @@ class TrainLoop:
             start_timestep=start_timestep,
             end_timestep=end_timestep,
             expert_policy=expert_policy,
+            offline_data=offline_data,
         )
 
     @property
@@ -638,8 +650,19 @@ class TrainLoop:
         ``learning_starts`` gate (:meth:`repeat_update`); ``evaluation``
         replaces the actor's evaluation (:meth:`evaluate_every`);
         ``num_ticks`` the budget.
+
+        With :attr:`offline_data` it trains offline instead (:meth:`offline`).
         """
         collect_args = self.collect_kwargs(recurrent, **(collect_kwargs or {}))
+        if self.offline_data is not None:
+            if collect is not None or n_updates is not None or evaluation is not None:
+                raise ValueError(
+                    "Offline training runs the agent's update on a replay of the"
+                    " dataset; an agent collecting its own way has no such loop."
+                )
+            return self.offline(
+                init, update, collect_args["buffer"], recurrent, eval_kwargs
+            )
 
         def collect_step(agent_state: Any, tick: Any) -> tuple[Any, Any]:
             if collect is not None:
@@ -689,6 +712,47 @@ class TrainLoop:
             update=update,
             buffer=collect_args.get("buffer"),
         )
+
+    def offline(
+        self,
+        init: Init,
+        update: Update,
+        buffer: Any,
+        recurrent: bool = False,
+        eval_kwargs: Optional[dict] = None,
+    ) -> Callable:
+        """Train on :attr:`offline_data` alone, with no environment step.
+
+        A fresh run's replay and normalisers start from the dataset's rows
+        (:func:`seed_replay`). Each tick runs ``update(agent_state, None)``
+        on that replay, folds ``post_update`` and counts the update in the
+        collector's timestep: the schedules run over the updates, and the
+        evaluations (:meth:`evaluate_and_log`) come every ``log_frequency``
+        updates and log the updates done as their timestep. The budget is
+        :attr:`budget` updates.
+        """
+        data = self.offline_data
+        assert data is not None
+
+        def seeded(key: jax.Array) -> Any:
+            return seed_replay(init(key), buffer, data, self.env_args)
+
+        def iteration(
+            agent_state: Any, index: Any, tick: Any
+        ) -> tuple[Any, Optional[dict]]:
+            del tick
+            agent_state, aux = update(agent_state, None)
+            # One (1,)-shaped leaf per metric, as maybe_update hands them.
+            aux = jax.tree.map(lambda x: jnp.reshape(x, (1,)), aux)
+            agent_state = self.post_update(agent_state)
+            collector = agent_state.collector_state
+            collector = collector.replace(timestep=collector.timestep + 1)
+            agent_state = agent_state.replace(collector_state=collector)
+            return self.evaluate_and_log(
+                agent_state, aux, index, recurrent, **(eval_kwargs or {})
+            )
+
+        return self.train(seeded, iteration, self.budget, update=update, buffer=buffer)
 
     def on_policy(
         self,

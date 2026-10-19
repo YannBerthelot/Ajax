@@ -523,3 +523,48 @@ class ActorCritic:
         jax.block_until_ready(result)
         stop_async_logging()
         return result
+
+    def train_offline(
+        self,
+        dataset: Any,
+        n_updates: int,
+        seed: int | Sequence[int] = 42,
+        num_episode_test: int = 10,
+        logging_config: Optional[LoggingConfig] = None,
+        on_ids_ready: Optional[Callable] = None,
+    ) -> tuple[BaseAgentState, Any]:
+        """Train on a transition dataset alone, with no environment step.
+
+        ``n_updates`` of the agent's own update on a replay holding
+        ``dataset``'s rows (:meth:`ajax.agents.loop.TrainLoop.offline`),
+        evaluating every ``logging_config.log_frequency`` updates. Returns
+        ``(state, out)`` as :meth:`train` does, with the state's timestep
+        and evaluation count back at 0, so that ``train(initial_state=state,
+        ...)`` fine-tunes online from it, its replay keeping the dataset's
+        rows (with ``learning_starts=0``, from the first step).
+
+        Raises ``ValueError`` on an agent without a transition replay.
+        """
+        takes = inspect.signature(self.make_train).parameters
+        if "offline_data" not in takes:
+            raise ValueError(
+                f"{type(self).__name__} cannot train offline: offline training"
+                " runs an agent's update on a replay of transitions (SAC, TD3,"
+                " REDQ, ASAC, DQN)."
+            )
+        state, out = self.train(
+            seed=seed,
+            n_timesteps=n_updates,
+            num_episode_test=num_episode_test,
+            logging_config=logging_config,
+            on_ids_ready=on_ids_ready,
+            offline_data=dataset,
+        )
+        collector = state.collector_state
+        state = state.replace(
+            collector_state=collector.replace(
+                timestep=jnp.zeros_like(collector.timestep)
+            ),
+            n_logs=jnp.zeros_like(state.n_logs),
+        )
+        return state, out

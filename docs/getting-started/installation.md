@@ -26,9 +26,9 @@ pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git"
 ```
 
 pip does not read `uv.lock`, so it takes the newest versions that
-`pyproject.toml` allows, which can be newer than those CI tests. On Python
-3.11, uv and pip install JAX 0.10 and flax 0.12.8, as JAX 0.11 needs Python
-3.12; CI runs Python 3.12.
+`pyproject.toml` allows. A weekly CI job tests those too, and another the
+oldest versions allowed
+([Dependencies and releases](../developer/contributing.md#dependencies-and-releases)).
 
 ## CPU or GPU
 

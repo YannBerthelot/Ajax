@@ -45,6 +45,13 @@ def test_temperature_stays_at_alpha_init_by_default():
     np.testing.assert_array_equal(state.alpha.params["log_alpha"], jnp.log(0.2))
 
 
+def test_adam_eps_is_the_references():
+    """The reference's torch.optim.Adam keeps torch's eps, 1e-8 (BobMak/asac
+    @4b68862 darer/ASAC.py:87-92), not Ajax's shared 1e-5."""
+    agent = ASAC(env_id="fast")
+    assert agent.actor_optimizer_args.eps == agent.critic_optimizer_args.eps == 1e-8
+
+
 def test_tau_theta_alone_moves_theta_and_the_penalty():
     """``tau_theta`` is the rate of the ``theta`` and penalty averages
     (BobMak/asac @4b68862, darer/ASAC.py:188, :213), apart from ``tau``,

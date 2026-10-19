@@ -160,6 +160,12 @@ class ASAC(ActorCritic):
             action_repeat=action_repeat,
             extensions=extensions,
         )
+        # Adam's eps is torch's default, 1e-8, which the reference's Adams
+        # keep (BobMak/asac @4b68862 darer/ASAC.py:87-92, torch 2.8.0);
+        # recurrent ASAC's reference (Ni et al., pomdp-baselines e7c19c3
+        # policy_rnn.py:75, :93) keeps it too. Ajax's shared default is 1e-5.
+        self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=1e-8)
+        self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=1e-8)
 
         self.alpha_args = AlphaConfig(
             learning_rate=alpha_learning_rate,

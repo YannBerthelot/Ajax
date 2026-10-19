@@ -774,6 +774,15 @@ _GOLDEN |= {
         "alpha": 0.19999998807907104,
     },
 }
+# Re-recorded on macOS ARM CPU once ASAC's Adam eps became torch's 1e-8
+# (was 1e-5). Relative shifts (actor, critic, alpha): -2.0e-6, +2.6e-5, 0.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 17.280635833740234,
+        "critic": 27.367149353027344,
+        "alpha": 0.19999998807907104,
+    },
+}
 
 # Re-recorded on macOS ARM CPU once PQN's layers became its reference code's:
 # flax's lecun_normal kernels (were orthogonal(sqrt(2)) hidden layers and an

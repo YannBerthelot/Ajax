@@ -103,7 +103,10 @@ Defaults are read from `DQN.__init__`.
   analogue, less sensitive to outlier targets.
 - **Network.** A plain MLP without LayerNorm (Mnih et al.'s network has
   none) and a linear head. It lives in `state.actor_state`, so the shared
-  evaluation reads it like any actor.
+  evaluation reads it like any actor. As in the authors' Torch7 code, every
+  layer of the MLP and the head starts as `nn.Linear` does, kernel and bias
+  uniform in `±1/sqrt(fan_in)`; the image encoder keeps Ajax's CNN
+  initialisation (its layers are not Mnih et al.'s).
 - **Extensions.** `on_target` extensions reshape the target; `critic_loss`
   extensions add a term to the TD loss, with its gradient.
 

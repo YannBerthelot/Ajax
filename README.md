@@ -10,7 +10,7 @@
 <p align="center">
   <a href="https://yannberthelot.github.io/Ajax/"><img alt="Documentation" src="https://img.shields.io/badge/docs-yannberthelot.github.io%2FAjax-blue"></a>
   <a href="https://github.com/YannBerthelot/Ajax/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/YannBerthelot/Ajax/ci.yml?branch=main&label=CI"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="JAX" src="https://img.shields.io/badge/JAX-jit%20%7C%20vmap%20%7C%20grad-orange">
 </p>
@@ -54,8 +54,8 @@ which agent runs which.
 
 ## Installation
 
-Ajax installs from source with [uv](https://docs.astral.sh/uv/), on Python 3.11
-to 3.13:
+Ajax installs from source with [uv](https://docs.astral.sh/uv/), on Python 3.12
+or newer:
 
 ```bash
 git clone https://github.com/YannBerthelot/Ajax.git

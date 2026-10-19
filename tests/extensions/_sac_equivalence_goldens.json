@@ -1,116 +1,116 @@
 {
   "test_empty_stack_matches_legacy_plain_sac": {
-    "critic": 554.7587280273438,
-    "actor": 267.11981201171875,
-    "target": 535.0371704101562,
-    "alpha": 0.9818840622901917
+    "critic": 554.9328002929688,
+    "actor": 267.13018798828125,
+    "target": 535.0404663085938,
+    "alpha": 0.981884241104126
   },
   "test_expert_policy_matches_legacy_expert_policy": {
-    "critic": 554.0584716796875,
-    "actor": 267.0835876464844,
-    "target": 535.0143432617188,
-    "alpha": 0.9818949103355408
+    "critic": 554.2061157226562,
+    "actor": 267.103515625,
+    "target": 535.0148315429688,
+    "alpha": 0.9818947911262512
   },
   "test_online_bc_matches_legacy_flag": {
-    "critic": 556.6051635742188,
-    "actor": 267.0458679199219,
-    "target": 535.0751953125,
-    "alpha": 0.9818421602249146
+    "critic": 557.7488403320312,
+    "actor": 267.06048583984375,
+    "target": 535.0997924804688,
+    "alpha": 0.9818433523178101
   },
   "test_residual_policy_matches_legacy_use_residual_rl": {
-    "critic": 553.8381958007812,
-    "actor": 267.09552001953125,
-    "target": 535.0238037109375,
-    "alpha": 0.9818181991577148
+    "critic": 553.9859008789062,
+    "actor": 267.1161804199219,
+    "target": 535.0263061523438,
+    "alpha": 0.981817901134491
   },
   "test_jsrl_curriculum_matches_legacy_flag": {
-    "critic": 553.832275390625,
-    "actor": 267.0357666015625,
-    "target": 534.9912719726562,
-    "alpha": 0.9818168878555298
+    "critic": 553.9694213867188,
+    "actor": 267.05828857421875,
+    "target": 534.9921875,
+    "alpha": 0.9818167090415955
   },
   "test_ibrl_matches_legacy_flag": {
-    "critic": 554.039306640625,
-    "actor": 267.0216369628906,
-    "target": 535.0032958984375,
-    "alpha": 0.981817364692688
+    "critic": 554.1796264648438,
+    "actor": 267.0143737792969,
+    "target": 535.0039672851562,
+    "alpha": 0.9818171858787537
   },
   "test_edge_exploration_matches_legacy_flags[fixed]": {
-    "critic": 554.8740234375,
-    "actor": 267.0062255859375,
-    "target": 535.0361938476562,
-    "alpha": 0.9819310307502747
+    "critic": 555.0009765625,
+    "actor": 267.0149230957031,
+    "target": 535.0365600585938,
+    "alpha": 0.9819316267967224
   },
   "test_edge_exploration_matches_legacy_flags[argmax]": {
-    "critic": 553.8291015625,
-    "actor": 267.03094482421875,
-    "target": 534.9906616210938,
-    "alpha": 0.9818171262741089
+    "critic": 553.9697265625,
+    "actor": 267.0533447265625,
+    "target": 534.991943359375,
+    "alpha": 0.9818170666694641
   },
   "test_edge_exploration_matches_legacy_flags[boltzmann]": {
-    "critic": 554.8740234375,
-    "actor": 267.0062255859375,
-    "target": 535.0361938476562,
-    "alpha": 0.9819310307502747
+    "critic": 555.0009765625,
+    "actor": 267.0149230957031,
+    "target": 535.0365600585938,
+    "alpha": 0.9819316267967224
   },
   "test_edge_exploration_matches_legacy_flags[lcb]": {
-    "critic": 554.2914428710938,
-    "actor": 267.0069885253906,
-    "target": 535.0274658203125,
-    "alpha": 0.9819271564483643
+    "critic": 554.4578857421875,
+    "actor": 267.01666259765625,
+    "target": 535.0296020507812,
+    "alpha": 0.9819275140762329
   },
   "test_edge_exploration_matches_legacy_flags[argmax_lcb]": {
-    "critic": 553.4852905273438,
-    "actor": 267.0364685058594,
-    "target": 534.9810180664062,
-    "alpha": 0.9818168878555298
+    "critic": 553.6488647460938,
+    "actor": 267.0545349121094,
+    "target": 534.9825439453125,
+    "alpha": 0.9818171858787537
   },
   "test_edge_exploration_matches_legacy_flags[thompson]": {
-    "critic": 554.5468139648438,
-    "actor": 267.0260314941406,
-    "target": 535.0420532226562,
-    "alpha": 0.9819449186325073
+    "critic": 554.6820068359375,
+    "actor": 267.0362854003906,
+    "target": 535.0447387695312,
+    "alpha": 0.981944739818573
   },
   "test_lcb_gated_bootstrap_matches_legacy_flag": {
-    "critic": 554.0563354492188,
-    "actor": 267.0221862792969,
-    "target": 535.0034790039062,
-    "alpha": 0.981817364692688
+    "critic": 554.1961669921875,
+    "actor": 267.01495361328125,
+    "target": 535.004150390625,
+    "alpha": 0.9818171858787537
   },
   "test_mc_pretrain_matches_legacy_flag": {
-    "critic": 556.6016845703125,
-    "actor": 267.0193176269531,
-    "target": 535.0762329101562,
-    "alpha": 0.9818210005760193
+    "critic": 557.7630615234375,
+    "actor": 267.027587890625,
+    "target": 535.10009765625,
+    "alpha": 0.9818220734596252
   },
   "test_bellman_pretrain_matches_legacy_flag": {
-    "critic": 562.0731811523438,
-    "actor": 267.06817626953125,
-    "target": 535.1972045898438,
-    "alpha": 0.9818848967552185
+    "critic": 562.3206176757812,
+    "actor": 267.0833435058594,
+    "target": 535.2021484375,
+    "alpha": 0.981885552406311
   },
   "test_critic_blend_matches_legacy_flag": {
-    "critic": 556.2561645507812,
-    "actor": 267.0263366699219,
-    "target": 535.0648803710938,
-    "alpha": 0.9818455576896667
+    "critic": 557.3834228515625,
+    "actor": 267.0492858886719,
+    "target": 535.0890502929688,
+    "alpha": 0.981846272945404
   },
   "test_mc_variance_correction_matches_legacy_flag": {
-    "critic": 535.7151489257812,
-    "actor": 266.9800720214844,
-    "target": 534.5696411132812,
-    "alpha": 0.9818348288536072
+    "critic": 536.1988525390625,
+    "actor": 266.99169921875,
+    "target": 534.6041870117188,
+    "alpha": 0.9818357229232788
   },
   "test_value_box_matches_legacy_flag": {
-    "critic": 554.4744262695312,
-    "actor": 267.0712585449219,
-    "target": 535.03857421875,
-    "alpha": 0.9818281531333923
+    "critic": 555.4776000976562,
+    "actor": 267.1107482910156,
+    "target": 535.0574340820312,
+    "alpha": 0.9818288683891296
   },
   "test_phi_refresh_matches_legacy_flag": {
-    "critic": 555.2963256835938,
-    "actor": 267.0797119140625,
-    "target": 535.0609130859375,
-    "alpha": 0.9818741679191589
+    "critic": 556.333251953125,
+    "actor": 267.0872802734375,
+    "target": 535.0833740234375,
+    "alpha": 0.9818751215934753
   }
 }

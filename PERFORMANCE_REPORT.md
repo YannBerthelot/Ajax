@@ -498,8 +498,8 @@ throughout (load average 10 to 13), the same for both sides. Medians of the
 | main `0ade41d` | 20,774 | 4,652 | 3.9 |
 | batch `640a7e2` | 29,578 | 5,362 | 3.6 |
 
-Exec steps/s +42% (`--compare` on the medians of the second round: +42.6%),
-measured +15%: faster, no regression. The trials spread 17,420 to 22,804 on
+Exec steps/s +42% (`--compare`, which reads the upper median of the 6:
++42.6%), measured +15%: faster, no regression. The trials spread 17,420 to 22,804 on
 main and 26,885 to 33,332 on the batch, so the ranges do not overlap. Two
 changes make the update cheaper; their shares were not measured apart: the
 hidden layers are two of 64 units (were 128), and each minibatch takes one

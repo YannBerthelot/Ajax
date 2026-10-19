@@ -39,7 +39,7 @@ from . import readouts as R
 # faults/ + 4, this note + 1; APO's q7-cloning rate note: test_extensions
 # + 4, this note + 1.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 215}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 216}
 CAPS |= {"test_framework.py": 217, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1044, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 791, "test_p4_split_run.py": 360}

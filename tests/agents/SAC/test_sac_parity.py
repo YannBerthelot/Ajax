@@ -72,11 +72,16 @@ _PARITY_TIMESTEPS = 200
 # zero-kernel log-std head at -1): critic -1.03%, actor +0.06%, target
 # +2.29%, alpha +0.08%. Previous goldens: critic 563.753662109375, actor
 # 267.07598876953125, target 523.9136352539062, alpha 0.9722799062728882.
+#
+# Re-blessed once SAC's Adam eps became TensorFlow's 1e-8, softlearning's
+# (was 1e-5): critic +0.024%, actor +0.014%, target +0.0019%, alpha
+# +0.0003%. Previous goldens: critic 557.9498901367188, actor
+# 267.2409973144531, target 535.9058837890625, alpha 0.9731040596961975.
 _GOLDEN = {
-    "critic": 557.9498901367188,
-    "actor": 267.2409973144531,
-    "target": 535.9058837890625,
-    "alpha": 0.9731040596961975,
+    "critic": 558.0853881835938,
+    "actor": 267.2794189453125,
+    "target": 535.9161376953125,
+    "alpha": 0.973106861114502,
 }
 _TOL = 1e-4
 

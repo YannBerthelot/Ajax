@@ -742,11 +742,12 @@ _GOLDEN |= {
     },
 }
 # Re-recorded on macOS ARM CPU once AVG's Adam eps became torch's 1e-8 (was
-# 1e-5). Relative shifts (actor, critic): +2.0%, -0.72%; alpha unchanged.
+# 1e-5), on the merged code (the authors' TD-error scaling and the reference
+# init). Relative shifts (actor, critic): +0.013%, +0.25%; alpha unchanged.
 _GOLDEN |= {
     "AVG": {
-        "actor": 5.659716606140137,
-        "critic": 18.16381072998047,
+        "actor": 5.559042930603027,
+        "critic": 18.692731857299805,
         "alpha": 0.07000000029802322,
     },
 }

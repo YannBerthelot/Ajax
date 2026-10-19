@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "ddf4bea92098"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "288b4e68f5e9"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -217,7 +217,7 @@ TWIN_CAL = {
     ("gymnax", "PPO"): (10_000, (0.071, 0.056, 0.099)),
     ("gymnax", "PQN"): (10_000, (0.082, 0.093, 0.075)),
     ("brax", "PPO"): (5000, (0.068, 0.087, 0.089)),
-    ("gymnax", "AVG"): (2500, (0.055, 0.044)),  # 1000: 0.29 off; cert 32/32
+    ("gymnax", "AVG"): (2500, (0.051, 0.055)),  # 1250: 0.19 off; cert 32/32
 }
 P6_CELLS = [("gymnax", n) for n in (*ONE_STEP, "PPO", "PQN", "AVG")]
 P6_CELLS += [("brax", n) for n in ("SAC", "PPO", "REDQ", "TD3")]
@@ -360,10 +360,10 @@ VALUE_Q = Query(
         "done mask and reward_scale ignored": 1.0 / (1.0 - G5),
     },
 )
-# Calibrated on 1000-1031 + 2000-2031, worst error 0.0059 or less (AVG 0.031
-# at 5000: one seed read 0.90 at 1250); 3000-3031 within 0.009.
+# Calibrated on 1000-1031 + 2000-2031, worst error 0.0059 or less (AVG, at
+# its reference initialisation, 0.0091 at 2500); 3000-3031 within 0.009.
 P5_VALUE = {"SAC": 1250, "REDQ": 1250, "REDQ+on_target": 1250, "TD3": 1250}
-P5_VALUE |= {"AVG": 5000, "DQN": 1250, "PQN": 160_000}
+P5_VALUE |= {"AVG": 2500, "DQN": 1250, "PQN": 160_000}
 
 
 def _p5_read(cell: str, run: runs.Run) -> dict:
@@ -378,9 +378,8 @@ for cell, budget in P5_VALUE.items():
     reads = runs.readings(
         functools.partial(_scaled, cell), functools.partial(_p5_read, cell)
     )
-    tol5 = (0.062 if cell == "AVG" else 0.02,)
     CASES[f"p5-value-{cell}"] = Case(
-        f"p5-value-{cell}", (VALUE_Q,), reads, budget, tol5
+        f"p5-value-{cell}", (VALUE_Q,), reads, budget, (0.02,)
     )
 
 SEEN: dict[str, list] = {}
@@ -692,7 +691,7 @@ P9_CELLS |= {
         {"A": (0.0, 1.0), "B": (1.195, 1.997), "C": (1.139, 2.144)} | D0,
         # C planted: (1.080, 2.045) at 80,000 steps, still climbing; C by 320,000
         80_000,  # critic rate 2e-4: worst 0.04 on 8 seeds
-        (0.069, 0.084),
+        (0.075, 0.082),
         {"actor_learning_rate": 1e-3, "critic_learning_rate": 5e-5},
     ),
     "APO": (

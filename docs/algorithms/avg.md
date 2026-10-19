@@ -95,6 +95,11 @@ observations, and no reward normalisation.
   observation.
 - **Several envs.** The paper trains on one environment. With `n_envs > 1`,
   each update uses the transitions of all envs from the same step.
+- **Initialisation.** As in the authors' code, every layer starts
+  orthogonal with gain 1 and a zero bias, the mean and log-std heads
+  included. So the first policy's mean and log-std are unit-scale
+  projections of the normalised features, not a near-zero mean and a
+  constant std.
 - **Actions and evaluation.** A `tanh`-squashed Gaussian in `[-1, 1]`,
   mapped onto the environment's bounds; evaluation uses the mean action.
 

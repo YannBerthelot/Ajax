@@ -35,7 +35,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "b757bf8390a2"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "f7b2cbaec488"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -629,7 +629,7 @@ P1_CASES = {  # cell, queries, tolerances (none for a live defect: half the gap)
     "REDQ": ("REDQ", (EVAL_C, Q_SOFT), (0.051, 0.085)),
     "SAC-running": ("SAC-running", (EVAL_C, Q_SOFT), (0.037, 0.075)),
     "ASAC": ("ASAC", (EVAL_A, ASAC_GAP), (0.02, 0.056)),
-    "AVG": ("AVG", (EVAL_C,), (0.084,)),
+    "AVG": ("AVG", (EVAL_C,), (0.077,)),
     "PPO-continuous": ("PPO-continuous", (V_CONTINUOUS,), (0.069,)),
     "PPO-discrete": ("PPO-discrete", (V_DISCRETE,), (0.072,)),
     "DQN-c": ("DQN", (EVAL_D, Q_GREEDY, Q_A2), ()),

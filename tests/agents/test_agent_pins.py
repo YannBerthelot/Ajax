@@ -729,6 +729,19 @@ _GOLDEN |= {
     "PPO-mcc": {"actor": 4.016942501068115, "critic": 5.263053894042969},
 }
 
+# Re-recorded on macOS ARM CPU once AVG's layers became its reference code's:
+# every kernel orthogonal with gain 1 and every bias zero, the mean (was
+# orthogonal(0.01)) and log-std head (was a zero kernel, bias -1) included.
+# Relative shifts (actor, critic), from the golden with the authors' TD-error
+# scaling: AVG -2.64%, -6.00%; alpha unchanged.
+_GOLDEN |= {
+    "AVG": {
+        "actor": 5.558319091796875,
+        "critic": 18.645687103271484,
+        "alpha": 0.07000000029802322,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

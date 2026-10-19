@@ -1,3 +1,4 @@
+import math
 from collections.abc import Sequence
 from typing import Any, NamedTuple, Optional, Tuple, Union
 
@@ -7,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax.core import FrozenDict
-from flax.linen.initializers import constant, orthogonal
+from flax.linen.initializers import constant, lecun_normal, orthogonal
 from flax.serialization import to_state_dict
 
 from ajax.environments.obs_norm import apply_obs_norm
@@ -31,6 +32,8 @@ from ajax.networks.utils import (
     dense,
     get_adam_tx,
     parse_architecture,
+    parse_initialization,
+    uniform_init,
 )
 from ajax.state import (
     LOG_STD_BOUNDS,
@@ -81,13 +84,47 @@ class CNNSpec(NamedTuple):
     ``CNNSpec()`` is :class:`CNNEncoder`'s default architecture. Each
     ``kernel_sizes`` / ``strides`` entry may be an ``int`` (square) or an
     ``(h, w)`` tuple. A ``NamedTuple`` -> hashable, so it is safe as a flax
-    module field and as a :class:`NetworkConfig` field.
+    module field and as a :class:`NetworkConfig` field. ``padding`` is
+    flax's ``nn.Conv`` padding; ``layer_norm`` puts a LayerNorm after every
+    convolution and the projection, before its ReLU; ``kernel_init`` names
+    every layer's initializer as :func:`~ajax.networks.utils.dense` reads
+    it, ``"torch_linear"`` drawing kernel and bias uniform in
+    ``+-1/sqrt(fan_in)`` (torch's and Torch7's default); None is flax's
+    lecun_normal with zero biases.
     """
 
     channels: Tuple[int, ...] = (16, 32)
     kernel_sizes: Tuple = (4, 3)
     strides: Tuple = (2, 2)
     feature_dim: int = 128
+    padding: str = "SAME"
+    layer_norm: bool = False
+    kernel_init: Optional[str] = None
+
+
+def _conv(
+    features: int, kernel: Tuple, strides: Tuple, spec: CNNSpec, in_channels: int
+) -> nn.Conv:
+    """``spec``'s convolution; torch_linear's bound reads the fan-in, the
+    kernel's area times the input channels."""
+    bias_init = constant(0.0)
+    if spec.kernel_init == TORCH_LINEAR:
+        bound = 1.0 / math.sqrt(kernel[0] * kernel[1] * in_channels)
+        kernel_init = bias_init = uniform_init(bound)
+    else:
+        kernel_init = parse_initialization(spec.kernel_init, lecun_normal())
+    return nn.Conv(
+        features,
+        kernel_size=kernel,
+        strides=strides,
+        padding=spec.padding,
+        kernel_init=kernel_init,
+        bias_init=bias_init,
+    )
+
+
+def _maybe_norm(spec: CNNSpec, x: jax.Array) -> jax.Array:
+    return nn.LayerNorm()(x) if spec.layer_norm else x
 
 
 class CNNEncoder(nn.Module):
@@ -131,12 +168,12 @@ class CNNEncoder(nn.Module):
             # tuple -- the latter for non-square images (e.g. octax's 64x32).
             ks = k if isinstance(k, tuple) else (k, k)
             st = s if isinstance(s, tuple) else (s, s)
-            img = nn.Conv(c, kernel_size=ks, strides=st)(img)
-            img = nn.relu(img)
+            img = _conv(c, ks, st, spec, img.shape[-1])(img)
+            img = nn.relu(_maybe_norm(spec, img))
         # Flatten the spatial+channel dims while preserving leading batch dims.
         img = img.reshape(*img.shape[:-3], -1)
-        feat = nn.Dense(spec.feature_dim)(img)
-        feat = nn.relu(feat)
+        feat = dense(spec.feature_dim, spec.kernel_init, None, lecun_normal())(img)
+        feat = nn.relu(_maybe_norm(spec, feat))
         if extra is not None:
             feat = jnp.concatenate([feat, extra], axis=-1)
         return feat

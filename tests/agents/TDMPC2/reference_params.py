@@ -47,6 +47,16 @@ LOGGED = (
     "pi_grad_norm",
     "pi_scale",
 )
+# pi_scale (the agent's q_scale) is the running range of the post-step Q
+# values the policy loss reads (core.policy_loss), so it carries their
+# float32 error, not a scalar's.
+SCALE_TOL = POST_STEP_Q_TOL
+
+
+def logged_tol(name: str) -> tuple[float, float]:
+    """The tolerance of one of the LOGGED values."""
+    return SCALE_TOL if name == "pi_scale" else SCALAR_TOL
+
 
 # Plan parity, (rtol, atol): a few times the errors of the planner parity
 # module's docstring, which may differ across platforms (macOS ARM / Linux

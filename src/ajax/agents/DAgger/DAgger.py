@@ -40,7 +40,8 @@ class DAgger(ActorCritic):
     extension_context: frozenset = frozenset(
         "actor_optimizer_args buffer env_args expert_policy".split()
     )
-    pretrain_context: frozenset = frozenset("buffer env_args update".split())
+    # Its replay is not handed to pretraining: it stores the expert's next
+    # action, which a transition dataset does not hold (PriorData).
     replays_transitions: bool = True
     stores_expert_actions: bool = True
     make_train = staticmethod(make_train)

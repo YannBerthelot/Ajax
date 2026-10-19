@@ -755,6 +755,15 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU once PQN's layers became its reference code's:
+# flax's lecun_normal kernels (were orthogonal(sqrt(2)) hidden layers and an
+# orthogonal(1.0) head), zero biases. Relative shifts (actor): PQN +30.9%,
+# PQN-nudge +30.9%; its nudge is bitwise unchanged.
+_GOLDEN |= {
+    "PQN": {"actor": 33.92633056640625},
+    "PQN-nudge": {"actor": 33.91205596923828, "nudge": 0.33566388487815857},
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

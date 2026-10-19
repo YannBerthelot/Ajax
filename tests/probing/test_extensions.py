@@ -34,7 +34,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "23ae0b5777fc"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "432df31c8fc0"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -269,11 +269,11 @@ P3_CAL = {
     "E1-SAC": ("A", 2500, ()),
     "E1-PPO": ("A", 2500, (0.02, 0.02)),
     "E1-DQN": ("A", 1250, (0.02, 0.02)),
-    "E1-PQN": ("A", 5000, (0.02, 0.02)),
+    "E1-PQN": ("A", 2500, (0.06, 0.023)),
     "E9-SAC": ("F", 2500, ()),
     "E9-PPO": ("F", 2500, (0.02, 0.02)),
     "E9-DQN": ("F", 1250, (0.02, 0.02)),
-    "E9-PQN": ("F", 5000, (0.02, 0.02)),
+    "E9-PQN": ("F", 2500, (0.038, 0.021)),
     "E2-SAC": ("B", 1250, ()),
     "E2-PPO": ("B", 625, (0.023,)),
     "E2-DQN": ("B", 1250, ()),

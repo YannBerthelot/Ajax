@@ -741,6 +741,15 @@ _GOLDEN |= {
         "alpha": 0.07000000029802322,
     },
 }
+# Re-recorded on macOS ARM CPU once AVG's Adam eps became torch's 1e-8 (was
+# 1e-5). Relative shifts (actor, critic): +2.0%, -0.72%; alpha unchanged.
+_GOLDEN |= {
+    "AVG": {
+        "actor": 5.659716606140137,
+        "critic": 18.16381072998047,
+        "alpha": 0.07000000029802322,
+    },
+}
 
 # Re-recorded on macOS ARM CPU once ASAC's layers became its reference code's:
 # torch's nn.Linear default, every kernel and bias uniform in +-1/sqrt(fan_in)

@@ -544,9 +544,9 @@ def test_no_agent_class_lets_its_seeds_update_unequally() -> None:
 #: 1.0 is a recorded deviation (APG.py); the world models clip as their
 #: papers do.
 CLIPS: dict[str, tuple[str, float | None]] = {
-    **dict.fromkeys(
-        "ASAC AVG DQN PQN REDQ SAC TD3 UDRL".split(), ("max_grad_norm", None)
-    ),
+    **dict.fromkeys("AVG DQN PQN REDQ SAC TD3 UDRL".split(), ("max_grad_norm", None)),
+    # BobMak/asac @4b68862: every hparams/*/asac.yaml sets max_grad_norm 10.
+    "ASAC": ("max_grad_norm", 10.0),
     "APO": ("max_grad_norm", 10.0),
     "PPO": ("max_grad_norm", 0.5),
     "APG": ("max_grad_norm", 1.0),

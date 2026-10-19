@@ -42,6 +42,12 @@ def residual_action_transform(
     return jnp.clip(a_expert + scale * actions, -1.0, 1.0)
 
 
+def online_bc_weight(train_frac: jax.Array, critic_warmup_frac: float) -> jax.Array:
+    """The online BC term's schedule: 1 at the start, falling linearly to 0
+    at ``critic_warmup_frac`` of training."""
+    return jnp.maximum(1.0 - train_frac / critic_warmup_frac, 0.0)
+
+
 def compute_online_bc_loss(
     pi_mean: jax.Array,
     a_expert: jax.Array,
@@ -59,7 +65,7 @@ def compute_online_bc_loss(
     Decays to zero after train_frac exceeds critic_warmup_frac.
     Value-weighting ensures BC is strongest in high-value states.
     """
-    bc_weight = jnp.maximum(1.0 - train_frac / critic_warmup_frac, 0.0)
+    bc_weight = online_bc_weight(train_frac, critic_warmup_frac)
     v_star = jax.lax.stop_gradient(
         jnp.min(
             predict_value(
@@ -156,18 +162,21 @@ class OnlineBC(Extension):
         a_expert = batch["a_expert"]
         if agent_state.expert_critic_params is None or self.critic_warmup_frac <= 0:
             return 0.0
-        return compute_online_bc_loss(
+        train_frac = ctx.step / ctx.total_steps
+        term = compute_online_bc_loss(
             batch["pi_mean"],
             a_expert,
             agent_state.critic_state,
             agent_state.expert_critic_params,
             batch["observations"],
-            ctx.step / ctx.total_steps,
+            train_frac,
             self.critic_warmup_frac,
             agent_state.expert_v_min,
             agent_state.expert_v_max,
             self.bc_coef,
         )
+        weight = online_bc_weight(train_frac, self.critic_warmup_frac)
+        return term, {"online_bc/term": term, "online_bc/weight": weight}
 
 
 def anneal_weight(step: jax.Array, total_steps: int, anneal_frac: float) -> jax.Array:
@@ -329,6 +338,7 @@ class ImitationLoss(Extension):
             obs = batch["observations"]
         a_expert = self._expert_actions(batch.get("a_expert"), obs)
         sq = jnp.mean(jnp.square(pi_mean - a_expert), axis=-1, keepdims=True)
+        mse = jnp.mean(sq)  # before the filter and the schedule
         if self.q_filter:
             if "critic_state" not in batch:
                 raise ValueError(
@@ -344,7 +354,8 @@ class ImitationLoss(Extension):
             )
         if self.anneal_frac is not None:
             sq = sq * anneal_weight(ctx.step, ctx.total_steps, self.anneal_frac)
-        return self.coef * jnp.mean(sq) / 4.0
+        term = self.coef * jnp.mean(sq) / 4.0
+        return term, {"imitation/term": term, "imitation/mse": mse}
 
     def eval_metrics(
         self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext

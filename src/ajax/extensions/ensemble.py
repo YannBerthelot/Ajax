@@ -26,6 +26,11 @@ def q_kernel_repulsion(q_preds: jax.Array) -> jax.Array:
     current spread without a confounding gradient; minimising the mean
     kernel pushes the critics apart in function space.
     """
+    return _kernel_and_bandwidth(q_preds)[0]
+
+
+def _kernel_and_bandwidth(q_preds: jax.Array) -> tuple[jax.Array, jax.Array]:
+    """:func:`q_kernel_repulsion`'s mean kernel and its bandwidth."""
     n = q_preds.shape[0]
     feats = q_preds.reshape(n, -1)
     diffs = feats[:, None, :] - feats[None, :, :]
@@ -37,7 +42,7 @@ def q_kernel_repulsion(q_preds: jax.Array) -> jax.Array:
         jnp.median(sq_dists) / (jnp.log(jnp.asarray(n, dtype=feats.dtype)) + 1e-8)
         + 1e-8
     )
-    return jnp.exp(-sq_dists / h).mean()
+    return jnp.exp(-sq_dists / h).mean(), h
 
 
 @dataclass(frozen=True)
@@ -61,11 +66,17 @@ class KernelRepulsion(Extension):
 
     def critic_loss(
         self, agent_state: Any, ext_state: Any, batch: Any, ctx: ExtensionContext
-    ) -> jax.Array:
+    ) -> Any:
         del agent_state, ext_state, ctx
         x = jnp.concatenate((batch["observations"], batch["actions"]), axis=-1)
         q_preds = predict_value(batch["critic_state"], batch["critic_params"], x)
-        return self.coef * q_kernel_repulsion(q_preds)
+        kernel, bandwidth = _kernel_and_bandwidth(q_preds)
+        term = self.coef * kernel
+        return term, {
+            "kernel_repulsion/term": term,
+            "kernel_repulsion/kernel": kernel,
+            "kernel_repulsion/bandwidth": bandwidth,
+        }
 
 
 __all__ = ["KernelRepulsion", "q_kernel_repulsion"]

@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "783753ca3422"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "31964ba60b94"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -362,7 +362,7 @@ VALUE_Q = Query(
 )
 # Calibrated on 1000-1031 + 2000-2031, worst error 0.0059 or less (AVG, at
 # its reference initialisation, 0.0091 at 2500); 3000-3031 within 0.009.
-P5_VALUE = {"SAC": 1250, "REDQ": 625, "REDQ+on_target": 625, "TD3": 625}
+P5_VALUE = {"SAC": 625, "REDQ": 625, "REDQ+on_target": 625, "TD3": 625}
 P5_VALUE |= {"AVG": 2500, "DQN": 1250, "PQN": 80_000}
 
 
@@ -654,7 +654,7 @@ TD9 = {"A": (0.0, 1.0), "B": (0.854, 1.427), "C": (0.723, 1.362)} | D0
 # fixed point, the SGD jitter averaged out).
 _P9_PPO = {"n_steps": 4096, "num_minibatches": 2, "gae_lambda": 0.5, "batch_size": 64}
 P9_CELLS: dict[str, tuple] = {
-    "SAC": (("td", 1, 0.0), TD9, 40_000, (0.059, 0.091), {"buffer_size": 16384}),
+    "SAC": (("td", 1, 0.0), TD9, 20_000, (0.046, 0.062), {"buffer_size": 16384}),
     "DQN": (
         ("td", 1, 0.0),
         TD9,

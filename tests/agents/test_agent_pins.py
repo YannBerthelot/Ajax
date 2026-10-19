@@ -787,6 +787,19 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU once SAC's layers became its reference code's:
+# xavier_uniform kernels and zero biases, the mean and log-std heads included
+# (were orthogonal(1.0) hidden and Q layers, an orthogonal(0.01) mean and a
+# zero-kernel log-std head with bias -1). Relative shifts (actor, critic,
+# alpha): SAC-mcc +168.1%, +90.5%, +0.059%. SAC-gru (recurrent) keeps its.
+_GOLDEN |= {
+    "SAC-mcc": {
+        "actor": 8.31135368347168,
+        "critic": 15.628474235534668,
+        "alpha": 0.9759861826896667,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

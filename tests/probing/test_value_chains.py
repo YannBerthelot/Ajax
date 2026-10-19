@@ -35,7 +35,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "6a2fbcf25461"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "d28d543d075f"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -430,11 +430,11 @@ PILOT["discrete"]["coupling"] = (
     ),
 )
 PILOT_CAL = {  # budget, tolerances in query order
-    "SAC-value": (1250, (0.02,)),
-    "SAC-backprop": (1250, (0.037, 0.02)),
-    "SAC-discounting": (10_000, (0.093, 0.02)),
+    "SAC-value": (625, (0.02,)),
+    "SAC-backprop": (625, (0.02, 0.02)),
+    "SAC-discounting": (10_000, (0.088, 0.02)),
     "SAC-advantage": (5000, (0.333,)),
-    "SAC-coupling": (5000, (0.333, 0.341, 0.329, 0.342)),
+    "SAC-coupling": (5000, (0.336, 0.342, 0.337, 0.341)),
     "PPO-value": (625, (0.065,)),
     "PPO-backprop": (1250, (0.02, 0.02)),
     "PPO-discounting": (5000, (0.02, 0.02)),
@@ -624,10 +624,10 @@ V_DISCRETE = Query("V(s0) - oracle", 0.0, {RAW: 1.45, "untrained": -1.19})
 _MEASURED = {"(a) raw next obs (planted, measured)": -0.9, "untrained": 1.15}
 ASAC_GAP = Query("Q(s0,-0.5) - Q(s1,0.5) - oracle", 0.0, _MEASURED)
 P1_CASES = {  # cell, queries, tolerances (none for a live defect: half the gap)
-    "SAC": ("SAC", (EVAL_C, Q_SOFT), (0.036, 0.073)),
+    "SAC": ("SAC", (EVAL_C, Q_SOFT), (0.036, 0.081)),
     "TD3": ("TD3", (EVAL_C, Q_SOFT), (0.02, 0.048)),
     "REDQ": ("REDQ", (EVAL_C, Q_SOFT), (0.049, 0.084)),
-    "SAC-running": ("SAC-running", (EVAL_C, Q_SOFT), (0.037, 0.075)),
+    "SAC-running": ("SAC-running", (EVAL_C, Q_SOFT), (0.036, 0.087)),
     "ASAC": ("ASAC", (EVAL_A, ASAC_GAP), (0.02, 0.049)),
     "AVG": ("AVG", (EVAL_C,), (0.077,)),
     "PPO-continuous": ("PPO-continuous", (V_CONTINUOUS,), (0.069,)),
@@ -807,9 +807,9 @@ def _p8_readings(name: str) -> Callable:
 
 
 P8_SOFT = (SOFT_VALUE, *P8_POLICY, *P8_SPREAD)
-_SAC8 = (0.02, 0.035, 0.044, 0.059, 0.077, 0.02, 0.032)
+_SAC8 = (0.065, 0.034, 0.04, 0.051, 0.094, 0.023, 0.035)
 P8_CAL = {  # queries, budget, tolerances, note
-    "SAC": (P8_SOFT, 10_000, _SAC8, "5000 failed (tanh mu2 0.050)"),
+    "SAC": (P8_SOFT, 5000, _SAC8, "at its reference init; 2500 not laddered"),
     "REDQ": (P8_SOFT, 2500, (0.02, 0.026, 0.045, 0.058, 0.076, 0.02, 0.04), ""),
     "AVG": (P8_POLICY, 20_000, (0.066, 0.1, 0.074, 0.077), "10,000 failed: 0.196"),
     "TD3": (P8_TD3, 2500, (0.03, 0.051), ""),

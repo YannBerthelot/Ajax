@@ -25,7 +25,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "ae53b511702e"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "9439f8b5e02c"  # verdict.digest(CASES): every answer, pinned
 ENV, PARAMS = envs.action_box().make()
 CONTEXTS = jnp.eye(3)  # up, down, inside
 
@@ -140,7 +140,7 @@ def _dreamer(run: runs.Run) -> dict:
 # mean leans to the edge. Its edges do.
 LR3 = {"actor_learning_rate": 3e-4, "critic_learning_rate": 3e-4}
 CELLS: dict[str, tuple] = {  # agent: family, budget, tolerances, overrides
-    "SAC": ("auto", 10_000, (0.069, 0.047, 0.226), {}),
+    "SAC": ("auto", 10_000, (0.055, 0.051, 0.218), {}),
     "TD3": ("none", 20_000, (0.02, 0.02, 0.164), {}),
     "PPO": ("none", 25_000, (0.02, 0.02, 0.219), {"log_std_init": -1.0}),
     "REDQ": ("auto", 10_000, (0.057, 0.052, 0.232), {"num_critic_updates": 5}),

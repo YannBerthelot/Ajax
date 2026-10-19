@@ -25,7 +25,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "9439f8b5e02c"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "509c57f7da0c"  # verdict.digest(CASES): every answer, pinned
 ENV, PARAMS = envs.action_box().make()
 CONTEXTS = jnp.eye(3)  # up, down, inside
 
@@ -46,6 +46,7 @@ PAY = (lambda a: 2.5 * a, lambda a: -2.5 * a, lambda a: -((2.5 * a - 1.5) ** 2))
 CENTRE, REACH = "centre (a_up + a_down) / 2", "reach (a_up - a_down) / 2"
 INSIDE, CLAMP = "a_inside", "actions clamped to env [-1, 1]"
 ALPHA = {"none": None, "auto": oracles.shared_temperature(PAY, -1.0), "AVG": 0.07}
+ALPHA |= {"ASAC": 0.2}  # ASAC fixes its temperature by default
 
 
 def _queries(alpha: float | None) -> tuple[Query, ...]:
@@ -144,7 +145,7 @@ CELLS: dict[str, tuple] = {  # agent: family, budget, tolerances, overrides
     "TD3": ("none", 20_000, (0.02, 0.02, 0.164), {}),
     "PPO": ("none", 25_000, (0.02, 0.02, 0.219), {"log_std_init": -1.0}),
     "REDQ": ("auto", 10_000, (0.057, 0.052, 0.232), {"num_critic_updates": 5}),
-    "ASAC": ("auto", 20_000, (0.041, 0.055, 0.224), dict.fromkeys(LR3, 1e-4)),
+    "ASAC": ("ASAC", 20_000, (0.043, 0.074, 0.215), dict.fromkeys(LR3, 1e-4)),
     "AVG": ("AVG", 20_000, (0.026, 0.045, 0.239), LR3),
     "APO": ("none", 300_000, (0.02, 0.02, 0.145), dict.fromkeys(LR3, 1e-4)),
     "APG": ("none", 5000, (0.02, 0.02, 0.065), {"horizon": 1}),

@@ -754,6 +754,16 @@ _GOLDEN |= {
         "alpha": 0.9727535247802734,
     },
 }
+# Re-recorded on macOS ARM CPU once ASAC fixed its temperature at 0.2 by
+# default (was learned from 1.0). Relative shifts (actor, critic, alpha):
+# ASAC -0.1%, +0.0%, -79.4%.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 17.239709854125977,
+        "critic": 27.024330139160156,
+        "alpha": 0.19999998807907104,
+    },
+}
 
 # Re-recorded on macOS ARM CPU once PQN's layers became its reference code's:
 # flax's lecun_normal kernels (were orthogonal(sqrt(2)) hidden layers and an

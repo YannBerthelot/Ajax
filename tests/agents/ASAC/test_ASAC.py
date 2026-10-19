@@ -27,11 +27,22 @@ def test_alpha_tracks_target_entropy(target_entropy_per_dim, expected_sign):
         env_id="fast",
         learning_starts=10,
         target_entropy_per_dim=target_entropy_per_dim,
+        alpha_init=1.0,
+        fixed_alpha=False,
     )
     state, _ = agent.train(seed=0, n_timesteps=60)
     log_alpha = float(jnp.asarray(state.alpha.params["log_alpha"]).ravel()[0])
     assert log_alpha != 0.0, "alpha never moved from alpha_init"
     assert jnp.sign(log_alpha) == expected_sign
+
+
+def test_temperature_stays_at_alpha_init_by_default():
+    """The authors' published runs fix the temperature (1/beta = 0.2,
+    BobMak/asac @4b68862 hparams/*/asac.yaml): no step moves it, even with a
+    target entropy that would."""
+    agent = ASAC(env_id="fast", learning_starts=10, target_entropy_per_dim=10.0)
+    state, _ = agent.train(seed=0, n_timesteps=60)
+    np.testing.assert_array_equal(state.alpha.params["log_alpha"], jnp.log(0.2))
 
 
 def test_temperature_and_theta_read_one_sample_of_the_policy(monkeypatch):

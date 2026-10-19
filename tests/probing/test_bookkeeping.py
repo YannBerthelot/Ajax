@@ -96,10 +96,13 @@ def log_timesteps(agent: str, n_envs: int) -> list[int]:
     return out
 
 
-def steps(agent: str, n_envs: int, starts: int) -> dict[str, int]:
+def steps(
+    agent: str, n_envs: int, starts: int, learned_alpha: bool = False
+) -> dict[str, int]:
     """Each optimiser's final ``.step`` from the first post-collection
     timestep >= ``starts``; AVG never updates its temperature
-    (train_AVG.update_agent), DQN and PQN never their critic_state copy."""
+    (train_AVG.update_agent), ASAC only when ``learned_alpha``
+    (``fixed_alpha=False``), DQN and PQN never their critic_state copy."""
     its = iterations(agent, n_envs)
     u, rollout = sum(t >= starts for t in its), len(its) * 2 * 2
     if agent == "SAC":
@@ -108,7 +111,7 @@ def steps(agent: str, n_envs: int, starts: int) -> dict[str, int]:
     return {
         "TD3": {"critic": u, "actor": math.ceil(u / 3)},
         "REDQ": {"critic": 3 * u, "actor": u, "alpha": u},
-        "ASAC": {"critic": u, "actor": u, "alpha": u},
+        "ASAC": {"critic": u, "actor": u, "alpha": u if learned_alpha else 0},
         "AVG": {"critic": u, "actor": u, "alpha": 0},
         "DQN": {"actor": u, "critic": 0},
         "PQN": {"actor": rollout, "critic": 0},
@@ -146,7 +149,9 @@ def repeats(record: np.ndarray, saturated: bool) -> dict[str, float]:
     return out
 
 
-def errors(agent: str, n_envs: int, r: dict, starts: int) -> list[tuple[str, str]]:
+def errors(
+    agent: str, n_envs: int, r: dict, starts: int, learned_alpha: bool = False
+) -> list[tuple[str, str]]:
     """Every reading off its exact answer, as (tag, message)."""
     out, final = [], iterations(agent, n_envs)[-1]
     if not (r["timestep"] == final).all():
@@ -158,7 +163,7 @@ def errors(agent: str, n_envs: int, r: dict, starts: int) -> list[tuple[str, str
     for k in (TRAIN, EVAL, LENGTH):
         if (r[k] != L).any():
             out.append(("c", f"'{k}' {sorted(set(r[k]))}"))
-    for name, want in steps(agent, n_envs, starts).items():
+    for name, want in steps(agent, n_envs, starts, learned_alpha).items():
         if not np.all(r.get(f"steps {name}", -1) == want):
             out.append(("d", f"{name} steps {r.get(f'steps {name}')}, right {want}"))
     for f in ("first_u", "last_u", "first_a", "last_a"):
@@ -203,6 +208,14 @@ def test_p2_bookkeeping(agent: str, n_envs: int, terminate: bool) -> None:
     when episodes only truncate (a truncation closes a return too)."""
     starts = 0 if agent == "AVG" else 100
     found = errors(agent, n_envs, p2_run(agent, n_envs, terminate=terminate), starts)
+    assert not found, found
+
+
+def test_p2_asac_steps_a_learned_temperature() -> None:
+    """With ``fixed_alpha=False`` ASAC steps its temperature once an update,
+    its other bookkeeping as P2's."""
+    run = p2_run("ASAC", 1, fixed_alpha=False)
+    found = errors("ASAC", 1, run, 100, learned_alpha=True)
     assert not found, found
 
 

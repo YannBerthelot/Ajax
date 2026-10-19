@@ -32,7 +32,7 @@ from ajax.agents.recurrent import (
 )
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
-from ajax.extensions.base import ExtensionStack, holds_expert
+from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.memory import zeros_carry_like
 from ajax.networks.networks import (
@@ -79,6 +79,7 @@ class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
     theta: ThetaAuxiliaries
+    extensions: dict  # the extensions' training metrics
 
 
 def init_ASAC(
@@ -217,7 +218,7 @@ def update_value_functions(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
-) -> Tuple[ASACState, ValueAuxiliaries]:
+) -> Tuple[ASACState, ValueAuxiliaries, dict]:
     """The critic step on the differential target of the penalised ``rewards``."""
     # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
     # default partitionable threefry, so the agent's own draws are unchanged.
@@ -249,7 +250,7 @@ def update_value_functions(
         )
 
     # ASAC is average-reward: no gamma, None tells the extensions so.
-    critic_state, aux, _ = critic_step(
+    critic_state, aux, _, metrics = critic_step(
         agent_state,
         batch,
         target_q,
@@ -262,7 +263,7 @@ def update_value_functions(
         gamma=None,
         reward_scale=reward_scale,
     )
-    return agent_state.replace(rng=rng, critic_state=critic_state), aux
+    return agent_state.replace(rng=rng, critic_state=critic_state), aux, metrics
 
 
 def update_policy(
@@ -273,9 +274,10 @@ def update_policy(
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
-) -> Tuple[ASACState, PolicyAuxiliaries]:
-    """The actor step on ``alpha log pi(a|s) - min_i Q_i(s, a)``."""
-    agent_state, (loss, log_probs, q_min) = core.soft_actor_step(
+) -> Tuple[ASACState, PolicyAuxiliaries, dict]:
+    """The actor step on ``alpha log pi(a|s) - min_i Q_i(s, a)``; also
+    returns the extensions' metrics."""
+    agent_state, (loss, log_probs, q_min), metrics = core.soft_actor_step(
         agent_state,
         observations,
         raw_observations,
@@ -287,7 +289,7 @@ def update_policy(
     aux = PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()
     )
-    return agent_state, aux
+    return agent_state, aux, metrics
 
 
 def sample_updated_policy(
@@ -349,7 +351,7 @@ def update_agent(
     agent_state = agent_state.replace(
         rng=rng, episode_termination_penalty=episode_termination_penalty
     )
-    agent_state, aux_value = update_value_functions(
+    agent_state, aux_value, value_metrics = update_value_functions(
         agent_state,
         transition,
         rewards,
@@ -358,7 +360,7 @@ def update_agent(
         total_timesteps,
         carries,
     )
-    agent_state, aux_policy = update_policy(
+    agent_state, aux_policy, policy_metrics = update_policy(
         agent_state,
         transition.obs,
         transition.raw_obs,
@@ -394,6 +396,7 @@ def update_agent(
             theta=agent_state.theta,
             episode_termination_penalty=episode_termination_penalty,
         ),
+        extensions=merge_metrics(value_metrics, policy_metrics),
     )
     return agent_state, aux
 
@@ -472,7 +475,6 @@ def make_train(
     return loop.off_policy(
         init,
         update,
-        AuxiliaryLogs,
         agent_config.learning_starts,
         recurrent=recurrent,
         collect_kwargs={

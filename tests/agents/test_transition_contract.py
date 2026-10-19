@@ -135,4 +135,7 @@ def test_on_target_rows_are_their_episodes_transitions(name, monkeypatch):
             np.testing.assert_allclose(ratio, ratio[0], rtol=1e-4)
             divisors.append(1.0 / ratio[0])
     assert divisors and min(divisors) > 0
-    assert np.abs(np.array(divisors) - 1.0).max() > 0.1, "no statistic divided"
+    # Undivided rewards read exactly 1 in every batch; the statistic moves with
+    # every step, so a divided batch is off 1 by more than the per-batch rtol.
+    # (Its size is the data's: ASAC's reference init leaves it near 1.1.)
+    assert np.abs(np.array(divisors) - 1.0).max() > 1e-3, "no statistic divided"

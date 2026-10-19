@@ -101,7 +101,8 @@ APO and PQN average theirs over the update's epochs and minibatches.
 ### Extension metrics
 
 The expert-guided extensions log their schedules and how often the expert
-acts, read from the agent state at each evaluation:
+acts, and the pretraining extensions what their fit computed, read from the
+agent state at each evaluation:
 
 | Name | Extension | Meaning |
 | --- | --- | --- |
@@ -113,6 +114,31 @@ acts, read from the agent state at each evaluation:
 | `value_box/threshold` | `ValueBox` | the expert value above which the expert acts |
 | `value_box/in_box_frac`, `value_box/expert_frac` | `ValueBox` | the shares of envs inside the box and driven by the expert on the last collection step |
 | `mc_pretrain/v_min`, `mc_pretrain/v_max` | `MCPretrain` | the expert's value range, which `ValueBox`'s threshold runs between |
+| `mc_pretrain/first_loss`, `mc_pretrain/last_loss` | `MCPretrain` | the squared error of `φ*`'s fit to the Monte-Carlo returns, at its first and its last step |
+| `mc_pretrain/q_expert_mean` | `MCPretrain` | the mean of `φ*`'s value at the expert's actions after the fit, over the rollout's states |
+| `cloning/first_loss`, `cloning/last_loss` | `CloningPretrain` | the mean cloning loss of its first and its last epoch (NaN with `skip_actor`) |
+| `bellman_pretrain/first_loss`, `bellman_pretrain/last_loss` | `BellmanPretrain` | the critic loss of its first and its last update |
+
+A pretraining result is the same at every evaluation. It is NaN in a run
+resumed from a checkpoint saved before the results were kept.
+
+Others log what they compute in the agent's update, its targets or its
+losses ([Writing an extension](../developer/writing-an-extension.md#logging-what-a-phase-computes)).
+Like the agent's training metrics, they are the last update's values, or
+the mean over the update's epochs and minibatches (PPO, APO, PQN; UDRL's
+over its updates):
+
+| Name | Extension | Meaning |
+| --- | --- | --- |
+| `ibrl/bonus` | `IBRL` | the mean bonus the target gains |
+| `ibrl/expert_wins` | `IBRL` | the share of the batch where the expert's next action has the higher value |
+| `lcb_bootstrap/p_expert` | `LCBGatedBootstrap` | the mean weight of the expert's next action in the target |
+| `critic_blend/target_gap` | `CriticBlend` | the mean of the expert's target minus the Bellman target |
+| `mc_variance/replaced_frac` | `MCVarianceCorrection` | the share of targets replaced by `φ*`'s value |
+| `kernel_repulsion/term`, `kernel_repulsion/kernel`, `kernel_repulsion/bandwidth` | `KernelRepulsion` | the term added to the critic loss, the critics' mean kernel and its bandwidth |
+| `bias_vore/penalty`, `bias_vore/residual_var` | `BiasVorePenalty` | the term added to the critic loss and the variance of the critic's residual it scales |
+| `imitation/term`, `imitation/mse` | `ImitationLoss` | the term added to the actor loss, and the mean squared distance between the policy's mean action and the expert's, before the Q-filter and the schedule |
+| `online_bc/term`, `online_bc/weight` | `OnlineBC` | the term added to the actor loss and its schedule's weight |
 
 ### The value bias
 

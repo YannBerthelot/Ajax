@@ -70,9 +70,9 @@ extensions were given.
 | --- | --- | --- | --- |
 | `init_state(agent_state, rng)` | the extension's state (`()`: none) | one entry each | every agent, fresh runs only |
 | `pretrain(agent_state, ext_state, ctx)` | `(agent_state, ext_state)` | in order, each sees the last one's agent state | every agent, fresh runs only |
-| `on_target(agent_state, ext_state, batch, target, ctx)` | the new target | in order, each transforms the last one's target | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, PPO, APO |
-| `critic_loss(agent_state, ext_state, batch, ctx)` | a term added to the critic loss | summed | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, PPO, APO |
-| `actor_loss(agent_state, ext_state, batch, ctx)` | a term added to the actor loss | summed | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, APG, UDRL |
+| `on_target(agent_state, ext_state, batch, target, ctx)` | the new target, or `(target, metrics)` (below) | in order, each transforms the last one's target | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, PPO, APO |
+| `critic_loss(agent_state, ext_state, batch, ctx)` | a term added to the critic loss, or `(term, metrics)` | summed | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, PPO, APO |
+| `actor_loss(agent_state, ext_state, batch, ctx)` | a term added to the actor loss, or `(term, metrics)` | summed | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, APG, UDRL |
 | `action(agent_state, ext_state, obs, rng, ctx)` | an action, or `None` to defer | the last non-`None` wins | SAC with an expert policy (below) |
 | `eval_action(agent_state, ext_state, obs, rng, ctx)` | an action, or `None` | the last non-`None` wins | no agent yet |
 | `transform_action(actions, a_expert)` | the executed action, from the policy's and the expert's | the first one acts | SAC with an expert policy, in collection, its losses and evaluation |
@@ -91,6 +91,26 @@ DreamerV3, TD-MPC2 and its multi-task variant fold only the loop's phases
 
 `init_state` and `pretrain` run on a fresh run only. A resumed run's state
 already carries the extension's state and whatever pretraining produced.
+
+### Logging what a phase computes
+
+`on_target`, `critic_loss` and `actor_loss` may return `(value, metrics)`
+instead of their value: `metrics` is a dict of scalars named
+`<extension>/<metric>`, logged at each evaluation with the agent's own
+training metrics, and like them the last update's or, for PPO, APO, PQN and
+UDRL, the mean over the update's epochs, minibatches or steps. They are not
+differentiated: the agent returns them beside its loss, as it returns its
+own metrics. Returning the value alone logs nothing. Two extensions logging
+the same name raise when the agent is traced.
+
+```python
+def on_target(self, agent_state, ext_state, batch, target, ctx):
+    wins = ...  # where the expert's next action scores higher
+    return jnp.where(wins, expert_target, target), {"ibrl/expert_wins": wins.mean()}
+```
+
+`eval_metrics` stays the place for what can be read off the agent state at
+an evaluation (a schedule, a counter kept in the extension's state).
 
 ### What a phase receives
 

@@ -81,10 +81,10 @@ def test_no_update_before_learning_starts() -> None:
     """Before ``learning_starts`` the state is untouched and every metric
     is a (1,) NaN; from it the update runs, its metrics reshaped to (1,)."""
     loop = _loop()
-    early, metrics = loop.maybe_update(_state(9), 10, _update, Metrics)
+    early, metrics = loop.maybe_update(_state(9), 10, _update)
     assert float(early.value) == 1.0 and metrics.loss.shape == (1,)
     assert np.isnan(metrics.loss).all()
-    ready, metrics = loop.maybe_update(_state(10), 10, _update, Metrics)
+    ready, metrics = loop.maybe_update(_state(10), 10, _update)
     assert float(ready.value) == 2.0
     np.testing.assert_array_equal(metrics.loss, [1.0])
 
@@ -164,7 +164,7 @@ def test_the_post_update_runs_after_the_update() -> None:
             return agent_state, agent_state.value  # the value it saw
 
     state = _state(5, (jnp.asarray(0.0),))
-    out, _ = _loop(Record()).maybe_update(state, 0, _update, Metrics)
+    out, _ = _loop(Record()).maybe_update(state, 0, _update)
     assert float(out.ext_state[0]) == 2.0
 
 
@@ -269,7 +269,7 @@ def test_the_extensions_see_the_cuts_the_target_used() -> None:
     def value_loss(params, target_q):
         return jnp.mean((params["w"] - target_q) ** 2), target_q
 
-    _, seen, grad_norm = critic_step(
+    _, seen, grad_norm, _ = critic_step(
         state,
         _ENDS,
         jnp.zeros((4, 1)),

@@ -77,9 +77,9 @@ where it may act. Every other phase keeps a default that changes nothing.
 | --- | --- | --- | --- |
 | `init_state` | once, on a fresh run | build the extension's state | one state per extension |
 | `pretrain` | once, before training, on a fresh run | change the agent's state (clone the actor, pre-train a critic) | in list order |
-| `on_target` | at each critic update | change the TD or value target | in list order, each sees the previous result |
-| `critic_loss` | at each critic update | add a term to the critic loss | summed |
-| `actor_loss` | at each actor update | add a term to the actor loss | summed |
+| `on_target` | at each critic update | change the TD or value target, and log metrics | in list order, each sees the previous result |
+| `critic_loss` | at each critic update | add a term to the critic loss, and log metrics | summed |
+| `actor_loss` | at each actor update | add a term to the actor loss, and log metrics | summed |
 | `action` | at each collection step | replace the action the agent would take | the last proposal wins |
 | `eval_action` | at evaluation | replace the evaluation action | no agent runs it yet |
 | `transform_action` | at each collection step, in the losses and at evaluation | make the executed action a function of the policy's and the expert's | the first one acts |
@@ -262,8 +262,8 @@ says where each extension does its job. "SAC with an expert" means
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `OnlineBC` | Pulls the actor's mean action towards the expert's, weighted by `φ*`'s value at each state, fading to zero over the first `critic_warmup_frac` of training. | `actor_loss` | SAC with an expert and `MCPretrain` |
-| `ImitationLoss` | Adds `coef · mean((μ(s) − a_E(s))²) / 4`, the behaviour-cloning term of TD3+BC, towards a fixed expert it holds. When that expert is the agent's `expert_policy`, it reads the actions the agent stored, so the expert may be stateful. With `anneal_frac`, its weight falls linearly to 0 at that fraction of training (kickstarting). With `q_filter=True` a row counts only where the critic rates the expert's action above the policy's (Q-filtered BC), and evaluations log the share of a replay batch it keeps (`imitation/q_filter_frac`; not on AVG, which keeps no replay). | `actor_loss`, `eval_metrics` | SAC, TD3, REDQ, ASAC, AVG, APO, and PPO, APG and UDRL with a stateless expert (they take none); a discrete policy has no mean action and raises (no cross-entropy form yet). `q_filter=True`: SAC, TD3, REDQ, ASAC and AVG, without `ResidualPolicy`; refused where the critic rates states, not actions (PPO, APO), or there is none (APG, UDRL) |
+| `OnlineBC` | Pulls the actor's mean action towards the expert's, weighted by `φ*`'s value at each state, fading to zero over the first `critic_warmup_frac` of training. Logs `online_bc/term` and its weight `online_bc/weight`. | `actor_loss` | SAC with an expert and `MCPretrain` |
+| `ImitationLoss` | Adds `coef · mean((μ(s) − a_E(s))²) / 4`, the behaviour-cloning term of TD3+BC, towards a fixed expert it holds. When that expert is the agent's `expert_policy`, it reads the actions the agent stored, so the expert may be stateful. With `anneal_frac`, its weight falls linearly to 0 at that fraction of training (kickstarting). With `q_filter=True` a row counts only where the critic rates the expert's action above the policy's (Q-filtered BC), and evaluations log the share of a replay batch it keeps (`imitation/q_filter_frac`; not on AVG, which keeps no replay). Logs `imitation/term` and the squared distance before the filter and the schedule, `imitation/mse`. | `actor_loss`, `eval_metrics` | SAC, TD3, REDQ, ASAC, AVG, APO, and PPO, APG and UDRL with a stateless expert (they take none); a discrete policy has no mean action and raises (no cross-entropy form yet). `q_filter=True`: SAC, TD3, REDQ, ASAC and AVG, without `ResidualPolicy`; refused where the critic rates states, not actions (PPO, APO), or there is none (APG, UDRL) |
 | `ResidualPolicy` | Executes `clip(a_E + scale · a_π, −1, 1)`: the policy learns a correction on top of the expert. | `transform_action` | SAC with an expert, without `use_pid_policy` |
 | `JSRLCurriculum` | The expert acts for the first `H_t` steps of each episode, the policy afterwards; `H_t` shrinks from `episode_length` to 0 over `decay_frac` of training. Logs `jsrl/horizon` and `jsrl/expert_frac`. | `action`, `eval_metrics` | SAC with an expert |
 | `ExpertValueMetrics` | Logs the critic's value at the expert's actions (`value/q_expert_mean`), its gap to the value of the actions taken (`value/q_gap`) and, with `MCPretrain`, its gap to `φ*` (`value/phi_star_q_gap_ood`), on one replay batch per evaluation. | `eval_metrics` | SAC, TD3, REDQ, ASAC with an expert |
@@ -278,19 +278,19 @@ says where each extension does its job. "SAC with an expert" means
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `IBRL` | Adds `γ(1 − d) · max(Q(s′, a_E) − Q(s′, a′), 0)` to the target, so the values match acting with whichever of expert and policy looks better. | `on_target` | SAC, TD3, REDQ, AVG; refused on an average-reward target (ASAC, APO), which has no discount for the bonus |
-| `LCBGatedBootstrap` | Blends the policy's and the expert's next-action values in the target, weighted by a sigmoid of their pessimistic (lower-confidence-bound) scores. Logs its pessimism `lcb_bootstrap/beta`. | `on_target`, `eval_metrics` | SAC, TD3, REDQ, AVG; refused on an average-reward target (ASAC, APO) |
-| `CriticBlend` | Blends the target with a one-step target on `φ*`, `(1 − α) y + α y_E`, with `α` falling from 1 to 0 over `critic_warmup_frac`. Logs `α` as `critic_blend/expert_weight`. | `on_target`, `eval_metrics` | SAC with `MCPretrain` |
-| `MCVarianceCorrection` | Where the critics disagree by more than `threshold` (variance), uses `φ*`'s value as the target. | `on_target` | SAC with `MCPretrain` |
+| `IBRL` | Adds `γ(1 − d) · max(Q(s′, a_E) − Q(s′, a′), 0)` to the target, so the values match acting with whichever of expert and policy looks better. Logs `ibrl/bonus` and `ibrl/expert_wins`. | `on_target` | SAC, TD3, REDQ, AVG; refused on an average-reward target (ASAC, APO), which has no discount for the bonus |
+| `LCBGatedBootstrap` | Blends the policy's and the expert's next-action values in the target, weighted by a sigmoid of their pessimistic (lower-confidence-bound) scores. Logs its pessimism `lcb_bootstrap/beta` and its mean gate `lcb_bootstrap/p_expert`. | `on_target`, `eval_metrics` | SAC, TD3, REDQ, AVG; refused on an average-reward target (ASAC, APO) |
+| `CriticBlend` | Blends the target with a one-step target on `φ*`, `(1 − α) y + α y_E`, with `α` falling from 1 to 0 over `critic_warmup_frac`. Logs `α` as `critic_blend/expert_weight`, and `critic_blend/target_gap`. | `on_target`, `eval_metrics` | SAC with `MCPretrain` |
+| `MCVarianceCorrection` | Where the critics disagree by more than `threshold` (variance), uses `φ*`'s value as the target. Logs `mc_variance/replaced_frac`. | `on_target` | SAC with `MCPretrain` |
 | `ValueBox` | Lets the expert act where its value under `φ*` exceeds a threshold that rises from the lowest to the highest expert value over training. Logs `value_box/threshold`, `value_box/in_box_frac` and `value_box/expert_frac`. | `action`, `eval_metrics` | SAC with an expert and `MCPretrain` |
 
 **Pre-training** (`ajax.extensions.pretrain`)
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `CloningPretrain` | Rolls the expert out for `n_steps` steps per copy and trains the actor to reproduce its actions (`epochs` passes in batches of `batch_size`, at the actor's learning rate); the agent's observation statistics start from the dataset's. | `pretrain` | SAC, TD3, REDQ, APO (other agents raise when training starts) |
-| `MCPretrain` | Rolls the expert out, fits `φ*` to its Monte-Carlo returns, records its value range, and by default nudges the agent's own critic towards it. Logs the range, `mc_pretrain/v_min` and `mc_pretrain/v_max`. | `pretrain`, `eval_metrics` | SAC (other agents raise when training starts) |
-| `BellmanPretrain` | Runs `n_steps` ordinary critic updates on the replay buffer, which holds the expert's prefill, before training. Its values bootstrap from an untrained critic; kept for ablations. | `pretrain` | SAC with an expert |
+| `CloningPretrain` | Rolls the expert out for `n_steps` steps per copy and trains the actor to reproduce its actions (`epochs` passes in batches of `batch_size`, at the actor's learning rate); the agent's observation statistics start from the dataset's. Logs the mean loss of its first and last epoch, `cloning/first_loss` and `cloning/last_loss`. | `pretrain`, `eval_metrics` | SAC, TD3, REDQ, APO (other agents raise when training starts) |
+| `MCPretrain` | Rolls the expert out, fits `φ*` to its Monte-Carlo returns, records its value range, and by default nudges the agent's own critic towards it. Logs the range, `mc_pretrain/v_min` and `mc_pretrain/v_max`, and the fit: its first and last loss, `mc_pretrain/first_loss` and `mc_pretrain/last_loss`, and `φ*`'s mean value at the expert's actions, `mc_pretrain/q_expert_mean`. | `pretrain`, `eval_metrics` | SAC (other agents raise when training starts) |
+| `BellmanPretrain` | Runs `n_steps` ordinary critic updates on the replay buffer, which holds the expert's prefill, before training. Its values bootstrap from an untrained critic; kept for ablations. Logs the critic loss of its first and last update, `bellman_pretrain/first_loss` and `bellman_pretrain/last_loss`. | `pretrain`, `eval_metrics` | SAC with an expert |
 | `PhiRefresh` | Every `interval` steps, refits `φ*` for `steps` updates on the replay rows where the expert acted. | `post_update` | SAC with an expert and `MCPretrain` |
 | `PriorData` | Adds a transition dataset (`ajax.buffers.dataset`) to the replay, where it stays, and to the observation and reward statistics, then runs `offline_updates` of the agent's own update on it before acting. Pair it with `learning_starts=0`. | `pretrain` | SAC, TD3, REDQ, ASAC, DQN (other agents raise when training starts) |
 
@@ -298,7 +298,7 @@ says where each extension does its job. "SAC with an expert" means
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `KernelRepulsion` | Adds `coef` times the mean similarity (an RBF kernel) between the critics' predictions, which pushes the critics of an ensemble apart. | `critic_loss` | SAC, TD3, REDQ, ASAC, AVG with two or more critics; the other critic batches lack its inputs and raise |
+| `KernelRepulsion` | Adds `coef` times the mean similarity (an RBF kernel) between the critics' predictions, which pushes the critics of an ensemble apart. Logs `kernel_repulsion/term`, `kernel_repulsion/kernel` and `kernel_repulsion/bandwidth`. | `critic_loss` | SAC, TD3, REDQ, ASAC, AVG with two or more critics; the other critic batches lack its inputs and raise |
 
 **Measuring the critic** (`ajax.extensions.instrumentation`)
 
@@ -306,7 +306,7 @@ says where each extension does its job. "SAC with an expert" means
 | --- | --- | --- | --- |
 | `ConditioningMetrics` | Logs the critic's effective rank (`Cond/critic_srank`), its fraction of dormant units, its feature and weight norms. It finds the critic from the agent's networks: an ensemble critic, or a Q-network. | `eval_metrics` | replay agents given `buffer=` (SAC, TD3, REDQ, ASAC, DQN); PPO, APO and PQN run with `expose_recent_rollout=True` (AVG too, but its rollout is one step per copy) |
 | `BiasVoreDecomposition` | Splits the critic's squared one-step error into squared bias and variance (`EVarEst/bias_sq`, `EVarEst/var_resid`, `EVarEst/mse`, `EVarEst/abs_bias`), against a one-step target on its current parameters, or your own `value_target_fn`. | `eval_metrics` | as `ConditioningMetrics` |
-| `BiasVorePenalty` | Adds `((1 − 2α)/α) · Var(residual)` to the critic loss; `alpha=0.5` adds nothing. | `critic_loss` | every agent with a `critic_loss` phase: SAC, TD3, REDQ, ASAC, AVG, PPO, APO, DQN, PQN |
+| `BiasVorePenalty` | Adds `((1 − 2α)/α) · Var(residual)` to the critic loss; `alpha=0.5` adds nothing. Logs `bias_vore/penalty` and `bias_vore/residual_var`. | `critic_loss` | every agent with a `critic_loss` phase: SAC, TD3, REDQ, ASAC, AVG, PPO, APO, DQN, PQN |
 
 Sources: TD3+BC is Fujimoto and Gu, 2021; Q-filtered BC is Nair et al.,
 ICRA 2018; residual RL is Johannink et al., 2019; JSRL is Uchendu et al.,

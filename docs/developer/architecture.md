@@ -295,6 +295,11 @@ agent without extensions traces nothing extra and never guards a fold.
 | `fold_actor_loss` | in the agent's actor step |
 | the `action` phase | SAC's action pipeline only, with an expert policy |
 
+`fold_on_target`, `fold_critic_loss` and `fold_actor_loss` return their
+value and the metrics the phases returned beside theirs; the agent carries
+them out of its loss as an aux and logs them, in its `AuxiliaryLogs`'
+`extensions` field, under their own names.
+
 The first three are the loop's own (`LOOP_PHASES`: `pretrain`,
 `post_update`, `eval_metrics`); an agent lists those plus the phases its
 update folds in `supported_extension_phases`, and construction rejects any
@@ -376,7 +381,8 @@ and grafts them back onto a fresh skeleton; see
 deletes a data field lists it in its `removed_fields`, a
 `ClassVar[frozenset[str]]`: checkpoints saved with the field then restore
 without it. A saved field that its class neither has nor lists still fails
-to restore.
+to restore. A class that gains a float field lists it in its
+`added_fields`: checkpoints saved before it restore it as NaN.
 
 ## Keywords on their way out
 

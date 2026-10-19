@@ -37,7 +37,7 @@ def _metrics(ext: Any, t: int = 25, bounds: dict | None = None) -> dict:
     )
     agent_state = SimpleNamespace(collector_state=collector, **(bounds or {}))
     ctx = ExtensionContext(step=jnp.asarray(t), rng=KEY, total_steps=100)
-    out = ext.eval_metrics(agent_state, None, KEY, ctx)
+    out = ext.eval_metrics(agent_state, ext.init_state(agent_state, KEY), KEY, ctx)
     return {k: float(v) for k, v in out.items()}
 
 
@@ -80,11 +80,8 @@ def test_value_box_and_mc_pretrain_log_the_box() -> None:
         "value_box/in_box_frac": 0.5,
         "value_box/expert_frac": 0.25,
     }
-    mc = MCPretrain(expert_policy=expert)
-    assert _metrics(mc, bounds=bounds) == {
-        "mc_pretrain/v_min": -1.0,
-        "mc_pretrain/v_max": 3.0,
-    }
+    logged = _metrics(MCPretrain(expert_policy=expert), bounds=bounds)
+    assert (logged["mc_pretrain/v_min"], logged["mc_pretrain/v_max"]) == (-1.0, 3.0)
 
 
 def test_a_logged_sac_run_carries_the_extensions_metrics() -> None:

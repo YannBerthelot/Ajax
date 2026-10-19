@@ -9,7 +9,8 @@ tiny run per agent with a recorder implementing each phase it folds of
 (d) a loss term reaches the optimizer of the network it names, and that
     one only: ``SLOPE * sum(theta)`` on every parameter moves each by one
     common amount (Adam steps by the gradient's sign), the critic's term
-    down and the actor's (``-SLOPE * sum(theta)``) up.
+    down and the actor's (``-SLOPE * sum(theta)``) up;
+(e) the metrics a phase returns beside its value reach the evaluations.
 
 The agents are every agent of ``ajax`` folding one of these phases (read
 from ``supported_extension_phases``): test_agent_contract's table, APG and
@@ -26,12 +27,14 @@ from typing import Any
 from unittest import mock
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import ajax
 from ajax.agents.APG.APG import APG
 from ajax.extensions.base import PHASE_BATCH_KEYS, Extension
+from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
 from tests.agents.TDMPC2.test_TDMPC2MultiTask import make_dataset
@@ -137,8 +140,8 @@ def test_every_agent_folding_a_phase_has_a_run() -> None:
         assert has_run, f"{name} folds {sorted(_phases(name))}: add its run"
 
 
-@functools.cache
-def _run(name: str) -> SimpleNamespace:
+def _setup(name: str) -> tuple[Any, Any, dict, int]:
+    """The agent's class, environment, options and timesteps."""
     cls: Any
     if name == "APG":
         cls, n_timesteps, env_id = APG, 64, "Pendulum-v1"
@@ -150,6 +153,12 @@ def _run(name: str) -> SimpleNamespace:
         cls, n_timesteps = case.cls, case.n_timesteps
         env_id = "Pendulum-v1" if "Pendulum-v1" in case.envs else "CartPole-v1"
         kwargs = case.kwargs | OVERRIDES.get(name, {})
+    return cls, env_id, kwargs, n_timesteps
+
+
+@functools.cache
+def _run(name: str) -> SimpleNamespace:
+    cls, env_id, kwargs, n_timesteps = _setup(name)
     phases = frozenset(PHASES) & cls.supported_extension_phases
     recorder = type("Recorder", (Recorder,), {p: globals()[p] for p in phases})()
     BATCH_KEYS.clear()
@@ -236,3 +245,54 @@ def test_each_loss_term_moves_its_own_network(name: str) -> None:
         common = moved.mean()
         assert np.sign(common) == sign, (phase, common)
         assert np.abs(moved - common).max() <= 1e-3 * abs(common), phase
+
+
+#: The constant each phase logs beside its value, for (e).
+LOGGED = {"on_target": 1.0, "critic_loss": 2.0, "actor_loss": 3.0}
+
+
+def _logging(phase: str) -> Any:
+    """``phase`` leaving its value as it is and logging its constant."""
+
+    def logged(self: Any, agent_state: Any, ext_state: Any, *args: Any) -> Any:
+        value = args[1] if phase == "on_target" else 0.0  # (batch, target, ctx)
+        return value, {f"logger/{phase}": jnp.asarray(LOGGED[phase])}
+
+    return logged
+
+
+#: PPO's time-preserving minibatches fold on_target in each minibatch.
+UNROLL = {"unroll_length": 8, "num_minibatches": 2}
+
+
+@pytest.mark.parametrize(
+    "name, options",
+    [(name, {}) for name in BATCHED] + [("PPO", UNROLL)],
+    ids=[*BATCHED, "PPO-unroll"],
+)
+def test_each_phase_logs_its_metrics_with_the_updates(name: str, options: dict) -> None:
+    """Every evaluation logs each folded phase's constant, as the last
+    update's or the update's mean; TD3 logs 0 for the actor's on the
+    updates its ``policy_delay`` skips."""
+    cls, env_id, kwargs, n_timesteps = _setup(name)
+    kwargs = kwargs | options
+    phases = frozenset(LOGGED) & cls.supported_extension_phases
+    logger = type("Logger", (Extension,), {p: _logging(p) for p in phases})()
+    agent = cls(env_id, **kwargs, extensions=(logger,))
+    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    _, out = agent.train(
+        seed=0, n_timesteps=n_timesteps, num_episode_test=1, logging_config=logging
+    )
+    if name == "APG":  # its aux, every update's, holds what each evaluated
+        out = out.evaluations
+    evaluated = np.asarray(out["timestep"]).reshape(-1) >= 0
+    assert evaluated.any()
+    for phase in phases:
+        logged = np.asarray(out[f"logger/{phase}"]).reshape(-1)[evaluated]
+        allowed = [LOGGED[phase]] + (
+            [0.0] if (name, phase) == ("TD3", "actor_loss") else []
+        )
+        assert np.isin(logged, allowed).all() and (logged == LOGGED[phase]).any(), (
+            phase,
+            logged,
+        )

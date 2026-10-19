@@ -252,11 +252,12 @@ def soft_actor_step(
     carries: Optional[RecurrentCarries] = None,
     q_reduce: Callable[..., jax.Array] = jnp.min,
     a_expert: Optional[jax.Array] = None,
-) -> Tuple[S, Tuple[jax.Array, jax.Array, jax.Array]]:
+) -> Tuple[S, Tuple[jax.Array, jax.Array, jax.Array], dict]:
     """One actor step on :func:`soft_policy_loss` plus the extensions'
     actor-loss terms, which also read ``a_expert``, the expert's stored
-    actions at the rows (None without an expert). Returns the state and
-    ``(loss, log_probs, q)``, the SAC loss before the extensions' terms."""
+    actions at the rows (None without an expert). Returns the state,
+    ``(loss, log_probs, q)``, the SAC loss before the extensions' terms,
+    and the extensions' metrics."""
     # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
     # default partitionable threefry, so the agent's own draws are unchanged.
     rng, policy_key, ext_key = jax.random.split(agent_state.rng, 3)
@@ -283,17 +284,17 @@ def soft_actor_step(
             "a_expert": a_expert,
             "critic_state": agent_state.critic_state,
         }
-        extra = extension_stack.fold_actor_loss(
+        extra, metrics = extension_stack.fold_actor_loss(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
             ext_key,
             total_timesteps,
         )
-        return loss + extra, (loss, log_probs, q)
+        return loss + extra, ((loss, log_probs, q), metrics)
 
-    actor_state, out, _ = gradient_step(actor_state, loss_fn)
-    return agent_state.replace(rng=rng, actor_state=actor_state), out
+    actor_state, (out, metrics), _ = gradient_step(actor_state, loss_fn)
+    return agent_state.replace(rng=rng, actor_state=actor_state), out, metrics
 
 
 def temperature_loss_fn(

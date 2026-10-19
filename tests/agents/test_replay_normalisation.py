@@ -32,7 +32,7 @@ REPLAYING = sorted(
 
 
 def test_the_replaying_agents_are_the_replay_buffer_ones() -> None:
-    assert REPLAYING == ["ASAC", "DQN", "REDQ", "SAC", "TD3", "UDRL"]
+    assert REPLAYING == ["ASAC", "DQN", "IQL", "REDQ", "SAC", "TD3", "UDRL"]
 
 
 def _replayed_rows(state: Any) -> np.ndarray:
@@ -97,8 +97,17 @@ def test_an_on_policy_agent_keeps_the_envs_normaliser() -> None:
 
 
 # UDRL's segments still keep the rewards the env normalised: its commands and
-# their targets are sums of them (docs/guide/environments.md).
-@pytest.mark.parametrize("name", [n for n in REPLAYING if n != "UDRL"])
+# their targets are sums of them (docs/guide/environments.md). IQL scales its
+# rewards (reward_scale, as its reference) and takes no reward normaliser.
+REWARD_NORMALISING = [
+    n
+    for n in REPLAYING
+    if n != "UDRL"
+    and "normalize_rewards" in inspect.signature(getattr(ajax, n)).parameters
+]
+
+
+@pytest.mark.parametrize("name", REWARD_NORMALISING)
 def test_a_replay_agent_stores_the_envs_own_rewards(name: str) -> None:
     """The replay stores the env's own reward (on the identity task the
     executed action: twice the agent's on Box(-2, 2), itself on

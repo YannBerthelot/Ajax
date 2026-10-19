@@ -41,7 +41,7 @@ from tests.agents.TDMPC2.test_TDMPC2MultiTask import make_dataset
 
 #: (agent, environment): each agent on each action kind it takes.
 ROWS = [
-    *((name, "Pendulum-v1") for name in "SAC TD3 REDQ ASAC AVG APG TDMPC2".split()),
+    *((name, "Pendulum-v1") for name in "SAC TD3 REDQ ASAC AVG IQL APG TDMPC2".split()),
     *(
         (name, env)
         for name in "PPO APO UDRL DreamerV3".split()
@@ -87,25 +87,25 @@ FORM_GAPS = {
 #: for an agent taking both action kinds) where it is not wired yet.
 GAPS: dict[str, dict[str, str]] = {
     ACTION: {
-        "EDGEExploration": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DQN PQN",
-        "JSRLCurriculum": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DQN PQN",
-        "ResidualPolicy": "TD3 REDQ ASAC AVG APG PPO APO UDRL",
-        "ValueBox": "TD3 REDQ AVG DQN PQN",
+        "EDGEExploration": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DQN PQN IQL",
+        "JSRLCurriculum": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DQN PQN IQL",
+        "ResidualPolicy": "TD3 REDQ ASAC AVG APG PPO APO UDRL IQL",
+        "ValueBox": "TD3 REDQ AVG DQN PQN IQL",
     },
     MC: {
-        "CriticBlend": "TD3 REDQ AVG DQN PQN",
-        "MCPretrain": "TD3 REDQ AVG PPO PPO/discrete DQN PQN",
-        "MCVarianceCorrection": "TD3 REDQ",
-        "OnlineBC": "TD3 REDQ AVG",
-        "PhiRefresh": "TD3 REDQ DQN",
+        "CriticBlend": "TD3 REDQ AVG DQN PQN IQL",
+        "MCPretrain": "TD3 REDQ AVG PPO PPO/discrete DQN PQN IQL",
+        "MCVarianceCorrection": "TD3 REDQ IQL",
+        "OnlineBC": "TD3 REDQ AVG IQL",
+        "PhiRefresh": "TD3 REDQ DQN IQL",
     },
     CONTEXT: {
         "BellmanPretrain": "TD3 REDQ ASAC",
         "CloningPretrain": "APG PPO UDRL",
     },
     EXPERT: {
-        "BellmanPretrain": "DQN",
-        "ExpertValueMetrics": "DQN",
+        "BellmanPretrain": "DQN IQL",
+        "ExpertValueMetrics": "DQN IQL",
     },
     FORM: {
         "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DreamerV3/discrete",
@@ -133,8 +133,8 @@ GAPS: dict[str, dict[str, str]] = {
             "TDMPC2 DreamerV3 TDMPC2MultiTask",
         ),
     },
-    CNN: {"cnn": "SAC TD3 REDQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete"},
-    MEMORY: {"memory": "APO APO/discrete DQN PQN"},
+    CNN: {"cnn": "SAC TD3 REDQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete IQL"},
+    MEMORY: {"memory": "APO APO/discrete DQN PQN IQL"},
     DEFERRED: {"memory": "AVG UDRL UDRL/discrete"},
     PRIOR: {
         "PriorData": "UDRL UDRL/discrete TDMPC2 DreamerV3 DreamerV3/discrete"

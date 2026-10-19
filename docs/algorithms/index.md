@@ -1,6 +1,6 @@
 # Algorithms
 
-Ajax has fourteen agents, all exported from `ajax`. Each follows a published
+Ajax has fifteen agents, all exported from `ajax`. Each follows a published
 paper, and each page says where Ajax departs from it. Every agent takes an
 environment (`TDMPC2MultiTask`: a dataset, and environments to evaluate
 on), its own hyperparameters, `episode_length` and `action_repeat` (for
@@ -16,6 +16,7 @@ several seeds in a single compiled program with
 | [ASAC](asac.md) | off-policy actor-critic, average reward | Adamczyk et al. 2025 ([arXiv:2501.09080v2](https://arxiv.org/abs/2501.09080v2)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
 | [REDQ](redq.md) | off-policy actor-critic, critic ensemble | Chen et al. 2021 ([arXiv:2101.05982](https://arxiv.org/abs/2101.05982)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
 | [TD3](td3.md) | off-policy actor-critic, deterministic policy | Fujimoto et al. 2018 ([arXiv:1802.09477](https://arxiv.org/abs/1802.09477)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
+| [IQL](iql.md) | offline actor-critic, expectile value | Kostrikov, Nair and Levine, ICLR 2022 ([arXiv:2110.06169](https://arxiv.org/abs/2110.06169)) | continuous | no | `on_target`, `critic_loss`, `actor_loss` |
 | [AVG](avg.md) | incremental actor-critic, no replay | Vasan et al. 2024 ([arXiv:2411.15370](https://arxiv.org/abs/2411.15370)) | continuous | no | `on_target`, `critic_loss`, `actor_loss` |
 | [DQN](dqn.md) | value-based, replay | Mnih et al., Nature 2015 | discrete | no | `on_target`, `critic_loss` |
 | [PQN](pqn.md) | value-based, parallel environments, no replay | Gallici et al. 2024 | discrete | no | `on_target`, `critic_loss` |
@@ -74,6 +75,11 @@ twenty critic updates per step, so it does far more work per sample.
 **A task that never ends,** such as holding a setpoint: discounting only
 shortens the agent's view. [ASAC](asac.md) (off-policy) and [APO](apo.md)
 (on-policy) optimise the average reward per step instead.
+
+**Only a dataset, no simulator to explore with** (logged runs, a plant's
+history): [IQL](iql.md) trains on it offline (`train_offline`) and can
+fine-tune online after; TD3+BC is TD3 with a cloning term
+([TD3](td3.md#td3bc-offline)).
 
 **Learning one transition at a time,** without a replay buffer or target
 networks: [AVG](avg.md).

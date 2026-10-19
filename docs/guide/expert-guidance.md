@@ -287,7 +287,7 @@ Ajax" marks a feature with no external reference.
 | You want to | Use | Method |
 | --- | --- | --- |
 | Start the replay with good experience | `expert_buffer_n_steps` (SAC, on by default); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
-| Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, ASAC, DQN) | offline training on the agent's own update |
+| Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, ASAC, DQN, IQL) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
 | Keep the actor near the dataset's actions | `ImitationLoss(None, target="replay", alpha=2.5)` (SAC, TD3, REDQ, ASAC) | TD3+BC (Fujimoto and Gu, 2021) on TD3 |
 | Start the actor as a copy of the expert | `CloningPretrain` (SAC, TD3, REDQ, ASAC, AVG, APO) | behaviour cloning |
 | Keep the actor near the expert early on | `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO; PPO, APG, UDRL with a stateless expert), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |

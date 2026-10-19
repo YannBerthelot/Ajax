@@ -13,7 +13,7 @@ from ajax.buffers.dataset import TransitionDataset
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.test_agent_contract import CASES
 
-AGENTS = ("SAC", "TD3", "REDQ", "ASAC", "DQN")
+AGENTS = ("SAC", "TD3", "REDQ", "ASAC", "DQN", "IQL")
 ROWS, UPDATES, EVERY = 16, 6, 3
 
 

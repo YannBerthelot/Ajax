@@ -101,7 +101,8 @@ APO and PQN average theirs over the update's epochs and minibatches.
 ### Extension metrics
 
 The expert-guided extensions log their schedules and how often the expert
-acts, read from the agent state at each evaluation:
+acts, and the pretraining extensions what their fit computed, read from the
+agent state at each evaluation:
 
 | Name | Extension | Meaning |
 | --- | --- | --- |
@@ -113,6 +114,13 @@ acts, read from the agent state at each evaluation:
 | `value_box/threshold` | `ValueBox` | the expert value above which the expert acts |
 | `value_box/in_box_frac`, `value_box/expert_frac` | `ValueBox` | the shares of envs inside the box and driven by the expert on the last collection step |
 | `mc_pretrain/v_min`, `mc_pretrain/v_max` | `MCPretrain` | the expert's value range, which `ValueBox`'s threshold runs between |
+| `mc_pretrain/first_loss`, `mc_pretrain/last_loss` | `MCPretrain` | the squared error of `φ*`'s fit to the Monte-Carlo returns, at its first and its last step |
+| `mc_pretrain/q_expert_mean` | `MCPretrain` | the mean of `φ*`'s value at the expert's actions after the fit, over the rollout's states |
+| `cloning/first_loss`, `cloning/last_loss` | `CloningPretrain` | the mean cloning loss of its first and its last epoch (NaN with `skip_actor`) |
+| `bellman_pretrain/first_loss`, `bellman_pretrain/last_loss` | `BellmanPretrain` | the critic loss of its first and its last update |
+
+A pretraining result is the same at every evaluation. It is NaN in a run
+resumed from a checkpoint saved before the results were kept.
 
 ### The value bias
 

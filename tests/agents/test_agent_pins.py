@@ -835,6 +835,21 @@ _GOLDEN |= {
         "alpha": 0.9759861826896667,
     },
 }
+# Re-recorded on macOS ARM CPU once SAC's Adam eps became TensorFlow's and
+# torch's 1e-8 (was 1e-5). Relative shifts (actor, critic, alpha): SAC-mcc
+# -3.3e-5, -4.0e-4, 0; SAC-gru +1.9%, +7.6e-4, -3.8e-5.
+_GOLDEN |= {
+    "SAC-mcc": {
+        "actor": 8.311077117919922,
+        "critic": 15.622236251831055,
+        "alpha": 0.9759861826896667,
+    },
+    "SAC-gru": {
+        "actor": 58.47077941894531,
+        "critic": 134.4833221435547,
+        "alpha": 0.9515250325202942,
+    },
+}
 
 # Re-recorded on macOS ARM CPU once DQN's layers became its reference code's:
 # Torch7's nn.Linear default, kernel and bias uniform in +-1/sqrt(fan_in)

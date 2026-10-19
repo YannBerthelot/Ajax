@@ -8,11 +8,11 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
     "gymnasium>=1.2.0,<2",
     "tqdm>=4.65.0,<5",
-    # flax is capped, so JAX is too: flax 0.10 called a function JAX 0.11
-    # removed, and an uncapped JAX next to it broke pip installs. flax 0.12.8
-    # (Python 3.11) needs JAX 0.10, 0.12.10 (Python 3.12+) JAX 0.11.1.
-    "jax>=0.10.0,<0.12",
-    "flax>=0.12.8,<0.13",
+    # Floors only: a cap is added after a known break, with its reason.
+    # A capped flax (<0.11) next to an uncapped JAX once broke pip installs:
+    # flax 0.10 calls a function JAX 0.11 removed. flax 0.12.8 needs JAX 0.10.
+    "jax>=0.10.0",
+    "flax>=0.12.8",
     # Imported directly, so declared, not left to the packages that pull
     # them in. brax is capped: create.py uses its private brax.envs._envs.
     "brax>=0.14.2,<0.15",
@@ -34,7 +34,7 @@ dependencies = [
 [project.optional-dependencies]
 # CUDA (NVIDIA GPUs, Linux only): `uv sync --extra cuda`, or depend on
 # `ajax[cuda]`. Without it JAX runs on the CPU.
-cuda = ["jax[cuda]>=0.10.0,<0.12; sys_platform == 'linux'"]
+cuda = ["jax[cuda]>=0.10.0; sys_platform == 'linux'"]
 # ajax.compare.estimate's confidence sequence: `uv sync --extra compare`, or
 # depend on `ajax[compare]`. From the commit in [tool.uv.sources].
 compare = ["adastop"]

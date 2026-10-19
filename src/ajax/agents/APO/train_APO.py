@@ -38,7 +38,7 @@ from ajax.agents.PPO.core import ValueAuxiliaries as PPOValueAuxiliaries
 from ajax.agents.PPO.train_PPO import init_PPO, joint_step
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.environments.interaction import get_pi
-from ajax.extensions.base import ExtensionStack
+from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import predict_value
 from ajax.state import (
@@ -215,13 +215,17 @@ def update_networks(
             "actor_state": actor_state,
             "a_expert": minibatch["a_expert"],
         }
-        extra = extension_stack.fold_critic_loss(
+        critic_extra, critic_metrics = extension_stack.fold_critic_loss(
             agent_state, critic_batch, timestep, critic_key, total_timesteps
-        ) + extension_stack.fold_actor_loss(
+        )
+        actor_extra, actor_metrics = extension_stack.fold_actor_loss(
             agent_state, actor_batch, timestep, actor_key, total_timesteps
         )
-        loss = policy_loss + value_loss + extra
-        return loss, AuxiliaryLogs(policy=policy_aux, value=value_aux)
+        loss = policy_loss + value_loss + critic_extra + actor_extra
+        metrics = merge_metrics(critic_metrics, actor_metrics)
+        return loss, AuxiliaryLogs(
+            policy=policy_aux, value=value_aux, extensions=metrics
+        )
 
     grads, aux = jax.grad(loss_fn, has_aux=True)(
         (actor_state.params, critic_state.params)
@@ -242,6 +246,7 @@ def update_networks(
             grad_norm=optax.global_norm(critic_grads),
             average_reward=agent_state.average_reward,
         ),
+        extensions=aux.extensions,
     )
     return agent_state.replace(actor_state=actor_state, critic_state=critic_state), aux
 
@@ -300,6 +305,7 @@ def update_agent(
     )
 
     # A key is drawn only with extensions.
+    target_metrics: dict = {}
     if extension_stack:
         target_key, rng = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=rng)
@@ -314,7 +320,7 @@ def update_agent(
             "average_reward": average_reward,
             "gamma": None,  # APO is average-reward (differential V)
         }
-        value_targets = extension_stack.fold_on_target(
+        value_targets, target_metrics = extension_stack.fold_on_target(
             agent_state,
             target_batch,
             value_targets,
@@ -363,6 +369,7 @@ def update_agent(
     agent_state, aux = run_epochs(
         agent_state, shuffle_key, minibatches, step, agent_config.n_epochs
     )
+    aux = aux.replace(extensions=merge_metrics(target_metrics, aux.extensions))
     return agent_state.replace(n_updates=agent_state.n_updates + 1), aux
 
 

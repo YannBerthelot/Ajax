@@ -39,6 +39,7 @@ class ValueAuxiliaries:
 class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
+    extensions: dict  # the extensions' training metrics
 
 
 def rollout_actions(rollout: Transition) -> tuple[jax.Array, jax.Array]:

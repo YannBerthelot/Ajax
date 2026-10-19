@@ -56,7 +56,7 @@ from ajax.environments.interaction import (
     preallocate_last_rollout,
     should_use_uniform_sampling,
 )
-from ajax.extensions.base import Extension, ExtensionStack
+from ajax.extensions.base import Extension, ExtensionStack, merge_metrics
 from ajax.log import (
     compose_eval_metrics,
     evaluate_and_log,
@@ -192,7 +192,7 @@ def critic_step(
     dones: jax.Array,
     gamma: Optional[float],
     reward_scale: float,
-) -> tuple[Any, Any, jax.Array]:
+) -> tuple[Any, Any, jax.Array, dict]:
     """A replay agent's critic step on ``batch`` (a :class:`Transition`).
 
     Folds the extensions' ``on_target`` into ``target_q`` (held constant),
@@ -201,7 +201,8 @@ def critic_step(
     the bootstrap is cut), ``gamma`` (None for an average-reward agent) and
     ``reward_scale`` are what the target used; ``key``, split between the
     two folds, is one the agent draws nothing else on. Returns the stepped
-    critic state, ``aux`` and the gradients' norm (:func:`gradient_step`).
+    critic state, ``aux``, the gradients' norm (:func:`gradient_step`) and
+    the two folds' metrics.
     """
     step = agent_state.collector_state.timestep
     target_key, loss_key = jax.random.split(key)
@@ -218,11 +219,10 @@ def critic_step(
         "raw_next_observations": batch.raw_next_obs,
         "next_a_expert": batch.next_a_expert,
     }
-    target_q = jax.lax.stop_gradient(
-        extension_stack.fold_on_target(
-            agent_state, target_batch, target_q, step, target_key, total_timesteps
-        )
+    target_q, target_metrics = extension_stack.fold_on_target(
+        agent_state, target_batch, target_q, step, target_key, total_timesteps
     )
+    target_q = jax.lax.stop_gradient(target_q)
     critic_state = agent_state.critic_state
 
     def loss_fn(params: Any) -> tuple[jax.Array, Any]:
@@ -234,12 +234,13 @@ def critic_step(
             "critic_params": params,
             "critic_state": critic_state,
         }
-        extra = extension_stack.fold_critic_loss(
+        extra, loss_metrics = extension_stack.fold_critic_loss(
             agent_state, loss_batch, step, loss_key, total_timesteps
         )
-        return loss + extra, aux
+        return loss + extra, (aux, loss_metrics)
 
-    return gradient_step(critic_state, loss_fn)
+    critic_state, (aux, loss_metrics), grad_norm = gradient_step(critic_state, loss_fn)
+    return critic_state, aux, grad_norm, merge_metrics(target_metrics, loss_metrics)
 
 
 @dataclasses.dataclass(frozen=True, eq=False)

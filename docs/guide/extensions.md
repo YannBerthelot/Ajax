@@ -77,9 +77,9 @@ where it may act. Every other phase keeps a default that changes nothing.
 | --- | --- | --- | --- |
 | `init_state` | once, on a fresh run | build the extension's state | one state per extension |
 | `pretrain` | once, before training, on a fresh run | change the agent's state (clone the actor, pre-train a critic) | in list order |
-| `on_target` | at each critic update | change the TD or value target | in list order, each sees the previous result |
-| `critic_loss` | at each critic update | add a term to the critic loss | summed |
-| `actor_loss` | at each actor update | add a term to the actor loss | summed |
+| `on_target` | at each critic update | change the TD or value target, and log metrics | in list order, each sees the previous result |
+| `critic_loss` | at each critic update | add a term to the critic loss, and log metrics | summed |
+| `actor_loss` | at each actor update | add a term to the actor loss, and log metrics | summed |
 | `action` | at each collection step | replace the action the agent would take | the last proposal wins |
 | `eval_action` | at evaluation | replace the evaluation action | no agent runs it yet |
 | `transform_action` | at each collection step, in the losses and at evaluation | make the executed action a function of the policy's and the expert's | the first one acts |

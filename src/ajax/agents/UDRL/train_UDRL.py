@@ -78,6 +78,8 @@ class UDRLAuxiliaries:
     n_completed_episodes: jnp.ndarray
     # Total env timesteps consumed up to and including this iter.
     timestep: Union[int, jax.Array]
+    # The extensions' training metrics, averaged over the iteration's updates.
+    extensions: dict
 
 
 def init_UDRL(
@@ -393,22 +395,25 @@ def training_iteration(
                 discrete = isinstance(pi, distrax.Categorical)
                 _al_batch["raw_observations"] = obs_b[..., :-2]
                 _al_batch["pi_mean"] = None if discrete else pi.mean()
-            return loss + extension_stack.fold_actor_loss(
+            extra, metrics = extension_stack.fold_actor_loss(
                 a_state,
                 _al_batch,
                 a_state.collector_state.timestep,
                 ext_key,
                 total_timesteps,
             )
+            return loss + extra, metrics
 
-        loss, grads = jax.value_and_grad(_loss)(a_state.actor_state.params)
+        (loss, metrics), grads = jax.value_and_grad(_loss, has_aux=True)(
+            a_state.actor_state.params
+        )
         new_actor_state = a_state.actor_state.apply_gradients(grads=grads)
-        return a_state.replace(actor_state=new_actor_state), loss
+        return a_state.replace(actor_state=new_actor_state), (loss, metrics)
 
     n_updates = agent_config.n_updates_per_iter
     update_keys = jax.random.split(train_rng, n_updates)
     ext_keys = jax.random.split(ext_rng, n_updates)
-    agent_state, update_losses = jax.lax.scan(
+    agent_state, (update_losses, update_metrics) = jax.lax.scan(
         update_step, agent_state, (update_keys, ext_keys)
     )
 
@@ -431,6 +436,7 @@ def training_iteration(
         episodic_return=agent_state.collector_state.episodic_mean_return,
         n_completed_episodes=dones.sum(),
         timestep=agent_state.collector_state.timestep,
+        extensions=jax.tree.map(jnp.mean, update_metrics),
     )
     agent_state = agent_state.replace(
         n_updates=agent_state.n_updates + 1,
@@ -509,6 +515,7 @@ def train_metrics(agent_state: UDRLState, aux: UDRLAuxiliaries) -> dict:
         "Train/mean_rtg": aux.mean_rtg,
         "Train/mean_horizon": aux.mean_horizon,
         "Train/n_completed_episodes": aux.n_completed_episodes,
+        **aux.extensions,
     }
 
 

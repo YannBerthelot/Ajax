@@ -50,7 +50,7 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
         agent.buffer,
     )
     batch, config = _batch(agent), agent.agent_config
-    _, v_aux = train_TD3.update_value_functions(state, batch, config, EMPTY, 1)
+    _, v_aux, _ = train_TD3.update_value_functions(state, batch, config, EMPTY, 1)
 
     critic = state.critic_state
     q = q_values(critic, critic.params, batch.obs, batch.action)
@@ -75,7 +75,7 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 
-    _, p_aux = train_TD3.update_policy(state, batch.obs, None, EMPTY, 1)
+    _, p_aux, _ = train_TD3.update_policy(state, batch.obs, None, EMPTY, 1)
     actor = state.actor_state
     p_grads = jax.grad(
         lambda p: train_TD3.policy_loss_function(p, actor, critic, batch.obs)[0]
@@ -128,7 +128,7 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
         agent.buffer,
     )
     batch = _batch(agent)
-    _, v_aux = train_SAC.update_value_functions(
+    _, v_aux, _ = train_SAC.update_value_functions(
         state,
         batch.obs,
         batch.action,
@@ -157,7 +157,7 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 
-    _, p_aux, _ = train_SAC.update_policy(state, batch.obs, None, EMPTY)
+    _, p_aux, *_ = train_SAC.update_policy(state, batch.obs, None, EMPTY)
     policy_key = jax.random.split(state.rng)[1]  # the step's policy key
     p_grads = jax.grad(
         lambda p: train_SAC.policy_loss_function(

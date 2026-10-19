@@ -183,6 +183,17 @@ def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:
     return flat
 
 
+def aux_metrics(aux: Any) -> Dict[str, Any]:
+    """An update's logged metrics: ``<group>/<metric>`` for each field of its
+    aux's groups, and its ``extensions`` field, the extensions' training
+    metrics, by their own names."""
+    groups = dict(to_state_dict(aux))
+    extensions = groups.pop("extensions", {})
+    return flatten_dict(groups) | {
+        name: _metric_value(name, value) for name, value in extensions.items()
+    }
+
+
 def _make_no_op(extra_eval_metrics=None):
     def no_op(agent_state, aux, *_args):
         fake_metrics_to_log = {
@@ -196,7 +207,7 @@ def _make_no_op(extra_eval_metrics=None):
             "Eval/mean bias": jnp.nan,
             "Train/episodic mean reward": jnp.nan,
         }
-        aux_keys = flatten_dict(to_state_dict(aux)).keys()
+        aux_keys = aux_metrics(aux).keys()
         fake_metrics_to_log.update(dict.fromkeys(aux_keys, jnp.nan))
         if extra_eval_metrics is not None:
             shape_tree = jax.eval_shape(
@@ -327,7 +338,7 @@ def evaluate_and_log(
             ),
         }
 
-        metrics_to_log.update(flatten_dict(to_state_dict(aux)))
+        metrics_to_log.update(aux_metrics(aux))
 
         if extra_eval_metrics is not None:
             extras = extra_eval_metrics(agent_state, extra_key)

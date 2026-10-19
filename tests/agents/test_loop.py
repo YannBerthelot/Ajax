@@ -269,7 +269,7 @@ def test_the_extensions_see_the_cuts_the_target_used() -> None:
     def value_loss(params, target_q):
         return jnp.mean((params["w"] - target_q) ** 2), target_q
 
-    _, seen, grad_norm = critic_step(
+    _, seen, grad_norm, _ = critic_step(
         state,
         _ENDS,
         jnp.zeros((4, 1)),

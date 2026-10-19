@@ -29,7 +29,7 @@ from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import augment_obs, reward_statistics
 from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
-from ajax.extensions.base import ExtensionStack, holds_expert
+from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import latent
 from ajax.networks.networks import action_value, predict_value
@@ -72,6 +72,7 @@ class AuxiliaryLogs:
     temperature: TemperatureAuxiliaries
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
+    extensions: dict  # the extensions' training metrics
 
 
 def init_SAC(
@@ -192,12 +193,13 @@ def update_value_functions(
     carries: Optional[RecurrentCarries] = None,
     raw_next_observations: Optional[jax.Array] = None,
     stored_next_a_expert: Optional[jax.Array] = None,
-) -> Tuple[SACState, ValueAuxiliaries]:
+) -> Tuple[SACState, ValueAuxiliaries, dict]:
     # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
     # default partitionable threefry, so the agent's own draws are unchanged.
     value_loss_key, rng, ext_key = jax.random.split(agent_state.rng, 3)
     target_key, loss_key = jax.random.split(ext_key)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    target_metrics: dict = {}
 
     # 1. Core Bellman target (pure SAC). Pass next_action_transform so
     # residual RL evaluates the bootstrap critic at the same residual-
@@ -246,7 +248,7 @@ def update_value_functions(
             "next_a_expert": stored_next_a_expert,
             "recurrent": recurrent,
         }
-        target_q = extension_stack.fold_on_target(
+        target_q, target_metrics = extension_stack.fold_on_target(
             agent_state,
             batch,
             target_q,
@@ -271,18 +273,18 @@ def update_value_functions(
             "critic_params": params,
             "critic_state": critic_state,
         }
-        loss = loss + extension_stack.fold_critic_loss(
+        extra, metrics = extension_stack.fold_critic_loss(
             agent_state,
             loss_batch,
             agent_state.collector_state.timestep,
             loss_key,
             total_timesteps,
         )
-        return loss, core_aux
+        return loss + extra, (core_aux, metrics)
 
-    (loss, core_aux), grads = jax.value_and_grad(_critic_loss, has_aux=True)(
-        critic_state.params
-    )
+    (loss, (core_aux, loss_metrics)), grads = jax.value_and_grad(
+        _critic_loss, has_aux=True
+    )(critic_state.params)
 
     aux = ValueAuxiliaries(
         critic_loss=core_aux.critic_loss,
@@ -293,7 +295,8 @@ def update_value_functions(
     )
 
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
-    return agent_state.replace(rng=rng, critic_state=updated_critic_state), aux
+    metrics = merge_metrics(target_metrics, loss_metrics)
+    return agent_state.replace(rng=rng, critic_state=updated_critic_state), aux, metrics
 
 
 def policy_loss_function(
@@ -311,7 +314,7 @@ def policy_loss_function(
     carries: Optional[RecurrentCarries] = None,
     agent_state: Any = None,
     total_timesteps: int = 1,
-) -> Tuple[jax.Array, PolicyAuxiliaries]:
+) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, dict]]:
     """SAC actor loss with composable expert modifiers."""
     _raw_obs = (
         raw_observations if raw_observations is not None else observations[..., :-1]
@@ -369,19 +372,18 @@ def policy_loss_function(
         "a_expert": a_expert,
         "critic_state": critic_states,
     }
-    bc_term = jnp.asarray(
-        extension_stack.fold_actor_loss(
-            agent_state,
-            ext_batch,
-            agent_state.collector_state.timestep,
-            rng,
-            total_timesteps,
-        )
+    bc_term, metrics = extension_stack.fold_actor_loss(
+        agent_state,
+        ext_batch,
+        agent_state.collector_state.timestep,
+        rng,
+        total_timesteps,
     )
+    bc_term = jnp.asarray(bc_term)
 
     total_loss = loss_actor.mean() + bc_term
 
-    return total_loss, PolicyAuxiliaries(
+    aux = PolicyAuxiliaries(
         policy_loss=total_loss,
         log_pi=log_probs.mean(),
         policy_std=policy_std,
@@ -389,6 +391,7 @@ def policy_loss_function(
         raw_loss=loss_actor.mean(),
         bc_term=bc_term,
     )
+    return total_loss, (aux, metrics)
 
 
 def update_policy(
@@ -401,14 +404,14 @@ def update_policy(
     policy_action_transform: Optional[Callable] = None,
     total_timesteps: int = 1,
     carries: Optional[RecurrentCarries] = None,
-) -> Tuple[SACState, PolicyAuxiliaries, jax.Array]:
-    """Returns (new_state, aux, log_probs): log_probs from a fresh pass of the
-    updated actor, for update_temperature (CleanRL's SAC order; cited from
-    memory, unverified)."""
+) -> Tuple[SACState, PolicyAuxiliaries, jax.Array, dict]:
+    """Returns (new_state, aux, log_probs, metrics): log_probs from a fresh
+    pass of the updated actor, for update_temperature (CleanRL's SAC order;
+    cited from memory, unverified), and the extensions' metrics."""
     rng, policy_key = jax.random.split(agent_state.rng)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
 
-    (loss, aux), grads = jax.value_and_grad(
+    (loss, (aux, metrics)), grads = jax.value_and_grad(
         policy_loss_function, has_aux=True, argnums=0
     )(
         agent_state.actor_state.params,
@@ -439,6 +442,7 @@ def update_policy(
         agent_state.replace(rng=temp_rng, actor_state=updated_actor_state),
         aux,
         jax.lax.stop_gradient(log_probs),
+        metrics,
     )
 
 
@@ -564,7 +568,7 @@ def update_agent(
     # See ajax.perf_utils.final_aux_scan: carry-only scan that exposes
     # last-step aux without materialising the full ys axis.
     def critic_update_step(state, _):
-        return update_value_functions(
+        state, aux, metrics = update_value_functions(
             observations=transition.obs,
             actions=transition.action,
             next_observations=transition.next_obs,
@@ -582,14 +586,15 @@ def update_agent(
             raw_next_observations=raw_next_observations,
             stored_next_a_expert=transition.next_a_expert,
         )
+        return state, (aux, metrics)
 
-    agent_state, aux_value = final_aux_scan(
+    agent_state, (aux_value, value_metrics) = final_aux_scan(
         critic_update_step,
         agent_state,
         length=num_critic_updates,
     )
 
-    new_agent_state, aux_policy, policy_log_probs = update_policy(
+    new_agent_state, aux_policy, policy_log_probs, policy_metrics = update_policy(
         observations=transition.obs,
         agent_state=agent_state,
         raw_observations=transition.raw_obs,
@@ -648,6 +653,7 @@ def update_agent(
         temperature=aux_temperature,
         policy=aux_policy,
         value=aux_value.replace(expert_frac_in_buffer=expert_frac_in_buffer),
+        extensions=merge_metrics(value_metrics, policy_metrics),
     )
     return agent_state, aux
 

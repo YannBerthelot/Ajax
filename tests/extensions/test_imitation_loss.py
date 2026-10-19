@@ -287,7 +287,7 @@ def _td3_update(stack: ExtensionStack) -> Any:
     )
     state = _ext_state(state, stack)
     obs = _obs(agent)
-    state, _ = train_TD3.update_policy(state, obs, obs, stack, total_timesteps=1)
+    state, *_ = train_TD3.update_policy(state, obs, obs, stack, total_timesteps=1)
     return state.actor_state.params
 
 
@@ -342,7 +342,7 @@ def _sac_update(stack: ExtensionStack) -> Any:
     )
     state = _ext_state(state, stack)
     obs = _obs(agent)
-    state, _, _ = train_SAC.update_policy(
+    state, *_ = train_SAC.update_policy(
         state, obs, obs, extension_stack=stack, total_timesteps=1
     )
     return state.actor_state.params
@@ -427,7 +427,7 @@ def _avg_update(stack: ExtensionStack) -> Any:
     state = _ext_state(state, stack)
     obs = _obs(agent)
     raw_actions = jnp.zeros((BATCH, 1))  # the pre-squash sample AVG steps through
-    state, _ = train_AVG.update_policy(
+    state, *_ = train_AVG.update_policy(
         state, obs, raw_actions, stack, total_timesteps=1, raw_observations=obs
     )
     return state.actor_state.params

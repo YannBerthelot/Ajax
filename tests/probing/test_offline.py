@@ -4,23 +4,49 @@ of logged rows, with no environment step (``TrainLoop.offline``).
 SignedActionEnv's one-step rows (reward clip(a) s) are logged on a grid of
 actions holding the best one, a = s (test_extensions.signed_rows): trained
 on them alone, TD3's critic reads Q(s, a) = a s and its actor a = s.
+
+A replay never samples its newest row (fill_replay): on signed_rows that is
+(s, a) = (1, 1). The cells whose answer reads the rows' distribution train
+on every_row(), whose last row repeats its first.
+
+TD3+BC (Fujimoto and Gu, 2021) adds the cloning term of ImitationLoss(None,
+target="replay", alpha): the actor minimises -lambda Q + E_rows (pi - a)^2,
+lambda = alpha / mean|Q|; at each s the rows' actions average 0, so
+pi = lambda s / 2 with lambda = alpha / pi: pi^2 = alpha / 2, a(+-1) = +-0.5
+at alpha 0.5; with lambda fixed at alpha (no normalisation), +-alpha / 2.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pytest
+
+from ajax.buffers.dataset import TransitionDataset
+from ajax.extensions.expert import ImitationLoss
 
 from . import agents, envs, runs
 from . import readouts as R
 from .test_extensions import GAMMA, signed_rows
 from .verdict import Case, Query, check, params
 
+ALPHA = 0.5
+FIELDS = ("obs", "action", "reward", "terminated", "truncated", "next_obs")
 
-def offline_readings(name: str) -> Any:
+
+def every_row() -> TransitionDataset:
+    """signed_rows, its first row repeated last: the row the replay leaves out."""
+    rows = signed_rows()
+    return TransitionDataset(
+        *(np.r_[getattr(rows, f), getattr(rows, f)[:1]] for f in FIELDS)
+    )
+
+
+def offline_readings(name: str, extensions: tuple = (), data: Any = None) -> Any:
     def build() -> Any:
-        return agents.make(name, *envs.package(envs.SignedActionEnv))
+        env = envs.package(envs.SignedActionEnv)
+        return agents.make(name, *env, extensions=extensions)
 
     def read(run: runs.Run) -> dict:
         def at(n: R.Nets) -> dict:
@@ -29,7 +55,8 @@ def offline_readings(name: str) -> Any:
 
         return R.per_seed(at, R.nets(run.state))
 
-    return runs.readings(build, read, offline_data=signed_rows())
+    rows = signed_rows() if data is None else data
+    return runs.readings(build, read, offline_data=rows)
 
 
 _NONE = {"no update on the logged rows, the networks at initialisation": 0.0}
@@ -53,8 +80,30 @@ CASES: dict[str, Case] = {
         " 125-1000 on 1000-1031, 2000-2031: one seed holds a(1) at 0.906 throughout;"
         " cert 32/32",
     ),
+    "td3bc-alpha-TD3": Case(
+        "td3bc-alpha-TD3",
+        tuple(
+            Query(
+                f"a({x:g})",
+                x * (ALPHA / 2) ** 0.5,
+                {
+                    "no cloning": x,
+                    "cloning alone": 0.0,
+                    "lambda = alpha": x * ALPHA / 2,
+                },
+            )
+            for x in (-1.0, 1.0)
+        ),
+        offline_readings(
+            "TD3", (ImitationLoss(None, target="replay", alpha=ALPHA),), every_row()
+        ),
+        1000,
+        (0.1, 0.1),
+        note="ladder 250-2000 on 1000-1031, 2000-2031: worst 0.062 at 1000 (the"
+        " cloning targets' noise); the ceiling; cert 32/32",
+    ),
 }
-ANSWER_DIGEST = "519340c823f0"
+ANSWER_DIGEST = "90a4d51de8f0"
 
 
 @pytest.mark.parametrize("case", params(CASES))

@@ -272,6 +272,7 @@ def update_policy(
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
+    actions: Optional[jax.Array] = None,
 ) -> Tuple[REDQState, PolicyAuxiliaries, jax.Array, dict]:
     """The actor step on ``alpha log pi(a|s) - mean_i Q_i(s, a)``; also
     returns its samples' log-probs (temperature) and the extensions'
@@ -285,6 +286,7 @@ def update_policy(
         carries,
         q_reduce=jnp.mean,
         a_expert=a_expert,
+        actions=actions,
     )
     aux = PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()
@@ -346,6 +348,7 @@ def update_agent(
         total_timesteps,
         carries,
         a_expert=batch.a_expert,
+        actions=batch.action,
     )
     agent_state = agent_state.replace(critic_state=critic_state)
     agent_state, aux_temperature = core.update_temperature(

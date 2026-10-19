@@ -38,14 +38,14 @@ from . import readouts as R
 # this note + 1; imitation on TD3, REDQ, ASAC, AVG: test_extensions + 25,
 # faults/ + 4, this note + 1; APO's q7-cloning rate note: test_extensions
 # + 4, this note + 1; the offline mode's cell: test_offline 62, faults/ + 1,
-# this note + 1.
+# this note + 1; TD3+BC's cell: test_offline + 49, faults/ + 2.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 218}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 220}
 CAPS |= {"test_framework.py": 218, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1045, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 791, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
-CAPS |= {"test_action_box.py": 201, "test_offline.py": 62}
+CAPS |= {"test_action_box.py": 201, "test_offline.py": 111}
 
 
 def _modules() -> list:

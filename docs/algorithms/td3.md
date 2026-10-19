@@ -104,6 +104,39 @@ extension; a cloning term during training, of the TD3+BC form, is `ImitationLoss
 - **Memory.** Sequence replay also burns in the target actor's memory, since
   TD3's bootstrap action comes from it.
 
+## TD3+BC: offline
+
+TD3+BC (Fujimoto and Gu, *A Minimalist Approach to Offline Reinforcement
+Learning*, NeurIPS 2021, [arXiv:2106.06860](https://arxiv.org/abs/2106.06860))
+is TD3 trained on a fixed dataset with a behaviour-cloning term in the
+actor's loss. Its reference code is sfujim/TD3_BC at `8791ad7`. In Ajax it
+is TD3, `ImitationLoss` with the dataset's own actions as the target, and
+the offline mode:
+
+```python
+from ajax import TD3
+from ajax.extensions.expert import ImitationLoss
+
+agent = TD3(
+    "Pendulum-v1",
+    normalize_observations=True,  # the dataset's statistics, as the paper's
+    learning_starts=0,
+    extensions=(ImitationLoss(None, target="replay", alpha=2.5),),
+)
+# state, evaluations = agent.train_offline(dataset, n_updates=1_000_000)
+```
+
+The paper's actor loss is `-λ mean Q(s, π(s)) + mean((π(s) - a)²)`, with
+`λ = α / mean|Q(s, π(s))|` and α = 2.5 (`TD3_BC.py:141-143`). `alpha`
+gives `ImitationLoss` that weight. TD3's own term stays `-mean Q`, so Ajax
+optimises the paper's loss divided by `λ`: the same direction, at a scale
+Adam's step nearly cancels. The other settings are TD3's defaults, which
+match the reference's. The states are standardised with the dataset's
+statistics. The reference divides by the standard deviation plus `1e-3`,
+Ajax by `sqrt(var + 1e-8)`; the two differ on a column the dataset holds
+constant. The [offline mode](../guide/training.md#training-offline)
+evaluates every `log_frequency` updates, as the reference does every 5,000.
+
 ## Results
 
 The repository records no learning curves for TD3 yet. Unit tests

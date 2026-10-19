@@ -53,7 +53,13 @@ ROWS = [
 ]
 NETWORK_OPTIONS = ("memory", "cnn")
 #: Module options needing more than the module, each a column of its own.
-VARIANTS = {"ImitationLoss(q_filter=True)": ("ImitationLoss", {"q_filter": True})}
+VARIANTS: dict[str, tuple[str, dict[str, Any]]] = {
+    "ImitationLoss(q_filter=True)": ("ImitationLoss", {"q_filter": True})
+}
+VARIANTS["ImitationLoss(target='replay', alpha=2.5)"] = (
+    "ImitationLoss",
+    {"expert_policy": None, "target": "replay", "alpha": 2.5},
+)
 
 # Why each gap is open, and the work that closes it.
 ACTION = "only SAC folds action and transform_action (batch module-reach)"
@@ -111,6 +117,10 @@ GAPS: dict[str, dict[str, str]] = {
             "CriticBlend IBRL KernelRepulsion LCBGatedBootstrap MCVarianceCorrection"
             " OnlineBC PhiRefresh ValueBox ExpertValueMetrics"
             " ImitationLoss(q_filter=True)".split(),
+            "TDMPC2 TDMPC2MultiTask",
+        ),
+        **dict.fromkeys(
+            ["ImitationLoss(target='replay', alpha=2.5)"],
             "TDMPC2 TDMPC2MultiTask",
         ),
         **dict.fromkeys(

@@ -22,6 +22,7 @@ notes on using it:
 | PPO | `ajax.agents.PPO.PPO.PPO` | [PPO](../algorithms/ppo.md#api) |
 | APO | `ajax.agents.APO.APO.APO` | [APO](../algorithms/apo.md#api) |
 | UDRL | `ajax.agents.UDRL.UDRL.UDRL` | [UDRL](../algorithms/udrl.md#api) |
+| DAgger | `ajax.agents.DAgger.DAgger.DAgger` | [DAgger](../algorithms/dagger.md#api) |
 | APG | `ajax.agents.APG.APG.APG` | [APG](../algorithms/apg.md#api) |
 | DreamerV3 | `ajax.agents.DreamerV3.DreamerV3.DreamerV3` | [DreamerV3](../algorithms/dreamerv3.md#api) |
 | TDMPC2 | `ajax.agents.TDMPC2.TDMPC2.TDMPC2` | [TD-MPC2](../algorithms/tdmpc2.md#api) |

@@ -89,12 +89,16 @@ EPS = {"architecture": N32, "epsilon_start": 0.3, "epsilon_end": 0.3}
 DQN_KW = {**EPS, "buffer_size": 1000, "batch_size": 32}
 UDRL_KW = {"n_envs": 1, "actor_architecture": N32, "n_steps": 8, "batch_size": 8}
 UDRL_KW |= {"n_updates_per_iter": 4}
+# The second leg enters DAgger's second iteration (beta 1, then 0).
+DAGGER_KW = {"actor_architecture": N32, "iteration_steps": 96, "batch_size": 8}
+DAGGER_KW |= {"expert_policy": lambda obs: jnp.full(obs.shape[:-1] + (1,), 0.5)}
 EQUIVALENT = {
     "SAC": Split(_make("SAC", RD, SAC_KW), 400, 200, 200),
     "DQN": Split(_make("DQN", PV, DQN_KW), 400, 200, 200),
     "PQN": Split(_make("PQN", PV, {**EPS, "num_minibatches": 2}), 2560, 1280, 1152),
     "PPO": Split(_make("PPO", RD, NETS), 640, 320, 288),
     "UDRL": Split(_make("UDRL", PV, UDRL_KW), 128, 64, 64),
+    "DAgger": Split(_make("DAgger", RD, DAGGER_KW), 128, 64, 64),
     # APG restarts its optimizer on resume by design (train_APG.reset_optimizer).
     "APG": Split(_apg, 256, 128, 128, {"reset_optimizer_on_resume": False}),
 }

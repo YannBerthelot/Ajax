@@ -9,6 +9,7 @@ from ajax.agents.APG.APG import APG  # noqa: E402
 from ajax.agents.APO.APO import APO  # noqa: E402
 from ajax.agents.ASAC.ASAC import ASAC  # noqa: E402
 from ajax.agents.AVG.AVG import AVG  # noqa: E402
+from ajax.agents.DAgger.DAgger import DAgger  # noqa: E402
 from ajax.agents.DQN.DQN import DQN  # noqa: E402
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3  # noqa: E402
 from ajax.agents.PPO.PPO import PPO  # noqa: E402
@@ -33,6 +34,7 @@ __all__ = [
     "TD3",
     "TDMPC2",
     "UDRL",
+    "DAgger",
     "DreamerV3",
     "TDMPC2MultiTask",
 ]

@@ -35,7 +35,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "b757bf8390a2"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "1e36655f5616"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -91,17 +91,17 @@ CASES["p0a-DQN"] = Case(
     "p0a-DQN",
     (*Q_S1, *(Query(f"Q(s0, a={a})", G3, Q_S0_WRONG) for a in range(3)), GREEDY),
     _three_run("DQN"),
-    2500,
-    (0.026, 0.021, 0.033, 0.037, 0.032, 0.029, 0.02),
-    note="1250 qualified but 2 seeds of 3000-3031 read Q(s0) 0.047 off; cert 32/32",
+    1250,
+    (0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02),
+    note="at its reference init 1250 qualifies, cert 32/32 (it read 2 seeds off)",
 )
 CASES["p0a-PQN"] = Case(
     "p0a-PQN",
     (*Q_S1, Query("max_a Q(s0, a)", G3, Q_S0_WRONG), GREEDY),
     _three_run("PQN", q_lambda=0.0),
     5000,
-    (0.068, 0.043, 0.083, 0.085, 0.02),
-    note="cert 31/32; reads the greedy Q(s0): the others drift, rarely explored",
+    (0.07, 0.041, 0.078, 0.035, 0.02),
+    note="cert 32/32; reads the greedy Q(s0): the others drift, rarely explored",
 )
 CASES["p0a-PPO"] = Case(
     "p0a-PPO",
@@ -302,7 +302,7 @@ Q9_CELLS: dict[
 ] = {  # n_envs 1 runs PPO's flat path, _TIME9 brax's time geometry
     "PPO": ("PPO", 625, 0.02, _PPO9),
     "PPO-minibatch": ("PPO", 1250, 0.023, _PPO9 | _TIME9),
-    "PQN": ("PQN", 2500, 0.02, {"q_lambda": L9}),
+    "PQN": ("PQN", 1250, 0.055, {"q_lambda": L9}),
 }
 
 
@@ -430,26 +430,26 @@ PILOT["discrete"]["coupling"] = (
     ),
 )
 PILOT_CAL = {  # budget, tolerances in query order
-    "SAC-value": (1250, (0.02,)),
-    "SAC-backprop": (1250, (0.037, 0.02)),
-    "SAC-discounting": (10_000, (0.093, 0.02)),
+    "SAC-value": (625, (0.02,)),
+    "SAC-backprop": (625, (0.02, 0.02)),
+    "SAC-discounting": (10_000, (0.088, 0.02)),
     "SAC-advantage": (5000, (0.333,)),
-    "SAC-coupling": (5000, (0.333, 0.341, 0.329, 0.342)),
+    "SAC-coupling": (5000, (0.336, 0.342, 0.337, 0.341)),
     "PPO-value": (625, (0.065,)),
     "PPO-backprop": (1250, (0.02, 0.02)),
     "PPO-discounting": (5000, (0.02, 0.02)),
     "PPO-advantage": (625, (0.5,)),
     "PPO-coupling": (625, (0.5, 0.5, 0.309, 0.289)),
-    "DQN-value": (1250, (0.02,)),
-    "DQN-backprop": (1250, (0.02, 0.02)),
-    "DQN-discounting": (1250, (0.02, 0.02)),
-    "DQN-advantage": (1250, (0.02, 0.5)),
-    "DQN-coupling": (1250, (0.039, 0.02, 0.499, 0.498)),
-    "PQN-value": (80_000, (0.02,)),
-    "PQN-backprop": (5000, (0.02, 0.02)),
-    "PQN-discounting": (5000, (0.02, 0.02)),
-    "PQN-advantage": (80_000, (0.02, 0.5)),
-    "PQN-coupling": (5000, (0.02, 0.02, 0.499, 0.497)),
+    "DQN-value": (625, (0.02,)),
+    "DQN-backprop": (625, (0.02, 0.02)),
+    "DQN-discounting": (625, (0.02, 0.02)),
+    "DQN-advantage": (625, (0.02, 0.5)),
+    "DQN-coupling": (625, (0.02, 0.02, 0.5, 0.5)),
+    "PQN-value": (40_000, (0.02,)),
+    "PQN-backprop": (2500, (0.021, 0.037)),
+    "PQN-discounting": (2500, (0.02, 0.042)),
+    "PQN-advantage": (40_000, (0.02, 0.498)),
+    "PQN-coupling": (2500, (0.02, 0.039, 0.47, 0.385)),
 }
 _TERM = re.compile(r"(V|a|Q)\(([-+]?\d)(?:, a=(\d))?\)")
 
@@ -533,7 +533,7 @@ P1_CELLS: dict[str, tuple[str, str, int, dict]] = {  # agent, chain, budget, ove
     "APO-discrete": ("APO", "discrete", 4096, _ON | {"n_steps": 64, "batch_size": 64}),
     "AVG": ("AVG", "continuous", 10_000, {"gamma": G, "n_envs": 1}),  # its defaults
     "SAC": ("SAC", "continuous", 5000, _ON),
-    "TD3": ("TD3", "continuous", 5000, _ON),
+    "TD3": ("TD3", "continuous", 2500, _ON),
     "REDQ": ("REDQ", "continuous", 2500, _ON | {"num_critic_updates": 2}),
     "ASAC": ("ASAC", "asymmetric", 10_000, _ON),
     "SAC-running": ("SAC", "continuous", 5000, {"normalize_obs_running": True}),
@@ -624,12 +624,12 @@ V_DISCRETE = Query("V(s0) - oracle", 0.0, {RAW: 1.45, "untrained": -1.19})
 _MEASURED = {"(a) raw next obs (planted, measured)": -0.9, "untrained": 1.15}
 ASAC_GAP = Query("Q(s0,-0.5) - Q(s1,0.5) - oracle", 0.0, _MEASURED)
 P1_CASES = {  # cell, queries, tolerances (none for a live defect: half the gap)
-    "SAC": ("SAC", (EVAL_C, Q_SOFT), (0.036, 0.073)),
-    "TD3": ("TD3", (EVAL_C, Q_SOFT), (0.02, 0.051)),
-    "REDQ": ("REDQ", (EVAL_C, Q_SOFT), (0.051, 0.085)),
-    "SAC-running": ("SAC-running", (EVAL_C, Q_SOFT), (0.037, 0.075)),
-    "ASAC": ("ASAC", (EVAL_A, ASAC_GAP), (0.02, 0.056)),
-    "AVG": ("AVG", (EVAL_C,), (0.084,)),
+    "SAC": ("SAC", (EVAL_C, Q_SOFT), (0.036, 0.081)),
+    "TD3": ("TD3", (EVAL_C, Q_SOFT), (0.02, 0.048)),
+    "REDQ": ("REDQ", (EVAL_C, Q_SOFT), (0.049, 0.084)),
+    "SAC-running": ("SAC-running", (EVAL_C, Q_SOFT), (0.036, 0.087)),
+    "ASAC": ("ASAC", (EVAL_A, ASAC_GAP), (0.02, 0.049)),
+    "AVG": ("AVG", (EVAL_C,), (0.077,)),
     "PPO-continuous": ("PPO-continuous", (V_CONTINUOUS,), (0.069,)),
     "PPO-discrete": ("PPO-discrete", (V_DISCRETE,), (0.072,)),
     "DQN-c": ("DQN", (EVAL_D, Q_GREEDY, Q_A2), ()),
@@ -807,12 +807,12 @@ def _p8_readings(name: str) -> Callable:
 
 
 P8_SOFT = (SOFT_VALUE, *P8_POLICY, *P8_SPREAD)
-_SAC8 = (0.02, 0.035, 0.044, 0.059, 0.077, 0.02, 0.032)
+_SAC8 = (0.065, 0.034, 0.04, 0.051, 0.094, 0.023, 0.035)
 P8_CAL = {  # queries, budget, tolerances, note
-    "SAC": (P8_SOFT, 10_000, _SAC8, "5000 failed (tanh mu2 0.050)"),
-    "REDQ": (P8_SOFT, 2500, (0.087, 0.022, 0.071, 0.087, 0.091, 0.022, 0.029), ""),
+    "SAC": (P8_SOFT, 5000, _SAC8, "at its reference init; 2500 not laddered"),
+    "REDQ": (P8_SOFT, 2500, (0.02, 0.026, 0.045, 0.058, 0.076, 0.02, 0.04), ""),
     "AVG": (P8_POLICY, 20_000, (0.066, 0.1, 0.074, 0.077), "10,000 failed: 0.196"),
-    "TD3": (P8_TD3, 2500, (0.046, 0.051), ""),
+    "TD3": (P8_TD3, 2500, (0.03, 0.051), ""),
 }
 for name, (p8_queries, steps, p8_tols, note) in P8_CAL.items():
     reads, slow = _p8_readings(name), name != "SAC"

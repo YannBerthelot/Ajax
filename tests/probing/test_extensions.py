@@ -34,7 +34,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "23ae0b5777fc"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "9d2c776d94e4"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -268,12 +268,12 @@ def p3_queries(test: str, agent: str) -> tuple[Query, ...]:
 P3_CAL = {
     "E1-SAC": ("A", 2500, ()),
     "E1-PPO": ("A", 2500, (0.02, 0.02)),
-    "E1-DQN": ("A", 1250, (0.02, 0.02)),
-    "E1-PQN": ("A", 5000, (0.02, 0.02)),
+    "E1-DQN": ("A", 625, (0.02, 0.02)),
+    "E1-PQN": ("A", 2500, (0.06, 0.023)),
     "E9-SAC": ("F", 2500, ()),
     "E9-PPO": ("F", 2500, (0.02, 0.02)),
-    "E9-DQN": ("F", 1250, (0.02, 0.02)),
-    "E9-PQN": ("F", 5000, (0.02, 0.02)),
+    "E9-DQN": ("F", 625, (0.02, 0.02)),
+    "E9-PQN": ("F", 2500, (0.038, 0.021)),
     "E2-SAC": ("B", 1250, ()),
     "E2-PPO": ("B", 625, (0.023,)),
     "E2-DQN": ("B", 1250, ()),
@@ -282,7 +282,7 @@ P3_CAL = {
     "E3-PPO": ("A", 2500, (0.02,)),
     "E3-gated-SAC": ("G", 5000, ()),
     "E3-gated-PPO": ("G", 1250, (0.027,)),
-    "E7-SAC": ("E7", 200, (0.02,)),
+    "E7-SAC": ("E7", 100, (0.02,)),
 }
 
 
@@ -591,7 +591,7 @@ CASES["q7-ibrl-SAC"] = Case(
         **IBRL_KW,
     ),
     1250,
-    (0.021, 0.02, 0.083),
+    (0.02, 0.02, 0.02),
     slow=True,
     note="a_E = 1, the best action; actor frozen at init, alpha 1e-4; cert 32/32",
 )
@@ -609,8 +609,8 @@ CASES["q7-online_bc-SAC"] = Case(
         expert_buffer_n_steps=0,
         policy_update_start=200,
     ),
-    1250,
-    (0.04, 0.36),
+    625,
+    (0.033, 0.292),
     slow=True,
     note="weight ((phi* - v_min) / (v_max - v_min))^2, 1 at obs 1, 0 at obs 0; cert 32/32",
 )

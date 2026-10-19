@@ -81,6 +81,11 @@ evenly into `num_minibatches`; PQN raises otherwise.
 - **Extensions.** `on_target` extensions reshape the returns before they are
   held fixed; `critic_loss` extensions add a term to every minibatch's TD
   loss.
+- **Initialisation.** As the authors' code (`mttga/purejaxql`), which sets
+  no initialiser: every Dense layer, the Q head included, starts with
+  Flax's default `lecun_normal` kernel and a zero bias. The image encoder
+  is Ajax's shared CNN (lecun_normal, no LayerNorm), not their Atari
+  network's.
 - **Shared code.** PQN reuses DQN's Q-network wrapper, loss and
   epsilon-greedy collection, and PPO's minibatch shuffler; its own code is
   the LayerNorm network, the Q(lambda) returns and the on-policy loop.

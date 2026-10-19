@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from gymnax import EnvParams
 
@@ -11,6 +11,7 @@ from ajax.agents.TD3.train_TD3 import make_train
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
+from ajax.networks.utils import TORCH_LINEAR
 from ajax.types import EnvType
 
 
@@ -99,6 +100,27 @@ class TD3(ActorCritic):
 
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy
+        # The initialisation of TD3's reference code: sfujim/TD3 builds
+        # its actor and critics from torch nn.Linear layers it never
+        # re-initialises, at the camera-ready commit bc98e62 (TD3.py:24-26,
+        # :43-50) as at 34770cc (TD3.py:18-20, :36-43). torch's default
+        # draws kernel and bias uniform in +-1/sqrt(fan_in) (v0.4.0's
+        # torch/nn/modules/linear.py:48-52): "torch_linear". The actor's
+        # last layer included: the uniform(+-3e-3) of DDPG's paper is in
+        # neither.
+        # Recurrent TD3 (memory set) keeps Ajax's previous initialisation
+        # until Ni et al.'s, its recurrent reference (pomdp-baselines), is
+        # audited, as SAC, REDQ and ASAC do.
+        reference_init: dict[str, Any] = (
+            {}
+            if memory is not None
+            else {
+                "encoder_kernel_init": TORCH_LINEAR,
+                "mean_kernel_init": TORCH_LINEAR,
+                "value_kernel_init": TORCH_LINEAR,
+            }
+        )
+
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -114,6 +136,7 @@ class TD3(ActorCritic):
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
+            **reference_init,
             episode_length=episode_length,
             action_repeat=action_repeat,
             extensions=extensions,

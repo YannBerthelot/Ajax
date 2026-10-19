@@ -4,8 +4,8 @@ Matches the original TD3 architecture (Fujimoto et al., 2018, Table 1):
 state -> Dense -> ReLU -> Dense -> ReLU -> Dense(action_dim) -> tanh, the
 tanh :class:`~ajax.networks.networks.Squashed`'s.
 
-No LayerNorm, no log_std head. Final layer uses uniform(-3e-3, 3e-3) init
-per the paper / original DDPG init recipe.
+No LayerNorm, no log_std head. The layers' initialisers come from the
+network config (TD3 sets torch's nn.Linear default, its reference code's).
 """
 
 from collections.abc import Sequence
@@ -13,24 +13,20 @@ from typing import Optional, Tuple, Union
 
 import flax.linen as nn
 import jax
-from flax.linen.initializers import constant
 
 from ajax.environments.utils import get_action_dim
 from ajax.modules.pid_actor import PIDLaw, PIDPolicy, check_pid_actor
 from ajax.networks.distributions import Deterministic
 from ajax.networks.memory import MemoryCell, MemoryConfig
 from ajax.networks.networks import get_initialized_actor_critic
-from ajax.networks.utils import (
-    parse_architecture,
-    uniform_init,
-)
+from ajax.networks.utils import dense, parse_architecture, uniform_init
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
 )
-from ajax.types import ActivationFunction
+from ajax.types import ActivationFunction, InitializationFunction
 
 
 class DeterministicActor(nn.Module):
@@ -46,16 +42,24 @@ class DeterministicActor(nn.Module):
     input_architecture: Sequence[Union[str, ActivationFunction]]
     action_dim: int
     memory: Optional[MemoryConfig] = None
+    # The hidden layers' and the head's kernel inits (as the network
+    # config's encoder_kernel_init and mean_kernel_init); None keeps
+    # parse_layer's default and, for the head, DDPG's uniform(+-3e-3), the
+    # head recurrent TD3 keeps until Ni et al.'s initialisation is audited.
+    kernel_init: Optional[Union[str, InitializationFunction]] = None
+    head_kernel_init: Optional[Union[str, InitializationFunction]] = None
 
     def setup(self):
-        self.hidden = nn.Sequential(parse_architecture(self.input_architecture))
+        self.hidden = nn.Sequential(
+            parse_architecture(self.input_architecture, self.kernel_init)
+        )
         if self.memory is not None:
             self.memory_cell = MemoryCell(self.memory)
-        # Final layer init: uniform(-3e-3, 3e-3) -- standard DDPG/TD3 final-layer init.
-        self.head = nn.Dense(
+        self.head = dense(
             self.action_dim,
-            kernel_init=uniform_init(3e-3),
-            bias_init=constant(0.0),
+            self.head_kernel_init,
+            None,
+            uniform_init(3e-3),
             name="head",
         )
 
@@ -114,6 +118,8 @@ def get_initialized_td3_actor_critic(
             input_architecture=network_config.actor_architecture,
             action_dim=action_dim,
             memory=network_config.memory,
+            kernel_init=network_config.encoder_kernel_init,
+            head_kernel_init=network_config.mean_kernel_init,
         )
     return get_initialized_actor_critic(
         key,

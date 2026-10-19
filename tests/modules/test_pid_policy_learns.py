@@ -6,6 +6,11 @@ steps); the initial zero gains are 0.25 off. The 0.03 tolerance leaves 2.5
 times the worst error and still rejects SAC at 10k steps, whose Kp of about
 0.285 compensates the shrinkage its wide exploration noise causes through
 ``tanh``.
+
+Recalibrated 2026-10-19 once SAC's critic started as its reference code's
+(xavier_uniform, zero biases): at 40k steps SAC's Kp reads 0.034 off on
+seeds 0-4; at 80k the worst error is 0.0117 (Kp), so 0.03 leaves 2.6 times
+it again (60k: 0.017 on Ki, 1.8 times).
 """
 
 import numpy as np
@@ -30,7 +35,7 @@ RUNS = {
         SAC,
         {"n_envs": 4, "learning_starts": 500, "buffer_size": 20_000}
         | {"batch_size": 128},
-        40_000,
+        80_000,
     ),
     "PPO": (
         PPO,

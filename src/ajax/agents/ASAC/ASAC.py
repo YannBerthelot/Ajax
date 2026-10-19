@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from gymnax import EnvParams
 
@@ -14,6 +14,7 @@ from ajax.environments.utils import (
 )
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
+from ajax.networks.utils import TORCH_LINEAR
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
 
@@ -98,6 +99,27 @@ class ASAC(ActorCritic):
 
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy
+        # The initialisation of ASAC's reference code: BobMak/asac
+        # @4b68862 builds its actor from stable-baselines3 2.4.0's SAC
+        # Actor (darer/ASAC.py:15, :78-82; sac/policies.py:85, :102-103
+        # at v2.4.0) and its critics from Qsa (darer/Models.py:409-411),
+        # all torch nn.Linear layers at torch's default initialisation:
+        # "torch_linear", whose layers draw their biases too.
+        # Recurrent ASAC (memory set) keeps Ajax's previous initialisation
+        # until Ni et al.'s, its recurrent reference (pomdp-baselines), is
+        # audited, as SAC and REDQ do.
+        reference_init: dict[str, Any] = (
+            {}
+            if memory is not None
+            else {
+                "encoder_kernel_init": TORCH_LINEAR,
+                "mean_kernel_init": TORCH_LINEAR,
+                "log_std_kernel_init": TORCH_LINEAR,
+                "log_std_init": None,
+                "value_kernel_init": TORCH_LINEAR,
+            }
+        )
+
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -113,6 +135,7 @@ class ASAC(ActorCritic):
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
+            **reference_init,
             episode_length=episode_length,
             action_repeat=action_repeat,
             extensions=extensions,

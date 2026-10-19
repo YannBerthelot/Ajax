@@ -118,6 +118,12 @@ raises.
   Pendulum (torque in `[-2, 2]`) SAC reaches the whole range. The warm-up's
   uniform actions cover the whole box too. The replay stores the agent's
   `[-1, 1]` action. Evaluation uses the mean action.
+- **Initialisation.** As both reference codes (`haarnoja/sac`, and
+  `rail-berkeley/softlearning` for the learned temperature): Glorot-uniform
+  kernels and zero biases in every layer. They draw the mean and the
+  log-std from one output layer; Ajax's two heads each take Glorot's bound
+  for their own width (about 1% wider with 256 inputs). With `memory=`, SAC
+  keeps its previous initialisation until Ni et al.'s is audited.
 - **Updates per step.** Each iteration steps every env once, then makes one
   update: `num_critic_updates` critic steps, one actor step, one temperature
   step and one target update. With `n_envs=4` that is one update per four

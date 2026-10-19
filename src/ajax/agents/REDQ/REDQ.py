@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, Literal, Optional, Union
+from typing import Any, Callable, Literal, Optional, Union
 
 from gymnax import EnvParams
 
@@ -13,6 +13,7 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.extensions.base import Extension
+from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
@@ -143,6 +144,29 @@ class REDQ(ActorCritic):
 
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy
+        # The initialisation of REDQ's reference code: watchernyu/REDQ
+        # @7b5d1bf applies weights_init_ (redq/algos/core.py:18-22,
+        # xavier_uniform with gain 1, bias 0) to every Linear layer of
+        # its policy and Q networks, the mean and log-std layers
+        # included (:96-98, :194-198), whatever their comments say.
+        # Recurrent REDQ (memory set) keeps Ajax's previous initialisation
+        # until Ni et al.'s, its recurrent reference (pomdp-baselines), is
+        # audited: at REDQ's, its memory cells' actors read 24-29/32.
+        reference_init: dict[str, Any] = {}
+        if memory is None:
+            reference_init = {
+                "encoder_kernel_init": "xavier_uniform",
+                "value_kernel_init": "xavier_uniform",
+            }
+            # The Gaussian head's settings are the MLP actor's: a PID actor in
+            # its place keeps its own log-std start (PID_LOG_STD_INIT).
+            if not isinstance(actor_architecture, PIDPolicy):
+                reference_init |= {
+                    "mean_kernel_init": "xavier_uniform",
+                    "log_std_kernel_init": "xavier_uniform",
+                    "log_std_init": 0.0,
+                }
+
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -158,6 +182,7 @@ class REDQ(ActorCritic):
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
+            **reference_init,
             episode_length=episode_length,
             action_repeat=action_repeat,
             extensions=extensions,

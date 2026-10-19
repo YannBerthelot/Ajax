@@ -56,6 +56,12 @@ most 1.9e-3 (PhiRefresh's actor), 1.1e-3 (the expert policy's actor) and
 OnlineBC's golden was re-captured with MCPretrain in its stack, which every
 reader of phi* now needs (it added nothing without it): critic 5.5e-3,
 actor 4.8e-4, target 1.7e-4, alpha 3e-6.
+
+Re-captured when SAC's layers started as its reference code's (haarnoja/sac
+and softlearning: xavier_uniform kernels, zero biases, the mean and log-std
+heads included): every stack moved alike, critic +1.5..2.2%, actor
+-1.4..0.0%, target +2.4%, alpha +0.06..0.08%, as the plain-SAC parity
+goldens did, so the shift is the initialisation, not extension wiring.
 """
 
 from __future__ import annotations

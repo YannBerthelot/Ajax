@@ -25,7 +25,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "83d687782483"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "9439f8b5e02c"  # verdict.digest(CASES): every answer, pinned
 ENV, PARAMS = envs.action_box().make()
 CONTEXTS = jnp.eye(3)  # up, down, inside
 
@@ -124,7 +124,7 @@ def _dreamer(run: runs.Run) -> dict:
 # --- the cells -------------------------------------------------------------------
 # Every reading is in env units, the reach a half-width like the centre, so
 # one ceiling, 0.25 env units, is the framework's 0.1 in agent units of 2.5.
-# Overrides: learning rates 3e-4 (ASAC's own), and 1e-4 for APO, where the
+# Overrides: learning rates 3e-4, and 1e-4 for APO and ASAC, where the
 # presets' 1e-3 (AVG: its 6.3e-3 and 8.7e-3) jitter the inside action past
 # it (ASAC 0.277 at 20,000 steps; AVG 0.289 on 16 seeds at 40,000; APO, even
 # at 3e-4: NOTES); REDQ 5 critic updates a step, as P8; APG one step a
@@ -140,12 +140,12 @@ def _dreamer(run: runs.Run) -> dict:
 # mean leans to the edge. Its edges do.
 LR3 = {"actor_learning_rate": 3e-4, "critic_learning_rate": 3e-4}
 CELLS: dict[str, tuple] = {  # agent: family, budget, tolerances, overrides
-    "SAC": ("auto", 10_000, (0.069, 0.047, 0.226), {}),
-    "TD3": ("none", 2500, (0.02, 0.02, 0.241), {}),
+    "SAC": ("auto", 10_000, (0.055, 0.051, 0.218), {}),
+    "TD3": ("none", 20_000, (0.02, 0.02, 0.164), {}),
     "PPO": ("none", 25_000, (0.02, 0.02, 0.219), {"log_std_init": -1.0}),
-    "REDQ": ("auto", 5000, (0.087, 0.133, 0.243), {"num_critic_updates": 5}),
-    "ASAC": ("auto", 10_000, (0.067, 0.087, 0.25), LR3),
-    "AVG": ("AVG", 40_000, (0.02, 0.026, 0.186), LR3),
+    "REDQ": ("auto", 10_000, (0.057, 0.052, 0.232), {"num_critic_updates": 5}),
+    "ASAC": ("auto", 20_000, (0.041, 0.055, 0.224), dict.fromkeys(LR3, 1e-4)),
+    "AVG": ("AVG", 20_000, (0.026, 0.045, 0.239), LR3),
     "APO": ("none", 300_000, (0.02, 0.02, 0.145), dict.fromkeys(LR3, 1e-4)),
     "APG": ("none", 5000, (0.02, 0.02, 0.065), {"horizon": 1}),
     "DreamerV3": ("none", 32_000, (0.074, 0.076), {}),
@@ -156,8 +156,8 @@ NOTES = {  # beyond choose's pick: owner decisions, rungs ruled out and why
     "PPO": "owner: at PPO's reference log-std 0, 2 of the 64 ladder seeds (1018,"
     " 2007) end the inside mean past the box's edge, 3.0 from 25,000 to 100,000"
     " steps; that is PPO's behaviour, not a defect, so the cell starts at -1",
-    "REDQ": "2,500 too few: twice its worst reach error, 0.474, passed 0.25",
-    "AVG": "20,000 too few: twice its worst inside error, 0.256, passed 0.25",
+    "REDQ": "at its reference init 5,000 too few: twice its worst inside error 0.257",
+    "AVG": "re-laddered at its reference initialisation on 20,000 and 40,000 only",
     "APO": "at 3e-4 100,000 qualifies but certifies 28/32, and the inside action"
     " drifts past it (0.60-1.68 at 150,000-300,000); at 1e-4, 200,000: 0.293",
     "DreamerV3": "owner: judged on the edges only; its inside action, 1.67 to"

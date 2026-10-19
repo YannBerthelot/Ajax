@@ -729,6 +729,91 @@ _GOLDEN |= {
     "PPO-mcc": {"actor": 4.016942501068115, "critic": 5.263053894042969},
 }
 
+# Re-recorded on macOS ARM CPU once AVG's layers became its reference code's:
+# every kernel orthogonal with gain 1 and every bias zero, the mean (was
+# orthogonal(0.01)) and log-std head (was a zero kernel, bias -1) included.
+# Relative shifts (actor, critic), from the golden with the authors' TD-error
+# scaling: AVG -2.64%, -6.00%; alpha unchanged.
+_GOLDEN |= {
+    "AVG": {
+        "actor": 5.558319091796875,
+        "critic": 18.645687103271484,
+        "alpha": 0.07000000029802322,
+    },
+}
+
+# Re-recorded on macOS ARM CPU once ASAC's layers became its reference code's:
+# torch's nn.Linear default, every kernel and bias uniform in +-1/sqrt(fan_in)
+# (were orthogonal(1.0) hidden and Q layers, an orthogonal(0.01) mean and a
+# zero-kernel log-std head with bias -1, zero biases). Relative shifts
+# (actor, critic, alpha): ASAC +283.9%, +171.6%, -0.021%.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 17.258983612060547,
+        "critic": 27.022438049316406,
+        "alpha": 0.9727535247802734,
+    },
+}
+
+# Re-recorded on macOS ARM CPU once PQN's layers became its reference code's:
+# flax's lecun_normal kernels (were orthogonal(sqrt(2)) hidden layers and an
+# orthogonal(1.0) head), zero biases. Relative shifts (actor): PQN +30.9%,
+# PQN-nudge +30.9%; its nudge is bitwise unchanged.
+_GOLDEN |= {
+    "PQN": {"actor": 33.92633056640625},
+    "PQN-nudge": {"actor": 33.91205596923828, "nudge": 0.33566388487815857},
+}
+
+# Re-recorded on macOS ARM CPU once TD3's layers became its reference code's:
+# torch's nn.Linear default, every kernel and bias uniform in +-1/sqrt(fan_in)
+# (were orthogonal(1.0) hidden and Q layers and a uniform(+-3e-3) actor head,
+# zero biases). Relative shifts (actor, critic): TD3 +299.6%, +153.4%;
+# TD3-mcc +640.8%, +258.6%.
+_GOLDEN |= {
+    "TD3": {"actor": 15.652060508728027, "critic": 29.05111312866211},
+    "TD3-mcc": {"actor": 17.76249885559082, "critic": 28.460254669189453},
+}
+
+# Re-recorded on macOS ARM CPU once REDQ's layers became its reference code's:
+# xavier_uniform kernels and zero biases, the mean and log-std layers included
+# (were orthogonal(1.0) hidden and Q layers, an orthogonal(0.01) mean and a
+# zero-kernel log-std head with bias -1). Relative shifts (actor, critic,
+# alpha): REDQ +135.4%, +66.0%, -0.079%.
+_GOLDEN |= {
+    "REDQ": {
+        "actor": 10.559710502624512,
+        "critic": 39.23777389526367,
+        "alpha": 0.9721929430961609,
+    },
+}
+
+# Re-recorded on macOS ARM CPU once SAC's layers became its reference code's:
+# xavier_uniform kernels and zero biases, the mean and log-std heads included
+# (were orthogonal(1.0) hidden and Q layers, an orthogonal(0.01) mean and a
+# zero-kernel log-std head with bias -1). Relative shifts (actor, critic,
+# alpha): SAC-mcc +168.1%, +90.5%, +0.059%. SAC-gru (recurrent) keeps its.
+_GOLDEN |= {
+    "SAC-mcc": {
+        "actor": 8.31135368347168,
+        "critic": 15.628474235534668,
+        "alpha": 0.9759861826896667,
+    },
+}
+
+# Re-recorded on macOS ARM CPU once DQN's layers became its reference code's:
+# Torch7's nn.Linear default, kernel and bias uniform in +-1/sqrt(fan_in)
+# (were orthogonal(1.0), zero biases), the dueling heads too. Relative shifts
+# (actor, target): DQN +27.3%, +28.2%; DQN-dueling-nudge +29.4%, +29.2%; its
+# nudge is bitwise unchanged.
+_GOLDEN |= {
+    "DQN": {"actor": 12.04747200012207, "target": 11.927078247070312},
+    "DQN-dueling-nudge": {
+        "actor": 13.111983299255371,
+        "target": 12.902071952819824,
+        "nudge": 0.22634370625019073,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

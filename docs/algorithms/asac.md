@@ -87,6 +87,11 @@ and `ImitationLoss` extensions ([Expert guidance](../guide/expert-guidance.md)).
 - **Two critics.** ASAC always uses two critics; it has no `num_critics`.
 - **Extensions.** ASAC tells its extensions there is no discount: they
   receive `gamma=None`.
+- **Initialisation.** As the authors' code (stable-baselines3's SAC actor
+  and plain torch critics): every layer, the mean and log-std heads
+  included, starts as torch's `nn.Linear` does, its kernel and bias
+  uniform in `±1/sqrt(fan_in)`. With `memory=`, ASAC keeps its previous
+  initialisation until Ni et al.'s is audited.
 - **Actions and evaluation.** As SAC: a `tanh`-squashed Gaussian in
   `[-1, 1]`, mapped onto the environment's bounds; evaluation uses the mean
   action. The logged evaluation return is the usual episodic sum. ASAC

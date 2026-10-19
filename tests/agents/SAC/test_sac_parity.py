@@ -65,11 +65,18 @@ _PARITY_TIMESTEPS = 200
 # critic -0.27%, actor -0.081%, target -0.0078%, alpha +0.0028%. Previous
 # goldens: critic 565.2509155273438, actor 267.29229736328125, target
 # 523.9547119140625, alpha 0.9722516536712646.
+#
+# Re-blessed once SAC's layers started as its reference code's (haarnoja/sac
+# and softlearning: xavier_uniform kernels, zero biases, the mean and log-std
+# heads included; were orthogonal(1.0), an orthogonal(0.01) mean and a
+# zero-kernel log-std head at -1): critic -1.03%, actor +0.06%, target
+# +2.29%, alpha +0.08%. Previous goldens: critic 563.753662109375, actor
+# 267.07598876953125, target 523.9136352539062, alpha 0.9722799062728882.
 _GOLDEN = {
-    "critic": 563.753662109375,
-    "actor": 267.07598876953125,
-    "target": 523.9136352539062,
-    "alpha": 0.9722799062728882,
+    "critic": 557.9498901367188,
+    "actor": 267.2409973144531,
+    "target": 535.9058837890625,
+    "alpha": 0.9731040596961975,
 }
 _TOL = 1e-4
 

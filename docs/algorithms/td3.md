@@ -73,8 +73,11 @@ extension; a cloning term during training, of the TD3+BC form, is `ImitationLoss
 
 ## Notes
 
-- **Actor.** A deterministic MLP ending in `tanh`, its last layer
-  initialised uniformly in `[-3e-3, 3e-3]` (the DDPG recipe). Actions lie in
+- **Actor.** A deterministic MLP ending in `tanh`. As in the authors' code,
+  every layer of the actor and the critics, the actor's last included,
+  starts as torch's `nn.Linear` does: kernel and bias uniform in
+  `±1/sqrt(fan_in)` (not DDPG's `±3e-3` last layer, which TD3 keeps with
+  `memory=` until Ni et al.'s initialisation is audited). Actions lie in
   `[-1, 1]`, and Ajax maps them onto the environment's bounds, so the noise
   levels are in those `[-1, 1]` units: on gymnax Pendulum (torque in
   `[-2, 2]`) an `exploration_noise` of 0.1 is a torque noise of standard

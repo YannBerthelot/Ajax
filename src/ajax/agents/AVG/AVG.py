@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from gymnax import EnvParams
 
@@ -9,6 +9,7 @@ from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
+from ajax.modules.pid_actor import PIDPolicy
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
 
@@ -86,6 +87,17 @@ class AVG(ActorCritic):
         # its actions.
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy
+        # The Gaussian head's settings are the MLP actor's: a PID actor in its
+        # place keeps its own log-std start (PID_LOG_STD_INIT).
+        head_init: dict[str, Any] = (
+            {}
+            if isinstance(actor_architecture, PIDPolicy)
+            else {
+                "mean_kernel_init": "orthogonal(1.0)",
+                "log_std_kernel_init": "orthogonal(1.0)",
+                "log_std_init": 0.0,
+            }
+        )
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -98,6 +110,13 @@ class AVG(ActorCritic):
             weight_decay=weight_decay,
             normalize_observations=True,
             squash=True,
+            # The initialisation of AVG's reference code (gauthamvasan/avg
+            # @6b6822c, avg.py:16-20, :59-62, :97-98): every Linear layer,
+            # the mean and log-std heads included, starts orthogonal with
+            # gain 1 and a zero bias.
+            encoder_kernel_init="orthogonal(1.0)",
+            value_kernel_init="orthogonal(1.0)",
+            **head_init,
             episode_length=episode_length,
             action_repeat=action_repeat,
             extensions=extensions,

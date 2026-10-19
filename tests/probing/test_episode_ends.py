@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "ddf4bea92098"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "d1e882d49066"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -215,9 +215,9 @@ ONE_STEP = {"SAC": 5000, "REDQ": 1000, "TD3": 5000, "DQN": 5000}
 # 0.057 to 0.075); certified on 3000-3031, 32/32 for each.
 TWIN_CAL = {
     ("gymnax", "PPO"): (10_000, (0.071, 0.056, 0.099)),
-    ("gymnax", "PQN"): (10_000, (0.082, 0.093, 0.075)),
+    ("gymnax", "PQN"): (10_000, (0.096, 0.07, 0.089)),
     ("brax", "PPO"): (5000, (0.068, 0.087, 0.089)),
-    ("gymnax", "AVG"): (2500, (0.055, 0.044)),  # 1000: 0.29 off; cert 32/32
+    ("gymnax", "AVG"): (2500, (0.051, 0.055)),  # 1250: 0.19 off; cert 32/32
 }
 P6_CELLS = [("gymnax", n) for n in (*ONE_STEP, "PPO", "PQN", "AVG")]
 P6_CELLS += [("brax", n) for n in ("SAC", "PPO", "REDQ", "TD3")]
@@ -360,10 +360,10 @@ VALUE_Q = Query(
         "done mask and reward_scale ignored": 1.0 / (1.0 - G5),
     },
 )
-# Calibrated on 1000-1031 + 2000-2031, worst error 0.0059 or less (AVG 0.031
-# at 5000: one seed read 0.90 at 1250); 3000-3031 within 0.009.
-P5_VALUE = {"SAC": 1250, "REDQ": 1250, "REDQ+on_target": 1250, "TD3": 1250}
-P5_VALUE |= {"AVG": 5000, "DQN": 1250, "PQN": 160_000}
+# Calibrated on 1000-1031 + 2000-2031, worst error 0.0059 or less (AVG, at
+# its reference initialisation, 0.0091 at 2500); 3000-3031 within 0.009.
+P5_VALUE = {"SAC": 625, "REDQ": 625, "REDQ+on_target": 625, "TD3": 625}
+P5_VALUE |= {"AVG": 2500, "DQN": 625, "PQN": 80_000}
 
 
 def _p5_read(cell: str, run: runs.Run) -> dict:
@@ -378,9 +378,8 @@ for cell, budget in P5_VALUE.items():
     reads = runs.readings(
         functools.partial(_scaled, cell), functools.partial(_p5_read, cell)
     )
-    tol5 = (0.062 if cell == "AVG" else 0.02,)
     CASES[f"p5-value-{cell}"] = Case(
-        f"p5-value-{cell}", (VALUE_Q,), reads, budget, tol5
+        f"p5-value-{cell}", (VALUE_Q,), reads, budget, (0.02,)
     )
 
 SEEN: dict[str, list] = {}
@@ -655,12 +654,12 @@ TD9 = {"A": (0.0, 1.0), "B": (0.854, 1.427), "C": (0.723, 1.362)} | D0
 # fixed point, the SGD jitter averaged out).
 _P9_PPO = {"n_steps": 4096, "num_minibatches": 2, "gae_lambda": 0.5, "batch_size": 64}
 P9_CELLS: dict[str, tuple] = {
-    "SAC": (("td", 1, 0.0), TD9, 40_000, (0.059, 0.091), {"buffer_size": 16384}),
+    "SAC": (("td", 1, 0.0), TD9, 20_000, (0.046, 0.062), {"buffer_size": 16384}),
     "DQN": (
         ("td", 1, 0.0),
         TD9,
-        20_000,
-        (0.057, 0.079),
+        10_000,
+        (0.069, 0.075),
         {"buffer_size": 8192, "tau": 0.005, "target_update_interval": 1},
     ),
     "PPO": (  # 2 minibatches split the env axis, GAE recomputed per minibatch
@@ -674,8 +673,8 @@ P9_CELLS: dict[str, tuple] = {
     "PQN": (
         ("q_lambda", 512, 0.65),
         {"A": (0.394, 1.198), "B": (0.902, 1.562), "C": (0.766, 1.527)} | D0,
-        160_000,
-        (0.075, 0.097),
+        80_000,  # at its reference initialisation; 160,000 qualifies too
+        (0.089, 0.075),
         {"learning_rate": 2.5e-4, "n_steps": 512, "num_minibatches": 2, "n_epochs": 3},
     ),
 }
@@ -685,14 +684,14 @@ P9_CELLS: dict[str, tuple] = {
 _ON9 = {"normalize_observations": True, "buffer_size": 16384}
 _REDQ9 = _ON9 | {"num_critic_updates": 2}
 P9_CELLS |= {
-    "TD3": (("td", 1, 0.0), TD9, 30_000, (0.072, 0.099), _ON9),
-    "REDQ": (("td", 1, 0.0), TD9, 10_000, (0.069, 0.091), _REDQ9),
+    "TD3": (("td", 1, 0.0), TD9, 30_000, (0.058, 0.086), _ON9),
+    "REDQ": (("td", 1, 0.0), TD9, 10_000, (0.069, 0.093), _REDQ9),
     "AVG": (
         ("gae", 1, 0.0),
         {"A": (0.0, 1.0), "B": (1.195, 1.997), "C": (1.139, 2.144)} | D0,
         # C planted: (1.080, 2.045) at 80,000 steps, still climbing; C by 320,000
         80_000,  # critic rate 2e-4: worst 0.04 on 8 seeds
-        (0.069, 0.084),
+        (0.075, 0.082),
         {"actor_learning_rate": 1e-3, "critic_learning_rate": 5e-5},
     ),
     "APO": (
@@ -891,15 +890,15 @@ def _q1_asac(spec: envs.Spec, at: dict[str, float]) -> Callable:
     return runs.readings(build, lambda run: R.per_seed(one, R.nets(run.state)))
 
 
-# Calibrated on 1000-1031 + 2000-2031 at 1250 steps (worst errors 0.0116,
-# 0.0132; at 5000 one seed is 0.031 off), certified 32/32 on 3000-3031.
+# Calibrated on 1000-1031 + 2000-2031 at 1250 steps (worst 0.0108, 0.0105 at
+# the reference init; 625 reads 0.15 off), certified 32/32 on 3000-3031.
 TERM_Q = tuple(
     Query(name, Q1_RIGHT[i], {k: v[i] for k, v in Q1_WRONG.items()})
     for name, i in (("Q(R) - Q(A)", 0), ("Q(B) - Q(A)", 2))
 )
 term_run = _q1_asac(ASAC_TERM, {"Q(R) - Q(A)": 1.0, "Q(B) - Q(A)": -1.0})
 CASES["q1-ASAC-termination"] = Case(
-    "q1-ASAC-termination", TERM_Q, term_run, 1250, (0.023, 0.026)
+    "q1-ASAC-termination", TERM_Q, term_run, 1250, (0.022, 0.021)
 )
 # A <-> B (obs 0, 1; r 0, 3): the limit fires on a step from A, whose true
 # next obs is B; bootstrapping there, the cycle reads as if it never ended.
@@ -907,8 +906,8 @@ CASES["q1-ASAC-truncation"] = Case(
     "q1-ASAC-truncation",
     (Query("Q(B) - Q(A)", 1.5, {"truncation bootstraps the reset observation": 2.0}),),
     _q1_asac(ASAC_TRUNC, {"Q(B) - Q(A)": 1.0}),
-    1250,
-    (0.1,),
+    625,  # worst 0.034 (1250: 0.008); certified 32/32
+    (0.067,),
 )
 
 

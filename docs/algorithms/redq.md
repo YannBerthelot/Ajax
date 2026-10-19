@@ -93,6 +93,11 @@ extension; a cloning term during training is `ImitationLoss`
   mean squared error. `alpha_init=1.0` matches the code's `log_alpha`
   starting at 0; the code then uses `alpha=0.2` until its first temperature
   step, a transient Ajax does not reproduce.
+- **Initialisation.** As the authors' code: every layer of the actor and
+  the critics, the mean and log-std layers included, starts Xavier-uniform
+  with a zero bias, each critic of the ensemble drawn on its own. With
+  `memory=`, REDQ keeps its previous initialisation until Ni et al.'s is
+  audited.
 - **Target entropy.** The default is `-1` per action dimension.
   `target_entropy_per_dim="mbpo"` takes MBPO's per-task value instead, the
   authors' default, for the Brax ids `hopper` (-1), `halfcheetah` (-3),

@@ -89,21 +89,6 @@ def linear_epsilon(
     epsilon_decay_frac: float,
 ) -> jax.Array:
     """Epsilon at ``timestep``: linear from ``epsilon_start`` to
-    ``epsilon_end`` over the first ``epsilon_decay_frac`` of training, then
-    flat."""
-    train_frac = timestep / total_timesteps
-    decay = jnp.clip(train_frac / epsilon_decay_frac, 0.0, 1.0)
-    return epsilon_start + decay * (epsilon_end - epsilon_start)
-
-
-def linear_epsilon(
-    timestep: jax.Array,
-    total_timesteps: int,
-    epsilon_start: float,
-    epsilon_end: float,
-    epsilon_decay_frac: float,
-) -> jax.Array:
-    """Epsilon at ``timestep``: linear from ``epsilon_start`` to
     ``epsilon_end`` over the first ``epsilon_decay_frac`` of the
     ``total_timesteps`` horizon, then flat."""
     train_frac = timestep / total_timesteps

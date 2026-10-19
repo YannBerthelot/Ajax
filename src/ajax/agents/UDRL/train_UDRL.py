@@ -478,7 +478,8 @@ def evaluate_UDRL(
 ) -> dict:
     """The deterministic policy's return, entropy and length on
     ``num_episode_test`` episodes of the shared evaluation, commanded by
-    :class:`EvalCommand`."""
+    :class:`EvalCommand`, and the return and horizon each episode is
+    commanded with at its start."""
     returns, entropy, _, _, length, _ = evaluate(
         env_args.env,
         agent_state.actor_state,
@@ -493,6 +494,8 @@ def evaluate_UDRL(
         "Eval/episodic mean reward": returns,
         "Eval/episodic entropy": entropy,
         "Eval/mean episodic length": length,
+        "Eval/commanded return": agent_state.command_target_return,
+        "Eval/commanded horizon": agent_state.command_target_horizon,
     }
 
 
@@ -520,6 +523,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    end_timestep: Optional[int] = None,
     extensions: Sequence = (),
 ):
     """UDRL's train function: its own iteration (a segment, the replay of
@@ -539,6 +543,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        end_timestep=end_timestep,
     )
     per_iter = env_args.n_envs * agent_config.n_steps
     loop.warn_if_partial(per_iter, "n_envs x n_steps")

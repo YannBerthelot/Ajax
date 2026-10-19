@@ -232,6 +232,39 @@ def test_sac_logs_the_filtered_fraction_on_a_replay_batch() -> None:
     )
 
 
+_REPLAY = {"n_envs": 2, "learning_starts": 16, "batch_size": 8}
+Q_AGENTS = {
+    "TD3": (TD3, _REPLAY),
+    "REDQ": (REDQ, _REPLAY | {"num_critic_updates": 1}),
+    "ASAC": (ASAC, _REPLAY),
+    "AVG": (AVG, {}),
+}
+
+
+@pytest.mark.parametrize("name", sorted(Q_AGENTS))
+def test_the_other_q_critic_agents_train_with_the_filter(name: str) -> None:
+    """Each other agent with a Q critic trains with the filter on its
+    stateful expert's stored actions; those with a replay log the share it
+    keeps, AVG (none) no share."""
+    cls, kwargs = Q_AGENTS[name]
+    expert = _StatefulHalfTorque()
+    agent = cls(
+        "Pendulum-v1",
+        actor_architecture=NET,
+        critic_architecture=NET,
+        expert_policy=expert,
+        extensions=(ImitationLoss(expert_policy=expert, q_filter=True),),
+        **kwargs,
+    )
+    logged = LoggingConfig({}, log_frequency=32, use_wandb=False)
+    _, rows = agent.train(seed=0, n_timesteps=64, logging_config=logged)
+    if name == "AVG":
+        assert "imitation/q_filter_frac" not in rows
+        return
+    frac = np.asarray(rows["imitation/q_filter_frac"][0, :2])  # at 32 and 64 steps
+    assert np.all((frac >= 0.0) & (frac <= 1.0)), frac
+
+
 def _ext_state(state: Any, stack: ExtensionStack) -> Any:
     """What make_train does before training: one ext_state per extension."""
     return stack.fold_init_states(state, KEY)
@@ -426,6 +459,28 @@ def test_imitation_term_steers_the_actor_update(agent: str) -> None:
     absent = update(ExtensionStack())
     assert _same(update(_stack(0.0)), absent), "zero weight must change nothing"
     assert not _same(update(_stack(100.0)), absent), "the term must reach the actor"
+
+
+@pytest.mark.parametrize("agent", ["TD3", "REDQ", "ASAC", "AVG"])
+def test_the_critic_in_the_actor_batch_is_inert_without_the_filter(
+    agent: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The critic the filter reads joins the actor-loss batch; unread, the
+    actor update traces to the same program as with a batch without it."""
+    update = UPDATES[agent]
+
+    def program() -> str:
+        return str(jax.make_jaxpr(lambda: update(_stack(1.0)))())
+
+    with_critic, fold = program(), ExtensionStack.fold_actor_loss
+
+    def without(self: ExtensionStack, state: Any, batch: dict, *args: Any) -> Any:
+        return fold(
+            self, state, {k: batch[k] for k in batch.keys() - {"critic_state"}}, *args
+        )
+
+    monkeypatch.setattr(ExtensionStack, "fold_actor_loss", without)
+    assert program() == with_critic
 
 
 @pytest.mark.parametrize("geometry", [{}, {"unroll_length": 8, "num_minibatches": 2}])

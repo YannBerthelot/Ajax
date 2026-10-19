@@ -34,10 +34,11 @@ state you pass in, so read or save what you need from it first.
 
 A checkpoint stores data only. The optimisers' update rules and the
 networks' functions are code, not data: they come from the skeleton, which
-an identically configured agent builds with a 0-step `train` call. The
-agent may be a new instance in a new process. A run that saves a checkpoint
-after each chunk of training, and picks up from the last one when
-restarted:
+an identically configured agent builds with a 0-step `train` call given the
+run's `train` options (an update rule may depend on them, as APG's
+learning-rate schedule does, [below](#things-to-know)). The agent may be a
+new instance in a new process. A run that saves a checkpoint after each
+chunk of training, and picks up from the last one when restarted:
 
 ```python
 import os
@@ -50,12 +51,18 @@ path = os.path.join(tempfile.mkdtemp(), "sac_pendulum.pkl")
 seeds, chunk, total = [0, 1], 1_000, 2_000
 
 agent = SAC("Pendulum-v1", learning_starts=500)
-state, _ = agent.train(seed=seeds, n_timesteps=0)  # the skeleton: init only
+# The skeleton: init only, with the run's options.
+state, _ = agent.train(seed=seeds, n_timesteps=0, total_timesteps=total)
 if checkpoint_exists(path):
     state = restore_into(state, path)
 
-while int(state.collector_state.timestep[0]) < total:
-    state, _ = agent.train(seed=seeds, n_timesteps=chunk, initial_state=state)
+while (done := int(state.collector_state.timestep[0])) < total:
+    state, _ = agent.train(
+        seed=seeds,
+        n_timesteps=min(chunk, total - done),
+        initial_state=state,
+        total_timesteps=total,  # the schedules run over the whole run
+    )
     save_checkpoint(state, path)
 print(state.collector_state.timestep)  # [2000 2000]
 ```
@@ -76,21 +83,22 @@ episodes, as the run left whole.
 
 Schedules continue rather than restart. Each call trains from the timestep
 it was given to that timestep plus `n_timesteps`, and measures the training
-fraction, the extensions' schedules and the logging against that horizon.
-A schedule set as a fraction of training is therefore measured against each
-call's own horizon: plan a split run's schedules with that in mind.
+fraction, the exploration, the extensions' schedules and the logging
+against the horizon `total_timesteps`. Pass the whole run's horizon to every
+call, as the loop above does, and a split run follows the schedules of one
+call; without it, each call's horizon is its own end.
 
 ## What the tests guarantee
 
 The resume tests train a run in one call and again in two. Between the
 two calls they save the state, check that it restores leaf for leaf into a
-new agent's skeleton, and continue on that new agent; then they compare the
-two end states:
+new agent's skeleton, and continue from the restored state on that new
+agent; then they compare the two end states:
 
 | Agents | Check |
 | --- | --- |
-| SAC, ASAC, REDQ, TD3, AVG, APO, PPO, DQN, PQN, UDRL | every array of the final state equal, to a relative 1e-5, with every normalisation the agent takes switched on; once more with a GRU memory for SAC, ASAC, REDQ, TD3 and PPO |
-| APG | the same, with and without memory |
+| SAC, ASAC, REDQ, TD3, AVG, APO, PPO, DQN, PQN, UDRL | every array of the final state equal, to a relative 1e-5, with every normalisation the agent takes switched on and every call told the run's horizon (DQN's and PQN's epsilon decays across the split); once more with a GRU memory for SAC, ASAC, REDQ, TD3 and PPO |
+| APG | the same, with and without memory; with memory, the optimiser kept and a warm-up cosine learning rate |
 | DreamerV3, TDMPC2, TDMPC2MultiTask | the same, in their own test files |
 
 The tolerance is there because two programs compiled apart may round
@@ -104,11 +112,17 @@ the steps the whole run does.
 - **The seeds must stand at the same timestep.** A state whose seeds
   disagree on the timestep cannot be resumed and raises an error.
 - **On-policy agents add a rollout per call.** PPO, APO and PQN train in
-  whole rollouts plus one, so each call ends a rollout past its budget. A run
-  split into calls ends later than one call with the same total.
+  whole rollouts plus one, so each call ends up to a rollout past its budget.
+  A run split into calls ends where one call does when its last call trains
+  the rest, `total_timesteps` minus the timestep reached
+  ([Continuing a run](training.md#continuing-a-run)); otherwise it may end
+  elsewhere.
 - **APG restarts its optimiser on a resume** by default, which its staged
-  curriculum relies on. Pass `reset_optimizer_on_resume=False` to `train` to
-  keep it.
+  curriculum relies on: its learning-rate schedule then spans each call.
+  Pass `reset_optimizer_on_resume=False` to `train` to keep it. The kept
+  optimiser runs the schedule it was built with, by the run's first call or
+  the skeleton: give that call `reset_optimizer_on_resume=False` and the
+  run's `total_timesteps` too, and the schedule spans the run.
 - **Checkpoints follow the code.** A checkpoint restores into the state
   layout of the Ajax version that loads it. When a layout changes, Ajax keeps
   a conversion for older checkpoints for a while, then removes it. Today
@@ -125,6 +139,10 @@ the steps the whole run does.
     - a Brax environment state saved before the observation normaliser kept
       the raw observation: it is rebuilt from the saved observation and
       statistics;
+    - UDRL's segment buffer saved with `cum_rewards`, a running sum of its
+      rewards that nothing read: the field is dropped. A saved field that
+      the new layout lacks and does not list as removed is a mismatch and
+      still raises;
     - a UDRL segment buffer saved with a second copy of the environment's
       own observations (`raw_obs`, kept for a run with an expert on
       2026-10-17): the copy is dropped, since `obs` holds them. A UDRL buffer

@@ -9,6 +9,7 @@ from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import collect_experience, reset
 from ajax.networks.memory import MEMORY_KINDS, MemoryConfig, zeros_carry_like
 from ajax.networks.networks import get_initialized_actor_critic
+from tests.probing import readouts
 
 
 def test_PPO_train_playground_smoke():
@@ -83,6 +84,26 @@ def test_a_forced_reset_marks_an_episode_start_for_a_recurrent_policy(kind):
         for h in (after.actor_state.hidden_state, want)
     )
     np.testing.assert_allclose(got, wanted, rtol=1e-5, atol=1e-5)
+
+
+def test_a_split_run_resets_on_the_one_calls_cadence():
+    """brax's ``num_resets_per_eval`` divides the run's updates: a run of 96
+    steps (7 updates of 16, whole rollouts plus one) with ``num_evals=3``
+    resets every 4 updates, once. Split in two, it resets as the one call
+    does, on update 4, its second leg's first: the first leg is told the
+    run's horizon, the second ends where the run does (its own end is the
+    horizon) and counts the run's updates, not its own."""
+
+    def agent():
+        return PPO(
+            "Pendulum-v1", n_envs=2, n_steps=8, num_resets_per_eval=1, num_evals=3
+        )
+
+    one, _ = agent().train(seed=0, n_timesteps=96)
+    first, _ = agent().train(seed=0, n_timesteps=32, total_timesteps=96)
+    np.testing.assert_array_equal(first.n_updates, 3)
+    split, _ = agent().train(seed=0, n_timesteps=96 - 48, initial_state=first)
+    assert not readouts.differing_leaves(one, split)
 
 
 def test_ppo_defaults_to_its_reference_log_std():

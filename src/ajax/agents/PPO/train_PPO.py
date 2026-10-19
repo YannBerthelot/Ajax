@@ -17,6 +17,7 @@ Each iteration collects an ``(n_steps, n_envs)`` rollout, then runs
 """
 
 import dataclasses
+import math
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple
 
@@ -31,7 +32,10 @@ from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
     ValueAuxiliaries,
+    approximate_kl,
     clipped_surrogate,
+    explained_variance,
+    mean_policy_std,
     policy_entropy,
     recompute_log_prob,
     resolve_clip_coef,
@@ -157,6 +161,7 @@ def value_loss_function(
         critic_loss=loss,
         predictions=v_preds.mean().flatten(),
         targets=value_targets.mean().flatten(),
+        explained_variance=explained_variance(v_preds, value_targets),
     )
 
 
@@ -217,6 +222,8 @@ def policy_loss_function(
         old_log_probs=log_probs.mean(),
         clip_fraction=clip_fraction,
         entropy=entropy,
+        approx_kl=approximate_kl(new_log_probs - log_probs),
+        policy_std=mean_policy_std(pi),
     )
 
 
@@ -294,6 +301,34 @@ class Geometry:
     length: int  # steps per fragment ("time") or sequence ("recurrent")
 
 
+def default_bptt_length(n_steps: int, n_envs: int, num_minibatches: int) -> int:
+    """The longest sequences that cut every env's rollout evenly and split
+    exactly into ``num_minibatches``; an explicit ``bptt_length`` splits
+    only if it divides this one.
+
+    Libraries disagree on a recurrent PPO's BPTT length (RLlib 20 steps,
+    Sample Factory the rollout, Pleines et al., 2022, tuned per task), so the
+    minibatches set it. When ``n_envs`` is a multiple of ``num_minibatches``
+    it is the whole rollout, each minibatch a subset of the envs, as in
+    Baselines' ppo2 (ea25b9e, ppo2.py:167-180), CleanRL's ppo_atari_lstm
+    (fe8d8a0, :296-313) and PureJaxRL's ppo_rnn (31756b1, :258-291).
+    Otherwise each rollout is cut into the fewest equal pieces that split:
+    ``num_minibatches // gcd(n_envs, num_minibatches)`` of them, which must
+    divide ``n_steps`` (ValueError if not; no length would split then).
+    docs/guide/memory.md compares the libraries and says how to set it.
+    """
+    pieces = num_minibatches // math.gcd(n_envs, num_minibatches)
+    if n_steps % pieces:
+        raise ValueError(
+            f"Recurrent PPO cannot split {n_envs} envs' rollouts of"
+            f" n_steps={n_steps} into {num_minibatches} minibatches of whole"
+            f" sequences: each rollout would need {pieces} equal pieces. Choose"
+            " n_steps, n_envs and num_minibatches (batch_size when it is 0) so"
+            " that they split (docs/guide/memory.md)."
+        )
+    return n_steps // pieces
+
+
 def minibatch_geometry(
     agent_config: PPOConfig, n_steps: int, n_envs: int, recurrent: bool
 ) -> Geometry:
@@ -306,15 +341,25 @@ def minibatch_geometry(
     minibatch: recomputing GAE on a single minibatch, the whole rollout,
     with a critic that just stepped only makes the value targets oscillate
     (the flake of the one-env probing fixture). A recurrent rollout is a
-    pool of sequences of ``bptt_length`` steps (whole rollouts by default),
-    in one minibatch when the pool does not split evenly (one env).
+    pool of sequences of ``bptt_length`` steps (by default
+    :func:`default_bptt_length`) that must split exactly into the
+    minibatches, as Baselines' and CleanRL's recurrent PPO assert: a
+    ``bptt_length`` that does not divide the default raises ValueError.
     """
     num_minibatches = resolve_num_minibatches(agent_config)
     if recurrent:
-        length = agent_config.bptt_length or n_steps
-        if num_minibatches > 1 and n_steps // length * n_envs % num_minibatches == 0:
-            return Geometry("recurrent", num_minibatches, length)
-        return Geometry("recurrent", 1, length)
+        longest = default_bptt_length(n_steps, n_envs, num_minibatches)
+        length = agent_config.bptt_length or longest
+        if longest % length:
+            raise ValueError(
+                f"Recurrent PPO minibatches whole sequences: {n_envs} envs'"
+                f" rollouts of n_steps={n_steps} cut into sequences of"
+                f" bptt_length={length} steps do not split into"
+                f" {num_minibatches} minibatches. bptt_length must divide"
+                f" {longest}, the longest length that does; None picks it"
+                " (docs/guide/memory.md)."
+            )
+        return Geometry("recurrent", num_minibatches, length)
     unroll = agent_config.unroll_length
     if (
         unroll is not None
@@ -739,6 +784,9 @@ def update_agent(
             actor, critic, p_grads, v_grads, agent_config.max_grad_norm
         )
         agent_state = agent_state.replace(critic_state=critic, actor_state=actor)
+        # Each network's norm before the joint clip.
+        p_aux = p_aux.replace(grad_norm=optax.global_norm(p_grads))
+        v_aux = v_aux.replace(grad_norm=optax.global_norm(v_grads))
         return agent_state, AuxiliaryLogs(policy=p_aux, value=v_aux)
 
     agent_state, aux = run_epochs(
@@ -783,6 +831,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    end_timestep: Optional[int] = None,
     extensions: Sequence = (),
 ):
     """PPO's train function: an ``n_steps`` rollout per env, then one
@@ -798,6 +847,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        end_timestep=end_timestep,
     )
 
     def init(key: jax.Array) -> PPOState:
@@ -822,7 +872,9 @@ def make_train(
             recurrent,
             loop.stack,
             total_timesteps,
-            loop.n_rollouts(agent_config.n_steps),
+            # brax's reset cadence divides the whole training: the updates
+            # of one call over the run, from 0 to its horizon.
+            loop.n_rollouts(agent_config.n_steps, total_timesteps),
         )
 
     return loop.on_policy(

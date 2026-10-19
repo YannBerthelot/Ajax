@@ -14,6 +14,8 @@ from typing import Any, Callable, Optional, Tuple
 import distrax
 import jax
 import jax.numpy as jnp
+import optax
+from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.APO.state import APOConfig, APOState
@@ -21,8 +23,10 @@ from ajax.agents.loop import TrainLoop
 from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
-    ValueAuxiliaries,
+    approximate_kl,
     clipped_surrogate,
+    explained_variance,
+    mean_policy_std,
     policy_entropy,
     recompute_log_prob,
     resolve_clip_coef,
@@ -30,6 +34,7 @@ from ajax.agents.PPO.core import (
     rollout_actions,
     run_epochs,
 )
+from ajax.agents.PPO.core import ValueAuxiliaries as PPOValueAuxiliaries
 from ajax.agents.PPO.train_PPO import init_PPO, joint_step
 from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
 from ajax.environments.interaction import get_pi
@@ -43,6 +48,15 @@ from ajax.state import (
     OptimizerConfig,
     Transition,
 )
+
+
+@struct.dataclass(kw_only=True)
+class ValueAuxiliaries(PPOValueAuxiliaries):
+    """PPO's critic metrics, the value bias ``b`` the loss used and the
+    reward rate ``rho`` the targets used (filled in after the step)."""
+
+    value_bias: jax.Array
+    average_reward: jax.Array | float = jnp.nan
 
 
 def policy_loss_function(
@@ -76,6 +90,8 @@ def policy_loss_function(
         old_log_probs=log_probs.mean(),
         clip_fraction=clip_fraction,
         entropy=entropy.mean(),
+        approx_kl=approximate_kl(new_log_probs - log_probs),
+        policy_std=mean_policy_std(pi),
     )
     pi_mean = None if isinstance(pi, distrax.Categorical) else pi.mean()
     return total_loss, (aux, pi_mean)
@@ -126,6 +142,8 @@ def value_loss_function(
         critic_loss=loss,
         predictions=v_preds.mean().flatten(),
         targets=value_targets.mean().flatten(),
+        explained_variance=explained_variance(v_preds, value_targets),
+        value_bias=jnp.asarray(b),
     )
 
 
@@ -216,6 +234,14 @@ def update_networks(
         critic_grads,
         agent_config.max_grad_norm,
         norm_eps=TORCH_CLIP_EPS,
+    )
+    # Each network's gradient norm before the joint clip, as PPO logs them.
+    aux = AuxiliaryLogs(
+        policy=aux.policy.replace(grad_norm=optax.global_norm(actor_grads)),
+        value=aux.value.replace(
+            grad_norm=optax.global_norm(critic_grads),
+            average_reward=agent_state.average_reward,
+        ),
     )
     return agent_state.replace(actor_state=actor_state, critic_state=critic_state), aux
 
@@ -351,6 +377,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    end_timestep: Optional[int] = None,
     expert_policy: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
@@ -370,6 +397,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        end_timestep=end_timestep,
         expert_policy=expert_policy,
     )
 

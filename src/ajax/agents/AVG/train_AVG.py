@@ -263,7 +263,7 @@ def update_value_functions(
             agent_state.scaling_coef,
         )
 
-    critic_state, aux = critic_step(
+    critic_state, aux, _ = critic_step(
         agent_state,
         transition,
         target_q,
@@ -316,6 +316,7 @@ def update_policy(
             "actor_params": params,
             "actor_state": actor_state,
             "a_expert": a_expert,
+            "critic_state": agent_state.critic_state,
         }
         extra = extension_stack.fold_actor_loss(
             agent_state,
@@ -327,7 +328,7 @@ def update_policy(
         )
         return loss + extra, aux
 
-    actor_state, aux = gradient_step(actor_state, loss_fn)
+    actor_state, aux, _ = gradient_step(actor_state, loss_fn)
     return agent_state.replace(actor_state=actor_state), aux
 
 
@@ -391,6 +392,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    end_timestep: Optional[int] = None,
     expert_policy: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
@@ -410,6 +412,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        end_timestep=end_timestep,
         expert_policy=expert_policy,
     )
 

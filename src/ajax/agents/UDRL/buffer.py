@@ -12,7 +12,7 @@ per-episode storage that would require variable-length JAX arrays.
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import ClassVar, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -23,17 +23,16 @@ from ajax.types import Replaceable
 
 @struct.dataclass
 class SegmentBuffer(Replaceable):
+    # cum_rewards, a per-slot prefix sum of the rewards, went once the
+    # sampler read episode_stream instead; checkpoints saved with it restore
+    # without it (ajax.checkpoint, expand-then-contract, rule 10).
+    removed_fields: ClassVar[frozenset[str]] = frozenset({"cum_rewards"})
     # (B, T, n_envs, obs_dim_with_cmd) the env's own observations, with the
     # command: the agent normalises them when it reads them.
     obs: jnp.ndarray
     actions: jnp.ndarray  # (B, T, n_envs, action_dim)
     rewards: jnp.ndarray  # (B, T, n_envs, 1)
     dones: jnp.ndarray  # (B, T, n_envs, 1)  float in {0., 1.}
-    # (B, T+1, n_envs, 1) per-slot prefix sum, cum[..., 0]=0. Deliberately
-    # kept though nothing reads it since the sampler reads episode_stream:
-    # checkpoints saved with it still restore (expand-then-contract, rule
-    # 10). Drop it with a restore shim that discards the saved field.
-    cum_rewards: jnp.ndarray
     # (B, n_envs, 1) 1. where the slot's first step starts an episode: what
     # the top-K statistics need of an evicted slot (``topk_command_stats``).
     episode_start: jnp.ndarray
@@ -60,9 +59,6 @@ def init_buffer(
         ),
         rewards=jnp.zeros((capacity, segment_length, n_envs, 1), dtype=jnp.float32),
         dones=jnp.zeros((capacity, segment_length, n_envs, 1), dtype=jnp.float32),
-        cum_rewards=jnp.zeros(
-            (capacity, segment_length + 1, n_envs, 1), dtype=jnp.float32
-        ),
         episode_start=jnp.zeros((capacity, n_envs, 1), dtype=jnp.float32),
         write_idx=jnp.asarray(0, dtype=jnp.int32),
         fill_count=jnp.asarray(0, dtype=jnp.int32),
@@ -94,10 +90,6 @@ def add_segment(
     capacity = buffer.obs.shape[0]
     slot = buffer.write_idx  # stored modulo capacity
     actions = _ensure_action_trailing_dim(actions)
-    cum = jnp.concatenate(
-        [jnp.zeros_like(rewards[:1]), jnp.cumsum(rewards, axis=0)],
-        axis=0,
-    )  # (T+1, n_envs, 1)
     # The segment starts an episode where the previous one ended on a done,
     # or when it is the first.
     previous_end = buffer.dones[(slot - 1) % capacity, -1]
@@ -108,9 +100,6 @@ def add_segment(
         actions=buffer.actions.at[slot].set(actions.astype(buffer.actions.dtype)),
         rewards=buffer.rewards.at[slot].set(rewards.astype(buffer.rewards.dtype)),
         dones=buffer.dones.at[slot].set(dones.astype(buffer.dones.dtype)),
-        cum_rewards=buffer.cum_rewards.at[slot].set(
-            cum.astype(buffer.cum_rewards.dtype)
-        ),
         episode_start=buffer.episode_start.at[slot].set(starts),
         write_idx=(buffer.write_idx + 1) % capacity,
         fill_count=jnp.minimum(buffer.fill_count + 1, capacity),

@@ -126,6 +126,33 @@ def test_a_resumed_call_trains_its_budget_toward_the_run_horizon() -> None:
     assert seen == [144]
 
 
+def test_a_call_told_a_later_horizon_trains_to_its_own_end() -> None:
+    """A first call to 64 of a run to 100 trains 64 steps (whole rollouts
+    plus one: 3 of 32), folds its extensions over the whole run and has a
+    row for each log point up to where it reaches, never past the horizon."""
+    seen = []
+
+    @dataclass(frozen=True)
+    class Total(Extension):
+        name: str = "total"
+
+        def post_update(self, agent_state, ext_state, ctx):
+            seen.append(ctx.total_steps)
+            return agent_state, ext_state
+
+    first = dataclasses.replace(
+        _loop(Total()),
+        env_args=SimpleNamespace(n_envs=4),  # type: ignore[arg-type]
+        end_timestep=64,
+        log=True,
+        log_frequency=10,
+    )
+    assert (first.budget, first.n_evaluations, first.n_rollouts(8)) == (64, 6, 3)
+    assert (first.evaluations_until(96), first.evaluations_until(160)) == (9, 10)
+    first.post_update(_state(10, (jnp.asarray(0),)))
+    assert seen == [100]
+
+
 def test_the_post_update_runs_after_the_update() -> None:
     """Inside the gate, the extensions see the updated state."""
 
@@ -166,6 +193,23 @@ def test_a_budget_off_whole_iterations_warns() -> None:
         loop.warn_if_partial(4, "n_envs")
 
 
+def test_a_split_call_warns_at_its_own_end_and_a_run_count_stays_quiet() -> None:
+    """A call to 60 of a run to 100, not whole rollouts of 32, warns about
+    timestep 60, its own end. Counting the whole run's rollouts (PPO's
+    forced-reset cadence) does not warn: that count is not the call's
+    budget."""
+    first = dataclasses.replace(
+        _loop(),
+        env_args=SimpleNamespace(n_envs=4),  # type: ignore[arg-type]
+        end_timestep=60,
+    )
+    with pytest.warns(UserWarning, match=r"evaluation due at timestep 60 "):
+        assert first.n_rollouts(8) == 60 // 32 + 1
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert first.n_rollouts(8, 100) == 100 // 32 + 1
+
+
 def test_gradient_step_applies_the_loss_gradient() -> None:
     params = {"w": jnp.asarray(3.0)}
     train_state = TrainState.create(apply_fn=None, params=params, tx=optax.sgd(0.5))
@@ -173,9 +217,24 @@ def test_gradient_step_applies_the_loss_gradient() -> None:
     def loss_fn(p):
         return p["w"] ** 2, {"w": p["w"]}
 
-    stepped, aux = gradient_step(train_state, loss_fn)
+    stepped, aux, grad_norm = gradient_step(train_state, loss_fn)
     assert float(stepped.params["w"]) == 3.0 - 0.5 * 6.0
     assert float(aux["w"]) == 3.0 and int(stepped.step) == 1
+    assert float(grad_norm) == 6.0
+
+
+def test_gradient_step_reports_the_norm_before_the_clip() -> None:
+    """The norm is the raw gradients': an optimiser that clips them to 1
+    steps by 1, and the reported norm stays 6."""
+    params = {"w": jnp.asarray(3.0), "v": jnp.asarray(0.0)}
+    tx = optax.chain(optax.clip_by_global_norm(1.0), optax.sgd(1.0))
+    train_state = TrainState.create(apply_fn=None, params=params, tx=tx)
+
+    def loss_fn(p):
+        return p["w"] ** 2 + 0.0 * p["v"], None
+
+    stepped, _, grad_norm = gradient_step(train_state, loss_fn)
+    assert float(stepped.params["w"]) == 2.0 and float(grad_norm) == 6.0
 
 
 # --- Where a replayed target stops bootstrapping ------------------------------
@@ -210,7 +269,7 @@ def test_the_extensions_see_the_cuts_the_target_used() -> None:
     def value_loss(params, target_q):
         return jnp.mean((params["w"] - target_q) ** 2), target_q
 
-    _, seen = critic_step(
+    _, seen, grad_norm = critic_step(
         state,
         _ENDS,
         jnp.zeros((4, 1)),
@@ -224,11 +283,13 @@ def test_the_extensions_see_the_cuts_the_target_used() -> None:
         reward_scale=1.0,
     )
     np.testing.assert_array_equal(seen[:, 0], [0, 0, 1, 1])
+    # d/dw mean((w - target)^2) at w = 0 on the target [0, 0, 1, 1]: -1.
+    assert float(grad_norm) == 1.0
 
 
 # --- Evaluations without a logging backend -----------------------------------
-def _config(**kw: Any) -> LoggingConfig:
-    return LoggingConfig(config={}, log_frequency=10, use_wandb=False, **kw)
+def _config(log_frequency: int = 10, **kw: Any) -> LoggingConfig:
+    return LoggingConfig(config={}, log_frequency=log_frequency, use_wandb=False, **kw)
 
 
 def test_the_logging_worker_starts_only_for_a_backend() -> None:
@@ -327,6 +388,21 @@ def test_a_logged_run_resumes_from_its_checkpoint(tmp_path: Any) -> None:
     np.testing.assert_array_equal(resumed.collector_state.timestep, 2 * 80)
     logged = [96, 112, 128, 144, -1, -1]
     np.testing.assert_array_equal(resumed_rows["timestep"], [logged] * len(SEEDS))
+
+
+def test_a_rollout_past_the_calls_end_evaluates_before_the_horizon() -> None:
+    """Told the run ends at 144, a call of 64 steps evaluates at its extra
+    rollout's 80 (a 16-step frequency), as the run's one call would, and
+    returns a row for it."""
+    _, rows = _apo().train(
+        seed=SEEDS,
+        n_timesteps=BUDGET,
+        num_episode_test=1,
+        logging_config=_config(log_frequency=16),
+        total_timesteps=144,
+    )
+    logged = [16, 32, 48, 64, 80]
+    np.testing.assert_array_equal(rows["timestep"], [logged] * len(SEEDS))
 
 
 class _HalfTorque:

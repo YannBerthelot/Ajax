@@ -35,12 +35,13 @@ from . import readouts as R
 # cells: oracles.py + 2, test_episode_ends + 36, this note + 1; the two
 # families' faults together: faults/ + 4, this note + 1; the imitation
 # cells' faults: faults/ + 5, this note + 1; PriorData's cell: faults/ + 2,
-# this note + 1.
+# this note + 1; imitation on TD3, REDQ, ASAC, AVG: test_extensions + 25,
+# faults/ + 4, this note + 1.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 211}
-CAPS |= {"test_framework.py": 215, "test_value_chains.py": 1051}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 215}
+CAPS |= {"test_framework.py": 216, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1044, "test_bookkeeping.py": 1013}
-CAPS |= {"test_extensions.py": 762, "test_p4_split_run.py": 360}
+CAPS |= {"test_extensions.py": 787, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
 CAPS |= {"test_action_box.py": 200}
 

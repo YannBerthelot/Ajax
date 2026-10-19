@@ -72,7 +72,7 @@ Defaults are those of the constructor.
 | `actor_architecture`, `critic_architecture` | `("128", "tanh", "128", "tanh")` | hidden layers, as width and activation strings |
 | `normalize_observations`, `normalize_rewards` | False | running normalisation, as SB3's `VecNormalize` |
 | `reward_normalization_gamma` | None | with `normalize_rewards`, divide by the spread of the discounted return |
-| `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks |
+| `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks (by default the longest that split into the minibatches; see the notes) |
 | `unroll_length` | None | use Brax's minibatching: fragments of this length, advantages per minibatch (feedforward only) |
 | `log_std_state_independent`, `log_std_init` | True, 0.0 | one learned log standard deviation per action dimension, and its initial value (see the notes) |
 | `log_std_bounds` | None | the `(low, high)` clip of that log standard deviation; `None` leaves it unclipped |
@@ -146,8 +146,15 @@ Defaults are those of the constructor.
   can read the latest rollout). It has no `action` phase: extensions that act
   during collection need SAC. A recurrent PPO refuses extensions. See
   [Extensions](../guide/extensions.md).
-- A recurrent PPO whose sequences do not split into the requested minibatches
-  trains on one minibatch and warns. `unroll_length` is for feedforward
+- **Memory.** A recurrent PPO minibatches whole chunks of `bptt_length`
+  steps of the rollout. Libraries disagree on that length, so by default the
+  number of minibatches chooses it: each environment's whole rollout when
+  `n_envs` is a multiple of the number of minibatches, as OpenAI Baselines'
+  ppo2, CleanRL and PureJaxRL do, otherwise the fewest equal chunks that
+  split (256 steps with the defaults). PPO refuses at construction chunks
+  that do not split. [Memory](../guide/memory.md#the-libraries-disagree-on-the-length)
+  compares the libraries and says how to set it: to reproduce theirs, choose
+  `num_minibatches` to divide `n_envs`. `unroll_length` is for feedforward
   policies; recurrent ones use `bptt_length`.
 
 ## Results

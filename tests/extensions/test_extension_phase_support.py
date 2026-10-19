@@ -177,7 +177,7 @@ def test_agents_declare_only_known_capabilities():
 
 def test_batch_keys_read_the_rows_of_every_agent_and_its_own():
     assert {"a_expert", "pi_mean"} <= batch_keys("SAC", "actor_loss", PHASE_BATCH_KEYS)
-    assert "critic_state" not in batch_keys("TD3", "actor_loss", PHASE_BATCH_KEYS)
+    assert "critic_state" not in batch_keys("APO", "actor_loss", PHASE_BATCH_KEYS)
     assert batch_keys("SAC", "no_such_phase", PHASE_BATCH_KEYS) == frozenset()
 
 

@@ -22,7 +22,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ajax.agents.base import run_config
+from ajax.agents.base import run_config, run_horizon
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.TDMPC2.dataset import MultiTaskDataset
 from ajax.agents.TDMPC2.multitask import PAPER_TASK_DIM, TaskSet
@@ -449,6 +449,7 @@ class TDMPC2MultiTask:
         logging_config: Optional[LoggingConfig] = None,
         on_ids_ready: Optional[Callable] = None,
         initial_state: Optional[TDMPC2MultiTaskState] = None,
+        total_timesteps: Optional[int] = None,
     ) -> tuple[TDMPC2MultiTaskState, Optional[dict[str, np.ndarray]]]:
         """Run ``n_timesteps`` more updates for every seed (vmapped).
 
@@ -461,7 +462,9 @@ class TDMPC2MultiTask:
         ``log_frequency`` (updates) is set, the scans stop every
         ``log_frequency`` updates of the run (an absolute cadence: a resumed
         run keeps it) to log the training metrics and, with ``eval_envs``,
-        to evaluate every task (class docstring).
+        to evaluate every task (class docstring). ``total_timesteps`` is the
+        whole run's updates, the extensions' ``total_steps`` (``None``: this
+        call's end), as :meth:`ActorCritic.train`'s.
 
         Returns ``(state, history)``: the state with a leading seed axis and,
         when it logged, ``{key: [n_seeds, n_logs]}`` (training and evaluation
@@ -474,6 +477,7 @@ class TDMPC2MultiTask:
             raise ValueError(f"n_timesteps must be >= 0, got {n_timesteps}")
         start = 0 if initial_state is None else self.resume_update_offset(initial_state)
         end = start + n_timesteps
+        horizon = run_horizon(start, n_timesteps, total_timesteps, unit="update")
         every = (
             int(logging_config.log_frequency)
             if logging_config is not None and logging_config.log_frequency
@@ -495,7 +499,7 @@ class TDMPC2MultiTask:
         if on_ids_ready is not None:
             on_ids_ready(self.run_ids)
 
-        state = self._init(seeds, end) if initial_state is None else initial_state
+        state = self._init(seeds, horizon) if initial_state is None else initial_state
         index = jnp.arange(seeds.shape[0])
         # Chunk ends: the run's multiples of `every` (absolute), then `end`.
         stops = (
@@ -508,12 +512,12 @@ class TDMPC2MultiTask:
         t0 = time.time()
         for stop in stops:
             if stop > done:
-                state = self._train_fn(stop - done, end)(
+                state = self._train_fn(stop - done, horizon)(
                     seeds, index, state, self.dataset
                 )
                 done = stop
             if every and done % every == 0 and done > start:
-                metrics = self._log_metrics(state, num_episode_test, end)
+                metrics = self._log_metrics(state, num_episode_test, horizon)
                 for k, v in metrics.items():
                     history[k].append(v)
                 for i in range(seeds.shape[0]):

@@ -23,6 +23,7 @@ from typing import Any, Callable, Optional, Tuple, Union
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import optax
 from flax import struct
 from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
@@ -57,6 +58,7 @@ class APGAuxiliaries:
     loss: jax.Array  # objective actually minimised (incl. extension terms)
     matching_loss: jax.Array  # -mean_i sum_k r_k, the closed-loop cost
     m_rmse: jax.Array  # sqrt(matching_loss / horizon)
+    grad_norm: jax.Array  # the gradient's global norm, before clipping
     timestep: Union[int, jax.Array]
     # With a logging config, what the update evaluated and logged (NaN on
     # the updates that do not evaluate), returned whatever the backend;
@@ -257,6 +259,7 @@ def _train_metrics(agent_state: APGState, aux: APGAuxiliaries) -> dict:
         "Train/loss": aux.loss,
         "Train/matching_loss": aux.matching_loss,
         "Train/m_rmse": aux.m_rmse,
+        "Train/grad_norm": aux.grad_norm,
     }
 
 
@@ -328,6 +331,7 @@ def training_iteration(
         loss=loss,
         matching_loss=matching_loss,
         m_rmse=jnp.sqrt(jnp.maximum(matching_loss, 0.0) / horizon),
+        grad_norm=optax.global_norm(grads),
         timestep=new_timestep,
     )
     agent_state, evaluations = loop.evaluate_every(
@@ -347,6 +351,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    end_timestep: Optional[int] = None,
     system_class: Optional[SystemClass] = None,
     pid: Optional[PIDHeadConfig] = None,
     squash: bool = True,
@@ -364,10 +369,22 @@ def make_train(
     for one). ``train`` returns every update's :class:`APGAuxiliaries`."""
     del critic_optimizer_args  # no critic
     per_update = env_args.n_envs * agent_config.horizon
-    # The call's budget (TrainLoop.budget). A call is a curriculum stage: its
-    # learning-rate schedule spans its own updates (the optimizer restarts
-    # on resume by default).
-    num_updates = max((total_timesteps - start_timestep) // per_update, 1)
+    # The call's budget (TrainLoop.budget, the loop being built below).
+    end = total_timesteps if end_timestep is None else end_timestep
+    num_updates = max((end - start_timestep) // per_update, 1)
+    # The learning-rate schedule counts the optimizer's steps and lives in
+    # its update rule (tx), a static field of the state: the call that
+    # builds the optimizer sets it. By default a resume rebuilds it
+    # (reset_optimizer: a call is a curriculum stage), so it spans each
+    # call's updates. Kept (reset_optimizer_on_resume=False), the resumed
+    # call runs the tx of the state it is given, built by the run's fresh
+    # call or a checkpoint's 0-step skeleton; there it spans the run's
+    # updates, from 0 to the horizon, and a resumed call's value goes unused.
+    schedule_updates = (
+        num_updates
+        if reset_optimizer_on_resume
+        else max(total_timesteps // per_update, 1)
+    )
     if lr_schedule == "warmup_cosine":
         peak = actor_optimizer_args.learning_rate
         if not isinstance(peak, (int, float)):
@@ -376,8 +393,8 @@ def make_train(
             learning_rate=warmup_cosine_schedule(
                 float(peak),
                 # keep at least one decay step for very short runs
-                warmup_steps=min(warmup_steps, num_updates - 1),
-                total_steps=num_updates,
+                warmup_steps=min(warmup_steps, schedule_updates - 1),
+                total_steps=schedule_updates,
                 end_value_fraction=lr_end_fraction,
             )
         )
@@ -392,6 +409,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        end_timestep=end_timestep,
     )
     loop.warn_if_partial(per_update, "n_envs x horizon")
     evaluation = Evaluation(

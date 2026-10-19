@@ -16,6 +16,8 @@ These tests catch bugs of the form:
 
 from __future__ import annotations
 
+import itertools
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -48,8 +50,16 @@ _CFG = {
         ({"n_epochs": 4}, 4),
         # num_minibatches=0 (legacy): max(batch_size, n_steps) // min(...) = 1
         ({"num_minibatches": 0, "batch_size": 8}, 1),
+        # one env: the default bptt_length halves its rollout into 2 sequences
+        ({"n_envs": 1, "num_minibatches": 2, "memory": MemoryConfig("gru", 4)}, 2),
     ],
-    ids=["4-minibatches", "8-minibatches", "4-epochs", "legacy-1-minibatch"],
+    ids=[
+        "4-minibatches",
+        "8-minibatches",
+        "4-epochs",
+        "legacy-1-minibatch",
+        "recurrent-one-env",
+    ],
 )
 def test_apply_gradients_runs_once_per_epoch_and_minibatch(extra, num_minibatches):
     """Per training iteration PPO calls ``apply_gradients`` once per (epoch,
@@ -92,9 +102,14 @@ def test_apply_gradients_runs_once_per_epoch_and_minibatch(extra, num_minibatche
         ({"num_minibatches": 4}, 4, False, ("flat", 4, 32)),
         ({"num_minibatches": 4}, 2, False, ("flat", 4, 32)),
         ({"num_minibatches": 0, "batch_size": 32}, 4, False, ("flat", 1, 32)),
-        # recurrent: sequences of bptt_length steps; one minibatch for one env
+        # recurrent: sequences of bptt_length steps; by default the longest
+        # that split: whole rollouts when the envs do (Baselines' ppo2),
+        # else each rollout in num_minibatches // gcd(n_envs, it) pieces
         ({"num_minibatches": 2, "bptt_length": 8}, 2, True, ("recurrent", 2, 8)),
-        ({"num_minibatches": 2}, 1, True, ("recurrent", 1, 32)),
+        ({"num_minibatches": 2}, 4, True, ("recurrent", 2, 32)),
+        ({"num_minibatches": 2}, 1, True, ("recurrent", 2, 16)),
+        ({"num_minibatches": 4}, 6, True, ("recurrent", 4, 16)),
+        ({"num_minibatches": 1}, 3, True, ("recurrent", 1, 32)),
     ],
 )
 def test_the_rollout_geometry(config, n_envs, recurrent, geometry):
@@ -120,16 +135,41 @@ def test_an_unusable_unroll_length_is_refused(config):
         PPO(**kw | config)
 
 
-def test_a_recurrent_rollout_too_small_to_split_warns():
-    """One env's whole rollout cannot make 2 minibatches: one, and a warning."""
-    with pytest.warns(UserWarning, match="trains on one"):
-        PPO(
-            "Pendulum-v1",
-            n_envs=1,
-            n_steps=32,
-            num_minibatches=2,
-            memory=MemoryConfig(kind="gru", hidden_size=4),
-        )
+@pytest.mark.parametrize(
+    "config, match",
+    [
+        ({"num_minibatches": 3}, "3 equal pieces"),  # 3 does not divide 32
+        ({"num_minibatches": 2, "bptt_length": 32}, "must divide 16"),
+    ],
+    ids=["no-default-splits", "bptt_length-does-not-split"],
+)
+def test_a_recurrent_rollout_that_does_not_split_is_refused(config, match):
+    """As Baselines' and CleanRL's recurrent PPO assert: never one minibatch
+    where more were asked for."""
+    memory = MemoryConfig(kind="gru", hidden_size=4)
+    with pytest.raises(ValueError, match=match):
+        PPO("Pendulum-v1", n_envs=1, n_steps=32, memory=memory, **config)
+
+
+def test_bptt_length_is_the_longest_that_splits_and_explicit_ones_divide_it():
+    """By brute force, the rule docs/guide/memory.md gives: None picks the
+    longest length whose sequences split into the minibatches, an explicit
+    length is accepted exactly when its sequences split, and those are the
+    divisors of the default."""
+    for n_steps, n_envs, k in itertools.product((6, 8, 12), range(1, 7), range(1, 9)):
+        divisors = [n for n in range(1, n_steps + 1) if n_steps % n == 0]
+        splits = [n for n in divisors if n_steps // n * n_envs % k == 0]
+        if splits:
+            assert splits == [n for n in divisors if max(splits) % n == 0]
+        for length in (None, *divisors):
+            config = PPOConfig(n_steps=n_steps, num_minibatches=k, bptt_length=length)
+            want = max(splits, default=None) if length is None else length
+            if want is None or want not in splits:
+                with pytest.raises(ValueError):
+                    minibatch_geometry(config, n_steps, n_envs, True)
+            else:
+                got = minibatch_geometry(config, n_steps, n_envs, True)
+                assert got == Geometry("recurrent", k, want), (n_steps, n_envs, k)
 
 
 def test_vf_coef_zero_leaves_the_critic_untrained():

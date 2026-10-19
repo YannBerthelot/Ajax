@@ -51,7 +51,8 @@ print(aux.matching_loss[:, ::20])  # minus the closed-loop return
 
 `train` returns `(state, aux)` whatever the logging: `aux` holds every
 update's `loss`, `matching_loss` (minus the mean closed-loop return),
-`m_rmse` and `timestep`. With a `logging_config`, every `log_frequency` steps
+`m_rmse`, `grad_norm` (the gradient's global norm, before clipping) and
+`timestep`. With a `logging_config`, every `log_frequency` steps
 it also evaluates the controller on `num_episode_test` systems, drawn
 afresh at each evaluation, and sends `Eval/episodic mean reward` and
 `Eval/m_rmse` to the logging backend. `aux.evaluations` then holds what each
@@ -96,7 +97,7 @@ stages = [  # the nominal pendulum first, then the whole family
 | `learning_rate` | 5e-4 | AdamW step size |
 | `weight_decay` | 0.0 | AdamW weight decay (0 is plain Adam) |
 | `beta_1`, `beta_2` | 0.9, 0.999 | Adam's moment rates (its epsilon is torch's 1e-8) |
-| `lr_schedule` | None | `"warmup_cosine"`: linear warmup over `warmup_steps` updates, then cosine decay |
+| `lr_schedule` | None | `"warmup_cosine"`: linear warmup over `warmup_steps` updates, then cosine decay to the call's last update; when `train` keeps the optimiser (`reset_optimizer_on_resume=False`), to the run's, set by the call that builds it ([Checkpoints](../guide/checkpoints.md#things-to-know)) |
 | `warmup_steps`, `lr_end_fraction` | 0, 0.1 | warmup length, and the final rate as a fraction of `learning_rate` |
 | `max_grad_norm` | 1.0 | gradient clipping by global norm (`None` turns it off) |
 | `actor_architecture` | `("128", "relu", "128", "relu")` | MLP in front of the memory or output; `()` for a linear embedding |

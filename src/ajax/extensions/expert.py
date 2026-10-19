@@ -217,12 +217,15 @@ class ImitationLoss(Extension):
     and Abbeel (ICRA 2018, Sec. IV-C, eq. 8). Deviations: replay rows
     labelled with the expert's action, not a demonstration buffer (the
     replay's expert flags would restore it); ``coef`` on the BC term, not
-    the paper's ``λ1 = 1e-3`` on the RL term and ``λ2``; SAC's mean action
-    and critic minimum, not DDPG's. Only SAC puts its critic in the
-    actor-loss batch (``critic_state``); it refuses the filter with
-    :class:`ResidualPolicy`, whose critic reads the executed action.
-    ``imitation/q_filter_frac`` logs, at each evaluation, the share of a
-    replay batch the filter keeps.
+    the paper's ``λ1 = 1e-3`` on the RL term and ``λ2``; the policy's mean
+    action and the minimum over the agent's critics (TD3's actor reads its
+    first, REDQ's the mean of its ensemble), not DDPG's one critic. The
+    filter needs a Q critic, which SAC, TD3, REDQ, ASAC and AVG put in
+    their actor-loss batch (``critic_state``); a state-value critic (PPO,
+    APO) cannot rate an action. It refuses :class:`ResidualPolicy`, whose
+    critic reads the executed action. ``imitation/q_filter_frac`` logs, at
+    each evaluation, the share of a replay batch the filter keeps (every
+    agent but AVG, which keeps no replay).
 
     With ``anneal_frac`` the term is multiplied by a weight falling
     linearly from 1 to 0 at that fraction of training (:func:`anneal_weight`),
@@ -279,11 +282,11 @@ class ImitationLoss(Extension):
 
     def bind_to_agent(self, **agent_context: Any) -> "ImitationLoss":
         """Read the expert's stored actions when it is the agent's; with the
-        filter, bind SAC's replay buffer and observation augmentation."""
+        filter, bind the agent's replay buffer (its logged share samples it)
+        and SAC's observation augmentation."""
         stored = reads_stored_expert_actions(self, agent_context)
         bound = dataclasses.replace(self, reads_stored_expert=stored)
-        buffer = agent_context.get("buffer")
-        if not self.q_filter or buffer is None:
+        if not self.q_filter:
             return bound
         exts = agent_context.get("extensions", ())
         if any("transform_action" in e.implemented_phases() for e in exts):
@@ -293,7 +296,9 @@ class ImitationLoss(Extension):
             )
         augment = agent_context.get("augment_obs_with_expert_action", False)
         return dataclasses.replace(
-            bound, buffer=buffer, augment_obs_with_expert_action=augment
+            bound,
+            buffer=agent_context.get("buffer", self.buffer),
+            augment_obs_with_expert_action=augment,
         )
 
     def _expert_actions(self, stored: Any, raw_obs: jax.Array) -> jax.Array:
@@ -328,8 +333,8 @@ class ImitationLoss(Extension):
             if "critic_state" not in batch:
                 raise ValueError(
                     "ImitationLoss(q_filter=True) needs the agent's Q-critic"
-                    " ('critic_state') in the actor-loss batch; only SAC"
-                    " provides it."
+                    " ('critic_state') in the actor-loss batch, and this one"
+                    " has none."
                 )
             sq = sq * q_filter_weight(
                 batch["critic_state"],
@@ -345,7 +350,7 @@ class ImitationLoss(Extension):
         self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
     ) -> dict:
         """``imitation/q_filter_frac``, the share of a replay batch the
-        Q-filter keeps (SAC, whose buffer it binds)."""
+        Q-filter keeps (an agent with a replay, which it binds)."""
         from ajax.buffers.utils import get_batch_from_buffer
         from ajax.environments.interaction import augment_obs, get_pi
 
@@ -436,6 +441,10 @@ class JSRLCurriculum(Extension):
     pipeline still owns the ``step_in_episode`` increment/reset (in
     :func:`collect_experience`). It writes ``_jsrl_use_expert`` back, which
     the pipeline reads to flag the steps the expert took.
+
+    Evaluations log the guide horizon ``H_t`` (``jsrl/horizon``) and the
+    share of envs the expert drove on the last collection step
+    (``jsrl/expert_frac``).
     """
 
     episode_length: int = 1000
@@ -458,11 +467,7 @@ class JSRLCurriculum(Extension):
         post_warmup_action = obs["post_warmup_action"]
         expert_action = obs["expert_action"]
 
-        total_timesteps = max(int(ctx.total_steps), 1)
-        global_t = agent_state.collector_state.timestep
-        train_frac = global_t / jnp.maximum(total_timesteps, 1)
-        curriculum_progress = jnp.clip(train_frac / self.decay_frac, 0.0, 1.0)
-        H_t = self.episode_length * (1.0 - curriculum_progress)
+        H_t = self.horizon(agent_state.collector_state.timestep, ctx.total_steps)
         step_in_ep = agent_state.collector_state.step_in_episode
         use_expert_jsrl = step_in_ep.astype(jnp.float32) < H_t
         use_expert_jsrl = use_expert_jsrl.reshape(
@@ -471,6 +476,24 @@ class JSRLCurriculum(Extension):
         # The pipeline flags the steps the expert took (is_expert_flag).
         obs["_jsrl_use_expert"] = use_expert_jsrl
         return jnp.where(use_expert_jsrl, expert_action, post_warmup_action)
+
+    def horizon(self, timestep: Any, total_steps: int) -> jax.Array:
+        """``H_t``: ``episode_length`` at the start, falling linearly to 0 at
+        ``decay_frac`` of the run."""
+        total_timesteps = max(int(total_steps), 1)
+        train_frac = timestep / jnp.maximum(total_timesteps, 1)
+        curriculum_progress = jnp.clip(train_frac / self.decay_frac, 0.0, 1.0)
+        return self.episode_length * (1.0 - curriculum_progress)
+
+    def eval_metrics(
+        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+    ) -> dict:
+        del ext_state, rng
+        collector = agent_state.collector_state
+        return {
+            "jsrl/horizon": self.horizon(collector.timestep, ctx.total_steps),
+            "jsrl/expert_frac": collector.last_expert_frac,
+        }
 
 
 __all__ = [

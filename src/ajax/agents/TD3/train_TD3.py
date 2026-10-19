@@ -53,6 +53,9 @@ from ajax.types import BufferType
 class PolicyAuxiliaries:
     policy_loss: jax.Array
     q_mean: jax.Array
+    # Before clipping; the loss builds these metrics before the gradient
+    # exists, the step fills it in.
+    grad_norm: jax.Array | float = jnp.nan
 
 
 @struct.dataclass
@@ -60,6 +63,9 @@ class ValueAuxiliaries:
     critic_loss: jax.Array
     target_q: jax.Array
     q_pred_min: jax.Array
+    q_gap: jax.Array  # mean max - min over the critics: |Q1 - Q2| for two
+    target_noise_clip_frac: jax.Array  # share of the target noise clipped
+    grad_norm: jax.Array | float = jnp.nan  # as the policy's
 
 
 @struct.dataclass
@@ -163,8 +169,9 @@ def compute_td3_td_target(
     target_noise_clip: float,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
-) -> jax.Array:
-    """y = r + gamma * (1-d) * min_i Q_target_i(s', clip(mu_target(s') + clip(N, -c, c), -1, 1))."""
+) -> Tuple[jax.Array, jax.Array]:
+    """y = r + gamma * (1-d) * min_i Q_target_i(s', clip(mu_target(s') + clip(N, -c, c), -1, 1)),
+    and the share of the noise samples the clip to ``[-c, c]`` changed."""
     rewards = rewards * reward_scale
     next_action = actor_dist(
         actor_state,
@@ -175,6 +182,7 @@ def compute_td3_td_target(
         target_actor=True,
     ).mean()
     noise = jax.random.normal(rng, next_action.shape) * target_policy_noise
+    clip_frac = (jnp.abs(noise) > target_noise_clip).mean()
     noise = jnp.clip(noise, -target_noise_clip, target_noise_clip)
     next_action = jnp.clip(next_action + noise, -1.0, 1.0)
     q_targets = q_values(
@@ -186,7 +194,7 @@ def compute_td3_td_target(
         bootstrap=True,
     )
     target = rewards + gamma * (1.0 - dones) * jnp.min(q_targets, axis=0)
-    return jax.lax.stop_gradient(target)
+    return jax.lax.stop_gradient(target), clip_frac
 
 
 def policy_loss_function(
@@ -219,7 +227,7 @@ def update_value_functions(
     key, rng, ext_key = jax.random.split(agent_state.rng, 3)
     # A truncated row bootstraps on its final observation (bootstrap_obs).
     dones = batch.terminated
-    target_q = compute_td3_td_target(
+    target_q, noise_clip_frac = compute_td3_td_target(
         agent_state.actor_state,
         agent_state.critic_state,
         key,
@@ -242,9 +250,11 @@ def update_value_functions(
             critic_loss=loss,
             target_q=target_q.mean().flatten(),
             q_pred_min=aux.q_pred_min,
+            q_gap=aux.q_gap,
+            target_noise_clip_frac=noise_clip_frac,
         )
 
-    critic_state, aux = critic_step(
+    critic_state, aux, grad_norm = critic_step(
         agent_state,
         batch,
         target_q,
@@ -257,6 +267,7 @@ def update_value_functions(
         gamma=agent_config.gamma,
         reward_scale=agent_config.reward_scale,
     )
+    aux = aux.replace(grad_norm=grad_norm)
     return agent_state.replace(rng=rng, critic_state=critic_state), aux
 
 
@@ -285,6 +296,7 @@ def update_policy(
             "actor_params": params,
             "actor_state": actor_state,
             "a_expert": a_expert,
+            "critic_state": agent_state.critic_state,
         }
         extra = extension_stack.fold_actor_loss(
             agent_state,
@@ -296,8 +308,10 @@ def update_policy(
         )
         return loss + extra, aux
 
-    actor_state, aux = gradient_step(actor_state, loss_fn)
-    return agent_state.replace(actor_state=actor_state), aux
+    actor_state, aux, grad_norm = gradient_step(actor_state, loss_fn)
+    return agent_state.replace(actor_state=actor_state), aux.replace(
+        grad_norm=grad_norm
+    )
 
 
 def update_target_networks(agent_state: TD3State, tau: float) -> TD3State:
@@ -349,7 +363,9 @@ def update_agent(
 
     def skip_policy(agent_state: TD3State) -> Tuple[TD3State, Any]:
         zero = jnp.zeros(())
-        return agent_state, PolicyAuxiliaries(policy_loss=zero, q_mean=zero)
+        return agent_state, PolicyAuxiliaries(
+            policy_loss=zero, q_mean=zero, grad_norm=zero
+        )
 
     policy_delay = agent_config.policy_delay
     do_policy = (agent_state.n_updates % policy_delay) == 0
@@ -372,6 +388,7 @@ def make_train(
     run_ids: Optional[Sequence[str]] = None,
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
+    end_timestep: Optional[int] = None,
     expert_policy: Optional[Callable] = None,
     action_pipeline: Optional[Callable] = None,
     extensions: Sequence = (),
@@ -400,6 +417,7 @@ def make_train(
         logging_config,
         extensions,
         start_timestep=start_timestep,
+        end_timestep=end_timestep,
         expert_policy=expert_policy,
     )
     if action_pipeline is None:

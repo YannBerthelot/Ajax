@@ -676,3 +676,28 @@ def test_an_episodic_run_that_never_updates_raises():
     agent.train(seed=0, n_timesteps=40, num_episode_test=1)  # tick 20: not yet
     with pytest.raises(ValueError, match="never updated"):
         agent.train(seed=0, n_timesteps=60, num_episode_test=1)
+
+
+def test_only_the_episodic_mode_lets_its_seeds_update_unequally():
+    """The episodic mode's updates wait on each seed's episodes, so a
+    resume keeps its seeds' unequal update counts; the paper-era mode's
+    seeds update on the tick, in step, and a resume refuses unequal ones."""
+    for episodic in (True, False):
+        agent = TDMPC2(ChainEnv(), episodic=episodic, buffer_size=200, **CHAIN)
+        assert agent.per_seed_update_counts is episodic
+
+
+def test_an_episodic_resume_keeps_its_seeds_unequal_update_counts():
+    """Two seeds of an episodic run may stand at different update counts
+    (their updates wait on their own episodes): a resume continues each
+    seed from its own count, past every counter check train() makes."""
+    agent = TDMPC2(
+        ChainEnv(), episodic=True, buffer_size=100, **{**CHAIN, "seed_steps": 20}
+    )
+    first, _ = agent.train(seed=[0, 1], n_timesteps=40, num_episode_test=1)
+    unequal = first.replace(n_updates=first.n_updates + jnp.array([0, 1]))
+    start = np.asarray(unequal.n_updates)
+    resumed, _ = agent.train(
+        seed=[0, 1], n_timesteps=20, num_episode_test=1, initial_state=unequal
+    )
+    assert (np.asarray(resumed.n_updates) > start).all()

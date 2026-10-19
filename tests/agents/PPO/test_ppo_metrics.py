@@ -3,6 +3,8 @@ recomputed here from the same networks and batch."""
 
 from __future__ import annotations
 
+from typing import cast
+
 import distrax
 import jax
 import jax.numpy as jnp
@@ -199,7 +201,7 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
         "extension_key": KEY,
     }
     _, aux = train_APO.update_networks(state, minibatch, config, b, stack, 1)
-    v_aux, p_aux = aux.value, aux.policy
+    v_aux, p_aux = cast(train_APO.ValueAuxiliaries, aux.value), aux.policy
 
     critic = state.critic_state
     v_grads = jax.grad(

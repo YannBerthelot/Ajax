@@ -534,6 +534,45 @@ def test_a_checkpoint_holding_fields_their_classes_removed_restores(tmp_path):
         restore_into(skeleton, path)
 
 
+@struct.dataclass
+class _Grown:
+    """A state class that gained its field ``new``."""
+
+    added_fields: ClassVar[frozenset[str]] = frozenset({"new"})
+    kept: jax.Array
+    new: jax.Array
+
+
+@struct.dataclass
+class _Results:
+    """A state class all of whose fields are new: an extension's state that
+    took the place of the stateless ``()``."""
+
+    added_fields: ClassVar[frozenset[str]] = frozenset({"first", "last"})
+    first: jax.Array
+    last: jax.Array
+
+
+def test_a_checkpoint_saved_before_fields_were_added_reads_them_as_nan(tmp_path):
+    """The fields a state class lists in ``added_fields`` restore as NaN, in
+    the skeleton's shape, from a checkpoint saved without them, here inside
+    a tuple of extension states. A missing field the class does not list
+    still fails: ``kept``, when ``_Grown`` was saved as ``()``."""
+    kept = jnp.asarray([1.0, 2.0])
+    full = _Results(first=jnp.zeros(2), last=jnp.zeros(2))
+    skeleton = {"ext_state": (_Grown(kept=jnp.zeros(2), new=jnp.zeros(2)), full)}
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint({"ext_state": ({"kept": kept}, ())}, path)
+    grown, results = restore_into(skeleton, path)["ext_state"]
+    np.testing.assert_array_equal(grown.kept, kept)
+    for new in (grown.new, results.first, results.last):
+        assert new.shape == (2,) and np.isnan(new).all()
+
+    save_checkpoint({"ext_state": ((), ())}, path)
+    with pytest.raises(ValueError, match="Missing field kept"):
+        restore_into(skeleton, path)
+
+
 def test_a_checkpoint_of_another_agent_still_fails(sac_run, tmp_path):
     """No class lists another agent's fields: SAC's state, holding the
     expert critic REDQ's lacks, does not restore into REDQ's."""

@@ -376,7 +376,8 @@ and grafts them back onto a fresh skeleton; see
 deletes a data field lists it in its `removed_fields`, a
 `ClassVar[frozenset[str]]`: checkpoints saved with the field then restore
 without it. A saved field that its class neither has nor lists still fails
-to restore.
+to restore. A class that gains a float field lists it in its
+`added_fields`: checkpoints saved before it restore it as NaN.
 
 ## Keywords on their way out
 

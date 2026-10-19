@@ -78,6 +78,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
     _check_memory_final_norm(skeleton_dict, state_dict)
     _check_log_std_head(skeleton_dict, state_dict)
     state_dict = _without_removed_fields(skeleton, state_dict)
+    state_dict = _with_added_fields(skeleton, state_dict)
     state_dict = _with_replay_next_obs(skeleton, state_dict)
     state_dict = _without_segment_raw_obs(skeleton, state_dict)
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
@@ -266,6 +267,31 @@ def _without_removed_fields(skeleton: Any, saved: Any) -> Any:
         for key, value in saved.items()
         if key not in removed
     }
+
+
+def _with_added_fields(skeleton: Any, saved: Any) -> Any:
+    """Give a checkpoint saved before a state class gained the fields it
+    lists in ``added_fields`` (a ``ClassVar[frozenset[str]]``) those fields,
+    at any depth, as NaN: the run that saved it never computed them. The
+    listed fields hold floats. A missing field the class does not list
+    still fails, so a checkpoint of another agent or layout stays a
+    mismatch.
+
+    Expand-then-contract shim (CLAUDE.md, refactoring rule 10): a class
+    drops a name from ``added_fields`` once no checkpoint without that
+    field remains.
+    """
+    if not isinstance(saved, dict):
+        return saved
+    children = dict(_children(skeleton))
+    out = {
+        key: _with_added_fields(children[key], value) if key in children else value
+        for key, value in saved.items()
+    }
+    added: frozenset[str] = getattr(skeleton, "added_fields", frozenset())
+    for name in added - out.keys():
+        out[name] = np.full_like(np.asarray(children[name]), np.nan)
+    return out
 
 
 def _children(node: Any) -> Iterator[tuple[str, Any]]:

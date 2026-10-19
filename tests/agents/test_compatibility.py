@@ -36,6 +36,7 @@ from ajax.extensions.base import Extension
 from ajax.extensions.capabilities import MissingCapability, NotWired
 from ajax.extensions.pretrain import MCPretrain
 from ajax.networks.memory import MemoryConfig
+from ajax.networks.networks import CNNSpec
 from tests.agents.TDMPC2.test_TDMPC2MultiTask import make_dataset
 
 #: (agent, environment): each agent on each action kind it takes.
@@ -196,6 +197,9 @@ def verdict(agent: str, env: str, column: str) -> tuple[str, str]:
         kwargs: dict[str, Any] = {"memory": MemoryConfig()}
     elif column == "cnn":
         kwargs = {"cnn_image_shape": (1, 1, 1), "cnn_extra_obs_dim": 0}
+        # DQN's and PQN's reference networks need 3 pixels a side.
+        if "cnn_spec" in inspect.signature(agent_class(agent)).parameters:
+            kwargs["cnn_spec"] = CNNSpec((2,), (1,), (1,), 8)
     else:
         name, options = VARIANTS.get(column, (column, {}))
         ext = build_extension(extension_classes()[name], env)

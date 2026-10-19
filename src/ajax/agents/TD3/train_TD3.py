@@ -36,7 +36,7 @@ from ajax.environments.interaction import (
     init_collector_state,
 )
 from ajax.evaluate import ValueEstimate
-from ajax.extensions.base import ExtensionStack, holds_expert
+from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import action_value
 from ajax.state import (
@@ -72,6 +72,7 @@ class ValueAuxiliaries:
 class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
+    extensions: dict  # the extensions' training metrics
 
 
 def make_default_action_pipeline(recurrent: bool, exploration_noise: float):
@@ -220,7 +221,7 @@ def update_value_functions(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
-) -> Tuple[TD3State, ValueAuxiliaries]:
+) -> Tuple[TD3State, ValueAuxiliaries, dict]:
     """The critic step on the smoothed, clipped double-Q target."""
     # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
     # default partitionable threefry, so the agent's own draws are unchanged.
@@ -254,7 +255,7 @@ def update_value_functions(
             target_noise_clip_frac=noise_clip_frac,
         )
 
-    critic_state, aux, grad_norm = critic_step(
+    critic_state, aux, grad_norm, metrics = critic_step(
         agent_state,
         batch,
         target_q,
@@ -268,7 +269,7 @@ def update_value_functions(
         reward_scale=agent_config.reward_scale,
     )
     aux = aux.replace(grad_norm=grad_norm)
-    return agent_state.replace(rng=rng, critic_state=critic_state), aux
+    return agent_state.replace(rng=rng, critic_state=critic_state), aux, metrics
 
 
 def update_policy(
@@ -279,13 +280,14 @@ def update_policy(
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
-) -> Tuple[TD3State, PolicyAuxiliaries]:
+) -> Tuple[TD3State, PolicyAuxiliaries, dict]:
     """The deterministic policy-gradient step on ``-Q1(s, mu(s))``;
     ``a_expert``, the expert's stored actions at the rows, reaches the
-    extensions (None without an expert)."""
+    extensions (None without an expert). Also returns the extensions'
+    metrics."""
     actor_state = agent_state.actor_state
 
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, PolicyAuxiliaries]:
+    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, Any]:
         loss, (aux, pi_mean) = policy_loss_function(
             params, actor_state, agent_state.critic_state, observations, carries
         )
@@ -298,7 +300,7 @@ def update_policy(
             "a_expert": a_expert,
             "critic_state": agent_state.critic_state,
         }
-        extra = extension_stack.fold_actor_loss(
+        extra, metrics = extension_stack.fold_actor_loss(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
@@ -306,12 +308,11 @@ def update_policy(
             jax.random.split(agent_state.rng, 3)[2],
             total_timesteps,
         )
-        return loss + extra, aux
+        return loss + extra, (aux, metrics)
 
-    actor_state, aux, grad_norm = gradient_step(actor_state, loss_fn)
-    return agent_state.replace(actor_state=actor_state), aux.replace(
-        grad_norm=grad_norm
-    )
+    actor_state, (aux, metrics), grad_norm = gradient_step(actor_state, loss_fn)
+    aux = aux.replace(grad_norm=grad_norm)
+    return agent_state.replace(actor_state=actor_state), aux, metrics
 
 
 def update_target_networks(agent_state: TD3State, tau: float) -> TD3State:
@@ -345,12 +346,12 @@ def update_agent(
         agent_config.stored_state,
         burn_target_actor=True,
     )
-    agent_state, value_aux = update_value_functions(
+    agent_state, value_aux, value_metrics = update_value_functions(
         agent_state, batch, agent_config, extension_stack, total_timesteps, carries
     )
 
     def policy_and_targets(agent_state: TD3State) -> Tuple[TD3State, Any]:
-        agent_state, policy_aux = update_policy(
+        agent_state, policy_aux, policy_metrics = update_policy(
             agent_state,
             batch.obs,
             batch.raw_obs,
@@ -359,21 +360,26 @@ def update_agent(
             carries,
             a_expert=batch.a_expert,
         )
-        return update_target_networks(agent_state, agent_config.tau), policy_aux
+        agent_state = update_target_networks(agent_state, agent_config.tau)
+        return agent_state, (policy_aux, policy_metrics)
 
     def skip_policy(agent_state: TD3State) -> Tuple[TD3State, Any]:
-        zero = jnp.zeros(())
-        return agent_state, PolicyAuxiliaries(
-            policy_loss=zero, q_mean=zero, grad_norm=zero
-        )
+        # Zeros of the actor step's metrics, their structure read from its
+        # trace (with the extensions' names).
+        shapes = jax.eval_shape(lambda s: policy_and_targets(s)[1], agent_state)
+        return agent_state, jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), shapes)
 
     policy_delay = agent_config.policy_delay
     do_policy = (agent_state.n_updates % policy_delay) == 0
-    agent_state, policy_aux = jax.lax.cond(
+    agent_state, (policy_aux, policy_metrics) = jax.lax.cond(
         do_policy, policy_and_targets, skip_policy, agent_state
     )
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
-    return agent_state, AuxiliaryLogs(policy=policy_aux, value=value_aux)
+    return agent_state, AuxiliaryLogs(
+        policy=policy_aux,
+        value=value_aux,
+        extensions=merge_metrics(value_metrics, policy_metrics),
+    )
 
 
 def make_train(
@@ -449,7 +455,6 @@ def make_train(
     return loop.off_policy(
         init,
         update,
-        AuxiliaryLogs,
         agent_config.learning_starts,
         recurrent=recurrent,
         collect_kwargs={

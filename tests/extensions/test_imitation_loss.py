@@ -62,18 +62,22 @@ def test_term_is_the_scaled_squared_distance_to_the_expert() -> None:
     pi_mean = jnp.array([[0.1], [-0.3]])
     obs = jnp.zeros((2, 3))
     batch: dict[str, Any] = {"pi_mean": pi_mean, "raw_observations": obs}
-    term = ImitationLoss(expert_policy=EXPERT, coef=2.0).actor_loss(
+    term, metrics = ImitationLoss(expert_policy=EXPERT, coef=2.0).actor_loss(
         None, (), batch, CTX
     )
-    expected = 2.0 * np.mean((np.array([0.1, -0.3]) - 0.9) ** 2) / 4.0
+    mse = np.mean((np.array([0.1, -0.3]) - 0.9) ** 2)
+    expected = 2.0 * mse / 4.0
     np.testing.assert_allclose(float(term), expected, rtol=1e-6)
+    # It logs the term and the distance before any filter or schedule.
+    assert metrics["imitation/term"] is term
+    np.testing.assert_allclose(float(metrics["imitation/mse"]), mse, rtol=1e-6)
     # Without raw observations the expert reads the agent's observations.
     batch = {
         "pi_mean": pi_mean,
         "raw_observations": None,
         "observations": obs,
     }
-    again = ImitationLoss(expert_policy=EXPERT, coef=2.0).actor_loss(
+    again, _ = ImitationLoss(expert_policy=EXPERT, coef=2.0).actor_loss(
         None, (), batch, CTX
     )
     np.testing.assert_allclose(float(again), expected, rtol=1e-6)
@@ -86,12 +90,14 @@ def test_the_annealed_term_reaches_zero_at_its_fraction_of_training() -> None:
         "pi_mean": jnp.array([[0.1], [-0.3]]),
         "raw_observations": jnp.zeros((2, 3)),
     }
-    full = float(ImitationLoss(expert_policy=EXPERT).actor_loss(None, (), batch, CTX))
+    full = float(
+        ImitationLoss(expert_policy=EXPERT).actor_loss(None, (), batch, CTX)[0]
+    )
     term = ImitationLoss(expert_policy=EXPERT, anneal_frac=0.5)
 
     def at(step: int) -> float:
         ctx = ExtensionContext(step=jnp.asarray(step), rng=KEY, total_steps=1_000)
-        return float(term.actor_loss(None, (), batch, ctx))
+        return float(term.actor_loss(None, (), batch, ctx)[0])
 
     np.testing.assert_allclose(at(0), full, rtol=1e-6)
     np.testing.assert_allclose(at(250), full / 2, rtol=1e-6)
@@ -135,7 +141,7 @@ def test_the_q_filter_weight_is_zero_wherever_the_critic_prefers_the_policy() ->
     ext = ImitationLoss(expert_policy=EXPERT, coef=2.0, q_filter=True)
     with pytest.raises(ValueError, match="critic_state"):
         ext.actor_loss(None, (), batch, CTX)
-    term = ext.actor_loss(None, (), batch | {"critic_state": _critic()}, CTX)
+    term, _ = ext.actor_loss(None, (), batch | {"critic_state": _critic()}, CTX)
     want = 2.0 * np.mean(np.array(KEPT) * (np.asarray(PI)[:, 0] - 0.9) ** 2) / 4.0
     np.testing.assert_allclose(float(term), want, rtol=1e-6)
 
@@ -153,7 +159,7 @@ def test_the_agents_own_expert_is_read_as_the_agent_stored_it() -> None:
     }
     own = ImitationLoss(expert_policy=EXPERT).bind_to_agent(expert_policy=EXPERT)
     want = np.mean((np.asarray(PI) + 0.2) ** 2) / 4.0
-    np.testing.assert_allclose(float(own.actor_loss(None, (), batch, CTX)), want)
+    np.testing.assert_allclose(float(own.actor_loss(None, (), batch, CTX)[0]), want)
     other = ImitationLoss(expert_policy=ConstantExpert(0.9))
     assert not other.bind_to_agent(expert_policy=EXPERT).reads_stored_expert
     residual = {"buffer": object(), "extensions": (ResidualPolicy(),)}
@@ -287,7 +293,7 @@ def _td3_update(stack: ExtensionStack) -> Any:
     )
     state = _ext_state(state, stack)
     obs = _obs(agent)
-    state, _ = train_TD3.update_policy(state, obs, obs, stack, total_timesteps=1)
+    state, *_ = train_TD3.update_policy(state, obs, obs, stack, total_timesteps=1)
     return state.actor_state.params
 
 
@@ -342,7 +348,7 @@ def _sac_update(stack: ExtensionStack) -> Any:
     )
     state = _ext_state(state, stack)
     obs = _obs(agent)
-    state, _, _ = train_SAC.update_policy(
+    state, *_ = train_SAC.update_policy(
         state, obs, obs, extension_stack=stack, total_timesteps=1
     )
     return state.actor_state.params
@@ -427,7 +433,7 @@ def _avg_update(stack: ExtensionStack) -> Any:
     state = _ext_state(state, stack)
     obs = _obs(agent)
     raw_actions = jnp.zeros((BATCH, 1))  # the pre-squash sample AVG steps through
-    state, _ = train_AVG.update_policy(
+    state, *_ = train_AVG.update_policy(
         state, obs, raw_actions, stack, total_timesteps=1, raw_observations=obs
     )
     return state.actor_state.params

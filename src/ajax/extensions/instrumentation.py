@@ -465,6 +465,12 @@ class BiasVorePenalty(Extension):
     loss_scale: float = 1.0
     name: str = "bias_vore_penalty"
 
+    def _penalty(self, coeff: float, resid: jax.Array) -> tuple[jax.Array, dict]:
+        """The penalty on the residual ``Q - target``, and what it logs."""
+        var = jnp.var(resid)
+        penalty = self.loss_scale * coeff * var
+        return penalty, {"bias_vore/penalty": penalty, "bias_vore/residual_var": var}
+
     def _coeff(self) -> float:
         if self.coeff_override is not None:
             return float(self.coeff_override)
@@ -476,7 +482,7 @@ class BiasVorePenalty(Extension):
         ext_state: Any,
         batch: dict,
         ctx: ExtensionContext,
-    ) -> jax.Array:
+    ) -> Any:
         del agent_state, ext_state, ctx
         coeff = self._coeff()
         if coeff == 0.0:
@@ -502,8 +508,7 @@ class BiasVorePenalty(Extension):
                 q_preds = predict_value(
                     critic_state=cs, critic_params=params, x=obs
                 ).squeeze(0)
-            resid = q_preds - target
-            return self.loss_scale * coeff * jnp.var(resid)
+            return self._penalty(coeff, q_preds - target)
 
         q_state = batch.get("q_state")
         if q_state is not None and actions is not None:
@@ -516,8 +521,7 @@ class BiasVorePenalty(Extension):
             # trailing 1-dim or not.
             act_idx = actions if actions.ndim == q_all.ndim - 1 else actions.squeeze(-1)
             q_taken = jnp.take_along_axis(q_all, act_idx[..., None], axis=-1)
-            resid = q_taken - target
-            return self.loss_scale * coeff * jnp.var(resid)
+            return self._penalty(coeff, q_taken - target)
 
         raise ValueError(
             "BiasVorePenalty needs the critic in the critic_loss batch:"

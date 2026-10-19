@@ -52,7 +52,7 @@ def test_critic_step_hands_the_extensions_the_targets() -> None:
         return jnp.mean((q - target_q) ** 2), ()
 
     def stepped(extension: BiasVorePenalty) -> jax.Array:
-        critic_state, _, _ = critic_step(
+        critic_state, *_ = critic_step(
             state,
             batch,
             jnp.ones((4, 1)),

@@ -205,7 +205,7 @@ class IBRL(Extension):
         batch: dict,
         target: jax.Array,
         ctx: ExtensionContext,
-    ) -> jax.Array:
+    ) -> Any:
         del ext_state
         dones, gamma = batch["dones"], discounted("IBRL", batch["gamma"])
         # SAC's target hands its own key; the shared critic step, none.
@@ -216,7 +216,11 @@ class IBRL(Extension):
         gap = jax.lax.stop_gradient(
             gamma * (1.0 - dones) * jnp.maximum(min_q_expert - min_q_policy, 0.0)
         )
-        return target + gap
+        metrics = {
+            "ibrl/expert_wins": jnp.mean(min_q_expert > min_q_policy),
+            "ibrl/bonus": jnp.mean(gap),
+        }
+        return target + gap, metrics
 
 
 @dataclass(frozen=True)
@@ -260,7 +264,7 @@ class LCBGatedBootstrap(Extension):
         batch: dict,
         target: jax.Array,
         ctx: ExtensionContext,
-    ) -> jax.Array:
+    ) -> Any:
         del ext_state
         # beta anneals as the EDGE gate's, on the collector's timestep.
         dones, gamma = batch["dones"], discounted("LCBGatedBootstrap", batch["gamma"])
@@ -278,7 +282,7 @@ class LCBGatedBootstrap(Extension):
         # the expert is deterministic — log_prob is undefined).
         min_q_lcb = (1.0 - p_expert) * q_min_p + p_expert * q_min_e
         gap_lcb = jax.lax.stop_gradient(gamma * (1.0 - dones) * (min_q_lcb - q_min_p))
-        return target + gap_lcb
+        return target + gap_lcb, {"lcb_bootstrap/p_expert": jnp.mean(p_expert)}
 
     def beta(self, timestep: Any, total_steps: int) -> jax.Array:
         """The LCB pessimism ``β`` at ``timestep`` (:func:`lcb_beta`)."""
@@ -338,7 +342,7 @@ class CriticBlend(Extension):
         batch: dict,
         target: jax.Array,
         ctx: ExtensionContext,
-    ) -> jax.Array:
+    ) -> Any:
         del ext_state
         next_observations = batch["next_observations"]
         a_expert_next = expert_next_actions(
@@ -362,7 +366,8 @@ class CriticBlend(Extension):
             agent_state.collector_state.timestep, ctx.total_steps
         )
         target_new = blend_modify_target(target, expert_target, alpha_blend_val)
-        return jax.lax.stop_gradient(target_new)
+        gap = jax.lax.stop_gradient(jnp.mean(expert_target - target))
+        return jax.lax.stop_gradient(target_new), {"critic_blend/target_gap": gap}
 
     def expert_weight(self, timestep: Any, total_steps: int) -> jax.Array:
         """``α``: 1 at the start, falling linearly to 0 at
@@ -405,13 +410,13 @@ class MCVarianceCorrection(Extension):
         batch: dict,
         target: jax.Array,
         ctx: ExtensionContext,
-    ) -> jax.Array:
+    ) -> Any:
         del ext_state, ctx
         observations = batch["observations"]
         actions = batch["actions"]
         q_preds = batch["q_preds"]
         q_var = q_preds.var(axis=0)[..., 0]
-        return mc_correction_modify_target(
+        corrected = mc_correction_modify_target(
             target,
             agent_state.critic_state,
             agent_state.expert_critic_params,
@@ -420,6 +425,8 @@ class MCVarianceCorrection(Extension):
             q_var,
             self.threshold,
         )
+        replaced = jnp.mean(q_var > self.threshold)
+        return corrected, {"mc_variance/replaced_frac": replaced}
 
 
 @dataclass(frozen=True)

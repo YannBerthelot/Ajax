@@ -60,6 +60,7 @@ class APGAuxiliaries:
     m_rmse: jax.Array  # sqrt(matching_loss / horizon)
     grad_norm: jax.Array  # the gradient's global norm, before clipping
     timestep: Union[int, jax.Array]
+    extensions: dict  # the extensions' training metrics
     # With a logging config, what the update evaluated and logged (NaN on
     # the updates that do not evaluate), returned whatever the backend;
     # None without one.
@@ -260,6 +261,7 @@ def _train_metrics(agent_state: APGState, aux: APGAuxiliaries) -> dict:
         "Train/matching_loss": aux.matching_loss,
         "Train/m_rmse": aux.m_rmse,
         "Train/grad_norm": aux.grad_norm,
+        **aux.extensions,
     }
 
 
@@ -307,16 +309,16 @@ def training_iteration(
             "raw_observations": rollout.obs,
             "pi_mean": rollout.policy_action,
         }
-        loss = matching_loss + loop.stack.fold_actor_loss(
+        extra, metrics = loop.stack.fold_actor_loss(
             agent_state,
             actor_batch,
             timestep,
             ext_key,
             loop.total_timesteps,
         )
-        return loss, matching_loss
+        return matching_loss + extra, (matching_loss, metrics)
 
-    (loss, matching_loss), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+    (loss, (matching_loss, metrics)), grads = jax.value_and_grad(loss_fn, has_aux=True)(
         agent_state.actor_state.params
     )
     actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -333,6 +335,7 @@ def training_iteration(
         m_rmse=jnp.sqrt(jnp.maximum(matching_loss, 0.0) / horizon),
         grad_norm=optax.global_norm(grads),
         timestep=new_timestep,
+        extensions=metrics,
     )
     agent_state, evaluations = loop.evaluate_every(
         agent_state, aux, index, iteration, evaluation

@@ -42,6 +42,12 @@ Phases
 ``post_update``  hook after the update step (φ-refresh, schedules, …)
 ``eval_metrics`` extra metrics, merged into the eval log
 
+``on_target``, ``critic_loss`` and ``actor_loss`` may return ``(value,
+metrics)`` instead of their value: ``metrics``, a dict of scalars named
+``<extension>/<metric>``, is logged with the update's own metrics (the last
+update's, or the mean over the update's epochs and minibatches, as the
+agent logs its own). Two extensions logging one name raise.
+
 Phase batches
 -------------
 The ``batch`` dict of a phase holds the keys :data:`PHASE_BATCH_KEYS`
@@ -297,22 +303,25 @@ class Extension:
         batch: Any,
         target: jax.Array,
         ctx: ExtensionContext,
-    ) -> jax.Array:
-        """Transform the TD / value target."""
+    ) -> Any:
+        """Transform the TD / value target; or return ``(target, metrics)``
+        (the module docstring)."""
         del agent_state, ext_state, batch, ctx
         return target
 
     def critic_loss(
         self, agent_state: Any, ext_state: Any, batch: Any, ctx: ExtensionContext
-    ) -> jax.Array | float:
-        """Extra additive critic-loss term (summed across extensions)."""
+    ) -> Any:
+        """Extra additive critic-loss term (summed across extensions); or
+        ``(term, metrics)``."""
         del agent_state, ext_state, batch, ctx
         return 0.0
 
     def actor_loss(
         self, agent_state: Any, ext_state: Any, batch: Any, ctx: ExtensionContext
-    ) -> jax.Array | float:
-        """Extra additive actor-loss term (summed across extensions)."""
+    ) -> Any:
+        """Extra additive actor-loss term (summed across extensions); or
+        ``(term, metrics)``."""
         del agent_state, ext_state, batch, ctx
         return 0.0
 
@@ -400,6 +409,30 @@ class Extension:
         """
         del agent_context
         return self
+
+
+def phase_output(out: Any) -> tuple[Any, dict]:
+    """A training phase's value and metrics: it returns its value, or
+    ``(value, metrics)`` (the module docstring)."""
+    if isinstance(out, tuple) and len(out) == 2 and isinstance(out[1], dict):
+        return out
+    return out, {}
+
+
+def merge_metrics(*metrics: dict) -> dict:
+    """The extensions' training metrics in one dict; a name two of them
+    log raises (two extensions of one class report the same names)."""
+    merged: dict = {}
+    for named in metrics:
+        clash = sorted(merged.keys() & named.keys())
+        if clash:
+            raise ValueError(
+                f"Two extensions in the stack log the training metrics {clash};"
+                " each name is logged once, so a stack holds one extension"
+                " reporting it."
+            )
+        merged |= named
+    return merged
 
 
 class ExtensionStack:
@@ -525,15 +558,19 @@ class ExtensionStack:
         step: Any,
         rng: jax.Array,
         total_steps: int,
-    ) -> jax.Array:
-        """Target-modifier fold; returns the (possibly reshaped) target."""
+    ) -> tuple[jax.Array, dict]:
+        """Target-modifier fold; returns the (possibly reshaped) target and
+        the extensions' metrics."""
         if not self.extensions:
-            return target
+            return target, {}
         ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
+        metrics: dict = {}
         ext_states = agent_state.ext_state
         for i, ext in enumerate(self.extensions):
-            target = ext.on_target(agent_state, ext_states[i], batch, target, ctx)
-        return target
+            out = ext.on_target(agent_state, ext_states[i], batch, target, ctx)
+            target, ext_metrics = phase_output(out)
+            metrics = merge_metrics(metrics, ext_metrics)
+        return target, metrics
 
     def fold_critic_loss(
         self,
@@ -542,16 +579,12 @@ class ExtensionStack:
         step: Any,
         rng: jax.Array,
         total_steps: int,
-    ) -> jax.Array | float:
-        """Critic-loss fold; returns the summed additive critic-loss term."""
-        if not self.extensions:
-            return 0.0
-        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
-        total: jax.Array | float = 0.0
-        ext_states = agent_state.ext_state
-        for i, ext in enumerate(self.extensions):
-            total = total + ext.critic_loss(agent_state, ext_states[i], batch, ctx)
-        return total
+    ) -> tuple[jax.Array | float, dict]:
+        """Critic-loss fold; returns the summed additive critic-loss term
+        and the extensions' metrics."""
+        return self._fold_loss(
+            "critic_loss", agent_state, batch, step, rng, total_steps
+        )
 
     def fold_actor_loss(
         self,
@@ -560,16 +593,32 @@ class ExtensionStack:
         step: Any,
         rng: jax.Array,
         total_steps: int,
-    ) -> jax.Array | float:
-        """Actor-loss fold; returns the summed additive actor-loss term."""
+    ) -> tuple[jax.Array | float, dict]:
+        """Actor-loss fold; returns the summed additive actor-loss term and
+        the extensions' metrics."""
+        return self._fold_loss("actor_loss", agent_state, batch, step, rng, total_steps)
+
+    def _fold_loss(
+        self,
+        phase: str,
+        agent_state: Any,
+        batch: Any,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> tuple[jax.Array | float, dict]:
         if not self.extensions:
-            return 0.0
+            return 0.0, {}
         ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         total: jax.Array | float = 0.0
+        metrics: dict = {}
         ext_states = agent_state.ext_state
         for i, ext in enumerate(self.extensions):
-            total = total + ext.actor_loss(agent_state, ext_states[i], batch, ctx)
-        return total
+            out = getattr(ext, phase)(agent_state, ext_states[i], batch, ctx)
+            term, ext_metrics = phase_output(out)
+            total = total + term
+            metrics = merge_metrics(metrics, ext_metrics)
+        return total, metrics
 
     def fold_eval_metrics(
         self,

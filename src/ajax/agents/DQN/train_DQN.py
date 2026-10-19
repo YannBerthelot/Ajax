@@ -45,7 +45,7 @@ from ajax.environments.interaction import (
 )
 from ajax.environments.utils import get_action_dim
 from ajax.evaluate import ValueEstimate
-from ajax.extensions.base import ExtensionStack
+from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.perf_utils import final_aux_scan
 from ajax.state import (
@@ -79,6 +79,7 @@ class AuxiliaryLogs:
     # ``value/<field>``, as the other agents' auxiliaries are named.
     value: ValueAuxiliaries
     policy: PolicyAuxiliaries
+    extensions: dict  # the extensions' training metrics
 
 
 def linear_epsilon(
@@ -294,17 +295,19 @@ def q_gradient_step(
     extension_stack: ExtensionStack,
     key: Optional[jax.Array],
     total_timesteps: int,
-) -> Tuple[LoadedTrainState, ValueAuxiliaries]:
+) -> Tuple[LoadedTrainState, ValueAuxiliaries, dict]:
     """One step of the Q-network (``agent_state.actor_state``) down the TD
     loss plus the extensions' critic-loss terms, folded on ``key`` (drawn
     for them alone; ``None`` without extensions). Returns the stepped
-    Q-network and the loss's metrics, with the gradients' norm."""
+    Q-network, the loss's metrics, with the gradients' norm, and the
+    extensions' metrics."""
     q_state = agent_state.actor_state
 
-    def loss_fn(params: Any) -> Tuple[jax.Array, ValueAuxiliaries]:
+    def loss_fn(params: Any) -> Tuple[jax.Array, Any]:
         loss, aux = q_loss_fn(
             params, q_state, observations, actions, targets, td_loss_fn
         )
+        metrics: dict = {}
         if extension_stack:
             assert key is not None
             batch = {
@@ -315,17 +318,18 @@ def q_gradient_step(
                 # gradient.
                 "q_state": q_state.replace(params=params),
             }
-            loss = loss + extension_stack.fold_critic_loss(
+            extra, metrics = extension_stack.fold_critic_loss(
                 agent_state,
                 batch,
                 agent_state.collector_state.timestep,
                 key,
                 total_timesteps,
             )
-        return loss, aux
+            loss = loss + extra
+        return loss, (aux, metrics)
 
-    q_state, aux, grad_norm = gradient_step(q_state, loss_fn)
-    return q_state, aux.replace(grad_norm=grad_norm)
+    q_state, (aux, metrics), grad_norm = gradient_step(q_state, loss_fn)
+    return q_state, aux.replace(grad_norm=grad_norm), metrics
 
 
 @partial(
@@ -387,6 +391,7 @@ def update_agent(
     # The extensions reshape the target, then add their loss terms, each on
     # a key of its own (drawn only with extensions).
     loss_key = None
+    target_metrics: dict = {}
     if extension_stack:
         ext_key, rng = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=rng)
@@ -400,7 +405,7 @@ def update_agent(
             "gamma": gamma,
             "reward_scale": reward_scale,
         }
-        target_q = extension_stack.fold_on_target(
+        target_q, target_metrics = extension_stack.fold_on_target(
             agent_state,
             _tgt_batch,
             target_q,
@@ -409,7 +414,7 @@ def update_agent(
             total_timesteps,
         )
 
-    q_state, value_aux = q_gradient_step(
+    q_state, value_aux, loss_metrics = q_gradient_step(
         agent_state,
         observations,
         actions,
@@ -434,7 +439,9 @@ def update_agent(
     )
     epsilon = epsilon_schedule(agent_state.collector_state.timestep)
     return agent_state, AuxiliaryLogs(
-        value=value_aux, policy=PolicyAuxiliaries(epsilon=epsilon)
+        value=value_aux,
+        policy=PolicyAuxiliaries(epsilon=epsilon),
+        extensions=merge_metrics(target_metrics, loss_metrics),
     )
 
 
@@ -524,7 +531,6 @@ def make_train(
     return loop.off_policy(
         init,
         update,
-        AuxiliaryLogs,
         agent_config.learning_starts,
         collect_kwargs={"buffer": buffer, "action_pipeline": action_pipeline},
         eval_kwargs={

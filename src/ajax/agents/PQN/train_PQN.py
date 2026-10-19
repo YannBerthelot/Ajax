@@ -39,7 +39,7 @@ from ajax.agents.PQN.state import PQNConfig, PQNState
 from ajax.agents.PQN.utils import compute_q_lambda_targets
 from ajax.environments.utils import get_action_dim
 from ajax.evaluate import ValueEstimate
-from ajax.extensions.base import ExtensionStack
+from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import (
     EnvironmentConfig,
@@ -80,6 +80,7 @@ def update_agent(
     # their loss terms, each on a key of its own (drawn only with extensions):
     # one per epoch and minibatch.
     loss_keys = None
+    target_metrics: dict = {}
     if extension_stack:
         rng, ext_key = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=rng)
@@ -99,7 +100,7 @@ def update_agent(
             "gamma": agent_config.gamma,
             "reward_scale": agent_config.reward_scale,
         }
-        targets = extension_stack.fold_on_target(
+        targets, target_metrics = extension_stack.fold_on_target(
             agent_state,
             _tgt_batch,
             targets,
@@ -122,7 +123,7 @@ def update_agent(
 
         def mb_body(agent_state: PQNState, xs: tuple) -> Tuple[Any, Any]:
             (observations, actions, targets), loss_key = xs
-            q_state, value_aux = q_gradient_step(
+            q_state, value_aux, loss_metrics = q_gradient_step(
                 agent_state,
                 observations,
                 actions,
@@ -132,19 +133,24 @@ def update_agent(
                 loss_key,
                 total_timesteps,
             )
-            return agent_state.replace(actor_state=q_state), value_aux
+            agent_state = agent_state.replace(actor_state=q_state)
+            return agent_state, (value_aux, loss_metrics)
 
         return jax.lax.scan(mb_body, agent_state, (minibatches, epoch_loss_keys))
 
-    agent_state, value_aux = jax.lax.scan(
+    agent_state, (value_aux, loss_metrics) = jax.lax.scan(
         epoch_body, agent_state, (epoch_keys, loss_keys)
     )
     # (n_epochs, num_minibatches, ...) -> one (1,) value per metric.
-    value_aux = jax.tree.map(lambda x: x.mean().reshape((1,)), value_aux)
+    value_aux, loss_metrics = jax.tree.map(
+        lambda x: x.mean().reshape((1,)), (value_aux, loss_metrics)
+    )
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
     epsilon = epsilon_schedule(agent_state.collector_state.timestep).reshape((1,))
     return agent_state, AuxiliaryLogs(
-        value=value_aux, policy=PolicyAuxiliaries(epsilon=epsilon)
+        value=value_aux,
+        policy=PolicyAuxiliaries(epsilon=epsilon),
+        extensions=merge_metrics(target_metrics, loss_metrics),
     )
 
 

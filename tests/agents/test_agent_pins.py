@@ -742,6 +742,19 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU once ASAC's layers became its reference code's:
+# torch's nn.Linear default, every kernel and bias uniform in +-1/sqrt(fan_in)
+# (were orthogonal(1.0) hidden and Q layers, an orthogonal(0.01) mean and a
+# zero-kernel log-std head with bias -1, zero biases). Relative shifts
+# (actor, critic, alpha): ASAC +283.9%, +171.6%, -0.021%.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 17.258983612060547,
+        "critic": 27.022438049316406,
+        "alpha": 0.9727535247802734,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

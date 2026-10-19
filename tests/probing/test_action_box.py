@@ -25,7 +25,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "b7e9c5f6b557"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "357601182e1e"  # verdict.digest(CASES): every answer, pinned
 ENV, PARAMS = envs.action_box().make()
 CONTEXTS = jnp.eye(3)  # up, down, inside
 
@@ -124,7 +124,7 @@ def _dreamer(run: runs.Run) -> dict:
 # --- the cells -------------------------------------------------------------------
 # Every reading is in env units, the reach a half-width like the centre, so
 # one ceiling, 0.25 env units, is the framework's 0.1 in agent units of 2.5.
-# Overrides: learning rates 3e-4 (ASAC's own), and 1e-4 for APO, where the
+# Overrides: learning rates 3e-4, and 1e-4 for APO and ASAC, where the
 # presets' 1e-3 (AVG: its 6.3e-3 and 8.7e-3) jitter the inside action past
 # it (ASAC 0.277 at 20,000 steps; AVG 0.289 on 16 seeds at 40,000; APO, even
 # at 3e-4: NOTES); REDQ 5 critic updates a step, as P8; APG one step a
@@ -144,7 +144,7 @@ CELLS: dict[str, tuple] = {  # agent: family, budget, tolerances, overrides
     "TD3": ("none", 2500, (0.02, 0.02, 0.241), {}),
     "PPO": ("none", 25_000, (0.02, 0.02, 0.219), {"log_std_init": -1.0}),
     "REDQ": ("auto", 5000, (0.087, 0.133, 0.243), {"num_critic_updates": 5}),
-    "ASAC": ("auto", 10_000, (0.067, 0.087, 0.25), LR3),
+    "ASAC": ("auto", 20_000, (0.041, 0.055, 0.224), dict.fromkeys(LR3, 1e-4)),
     "AVG": ("AVG", 20_000, (0.026, 0.045, 0.239), LR3),
     "APO": ("none", 300_000, (0.02, 0.02, 0.145), dict.fromkeys(LR3, 1e-4)),
     "APG": ("none", 5000, (0.02, 0.02, 0.065), {"horizon": 1}),

@@ -67,12 +67,11 @@ uv installs the versions in `uv.lock`, which CI tests, with JAX for the CPU;
 on a Linux machine with an NVIDIA GPU, add CUDA with `uv sync --extra cuda`
 (a project that depends on Ajax asks for `ajax[cuda]`).
 
-pip works too, with JAX pinned to the locked version. pip does not read
-`uv.lock`, and it would pick JAX 0.11, on which the flax version Ajax uses
-fails when training starts:
+pip works too. It does not read `uv.lock`, so it takes the newest versions
+that `pyproject.toml` allows:
 
 ```bash
-pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git" "jax==0.7.2"
+pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git"
 ```
 
 [Installation](docs/getting-started/installation.md) covers the extras

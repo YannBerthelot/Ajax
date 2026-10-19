@@ -19,16 +19,16 @@ uv run python -c "import ajax; print(ajax.__version__)"
 
 ## With pip
 
-pip installs Ajax from its repository, with JAX pinned to the version in
-`uv.lock`:
+pip installs Ajax from its repository:
 
 ```bash
-pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git" "jax==0.7.2"
+pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git"
 ```
 
-pip does not read `uv.lock`, so it takes the newest versions the bounds in
-`pyproject.toml` allow. Without the pin that is JAX 0.11, on which the flax
-version Ajax uses (0.10) fails when training starts.
+pip does not read `uv.lock`, so it takes the newest versions that
+`pyproject.toml` allows, which can be newer than those CI tests. On Python
+3.11, uv and pip install JAX 0.10 and flax 0.12.8, as JAX 0.11 needs Python
+3.12; CI runs Python 3.12.
 
 ## CPU or GPU
 
@@ -97,15 +97,14 @@ so a project that depends on Ajax declares only where Ajax comes from:
 
 ```toml
 [project]
-# "ajax[cuda]" to ask for CUDA. JAX pinned as with pip (above).
-dependencies = ["ajax", "jax==0.7.2"]
+dependencies = ["ajax"]  # "ajax[cuda]" to ask for CUDA
 
 [tool.uv.sources]
 ajax = { git = "https://github.com/YannBerthelot/Ajax.git" }
 ```
 
-uv resolves that project's versions, not those of Ajax's `uv.lock`, so the
-JAX pin is needed there too.
+uv resolves that project's own versions within Ajax's bounds, not those of
+Ajax's `uv.lock`.
 
 ## The compile cache
 

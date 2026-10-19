@@ -65,6 +65,43 @@ class MCPretrainAux:
     v_max: jax.Array
 
 
+@struct.dataclass
+class PretrainLosses:
+    """A pretraining fit's first and last loss, kept in its extension's state
+    for the evaluations' log. NaN before the fit, when it takes no step, and
+    in a run resumed from a checkpoint saved before they were kept
+    (``added_fields``, :func:`ajax.checkpoint.restore_into`)."""
+
+    first_loss: jax.Array
+    last_loss: jax.Array
+    added_fields: ClassVar[frozenset[str]] = frozenset({"first_loss", "last_loss"})
+
+    @classmethod
+    def unknown(cls) -> Any:
+        """Every field NaN."""
+        nan = jnp.full((), jnp.nan, jnp.float32)
+        return cls(**{field.name: nan for field in dataclasses.fields(cls)})
+
+
+@struct.dataclass
+class MCPretrainResults(PretrainLosses):
+    """MCPretrain's fit: its first and last regression loss, and the mean
+    over the fit's rows of ``φ*``'s value at the expert's action (the
+    smallest of its critics')."""
+
+    q_expert_mean: jax.Array
+    added_fields: ClassVar[frozenset[str]] = PretrainLosses.added_fields | {
+        "q_expert_mean"
+    }
+
+
+def _first_and_last(losses: jax.Array) -> PretrainLosses:
+    """A fit's first and last loss, from its losses in step order."""
+    if losses.shape[0] == 0:
+        return PretrainLosses.unknown()
+    return PretrainLosses(first_loss=losses[0], last_loss=losses[-1])
+
+
 @partial(
     jax.jit,
     static_argnames=[
@@ -375,7 +412,9 @@ class CloningPretrain(Extension):
     statistics start from the dataset's. ``skip_actor`` leaves the actor as
     initialised; after cloning, ``reset_log_std`` puts its log-std (head
     or parameter) back at its initial values and ``reset_actor_head`` also
-    its output head (the mean layer, or a PID actor's gains).
+    its output head (the mean layer, or a PID actor's gains). Evaluations
+    log the mean loss of cloning's first and last epoch
+    (``cloning/first_loss``, ``cloning/last_loss``).
 
     The fields after ``reset_actor_head`` are the agent's context, filled by
     :meth:`bind_to_agent` (SAC, REDQ, TD3 and APO do).
@@ -437,16 +476,22 @@ class CloningPretrain(Extension):
             use_train_frac=agent_context.get("use_train_frac", False),
         )
 
+    def init_state(self, agent_state: Any, rng: jax.Array) -> PretrainLosses:
+        del agent_state, rng
+        return PretrainLosses.unknown()
+
     def pretrain(
         self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
-    ) -> tuple[Any, Any]:
-        """Clone the actor on ``ctx.rng`` (:meth:`clone`)."""
-        return self.clone(agent_state, ctx.rng), ext_state
+    ) -> tuple[Any, PretrainLosses]:
+        """Clone the actor on ``ctx.rng`` (:meth:`clone`) and keep its losses."""
+        del ext_state
+        return self.clone(agent_state, ctx.rng)
 
-    def clone(self, agent_state: Any, key: jax.Array) -> Any:
+    def clone(self, agent_state: Any, key: jax.Array) -> tuple[Any, PretrainLosses]:
         """``agent_state`` with its actor cloned on rollouts drawn with
-        ``key`` and its observation statistics seeded; raises ``ValueError``
-        when the agent did not bind its context."""
+        ``key`` and its observation statistics seeded, and the mean loss of
+        cloning's first and last epoch (NaN with ``skip_actor``); raises
+        ``ValueError`` when the agent did not bind its context."""
         if self.actor_optimizer_args is None:
             raise ValueError(
                 "CloningPretrain needs the agent's env and actor optimizer; the"
@@ -463,7 +508,7 @@ class CloningPretrain(Extension):
             train_frac=0.0 if self.use_train_frac else None,
         )
         env_obs_dim = get_state_action_shapes(env)[0][-1]
-        actor_state, _metrics, obs_mean, obs_std = pre_train(
+        actor_state, metrics, obs_mean, obs_std = pre_train(
             rng=key,
             actor_state=agent_state.actor_state,
             dataset=dataset,
@@ -477,6 +522,11 @@ class CloningPretrain(Extension):
             raw_columns=raw_obs_columns(env),
             train_frac_column=env_obs_dim if self.use_train_frac else None,
         )
+        losses = (
+            PretrainLosses.unknown()
+            if self.skip_actor
+            else _first_and_last(metrics["actor_loss"])
+        )
         # The actor was just trained on inputs standardised with the
         # dataset's statistics: the agent's running observation statistics
         # start from them, so that get_pi / predict_value standardise its
@@ -486,7 +536,7 @@ class CloningPretrain(Extension):
         # observations.
         new_state = agent_state.replace(actor_state=actor_state)
         if self.skip_actor and agent_state.collector_state.obs_norm_info is None:
-            return new_state  # no actor cloned: nothing to keep consistent
+            return new_state, losses  # no actor cloned: nothing to keep consistent
         # Agent-side statistics have a leading axis of size 1
         # (init_agent_obs_norm).
         n_samples = float(dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0])
@@ -498,11 +548,21 @@ class CloningPretrain(Extension):
             var=var,
             returns=None,
         )
-        return new_state.replace(
+        seeded_state = new_state.replace(
             collector_state=new_state.collector_state.replace(obs_norm_info=seeded),
             actor_state=new_state.actor_state.replace(obs_norm_info=seeded),
             critic_state=new_state.critic_state.replace(obs_norm_info=seeded),
         )
+        return seeded_state, losses
+
+    def eval_metrics(
+        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+    ) -> dict:
+        del agent_state, rng, ctx
+        return {
+            "cloning/first_loss": ext_state.first_loss,
+            "cloning/last_loss": ext_state.last_loss,
+        }
 
 
 @dataclass(frozen=True)
@@ -523,7 +583,9 @@ class MCPretrain(Extension):
     rate schedule) also decays ``φ*`` while it fits the MC returns.
     ``use_phi_refresh`` keeps ``φ*``'s optimiser state for a
     :class:`PhiRefresh` in the same stack. Evaluations log the value range
-    (``mc_pretrain/v_min``, ``mc_pretrain/v_max``).
+    (``mc_pretrain/v_min``, ``mc_pretrain/v_max``) and the fit
+    (``mc_pretrain/first_loss``, ``mc_pretrain/last_loss``,
+    ``mc_pretrain/q_expert_mean``: :class:`MCPretrainResults`).
     """
 
     expert_policy: Callable
@@ -590,19 +652,25 @@ class MCPretrain(Extension):
             ),
         )
 
+    def init_state(self, agent_state: Any, rng: jax.Array) -> MCPretrainResults:
+        del agent_state, rng
+        return MCPretrainResults.unknown()
+
     def pretrain(
         self,
         agent_state: Any,
         ext_state: Any,
         ctx: ExtensionContext,
-    ) -> tuple[Any, Any]:
+    ) -> tuple[Any, MCPretrainResults]:
         """Build the frozen expert critic ``φ*`` and persist it on ``agent_state``:
         a fresh critic regressed on unbiased MC returns sets
         ``expert_critic_params`` / ``expert_v_min`` / ``expert_v_max``,
         then (``use_online_light``) the online critic is nudged toward it.
+        The fit's results are the extension's state.
 
         Raises ``ValueError`` when the agent did not bind its context.
         """
+        del ext_state
         context = ("env_args", "network_args", "critic_optimizer_args", "gamma")
         unbound = [f for f in (*context, "reward_scale") if getattr(self, f) is None]
         if unbound:
@@ -684,15 +752,22 @@ class MCPretrain(Extension):
                 n=self.online_light_steps,
                 s=self.online_light_lr_scale,
             )
-        return agent_state, ext_state
+        return agent_state, MCPretrainResults(
+            first_loss=mc_aux.initial_loss,
+            last_loss=mc_aux.final_loss,
+            q_expert_mean=mc_aux.q_expert_mean,
+        )
 
     def eval_metrics(
         self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
     ) -> dict:
-        del ext_state, rng, ctx
+        del rng, ctx
         return {
             "mc_pretrain/v_min": agent_state.expert_v_min,
             "mc_pretrain/v_max": agent_state.expert_v_max,
+            "mc_pretrain/first_loss": ext_state.first_loss,
+            "mc_pretrain/last_loss": ext_state.last_loss,
+            "mc_pretrain/q_expert_mean": ext_state.q_expert_mean,
         }
 
 
@@ -723,7 +798,8 @@ def pretrain_critic_bellman(
     """``n_steps`` Bellman critic updates (the agent's ``update_value_fn``)
     on replay batches, each followed by a target update at tau 5e-4;
     ``augment``: the critic reads observations augmented with the expert's
-    stored actions, as in SAC's update."""
+    stored actions, as in SAC's update. Returns the agent state and each
+    update's critic loss."""
 
     def critic_pretrain_step(carry, _):
         agent_state = carry
@@ -740,7 +816,7 @@ def pretrain_critic_bellman(
         if augment:
             observations, next_observations = augment_from_batch(batch)
         # The plain Bellman target: no extension's target or loss term.
-        agent_state, _ = update_value_fn(
+        agent_state, aux = update_value_fn(
             observations=observations,
             actions=batch.action,
             next_observations=next_observations,
@@ -753,12 +829,9 @@ def pretrain_critic_bellman(
             reward_scale=reward_scale,
         )
         agent_state = update_target_fn(agent_state, tau=5e-4)
-        return agent_state, None
+        return agent_state, aux.critic_loss
 
-    agent_state, _ = jax.lax.scan(
-        critic_pretrain_step, agent_state, None, length=n_steps
-    )
-    return agent_state
+    return jax.lax.scan(critic_pretrain_step, agent_state, None, length=n_steps)
 
 
 @dataclass(frozen=True)
@@ -769,6 +842,8 @@ class BellmanPretrain(Extension):
     then holds the agent's expert prefill. Bootstraps from an untrained
     critic, so the pre-trained values are biased (:class:`MCPretrain`
     regresses unbiased returns instead); kept for ablation parity.
+    Evaluations log the critic loss of its first and last update
+    (``bellman_pretrain/first_loss``, ``bellman_pretrain/last_loss``).
 
     The fields after ``n_steps`` are the agent's context, filled by
     :meth:`bind_to_agent` (only SAC does).
@@ -816,17 +891,22 @@ class BellmanPretrain(Extension):
             ),
         )
 
+    def init_state(self, agent_state: Any, rng: jax.Array) -> PretrainLosses:
+        del agent_state, rng
+        return PretrainLosses.unknown()
+
     def pretrain(
         self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
-    ) -> tuple[Any, Any]:
-        """Pre-train the critic; raises ``ValueError`` when unbound."""
-        del ctx
+    ) -> tuple[Any, PretrainLosses]:
+        """Pre-train the critic and keep its losses; raises ``ValueError``
+        when unbound."""
+        del ext_state, ctx
         if self.update_value_fn is None:
             raise ValueError(
                 "BellmanPretrain needs the agent's buffer and critic updates;"
                 " the agent did not bind them (only SAC supports BellmanPretrain)."
             )
-        agent_state = pretrain_critic_bellman(
+        agent_state, losses = pretrain_critic_bellman(
             agent_state,
             recurrent=self.recurrent,
             gamma=self.gamma,
@@ -838,7 +918,16 @@ class BellmanPretrain(Extension):
             augment=self.augment_obs_with_expert_action,
         )
         jax.debug.print("[Bellman pretrain] done ({n} steps)", n=self.n_steps)
-        return agent_state, ext_state
+        return agent_state, _first_and_last(losses)
+
+    def eval_metrics(
+        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+    ) -> dict:
+        del agent_state, rng, ctx
+        return {
+            "bellman_pretrain/first_loss": ext_state.first_loss,
+            "bellman_pretrain/last_loss": ext_state.last_loss,
+        }
 
 
 @dataclass(frozen=True)

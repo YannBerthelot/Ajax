@@ -3,12 +3,12 @@
 An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships nineteen of them,
+or measurements logged at each evaluation. Ajax ships twenty of them,
 listed in the [catalogue](#catalogue) below.
 
 Why extensions instead of agent options? An agent's constructor takes its
 paper's hyperparameters plus `extensions=()`. The exceptions are
-`expert_policy` (SAC, TD3, REDQ, AVG, APO), whose return each evaluation
+`expert_policy` (SAC, TD3, REDQ, ASAC, AVG, APO), whose return each evaluation
 logs, and a few SAC options (its expert's prefill and warm-up mix, the
 observation augmentations, the PID gain mode, `use_train_frac`,
 `store_policy_action`), kept because they change
@@ -210,10 +210,10 @@ which the agent reads when it is built:
 
 | Attribute | What it says |
 | --- | --- |
-| `buffer_fields` | replay fields beyond the agent's own that the extension reads. Today only `raw_next_obs`, the environment's own next observation; SAC stores it when an extension declares it, and the other agents refuse such an extension. |
+| `buffer_fields` | replay fields beyond the agent's own that the extension reads. Today only `raw_next_obs`, the environment's own next observation; SAC, TD3, REDQ, ASAC and AVG store it when an extension declares it, and the other agents refuse such an extension. |
 | `expert_fields` | the fields holding an expert. The agent converts each one to [agent units](expert-guidance.md#the-expert), and a run whose extensions hold an expert keeps the replay fields only experts read. |
 | `experts()` | the experts the extension calls itself, without a state, on the observations it is given. |
-| `reads_agent_expert_actions` | the extension reads the expert's actions SAC stored at collection when its expert is SAC's own. |
+| `reads_agent_expert_actions` | the extension reads the expert's actions the agent stored at collection when its expert is the agent's own `expert_policy` (SAC, TD3, REDQ, ASAC, AVG and APO store them). |
 | `requires` | the capabilities it needs beyond those its phases imply (`needs()` returns them all; an extension whose needs depend on its options overrides it). |
 | `provides` | the capabilities it gives the rest of its stack: `MCPretrain` provides `phi_star`. |
 | `context` | the agent-context keys it cannot work without (`bind_to_agent`); an agent's `extension_context` lists those it binds. |
@@ -242,8 +242,9 @@ offending extension) if an extension:
   agent does not store (`buffer_fields`) (`NotWired`);
 - calls a stateful expert without its state. An extension calls its expert
   on the observations it is given, where no expert state exists. A stateful
-  expert is allowed only when it is SAC's own `expert_policy` and the
-  extension reads the actions SAC stored from the expert's tracked state;
+  expert is allowed only when it is the agent's own `expert_policy`, on an
+  agent that stores its actions from the expert's tracked state, and the
+  extension reads those actions;
 - (SAC) acts in collection without an `action_slot`, or acts in collection
   or makes the policy residual in a run without an `expert_policy` or with
   `use_pid_policy`.
@@ -255,8 +256,9 @@ fill.
 ## Catalogue
 
 The checks above are necessary but not always sufficient: the last column
-says where each extension does its job. "SAC with an expert" means
-`SAC(..., expert_policy=...)`.
+says where each extension does its job, and
+[Compatibility](compatibility.md), generated from the code, where the agent
+accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 
 **Learning from an expert** (`ajax.extensions.expert`)
 
@@ -279,7 +281,7 @@ says where each extension does its job. "SAC with an expert" means
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
 | `IBRL` | Adds `γ(1 − d) · max(Q(s′, a_E) − Q(s′, a′), 0)` to the target, so the values match acting with whichever of expert and policy looks better. Logs `ibrl/bonus` and `ibrl/expert_wins`. | `on_target` | SAC, TD3, REDQ, AVG; refused on an average-reward target (ASAC, APO), which has no discount for the bonus |
-| `LCBGatedBootstrap` | Blends the policy's and the expert's next-action values in the target, weighted by a sigmoid of their pessimistic (lower-confidence-bound) scores. Logs its pessimism `lcb_bootstrap/beta` and its mean gate `lcb_bootstrap/p_expert`. | `on_target`, `eval_metrics` | SAC, TD3, REDQ, AVG; refused on an average-reward target (ASAC, APO) |
+| `LCBGatedBootstrap` | Blends the policy's and the expert's next-action values in the target, weighted by a sigmoid of their pessimistic (lower-confidence-bound) scores. Logs its pessimism `lcb_bootstrap/beta` and its mean gate `lcb_bootstrap/p_expert`. | `on_target`, `eval_metrics` | SAC, TD3, REDQ, which have critic ensembles; refused on an average-reward target (ASAC, APO) |
 | `CriticBlend` | Blends the target with a one-step target on `φ*`, `(1 − α) y + α y_E`, with `α` falling from 1 to 0 over `critic_warmup_frac`. Logs `α` as `critic_blend/expert_weight`, and `critic_blend/target_gap`. | `on_target`, `eval_metrics` | SAC with `MCPretrain` |
 | `MCVarianceCorrection` | Where the critics disagree by more than `threshold` (variance), uses `φ*`'s value as the target. Logs `mc_variance/replaced_frac`. | `on_target` | SAC with `MCPretrain` |
 | `ValueBox` | Lets the expert act where its value under `φ*` exceeds a threshold that rises from the lowest to the highest expert value over training. Logs `value_box/threshold`, `value_box/in_box_frac` and `value_box/expert_frac`. | `action`, `eval_metrics` | SAC with an expert and `MCPretrain` |
@@ -288,17 +290,17 @@ says where each extension does its job. "SAC with an expert" means
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `CloningPretrain` | Rolls the expert out for `n_steps` steps per copy and trains the actor to reproduce its actions (`epochs` passes in batches of `batch_size`, at the actor's learning rate); the agent's observation statistics start from the dataset's. Logs the mean loss of its first and last epoch, `cloning/first_loss` and `cloning/last_loss`. | `pretrain`, `eval_metrics` | SAC, TD3, REDQ, APO (other agents raise when training starts) |
-| `MCPretrain` | Rolls the expert out, fits `φ*` to its Monte-Carlo returns, records its value range, and by default nudges the agent's own critic towards it. Logs the range, `mc_pretrain/v_min` and `mc_pretrain/v_max`, and the fit: its first and last loss, `mc_pretrain/first_loss` and `mc_pretrain/last_loss`, and `φ*`'s mean value at the expert's actions, `mc_pretrain/q_expert_mean`. | `pretrain`, `eval_metrics` | SAC (other agents raise when training starts) |
+| `CloningPretrain` | Rolls the expert out for `n_steps` steps per copy and trains the actor to reproduce its actions (`epochs` passes in batches of `batch_size`, at the actor's learning rate); the agent's observation statistics start from the dataset's. Logs the mean loss of its first and last epoch, `cloning/first_loss` and `cloning/last_loss`. | `pretrain`, `eval_metrics` | SAC, TD3, REDQ, ASAC, AVG, APO (other agents refuse it when built) |
+| `MCPretrain` | Rolls the expert out, fits `φ*` to its Monte-Carlo returns, records its value range, and by default nudges the agent's own critic towards it. Logs the range, `mc_pretrain/v_min` and `mc_pretrain/v_max`, and the fit: its first and last loss, `mc_pretrain/first_loss` and `mc_pretrain/last_loss`, and `φ*`'s mean value at the expert's actions, `mc_pretrain/q_expert_mean`. | `pretrain`, `eval_metrics` | SAC (other agents refuse it when built) |
 | `BellmanPretrain` | Runs `n_steps` ordinary critic updates on the replay buffer, which holds the expert's prefill, before training. Its values bootstrap from an untrained critic; kept for ablations. Logs the critic loss of its first and last update, `bellman_pretrain/first_loss` and `bellman_pretrain/last_loss`. | `pretrain`, `eval_metrics` | SAC with an expert |
 | `PhiRefresh` | Every `interval` steps, refits `φ*` for `steps` updates on the replay rows where the expert acted. | `post_update` | SAC with an expert and `MCPretrain` |
-| `PriorData` | Adds a transition dataset (`ajax.buffers.dataset`) to the replay, where it stays, and to the observation and reward statistics, then runs `offline_updates` of the agent's own update on it before acting. Pair it with `learning_starts=0`. | `pretrain` | SAC, TD3, REDQ, ASAC, DQN (other agents raise when training starts) |
+| `PriorData` | Adds a transition dataset (`ajax.buffers.dataset`) to the replay, where it stays, and to the observation and reward statistics, then runs `offline_updates` of the agent's own update on it before acting. Pair it with `learning_starts=0`. | `pretrain` | SAC, TD3, REDQ, ASAC, DQN (other agents refuse it when built) |
 
 **Critic ensembles** (`ajax.extensions.ensemble`)
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `KernelRepulsion` | Adds `coef` times the mean similarity (an RBF kernel) between the critics' predictions, which pushes the critics of an ensemble apart. Logs `kernel_repulsion/term`, `kernel_repulsion/kernel` and `kernel_repulsion/bandwidth`. | `critic_loss` | SAC, TD3, REDQ, ASAC, AVG with two or more critics; the other critic batches lack its inputs and raise |
+| `KernelRepulsion` | Adds `coef` times the mean similarity (an RBF kernel) between the critics' predictions, which pushes the critics of an ensemble apart. Logs `kernel_repulsion/term`, `kernel_repulsion/kernel` and `kernel_repulsion/bandwidth`. | `critic_loss` | SAC, TD3, REDQ, ASAC with two or more critics; other agents, AVG's single critic included, refuse it when built |
 
 **Measuring the critic** (`ajax.extensions.instrumentation`)
 
@@ -352,12 +354,14 @@ Some extensions need objects only the agent builds: its environment, network
 settings, optimisers, replay buffer or discount. They receive them through
 `bind_to_agent`, which an agent calls on its whole stack when it builds its
 training program; each extension picks the arguments it needs and returns a
-filled-in copy. SAC binds everything its extensions read, which is why
-`MCPretrain`, `BellmanPretrain`, `PhiRefresh` and `ExpertValueMetrics` work
-with SAC only. TD3, REDQ and APO bind their environment, actor optimiser and
-`expert_policy`, which is what `CloningPretrain` needs. DreamerV3 binds its
-own context. The other agents bind nothing. You never call `bind_to_agent`
-yourself.
+filled-in copy. Each agent lists the keys it binds in its
+`extension_context`. SAC binds everything its extensions read, which is why
+`MCPretrain`, `BellmanPretrain` and `PhiRefresh` work with SAC only. TD3,
+REDQ, ASAC, AVG and APO bind their environment, actor optimiser and
+`expert_policy`, which is what `CloningPretrain` needs; TD3, REDQ and ASAC
+also bind their replay buffer, which `ExpertValueMetrics` reads. DreamerV3
+binds its own context. The other agents bind nothing. You never call
+`bind_to_agent` yourself.
 
 ## Writing your own
 

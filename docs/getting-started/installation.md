@@ -9,13 +9,26 @@ cd Ajax
 uv sync
 ```
 
-`uv sync` creates `.venv` with the locked dependencies. Prefix commands with
-`uv run`, or activate the environment with `source .venv/bin/activate`. To
-check the install:
+`uv sync` creates `.venv` with the versions in `uv.lock`, which CI tests.
+Prefix commands with `uv run`, or activate the environment with
+`source .venv/bin/activate`. To check the install:
 
 ```bash
 uv run python -c "import ajax; print(ajax.__version__)"
 ```
+
+## With pip
+
+pip installs Ajax from its repository, with JAX pinned to the version in
+`uv.lock`:
+
+```bash
+pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git" "jax==0.7.2"
+```
+
+pip does not read `uv.lock`, so it takes the newest versions the bounds in
+`pyproject.toml` allow. Without the pin that is JAX 0.11, on which the flax
+version Ajax uses (0.10) fails when training starts.
 
 ## CPU or GPU
 
@@ -60,25 +73,39 @@ The `docs` group builds the site without the runtime
 (`uv sync --only-group docs`): the API pages are read from the source, not
 imported.
 
+## Extras
+
+| Extra | What it adds |
+| --- | --- |
+| `cuda` | JAX with CUDA, on Linux ([above](#cpu-or-gpu)) |
+| `compare` | the `adastop` package, whose confidence sequence [`ajax.compare.estimate`](../guide/comparing-agents.md#one-agent-how-sure-is-a-number) uses; AdaStop itself needs no extra |
+| `reproduction` | Hugging Face Hub, pandas and pyarrow, for `ajax.reproduction.load` ([Reproduction](../reproduction/index.md)) |
+
+```bash
+uv sync --extra compare
+```
+
+The `compare` extra takes `adastop` from a commit of its main branch, named
+in `[tool.uv.sources]`, until a release includes the confidence sequence.
+pip does not read that table: with pip, install `adastop` from that commit
+yourself.
+
 ## Using Ajax from another project
 
-Ajax needs gymnax 1.0 (its step returns `terminated` and `truncated`
-apart). The gymnax 1.0.0 release caps JAX below 0.7 and gymnasium below 1.2,
-which no resolver can satisfy next to distrax, so Ajax's `pyproject.toml`
-takes gymnax from a fork whose only change lifts those two caps. uv applies
-`[tool.uv.sources]` from the project you sync, not from its dependencies, so
-a project that depends on Ajax declares the same source:
+Every runtime dependency of Ajax, gymnax 1.0.1 included, comes from PyPI,
+so a project that depends on Ajax declares only where Ajax comes from:
 
 ```toml
 [project]
-dependencies = ["ajax"]  # "ajax[cuda]" to ask for CUDA
+# "ajax[cuda]" to ask for CUDA. JAX pinned as with pip (above).
+dependencies = ["ajax", "jax==0.7.2"]
 
 [tool.uv.sources]
 ajax = { git = "https://github.com/YannBerthelot/Ajax.git" }
-gymnax = { git = "https://github.com/YannBerthelot/gymnax.git", branch = "chore/relax-runtime-pins" }
 ```
 
-With pip, install that gymnax branch first, then Ajax from its repository.
+uv resolves that project's versions, not those of Ajax's `uv.lock`, so the
+JAX pin is needed there too.
 
 ## The compile cache
 

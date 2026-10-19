@@ -26,8 +26,11 @@ four ways:
   [APO](algorithms/apo.md) maximise the reward per step, with no discount, for
   tasks that never end.
 - **[Expert-guided agents](guide/expert-guidance.md)**: learn from a
-  controller you already have, by cloning, imitation, residual policies or
-  hand-over.
+  controller you already have, or from recorded transitions, by cloning,
+  imitation, residual policies, hand-over or prior data in the replay.
+  [Choosing the pieces](guide/expert-guidance.md#choosing-the-pieces) names
+  each method and its paper: TD3+BC, Q-filtered cloning, kickstarting,
+  residual RL, JSRL, IBRL, RLPD's prior data.
 - **[World models](guide/world-models.md)**: DreamerV3 and TD-MPC2, following
   the code behind their papers' results.
 
@@ -40,8 +43,9 @@ implements a published paper, and its page lists where it departs from it.
 Several seeds train side by side in one program, on a CPU or a GPU. Research
 features (learning from an expert, exploration rules, diagnostics) are
 [extensions](guide/extensions.md), passed as `extensions=(...)` rather than
-added as new arguments to the agents; an agent refuses one that needs a
-training phase it does not run.
+added as new arguments to the agents. An agent refuses, when built, an
+extension it cannot run; [Compatibility](guide/compatibility.md) shows which
+agent runs which.
 
 ```bash
 git clone https://github.com/YannBerthelot/Ajax.git
@@ -101,6 +105,11 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
   evaluations as arrays, W&B or TensorBoard, resuming in another process.
 - [Performance](guide/performance.md): every seed in one program, a persistent
   compile cache, one per machine and JAX version.
+- [Comparing agents](guide/comparing-agents.md): AdaStop, which trains more
+  seeds only while the answer is unclear, and confidence intervals for one
+  agent's metrics.
+- [Reproduction](reproduction/index.md): Ajax agents trained beside reference
+  implementations on the same JAX environment, under a written protocol.
 
 ## Documentation
 
@@ -118,7 +127,8 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
 
     [API reference](api/agents.md) ·
     [Training loop](api/training-loop.md) ·
-    [Extensions API](api/extensions.md)
+    [Extensions API](api/extensions.md) ·
+    [Compatibility](guide/compatibility.md)
 
 - **Change it**
 

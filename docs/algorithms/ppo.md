@@ -159,7 +159,9 @@ Defaults are those of the constructor.
 
 ## Results
 
-No learning curves are published for PPO yet. Unit tests (`tests/agents/PPO`
+The [reproduction results](../reproduction/results.md) set PPO beside
+Stable-Baselines3's on CartPole and Brax's on inverted_pendulum, with
+learning curves. Unit tests (`tests/agents/PPO`
 and the contracts every agent shares) check its pieces against exact
 contracts, without learning, such as the fresh split of each epoch. The
 probes (`tests/probing`) train it briefly on tiny environments with known

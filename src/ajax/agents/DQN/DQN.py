@@ -36,7 +36,7 @@ class DQN(ActorCritic):
         self,
         env_id: str | EnvType,
         n_envs: int = 1,
-        learning_rate: float = 1e-3,
+        learning_rate: float = 2.5e-4,
         architecture=("128", "relu", "128", "relu"),
         gamma: float = 0.99,
         env_params: Optional[EnvParams] = None,
@@ -60,7 +60,8 @@ class DQN(ActorCritic):
         # TD target: None -> vanilla DQN. Pass compute_double_dqn_td_target
         # (from train_DQN) for Double DQN.
         td_target_fn: Optional[Callable] = None,
-        # TD loss: None -> MSE. Pass make_huber_td_loss(delta) for Huber.
+        # TD loss: None -> huber_1_td_loss (the reference's TD-error clip).
+        # Pass mse_td_loss (from train_DQN) for the squared error.
         td_loss_fn: Optional[Callable] = None,
         # Q-network module: None -> QNetwork. Pass DuelingQNetwork
         # (from DQN.networks) for the dueling architecture.
@@ -116,6 +117,16 @@ class DQN(ActorCritic):
 
         if check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("DQN only supports discrete action spaces.")
+        # The optimiser of DQN's reference (google-deepmind/dqn @9d9b1d1,
+        # NeuralQLearner.lua:265-277, lr 2.5e-4 in run_gpu:25): centered
+        # RMSProp, both averages decaying at 0.95, eps 0.01 inside the
+        # square root of a gradient summed over the batch (:254). Ajax's TD
+        # loss averages over the batch, so the same step takes eps
+        # 0.01 / batch_size**2.
+        rmsprop = {"optimizer": "centered_rmsprop", "beta_2": 0.95}
+        rmsprop["eps"] = 0.01 / batch_size**2
+        self.actor_optimizer_args = self.actor_optimizer_args.replace(**rmsprop)
+        self.critic_optimizer_args = self.critic_optimizer_args.replace(**rmsprop)
 
         self.agent_config: DQNConfig = DQNConfig(
             gamma=gamma,

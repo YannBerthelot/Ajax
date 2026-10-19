@@ -890,6 +890,19 @@ _GOLDEN |= {
         "nudge": 0.22634370625019073,
     },
 }
+# Re-recorded on macOS ARM CPU once DQN stepped as its authors' code:
+# centered RMSProp (decay 0.95, eps 0.01 / batch_size**2) at lr 2.5e-4 on
+# the Huber loss (were Adam at 1e-3 on the squared error). Relative shifts
+# (actor, target): DQN -17.6%, -17.3%; DQN-dueling-nudge -17.0%, -16.4%; its
+# nudge is unchanged.
+_GOLDEN |= {
+    "DQN": {"actor": 9.924060821533203, "target": 9.860681533813477},
+    "DQN-dueling-nudge": {
+        "actor": 10.886780738830566,
+        "target": 10.790019989013672,
+        "nudge": 0.22634370625019073,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

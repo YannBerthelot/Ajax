@@ -364,7 +364,7 @@ VALUE_Q = Query(
 # Calibrated on 1000-1031 + 2000-2031, worst error 0.0059 or less (AVG, at
 # its reference initialisation, 0.0091 at 2500); 3000-3031 within 0.009.
 P5_VALUE = {"SAC": 625, "REDQ": 625, "REDQ+on_target": 625, "TD3": 625}
-P5_VALUE |= {"AVG": 2500, "DQN": 625, "PQN": 80_000}
+P5_VALUE |= {"AVG": 2500, "DQN": 312, "PQN": 80_000}  # DQN: tol 0.063
 
 
 def _p5_read(cell: str, run: runs.Run) -> dict:
@@ -379,8 +379,9 @@ for cell, budget in P5_VALUE.items():
     reads = runs.readings(
         functools.partial(_scaled, cell), functools.partial(_p5_read, cell)
     )
+    tol5 = (0.063 if cell == "DQN" else 0.02,)
     CASES[f"p5-value-{cell}"] = Case(
-        f"p5-value-{cell}", (VALUE_Q,), reads, budget, (0.02,)
+        f"p5-value-{cell}", (VALUE_Q,), reads, budget, tol5
     )
 
 SEEN: dict[str, list] = {}

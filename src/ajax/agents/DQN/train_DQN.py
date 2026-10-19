@@ -5,7 +5,7 @@ trained to minimise the temporal-difference error against a slowly
 refreshed target network:
 
     y    = r + gamma * (1 - done) * max_a' Q_target(s', a')
-    loss = MSE(Q(s, a), y)
+    loss = Huber_1(Q(s, a), y)
 
 Differences from the SAC/TD3 template in this codebase:
   * No actor. The greedy policy is ``argmax_a Q(s, a)``; the Q-network is
@@ -241,7 +241,7 @@ def compute_double_dqn_td_target(
 
 
 def mse_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
-    """Mean-squared TD error -- the DQN default."""
+    """Mean-squared TD error."""
     return jnp.mean((q_taken - target_q) ** 2)
 
 
@@ -249,15 +249,21 @@ def make_huber_td_loss(delta: float = 1.0) -> Callable:
     """Build a Huber TD-loss callable.
 
     Huber loss is quadratic within ``delta`` of zero error and linear
-    beyond it -- the smooth analogue of the original DQN's TD-error
-    clipping, less sensitive to outlier targets. Select via
-    ``DQN(..., td_loss_fn=make_huber_td_loss(1.0))``.
+    beyond it: its gradient is the TD error clipped to ``[-delta, delta]``,
+    the original DQN's clip (google-deepmind/dqn @9d9b1d1
+    NeuralQLearner.lua:224-226, ``clip_delta=1`` in run_gpu:31), DQN's
+    default at ``delta = 1``.
     """
 
     def huber_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
         return jnp.mean(optax.huber_loss(q_taken, target_q, delta=delta))
 
     return huber_td_loss
+
+
+#: DQN's default TD loss; one function, so jit's static-argument cache hits
+#: across runs.
+huber_1_td_loss = make_huber_td_loss(1.0)
 
 
 def q_loss_fn(
@@ -271,7 +277,7 @@ def q_loss_fn(
     """TD loss between Q(s, a) at the taken action and a pre-computed target.
 
     ``loss_fn(q_taken, target_q) -> scalar`` selects the error norm
-    (``mse_td_loss`` by default, ``make_huber_td_loss(...)`` for Huber).
+    (``huber_1_td_loss``, DQN's default, or ``mse_td_loss``).
     """
     q_all = predict_q(q_state, q_params, observations)
     # actions is (batch, 1) int32 -> gather one Q-value per row.
@@ -481,7 +487,7 @@ def make_train(
     )
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_target_fn = td_target_fn if td_target_fn is not None else compute_dqn_td_target
-    td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
+    td_loss_fn = td_loss_fn if td_loss_fn is not None else huber_1_td_loss
     epsilon_schedule = functools.partial(
         linear_epsilon,
         total_timesteps=total_timesteps,

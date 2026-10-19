@@ -66,7 +66,6 @@ from ajax.log import (
 from ajax.logging.wandb_logging import LoggingConfig, start_async_logging, vmap_log
 from ajax.perf_utils import build_resumable_train
 from ajax.state import EnvironmentConfig
-from ajax.utils import fill_with_nan
 
 #: The extension phases the loop folds for every agent: a fresh run's
 #: one-shot ``pretrain``, ``post_update`` after each update and
@@ -384,11 +383,10 @@ class TrainLoop:
         agent_state: Any,
         learning_starts: int,
         update: Callable[[Any], tuple[Any, Any]],
-        aux_cls: type,
     ) -> tuple[Any, Any]:
         """``update`` and fold ``post_update`` once ``learning_starts`` steps
-        are collected; before, the metrics are ``aux_cls`` filled with NaN
-        (which the logger drops)."""
+        are collected; before, the metrics have the update's structure,
+        filled with NaN (which the logger drops)."""
 
         def do_update(agent_state: Any) -> tuple[Any, Any]:
             agent_state, aux = update(agent_state)
@@ -397,7 +395,10 @@ class TrainLoop:
             return self.post_update(agent_state), aux
 
         def skip_update(agent_state: Any) -> tuple[Any, Any]:
-            return agent_state, fill_with_nan(aux_cls)
+            # The structure is read from the update's trace: the names the
+            # extensions log are known only once their phases are traced.
+            shapes = jax.eval_shape(lambda s: do_update(s)[1], agent_state)
+            return agent_state, unevaluated(shapes)
 
         ready = agent_state.collector_state.timestep >= learning_starts
         return jax.lax.cond(ready, do_update, skip_update, agent_state)
@@ -556,7 +557,6 @@ class TrainLoop:
         self,
         init: Init,
         update: Update,
-        aux_cls: Optional[type] = None,
         learning_starts: int = 0,
         *,
         recurrent: bool = False,
@@ -615,10 +615,7 @@ class TrainLoop:
 
             aux = None
             if n_updates is None:
-                assert aux_cls is not None, "the learning_starts gate needs aux_cls"
-                agent_state, aux = self.maybe_update(
-                    agent_state, learning_starts, step, aux_cls
-                )
+                agent_state, aux = self.maybe_update(agent_state, learning_starts, step)
             else:
                 agent_state = self.repeat_update(
                     agent_state, n_updates(tick, agent_state), step

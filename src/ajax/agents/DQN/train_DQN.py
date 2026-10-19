@@ -524,7 +524,6 @@ def make_train(
     return loop.off_policy(
         init,
         update,
-        AuxiliaryLogs,
         agent_config.learning_starts,
         collect_kwargs={"buffer": buffer, "action_pipeline": action_pipeline},
         eval_kwargs={

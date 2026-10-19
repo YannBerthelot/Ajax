@@ -844,7 +844,6 @@ def make_train(
     return loop.off_policy(
         init,
         update,
-        AuxiliaryLogs,
         agent_config.learning_starts,
         recurrent=recurrent,
         collect_kwargs={

@@ -362,10 +362,10 @@ def update_agent(
         return update_target_networks(agent_state, agent_config.tau), policy_aux
 
     def skip_policy(agent_state: TD3State) -> Tuple[TD3State, Any]:
-        zero = jnp.zeros(())
-        return agent_state, PolicyAuxiliaries(
-            policy_loss=zero, q_mean=zero, grad_norm=zero
-        )
+        # Zeros of the actor step's metrics, their structure read from its
+        # trace (with the extensions' names).
+        shapes = jax.eval_shape(lambda s: policy_and_targets(s)[1], agent_state)
+        return agent_state, jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), shapes)
 
     policy_delay = agent_config.policy_delay
     do_policy = (agent_state.n_updates % policy_delay) == 0
@@ -449,7 +449,6 @@ def make_train(
     return loop.off_policy(
         init,
         update,
-        AuxiliaryLogs,
         agent_config.learning_starts,
         recurrent=recurrent,
         collect_kwargs={

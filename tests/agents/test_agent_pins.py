@@ -822,6 +822,16 @@ _GOLDEN |= {
         "alpha": 0.9721929430961609,
     },
 }
+# Re-recorded on macOS ARM CPU once REDQ's Adam eps became torch's 1e-8
+# (was 1e-5). Relative shifts (actor, critic, alpha): -3.0e-6, +8.5e-6,
+# -6e-8.
+_GOLDEN |= {
+    "REDQ": {
+        "actor": 10.55967903137207,
+        "critic": 39.23810577392578,
+        "alpha": 0.9721928834915161,
+    },
+}
 
 # Re-recorded on macOS ARM CPU once SAC's layers became its reference code's:
 # xavier_uniform kernels and zero biases, the mean and log-std heads included

@@ -187,6 +187,13 @@ class REDQ(ActorCritic):
             action_repeat=action_repeat,
             extensions=extensions,
         )
+        # Adam's eps is torch's default, 1e-8, which the reference's Adams
+        # keep (watchernyu/REDQ @7b5d1bf redq/algos/redq_sac.py:48, :51,
+        # torch 1.3.1); recurrent REDQ's reference (Ni et al.,
+        # pomdp-baselines e7c19c3 policy_rnn.py:75, :93) keeps it too.
+        # Ajax's shared default is 1e-5.
+        self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=1e-8)
+        self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=1e-8)
 
         self.alpha_args = AlphaConfig(
             learning_rate=alpha_learning_rate,

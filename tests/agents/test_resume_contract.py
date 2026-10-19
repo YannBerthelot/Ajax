@@ -115,11 +115,16 @@ def _epsilon_trace(legs: tuple[int, ...], horizon: int) -> list[tuple[int, float
     trace: list[tuple[int, float]] = []
     epsilon_at = train_DQN.linear_epsilon
 
-    def recorded(timestep: Any, *args: Any) -> Any:
-        epsilon = epsilon_at(timestep, *args)
-        jax.debug.callback(
-            lambda t, e: trace.append((int(t), float(e))), timestep, epsilon
-        )
+    def recorded(timestep: Any, *args: Any, **kwargs: Any) -> Any:
+        epsilon = epsilon_at(timestep, *args, **kwargs)
+        # The action pipeline passes its schedule positionally: that is the
+        # epsilon the agent acts with. The logged epsilon (make_train's
+        # epsilon_schedule, a partial over keywords) is read after each
+        # update and is not recorded.
+        if not kwargs:
+            jax.debug.callback(
+                lambda t, e: trace.append((int(t), float(e))), timestep, epsilon
+            )
         return epsilon
 
     agent, state = _dqn(), None

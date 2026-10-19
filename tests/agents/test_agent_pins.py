@@ -774,6 +774,19 @@ _GOLDEN |= {
     "TD3-mcc": {"actor": 17.76249885559082, "critic": 28.460254669189453},
 }
 
+# Re-recorded on macOS ARM CPU once REDQ's layers became its reference code's:
+# xavier_uniform kernels and zero biases, the mean and log-std layers included
+# (were orthogonal(1.0) hidden and Q layers, an orthogonal(0.01) mean and a
+# zero-kernel log-std head with bias -1). Relative shifts (actor, critic,
+# alpha): REDQ +135.4%, +66.0%, -0.079%.
+_GOLDEN |= {
+    "REDQ": {
+        "actor": 10.559710502624512,
+        "critic": 39.23777389526367,
+        "alpha": 0.9721929430961609,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

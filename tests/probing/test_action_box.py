@@ -25,7 +25,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "f45e89defecb"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "ae53b511702e"  # verdict.digest(CASES): every answer, pinned
 ENV, PARAMS = envs.action_box().make()
 CONTEXTS = jnp.eye(3)  # up, down, inside
 
@@ -143,7 +143,7 @@ CELLS: dict[str, tuple] = {  # agent: family, budget, tolerances, overrides
     "SAC": ("auto", 10_000, (0.069, 0.047, 0.226), {}),
     "TD3": ("none", 20_000, (0.02, 0.02, 0.164), {}),
     "PPO": ("none", 25_000, (0.02, 0.02, 0.219), {"log_std_init": -1.0}),
-    "REDQ": ("auto", 5000, (0.087, 0.133, 0.243), {"num_critic_updates": 5}),
+    "REDQ": ("auto", 10_000, (0.057, 0.052, 0.232), {"num_critic_updates": 5}),
     "ASAC": ("auto", 20_000, (0.041, 0.055, 0.224), dict.fromkeys(LR3, 1e-4)),
     "AVG": ("AVG", 20_000, (0.026, 0.045, 0.239), LR3),
     "APO": ("none", 300_000, (0.02, 0.02, 0.145), dict.fromkeys(LR3, 1e-4)),
@@ -156,7 +156,7 @@ NOTES = {  # beyond choose's pick: owner decisions, rungs ruled out and why
     "PPO": "owner: at PPO's reference log-std 0, 2 of the 64 ladder seeds (1018,"
     " 2007) end the inside mean past the box's edge, 3.0 from 25,000 to 100,000"
     " steps; that is PPO's behaviour, not a defect, so the cell starts at -1",
-    "REDQ": "2,500 too few: twice its worst reach error, 0.474, passed 0.25",
+    "REDQ": "at its reference init 5,000 too few: twice its worst inside error 0.257",
     "AVG": "re-laddered at its reference initialisation on 20,000 and 40,000 only",
     "APO": "at 3e-4 100,000 qualifies but certifies 28/32, and the inside action"
     " drifts past it (0.60-1.68 at 150,000-300,000); at 1e-4, 200,000: 0.293",

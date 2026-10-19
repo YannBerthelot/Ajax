@@ -15,6 +15,7 @@ from ajax.environments.system_class import (
     env_params_is_batched,
     n_systems,
 )
+from tests.agents.test_agent_contract import CASES
 
 N = 6
 
@@ -207,8 +208,9 @@ def test_an_agent_takes_per_copy_params_only_if_it_traces_them(name):
     batched = broadcast_env_params(params, 2)
     traced = name in ("APG", "DreamerV3", "TDMPC2")
     assert cls.supports_batched_env_params == traced
+    required = CASES[name].required if name in CASES else {}
     if traced:
-        cls(env, env_params=batched, n_envs=2)
+        cls(env, env_params=batched, n_envs=2, **required)
         return
     with pytest.raises(ValueError, match="one system per copy.*APG"):
-        cls(env, env_params=batched, n_envs=2)
+        cls(env, env_params=batched, n_envs=2, **required)

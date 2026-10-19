@@ -144,6 +144,12 @@ class TD3(ActorCritic):
             action_repeat=action_repeat,
             extensions=extensions,
         )
+        # Adam's eps is torch's default, 1e-8, which the reference's Adams
+        # keep (sfujim/TD3 @34770cc TD3.py:83, :87, PyTorch 1.2); recurrent
+        # TD3's reference (Ni et al., pomdp-baselines e7c19c3
+        # policy_rnn.py:75, :93) keeps it too. Ajax's shared default is 1e-5.
+        self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=1e-8)
+        self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=1e-8)
 
         if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("TD3 only supports continuous action spaces.")

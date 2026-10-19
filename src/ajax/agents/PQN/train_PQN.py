@@ -29,7 +29,6 @@ from ajax.agents.DQN.train_DQN import (
     init_DQN,
     linear_epsilon,
     make_epsilon_greedy_pipeline,
-    mse_td_loss,
     q_gradient_step,
 )
 from ajax.agents.loop import TrainLoop
@@ -47,6 +46,13 @@ from ajax.state import (
     OptimizerConfig,
     Transition,
 )
+
+
+def half_mse_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
+    """Half the mean-squared TD error, PQN's default: purejaxql's loss
+    (mttga/purejaxql @47af6d7 pqn_minatar.py:285), whose gradient its
+    global clip of 10 is set against."""
+    return 0.5 * jnp.mean((q_taken - target_q) ** 2)
 
 
 def update_agent(
@@ -186,7 +192,7 @@ def make_train(
         end_timestep=end_timestep,
     )
     n_actions = get_action_dim(env_args.env, env_args.env_params)
-    td_loss_fn = td_loss_fn if td_loss_fn is not None else mse_td_loss
+    td_loss_fn = td_loss_fn if td_loss_fn is not None else half_mse_td_loss
     epsilon_schedule = functools.partial(
         linear_epsilon,
         total_timesteps=total_timesteps,

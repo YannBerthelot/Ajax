@@ -62,6 +62,11 @@ and softlearning: xavier_uniform kernels, zero biases, the mean and log-std
 heads included): every stack moved alike, critic +1.5..2.2%, actor
 -1.4..0.0%, target +2.4%, alpha +0.06..0.08%, as the plain-SAC parity
 goldens did, so the shift is the initialisation, not extension wiring.
+
+Re-captured when SAC's Adam eps became softlearning's, TensorFlow's 1e-8
+(was 1e-5): every stack moved the same way, critic +2.3e-4..2.1e-3 (the
+pretraining stacks most), actor at most 1.5e-4, target at most 6.5e-5,
+alpha at most 1.2e-6; the plain-SAC parity goldens moved alike.
 """
 
 from __future__ import annotations

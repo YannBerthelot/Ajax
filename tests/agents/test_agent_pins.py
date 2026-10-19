@@ -741,6 +741,16 @@ _GOLDEN |= {
         "alpha": 0.07000000029802322,
     },
 }
+# Re-recorded on macOS ARM CPU once AVG's Adam eps became torch's 1e-8 (was
+# 1e-5), on the merged code (the authors' TD-error scaling and the reference
+# init). Relative shifts (actor, critic): +0.013%, +0.25%; alpha unchanged.
+_GOLDEN |= {
+    "AVG": {
+        "actor": 5.559042930603027,
+        "critic": 18.692731857299805,
+        "alpha": 0.07000000029802322,
+    },
+}
 
 # Re-recorded on macOS ARM CPU once ASAC's layers became its reference code's:
 # torch's nn.Linear default, every kernel and bias uniform in +-1/sqrt(fan_in)
@@ -774,6 +784,15 @@ _GOLDEN |= {
         "alpha": 0.19999998807907104,
     },
 }
+# Re-recorded on macOS ARM CPU once ASAC's Adam eps became torch's 1e-8
+# (was 1e-5). Relative shifts (actor, critic, alpha): -2.0e-6, +2.6e-5, 0.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 17.280635833740234,
+        "critic": 27.367149353027344,
+        "alpha": 0.19999998807907104,
+    },
+}
 
 # Re-recorded on macOS ARM CPU once PQN's layers became its reference code's:
 # flax's lecun_normal kernels (were orthogonal(sqrt(2)) hidden layers and an
@@ -782,6 +801,14 @@ _GOLDEN |= {
 _GOLDEN |= {
     "PQN": {"actor": 33.92633056640625},
     "PQN-nudge": {"actor": 33.91205596923828, "nudge": 0.33566388487815857},
+}
+# Re-recorded on macOS ARM CPU once PQN stepped as its authors' code: RAdam
+# (eps 1e-8) after a global clip of 10, on half the squared error (were Adam,
+# eps 1e-5, unclipped, on the squared error). Relative shifts (actor): PQN
+# +0.28%, PQN-nudge +0.32%; the nudge is unchanged.
+_GOLDEN |= {
+    "PQN": {"actor": 34.02167510986328},
+    "PQN-nudge": {"actor": 34.01959228515625, "nudge": 0.33566388487815857},
 }
 
 # Re-recorded on macOS ARM CPU once TD3's layers became its reference code's:
@@ -800,6 +827,13 @@ _GOLDEN |= {
     "TD3": {"actor": 15.433494567871094, "critic": 27.067062377929688},
     "TD3-mcc": {"actor": 17.501985549926758, "critic": 28.56537628173828},
 }
+# Re-recorded on macOS ARM CPU once TD3's Adam eps became torch's 1e-8 (was
+# 1e-5). Relative shifts (actor, critic): TD3 -9.9e-5, +5.3e-6; TD3-mcc
+# +9.0e-5, -6.9e-4.
+_GOLDEN |= {
+    "TD3": {"actor": 15.431966781616211, "critic": 27.06720542907715},
+    "TD3-mcc": {"actor": 17.503564834594727, "critic": 28.545764923095703},
+}
 
 # Re-recorded on macOS ARM CPU once REDQ's layers became its reference code's:
 # xavier_uniform kernels and zero biases, the mean and log-std layers included
@@ -811,6 +845,16 @@ _GOLDEN |= {
         "actor": 10.559710502624512,
         "critic": 39.23777389526367,
         "alpha": 0.9721929430961609,
+    },
+}
+# Re-recorded on macOS ARM CPU once REDQ's Adam eps became torch's 1e-8
+# (was 1e-5). Relative shifts (actor, critic, alpha): -3.0e-6, +8.5e-6,
+# -6e-8.
+_GOLDEN |= {
+    "REDQ": {
+        "actor": 10.55967903137207,
+        "critic": 39.23810577392578,
+        "alpha": 0.9721928834915161,
     },
 }
 
@@ -826,6 +870,21 @@ _GOLDEN |= {
         "alpha": 0.9759861826896667,
     },
 }
+# Re-recorded on macOS ARM CPU once SAC's Adam eps became TensorFlow's and
+# torch's 1e-8 (was 1e-5). Relative shifts (actor, critic, alpha): SAC-mcc
+# -3.3e-5, -4.0e-4, 0; SAC-gru +1.9%, +7.6e-4, -3.8e-5.
+_GOLDEN |= {
+    "SAC-mcc": {
+        "actor": 8.311077117919922,
+        "critic": 15.622236251831055,
+        "alpha": 0.9759861826896667,
+    },
+    "SAC-gru": {
+        "actor": 58.47077941894531,
+        "critic": 134.4833221435547,
+        "alpha": 0.9515250325202942,
+    },
+}
 
 # Re-recorded on macOS ARM CPU once DQN's layers became its reference code's:
 # Torch7's nn.Linear default, kernel and bias uniform in +-1/sqrt(fan_in)
@@ -837,6 +896,19 @@ _GOLDEN |= {
     "DQN-dueling-nudge": {
         "actor": 13.111983299255371,
         "target": 12.902071952819824,
+        "nudge": 0.22634370625019073,
+    },
+}
+# Re-recorded on macOS ARM CPU once DQN stepped as its authors' code:
+# centered RMSProp (decay 0.95, eps 0.01 / batch_size**2) at lr 2.5e-4 on
+# the Huber loss (were Adam at 1e-3 on the squared error). Relative shifts
+# (actor, target): DQN -17.6%, -17.3%; DQN-dueling-nudge -17.0%, -16.4%; its
+# nudge is unchanged.
+_GOLDEN |= {
+    "DQN": {"actor": 9.924060821533203, "target": 9.860681533813477},
+    "DQN-dueling-nudge": {
+        "actor": 10.886780738830566,
+        "target": 10.790019989013672,
         "nudge": 0.22634370625019073,
     },
 }

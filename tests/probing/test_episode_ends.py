@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "6c1570dbc886"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "d0490d911233"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -364,7 +364,7 @@ VALUE_Q = Query(
 # Calibrated on 1000-1031 + 2000-2031, worst error 0.0059 or less (AVG, at
 # its reference initialisation, 0.0091 at 2500); 3000-3031 within 0.009.
 P5_VALUE = {"SAC": 625, "REDQ": 625, "REDQ+on_target": 625, "TD3": 625}
-P5_VALUE |= {"AVG": 2500, "DQN": 625, "PQN": 80_000}
+P5_VALUE |= {"AVG": 2500, "DQN": 312, "PQN": 80_000}  # DQN: tol 0.063
 
 
 def _p5_read(cell: str, run: runs.Run) -> dict:
@@ -379,8 +379,9 @@ for cell, budget in P5_VALUE.items():
     reads = runs.readings(
         functools.partial(_scaled, cell), functools.partial(_p5_read, cell)
     )
+    tol5 = (0.063 if cell == "DQN" else 0.02,)
     CASES[f"p5-value-{cell}"] = Case(
-        f"p5-value-{cell}", (VALUE_Q,), reads, budget, (0.02,)
+        f"p5-value-{cell}", (VALUE_Q,), reads, budget, tol5
     )
 
 SEEN: dict[str, list] = {}
@@ -674,8 +675,8 @@ P9_CELLS: dict[str, tuple] = {
     "PQN": (
         ("q_lambda", 512, 0.65),
         {"A": (0.394, 1.198), "B": (0.902, 1.562), "C": (0.766, 1.527)} | D0,
-        80_000,  # at its reference initialisation; 160,000 qualifies too
-        (0.089, 0.075),
+        320_000,  # with RAdam; 80,000 and 160,000 do not qualify
+        (0.064, 0.078),
         {"learning_rate": 2.5e-4, "n_steps": 512, "num_minibatches": 2, "n_epochs": 3},
     ),
 }

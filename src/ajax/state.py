@@ -318,6 +318,12 @@ class OptimizerConfig(Replaceable):
     # parameter by ``1 - lr * weight_decay``: a time constant of
     # ``1 / (lr * weight_decay)`` steps. 0 keeps plain Adam.
     weight_decay: float = 0.0
+    # The update rule. "adam" (Kingma & Ba 2015); "radam" (Liu et al. 2020,
+    # optax.radam: Adam with its variance rectified while few gradients are
+    # averaged); "centered_rmsprop" (Graves 2013, optax.rmsprop with
+    # centered=True): the gradient over sqrt(E[g^2] - E[g]^2 + eps), both
+    # averages decaying at beta_2, no bias correction, beta_1 unused.
+    optimizer: str = "adam"
 
 
 @struct.dataclass

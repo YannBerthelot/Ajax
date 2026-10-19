@@ -45,18 +45,19 @@ Defaults are read from `ASAC.__init__`.
 | Argument | Default | What it does |
 | --- | --- | --- |
 | `n_envs` | `1` | parallel environments |
-| `actor_learning_rate`, `critic_learning_rate`, `alpha_learning_rate` | `3e-4` | Adam step sizes |
+| `actor_learning_rate`, `critic_learning_rate`, `alpha_learning_rate` | `1e-4`, `5e-4`, `1e-4` | Adam step sizes (the authors') |
 | `actor_architecture`, `critic_architecture` | `("256", "relu", "256", "relu")` | hidden layers (plain MLPs) |
 | `buffer_size` | `1_000_000` | replay capacity |
 | `batch_size` | `256` | replay minibatch |
 | `learning_starts` | `10_000` | steps of uniform random actions before the first update |
-| `tau` | `0.005` | Polyak rate of the target critics, and the rate of the `theta` and penalty averages |
+| `tau` | `0.005` | Polyak rate of the target critics |
+| `tau_theta` | `0.005` | rate of the `theta` and penalty averages (the authors tune it per environment, 0.0005 to 0.1) |
 | `p_0` | `20` | scale of the termination penalty |
 | `alpha_init` | `0.2` | entropy weight (its start when it is learned) |
 | `fixed_alpha` | `True` | keep `alpha` at `alpha_init`; `False` learns it towards the target entropy |
 | `target_entropy_per_dim` | `-1.0` | target entropy, times the action dimension (with `fixed_alpha=False`) |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
-| `max_grad_norm` | `None` | gradient clipping |
+| `max_grad_norm` | `10.0` | gradient clipping, each critic and the actor on its own (the authors'); `None` turns it off |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
 | `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
 | `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
@@ -76,9 +77,9 @@ and `ImitationLoss` extensions ([Expert guidance](../guide/expert-guidance.md)).
   up to a constant.
 - **Episode ends.** The target bootstraps through every end. A termination
   is charged a penalty instead, subtracted from the terminal transition's
-  reward: an average (at rate `tau`) of `p_0` times the batch's mean reward,
+  reward: an average (at rate `tau_theta`) of `p_0` times the batch's mean reward,
   terminal rewards counted as zero.
-- **Reward rate.** After each update `theta` moves, at rate `tau`, towards
+- **Reward rate.** After each update `theta` moves, at rate `tau_theta`, towards
   the batch mean of the penalised reward minus `alpha log pi(a|s)`, with
   fresh actions `a ~ pi(.|s)`.
 - **One update.** The penalty, then a critic step, an actor step on

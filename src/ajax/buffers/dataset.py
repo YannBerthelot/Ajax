@@ -219,6 +219,7 @@ def _replay_rows(data: TransitionDataset) -> dict[str, np.ndarray]:
         "is_expert": col(data.is_expert),
         "a_expert": data.a_expert,
         "raw_next_obs": data.next_obs,
+        "return_to_go": col(data.return_to_go),
     }
 
 

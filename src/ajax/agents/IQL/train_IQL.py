@@ -73,6 +73,7 @@ def init_IQL(
     network_args: NetworkConfig,
     buffer: BufferType,
     store_raw_next_obs: bool = False,
+    store_return_to_go: bool = False,
 ) -> IQLState:
     """A Gaussian actor, two Q critics and one state value V(s); the replay
     keeps the env's own next observations for an extension reading them."""
@@ -102,6 +103,7 @@ def init_IQL(
         mode=env_args.mode,
         buffer=buffer,
         include_raw_next_obs=store_raw_next_obs,
+        include_return_to_go=store_return_to_go,
     )
     return IQLState(
         rng=rng,
@@ -248,6 +250,7 @@ def make_train(
             network_args,
             buffer,
             store_raw_next_obs="raw_next_obs" in loop.stack.buffer_fields(),
+            store_return_to_go="return_to_go" in loop.stack.buffer_fields(),
         )
 
     def update(agent_state: IQLState, _transition: Optional[Transition]) -> Any:

@@ -18,7 +18,7 @@ import jax.numpy as jnp
 import pytest
 
 import ajax.extensions
-from ajax.extensions import ensemble, expert, instrumentation, target_mods
+from ajax.extensions import ensemble, expert, instrumentation, offline, target_mods
 from ajax.extensions.base import Extension, ExtensionContext
 
 
@@ -29,6 +29,8 @@ def _expert(obs: jax.Array) -> jax.Array:
 #: Each extension configured to act (BiasVorePenalty's default coefficient is 0).
 BUILD: dict[type, Callable[[], Extension]] = {
     ensemble.KernelRepulsion: ensemble.KernelRepulsion,
+    offline.ConservativeQ: offline.ConservativeQ,
+    offline.CalQL: offline.CalQL,
     expert.OnlineBC: expert.OnlineBC,
     expert.ImitationLoss: lambda: expert.ImitationLoss(expert_policy=_expert),
     instrumentation.BiasVorePenalty: lambda: instrumentation.BiasVorePenalty(0.3),

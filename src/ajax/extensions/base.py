@@ -127,6 +127,8 @@ PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
         "*": "observations targets",
         "SAC TD3 REDQ ASAC AVG PPO APO IQL": "critic_params critic_state",
         "SAC TD3 REDQ ASAC AVG DQN PQN IQL": "actions",
+        "SAC TD3 REDQ ASAC AVG IQL": "next_observations actor_state",
+        "SAC TD3 REDQ IQL": "return_to_go",
         "DQN PQN": "q_state",
     },
     "actor_loss": {

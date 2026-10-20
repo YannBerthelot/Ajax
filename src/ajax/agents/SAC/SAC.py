@@ -63,7 +63,7 @@ class SAC(ActorCritic):
         "gamma network_args num_critics recurrent reward_scale "
         "update_target_fn update_value_fn use_train_frac".split()
     )
-    supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
+    supported_buffer_fields: frozenset = frozenset({"raw_next_obs", "return_to_go"})
     stores_expert_actions: bool = True
     make_train = staticmethod(make_train)
 

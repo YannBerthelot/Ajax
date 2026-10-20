@@ -888,6 +888,8 @@ def collect_experience(
             "a_expert": _a_expert_for_buf,
             "next_a_expert": _next_a_expert_for_buf,
             "raw_next_obs": raw_final_obs.astype(jnp.float32),
+            # Unknown until the episode ends: no Cal-QL floor on the row.
+            "return_to_go": jnp.full((env_args.n_envs, 1), -jnp.inf),
         }
         if store_hidden:
             row["actor_carry"] = _pre_actor_carry_flat
@@ -1134,6 +1136,7 @@ def init_collector_state(
     include_raw_obs: bool = False,
     include_is_expert: bool = False,
     expert_policy: Any = None,
+    include_return_to_go: bool = False,
 ):
     """Initialise the rollout collector. ``expert_state_aug_dim`` (>0)
     grows the buffered obs by that many trailing dimensions, holding the
@@ -1198,6 +1201,7 @@ def init_collector_state(
             include_raw_next_obs=include_raw_next_obs,
             include_raw_obs=include_raw_obs,
             include_is_expert=include_is_expert,
+            include_return_to_go=include_return_to_go,
         )
         if buffer is not None
         else None

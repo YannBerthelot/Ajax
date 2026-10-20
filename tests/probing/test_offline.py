@@ -20,6 +20,14 @@ rows' returns a s, and the actor's mean the advantage-weighted mean of their
 actions, weights min(exp(temperature (a s - V)), 100) (a state-independent
 std leaves the weighted likelihood's mean there). At expectile 0.9 and
 temperature 20 the clip binds near a = 1.
+
+CQL (Kumar et al., 2020) on SAC: the critic's term alpha (logsumexp_a Q(s,
+a) - E_data Q(s, a)) balances the data's squared error where 2 mu (Q - r) +
+alpha (rho - mu) = 0, with mu = 1/2 the data's density on [-1, 1] and rho
+the critic's softmax, rho = exp Q / int exp Q: Q = a s - alpha / 2 (2 rho -
+1), solved on a fine grid (cql_fixed_point). The rows' actions are cells'
+centres (cell_rows): a grid holding the end points +-1 gives them half a cell
+each, twice the data's density there. The cell reads Q inside the data.
 """
 
 from __future__ import annotations
@@ -31,6 +39,7 @@ import pytest
 
 from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions.expert import ImitationLoss
+from ajax.extensions.offline import ConservativeQ
 from ajax.networks.networks import predict_value
 
 from . import agents, envs, runs
@@ -113,6 +122,45 @@ def _awr(x: float) -> Query:
     )
 
 
+def cql_fixed_point(alpha: float, at: tuple[float, ...]) -> list[float]:
+    """Q(1, a) at the actions ``at`` where the data and CQL's term balance."""
+    a = np.linspace(-1.0, 1.0, 2001)
+    q = a.copy()
+    for _ in range(2000):  # a damped fixed-point iteration
+        rho = np.exp(q) / np.trapezoid(np.exp(q), a)
+        q = (q + a - alpha / 2 * (2 * rho - 1)) / 2
+    return [float(np.interp(x, a, q)) for x in at]
+
+
+CQL_ALPHA, CQL_AT = 1.0, (-0.85, 0.85)
+
+
+def cell_rows() -> TransitionDataset:
+    """One-step rows at s = +-1 (reward a s) whose actions are the centres of
+    20 equal cells of [-1, 1], the first repeated last (the row the replay
+    leaves out)."""
+    a = np.tile(np.linspace(-0.95, 0.95, 20), 2)[:, None]
+    s = np.repeat([-1.0, 1.0], 20)[:, None]
+    a, s = np.r_[a, a[:1]], np.r_[s, s[:1]]
+    ends = np.ones(len(a), bool)
+    return TransitionDataset(s, a, (a * s)[:, 0], ends, ~ends, s)
+
+
+def cql_readings() -> Any:
+    def build() -> Any:
+        env = envs.package(envs.SignedActionEnv)
+        ext = ConservativeQ(alpha=CQL_ALPHA, n_actions=100)
+        return agents.make("SAC", *env, extensions=(ext,))
+
+    def read(run: runs.Run) -> dict:
+        def at(n: R.Nets) -> dict:
+            return {f"Q(1, {x:g})": R.critic(n, 1.0, x) for x in CQL_AT}
+
+        return R.per_seed(at, R.nets(run.state))
+
+    return runs.readings(build, read, offline_data=cell_rows())
+
+
 _NONE = {"no update on the logged rows, the networks at initialisation": 0.0}
 CASES: dict[str, Case] = {
     "offline-TD3": Case(
@@ -169,8 +217,20 @@ CASES: dict[str, Case] = {
         note="ladder 500-4000 on 1000-1031, 2000-2031: worst 0.044, 0.032, 0.034 at"
         " 2000; the actions' cap, half the gap to the unclipped answer; cert 32/32",
     ),
+    "cql-fixed-point-SAC": Case(
+        "cql-fixed-point-SAC",
+        tuple(
+            Query(f"Q(1, {x:g})", q, {"no penalty": x})
+            for x, q in zip(CQL_AT, cql_fixed_point(CQL_ALPHA, CQL_AT), strict=True)
+        ),
+        cql_readings(),
+        2000,
+        (0.1, 0.1),
+        note="ladder 1000-4000 on 1000-1031, 2000-2031: medians at the fixed point,"
+        " worst 0.059, 0.096 at 2000; the ceiling; cert 32/32",
+    ),
 }
-ANSWER_DIGEST = "acc1454b53db"
+ANSWER_DIGEST = "85b7b51f5795"
 
 
 @pytest.mark.parametrize("case", params(CASES))

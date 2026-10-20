@@ -288,9 +288,12 @@ def critic_step(
         loss_batch = {
             "observations": batch.obs,
             "actions": batch.action,
+            "next_observations": batch.next_obs,
             "targets": target_q,
             "critic_params": params,
             "critic_state": critic_state,
+            "actor_state": agent_state.actor_state,
+            "return_to_go": batch.return_to_go,
         }
         extra, loss_metrics = extension_stack.fold_critic_loss(
             agent_state, loss_batch, step, loss_key, total_timesteps

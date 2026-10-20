@@ -128,6 +128,7 @@ def init_TD3(
     expert_policy: Optional[Callable] = None,
     store_expert_data: bool = False,
     store_raw_next_obs: bool = False,
+    store_return_to_go: bool = False,
 ) -> TD3State:
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state = get_initialized_td3_actor_critic(
@@ -147,6 +148,7 @@ def init_TD3(
         actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
         include_raw_obs=store_expert_data,
         include_raw_next_obs=store_raw_next_obs,
+        include_return_to_go=store_return_to_go,
         include_is_expert=store_expert_data,
         expert_policy=expert_policy,
     )
@@ -450,6 +452,7 @@ def make_train(
             expert_policy=expert_policy,
             store_expert_data=holds_expert(expert_policy, loop.stack),
             store_raw_next_obs="raw_next_obs" in loop.stack.buffer_fields(),
+            store_return_to_go="return_to_go" in loop.stack.buffer_fields(),
         )
 
     def update(agent_state: TD3State, _transition: Transition) -> Any:

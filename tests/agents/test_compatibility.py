@@ -120,7 +120,7 @@ GAPS: dict[str, dict[str, str]] = {
             "TDMPC2 TDMPC2MultiTask",
         ),
         **dict.fromkeys(
-            ["ImitationLoss(target='replay', alpha=2.5)"],
+            ["ImitationLoss(target='replay', alpha=2.5)", "ConservativeQ", "CalQL"],
             "TDMPC2 TDMPC2MultiTask",
         ),
         **dict.fromkeys(

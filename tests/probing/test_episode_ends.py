@@ -268,9 +268,9 @@ def test_p6_twin_ends_every_episode_on_step_T_with_its_backends_flags(
         key, sub = jax.random.split(key)
         keys = jax.random.split(sub, n) if backend == "gymnax" else sub
         a = jnp.zeros((n,), jnp.int32) if backend == "gymnax" else jnp.zeros((n, 1))
-        nxt, state, _, term, trunc, _ = step(keys, state, a, env, backend, params)
-        kind = np.asarray(obs).reshape(n, 3).argmax(-1)
-        rows.append((kind, np.asarray(term) > 0.5, np.asarray(trunc) > 0.5))
+        nxt, state, _, term_t, trunc_t, _ = step(keys, state, a, env, backend, params)
+        kind_t = np.asarray(obs).reshape(n, 3).argmax(-1)
+        rows.append((kind_t, np.asarray(term_t) > 0.5, np.asarray(trunc_t) > 0.5))
         obs = nxt
     kind, term, trunc = (
         np.stack(z).reshape(2 * T, n) for z in zip(*rows, strict=False)

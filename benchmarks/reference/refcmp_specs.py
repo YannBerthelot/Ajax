@@ -43,6 +43,22 @@ from dataclasses import asdict, dataclass, field
 
 
 @dataclass(frozen=True)
+class Deviation:
+    """A difference between Ajax's matched arm and its original, found and pinned by a
+    conformance check (tests/conformance): ``kind`` is "ajax" (an Ajax choice the matched arm
+    cannot switch off), "convention" (both sides defensible) or "reference defect" (a bug in
+    the original, which the check asserts rather than reproduces); ``submap`` is the sub-step
+    where it acts, ``where`` the code that makes it, ``check`` the test that pins it."""
+
+    name: str
+    kind: str
+    submap: str
+    description: str
+    where: str
+    check: str
+
+
+@dataclass(frozen=True)
 class Comparison:
     agent: str
     env_id: str
@@ -67,10 +83,14 @@ class Comparison:
     margin: float | None = None
     relative_margin: float | None = None
     version: int = 1
+    # What the conformance checks found: documentation of the two codes, not a setting of the
+    # runs, so it is left out of the spec's hash and adding one does not stale any record.
+    deviations: tuple = ()
 
 
 def spec_sha256(spec: Comparison) -> str:
-    text = json.dumps(asdict(spec), sort_keys=True, default=str)
+    settings = {k: v for k, v in asdict(spec).items() if k != "deviations"}
+    text = json.dumps(settings, sort_keys=True, default=str)
     return hashlib.sha256(text.encode()).hexdigest()
 
 
@@ -104,6 +124,44 @@ PUREJAXQL_UNMATCHED = (
     "optimiser: RAdam (eps 1e-8) in purejaxql, Adam (eps 1e-5) in Ajax",
     "weight initialisation (lecun_normal vs Ajax's)",
     "time limits: the reference treats them as terminations",
+)
+
+_PQN_CHECKS = "tests/conformance/test_pqn_purejaxql.py::"
+PUREJAXQL_DEVIATIONS = (
+    Deviation(
+        name="per-step epsilon",
+        kind="ajax",
+        submap="collection, epsilon-greedy actions",
+        description="Ajax reads epsilon at the collector's timestep, so it moves at every"
+        " env step; purejaxql reads it once per update. While epsilon decays, Ajax explores"
+        " slightly less within a rollout.",
+        where="src/ajax/agents/DQN/train_DQN.py linear_epsilon;"
+        " vendor/purejaxql/pqn_gymnax.py:189",
+        check=_PQN_CHECKS + "test_exploration_differs_only_by_the_per_step_epsilon",
+    ),
+    Deviation(
+        name="time limits",
+        kind="convention",
+        submap="Q(lambda) targets",
+        description="purejaxql treats a time-limit cut as a termination (the target is the"
+        " reward); Ajax bootstraps it. Only the targets of episodes cut by a time limit"
+        " differ.",
+        where="refcmp_jax._FiveValueStep; src/ajax/agents/PQN/utils.py"
+        " compute_q_lambda_targets",
+        check=_PQN_CHECKS + "test_time_limit_cuts_change_only_their_episodes_targets",
+    ),
+    Deviation(
+        name="Q(lambda) off-by-one",
+        kind="reference defect",
+        submap="Q(lambda) targets",
+        description="purejaxql's backward pass starts with the last step's bootstrap,"
+        " V(next_obs) of the last transition, as the next value of the second-to-last one,"
+        " whose next value is V(obs) of the last; that target, and through lambda those"
+        " before it in its episode, differ from Q(lambda). Ajax computes Q(lambda)."
+        " Reported upstream as purejaxql issue #12.",
+        where="vendor/purejaxql/pqn_gymnax.py:246-254",
+        check=_PQN_CHECKS + "test_targets_differ_only_by_purejaxqls_off_by_one",
+    ),
 )
 
 COMPARISONS = {
@@ -483,6 +541,7 @@ COMPARISONS = {
             "evaluation: purejaxql scores the last episode each of its 128 test"
             " envs ends within one 500-step window, Ajax one episode per env",
         ),
+        deviations=PUREJAXQL_DEVIATIONS,
     ),
     "PQN-Asterix": Comparison(
         renames=PUREJAXQL_RENAMES,
@@ -550,6 +609,7 @@ COMPARISONS = {
             "evaluation: purejaxql scores the last episode each of its 128 test"
             " envs ends within one 1000-step window, Ajax one episode per env",
         ),
+        deviations=PUREJAXQL_DEVIATIONS,
     ),
     "APG": Comparison(
         renames={"num_envs": "n_envs", "horizon_length": "horizon"},

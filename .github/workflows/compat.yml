@@ -37,10 +37,17 @@ jobs:
         include:
           - name: newest
             python: "3.14"
+            resolution: highest
             sync: uv sync --upgrade
           - name: lowest
             python: "3.12"
-            sync: uv sync --resolution lowest-direct
+            resolution: lowest-direct
+            sync: uv sync
+    # Every uv command of the job resolves in the same mode, the tests' own
+    # `uv run --locked` included: uv.lock records the mode it was resolved
+    # in, and a lock from another mode is out of date to `--locked`.
+    env:
+      UV_RESOLUTION: ${{ matrix.resolution }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup

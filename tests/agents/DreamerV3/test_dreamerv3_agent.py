@@ -335,6 +335,18 @@ def test_extensions_count_every_update(cartpole):
     assert state.ext_state[1] == ()
 
 
+def _counters(state) -> list:
+    """The keys and the integer leaves of the three train states."""
+    trains = (state.world_model_state, state.actor_state, state.critic_state)
+    ints = [x for x in jax.tree.leaves(trains) if np.asarray(x).dtype.kind in "iu"]
+    return [state.rng, state.eval_rng, *ints]
+
+
+def _compared(state) -> tuple:
+    critic = state.critic_state.target_params  # the slow critic
+    return state.world_model_state.params, critic, state.replay_state.deter
+
+
 def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
     cartpole, tmp_path
 ):
@@ -366,11 +378,18 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
     np.testing.assert_array_equal(state.collector_state.rows, full.collector_state.rows)
     np.testing.assert_array_equal(state.replay_state.popped, full.replay_state.popped)
     jax.tree.map(np.testing.assert_array_equal, state.ext_state, full.ext_state)
+    # No rounding moves the keys or the train states' steps and optimizer
+    # counts; a resume that restarted an optimizer resets its count.
+    for ours, theirs in zip(_counters(state), _counters(full), strict=True):
+        np.testing.assert_array_equal(ours, theirs)
     # The values come from two separately compiled programs, which XLA need
-    # not round alike (under JAX 0.11 1e-7 apart after two ticks locally, up
-    # to 2e-5 on some CI runners). Training amplifies that (1e-4 after the
-    # half run, and on CI a flipped action), so they are compared after a
-    # short continuation, to well under a wiring bug's O(0.1).
+    # not round alike: after two ticks, 1e-7 apart locally and 2e-5 on some
+    # CI runners, as far as a one-ulp nudge of the restored world model moves
+    # them. Training amplifies that (1e-4 after the half run, and on CI a
+    # flipped action), so they are compared after a short continuation, to
+    # a hundredth of what a lost world-model optimizer, key or slow critic
+    # moves them. The actor and the critic are left out: the nudge moves them
+    # as much as a lost optimizer does, which the counts above catch.
     two_ticks = 2 * N_ENVS  # rows
     short_resumer = cartpole_agent(extensions=[CounterExt(), MetricExt()])
     short_skeleton = short_resumer.train(seed=SEEDS, n_timesteps=0)
@@ -383,11 +402,15 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
         seed=SEEDS, n_timesteps=ROWS // 2 + two_ticks
     )
     for ours, theirs in zip(
-        jax.tree.leaves((short.world_model_state.params, short.replay_state.deter)),
-        jax.tree.leaves((whole.world_model_state.params, whole.replay_state.deter)),
+        jax.tree.leaves(_compared(short)),
+        jax.tree.leaves(_compared(whole)),
         strict=True,
     ):
         np.testing.assert_allclose(ours, theirs, rtol=1e-5, atol=1e-4)
+    # The return normaliser's percentiles jump with the return that ranks
+    # 5th or 95th: the nudge moves them by 1%, a reset by 90%.
+    np.testing.assert_allclose(short.retnorm.lo, whole.retnorm.lo, rtol=0.1)
+    np.testing.assert_allclose(short.retnorm.hi, whole.retnorm.hi, rtol=0.1)
     # Exact: CartPole's observations depend on the networks only through the
     # discrete actions, which a different stream or update would flip.
     np.testing.assert_array_equal(short.replay_state.obs, whole.replay_state.obs)

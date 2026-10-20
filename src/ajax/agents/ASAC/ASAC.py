@@ -24,7 +24,8 @@ class ASAC(ActorCritic):
 
     name: str = "ASAC"
     capabilities: frozenset = frozenset(
-        "actor critic_ensemble obs_networks off_policy q_critic replay".split()
+        "actor critic_ensemble obs_networks off_policy policy_density q_critic"
+        " replay".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",

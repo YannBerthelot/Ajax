@@ -1,3 +1,4 @@
+import brax.envs
 import jax
 import jax.numpy as jnp
 import pytest
@@ -9,6 +10,7 @@ from gymnax import make as make_gymnax_env
 from gymnax.environments import environment as gymnax_environment
 from gymnax.environments.classic_control.pendulum import EnvParams as PendulumParams
 
+import ajax.wrappers as W
 from ajax.environments.utils import get_state_action_shapes
 from ajax.wrappers import (
     AutoResetWrapper,
@@ -198,6 +200,15 @@ NORMALIZERS = {
     "gymnax": NormalizeVecObservationGymnax,
     "brax": NormalizeVecObservationBrax,
 }
+
+
+def test_the_brax_wrapper_base_forwards_as_brax_s_own_does():
+    """``ajax.wrappers.BraxWrapper`` is a copy of brax's ``Wrapper``."""
+    env = brax.envs.get_environment("fast")
+    env.forwarded = "an attribute of the env"
+    ours, brax_s = W.BraxWrapper(env), brax.envs.base.Wrapper(env)
+    for name in ("observation_size", "action_size", "unwrapped", "forwarded"):
+        assert getattr(ours, name) == getattr(brax_s, name), name
 
 
 def test_flatten_observation_wrapper(gymnax_env):

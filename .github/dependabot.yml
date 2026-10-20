@@ -21,8 +21,12 @@ updates:
           - brax
           - mujoco*
           - playground
+          # mujoco-mjx imports warp whenever it is installed, so a new mujoco
+          # can need a new warp-lang.
+          - warp-lang
           - gymnax
-          - tensorflow-probability
+          # distrax depends on the nightly build of TensorFlow Probability.
+          - tfp-nightly
       others:
         patterns:
           - "*"

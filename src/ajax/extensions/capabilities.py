@@ -29,6 +29,7 @@ ALGORITHM_CAPABILITIES: Mapping[str, str] = {
     "replay": "its updates sample stored past transitions",
     "off_policy": "its update stays correct on actions its policy did not choose",
     "critic_ensemble": "two critics or more (num_critics, where the agent has it)",
+    "policy_density": "a stochastic policy, with a density over its actions",
     "obs_networks": (
         "its policy and value networks read the observation, not a world"
         " model's latent state"

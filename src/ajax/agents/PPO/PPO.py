@@ -52,7 +52,7 @@ class PPO(ActorCritic):
 
     name: str = "PPO"
     capabilities: frozenset = frozenset(
-        "actor discounted obs_networks v_critic".split()
+        "actor discounted obs_networks policy_density v_critic".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "reward",

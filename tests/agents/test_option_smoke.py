@@ -28,7 +28,7 @@ from ajax.agents.DQN.DQN import DQN
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.TD3.train_TD3 import make_default_action_pipeline
 from ajax.buffers.dataset import TransitionDataset
-from ajax.extensions import ensemble, expert, exploration, instrumentation
+from ajax.extensions import ensemble, expert, exploration, instrumentation, offline
 from ajax.extensions import pretrain as pre
 from ajax.extensions import target_mods as tm
 from ajax.extensions.base import Extension
@@ -157,6 +157,8 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "BiasVorePenalty": (instrumentation.BiasVorePenalty, "AVG"),
     "ConditioningMetrics": (instrumentation.ConditioningMetrics, "PQN"),
     "BiasVoreDecomposition": (instrumentation.BiasVoreDecomposition, "PPO"),
+    "ConservativeQ": (lambda: offline.ConservativeQ(n_actions=2), "SAC"),
+    "CalQL": (lambda: offline.CalQL(n_actions=2), "SAC"),
 }
 ACTING = {"ValueBox", "EDGEExploration", "JSRLCurriculum", "ResidualPolicy"}
 PHI_STAR = (
@@ -191,6 +193,8 @@ EXCLUSIVE = [
     # one widened by the training fraction, or one keeping the expert's next
     # action (an expert_policy) cannot take them.
     ({"PriorData"}, {"fast", "CartPole-v1", "use_train_frac"} | EXPERTS),
+    # Cal-QL is CQL's term with a floor: a stack holds one of them.
+    ({"ConservativeQ"}, {"CalQL"}),
 ]
 TABLE = CASES | {"APG": Case(APG, {"horizon": 1, "pid": None}, ())}
 #: The exported agents off TABLE, and the tests that run their options.

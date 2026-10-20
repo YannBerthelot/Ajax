@@ -146,6 +146,35 @@ def test_the_q_filter_weight_is_zero_wherever_the_critic_prefers_the_policy() ->
     np.testing.assert_allclose(float(term), want, rtol=1e-6)
 
 
+def test_the_replayed_target_clones_the_rows_own_actions() -> None:
+    """target="replay" clones the batch's ``actions`` and needs no expert;
+    the expert target needs one."""
+    pi_mean, actions = jnp.array([[0.1], [-0.3]]), jnp.array([[0.5], [0.5]])
+    batch = {"pi_mean": pi_mean, "observations": jnp.zeros((2, 3)), "actions": actions}
+    term, _ = ImitationLoss(None, target="replay").actor_loss(None, (), batch, CTX)
+    want = np.mean((np.array([0.1, -0.3]) - 0.5) ** 2) / 4.0
+    np.testing.assert_allclose(float(term), want, rtol=1e-6)
+    with pytest.raises(ValueError, match="expert_policy"):
+        ImitationLoss(None)
+    with pytest.raises(ValueError, match="target"):
+        ImitationLoss(EXPERT, target="data")
+
+
+def test_alpha_weighs_the_term_by_the_first_critics_mean_absolute_value() -> None:
+    """TD3+BC's 1 / lambda = mean|Q_1(s, pi(s))| / alpha (Q_1 = a here),
+    without the / 4."""
+    obs = jnp.zeros((PI.shape[0], 3))
+    batch = {"pi_mean": PI, "observations": obs, "actions": jnp.zeros_like(PI)}
+    ext = ImitationLoss(None, target="replay", alpha=0.5)
+    term, _ = ext.actor_loss(None, (), batch | {"critic_state": _critic()}, CTX)
+    pi = np.asarray(PI)[:, 0]
+    np.testing.assert_allclose(
+        float(term), np.mean(np.abs(pi)) / 0.5 * np.mean(pi**2), rtol=1e-6
+    )
+    with pytest.raises(ValueError, match="alpha"):
+        ImitationLoss(None, target="replay", alpha=0.0)
+
+
 def test_the_agents_own_expert_is_read_as_the_agent_stored_it() -> None:
     """Bound to an agent holding the same expert, the term reads the stored
     actions (SAC's ``a_expert``, from the expert's state); another expert is

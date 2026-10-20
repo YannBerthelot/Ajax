@@ -275,6 +275,7 @@ def update_policy(
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
+    actions: Optional[jax.Array] = None,
 ) -> Tuple[ASACState, PolicyAuxiliaries, dict]:
     """The actor step on ``alpha log pi(a|s) - min_i Q_i(s, a)``; also
     returns the extensions' metrics."""
@@ -286,6 +287,7 @@ def update_policy(
         total_timesteps,
         carries,
         a_expert=a_expert,
+        actions=actions,
     )
     aux = PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()
@@ -369,6 +371,7 @@ def update_agent(
         total_timesteps,
         carries,
         a_expert=transition.a_expert,
+        actions=transition.action,
     )
     agent_state, log_probs = sample_updated_policy(agent_state, transition.obs, carries)
     # The dual-gradient step towards ``target_entropy`` (target entropy

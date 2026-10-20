@@ -13,11 +13,16 @@ choice cannot be steered, so it reads the cross-entropy fit on every state.
 
 GAIL (Ho and Ermon, 2016) on SignedActionEnv, one step paying clip(a) s,
 whose own optimum is a = s: the demonstrations take a = 0.6 s, and PPO,
-rewarded by the discriminator alone, must take them too.
+rewarded by the discriminator alone, must take them too. A saturating expert,
+a = s, acts at the bound: the env runs PPO's Gaussian samples past it as the
+bound, which the discriminator, reading the executed action, cannot tell from
+the expert's, so the share of samples run at the bound goes to 1. Read raw,
+a sample past the bound looks fake, holding the mean, and that share, at 1/2.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import jax
@@ -83,22 +88,33 @@ def dagger_readings(discrete: bool) -> Any:
 DEMO = 0.6  # the demonstrations' action at s = 1, times s
 
 
-def gail_readings() -> Any:
+def gail_readings(
+    demo: float, read: Callable[[R.Nets, float], Any], label: str = "a"
+) -> Any:
+    """GAIL on demonstrations acting ``demo`` s at s = +-1, ``read`` at both."""
     s = np.repeat([-1.0, 1.0], 32)[:, None]
     ends = np.ones(64, bool)
-    demos = TransitionDataset(s, DEMO * s, np.zeros(64), ends, ~ends, s)
+    demos = TransitionDataset(s, demo * s, np.zeros(64), ends, ~ends, s)
 
     def build() -> Any:
         env = envs.package(envs.SignedActionEnv)
         return agents.make("PPO", *env, extensions=(AdversarialReward(demos),))
 
-    def read(run: runs.Run) -> dict:
+    def readings(run: runs.Run) -> dict:
         def at(n: R.Nets) -> dict:
-            return {f"a({x:g})": R.action(n, x) for x in (-1.0, 1.0)}
+            return {f"{label}({x:g})": read(n, x) for x in (-1.0, 1.0)}
 
         return R.per_seed(at, R.nets(run.state))
 
-    return runs.readings(build, read)
+    return runs.readings(build, readings)
+
+
+def at_the_bound(n: R.Nets, x: float) -> jax.Array:
+    """The share of the Gaussian policy's samples at s = x that the env runs
+    as the bound x."""
+    p = R.pi(n, x)
+    excess = x * p.mean().reshape(()) - 1.0
+    return jax.scipy.stats.norm.cdf(excess / p.stddev().reshape(()))
 
 
 _SELF = {"labels from the executed action": 0.0}
@@ -129,13 +145,32 @@ CASES: dict[str, Case] = {
             Query(f"a({x:g})", DEMO * x, {"the env's reward": x, "untrained": 0.0})
             for x in (-1.0, 1.0)
         ),
-        gail_readings(),
+        gail_readings(DEMO, R.action),
         32000,
         (0.069, 0.065),
-        note="ladder 2000-32000 on 1000-1031, 16000-32000 on 2000-2031: 32000; cert 32/32",
+        note="ladder 2000-32000 on 1000-1031, 16000-32000 on 2000-2031: 32000; cert 32/32,"
+        " 30/32 once the discriminator read the executed action",
+    ),
+    "gail-saturating-PPO": Case(
+        "gail-saturating-PPO",
+        tuple(
+            Query(
+                f"bound({x:g})",
+                1.0,
+                {
+                    "the discriminator reading the raw action": 0.5,
+                    "untrained (mean 0, std 1)": 0.158655,
+                },
+            )
+            for x in (-1.0, 1.0)
+        ),
+        gail_readings(1.0, at_the_bound, "bound"),
+        8000,
+        (0.094, 0.084),
+        note="ladder 1000-32000 on 1000-1031, 2000-2031: medians 1.0 from 2000",
     ),
 }
-ANSWER_DIGEST = "a0d53941daec"
+ANSWER_DIGEST = "f38efbeb2ff3"
 
 
 @pytest.mark.parametrize("case", params(CASES))

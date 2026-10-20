@@ -43,14 +43,15 @@ from . import readouts as R
 # IQL's cell: test_offline + 67, faults/ + 3, test_p4_split_run + 2, this
 # note + 2; CQL's cell: test_offline + 60, faults/ + 2, this note + 1;
 # ReBRAC's cell: test_offline + 62, faults/ + 2, this note + 1; GAIL's
-# cell: test_imitation + 40, faults/ + 3, this note + 1.
+# cell: test_imitation + 40, faults/ + 3, this note + 1; its saturating
+# cell: test_imitation + 35, faults/ + 1, this note + 1.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 233}
-CAPS |= {"test_framework.py": 225, "test_value_chains.py": 1051}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 234}
+CAPS |= {"test_framework.py": 226, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1045, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 791, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
-CAPS |= {"test_action_box.py": 201, "test_imitation.py": 143, "test_offline.py": 300}
+CAPS |= {"test_action_box.py": 201, "test_imitation.py": 178, "test_offline.py": 300}
 
 
 def _modules() -> list:

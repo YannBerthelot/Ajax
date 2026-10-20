@@ -336,10 +336,20 @@ def critic_action_units(
     """``(offsets, scales)`` of :func:`agent_action_to_env`'s map without its
     clip, as static tuples for ``LoadedTrainState.action_units``, or None
     where the map is the identity (discrete actions, ``[-1, 1]`` boxes).
-    Per-env bounds must agree: a critic's batch mixes every env's rows."""
-    bounds = _action_bounds(env, env_params)
+    Per-env bounds must agree: a critic's batch mixes every env's rows.
+
+    The bounds are read eagerly, so concrete params give static units even
+    while a train function is traced (``jax.eval_shape``); traced params
+    cannot fix them, and raise."""
+    with jax.ensure_compile_time_eval():
+        bounds = _action_bounds(env, env_params)
     if bounds is None:
         return None
+    if any(isinstance(b, jax.core.Tracer) for b in bounds):
+        raise ValueError(
+            "A critic reading actions in the env's units needs concrete action"
+            " bounds; these env params are traced."
+        )
     centre, half = (np.asarray(b, np.float64) for b in bounds)
     if env_params_is_batched(env_params):
         if not (np.all(centre == centre[0]) and np.all(half == half[0])):

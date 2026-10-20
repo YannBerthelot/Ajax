@@ -6,22 +6,20 @@ authors = [{ name = "Yann Berthelot", email = "yannberthelot1@gmail.com" }]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "gymnasium>=1.2.0,<2",
     "tqdm>=4.65.0,<5",
     # Floors only: a cap is added after a known break, with its reason.
     # A capped flax (<0.11) next to an uncapped JAX once broke pip installs:
     # flax 0.10 calls a function JAX 0.11 removed. flax 0.12.8 needs JAX 0.10.
     "jax>=0.10.0",
     "flax>=0.12.8",
-    # Imported directly, so declared, not left to the packages that pull
-    # them in. brax is capped: create.py uses its private brax.envs._envs.
+    # Exactly the packages Ajax imports: each is declared rather than left
+    # to the packages that pull it in, and nothing else is. brax is capped:
+    # create.py uses its private brax.envs._envs.
     "brax>=0.14.2,<0.15",
     "chex>=0.1.91,<0.2",
     "numpy>=2.1,<3",
     "optax>=0.2.6,<0.3",
     "flashbax>=0.1.3,<0.2",
-    "mujoco>=3.1.4,<4",
-    "mujoco-mjx>=3.1.4,<4",
     # gymnax 1.0 (six-value step API: obs, state, reward, terminated,
     # truncated, info). 1.0.1 is the first release without the jax<0.7 cap.
     "gymnax>=1.0.1,<2",

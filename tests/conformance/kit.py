@@ -15,7 +15,7 @@ make that possible without changing the code under test:
 * :func:`capture_step` returns an agent's loop ``iteration``, its ``update`` and its ``init``, by
   intercepting :meth:`TrainLoop.train` while the agent builds its train function, before any
   tracing; :func:`capture_scan` does the same for a ``lax.scan`` body (an original's step function)
-  and :func:`stashing` keeps the stacked outputs of named scans, such as the rollout.
+  and :func:`stashing` keeps the outputs of named scans (carry and stacked), such as the rollout.
 """
 
 from __future__ import annotations
@@ -272,14 +272,14 @@ def capture_scan(name: str, run: Callable[[], Any]) -> tuple[Callable, Any]:
 
 @contextlib.contextmanager
 def stashing(*names: str) -> Iterator[dict]:
-    """While tracing a step, keep the stacked outputs of the first scan of each named body, so the
-    traced step can return them beside its own output."""
+    """While tracing a step, keep the outputs ``(carry, stacked)`` of the first scan of each named
+    body, so the traced step can return them beside its own output."""
     original, stash = jax.lax.scan, {}
 
     def scan(f: Callable, init: Any, *args: Any, **kwargs: Any) -> Any:
         out = original(f, init, *args, **kwargs)
         if _body_name(f) in names and _body_name(f) not in stash:
-            stash[_body_name(f)] = out[1]
+            stash[_body_name(f)] = out
         return out
 
     jax.lax.scan = scan

@@ -183,12 +183,12 @@ def iterate(sides: Sides, n: int) -> list[Iteration]:
     def ref_fn(rs: Any) -> Any:
         with kit.stashing("_step_env", "_get_target") as stash:
             out = sides.ref_step(rs, None)[0]
-        return out, dict(stash)
+        return out, {name: ys for name, (_, ys) in stash.items()}
 
     def ajax_fn(s: Any) -> Any:
         with kit.stashing("collect_experience") as stash:
             out = sides.ajax.iteration(s, 0, 0)[0]
-        return out, stash["collect_experience"]
+        return out, stash["collect_experience"][1]
 
     rs, prev_done, its = sides.rs0, np.zeros(N_ENVS, np.float32), []
     for _ in range(n):

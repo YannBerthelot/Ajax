@@ -128,6 +128,8 @@ def test_a_captured_scan_body_runs_on_any_carry_and_stashing_keeps_its_outputs()
             _toy(x)
         return stash["body"]
 
-    np.testing.assert_array_equal(jax.jit(traced)(jnp.zeros(())), [0.0, 1.0, 2.0])
+    carry, stacked = jax.jit(traced)(jnp.zeros(()))
+    assert float(carry) == 3.0
+    np.testing.assert_array_equal(stacked, [0.0, 1.0, 2.0])
     with pytest.raises(RuntimeError, match="no lax.scan"):
         kit.capture_scan("absent", lambda: _toy(jnp.zeros(())))

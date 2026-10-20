@@ -56,3 +56,17 @@ def test_the_null_is_the_largest_difference_within_each_side():
     )
     nulls = submaps.null_of((eager_a, jit_a), (eager_b, jit_b), old=old)
     assert set(nulls) == {"w"} and math.isclose(nulls["w"], 0.01)
+
+
+def test_the_null_across_frameworks_sums_each_sides_float32_error():
+    old = {"w": np.zeros(2), "n": np.array([1])}
+    ref = (
+        {"w": np.array([1.0, 1.0]), "n": np.array([1])},
+        {"w": np.array([1.0, 1.01]), "n": np.array([1])},
+    )
+    ours = (
+        {"w": np.array([2.0, 2.0]), "n": np.array([1])},
+        {"w": np.array([2.0, 2.04]), "n": np.array([1])},
+    )
+    nulls = submaps.rounding_null(ref, ours, old=old)
+    assert set(nulls) == {"w"} and math.isclose(nulls["w"], 0.01 / 1.01 + 0.04 / 2.04)

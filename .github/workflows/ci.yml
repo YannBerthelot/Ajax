@@ -178,11 +178,28 @@ jobs:
         uses: ./.github/actions/compile-cache
         with:
           job: conformance
-      # The originals that run on PyTorch (tests/conformance re-runs them),
-      # with CPU-only torch wheels.
+      # The records of the originals that run on PyTorch, kept while the
+      # vendored originals, their recorders and their env's lock stay the
+      # same. On a miss the tests record them (CPU-only torch wheels), and a
+      # push to main saves them, as for the compile cache.
+      - id: records
+        uses: actions/cache/restore@v6
+        with:
+          path: .cache/conformance
+          key: conformance-records-${{ hashFiles('benchmarks/reference/vendor/**', 'benchmarks/reference/conformance_*.py', 'benchmarks/reference/envs/torch/uv.lock') }}
       - name: Install the PyTorch originals' environment
+        if: steps.records.outputs.cache-hit != 'true'
         run: uv sync --project benchmarks/reference/envs/torch --locked
       - run: uv run pytest tests/conformance -v --durations=30
+        env:
+          AJAX_CONFORMANCE_RECORDS: .cache/conformance
+      - name: Save the originals' records
+        if: github.event_name == 'push' && steps.records.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: .cache/conformance
+          key: ${{ steps.records.outputs.cache-primary-key }}
       - name: Save the JAX compile cache
         if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
         continue-on-error: true

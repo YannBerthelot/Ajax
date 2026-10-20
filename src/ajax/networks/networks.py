@@ -784,6 +784,31 @@ def init_network_state(
     )
 
 
+def in_critic_units(critic_state: LoadedTrainState, actions: jax.Array) -> jax.Array:
+    """``actions`` as the critic reads them: ``critic_state.action_units``'
+    affine map of the agent's [-1, 1] actions, or the actions themselves."""
+    units = getattr(critic_state, "action_units", None)
+    if units is None:
+        return actions
+    offset, scale = (jnp.asarray(u, actions.dtype) for u in units)
+    return offset + scale * actions
+
+
+def _apply_critic_action_units(
+    critic_state: LoadedTrainState, x: jax.Array
+) -> jax.Array:
+    """The action slice of a Q-critic's input ``concat(obs, action)`` in the
+    critic's units (:func:`in_critic_units`): every caller passes the
+    agent's [-1, 1] actions."""
+    units = getattr(critic_state, "action_units", None)
+    if units is None:
+        return x
+    k = len(units[0])
+    return jnp.concatenate(
+        [x[..., :-k], in_critic_units(critic_state, x[..., -k:])], axis=-1
+    )
+
+
 def _apply_critic_obs_norm(critic_state: LoadedTrainState, x: jax.Array) -> jax.Array:
     """Normalise the obs slice of a critic input (obs or concat(obs, action));
     the action slice stays raw (``apply_obs_norm``). No-op when
@@ -832,7 +857,12 @@ def predict_value(
     critic_params: FrozenDict,
     x: jax.Array,
 ) -> jax.Array:
-    x = _apply_critic_obs_norm(critic_state, x)
+    """The critic's values at ``x``: obs, or ``concat(obs, action)`` with the
+    agent's [-1, 1] action, which a critic with ``action_units`` reads in its
+    units (TD3's, in the env's)."""
+    x = _apply_critic_action_units(
+        critic_state, _apply_critic_obs_norm(critic_state, x)
+    )
     return critic_state.apply_fn(critic_params, x)
 
 

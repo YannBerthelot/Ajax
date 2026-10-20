@@ -3,20 +3,11 @@ sfujim's recorded states (benchmarks/reference/conformance_sfujim_td3.py), writt
 names. The state maps one to one, kernels transposed: both sum their critics' losses, both count the
 update before the policy delay's test, and Ajax's critics read actions in the env's units, as sfujim's
 do. The recorded batch is injected where Ajax samples its replay, and the recorded target noise taped.
-
-usage: python -m tests.conformance.td3_sfujim RECORDS OUT f32|f64 [FAULT]
-
-A process of its own: float64 needs JAX_ENABLE_X64 before JAX starts, and the replay seam patches a
-module of the agent.
+Float64 runs under ``jax.enable_x64``; each env's update compiles once per mode, the batch and the
+noise its arguments.
 """
 
 from __future__ import annotations
-
-import os
-import sys
-
-if __name__ == "__main__" and sys.argv[3] == "f64":
-    os.environ["JAX_ENABLE_X64"] = "1"
 
 import pathlib
 import re
@@ -118,10 +109,13 @@ def updater(step: kit.Step) -> Any:
 
 
 def run(
-    records: pathlib.Path, out: pathlib.Path, precision: str, fault: str | None = None
-) -> None:
+    records: pathlib.Path, precision: str, fault: str | None = None
+) -> dict[str, dict]:
+    """Ajax's state after one update from each record, in sfujim's names, by record name."""
     dtype = np.float64 if precision == "f64" else np.float32
-    batch: dict = {}
+    # The batch the update samples, set while it is traced: the compiled update takes it as an
+    # argument, so each env compiles once, not once per record.
+    given: dict = {}
     sample = train_TD3.sample_replay
 
     def injected(
@@ -129,16 +123,16 @@ def run(
     ) -> Any:
         b, carries = sample(agent_state, buffer, key, *args, **kwargs)
         values = {
-            "obs": batch["state"],
-            "action": batch["action"] / batch["max_action"],
-            "next_obs": batch["next_state"],
-            "reward": batch["reward"],
-            "terminated": 1.0 - batch["not_done"],
-            "raw_obs": batch["state"],
-            "raw_next_obs": batch["next_state"],
+            "obs": given["state"],
+            "action": given["action"] / given["max_action"],  # sfujim's: env units
+            "next_obs": given["next_state"],
+            "reward": given["reward"],
+            "terminated": 1.0 - given["not_done"],
+            "raw_obs": given["state"],
+            "raw_next_obs": given["next_state"],
         }
         new = {
-            f: jnp.asarray(np.asarray(v, dtype).reshape(getattr(b, f).shape))
+            f: jnp.asarray(v, getattr(b, f).dtype).reshape(getattr(b, f).shape)
             for f, v in values.items()
             if getattr(b, f, None) is not None
         }
@@ -146,51 +140,64 @@ def run(
             new["truncated"] = jnp.zeros_like(b.truncated)
         return b.replace(**new), carries
 
+    envs = sorted({p.name.rsplit("_", 1)[0] for p in records.glob("*.npz")})
+    out: dict = {}
     train_TD3.sample_replay = injected
-    out.mkdir(parents=True, exist_ok=True)
-    for env_id in sorted({p.name.rsplit("_", 1)[0] for p in records.glob("*.npz")}):
-        step = kit.capture_step(
-            ajax.TD3(env_id, **(SETTINGS | FAULTS.get(fault or "", {}))), 2_000
-        )
-        template = step.fresh(jax.random.PRNGKey(0))
-        update = updater(step)
-        for path in sorted(records.glob(f"{env_id}_*.npz")):
-            arrays = dict(np.load(path))
-            batch.clear()
-            batch.update(
-                {
-                    k[len("batch.") :]: v
-                    for k, v in arrays.items()
-                    if k.startswith("batch.")
-                }
-            )
-            batch["max_action"] = float(
-                arrays["max_action"]
-            )  # sfujim's actions are in env units
-            state = to_ajax(template, arrays, int(arrays["in.total_it"]), dtype)
-            with kit.recording() as rec:
-                jax.block_until_ready(jax.jit(update)(state))
-            draws = kit.by_role(rec.log)
-            [noise] = [
+    try:
+        for env_id in envs:
+            out |= _env_updates(records, env_id, dtype, fault, given)
+    finally:
+        train_TD3.sample_replay = sample
+    return out
+
+
+def _env_updates(
+    records: pathlib.Path, env_id: str, dtype: Any, fault: str | None, given: dict
+) -> dict[str, dict]:
+    step = kit.capture_step(
+        ajax.TD3(env_id, **(SETTINGS | FAULTS.get(fault or "", {}))), 2_000
+    )
+    template, update = step.fresh(jax.random.PRNGKey(0)), updater(step)
+    paths = sorted(records.glob(f"{env_id}_*.npz"))
+    arrays = {p.stem: dict(np.load(p)) for p in paths}
+    batches = {
+        n: {k[len("batch.") :]: v for k, v in a.items() if k.startswith("batch.")}
+        for n, a in arrays.items()
+    }
+    max_action = float(next(iter(arrays.values()))["max_action"])
+
+    def from_batch(state: Any, batch: dict) -> Any:
+        given.clear()
+        given.update(batch, max_action=max_action)
+        return update(state)
+
+    def state_of(a: dict, dt: Any) -> Any:
+        return to_ajax(template, a, int(a["in.total_it"]), dt)
+
+    # The target noise's key, record by record. Keys do not depend on the precision, and the tape
+    # logs on a callback thread, outside jax.enable_x64: recorded in float32.
+    with kit.recording() as rec:
+        recorded, keys = jax.jit(from_batch), {}
+        for n, a in arrays.items():
+            start = len(rec.log)
+            jax.block_until_ready(recorded(state_of(a, np.float32), batches[n]))
+            draws = kit.by_role(rec.log[start:])
+            [role] = [
                 r for r in draws if r[0] == "normal" and "compute_td3_td_target" in r[1]
             ]
-            table = {
-                noise: (
-                    np.stack([draws[noise][0][0]]),
-                    np.asarray(arrays["noise"], dtype).reshape((1, *noise[2])),
-                )
-            }
-            with kit.replaying(table) as replay:
-                new = jax.jit(update)(state)
-                jax.block_until_ready(new)
-            assert not replay.misses
-            np.savez(out / path.name, **to_sfujim(new))
+            keys[n] = draws[role][0][0]
+    table: dict = {}
 
+    def with_noise(state: Any, batch: dict, key: Any, noise: Any) -> Any:
+        table[(*role[:3], np.dtype(dtype).name)] = (key[None], noise[None])
+        return from_batch(state, batch)
 
-if __name__ == "__main__":
-    run(
-        pathlib.Path(sys.argv[1]),
-        pathlib.Path(sys.argv[2]),
-        sys.argv[3],
-        sys.argv[4] if len(sys.argv) > 4 else None,
-    )
+    out = {}
+    with jax.enable_x64(dtype == np.float64), kit.replaying(table) as replay:
+        replayed = jax.jit(with_noise)
+        for n, a in arrays.items():
+            noise = np.asarray(a["noise"], dtype).reshape(role[2])
+            new = replayed(state_of(a, dtype), batches[n], keys[n], noise)
+            out[n] = to_sfujim(new)
+    assert not replay.misses
+    return out

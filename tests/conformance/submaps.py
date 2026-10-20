@@ -4,10 +4,11 @@ the rounding each side shows on its own.
 A leaf's difference is ``max |delta_a - delta_b| / max |delta_b|``, ``delta`` the change the step made
 (new minus old). Comparing changes rather than values keeps a leaf near zero (a bias early in
 training) from inflating the error, and keeps a large leaf from hiding a wrong step. A leaf one side
-changes and the other does not differs infinitely. The null of a leaf is the same measure between
-two runs of one side that compute the same maths in a different order (jitted against eager); its
-tolerance is ``max(factor * null, floor)``. Discrete leaves (actions, done flags, counters) must be
-equal. Equal NaNs are equal: bookkeeping leaves hold NaN until an episode ends.
+changes and the other does not differs infinitely. The null of a leaf is each side's float32 rounding
+error, the same measure between its float32 run and the same run in float64, summed over both sides
+(:func:`rounding_null`); its tolerance is ``max(factor * null, floor)``. Discrete leaves (actions,
+done flags, counters) must be equal. Equal NaNs are equal: bookkeeping leaves hold NaN until an
+episode ends.
 """
 
 from __future__ import annotations
@@ -106,12 +107,13 @@ def rounding_null(
     ours: tuple[Mapping[str, Any], Mapping[str, Any]],
     old: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, float]:
-    """Per leaf, the null across frameworks: each side's float32 rounding
-    error, its float32 run against its float64 run (``(f32, f64)`` pairs),
-    summed. Across PyTorch and XLA a run-to-run null measures the wrong
-    thing: the two round differently even where each is reproducible, and
-    each side's error against exact arithmetic bounds that (validated on
-    TD3 against sfujim/TD3, where it caught every planted fault)."""
+    """Per leaf, each side's float32 rounding error, its float32 run against
+    its float64 run (``(f32, f64)`` pairs), summed. Across PyTorch and XLA a
+    run-to-run null measures the wrong thing: the two round differently even
+    where each is reproducible, and each side's error against exact
+    arithmetic bounds that. Validated with planted faults on TD3 against
+    sfujim/TD3 and on PQN against purejaxql, where it replaced the
+    jit-vs-eager null at 2-3 times its width."""
     first = ref[0]
     return {
         leaf: sum(
@@ -120,21 +122,4 @@ def rounding_null(
         )
         for leaf in first
         if not is_discrete(first[leaf])
-    }
-
-
-def null_of(
-    *pairs: tuple[Mapping[str, Any], Mapping[str, Any]],
-    old: Optional[Mapping[str, Any]] = None,
-) -> dict[str, float]:
-    """Per leaf, the largest :func:`change_diff` within each pair (one side jitted, the same side
-    eager): the rounding the comparison must tolerate."""
-    leaves = pairs[0][1].keys()
-    return {
-        leaf: max(
-            change_diff(x[leaf], y[leaf], None if old is None else old[leaf])
-            for x, y in pairs
-        )
-        for leaf in leaves
-        if not is_discrete(pairs[0][1][leaf])
     }

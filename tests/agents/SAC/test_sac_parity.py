@@ -77,11 +77,17 @@ _PARITY_TIMESTEPS = 200
 # (was 1e-5): critic +0.024%, actor +0.014%, target +0.0019%, alpha
 # +0.0003%. Previous goldens: critic 557.9498901367188, actor
 # 267.2409973144531, target 535.9058837890625, alpha 0.9731040596961975.
+#
+# Re-blessed once the flat replay drew rows alone instead of a row with its
+# successor, so each env's newest row is sampled too: critic -0.0054%,
+# actor +0.019%, target -0.0012%, alpha -0.0055%. Previous goldens: critic
+# 558.0853881835938, actor 267.2794189453125, target 535.9161376953125,
+# alpha 0.973106861114502.
 _GOLDEN = {
-    "critic": 558.0853881835938,
-    "actor": 267.2794189453125,
-    "target": 535.9161376953125,
-    "alpha": 0.973106861114502,
+    "critic": 558.0552978515625,
+    "actor": 267.3292236328125,
+    "target": 535.9094848632812,
+    "alpha": 0.9730522036552429,
 }
 _TOL = 1e-4
 

@@ -18,7 +18,15 @@ import jax.numpy as jnp
 import pytest
 
 import ajax.extensions
-from ajax.extensions import ensemble, expert, instrumentation, offline, target_mods
+from ajax.buffers.dataset import TransitionDataset
+from ajax.extensions import (
+    adversarial,
+    ensemble,
+    expert,
+    instrumentation,
+    offline,
+    target_mods,
+)
 from ajax.extensions.base import Extension, ExtensionContext
 
 
@@ -39,6 +47,9 @@ BUILD: dict[type, Callable[[], Extension]] = {
     target_mods.LCBGatedBootstrap: lambda: target_mods.LCBGatedBootstrap(_expert),
     target_mods.CriticBlend: lambda: target_mods.CriticBlend(expert_policy=_expert),
     target_mods.MCVarianceCorrection: lambda: target_mods.MCVarianceCorrection(1.0),
+    adversarial.AdversarialReward: lambda: adversarial.AdversarialReward(
+        TransitionDataset([[0.0]], [[0.0]], [0.0], [True], [False], [[0.0]])
+    ),
 }
 
 
@@ -51,7 +62,7 @@ def _phases() -> list[Any]:
             if not (inspect.isclass(cls) and issubclass(cls, Extension)):
                 continue
             own = cls.__module__ == module.__name__  # not an import
-            for phase in ("on_target", "critic_loss", "actor_loss"):
+            for phase in ("reward", "on_target", "critic_loss", "actor_loss"):
                 if own and getattr(cls, phase) is not getattr(Extension, phase):
                     id_ = f"{cls.__name__}-{phase}"
                     cases.append(pytest.param(cls, phase, id=id_))
@@ -65,6 +76,6 @@ CTX = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0), total_ste
 @pytest.mark.parametrize("cls, phase", _phases())
 def test_a_phase_raises_on_an_empty_batch(cls: type, phase: str) -> None:
     assert cls in BUILD, f"{cls.__name__} needs a row in BUILD"
-    target = (jnp.zeros((2, 1)),) if phase == "on_target" else ()
+    target = (jnp.zeros((2, 1)),) if phase in ("reward", "on_target") else ()
     with pytest.raises((KeyError, ValueError)):
         getattr(BUILD[cls](), phase)(STATE, (), {}, *target, CTX)

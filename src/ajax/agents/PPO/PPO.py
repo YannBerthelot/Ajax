@@ -55,6 +55,7 @@ class PPO(ActorCritic):
         "actor discounted obs_networks v_critic".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {
+        "reward",
         "on_target",
         "critic_loss",
         "actor_loss",

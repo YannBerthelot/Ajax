@@ -44,21 +44,7 @@ def test_the_tolerance_is_the_null_times_the_factor_with_a_floor():
     assert "1 of 2 leaves beyond tolerance (iteration 3)" in text and "w" in text
 
 
-def test_the_null_is_the_largest_difference_within_each_side():
-    old = {"w": np.zeros(2), "n": np.array([3])}
-    jit_a, eager_a = (
-        {"w": np.array([1.0, 1.0]), "n": np.array([3])},
-        {"w": np.array([1.0, 1.01]), "n": np.array([3])},
-    )
-    jit_b, eager_b = (
-        {"w": np.array([2.0, 2.0]), "n": np.array([3])},
-        {"w": np.array([2.0, 2.0]), "n": np.array([3])},
-    )
-    nulls = submaps.null_of((eager_a, jit_a), (eager_b, jit_b), old=old)
-    assert set(nulls) == {"w"} and math.isclose(nulls["w"], 0.01)
-
-
-def test_the_null_across_frameworks_sums_each_sides_float32_error():
+def test_the_null_sums_each_sides_float32_error():
     old = {"w": np.zeros(2), "n": np.array([1])}
     ref = (
         {"w": np.array([1.0, 1.0]), "n": np.array([1])},

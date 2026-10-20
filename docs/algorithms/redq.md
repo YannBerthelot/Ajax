@@ -110,7 +110,9 @@ extension; a cloning term during training is `ImitationLoss`
   second, against SAC's 2,218 on the same preset.
 - **Actions and evaluation.** As SAC: a `tanh`-squashed Gaussian in
   `[-1, 1]`, mapped onto the environment's bounds; evaluation uses the mean
-  action.
+  action. The critics read actions in the environment's units, as the
+  authors' code's do (`act_limit * tanh`, `core.py:238`): on a box other
+  than `[-1, 1]` Adam then steps their action inputs as the authors' does.
 - **Time limits.** A transition cut by a time limit bootstraps on its final
   observation; only a termination stops the bootstrap.
 - **Diagnostics.** REDQ logs how spread out its ensemble is

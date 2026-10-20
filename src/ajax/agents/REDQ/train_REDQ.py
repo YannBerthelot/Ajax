@@ -28,6 +28,7 @@ from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.buffers.dataset import TransitionDataset
+from ajax.environments.utils import critic_action_units
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -109,6 +110,7 @@ def init_REDQ(
     expert_policy: Optional[Callable] = None,
     store_raw_next_obs: bool = False,
     store_return_to_go: bool = False,
+    critic_action_units: Optional[tuple] = None,
 ) -> REDQState:
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
@@ -134,7 +136,7 @@ def init_REDQ(
         rng=rng,
         eval_rng=eval_rng,
         actor_state=actor_state,
-        critic_state=critic_state,
+        critic_state=critic_state.replace(action_units=critic_action_units),
         alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
         collector_state=collector_state,
     )
@@ -412,6 +414,10 @@ def make_train(
         offline_data=offline_data,
     )
 
+    # REDQ's official critics read act_limit * tanh, the env's units
+    # (watchernyu/REDQ@7b5d1bf, core.py:238): so do Ajax's.
+    units = critic_action_units(env_args.env, env_args.env_params)
+
     def init(key: jax.Array) -> REDQState:
         return init_REDQ(
             key,
@@ -427,6 +433,7 @@ def make_train(
             expert_policy=expert_policy,
             store_raw_next_obs="raw_next_obs" in loop.stack.buffer_fields(),
             store_return_to_go="return_to_go" in loop.stack.buffer_fields(),
+            critic_action_units=units,
         )
 
     def update(agent_state: REDQState, _transition: Transition) -> Any:

@@ -9,9 +9,9 @@ description: >-
 # every agent traces (the loop, the evaluation) recompiles most of them.
 #
 # The key holds the job (and shard), whose programs differ, and the
-# fingerprint subdirectory Ajax keys its entries by (CPU model and flags,
-# Python, JAX and jaxlib versions), so a runner on another CPU starts cold
-# instead of restoring entries it cannot load. The run id makes each save a
+# fingerprint subdirectory Ajax keys its entries by (the instruction-set cap
+# ci.yml sets in XLA_FLAGS, else the CPU model and flags; Python, JAX and
+# jaxlib versions), so a runner never restores entries it cannot load. The run id makes each save a
 # new entry; the restore takes the latest by prefix. Only pushes to main
 # save (compile-cache-save): a pull request's caches would serve only that
 # pull request and evict main's from the repository's quota.

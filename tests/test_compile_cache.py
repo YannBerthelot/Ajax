@@ -62,9 +62,25 @@ def test_fingerprint_names_cpu_and_versions():
 
 
 def test_fingerprint_changes_with_the_cpu(monkeypatch):
+    monkeypatch.delenv("XLA_FLAGS", raising=False)
     before = _compile_cache.host_fingerprint()
     monkeypatch.setattr(_compile_cache, "_cpu_description", lambda: "Other CPU")
     assert _compile_cache.host_fingerprint() != before
+
+
+def test_an_isa_cap_replaces_the_cpu_in_the_fingerprint(monkeypatch):
+    """Entries built under ``--xla_cpu_max_isa`` use that set alone: any CPU
+    with it shares them, and another cap or no cap keeps them apart."""
+    flags = "--xla_backend_optimization_level=0 --xla_cpu_max_isa=AVX2"
+    monkeypatch.setenv("XLA_FLAGS", flags)
+    capped = _compile_cache.host_fingerprint()
+    monkeypatch.setattr(_compile_cache, "_cpu_description", lambda: "Other CPU")
+    assert _compile_cache.host_fingerprint() == capped
+    assert dict(p.split("=", 1) for p in capped.split("|"))["cpu"] == "isa<=AVX2"
+    monkeypatch.setenv("XLA_FLAGS", "--xla_cpu_max_isa=SSE4_2")
+    assert _compile_cache.host_fingerprint() != capped
+    monkeypatch.delenv("XLA_FLAGS")
+    assert _compile_cache.host_fingerprint() != capped
 
 
 def test_configure_uses_the_fingerprint_subdirectory(cache_root):
@@ -82,6 +98,7 @@ def test_configure_uses_the_fingerprint_subdirectory(cache_root):
 def test_configure_never_deletes_entries(cache_root, monkeypatch):
     """Entries of other fingerprints and of the old single-directory
     layout survive, so each environment keeps its warm cache."""
+    monkeypatch.delenv("XLA_FLAGS", raising=False)  # a cap would hide the CPU
     cache_root.mkdir()
     (cache_root / "legacy_entry-cache").write_text("old layout")
     (cache_root / ".host_fingerprint").write_text("host=oldbox|cpu=oldcpu")

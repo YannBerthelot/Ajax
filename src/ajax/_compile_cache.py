@@ -21,7 +21,11 @@ versions and the device kind, but on CPU not the instruction-set
 features. An entry built on another CPU loads with "Target machine
 feature ... could lead to SIGILL" warnings and falls back to a fresh
 compile, which once looked like a multi-hour stall. Keying the
-subdirectory by CPU keeps such entries apart.
+subdirectory by CPU keeps such entries apart. When ``XLA_FLAGS`` caps
+code generation at one instruction set (``--xla_cpu_max_isa``, as CI
+does), the cap replaces the CPU in the fingerprint: every entry then uses
+that set alone, so any CPU that has it loads them, and CI's runners,
+which come on several CPU models, share one cache.
 
 Why a subdirectory rather than a wipe on mismatch: the previous design
 recorded one fingerprint in the cache root and deleted the whole cache
@@ -79,6 +83,14 @@ def _cpu_description() -> str:
     return f"{model} flags={flags}" if model or flags else platform.processor()
 
 
+def _isa_cap() -> str | None:
+    """The instruction set ``XLA_FLAGS`` caps code generation at, if any."""
+    for flag in os.environ.get("XLA_FLAGS", "").split():
+        if flag.startswith("--xla_cpu_max_isa="):
+            return flag.partition("=")[2]
+    return None
+
+
 def host_fingerprint() -> str:
     """What must match for a cached CPU executable to be safe to load.
 
@@ -88,8 +100,10 @@ def host_fingerprint() -> str:
     from importlib.metadata import version
 
     py = f"{sys.version_info.major}.{sys.version_info.minor}"
+    cap = _isa_cap()
+    cpu = f"isa<={cap}" if cap else _cpu_description()
     return (
-        f"cpu={_cpu_description()}|arch={platform.machine()}|py={py}"
+        f"cpu={cpu}|arch={platform.machine()}|py={py}"
         f"|jax={version('jax')}|jaxlib={version('jaxlib')}"
     )
 

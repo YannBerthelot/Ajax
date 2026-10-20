@@ -1,15 +1,18 @@
 [project]
 name = "Ajax"
-version = "0.3.1"
+version = "0.4.0"
 description = "Agents in JAX: Jax based implementations of RL algorithms"
 authors = [{ name = "Yann Berthelot", email = "yannberthelot1@gmail.com" }]
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.12"
 dependencies = [
     "gymnasium>=1.2.0,<2",
     "tqdm>=4.65.0,<5",
-    "jax>=0.6.2",
-    "flax>=0.10.7,<0.11",
+    # Floors only: a cap is added after a known break, with its reason.
+    # A capped flax (<0.11) next to an uncapped JAX once broke pip installs:
+    # flax 0.10 calls a function JAX 0.11 removed. flax 0.12.8 needs JAX 0.10.
+    "jax>=0.10.0",
+    "flax>=0.12.8",
     # Imported directly, so declared, not left to the packages that pull
     # them in. brax is capped: create.py uses its private brax.envs._envs.
     "brax>=0.14.2,<0.15",
@@ -22,7 +25,8 @@ dependencies = [
     # gymnax 1.0 (six-value step API: obs, state, reward, terminated,
     # truncated, info). 1.0.1 is the first release without the jax<0.7 cap.
     "gymnax>=1.0.1,<2",
-    "distrax>=0.1.6",
+    # 0.1.7 calls jax.core.get_aval, which JAX 0.11 removed.
+    "distrax>=0.1.9",
     "tensorboardx>=2.6.4,<3",
     "playground>=0.2.0,<0.3",
 ]
@@ -30,7 +34,7 @@ dependencies = [
 [project.optional-dependencies]
 # CUDA (NVIDIA GPUs, Linux only): `uv sync --extra cuda`, or depend on
 # `ajax[cuda]`. Without it JAX runs on the CPU.
-cuda = ["jax[cuda]>=0.6.2; sys_platform == 'linux'"]
+cuda = ["jax[cuda]>=0.10.0; sys_platform == 'linux'"]
 # ajax.compare.estimate's confidence sequence: `uv sync --extra compare`, or
 # depend on `ajax[compare]`. From the commit in [tool.uv.sources].
 compare = ["adastop"]
@@ -53,7 +57,8 @@ dev = [
     # Only the benchmarks/ and docs/ scripts plot.
     "matplotlib>=3.8.0,<4",
     # docs/world_models/reference_comparison/compare.py reads run configs.
-    "PyYAML>=6.0",
+    # 6.0.1 is the first with Python 3.12 wheels; 6.0 no longer builds.
+    "PyYAML>=6.0.1",
     "coverage[toml]>=7.8.0,<8",
     "ruff>=0.11.6,<0.12",
     # From the branch in [tool.uv.sources].

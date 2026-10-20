@@ -10,7 +10,7 @@
 <p align="center">
   <a href="https://yannberthelot.github.io/Ajax/"><img alt="Documentation" src="https://img.shields.io/badge/docs-yannberthelot.github.io%2FAjax-blue"></a>
   <a href="https://github.com/YannBerthelot/Ajax/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/YannBerthelot/Ajax/ci.yml?branch=main&label=CI"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="JAX" src="https://img.shields.io/badge/JAX-jit%20%7C%20vmap%20%7C%20grad-orange">
 </p>
@@ -54,8 +54,8 @@ which agent runs which.
 
 ## Installation
 
-Ajax installs from source with [uv](https://docs.astral.sh/uv/), on Python 3.11
-to 3.13:
+Ajax installs from source with [uv](https://docs.astral.sh/uv/), on Python 3.12
+or newer:
 
 ```bash
 git clone https://github.com/YannBerthelot/Ajax.git
@@ -67,12 +67,11 @@ uv installs the versions in `uv.lock`, which CI tests, with JAX for the CPU;
 on a Linux machine with an NVIDIA GPU, add CUDA with `uv sync --extra cuda`
 (a project that depends on Ajax asks for `ajax[cuda]`).
 
-pip works too, with JAX pinned to the locked version. pip does not read
-`uv.lock`, and it would pick JAX 0.11, on which the flax version Ajax uses
-fails when training starts:
+pip works too. It does not read `uv.lock`, so it takes the newest versions
+that `pyproject.toml` allows:
 
 ```bash
-pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git" "jax==0.7.2"
+pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git"
 ```
 
 [Installation](docs/getting-started/installation.md) covers the extras
@@ -167,13 +166,14 @@ generated from the code, does.
 | Prior data in the replay, as RLPD (Ball et al., 2023) without its symmetric sampling, then optional offline updates | `PriorData` with a transition dataset (`ajax.buffers.dataset`) | SAC, TD3, REDQ, ASAC, DQN |
 | Offline training on a transition dataset, then online fine-tuning | `agent.train_offline(dataset, n_updates)` | SAC, TD3, REDQ, ASAC, DQN, IQL |
 | Implicit Q-learning, offline then online (IQL, Kostrikov et al., 2022) | [`IQL`](docs/algorithms/iql.md) with `train_offline` | its own agent |
+| Conservative Q-learning, offline (CQL, Kumar et al., 2020); calibrated (Cal-QL, Nakamoto et al., 2023) | [`ConservativeQ`, `CalQL`](docs/algorithms/sac.md#cql-and-cal-ql-offline) on SAC, trained with `train_offline` | CQL: SAC, TD3, REDQ, ASAC, AVG, IQL; Cal-QL: SAC, TD3, REDQ, IQL |
+| ReBRAC, offline (Tarasov et al., 2023) | [`TD3` with TD3+BC's term and `TargetBC`](docs/algorithms/td3.md#rebrac-offline), trained with `train_offline` | TD3 |
 | Adversarial imitation from demonstrations, with no reward (GAIL, Ho and Ermon, 2016) | [`AdversarialReward`](docs/algorithms/ppo.md#gail-imitation-by-a-discriminator) with a transition dataset | PPO, continuous actions |
 | TD3+BC, offline (Fujimoto and Gu, 2021) | [`TD3` with `ImitationLoss(None, target="replay", alpha=2.5)`](docs/algorithms/td3.md#td3bc-offline), trained with `train_offline` | TD3; the term on SAC, REDQ, ASAC too |
 | Offline multi-task training on pooled datasets (TD-MPC2, Hansen et al., 2024) | `TDMPC2MultiTask` | its own agent |
 | Interactive imitation by dataset aggregation, with no reward (DAgger, Ross et al., 2011) | `DAgger` | its own agent |
 | Features developed with Ajax, with no external reference: EDGE exploration, LCB-gated targets, a value-gated hand-over, an expert critic fitted to Monte-Carlo returns and the extensions that read it | `EDGEExploration`, `LCBGatedBootstrap`, `ValueBox`, `MCPretrain`, ... | SAC (LCB: SAC, TD3, REDQ) |
 
-Not in Ajax yet: the offline RL algorithms CQL and Cal-QL.
 [Expert guidance](docs/guide/expert-guidance.md) explains the expert's
 conventions and how the pieces combine.
 
@@ -181,7 +181,7 @@ conventions and how the pieces combine.
 
 ## What else is in the box
 
-- **[Extensions](docs/guide/extensions.md)**: twenty-one of them, for expert
+- **[Extensions](docs/guide/extensions.md)**: twenty-four of them, for expert
   guidance, exploration, critic-target changes, actor and critic
   pre-training, prior data, ensemble diversity and critic diagnostics, passed
   as `extensions=(...)`; the [compatibility table](docs/guide/compatibility.md)

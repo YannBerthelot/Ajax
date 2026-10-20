@@ -19,7 +19,14 @@ import pytest
 
 import ajax.extensions
 from ajax.buffers.dataset import TransitionDataset
-from ajax.extensions import adversarial, ensemble, expert, instrumentation, target_mods
+from ajax.extensions import (
+    adversarial,
+    ensemble,
+    expert,
+    instrumentation,
+    offline,
+    target_mods,
+)
 from ajax.extensions.base import Extension, ExtensionContext
 
 
@@ -30,6 +37,9 @@ def _expert(obs: jax.Array) -> jax.Array:
 #: Each extension configured to act (BiasVorePenalty's default coefficient is 0).
 BUILD: dict[type, Callable[[], Extension]] = {
     ensemble.KernelRepulsion: ensemble.KernelRepulsion,
+    offline.ConservativeQ: offline.ConservativeQ,
+    offline.CalQL: offline.CalQL,
+    offline.TargetBC: offline.TargetBC,
     expert.OnlineBC: expert.OnlineBC,
     expert.ImitationLoss: lambda: expert.ImitationLoss(expert_policy=_expert),
     instrumentation.BiasVorePenalty: lambda: instrumentation.BiasVorePenalty(0.3),

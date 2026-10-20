@@ -298,7 +298,8 @@ def test_transformer_inits_follow_gpt2(init):
     projections to 0.02/sqrt(2 num_layers), here 0.01."""
     core = _core("transformer", init, num_layers=2)
     for name, layer in core.items():
-        if "kernel" not in layer:
+        # rel_bias_* is a bare array, and JAX 0.11 refuses `in` on an array.
+        if not isinstance(layer, dict) or "kernel" not in layer:
             continue
         residual = name.startswith(("attn_out", "mlp_down"))
         std = 0.01 if init == "nanogpt" and residual else 0.02

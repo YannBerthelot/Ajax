@@ -137,6 +137,57 @@ Ajax by `sqrt(var + 1e-8)`; the two differ on a column the dataset holds
 constant. The [offline mode](../guide/training.md#training-offline)
 evaluates every `log_frequency` updates, as the reference does every 5,000.
 
+## ReBRAC: offline
+
+ReBRAC (Tarasov, Kurenkov, Nikulin and Kolesnikov, *Revisiting the
+Minimalist Approach to Offline Reinforcement Learning*, NeurIPS 2023,
+[arXiv:2305.09836](https://arxiv.org/abs/2305.09836)) is TD3+BC with design
+choices of its own. The main ones are a behaviour-cloning penalty in the
+critic's target as well, LayerNorm in the critic, deeper networks and
+larger batches. Its reference code is tinkoff-ai/ReBRAC at `694385b`. In
+Ajax it is TD3 with TD3+BC's actor term and `TargetBC`, the target
+penalty, trained with the offline mode:
+
+```python
+from ajax import TD3
+from ajax.extensions.expert import ImitationLoss
+from ajax.extensions.offline import TargetBC
+
+hidden = ("256", "relu")
+agent = TD3(
+    "Pendulum-v1",
+    actor_architecture=hidden * 3,
+    critic_architecture=("256", "relu", "layernorm") * 3,
+    actor_learning_rate=1e-3,
+    critic_learning_rate=1e-3,
+    batch_size=1024,
+    learning_starts=0,
+    extensions=(
+        ImitationLoss(None, target="replay", alpha=1.0),  # actor_bc_coef 1
+        TargetBC(beta=1.0),  # critic_bc_coef 1
+    ),
+)
+# state, evaluations = agent.train_offline(dataset, n_updates=1_000_000)
+```
+
+`TargetBC` subtracts `γ (1 − d) β Σ (ã′ − a′)²` from the target, with `ã′`
+the next actions TD3's target scored (its target policy plus clipped noise)
+and `a′` the dataset's next action (`rebrac.py:134-144`). The replay keeps
+`a′` as each row's episode's next row's action. A row ending its episode,
+or a collected one, has none, so it keeps its target. The coefficients
+`actor_bc_coef` and `critic_bc_coef` are tuned per dataset in the paper.
+
+Deviations from the reference:
+
+- TD3's actor follows its first critic, and the cloning term's scale is
+  that critic's `mean|Q|`. ReBRAC uses the minimum over the critics for
+  both.
+- The cloning term averages the squared error over the action
+  dimensions. ReBRAC sums it, so pass `coef` equal to the action dimension
+  to match.
+- TD3 keeps its reference's initialisation. ReBRAC's layers start their
+  biases at 0.1 and its heads uniform in ±1e-3 (actor) and ±3e-3 (critic).
+
 ## Results
 
 The repository records no learning curves for TD3 yet. Unit tests

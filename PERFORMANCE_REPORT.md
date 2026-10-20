@@ -507,6 +507,46 @@ gradient of the summed loss over both networks (were a critic step, then an
 actor step, each its own backward pass). The 2026-10-12 baseline row
 (16,390) is not replaced: this run was under load.
 
+## JAX 0.11 and flax 0.12 (PR #199, 2026-10-19)
+
+The lock moves from JAX 0.7.2 / flax 0.10.7 to JAX 0.11.2 / flax 0.12.10;
+Ajax's code is unchanged. `benchmarks/agent_bench.py` (its standard runs, 3
+trials), CPU, main `a0f6802` and the branch run back to back for each agent,
+so that both sides of a pair share the load other jobs put on the machine
+(load average 3 to 8 on 14 cores). Exec steps/s, medians:
+
+| Agent | main (JAX 0.7.2) | branch (JAX 0.11.2) | delta |
+|---|---|---|---|
+| SAC | 2,234 | 2,725 | +22% |
+| SAC/inverted_pendulum | 1,767 | 1,665 | -6% |
+| ASAC | 2,065 | 2,522 | +22% |
+| REDQ | 45.1 | 48.1 | +7% |
+| TD3 | 3,095 | 3,383 | +9% |
+| AVG | 9,594 | 10,388 | +8% |
+| DQN | 17,102 | 20,936 | +22% |
+| PQN | 38,410 | 36,550 | -5% |
+| PPO | 24,357 | 25,439 | +4% |
+| APO | 35,206 | 34,216 | -3% |
+| UDRL | 16,400 | 21,835 | +33% |
+| APG | 35,526 | 28,792 | -19% |
+| DreamerV3 | 389.5 | 514.8 | +32% |
+| TDMPC2 | 296.7 | 380.4 | +28% |
+
+(AVG, UDRL and APG: two rounds each, main and branch alternating.)
+Compilation is shorter on the branch for every agent, about half. A first
+run of all of main, then all of the branch, put the branch under heavier
+load (10 to 14) and showed slowdowns of 13% to 60% that the paired runs do
+not.
+
+**APG, -19%.** The preset is small (a 16-unit actor, BPTT over 16 steps, 4
+environments), so per-operation cost dominates: the gap is 24% at 4
+environments and 12% at 64. A pure-JAX program of the same shape (no flax,
+optax or Ajax: an MLP through 16 pendulum steps, its gradient and an Adam
+step, 500 updates in one `fori_loop`, 4 environments) takes 21 to 22 ms on
+JAX 0.7.2 and 0.8.0, 40 ms on 0.9.0, 24 ms on 0.10.0 and 23 to 25 ms on
+0.11. The slowdown comes from JAX's CPU compiler from 0.9 on, of which 0.10
+recovered most; Ajax's code does not cause it.
+
 ## TD-MPC2 agent (M4b): CPU learning checks and bench entry (2026-10-03)
 
 `benchmarks/world_models/learning_checks.py` (`docs/world_models/DESIGN.md` §0, §10): TD-MPC2

@@ -147,6 +147,47 @@ raises.
   `sequence_length` steps are learned from. It refuses extensions and
   `expert_policy`.
 
+## CQL and Cal-QL: offline
+
+CQL (Kumar, Zhou, Tucker and Levine, *Conservative Q-Learning for Offline
+Reinforcement Learning*, NeurIPS 2020,
+[arXiv:2006.04779](https://arxiv.org/abs/2006.04779)) is SAC with a critic
+term that pushes the critic down on actions away from the data's and up on
+the data's. Cal-QL (Nakamoto et al., *Cal-QL: Calibrated Offline RL
+Pre-Training for Efficient Online Fine-Tuning*, NeurIPS 2023,
+[arXiv:2303.05479](https://arxiv.org/abs/2303.05479)) floors that push at
+the data's Monte-Carlo returns, so fine-tuning online does not start from
+values far too low. In Ajax both are extensions on SAC, trained with the
+[offline mode](../guide/training.md#training-offline):
+
+```python
+from ajax import SAC
+from ajax.extensions.offline import CalQL, ConservativeQ
+
+agent = SAC(
+    "Pendulum-v1",
+    actor_learning_rate=1e-4,  # the references' policy rate
+    policy_update_start=0,  # the offline mode counts updates: start at once
+    alpha_update_start=0,
+    learning_starts=0,
+    expert_buffer_n_steps=0,
+    extensions=(ConservativeQ(alpha=5.0),),  # or CalQL(alpha=5.0)
+)
+# state, evaluations = agent.train_offline(dataset, n_updates=1_000_000)
+```
+
+The term is the authors' importance-sampled CQL(H)
+(aviralkumar2907/CQL at `d67dbe9`, `cql.py:234-264`): for each critic, the
+logsumexp of its values at 10 uniform actions and 10 of the policy's at
+`s` and at `s'`, each less its log-density, minus its value at the data's
+action, times `alpha` (5 in the references' gym runs). Cal-QL takes the
+maximum of each policy action's value and the row's return to go first
+(nakamotoo/Cal-QL at `ac6eafe`, `JaxCQL/conservative_sac.py:227-240`). The
+return to go is the transition dataset's, at its `gamma`. Online rows have
+none, so they are not floored; the reference computes them as episodes
+end. Deviation: SAC's target keeps its entropy term, which the CQL
+reference's `deterministic_backup` drops.
+
 ## Results
 
 The repository records no learning curves for SAC yet. Unit tests

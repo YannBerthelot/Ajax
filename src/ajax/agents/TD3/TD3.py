@@ -48,7 +48,9 @@ class TD3(ActorCritic):
     supports_memory: bool = True
     replays_transitions: bool = True
     stores_expert_actions: bool = True
-    supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
+    supported_buffer_fields: frozenset = frozenset(
+        {"next_action", "raw_next_obs", "return_to_go"}
+    )
     make_train = staticmethod(make_train)
 
     def __init__(

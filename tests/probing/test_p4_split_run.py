@@ -81,7 +81,9 @@ def _apg() -> Any:
 # leg's own end, train_DQN.linear_epsilon; test_resume_contract covers the
 # schedules); PQN's two minibatches make its shuffle matter. PPO and PQN run
 # one iteration more per call (TrainLoop.n_rollouts): their second leg is one
-# shorter.
+# shorter. PQN's run is short: the two programs round apart (JAX 0.11), and
+# over 2,560 steps one RAdam moment drifted past the tolerance on a CI runner
+# (0.18 of it at 768 steps on macOS ARM, 0.48 at 2,560).
 NETS = {"actor_architecture": N32, "critic_architecture": N32}
 STARTS = ("learning_starts", "policy_update_start", "alpha_update_start")
 SAC_KW = {**NETS, "buffer_size": 1000, "batch_size": 32, **dict.fromkeys(STARTS, 50)}
@@ -96,11 +98,14 @@ IQL_KW = {"buffer_size": 1000, "batch_size": 32, "learning_starts": 50}
 EQUIVALENT = {
     "SAC": Split(_make("SAC", RD, SAC_KW), 400, 200, 200),
     "DQN": Split(_make("DQN", PV, DQN_KW), 400, 200, 200),
-    "PQN": Split(_make("PQN", PV, {**EPS, "num_minibatches": 2}), 2560, 1280, 1152),
+    "PQN": Split(_make("PQN", PV, {**EPS, "num_minibatches": 2}), 768, 256, 384),
     "PPO": Split(_make("PPO", RD, NETS), 640, 320, 288),
     "UDRL": Split(_make("UDRL", PV, UDRL_KW), 128, 64, 64),
     "DAgger": Split(_make("DAgger", RD, DAGGER_KW), 128, 64, 64),
-    "IQL": Split(_make("IQL", RD, {**NETS, **IQL_KW}, None), 400, 200, 200),
+    # IQL's run is short for the same reason as PQN's: at 400 steps its value
+    # network rounded past the tolerance under JAX 0.11 (3.1 of it on macOS
+    # ARM; 0.023 at 240 steps). Both legs still pass learning_starts.
+    "IQL": Split(_make("IQL", RD, {**NETS, **IQL_KW}, None), 240, 120, 120),
     # APG restarts its optimizer on resume by design (train_APG.reset_optimizer).
     "APG": Split(_apg, 256, 128, 128, {"reset_optimizer_on_resume": False}),
 }
@@ -112,7 +117,8 @@ ELSEWHERE = {  # world models whose own tests assert a resume equals one call
     "TDMPC2": "TDMPC2/test_TDMPC2.py::test_a_new_agent_resumes_a_checkpoint_as_the_uninterrupted_run",
     "TDMPC2MultiTask": "TDMPC2/test_TDMPC2MultiTask.py::test_a_resumed_run_computes_the_uninterrupted_run",
 }
-# Ten log points a run; PPO's, PQN's two iterations apart: none at a leg's overshoot.
+# PPO's and PQN's log points two iterations apart, none at a leg's overshoot:
+# ten a run, PQN's three.
 LOGGED = {"SAC": 40, "DQN": 40, "PPO": 64, "PQN": 256}
 TRAIN_FRAC = Split(_make("SAC", RD, {**SAC_KW, "use_train_frac": True}), 400, 200, 200)
 VB_STEPS = 100

@@ -1,5 +1,7 @@
 name: Set up Python and uv
-description: Python 3.12, uv, and the project installed with its locked dependencies.
+description: >-
+  Python (3.12 by default), uv, and the project installed with its locked
+  dependencies, or as the sync input resolves them.
 
 # The CPU runners install no CUDA: it is the optional `cuda` extra. No
 # virtualenv cache: it was ruled out when the environment held the CUDA
@@ -7,12 +9,21 @@ description: Python 3.12, uv, and the project installed with its locked dependen
 # measured. The uv cache is kept but pruned before saving (prune-cache),
 # which drops every wheel downloaded pre-built: only what uv built itself
 # (the two git dependencies) is stored.
+inputs:
+  python-version:
+    description: The Python version.
+    default: "3.12"
+  sync:
+    description: >-
+      The uv sync command. The compatibility jobs resolve without the lock,
+      at the newest or the lowest versions pyproject.toml allows.
+    default: uv sync --locked
 runs:
   using: composite
   steps:
     - uses: actions/setup-python@v7
       with:
-        python-version: "3.12"
+        python-version: ${{ inputs.python-version }}
 
     # setup-uv publishes no major tags since v8: pin the release.
     - uses: astral-sh/setup-uv@v10.3.0
@@ -23,4 +34,4 @@ runs:
 
     - name: Install dependencies and the project
       shell: bash
-      run: uv sync --locked
+      run: ${{ inputs.sync }}

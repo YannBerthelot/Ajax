@@ -159,6 +159,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "BiasVoreDecomposition": (instrumentation.BiasVoreDecomposition, "PPO"),
     "ConservativeQ": (lambda: offline.ConservativeQ(n_actions=2), "SAC"),
     "CalQL": (lambda: offline.CalQL(n_actions=2), "SAC"),
+    "TargetBC": (offline.TargetBC, "TD3"),
 }
 ACTING = {"ValueBox", "EDGEExploration", "JSRLCurriculum", "ResidualPolicy"}
 PHI_STAR = (

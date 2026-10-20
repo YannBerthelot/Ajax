@@ -1,6 +1,6 @@
 """sfujim/TD3's update, recorded for the conformance check (tests/conformance/test_td3_sfujim.py).
 
-usage: python conformance_sfujim_td3.py ENV_ID OUT_DIR   (in envs/sb3: PyTorch, gymnax, jax)
+usage: python conformance_sfujim_td3.py ENV_ID OUT_DIR   (in envs/torch: CPU-only PyTorch, gymnax, jax)
 
 Imports nothing from Ajax. sfujim's own TD3.py and ReplayBuffer (vendor/sfujim_td3) train on a gymnax
 task by main.py's loop, written out below: random actions for START steps, then the actor's action plus

@@ -133,3 +133,15 @@ def test_a_captured_scan_body_runs_on_any_carry_and_stashing_keeps_its_outputs()
     np.testing.assert_array_equal(stacked, [0.0, 1.0, 2.0])
     with pytest.raises(RuntimeError, match="no lax.scan"):
         kit.capture_scan("absent", lambda: _toy(jnp.zeros(())))
+
+
+def test_a_substituted_scan_returns_the_given_outputs_and_the_step_goes_on_from_them():
+    def step(x):
+        carry, stacked = _toy(x)
+        return carry * 10 + stacked.sum()
+
+    given = (jnp.asarray(7.0), jnp.asarray([1.0, 1.0, 1.0]))
+    with kit.substituting({"body": given}):
+        assert float(jax.jit(step)(jnp.zeros(()))) == 73.0
+    with kit.substituting({"other": given}):
+        assert float(jax.jit(step)(jnp.zeros(()))) == 33.0

@@ -46,7 +46,6 @@ name = "ajax"
 version = "0.4.0"
 source = { editable = "." }
 dependencies = [
-    { name = "brax" },
     { name = "chex" },
     { name = "distrax" },
     { name = "flashbax" },
@@ -55,7 +54,6 @@ dependencies = [
     { name = "jax" },
     { name = "numpy" },
     { name = "optax" },
-    { name = "playground" },
     { name = "tensorboardx" },
     { name = "tqdm" },
 ]
@@ -86,6 +84,7 @@ wandb = [
 [package.dev-dependencies]
 dev = [
     { name = "adastop" },
+    { name = "ajax", extra = ["playground"] },
     { name = "coverage" },
     { name = "matplotlib" },
     { name = "mypy" },
@@ -116,7 +115,6 @@ wandb = [
 requires-dist = [
     { name = "adastop", marker = "extra == 'compare'", git = "https://github.com/TimotheeMathieu/adastop.git?rev=07e7159643f11467c154266b5ef3b1be6ca8ddd8" },
     { name = "ajax", extras = ["brax"], marker = "extra == 'playground'" },
-    { name = "brax", specifier = ">=0.14.2" },
     { name = "brax", marker = "extra == 'brax'", specifier = ">=0.14.2" },
     { name = "chex", specifier = ">=0.1.91,<0.2" },
     { name = "distrax", specifier = ">=0.1.9" },
@@ -129,7 +127,6 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.1,<3" },
     { name = "optax", specifier = ">=0.2.6,<0.3" },
     { name = "pandas", marker = "extra == 'reproduction'", specifier = ">=2.2,<3" },
-    { name = "playground", specifier = ">=0.2.0,<0.3" },
     { name = "playground", marker = "extra == 'playground'", specifier = ">=0.2.0,<0.3" },
     { name = "pyarrow", marker = "extra == 'reproduction'", specifier = ">=15" },
     { name = "tensorboardx", specifier = ">=2.6.4,<3" },
@@ -141,6 +138,7 @@ provides-extras = ["cuda", "compare", "reproduction", "brax", "playground", "wan
 [package.metadata.requires-dev]
 dev = [
     { name = "adastop", git = "https://github.com/TimotheeMathieu/adastop.git?rev=07e7159643f11467c154266b5ef3b1be6ca8ddd8" },
+    { name = "ajax", extras = ["playground"] },
     { name = "coverage", extras = ["toml"], specifier = ">=7.8.0,<8" },
     { name = "matplotlib", specifier = ">=3.8.0,<4" },
     { name = "mypy", specifier = ">=1.4.1,<2" },

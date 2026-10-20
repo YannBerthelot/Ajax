@@ -57,3 +57,19 @@ jobs:
           --ignore=tests/agents/SAC/test_sac_parity.py
           --ignore=tests/extensions/test_sac_extensions_equivalence.py
           --durations=30
+
+  # The core install alone, without extras or groups: a gymnax agent trains,
+  # so the core list holds every package the gymnax path imports. pytest is
+  # the only addition.
+  core:
+    name: Compatibility (core)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.12"
+          sync: uv sync --locked --no-default-groups
+      - run: uv pip list
+      - run: uv run --no-sync --with pytest pytest tests/test_core_install.py

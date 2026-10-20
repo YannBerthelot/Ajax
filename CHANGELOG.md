@@ -5,12 +5,16 @@ the minor version. Each release is tagged `vX.Y.Z` on main.
 
 ## Unreleased
 
-- **Extras**: `ajax[brax]` for Brax environments, `ajax[playground]` for
-  MuJoCo Playground ones (with Brax). Ajax imports brax and
-  mujoco_playground only to build their environments.
-- **Deprecated**: brax and playground in the core install. 0.5.0 removes
-  them, so a project that uses their environments should ask for
-  `ajax[playground]` or `ajax[brax]` now.
+- **Breaking**: brax and MuJoCo Playground are no longer installed with
+  Ajax. A project that uses their environments asks for `ajax[playground]`
+  (or `ajax[brax]` for Brax alone); without them, building one raises an
+  error that names the extra. A gymnax-only install drops 34 of its 93
+  packages.
+- **Extras**: `ajax[brax]`, `ajax[playground]` and `ajax[wandb]` (Weights &
+  Biases logging).
+- **Dependencies**: brax is no longer capped below 0.15 (Ajax uses its
+  public `get_environment`); mujoco, mujoco-mjx and gymnasium are no longer
+  declared, since Ajax does not import them.
 
 ## 0.4.0
 

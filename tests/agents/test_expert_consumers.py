@@ -37,7 +37,7 @@ EXPERT_AGENTS = sorted(
     if "expert_policy" in inspect.signature(getattr(ajax, n)).parameters
 )
 #: The agents binding CloningPretrain's context (their train_*.py).
-CLONING_AGENTS = {"APO", "ASAC", "AVG", "REDQ", "SAC", "TD3"}
+CLONING_AGENTS = {"APO", "ASAC", "AVG", "DAgger", "REDQ", "SAC", "TD3"}
 
 
 def expert_action(t):
@@ -83,10 +83,9 @@ def test_an_agent_gives_its_expert_raw_observations_and_its_state(name, monkeypa
         env_id=env,
         env_params=env.default_params,
         n_envs=N_ENVS,
-        expert_policy=expert,
         extensions=cloning if clones else (),
         **options,
-        **case.kwargs,
+        **(case.kwargs | {"expert_policy": expert}),
     )
     logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
     _, out = agent.train(

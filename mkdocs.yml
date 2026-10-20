@@ -137,6 +137,7 @@ nav:
       - PPO: algorithms/ppo.md
       - APO: algorithms/apo.md
       - UDRL: algorithms/udrl.md
+      - DAgger: algorithms/dagger.md
       - APG: algorithms/apg.md
       - DreamerV3: algorithms/dreamerv3.md
       - TD-MPC2: algorithms/tdmpc2.md

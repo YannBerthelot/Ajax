@@ -131,9 +131,9 @@ PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
     },
     "actor_loss": {
         "*": "actor_params",
-        "SAC TD3 REDQ ASAC AVG PPO APO UDRL APG IQL": "actor_state observations",
-        "SAC TD3 REDQ ASAC AVG PPO APO APG UDRL IQL": "raw_observations pi_mean",
-        "SAC TD3 REDQ ASAC AVG APO": "a_expert",
+        "SAC TD3 REDQ ASAC AVG PPO APO UDRL APG DAgger IQL": "actor_state observations",
+        "SAC TD3 REDQ ASAC AVG PPO APO APG UDRL DAgger IQL": "raw_observations pi_mean",
+        "SAC TD3 REDQ ASAC AVG APO DAgger": "a_expert",
         "SAC TD3 REDQ ASAC AVG IQL": "critic_state",
         "SAC TD3 REDQ ASAC UDRL IQL": "actions",
         "APG": "rollout returns",

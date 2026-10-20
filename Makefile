@@ -6,7 +6,7 @@ SHELL=/bin/bash
 # (newer) + JAX_PLATFORM_NAME (older) are belt-and-suspenders.
 CPU_ENV := CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu JAX_PLATFORM_NAME=cpu
 # The tests not marked slow check logic on tiny programs: XLA's optimisation
-# level 0 compiles them faster (ci.yml's FAST_XLA_FLAGS).
+# level 0 compiles them faster (as ci.yml's test shards do).
 FAST_XLA := XLA_FLAGS="--xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true"
 
 .PHONY: ci ci-precommit ci-test ci-slow ci-probe ci-conformance docs docs-serve test-cpu probe-cpu help

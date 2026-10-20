@@ -23,6 +23,7 @@ from __future__ import annotations
 import collections
 import contextlib
 import dataclasses
+import functools
 import inspect
 import pathlib
 from typing import Any, Callable, Iterator, Mapping
@@ -67,19 +68,30 @@ class Session:
     misses: list = dataclasses.field(default_factory=list)
 
 
+@functools.cache
+def _resolved(filename: str) -> pathlib.Path:
+    return pathlib.Path(filename).resolve()
+
+
 def _call_site() -> str:
-    frames = [
-        f for f in inspect.stack()[2:] if pathlib.Path(f.filename).resolve() != _HERE
-    ]
-    owned = [f for f in frames if any(o in f.filename for o in OWNERS)]
-    other = [f for f in frames if "/jax/" not in f.filename]
-    for f in owned or other:
+    # Frames walked directly: inspect.stack() reads every frame's source lines, which made the tape
+    # two thirds of a traced step's time.
+    here = inspect.currentframe()
+    f = here.f_back.f_back if here is not None and here.f_back is not None else None
+    frames = []
+    while f is not None:  # the sampler's callers, innermost first
+        if _resolved(f.f_code.co_filename) != _HERE:
+            frames.append((f.f_code.co_filename, f.f_code.co_name))
+        f = f.f_back
+    owned = [f for f in frames if any(o in f[0] for o in OWNERS)]
+    other = [f for f in frames if "/jax/" not in f[0]]
+    for filename, function in owned or other:
         short = (
-            f.filename.split("site-packages/")[-1]
+            filename.split("site-packages/")[-1]
             .split("/src/")[-1]
             .split("/vendor/")[-1]
         )
-        return f"{short}:{f.function}"
+        return f"{short}:{function}"
     return "?"
 
 

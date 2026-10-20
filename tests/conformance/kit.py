@@ -9,7 +9,8 @@ make that possible without changing the code under test:
   program order (a callback returning nothing may run anywhere, even after the main loop).
   :func:`replaying` returns, for each draw, the value a table holds under the draw's own key, with no
   callback on the value path. A role is the sampler, its first caller in an owned package, and the
-  draw's shape and dtype; a permutation of an array is taped as its index permutation. Samplers decide
+  draw's shape and dtype; a permutation of an array is taped as its index permutation, and a run in
+  float64 replays a float32 tape (a 64-bit draw takes its role's 32-bit entry, cast). Samplers decide
   at trace time, so both clear JAX's trace caches: an inner ``jax.jit`` would otherwise keep the trace
   of the other mode.
 * :func:`capture_step` returns an agent's loop ``iteration``, its ``update`` and its ``init``, by
@@ -55,6 +56,7 @@ SAMPLERS = (
 #: Packages whose callers name a role (the first such frame); vendored originals live under vendor/.
 OWNERS = ("/src/ajax/", "/gymnax/", "/brax/", "/mujoco_playground/", "/vendor/")
 _HERE = pathlib.Path(__file__).resolve()
+_NARROW = {"float64": "float32", "int64": "int32", "uint64": "uint32"}
 
 
 @dataclasses.dataclass
@@ -113,15 +115,16 @@ def _wrap(
                 value,
                 ordered=False,
             )
-        if role not in table:
+        entry = table.get(role, table.get((*role[:3], _NARROW.get(role[3], role[3]))))
+        if entry is None:
             session.unreplayed.add(role)
             return sample(key)
-        keys, values = table[role]
+        keys, values = entry
         hit = jnp.all(jnp.asarray(keys) == kd, axis=-1)
         jax.debug.callback(
             lambda h: None if np.asarray(h).any() else session.misses.append(role), hit
         )
-        return jnp.asarray(values)[jnp.argmax(hit)]
+        return jnp.asarray(values, role[3])[jnp.argmax(hit)]
 
     def sampler(key: jax.Array, *args: Any, **kwargs: Any) -> jax.Array:
         site = _call_site()

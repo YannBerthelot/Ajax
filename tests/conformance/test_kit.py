@@ -103,6 +103,24 @@ def test_a_permutation_of_an_array_is_taped_as_its_indices():
     np.testing.assert_array_equal(out, np.asarray(x)[chosen])
 
 
+def test_a_float64_run_replays_a_float32_tape():
+    def f(k):
+        a, b = jax.random.split(k)
+        return jax.random.normal(a, (3,)), jax.random.permutation(b, 5)
+
+    key = jax.random.PRNGKey(4)
+    with kit.recording() as rec:
+        want = jax.jit(f)(key)
+    draws = kit.by_role(rec.log)
+    table = kit.key_table(draws, {r: [v for _, v in d] for r, d in draws.items()})
+    with jax.enable_x64(True), kit.replaying(table) as rep:
+        got = jax.jit(f)(key)
+    assert not rep.misses and not rep.unreplayed
+    assert (got[0].dtype, got[1].dtype) == (jnp.float64, jnp.int64)
+    for g, w in zip(got, want, strict=True):
+        np.testing.assert_array_equal(g, w)
+
+
 def test_the_tape_restores_jax_random():
     before = jax.random.normal
     with kit.recording():

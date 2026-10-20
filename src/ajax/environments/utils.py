@@ -1,18 +1,22 @@
+import sys
 from collections.abc import Mapping
-from typing import Any, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from brax.envs.base import ObservationSize
 from gymnax import EnvParams
 
 from ajax.environments.system_class import env_params_is_batched, n_systems
 from ajax.types import (
-    BraxEnv,
     EnvType,
     GymnaxEnv,
 )
+
+if TYPE_CHECKING:  # brax comes with the brax extra
+    from brax.envs.base import ObservationSize
+
+    from ajax.types import BraxEnv
 
 
 def check_if_environment_has_continuous_actions(
@@ -66,7 +70,7 @@ def get_state_action_shapes(
     raise ValueError(f"Unsupported environment type: {type(env)}")
 
 
-def brax_observation_size(env: BraxEnv) -> ObservationSize:
+def brax_observation_size(env: "BraxEnv") -> "ObservationSize":
     """The width of the observations ``env`` emits, off its traced reset (as
     mujoco_playground's ``MjxEnv`` defines ``observation_size``; brax's
     ``PipelineEnv`` property runs a real reset, seconds of physics on CPU).
@@ -131,7 +135,12 @@ def check_env_is_playground(env) -> bool:
 
 def check_env_is_brax(env) -> bool:
     raw = get_raw_env(env)
-    if isinstance(raw, BraxEnv) or "brax" in str(type(raw)).lower():
+    # Only an imported brax can have built a brax env, so brax need not be
+    # installed to tell.
+    brax_envs = sys.modules.get("brax.envs")
+    if (brax_envs is not None and isinstance(raw, brax_envs.Env)) or (
+        "brax" in str(type(raw)).lower()
+    ):
         return True
     # Treat mujoco_playground envs as brax-compatible: same State API
     # (obs, reward, done, info), same observation_size / action_size, same

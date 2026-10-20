@@ -51,12 +51,8 @@ dependencies = [
     { name = "distrax" },
     { name = "flashbax" },
     { name = "flax" },
-    { name = "gymnasium" },
     { name = "gymnax" },
     { name = "jax" },
-    { name = "mujoco", version = "3.7.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
-    { name = "mujoco", version = "3.16.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
-    { name = "mujoco-mjx" },
     { name = "numpy" },
     { name = "optax" },
     { name = "playground" },
@@ -65,16 +61,26 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+brax = [
+    { name = "brax" },
+]
 compare = [
     { name = "adastop" },
 ]
 cuda = [
     { name = "jax", extra = ["cuda"], marker = "sys_platform == 'linux'" },
 ]
+playground = [
+    { name = "brax" },
+    { name = "playground" },
+]
 reproduction = [
     { name = "huggingface-hub" },
     { name = "pandas" },
     { name = "pyarrow" },
+]
+wandb = [
+    { name = "wandb" },
 ]
 
 [package.dev-dependencies]
@@ -103,33 +109,34 @@ plane = [
     { name = "target-gym" },
 ]
 wandb = [
-    { name = "wandb" },
+    { name = "ajax", extra = ["wandb"] },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "adastop", marker = "extra == 'compare'", git = "https://github.com/TimotheeMathieu/adastop.git?rev=07e7159643f11467c154266b5ef3b1be6ca8ddd8" },
-    { name = "brax", specifier = ">=0.14.2,<0.15" },
+    { name = "ajax", extras = ["brax"], marker = "extra == 'playground'" },
+    { name = "brax", specifier = ">=0.14.2" },
+    { name = "brax", marker = "extra == 'brax'", specifier = ">=0.14.2" },
     { name = "chex", specifier = ">=0.1.91,<0.2" },
     { name = "distrax", specifier = ">=0.1.9" },
     { name = "flashbax", specifier = ">=0.1.3,<0.2" },
     { name = "flax", specifier = ">=0.12.8" },
-    { name = "gymnasium", specifier = ">=1.2.0,<2" },
     { name = "gymnax", specifier = ">=1.0.1,<2" },
     { name = "huggingface-hub", marker = "extra == 'reproduction'", specifier = ">=0.30,<2" },
     { name = "jax", specifier = ">=0.10.0" },
     { name = "jax", extras = ["cuda"], marker = "sys_platform == 'linux' and extra == 'cuda'", specifier = ">=0.10.0" },
-    { name = "mujoco", specifier = ">=3.1.4,<4" },
-    { name = "mujoco-mjx", specifier = ">=3.1.4,<4" },
     { name = "numpy", specifier = ">=2.1,<3" },
     { name = "optax", specifier = ">=0.2.6,<0.3" },
     { name = "pandas", marker = "extra == 'reproduction'", specifier = ">=2.2,<3" },
     { name = "playground", specifier = ">=0.2.0,<0.3" },
+    { name = "playground", marker = "extra == 'playground'", specifier = ">=0.2.0,<0.3" },
     { name = "pyarrow", marker = "extra == 'reproduction'", specifier = ">=15" },
     { name = "tensorboardx", specifier = ">=2.6.4,<3" },
     { name = "tqdm", specifier = ">=4.65.0,<5" },
+    { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.19.9" },
 ]
-provides-extras = ["cuda", "compare", "reproduction"]
+provides-extras = ["cuda", "compare", "reproduction", "brax", "playground", "wandb"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -154,7 +161,7 @@ docs = [
     { name = "ruff", specifier = ">=0.11.6,<0.12" },
 ]
 plane = [{ name = "target-gym", specifier = ">=0.6.1,<0.7" }]
-wandb = [{ name = "wandb", specifier = ">=0.19.9,<0.20" }]
+wandb = [{ name = "ajax", extras = ["wandb"] }]
 
 [[package]]
 name = "annotated-types"

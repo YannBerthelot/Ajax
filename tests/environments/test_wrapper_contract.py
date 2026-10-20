@@ -26,7 +26,6 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from brax.envs.base import Env, State
-from brax.envs.base import Wrapper as BraxWrapper
 from brax.envs.wrappers import training as brax_training
 from mujoco_playground._src.mjx_env import State as PlaygroundState
 
@@ -142,7 +141,7 @@ def ajax_wrappers() -> set:
     ajax.environments."""
     for module in pkgutil.iter_modules(ajax.environments.__path__):
         importlib.import_module(f"ajax.environments.{module.name}")
-    found, todo = set(), [W.GymnaxWrapper, BraxWrapper]
+    found, todo = set(), [W.GymnaxWrapper, W.BraxWrapper]
     while todo:
         subclasses = todo.pop().__subclasses__()
         todo += subclasses

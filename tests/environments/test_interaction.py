@@ -1,5 +1,4 @@
 from functools import partial
-from typing import get_args
 
 import distrax
 import jax
@@ -10,6 +9,7 @@ import pytest
 from brax.envs import create as create_brax_env
 from gymnax import make as make_gymnax_env
 from gymnax.environments.classic_control.pendulum import EnvParams as PendulumParams
+from gymnax.environments.environment import EnvState as GymnaxEnvState
 
 import ajax.environments.interaction as step_module
 from ajax.agents.SAC.SAC import SAC
@@ -28,7 +28,6 @@ from ajax.state import (
     BaseAgentState,
     CollectorState,
     EnvironmentConfig,
-    EnvStateType,
     LoadedTrainState,
 )
 
@@ -130,7 +129,7 @@ def test_reset_then_scanned_steps_keep_the_batch_shapes(env_and_shape):
     obs, env_state = reset(rng, env, mode=mode, env_params=env_params)
     assert obs.shape == (n_envs, *obs_shape)
     if mode == "gymnax":
-        assert isinstance(env_state, get_args(EnvStateType))
+        assert isinstance(env_state, GymnaxEnvState)
     else:
         assert hasattr(env_state, "obs")
 

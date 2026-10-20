@@ -65,7 +65,9 @@ uv sync   # creates .venv with the locked dependencies
 
 uv installs the versions in `uv.lock`, which CI tests, with JAX for the CPU;
 on a Linux machine with an NVIDIA GPU, add CUDA with `uv sync --extra cuda`
-(a project that depends on Ajax asks for `ajax[cuda]`).
+(a project that depends on Ajax asks for `ajax[cuda]`). Brax and MuJoCo
+Playground environments come with the `brax` and `playground` extras
+([Installation](docs/getting-started/installation.md#extras)).
 
 pip works too. It does not read `uv.lock`, so it takes the newest versions
 that `pyproject.toml` allows:

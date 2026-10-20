@@ -15,7 +15,8 @@ make that possible without changing the code under test:
 * :func:`capture_step` returns an agent's loop ``iteration``, its ``update`` and its ``init``, by
   intercepting :meth:`TrainLoop.train` while the agent builds its train function, before any
   tracing; :func:`capture_scan` does the same for a ``lax.scan`` body (an original's step function)
-  and :func:`stashing` keeps the outputs of named scans (carry and stacked), such as the rollout.
+  and :func:`stashing` keeps the outputs of named scans (carry and stacked), such as the rollout;
+  :func:`substituting` gives named scans such outputs in place of running them.
 """
 
 from __future__ import annotations
@@ -287,3 +288,24 @@ def stashing(*names: str) -> Iterator[dict]:
         yield stash
     finally:
         jax.lax.scan = original
+
+
+@contextlib.contextmanager
+def substituting(outputs: Mapping[str, Any]) -> Iterator[None]:
+    """While tracing a step, give each scan named in ``outputs`` those outputs ``(carry, stacked)``
+    in place of running it: a step run again in float64 from a float32 run's collection, say. It
+    decides at trace time, so it clears JAX's trace caches, as the tape does."""
+    original = jax.lax.scan
+
+    def scan(f: Callable, init: Any, *args: Any, **kwargs: Any) -> Any:
+        if _body_name(f) in outputs:
+            return jax.tree_util.tree_map(jnp.asarray, outputs[_body_name(f)])
+        return original(f, init, *args, **kwargs)
+
+    jax.lax.scan = scan
+    jax.clear_caches()
+    try:
+        yield
+    finally:
+        jax.lax.scan = original
+        jax.clear_caches()

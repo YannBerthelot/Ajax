@@ -330,6 +330,39 @@ def agent_action_to_env(
     return centre + half * jnp.clip(action, -1.0, 1.0)
 
 
+def critic_action_units(
+    env: EnvType, env_params: Optional[EnvParams] = None
+) -> Optional[tuple[tuple[float, ...], tuple[float, ...]]]:
+    """``(offsets, scales)`` of :func:`agent_action_to_env`'s map without its
+    clip, as static tuples for ``LoadedTrainState.action_units``, or None
+    where the map is the identity (discrete actions, ``[-1, 1]`` boxes).
+    Per-env bounds must agree: a critic's batch mixes every env's rows.
+
+    The bounds are read eagerly, so concrete params give static units even
+    while a train function is traced (``jax.eval_shape``); traced params
+    cannot fix them, and raise."""
+    with jax.ensure_compile_time_eval():
+        bounds = _action_bounds(env, env_params)
+    if bounds is None:
+        return None
+    if any(isinstance(b, jax.core.Tracer) for b in bounds):
+        raise ValueError(
+            "A critic reading actions in the env's units needs concrete action"
+            " bounds; these env params are traced."
+        )
+    centre, half = (np.asarray(b, np.float64) for b in bounds)
+    if env_params_is_batched(env_params):
+        if not (np.all(centre == centre[0]) and np.all(half == half[0])):
+            raise ValueError(
+                "A critic reading actions in the env's units needs one action box;"
+                " these per-env params give several."
+            )
+        centre, half = centre[0], half[0]
+    if np.all(centre == 0.0) and np.all(half == 1.0):
+        return None
+    return tuple(centre.reshape(-1).tolist()), tuple(half.reshape(-1).tolist())
+
+
 def env_action_to_agent(
     action: jax.Array, env: EnvType, env_params: Optional[EnvParams] = None
 ) -> jax.Array:

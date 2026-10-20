@@ -946,6 +946,15 @@ _GOLDEN |= {
     "TD3-mcc": {"actor": 17.494739532470703, "critic": 28.534778594970703},
 }
 
+# Re-recorded on macOS ARM CPU once TD3's update became sfujim/TD3's (summed
+# critic losses, the first actor step on the policy_delay-th update, critics
+# reading the env's units). Relative shifts (actor, critic): TD3 -1.0e-04, +5.0e-04;
+# TD3-mcc -2.5e-04, +4.6e-05.
+_GOLDEN |= {
+    "TD3": {"actor": 15.435005187988281, "critic": 27.045055389404297},
+    "TD3-mcc": {"actor": 17.490346908569336, "critic": 28.536087036132812},
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

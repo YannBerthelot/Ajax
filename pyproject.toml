@@ -14,8 +14,8 @@ dependencies = [
     "jax>=0.10.0",
     "flax>=0.12.8",
     # Imported directly, so declared, not left to the packages that pull
-    # them in. brax is capped: create.py uses its private brax.envs._envs.
-    "brax>=0.14.2,<0.15",
+    # them in.
+    "brax>=0.14.2",
     "chex>=0.1.91,<0.2",
     "numpy>=2.1,<3",
     "optax>=0.2.6,<0.3",

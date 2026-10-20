@@ -223,7 +223,15 @@ def _build_brax_env(
             action_repeat,
         )
 
-    env = brax.envs._envs[env_id]()
+    try:
+        env = brax.envs.get_environment(env_id)
+    except KeyError as error:
+        # brax lists its envs only privately, so an unknown id shows as the
+        # KeyError of its lookup; one raised inside the env's own
+        # constructor carries another key and propagates.
+        if error.args != (env_id,):
+            raise
+        raise ValueError(f"Environment {env_id} not found in gymnax or brax") from None
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env, batch_size=n_envs)
     env = FinalObsWrapper(env)
@@ -309,15 +317,13 @@ def build_env_from_id(
             differentiable_reset=differentiable_reset,
         ), None
 
-    if env_id in _BRAX_BUILDERS or env_id in brax.envs._envs:
-        return _build_brax_env(
-            env_id,
-            n_envs=n_envs,
-            episode_length=episode_length,
-            action_repeat=action_repeat,
-            differentiable_reset=differentiable_reset,
-        ), None
-    raise ValueError(f"Environment {env_id} not found in gymnax or brax")
+    return _build_brax_env(
+        env_id,
+        n_envs=n_envs,
+        episode_length=episode_length,
+        action_repeat=action_repeat,
+        differentiable_reset=differentiable_reset,
+    ), None
 
 
 def add_ajax_wrappers(

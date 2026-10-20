@@ -109,7 +109,7 @@ wandb = [
 [package.metadata]
 requires-dist = [
     { name = "adastop", marker = "extra == 'compare'", git = "https://github.com/TimotheeMathieu/adastop.git?rev=07e7159643f11467c154266b5ef3b1be6ca8ddd8" },
-    { name = "brax", specifier = ">=0.14.2,<0.15" },
+    { name = "brax", specifier = ">=0.14.2" },
     { name = "chex", specifier = ">=0.1.91,<0.2" },
     { name = "distrax", specifier = ">=0.1.9" },
     { name = "flashbax", specifier = ">=0.1.3,<0.2" },

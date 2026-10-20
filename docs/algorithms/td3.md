@@ -87,6 +87,11 @@ extension; a cloning term during training, of the TD3+BC form, is `ImitationLoss
   levels are in those `[-1, 1]` units: on gymnax Pendulum (torque in
   `[-2, 2]`) an `exploration_noise` of 0.1 is a torque noise of standard
   deviation 0.2.
+- **Critics.** They read the action in the environment's units, `c + h a`
+  with the box's centre `c` and half-range `h`, as the authors' critics read
+  `max_action * tanh`; on a `[-1, 1]` box the map is the identity. Adam's
+  steps on a critic's action inputs depend on those units. Their loss sums
+  the critics' squared errors, as the authors' code does.
 - **Behaviour policy.** `clip(mu(s) + N(0, exploration_noise), -1, 1)` after
   the warm-up; uniform random actions before `learning_starts`. Evaluation
   uses `mu(s)` without noise.
@@ -96,7 +101,8 @@ extension; a cloning term during training, of the TD3+BC form, is `ImitationLoss
 - **Actor loss.** `-Q_1(s, mu(s))`: the first critic only.
 - **Updates per step.** Each iteration steps every env once, then makes one
   critic step; every `policy_delay`-th one also steps the actor and the
-  targets.
+  targets, the first actor step coming with the `policy_delay`-th update, as
+  in the authors' code.
 - **Time limits.** A transition cut by a time limit bootstraps on its final
   observation; only a termination stops the bootstrap.
 - **PID policy.** With `actor_architecture=PIDPolicy(...)` the actor is a

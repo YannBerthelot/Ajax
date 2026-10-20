@@ -70,8 +70,10 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
         config.reward_scale,
     )
     assert float(v_aux.target_noise_clip_frac) == float(clip_frac)
+    # TD3 sums its critics' squared errors (sfujim/TD3); critic_loss_fn averages them.
     v_grads = jax.grad(
-        lambda p: sac_core.critic_loss_fn(p, critic, batch.obs, batch.action, target)[0]
+        lambda p: config.num_critics
+        * sac_core.critic_loss_fn(p, critic, batch.obs, batch.action, target)[0]
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 

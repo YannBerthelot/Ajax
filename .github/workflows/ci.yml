@@ -178,6 +178,10 @@ jobs:
         uses: ./.github/actions/compile-cache
         with:
           job: conformance
+      # The originals that run on PyTorch (tests/conformance re-runs them),
+      # with CPU-only torch wheels.
+      - name: Install the PyTorch originals' environment
+        run: uv sync --project benchmarks/reference/envs/torch --locked
       - run: uv run pytest tests/conformance -v --durations=30
       - name: Save the JAX compile cache
         if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key

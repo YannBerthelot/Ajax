@@ -408,6 +408,34 @@ uv run python benchmarks/agent_bench.py --only TD3 --out benchmarks/my_change.js
 uv run python benchmarks/agent_bench.py --compare benchmarks/agent_baseline.jsonl benchmarks/my_change.jsonl
 ```
 
+## Dependencies and releases
+
+Ajax is a library: `pyproject.toml` says which versions work, and `uv.lock`
+fixes the ones CI and development use. Users' installers never read the
+lock.
+
+- **Floors only.** Each lower bound is the oldest version Ajax works with.
+  Raise it when Ajax needs something newer or an older version is known to
+  break, with a comment saying why. Add an upper bound only after a known
+  break, with its reason (brax's, for its private API), and remove it once
+  Ajax is fixed.
+- **The ranges are tested.** The Compatibility workflow
+  ([compat.yml](.github/workflows/compat.yml)) runs the tests not marked
+  slow every Monday, and on pull requests that change the dependencies,
+  twice without the lock: at the newest versions allowed, on the newest
+  Python, and with every direct dependency at its floor
+  (`uv sync --resolution lowest-direct`), on the oldest.
+- **The lock is refreshed monthly** by Dependabot
+  ([dependabot.yml](.github/dependabot.yml)), the JAX stack in one pull
+  request.
+- **Python**: 3.12 and newer, the versions JAX supports. A version goes when
+  JAX drops it.
+- **Releases.** Versions follow semantic versioning; before 1.0, a breaking
+  change (a raised floor, a removed keyword) bumps the minor version. A
+  release is an entry in [CHANGELOG.md](CHANGELOG.md) and a `vX.Y.Z` tag on
+  main, which downstream projects can pin. Public names change by expand
+  then contract (CLAUDE.md, rule 10).
+
 ## Style
 
 Pre-commit ([.pre-commit-config.yaml](.pre-commit-config.yaml)) runs on every

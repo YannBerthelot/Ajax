@@ -19,6 +19,16 @@ import refcmp_sb3
 from refcmp_specs import COMPARISONS
 
 ARMS = [(name, arm) for name in COMPARISONS for arm in ("matched", "defaults")]
+# Brax 0.14.2's PPO and APG trainers call jax.device_put_replicated, which JAX
+# 0.11 removed. The comparisons run Brax in envs/brax, pinned to JAX 0.7.2;
+# here its trainers fail until a Brax release runs on the installed JAX,
+# which this strict mark then reports.
+BRAX_TRAINERS_NEED_OLDER_JAX = pytest.mark.xfail(
+    not hasattr(jax, "device_put_replicated"),
+    reason="Brax 0.14.2's trainers call jax.device_put_replicated (JAX < 0.11)",
+    raises=AttributeError,
+    strict=True,
+)
 
 
 @pytest.mark.parametrize(("name", "arm"), ARMS)
@@ -131,6 +141,7 @@ def test_purejaxql_runs_unmodified_on_gymnax_1():
 
 
 @pytest.mark.slow
+@BRAX_TRAINERS_NEED_OLDER_JAX
 def test_brax_apg_trains_on_the_gymnax_adapter():
     spec = COMPARISONS["APG"]
     tiny = dataclasses.replace(
@@ -144,6 +155,7 @@ def test_brax_apg_trains_on_the_gymnax_adapter():
 
 
 @pytest.mark.slow
+@BRAX_TRAINERS_NEED_OLDER_JAX
 def test_brax_ppo_evaluates_on_schedule():
     spec = COMPARISONS["PPO-inverted_pendulum"]
     tiny = dataclasses.replace(

@@ -1,0 +1,28 @@
+# Monthly pull requests that refresh uv.lock (CONTRIBUTING.md, Dependencies
+# and releases). pyproject.toml's ranges stay as written: they change by hand.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: monthly
+    versioning-strategy: lockfile-only
+    groups:
+      # Released together and often coupled: one pull request.
+      jax-stack:
+        patterns:
+          - "jax*"
+          - flax
+          - optax
+          - chex
+          - distrax
+          - flashbax
+          - orbax*
+          - brax
+          - mujoco*
+          - playground
+          - gymnax
+          - tensorflow-probability
+      others:
+        patterns:
+          - "*"

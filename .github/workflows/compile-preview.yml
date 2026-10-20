@@ -17,6 +17,10 @@ on:
       isas:
         description: The instruction-set caps to try, as JSON (["native"] on arm64).
         default: '["native", "avx2"]'
+  # TEMPORARY, measurement branch only (never merged): a push here runs the
+  # preview on the arm64 runners before this file reaches main.
+  push:
+    branches: [exp/compile-preview-arm64]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -31,12 +35,12 @@ jobs:
   # A cache built from empty, capped at AVX2 or at the runner's own CPU.
   produce:
     name: Produce (${{ matrix.isa }})
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04-arm' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        isa: ${{ fromJSON(inputs.isas) }}
+        isa: ${{ fromJSON(inputs.isas || '["native"]') }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
@@ -55,12 +59,12 @@ jobs:
   consume:
     name: Consume (${{ matrix.isa }} ${{ matrix.replica }})
     needs: produce
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04-arm' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        isa: ${{ fromJSON(inputs.isas) }}
+        isa: ${{ fromJSON(inputs.isas || '["native"]') }}
         replica: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
@@ -78,7 +82,7 @@ jobs:
   # Without a cache, each lever against today on the same runner.
   levers:
     name: Levers (${{ matrix.replica }})
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04-arm' }}
     timeout-minutes: 60
     strategy:
       fail-fast: false

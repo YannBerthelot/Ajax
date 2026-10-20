@@ -101,6 +101,28 @@ def compare(
     return Report(tuple(checks), context)
 
 
+def rounding_null(
+    ref: tuple[Mapping[str, Any], Mapping[str, Any]],
+    ours: tuple[Mapping[str, Any], Mapping[str, Any]],
+    old: Optional[Mapping[str, Any]] = None,
+) -> dict[str, float]:
+    """Per leaf, the null across frameworks: each side's float32 rounding
+    error, its float32 run against its float64 run (``(f32, f64)`` pairs),
+    summed. Across PyTorch and XLA a run-to-run null measures the wrong
+    thing: the two round differently even where each is reproducible, and
+    each side's error against exact arithmetic bounds that (validated on
+    TD3 against sfujim/TD3, where it caught every planted fault)."""
+    first = ref[0]
+    return {
+        leaf: sum(
+            change_diff(f32[leaf], f64[leaf], None if old is None else old[leaf])
+            for f32, f64 in (ref, ours)
+        )
+        for leaf in first
+        if not is_discrete(first[leaf])
+    }
+
+
 def null_of(
     *pairs: tuple[Mapping[str, Any], Mapping[str, Any]],
     old: Optional[Mapping[str, Any]] = None,

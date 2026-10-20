@@ -11,6 +11,8 @@ dependencies = [
     "numpy",
     "jax==0.7.2",
     "gymnax==1.0.1",
+    # AVG's loop wraps its env in gymnasium's wrappers (the version its re-run env locks).
+    "gymnasium==1.1.1",
 ]
 
 [tool.uv]

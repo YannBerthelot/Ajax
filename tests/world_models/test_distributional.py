@@ -289,8 +289,13 @@ def test_dreamerv3_encode_matches_reference(seed):
 @pytest.mark.parametrize("two_hot", [D3, T2], ids=["dreamerv3", "tdmpc2"])
 @pytest.mark.parametrize("seed", SEEDS)
 def test_encode_is_the_same_under_jit(two_hot, seed):
+    """Equal up to float32 rounding. Inside a jitted program XLA may compute
+    the transform (TD-MPC2's log1p) a last bit apart, which moves the weights
+    by up to 1.2e-6 (CI, optimisation level 0): within the module's float32
+    agreement for TD-MPC2 (3e-6, T24)."""
     y = _targets(seed)
-    np.testing.assert_array_equal(jax.jit(two_hot.encode)(y), two_hot.encode(y))
+    jitted = jax.jit(two_hot.encode)(y)
+    np.testing.assert_allclose(jitted, two_hot.encode(y), rtol=0, atol=3e-6)
 
 
 @pytest.mark.parametrize("seed", SEEDS)

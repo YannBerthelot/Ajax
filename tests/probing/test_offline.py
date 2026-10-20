@@ -5,20 +5,16 @@ SignedActionEnv's one-step rows (reward clip(a) s) are logged on a grid of
 actions holding the best one, a = s (test_extensions.signed_rows): trained
 on them alone, TD3's critic reads Q(s, a) = a s and its actor a = s.
 
-A replay never samples its newest row (fill_replay): on signed_rows that is
-(s, a) = (1, 1). The cells whose answer reads the rows' distribution train
-on every_row(), whose last row repeats its first.
-
 TD3+BC (Fujimoto and Gu, 2021) adds the cloning term of ImitationLoss(None,
 target="replay", alpha): the actor minimises -lambda Q + E_rows (pi - a)^2,
 lambda = alpha / mean|Q|; at each s the rows' actions average 0, so
 pi = lambda s / 2 with lambda = alpha / pi: pi^2 = alpha / 2, a(+-1) = +-0.5
 at alpha 0.5; with lambda fixed at alpha (no normalisation), +-alpha / 2.
 
-IQL (Kostrikov et al., 2022) on every_row(): V(s) is the expectile of the
-rows' returns a s, and the actor's mean the advantage-weighted mean of their
-actions, weights min(exp(temperature (a s - V)), 100) (a state-independent
-std leaves the weighted likelihood's mean there). At expectile 0.9 and
+IQL (Kostrikov et al., 2022): V(s) is the expectile of the rows' returns
+a s, and the actor's mean the advantage-weighted mean of their actions,
+weights min(exp(temperature (a s - V)), 100) (a state-independent std
+leaves the weighted likelihood's mean there). At expectile 0.9 and
 temperature 20 the clip binds near a = 1.
 """
 
@@ -29,7 +25,6 @@ from typing import Any
 import numpy as np
 import pytest
 
-from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions.expert import ImitationLoss
 from ajax.networks.networks import predict_value
 
@@ -39,15 +34,6 @@ from .test_extensions import GAMMA, signed_rows
 from .verdict import Case, Query, check, params
 
 ALPHA = 0.5
-FIELDS = ("obs", "action", "reward", "terminated", "truncated", "next_obs")
-
-
-def every_row() -> TransitionDataset:
-    """signed_rows, its first row repeated last: the row the replay leaves out."""
-    rows = signed_rows()
-    return TransitionDataset(
-        *(np.r_[getattr(rows, f), getattr(rows, f)[:1]] for f in FIELDS)
-    )
 
 
 def offline_readings(name: str, extensions: tuple = (), data: Any = None) -> Any:
@@ -99,7 +85,7 @@ def iql_readings() -> Any:
 
         return R.per_seed(at, R.nets(run.state, run.state.value_state))
 
-    return runs.readings(build, read, offline_data=every_row())
+    return runs.readings(build, read, offline_data=signed_rows())
 
 
 def _awr(x: float) -> Query:
@@ -148,9 +134,7 @@ CASES: dict[str, Case] = {
             )
             for x in (-1.0, 1.0)
         ),
-        offline_readings(
-            "TD3", (ImitationLoss(None, target="replay", alpha=ALPHA),), every_row()
-        ),
+        offline_readings("TD3", (ImitationLoss(None, target="replay", alpha=ALPHA),)),
         1000,
         (0.1, 0.1),
         note="ladder 250-2000 on 1000-1031, 2000-2031: worst 0.062 at 1000 (the"

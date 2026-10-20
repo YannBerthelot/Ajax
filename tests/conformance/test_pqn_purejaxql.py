@@ -156,12 +156,9 @@ def psi(ref: dict, aj: dict) -> dict:
     return kit.key_table(aj, values)
 
 
-def taped(
-    fn: Any, x: Any, context: Any, eager: bool = False
-) -> tuple[Any, kit.Session]:
+def taped(fn: Any, x: Any, context: Any) -> tuple[Any, kit.Session]:
     with context as session:
-        with jax.disable_jit() if eager else contextlib.nullcontext():
-            out = fn(x) if eager else jax.jit(fn)(x)
+        out = jax.jit(fn)(x)
         jax.block_until_ready(out)
     return out, session
 
@@ -177,18 +174,19 @@ class Iteration:
     own_table: dict
     table: dict
     ref_draws: dict
+    collected: dict  # each side's collection scan: (carry, stacked), by scan name
 
 
 def iterate(sides: Sides, n: int) -> list[Iteration]:
     def ref_fn(rs: Any) -> Any:
         with kit.stashing("_step_env", "_get_target") as stash:
             out = sides.ref_step(rs, None)[0]
-        return out, {name: ys for name, (_, ys) in stash.items()}
+        return out, dict(stash)
 
     def ajax_fn(s: Any) -> Any:
         with kit.stashing("collect_experience") as stash:
             out = sides.ajax.iteration(s, 0, 0)[0]
-        return out, stash["collect_experience"][1]
+        return out, stash["collect_experience"]
 
     rs, prev_done, its = sides.rs0, np.zeros(N_ENVS, np.float32), []
     for _ in range(n):
@@ -201,10 +199,16 @@ def iterate(sides: Sides, n: int) -> list[Iteration]:
         state = phi(sides, rs, prev_done)
         _, arec = taped(ajax_fn, state, kit.recording())
         table = psi(ref_draws, kit.by_role(arec.log))
-        (out, roll), rep = taped(ajax_fn, state, kit.replaying(table))
+        (out, collected), rep = taped(ajax_fn, state, kit.replaying(table))
         assert not rep.misses
-        its.append(Iteration(rs, rs1, stash, state, out, roll, own, table, ref_draws))
-        prev_done, rs = np.asarray(stash["_step_env"][0].done[-1], np.float32), rs1
+        ref = {name: ys for name, (_, ys) in stash.items()}
+        both = {"_step_env": stash["_step_env"], "collect_experience": collected}
+        its.append(
+            Iteration(
+                rs, rs1, ref, state, out, collected[1], own, table, ref_draws, both
+            )
+        )
+        prev_done, rs = np.asarray(ref["_step_env"][0].done[-1], np.float32), rs1
     return its
 
 
@@ -329,6 +333,24 @@ def returning(value: np.ndarray) -> Any:
     return lambda *args, **kwargs: jnp.asarray(value)
 
 
+def widened(tree: Any) -> Any:
+    return jax.tree_util.tree_map(
+        lambda x: np.asarray(x, np.float64)
+        if jnp.issubdtype(np.asarray(x).dtype, jnp.floating)
+        else x,
+        tree,
+    )
+
+
+def in_float64(fn: Any, x: Any, scan: str, it: Iteration, table: dict) -> Any:
+    """``fn(x)`` in float64, its collection ``scan`` given the float32 run's: only the arithmetic of
+    the targets and the update changes, never the collected data."""
+    with jax.enable_x64(True), kit.substituting({scan: widened(it.collected[scan])}):
+        out, session = taped(fn, widened(x), kit.replaying(table))
+    assert not session.misses
+    return out
+
+
 def as_reference(state: Any, ref_leaves: dict) -> dict:
     """Ajax's state leaves under the reference paths they map to."""
     return {
@@ -345,21 +367,25 @@ def first_true(mask: np.ndarray) -> list:
 
 
 def test_the_update_matches_when_both_get_the_same_targets(plain, monkeypatch):
+    """Tolerance: each side's float32 rounding, its run against the same run in float64 from the
+    same collection (submaps.rounding_null)."""
     sides, its = plain
+    step = lambda s: sides.ajax.iteration(s, 0, 0)[0]  # noqa: E731
+    ref = lambda rs: sides.ref_step(rs, None)[0]  # noqa: E731
     for i, it in enumerate(its):
         same = np.concatenate(
             [np.asarray(it.ref["_get_target"]), ajax_targets(it)[-1:]]
         )[..., None]
         monkeypatch.setattr(train_PQN, "compute_q_lambda_targets", returning(same))
-        step = lambda s: sides.ajax.iteration(s, 0, 0)[0]  # noqa: E731
-        ref = lambda rs: sides.ref_step(rs, None)[0]  # noqa: E731
-        a_jit, _ = taped(step, it.state, kit.replaying(it.table))
-        a_eager, _ = taped(step, it.state, kit.replaying(it.table), eager=True)
-        r_eager, _ = taped(ref, it.rs, kit.replaying(it.own_table), eager=True)
-        ref_end, ref_eager = leaves(it.rs1), leaves(r_eager)
-        A, A_e, start = (as_reference(s, ref_end) for s in (a_jit, a_eager, it.state))
-        R, R_e = {k: ref_end[k] for k in A}, {k: ref_eager[k] for k in A}
-        nulls = submaps.null_of((A_e, A), (R_e, R), old=start)
+        a32, _ = taped(step, it.state, kit.replaying(it.table))
+        same64 = returning(same.astype(np.float64))
+        monkeypatch.setattr(train_PQN, "compute_q_lambda_targets", same64)
+        a64 = in_float64(step, it.state, "collect_experience", it, it.table)
+        r64 = leaves(in_float64(ref, it.rs, "_step_env", it, it.own_table))
+        ref32 = leaves(it.rs1)
+        A, A64, start = (as_reference(s, ref32) for s in (a32, a64, it.state))
+        R, R64 = {k: ref32[k] for k in A}, {k: r64[k] for k in A}
+        nulls = submaps.rounding_null((R, R64), (A, A64), old=start)
         report = submaps.compare(A, R, nulls, old=start, context=f"iteration {i}")
         assert not report.failures, str(report)
 

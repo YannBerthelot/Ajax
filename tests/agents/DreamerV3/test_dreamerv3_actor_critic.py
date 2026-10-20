@@ -19,6 +19,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import math
+from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
@@ -596,13 +597,16 @@ def test_imagine_rolls_out_the_rssm_with_the_policy():
 # ------------------------------------------------------------ the learner
 
 
+def _in_world_model(
+    match: Callable[[tuple[str, ...]], bool],
+) -> Callable[[tuple[str, ...]], bool]:
+    return lambda path: path[0] == "world_model" and match(path[1:])
+
+
 #: The learner's parameter groups: the world model's, and the actor and the
 #: critic.
-_GROUPS = {
-    **{
-        name: lambda path, match=match: path[0] == "world_model" and match(path[1:])
-        for name, match in WORLD_MODEL_GROUPS.items()
-    },
+_GROUPS: dict[str, Callable[[tuple[str, ...]], bool]] = {
+    **{name: _in_world_model(match) for name, match in WORLD_MODEL_GROUPS.items()},
     "actor": lambda path: path[0] == "actor",
     "critic": lambda path: path[0] == "critic",
 }

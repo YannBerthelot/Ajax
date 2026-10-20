@@ -11,6 +11,9 @@ the minor version. Each release is tagged `vX.Y.Z` on main.
   first), and on boxes other than `[-1, 1]` its critics read actions in the
   environment's units (on gymnax Pendulum, torque). Default TD3 runs differ
   from 0.4.0's; no setting restores the old update.
+- **REDQ**'s critics read actions in the environment's units on boxes other
+  than `[-1, 1]`, as the authors' code's do and TD3's now do. REDQ runs on
+  such boxes differ from 0.4.0's.
 - **Extras**: `ajax[brax]` for Brax environments, `ajax[playground]` for
   MuJoCo Playground ones (with Brax). Ajax imports brax and
   mujoco_playground only to build their environments.

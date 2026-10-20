@@ -1,6 +1,6 @@
 # Algorithms
 
-Ajax has fourteen agents, all exported from `ajax`. Each follows a published
+Ajax has fifteen agents, all exported from `ajax`. Each follows a published
 paper, and each page says where Ajax departs from it. Every agent takes an
 environment (`TDMPC2MultiTask`: a dataset, and environments to evaluate
 on), its own hyperparameters, `episode_length` and `action_repeat` (for
@@ -22,6 +22,7 @@ several seeds in a single compiled program with
 | [PPO](ppo.md) | on-policy policy gradient | Schulman et al. 2017 ([arXiv:1707.06347](https://arxiv.org/abs/1707.06347)) | both | yes | `on_target`, `critic_loss`, `actor_loss` |
 | [APO](apo.md) | on-policy policy gradient, average reward | Ma et al. 2021 ([arXiv:2106.03442](https://arxiv.org/abs/2106.03442)) | both | no | `on_target`, `critic_loss`, `actor_loss` |
 | [UDRL](udrl.md) | command-conditioned supervised learning | Schmidhuber 2019 ([arXiv:1912.02875](https://arxiv.org/abs/1912.02875)) | both | no | `actor_loss` |
+| [DAgger](dagger.md) | imitation by dataset aggregation, no reward | Ross, Gordon and Bagnell, AISTATS 2011 ([arXiv:1011.0686](https://arxiv.org/abs/1011.0686)) | both | no | `actor_loss` |
 | [APG](apg.md) | gradients through a differentiable simulator | Busetto et al. 2024 ([arXiv:2411.06482](https://arxiv.org/abs/2411.06482)) for `APG.contextual_controller` | continuous | yes | `actor_loss` |
 | [DreamerV3](dreamerv3.md) | model-based, learns in imagination | Hafner et al. 2023, Nature 2025 ([arXiv:2301.04104v2](https://arxiv.org/abs/2301.04104v2)) | both | built in | none |
 | [TDMPC2](tdmpc2.md) | model-based, plans at every step | Hansen, Su and Wang, ICLR 2024 ([arXiv:2310.16828](https://arxiv.org/abs/2310.16828)) | continuous | no | none |
@@ -90,7 +91,8 @@ into the actor before training (the `CloningPretrain` extension), and SAC,
 TD3, REDQ, ASAC and APO accept the `ImitationLoss` term. See
 [Expert guidance](../guide/expert-guidance.md). SAC, TD3, REDQ, ASAC, AVG,
 PPO and APO can also learn a PID controller directly, with the PID policy of
-[Networks](../guide/networks.md).
+[Networks](../guide/networks.md). To imitate the expert without a reward,
+use [DAgger](dagger.md).
 
 **Your simulator is differentiable** (a gymnax environment that exposes its
 transition gradients) and you want one controller for a family of systems:

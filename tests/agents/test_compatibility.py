@@ -44,7 +44,7 @@ ROWS = [
     *((name, "Pendulum-v1") for name in "SAC TD3 REDQ ASAC AVG APG TDMPC2".split()),
     *(
         (name, env)
-        for name in "PPO APO UDRL DreamerV3".split()
+        for name in "PPO APO UDRL DAgger DreamerV3".split()
         for env in ("Pendulum-v1", "CartPole-v1")
     ),
     ("DQN", "CartPole-v1"),
@@ -87,9 +87,11 @@ FORM_GAPS = {
 #: for an agent taking both action kinds) where it is not wired yet.
 GAPS: dict[str, dict[str, str]] = {
     ACTION: {
-        "EDGEExploration": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DQN PQN",
-        "JSRLCurriculum": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DQN PQN",
-        "ResidualPolicy": "TD3 REDQ ASAC AVG APG PPO APO UDRL",
+        "EDGEExploration": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DAgger"
+        " DAgger/discrete DQN PQN",
+        "JSRLCurriculum": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DAgger"
+        " DAgger/discrete DQN PQN",
+        "ResidualPolicy": "TD3 REDQ ASAC AVG APG PPO APO UDRL DAgger",
         "ValueBox": "TD3 REDQ AVG DQN PQN",
     },
     MC: {
@@ -108,9 +110,11 @@ GAPS: dict[str, dict[str, str]] = {
         "ExpertValueMetrics": "DQN",
     },
     FORM: {
-        "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DreamerV3/discrete",
-        "ImitationLoss": "PPO/discrete APO/discrete UDRL/discrete DreamerV3/discrete",
-        "ConditioningMetrics": "APG UDRL UDRL/discrete",
+        "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"
+        " DreamerV3/discrete",
+        "ImitationLoss": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"
+        " DreamerV3/discrete",
+        "ConditioningMetrics": "APG UDRL UDRL/discrete DAgger DAgger/discrete",
     },
     WORLD: {
         **dict.fromkeys(
@@ -133,12 +137,15 @@ GAPS: dict[str, dict[str, str]] = {
             "TDMPC2 DreamerV3 TDMPC2MultiTask",
         ),
     },
-    CNN: {"cnn": "SAC TD3 REDQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete"},
-    MEMORY: {"memory": "APO APO/discrete DQN PQN"},
+    CNN: {
+        "cnn": "SAC TD3 REDQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete"
+        " DAgger DAgger/discrete"
+    },
+    MEMORY: {"memory": "APO APO/discrete DQN PQN DAgger DAgger/discrete"},
     DEFERRED: {"memory": "AVG UDRL UDRL/discrete"},
     PRIOR: {
-        "PriorData": "UDRL UDRL/discrete TDMPC2 DreamerV3 DreamerV3/discrete"
-        " TDMPC2MultiTask"
+        "PriorData": "UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3"
+        " DreamerV3/discrete TDMPC2MultiTask"
     },
 }
 
@@ -243,7 +250,9 @@ def columns() -> list[str]:
 
 
 def row_label(agent: str, env: str) -> str:
-    discrete = env == "CartPole-v1" and agent in ("PPO", "APO", "UDRL", "DreamerV3")
+    discrete = env == "CartPole-v1" and agent in (
+        *("PPO", "APO", "UDRL", "DAgger", "DreamerV3"),
+    )
     return f"{agent}/discrete" if discrete else agent
 
 

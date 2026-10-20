@@ -106,7 +106,7 @@ The defaults differ by agent:
 
 | `n_envs` default | Agents |
 | --- | --- |
-| 1 | SAC, ASAC, REDQ, TD3, AVG, DQN, UDRL, TDMPC2 |
+| 1 | SAC, ASAC, REDQ, TD3, AVG, DQN, UDRL, DAgger, TDMPC2 |
 | 4 | PPO, APO |
 | 8 | PQN, APG |
 | 16 | DreamerV3 |

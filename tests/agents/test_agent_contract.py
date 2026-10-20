@@ -32,6 +32,7 @@ from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
 from ajax.agents.base import ActorCritic, run_config
+from ajax.agents.DAgger.DAgger import DAgger
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.DreamerV3.state import DreamerV3State
@@ -96,9 +97,29 @@ class Case:
     n_timesteps: int = 64
     # Overrides for the extensions' run only.
     extended: dict[str, Any] = field(default_factory=dict)
+    # The arguments it cannot be built without (beyond env_id), also in kwargs.
+    required: dict[str, Any] = field(default_factory=dict)
+
+
+def zero_expert(obs: jax.Array) -> jax.Array:
+    """Action 0 on every env of these cases: one action dimension, or the
+    first discrete action, as an int (n, 1) column."""
+    return jnp.zeros(obs.shape[:-1] + (1,), jnp.int32)
+
+
+DAGGER_REQUIRED = {"expert_policy": zero_expert}
 
 
 CASES = {
+    "DAgger": Case(
+        DAgger,
+        {"actor_architecture": NET, "batch_size": 8, "buffer_size": 128}
+        | {"iteration_steps": 16, **DAGGER_REQUIRED},
+        CONTINUOUS + DISCRETE,
+        buffer=True,
+        critic=False,
+        required=DAGGER_REQUIRED,
+    ),
     "SAC": Case(SAC, OFF_POLICY, CONTINUOUS, alpha=True, buffer=True),
     "ASAC": Case(ASAC, OFF_POLICY, CONTINUOUS, alpha=True, buffer=True),
     "REDQ": Case(
@@ -186,7 +207,7 @@ DIAGNOSTICS: dict[str, tuple[str, ...]] = {
 )
 def test_an_agent_builds_its_configs(name: str, env_id: str) -> None:
     case = CASES[name]
-    agent = case.cls(env_id=env_id)
+    agent = case.cls(env_id=env_id, **case.required)
     for attr, kind in (
         ("env_args", EnvironmentConfig),
         ("actor_optimizer_args", OptimizerConfig),
@@ -488,7 +509,7 @@ def test_a_world_model_acts_on_the_whole_box(name: str) -> None:
 
 
 #: Every agent on ActorCritic (TD-MPC2 multi-task, offline, builds no env).
-ACTOR_CRITICS = "APG APO ASAC AVG DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL"
+ACTOR_CRITICS = "APG APO ASAC AVG DAgger DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL"
 
 
 class _Built(Exception):
@@ -509,8 +530,9 @@ def test_an_agent_forwards_its_episode_length_and_action_repeat(
 
     monkeypatch.setattr(base, "prepare_env", prepare_env)
     module = importlib.import_module(f"ajax.agents.{name}.{name}")
+    required = CASES[name].required if name in CASES else {}
     with pytest.raises(_Built):
-        getattr(module, name)("fast", episode_length=123, action_repeat=3)
+        getattr(module, name)("fast", episode_length=123, action_repeat=3, **required)
     assert (seen["episode_length"], seen["action_repeat"]) == (123, 3)
 
 
@@ -545,7 +567,9 @@ def test_no_agent_class_lets_its_seeds_update_unequally() -> None:
 #: 1.0 is a recorded deviation (APG.py); the world models clip as their
 #: papers do.
 CLIPS: dict[str, tuple[str, float | None]] = {
-    **dict.fromkeys("AVG DQN REDQ SAC TD3 UDRL".split(), ("max_grad_norm", None)),
+    **dict.fromkeys(
+        "AVG DAgger DQN REDQ SAC TD3 UDRL".split(), ("max_grad_norm", None)
+    ),
     # BobMak/asac @4b68862: every hparams/*/asac.yaml sets max_grad_norm 10.
     "ASAC": ("max_grad_norm", 10.0),
     "PQN": ("max_grad_norm", 10.0),
@@ -590,7 +614,7 @@ def test_an_agent_clips_its_gradients_as_its_paper_does(name: str) -> None:
     cls = getattr(ajax, name)
     assert inspect.signature(cls).parameters[option].default == default
     if name in CASES:
-        agent = cls(env_id=CASES[name].envs[0])
+        agent = cls(env_id=CASES[name].envs[0], **CASES[name].required)
         own = None if name in JOINT else default
         for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
             assert args.max_grad_norm == own

@@ -385,8 +385,11 @@ def update_agent(
         shapes = jax.eval_shape(lambda s: policy_and_targets(s)[1], agent_state)
         return agent_state, jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), shapes)
 
+    # sfujim/TD3 counts the update first (total_it += 1), then steps the actor
+    # when the count is a multiple of the delay: its first actor step is the
+    # policy_delay-th update, not the first.
     policy_delay = agent_config.policy_delay
-    do_policy = (agent_state.n_updates % policy_delay) == 0
+    do_policy = ((agent_state.n_updates + 1) % policy_delay) == 0
     agent_state, (policy_aux, policy_metrics) = jax.lax.cond(
         do_policy, policy_and_targets, skip_policy, agent_state
     )

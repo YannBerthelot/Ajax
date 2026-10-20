@@ -133,11 +133,11 @@ agent = TD3(
 ```
 
 The paper's actor loss is `-λ mean Q(s, π(s)) + mean((π(s) - a)²)`, with
-`λ = α / mean|Q(s, π(s))|` and α = 2.5 (`TD3_BC.py:141-143`). `alpha`
-gives `ImitationLoss` that weight. TD3's own term stays `-mean Q`, so Ajax
-optimises the paper's loss divided by `λ`: the same direction, at a scale
-Adam's step nearly cancels. The other settings are TD3's defaults, which
-match the reference's. The states are standardised with the dataset's
+`λ = α / mean|Q(s, π(s))|` and α = 2.5 (`TD3_BC.py:141-143`), the actions
+compared in the environment's units. With `alpha`, `ImitationLoss` makes
+TD3's actor loss exactly that: it adds `(λ - 1)` times TD3's own `-mean Q`
+and the squared difference of the actions mapped onto the env's box. The
+other settings are TD3's defaults, which match the reference's. The states are standardised with the dataset's
 statistics. The reference divides by the standard deviation plus `1e-3`,
 Ajax by `sqrt(var + 1e-8)`; the two differ on a column the dataset holds
 constant. The [offline mode](../guide/training.md#training-offline)

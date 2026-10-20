@@ -381,6 +381,7 @@ def policy_loss_function(
         "a_expert": a_expert,
         "actions": replay_actions,
         "critic_state": critic_states,
+        "agent_loss": loss_actor.mean(),
     }
     bc_term, metrics = extension_stack.fold_actor_loss(
         agent_state,

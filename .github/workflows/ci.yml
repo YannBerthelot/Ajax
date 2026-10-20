@@ -19,10 +19,17 @@ env:
   JAX_PLATFORMS: cpu
   JAX_PLATFORM_NAME: cpu
 
+# The fast jobs (pre-commit, the tests not marked slow, coverage,
+# conformance, docs) run on GitHub's arm64 runners: they all come on one CPU
+# model, so a job always finds main's compile cache for its programs (JAX
+# keys entries by the CPU, and the x86 runners come on several: a cache built
+# on one missed on the others). A warm cache cut a compile-heavy subset from
+# 746 s to about 280 s there (Compile preview, run 39501778659). The probing
+# and slow jobs stay on x86, the platform most users train on.
 jobs:
   lint:
     name: Pre-commit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -42,7 +49,7 @@ jobs:
   # here and in the slow job: their own jobs run them.
   tests:
     name: Tests (shard ${{ matrix.shard }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -91,7 +98,7 @@ jobs:
   coverage:
     name: Coverage
     needs: tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -175,7 +182,7 @@ jobs:
   # job, without coverage.
   conformance:
     name: Conformance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -219,7 +226,7 @@ jobs:
   # the job installs the docs group alone, not the runtime's dependencies.
   docs:
     name: Docs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7

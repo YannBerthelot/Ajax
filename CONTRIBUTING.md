@@ -362,9 +362,13 @@ the tests not marked slow, probing excluded, under coverage; the last shard
 runs whatever the first two do not name, so a new test file always runs);
 *Coverage* (the shards combined, at least 70%); *Slow tests* (without
 coverage, which would lengthen them); *Probing* (five shards; the last takes
-any new probe file); *Docs* (the documentation site, `mkdocs build
+any new probe file); *Conformance* (each agent's training step against its
+original implementation); *Docs* (the documentation site, `mkdocs build
 --strict`). *Lint and Test*, the one check branch protection requires, passes
-only when all of them passed.
+only when all of them passed. Pre-commit, Tests, Coverage, Conformance and
+Docs run on GitHub's arm64 runners, which all come on one CPU model, so a job
+finds main's compile cache (JAX keys it by the CPU); Slow tests and Probing
+run on x86, the platform most users train on.
 
 ### The probing tests
 

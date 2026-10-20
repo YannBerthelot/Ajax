@@ -78,8 +78,15 @@ jobs:
             2) paths="$SHARD_2" ;;
             3) paths="tests $(printf -- '--ignore=%s ' $SHARD_1 $SHARD_2)" ;;
           esac
-          uv run coverage run -m pytest $paths -m "not slow" \
-            --ignore=tests/probing --ignore=tests/conformance --durations=30
+          # One xdist worker per vCPU (Compile preview, arm64: 4 workers cut
+          # a cold compile-heavy subset by 44-47%, with level 0 more).
+          # pytest-cov merges the workers' data into .coverage; the
+          # Coverage job combines the shards' and checks the floor (a shard
+          # alone covers less, so pytest-cov must not check it).
+          uv run pytest $paths -m "not slow" -n auto --cov --cov-report= \
+            --cov-fail-under=0 --ignore=tests/probing --ignore=tests/conformance \
+            --durations=30
+          mv .coverage ".coverage.shard-${{ matrix.shard }}"
       # The cache only saves time: a failed save must not fail the job (in
       # the test shards it would also skip the coverage upload).
       - name: Save the JAX compile cache

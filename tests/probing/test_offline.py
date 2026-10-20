@@ -129,11 +129,9 @@ CQL_ALPHA, CQL_AT = 1.0, (-0.85, 0.85)
 
 def cell_rows() -> TransitionDataset:
     """One-step rows at s = +-1 (reward a s) whose actions are the centres of
-    20 equal cells of [-1, 1], the first repeated last (the row the replay
-    leaves out)."""
+    20 equal cells of [-1, 1]."""
     a = np.tile(np.linspace(-0.95, 0.95, 20), 2)[:, None]
     s = np.repeat([-1.0, 1.0], 20)[:, None]
-    a, s = np.r_[a, a[:1]], np.r_[s, s[:1]]
     ends = np.ones(len(a), bool)
     return TransitionDataset(s, a, (a * s)[:, 0], ends, ~ends, s)
 
@@ -155,14 +153,14 @@ def cql_readings() -> Any:
 
 def chain_rows() -> TransitionDataset:
     """Two-step episodes from s0 (obs [1, 0]) to s1 ([0, 1]), paying 0: s0's
-    actions on a grid, s1's 0, the first episode repeated last."""
+    actions on a grid, s1's 0."""
     a0 = np.linspace(-1.0, 1.0, 21)
-    obs = np.tile(np.eye(2), (22, 1))
-    action = np.stack([np.r_[a0, a0[:1]], np.zeros(22)], 1).reshape(-1, 1)
-    terminated = np.tile([False, True], 22)
-    next_obs = np.tile(np.eye(2)[[1, 1]], (22, 1))
+    obs = np.tile(np.eye(2), (21, 1))
+    action = np.stack([a0, np.zeros(21)], 1).reshape(-1, 1)
+    terminated = np.tile([False, True], 21)
+    next_obs = np.tile(np.eye(2)[[1, 1]], (21, 1))
     return TransitionDataset(
-        obs, action, np.zeros(44), terminated, np.zeros(44, bool), next_obs
+        obs, action, np.zeros(42), terminated, np.zeros(42, bool), next_obs
     )
 
 

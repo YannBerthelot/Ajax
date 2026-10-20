@@ -2,7 +2,8 @@
 
 sfujim's own TD3.py trains on two gymnax tasks (main.py's loop) in its pinned PyTorch env and records
 four states each, with the update's batch and target noise and the state after it in float32 and
-float64 (benchmarks/reference/conformance_sfujim_td3.py, re-run on every test session). Ajax makes the
+float64 (benchmarks/reference/conformance_sfujim_td3.py; CI keeps them while the original, its recorder
+and its env stay the same, otherwise each session records them). Ajax makes the
 same update from the same state, batch and noise (td3_sfujim.py), and every leaf's change must agree
 within 10 times the two sides' float32 rounding errors (submaps.rounding_null). MountainCarContinuous's
 box is [-1, 1]; Pendulum's torque is [-2, 2], where Ajax's critics must read the env's units. A planted
@@ -22,11 +23,17 @@ from tests.conformance import submaps
 REPO = pathlib.Path(__file__).parents[2]
 ENVS = ("MountainCarContinuous-v0", "Pendulum-v1")
 CPU = os.environ | {"JAX_PLATFORMS": "cpu", "CUDA_VISIBLE_DEVICES": ""}
+#: Where CI keeps the originals' records between runs, under a key that hashes the vendored originals,
+#: their recorders and the torch env's lock; unset, every session records them.
+KEPT = os.environ.get("AJAX_CONFORMANCE_RECORDS")
 
 
 @pytest.fixture(scope="module")
 def records(tmp_path_factory) -> pathlib.Path:
-    out = tmp_path_factory.mktemp("sfujim")
+    out = REPO / KEPT / "sfujim_td3" if KEPT else tmp_path_factory.mktemp("sfujim")
+    marker = out / "envs"  # written last: unfinished records are never taken
+    if marker.is_file() and marker.read_text() == " ".join(ENVS):
+        return out
     for env_id in ENVS:
         subprocess.run(
             [
@@ -44,6 +51,7 @@ def records(tmp_path_factory) -> pathlib.Path:
             env=CPU,
             check=True,
         )
+    marker.write_text(" ".join(ENVS))
     return out
 
 

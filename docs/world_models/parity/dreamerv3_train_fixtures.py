@@ -670,7 +670,8 @@ def main() -> None:
         arrays, meta = _record(discrete)
         arrays["meta"] = np.asarray(json.dumps(meta, sort_keys=True, default=str))
         path = args.out / f"dreamerv3_train_{meta['run']}.npz"
-        np.savez_compressed(path, **arrays)
+        # The keys are array names, never numpy >= 2.2's allow_pickle (not in 2.1).
+        np.savez_compressed(path, **arrays)  # type: ignore[arg-type]
         print(f"wrote {path} ({path.stat().st_size / 1024:.1f} kB)")
 
 

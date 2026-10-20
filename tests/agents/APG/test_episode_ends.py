@@ -91,10 +91,13 @@ def test_no_gradient_crosses_an_episode_end() -> None:
     )
     # (t', b', t, b): reward t' of env b' by the action or carry of t, b.
     by_action = np.abs(np.asarray(grads[0]))[..., 0]
-    by_carry = sum(
-        np.abs(np.asarray(g)).reshape(HORIZON, B, HORIZON, B, -1).sum(-1)
-        for g in jax.tree.leaves(grads[1])
-    )
+    by_carry = np.concatenate(
+        [
+            np.abs(np.asarray(g)).reshape(HORIZON, B, HORIZON, B, -1)
+            for g in jax.tree.leaves(grads[1])
+        ],
+        axis=-1,
+    ).sum(-1)
     resets = np.asarray(rollout.resets)
     ends = [list(np.flatnonzero(np.asarray(rollout.done)[:, b])) for b in range(B)]
     assert ends == [[2, 5, 8], [3, 7]], ends

@@ -62,6 +62,11 @@ class BraxWrapper:
     env (brax comes with the ``brax`` extra).
     """
 
+    # Set by the env builders on the outermost wrapper of a stack; readers
+    # use getattr, since a registered builder may return another env.
+    _ajax_env_id: str
+    _ajax_fresh_reset: bool
+
     def __init__(self, env):
         self.env = env
 

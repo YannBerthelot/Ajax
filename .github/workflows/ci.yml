@@ -58,7 +58,13 @@ jobs:
         uses: ./.github/actions/compile-cache
         with:
           job: tests-${{ matrix.shard }}
+      # XLA's optimisation level 0 (the Makefile's FAST_XLA): these tests
+      # check logic on tiny programs, so compiling fast matters more than
+      # the code it makes (about 30% off a cold shard, measured by the
+      # Compile preview); the probing and slow jobs keep the default level.
       - name: Run the shard under coverage
+        env:
+          XLA_FLAGS: --xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true
         run: |
           case "${{ matrix.shard }}" in
             1) paths="$SHARD_1" ;;

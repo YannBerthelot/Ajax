@@ -36,9 +36,10 @@ case $1 in
   produce)
     AJAX_JAX_COMPILE_CACHE_DIR=$ROOT measure "produce-$2" "$(isa_flags "$2")" ;;
   consume)
-    own=$(AJAX_JAX_COMPILE_CACHE_DIR=$ROOT uv run python -c \
-      "import os; from ajax._compile_cache import cache_dir_for, host_fingerprint as h
-print(cache_dir_for(os.environ['AJAX_JAX_COMPILE_CACHE_DIR'], h()))")
+    # With the cache off, importing ajax creates no directory of its own.
+    own=$(AJAX_NO_COMPILE_CACHE=1 uv run python -c \
+      "from ajax._compile_cache import cache_dir_for, host_fingerprint as h
+print(cache_dir_for('$ROOT', h()))")
     made=$(find "$ROOT" -mindepth 1 -maxdepth 1 -type d)
     [ "$made" = "$own" ] || mv "$made" "$own"
     AJAX_JAX_COMPILE_CACHE_DIR=$ROOT measure "consume-$2-$3" "$(isa_flags "$2")" ;;

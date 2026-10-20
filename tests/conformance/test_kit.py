@@ -103,6 +103,24 @@ def test_a_permutation_of_an_array_is_taped_as_its_indices():
     np.testing.assert_array_equal(out, np.asarray(x)[chosen])
 
 
+def test_a_float64_run_replays_a_float32_tape():
+    def f(k):
+        a, b = jax.random.split(k)
+        return jax.random.normal(a, (3,)), jax.random.permutation(b, 5)
+
+    key = jax.random.PRNGKey(4)
+    with kit.recording() as rec:
+        want = jax.jit(f)(key)
+    draws = kit.by_role(rec.log)
+    table = kit.key_table(draws, {r: [v for _, v in d] for r, d in draws.items()})
+    with jax.enable_x64(True), kit.replaying(table) as rep:
+        got = jax.jit(f)(key)
+    assert not rep.misses and not rep.unreplayed
+    assert (got[0].dtype, got[1].dtype) == (jnp.float64, jnp.int64)
+    for g, w in zip(got, want, strict=True):
+        np.testing.assert_array_equal(g, w)
+
+
 def test_the_tape_restores_jax_random():
     before = jax.random.normal
     with kit.recording():
@@ -128,6 +146,20 @@ def test_a_captured_scan_body_runs_on_any_carry_and_stashing_keeps_its_outputs()
             _toy(x)
         return stash["body"]
 
-    np.testing.assert_array_equal(jax.jit(traced)(jnp.zeros(())), [0.0, 1.0, 2.0])
+    carry, stacked = jax.jit(traced)(jnp.zeros(()))
+    assert float(carry) == 3.0
+    np.testing.assert_array_equal(stacked, [0.0, 1.0, 2.0])
     with pytest.raises(RuntimeError, match="no lax.scan"):
         kit.capture_scan("absent", lambda: _toy(jnp.zeros(())))
+
+
+def test_a_substituted_scan_returns_the_given_outputs_and_the_step_goes_on_from_them():
+    def step(x):
+        carry, stacked = _toy(x)
+        return carry * 10 + stacked.sum()
+
+    given = (jnp.asarray(7.0), jnp.asarray([1.0, 1.0, 1.0]))
+    with kit.substituting({"body": given}):
+        assert float(jax.jit(step)(jnp.zeros(()))) == 73.0
+    with kit.substituting({"other": given}):
+        assert float(jax.jit(step)(jnp.zeros(()))) == 33.0

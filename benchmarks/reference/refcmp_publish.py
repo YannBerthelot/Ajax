@@ -130,6 +130,17 @@ def specs_page() -> str:
         )
         lines += ["", f"Ajax settings without a reference counterpart: {rest}.", ""]
         lines += ["Not matched:", "", *[f"- {u}" for u in spec.unmatched], ""]
+        if spec.deviations:
+            lines += [
+                "Deviations found by the conformance checks (`tests/conformance`):",
+                "",
+            ]
+            lines += [
+                f"- {d.name} ({d.kind}, {d.submap}): {d.description} Code: {d.where}."
+                f" Pinned by `{d.check}`."
+                for d in spec.deviations
+            ]
+            lines.append("")
     return "\n".join(lines)
 
 

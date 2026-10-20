@@ -39,13 +39,15 @@ RD, VL = continuous.RewardDiscountingEnv, continuous.ValueLossOrOptimizerEnv
 
 @dataclasses.dataclass(frozen=True)
 class Split:
-    """``first`` steps, then ``second`` on a new restored agent: one ``budget`` call."""
+    """``first`` steps, then ``second`` on a new restored agent: one ``budget``
+    call; ``atol``, the float comparison's (test_a_resumed_run_equals_...)."""
 
     build: Callable[[], Any]
     budget: int
     first: int
     second: int
     kw: dict = dataclasses.field(default_factory=dict)
+    atol: float = 1e-6
 
 
 def split_run(s: Split, folder: str) -> tuple[Any, np.ndarray, Any]:
@@ -96,7 +98,11 @@ DAGGER_KW = {"actor_architecture": N32, "iteration_steps": 96, "batch_size": 8}
 DAGGER_KW |= {"expert_policy": lambda obs: jnp.full(obs.shape[:-1] + (1,), 0.5)}
 IQL_KW = {"buffer_size": 1000, "batch_size": 32, "learning_starts": 50}
 EQUIVALENT = {
-    "SAC": Split(_make("SAC", RD, SAC_KW), 400, 200, 200),
+    # SAC's two programs rounded 3.4e-5 apart on a CI runner (4e-6 after a
+    # one-ulp nudge on macOS ARM), while float-only bugs planted at the resume
+    # (optimizer moments zeroed, a target network or the temperature reset)
+    # move it 2e-2 or more. Its catalogue faults change counters or keys.
+    "SAC": Split(_make("SAC", RD, SAC_KW), 400, 200, 200, atol=1e-3),
     "DQN": Split(_make("DQN", PV, DQN_KW), 400, 200, 200),
     "PQN": Split(_make("PQN", PV, {**EPS, "num_minibatches": 2}), 768, 256, 384),
     "PPO": Split(_make("PPO", RD, NETS), 640, 320, 288),
@@ -126,12 +132,15 @@ VB_STEPS = 100
 
 @pytest.mark.parametrize("name", list(EQUIVALENT))
 def test_a_resumed_run_equals_the_uninterrupted_run(name: str, tmp_path: Path) -> None:
-    """Every leaf alike, floats to rtol 1e-5 (programs compiled apart may round
-    apart: SAC's worst leaf is at 0.09 of it on macOS ARM; past it, shorten)."""
-    full, ended, split = split_run(EQUIVALENT[name], str(tmp_path))
+    """Every leaf alike: integers and keys exactly, floats to rtol 1e-5 and the
+    cell's atol. Programs compiled apart round apart, on some CI runners ten
+    times more than on macOS ARM; past the tolerance, set the cell's atol
+    between its rounding and the gaps its float-only planted faults leave."""
+    s = EQUIVALENT[name]
+    full, ended, split = split_run(s, str(tmp_path))
     steps = np.asarray(full.collector_state.timestep)
     np.testing.assert_array_equal(np.asarray(split.collector_state.timestep), steps)
-    differing = R.differing_leaves(full, split)
+    differing = R.differing_leaves(full, split, atol=s.atol)
     assert not differing, (f"first leg ended at {ended}", steps, differing[:20])
 
 

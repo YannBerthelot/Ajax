@@ -181,7 +181,7 @@ conventions and how the pieces combine.
 
 ## What else is in the box
 
-- **[Extensions](docs/guide/extensions.md)**: twenty of them, for expert
+- **[Extensions](docs/guide/extensions.md)**: twenty-one of them, for expert
   guidance, exploration, critic-target changes, actor and critic
   pre-training, prior data, ensemble diversity and critic diagnostics, passed
   as `extensions=(...)`; the [compatibility table](docs/guide/compatibility.md)

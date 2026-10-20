@@ -54,6 +54,7 @@ from .reference_params import (
     LOGGED,
     POST_STEP_Q_TOL,
     SCALAR_TOL,
+    SCALE_TOL,
     ErrorReport,
     Fixture,
     ajax_config,
@@ -61,6 +62,7 @@ from .reference_params import (
     check_decision,
     check_final_params,
     load_fixture,
+    logged_tol,
     recorded_plan_noise,
     reference_config,
     torch_to_ajax,
@@ -252,10 +254,8 @@ def test_multitask_update_matches_reference_over_four_updates(ufx):
             assert np.all(np.asarray(action)[:, invalid] == 0)
             report.check("pi_q", q, ufx[p + "pi_q"][..., 0], POST_STEP_Q_TOL)
             for name in LOGGED:
-                report.check(name, aux[name], ufx[p + name], SCALAR_TOL)
-            report.check(
-                "q_scale", state.q_scale.value, ufx[p + "pi_scale"], SCALAR_TOL
-            )
+                report.check(name, aux[name], ufx[p + name], logged_tol(name))
+            report.check("q_scale", state.q_scale.value, ufx[p + "pi_scale"], SCALE_TOL)
 
     # All parameters: the single-task PARAM_TOL (achieved on CPU: 2.3e-6).
     check_final_params(report, state, ufx, config)

@@ -48,6 +48,9 @@ N_ENVS = 2
 # 520 steps. The resumed run (350 more steps per env) completes a third
 # round, which only a ring sized for the whole run keeps.
 PENDULUM_S, FIRST, RESUMED = 400, 2 * 260, 2 * 350
+# A continuation short enough that the rounding of two separately compiled
+# programs has not grown (see the resume test): 10 steps per env.
+SHORT = 2 * 10
 SEED_STEP = 200  # Schedule.seed_step: max(400 // 2, T)
 
 
@@ -131,6 +134,17 @@ def pendulum(tmp_path_factory):
     full, _ = full_agent.train(
         seed=SEEDS, n_timesteps=FIRST + RESUMED, num_episode_test=2
     )
+    short_resumer = _pendulum_agent()
+    short_skeleton, _ = short_resumer.train(seed=SEEDS, n_timesteps=0)
+    resumed_short, _ = short_resumer.train(
+        seed=SEEDS,
+        n_timesteps=SHORT,
+        num_episode_test=2,
+        initial_state=restore_into(short_skeleton, path),
+    )
+    full_short, _ = _pendulum_agent().train(
+        seed=SEEDS, n_timesteps=FIRST + SHORT, num_episode_test=2
+    )
     schedule = Schedule(n_envs=N_ENVS, episode_length=200, seed_steps=PENDULUM_S)
     return SimpleNamespace(
         agent=agent,
@@ -144,6 +158,8 @@ def pendulum(tmp_path_factory):
         resumed=resumed,
         resumed_metrics=resumed_metrics,
         full=full,
+        resumed_short=resumed_short,
+        full_short=full_short,
     )
 
 
@@ -456,15 +472,19 @@ def test_a_new_agent_resumes_a_checkpoint_as_the_uninterrupted_run(pendulum):
     assert resumed.buffer_state.obs.shape == full.buffer_state.obs.shape
     assert full.buffer_state.obs.shape[1] == 5 * N_ENVS
     # The split run computes what the uninterrupted one computes: the same
-    # ticks, random streams and replayed episodes.
-    complete = 3 * N_ENVS
+    # ticks, random streams and replayed episodes, to float32 rounding. The
+    # two programs are compiled separately and XLA need not round them alike
+    # (under JAX 0.11 they differ by 7e-9 after one tick); training amplifies
+    # that (5e-3 in the parameters after RESUMED steps), so the values are
+    # compared after a short continuation. A different stream or episode
+    # shows there at once.
+    short, whole = pendulum.resumed_short, pendulum.full_short
     for a, b in (
-        (resumed.world_model_state.params, full.world_model_state.params),
-        (resumed.world_model_state.target_params, full.world_model_state.target_params),
-        (resumed.actor_state.params, full.actor_state.params),
-        (resumed.collector_state.last_obs, full.collector_state.last_obs),
-        (resumed.q_scale.value, full.q_scale.value),
-        (resumed.buffer_state.obs[:, :complete], full.buffer_state.obs[:, :complete]),
+        (short.world_model_state.params, whole.world_model_state.params),
+        (short.world_model_state.target_params, whole.world_model_state.target_params),
+        (short.actor_state.params, whole.actor_state.params),
+        (short.collector_state.last_obs, whole.collector_state.last_obs),
+        (short.q_scale.value, whole.q_scale.value),
     ):
         for x, y in zip(jax.tree.leaves(a), jax.tree.leaves(b), strict=True):
             np.testing.assert_allclose(x, y, rtol=1e-5, atol=1e-6)

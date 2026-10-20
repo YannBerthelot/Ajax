@@ -675,6 +675,12 @@ def _moments(state: learner.LearnerState) -> tuple[learner.Params, learner.Param
     return nu, mu
 
 
+# Two separately compiled programs computing the same updates: XLA need not
+# round them alike (under JAX 0.11 they differ by 1.5e-6 relative after two
+# updates). The variant this test rules out differs by more than 1e-4.
+SEPARATE_PROGRAMS = 32 * EPS
+
+
 def test_one_joint_gradient_for_three_optimizers_is_one_optimizer():
     """Three LaProp instances (world model, actor, critic) fed one joint
     gradient give the single optimizer of the reference, which updates all
@@ -733,10 +739,10 @@ def test_one_joint_gradient_for_three_optimizers_is_one_optimizer():
         sequential = sequential_step(sequential, batch, noise)
         ours = (learner.learner_params(joint), *_moments(joint))
         theirs = (learner.learner_params(single), opt_state[1].nu, opt_state[2].ema)
-        assert _difference(ours, theirs) <= 4 * EPS, step
+        assert _difference(ours, theirs) <= SEPARATE_PROGRAMS, step
         if step == 0:  # one gradient for the world model in both variants
             wm = (sequential.world_model_state, joint.world_model_state)
-            assert _difference(*(s.params for s in wm)) <= 4 * EPS
+            assert _difference(*(s.params for s in wm)) <= SEPARATE_PROGRAMS
         for name in ("actor_state", "critic_state"):
             other, mine = getattr(sequential, name), getattr(joint, name)
             nu_difference = _difference(other.opt_state[1].nu, mine.opt_state[1].nu)

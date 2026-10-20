@@ -150,6 +150,7 @@ def update_agent(
             "actor_state": actor,
             "actions": batch.action,
             "critic_state": critic,
+            "agent_loss": loss,
         }
         extra, metrics = extension_stack.fold_actor_loss(
             agent_state,

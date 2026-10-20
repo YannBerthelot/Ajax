@@ -1,6 +1,6 @@
 # Algorithms
 
-Ajax has fourteen agents, all exported from `ajax`. Each follows a published
+Ajax has sixteen agents, all exported from `ajax`. Each follows a published
 paper, and each page says where Ajax departs from it. Every agent takes an
 environment (`TDMPC2MultiTask`: a dataset, and environments to evaluate
 on), its own hyperparameters, `episode_length` and `action_repeat` (for
@@ -16,12 +16,14 @@ several seeds in a single compiled program with
 | [ASAC](asac.md) | off-policy actor-critic, average reward | Adamczyk et al. 2025 ([arXiv:2501.09080v2](https://arxiv.org/abs/2501.09080v2)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
 | [REDQ](redq.md) | off-policy actor-critic, critic ensemble | Chen et al. 2021 ([arXiv:2101.05982](https://arxiv.org/abs/2101.05982)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
 | [TD3](td3.md) | off-policy actor-critic, deterministic policy | Fujimoto et al. 2018 ([arXiv:1802.09477](https://arxiv.org/abs/1802.09477)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
+| [IQL](iql.md) | offline actor-critic, expectile value | Kostrikov, Nair and Levine, ICLR 2022 ([arXiv:2110.06169](https://arxiv.org/abs/2110.06169)) | continuous | no | `on_target`, `critic_loss`, `actor_loss` |
 | [AVG](avg.md) | incremental actor-critic, no replay | Vasan et al. 2024 ([arXiv:2411.15370](https://arxiv.org/abs/2411.15370)) | continuous | no | `on_target`, `critic_loss`, `actor_loss` |
 | [DQN](dqn.md) | value-based, replay | Mnih et al., Nature 2015 | discrete | no | `on_target`, `critic_loss` |
 | [PQN](pqn.md) | value-based, parallel environments, no replay | Gallici et al. 2024 | discrete | no | `on_target`, `critic_loss` |
 | [PPO](ppo.md) | on-policy policy gradient | Schulman et al. 2017 ([arXiv:1707.06347](https://arxiv.org/abs/1707.06347)) | both | yes | `on_target`, `critic_loss`, `actor_loss` |
 | [APO](apo.md) | on-policy policy gradient, average reward | Ma et al. 2021 ([arXiv:2106.03442](https://arxiv.org/abs/2106.03442)) | both | no | `on_target`, `critic_loss`, `actor_loss` |
 | [UDRL](udrl.md) | command-conditioned supervised learning | Schmidhuber 2019 ([arXiv:1912.02875](https://arxiv.org/abs/1912.02875)) | both | no | `actor_loss` |
+| [DAgger](dagger.md) | imitation by dataset aggregation, no reward | Ross, Gordon and Bagnell, AISTATS 2011 ([arXiv:1011.0686](https://arxiv.org/abs/1011.0686)) | both | no | `actor_loss` |
 | [APG](apg.md) | gradients through a differentiable simulator | Busetto et al. 2024 ([arXiv:2411.06482](https://arxiv.org/abs/2411.06482)) for `APG.contextual_controller` | continuous | yes | `actor_loss` |
 | [DreamerV3](dreamerv3.md) | model-based, learns in imagination | Hafner et al. 2023, Nature 2025 ([arXiv:2301.04104v2](https://arxiv.org/abs/2301.04104v2)) | both | built in | none |
 | [TDMPC2](tdmpc2.md) | model-based, plans at every step | Hansen, Su and Wang, ICLR 2024 ([arXiv:2310.16828](https://arxiv.org/abs/2310.16828)) | continuous | no | none |
@@ -75,6 +77,11 @@ twenty critic updates per step, so it does far more work per sample.
 shortens the agent's view. [ASAC](asac.md) (off-policy) and [APO](apo.md)
 (on-policy) optimise the average reward per step instead.
 
+**Only a dataset, no simulator to explore with** (logged runs, a plant's
+history): [IQL](iql.md) trains on it offline (`train_offline`) and can
+fine-tune online after; TD3+BC is TD3 with a cloning term
+([TD3](td3.md#td3bc-offline)).
+
 **Learning one transition at a time,** without a replay buffer or target
 networks: [AVG](avg.md).
 
@@ -90,7 +97,8 @@ into the actor before training (the `CloningPretrain` extension), and SAC,
 TD3, REDQ, ASAC and APO accept the `ImitationLoss` term. See
 [Expert guidance](../guide/expert-guidance.md). SAC, TD3, REDQ, ASAC, AVG,
 PPO and APO can also learn a PID controller directly, with the PID policy of
-[Networks](../guide/networks.md).
+[Networks](../guide/networks.md). To imitate the expert without a reward,
+use [DAgger](dagger.md).
 
 **Your simulator is differentiable** (a gymnax environment that exposes its
 transition gradients) and you want one controller for a family of systems:

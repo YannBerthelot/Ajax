@@ -57,7 +57,7 @@ def split_run(s: Split, folder: str) -> tuple[Any, np.ndarray, Any]:
     return full, ended, runs.resume(first, s.second, folder, s.build(), **kw).state
 
 
-def _make(name: str, env: type, kw: dict, preset: str = "probe") -> Callable:
+def _make(name: str, env: type, kw: dict, preset: str | None = "probe") -> Callable:
     return lambda: agents.make(name, *envs.package(env), preset=preset, **kw)
 
 
@@ -91,12 +91,21 @@ EPS = {"architecture": N32, "epsilon_start": 0.3, "epsilon_end": 0.3}
 DQN_KW = {**EPS, "buffer_size": 1000, "batch_size": 32}
 UDRL_KW = {"n_envs": 1, "actor_architecture": N32, "n_steps": 8, "batch_size": 8}
 UDRL_KW |= {"n_updates_per_iter": 4}
+# The second leg enters DAgger's second iteration (beta 1, then 0).
+DAGGER_KW = {"actor_architecture": N32, "iteration_steps": 96, "batch_size": 8}
+DAGGER_KW |= {"expert_policy": lambda obs: jnp.full(obs.shape[:-1] + (1,), 0.5)}
+IQL_KW = {"buffer_size": 1000, "batch_size": 32, "learning_starts": 50}
 EQUIVALENT = {
     "SAC": Split(_make("SAC", RD, SAC_KW), 400, 200, 200),
     "DQN": Split(_make("DQN", PV, DQN_KW), 400, 200, 200),
     "PQN": Split(_make("PQN", PV, {**EPS, "num_minibatches": 2}), 768, 256, 384),
     "PPO": Split(_make("PPO", RD, NETS), 640, 320, 288),
     "UDRL": Split(_make("UDRL", PV, UDRL_KW), 128, 64, 64),
+    "DAgger": Split(_make("DAgger", RD, DAGGER_KW), 128, 64, 64),
+    # IQL's run is short for the same reason as PQN's: at 400 steps its value
+    # network rounded past the tolerance under JAX 0.11 (3.1 of it on macOS
+    # ARM; 0.023 at 240 steps). Both legs still pass learning_starts.
+    "IQL": Split(_make("IQL", RD, {**NETS, **IQL_KW}, None), 240, 120, 120),
     # APG restarts its optimizer on resume by design (train_APG.reset_optimizer).
     "APG": Split(_apg, 256, 128, 128, {"reset_optimizer_on_resume": False}),
 }

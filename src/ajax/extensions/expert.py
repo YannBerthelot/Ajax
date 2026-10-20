@@ -204,6 +204,19 @@ def q_filter_weight(
     return jax.lax.stop_gradient(keep.astype(jnp.float32))
 
 
+def td3bc_weight(
+    critic_state: Any, observations: jax.Array, pi_mean: jax.Array, alpha: float
+) -> jax.Array:
+    """TD3+BC's ``1 / lambda = mean|Q_1(s, pi(s))| / alpha``, held constant,
+    with Q_1 the first critic, the one TD3's actor follows
+    (sfujim/TD3_BC@8791ad7, TD3_BC.py:141-143: ``lmbda = alpha /
+    Q.abs().mean().detach()``, actor loss ``-lmbda * Q.mean() +
+    mse_loss(pi, action)``)."""
+    x = jnp.concatenate([observations, jax.lax.stop_gradient(pi_mean)], axis=-1)
+    q1 = predict_value(critic_state, critic_state.params, x)[0]
+    return jax.lax.stop_gradient(jnp.mean(jnp.abs(q1)) / alpha)
+
+
 @dataclass(frozen=True)
 class ImitationLoss(Extension):
     """Behavioural-cloning regulariser: ``coef · mean((μ(s) - a_E(s))²) / 4``.
@@ -247,16 +260,31 @@ class ImitationLoss(Extension):
     distribution); a linear schedule set by ``anneal_frac`` instead of the
     weights population-based training tunes. ``None`` keeps the weight at 1.
 
+    ``target="replay"`` clones the replayed rows' own actions (``actions``,
+    which SAC, TD3, REDQ and ASAC put in their actor-loss batch) instead of
+    an expert's: logged data needs no expert, and ``expert_policy`` may be
+    None. ``alpha`` gives the term TD3+BC's weight (Fujimoto and Gu, 2021;
+    :func:`td3bc_weight`): ``coef · mean|Q_1(s, μ(s))| / alpha · mean((μ(s)
+    - a)²)``, without the ``/ 4``. That is the paper's actor loss, ``-λ
+    mean Q + mean((π(s) - a)²)`` with ``λ = alpha / mean|Q|``, divided by
+    ``λ`` (the agent's own term stays ``-mean Q``): the same direction, at
+    a scale Adam's step nearly cancels. With both, on TD3, a transition
+    dataset trained offline (``train_offline``) and
+    ``normalize_observations=True`` (the dataset's statistics, sqrt(var +
+    1e-8) in place of the reference's std + 1e-3), it is TD3+BC.
+
     TD3, REDQ, ASAC, APO, SAC and PPO put ``pi_mean`` and
     ``raw_observations`` in their actor-loss batch, and all but PPO (which
     takes no expert) the stored ``a_expert``; an agent whose batch has no
     ``pi_mean`` (a discrete-action policy) raises at trace time.
     """
 
-    expert_policy: Callable
+    expert_policy: Optional[Callable]
     coef: float = 1.0
     q_filter: bool = False
     anneal_frac: Optional[float] = None
+    target: str = "expert"
+    alpha: Optional[float] = None
     # Agent context, bound by bind_to_agent.
     reads_stored_expert: bool = False
     buffer: Any = None  # the Q-filter's logged share samples it
@@ -275,25 +303,43 @@ class ImitationLoss(Extension):
                 "ImitationLoss's anneal_frac is the fraction of training at"
                 f" which its weight reaches 0, in (0, 1]; got {self.anneal_frac}."
             )
+        if self.target not in ("expert", "replay"):
+            raise ValueError(
+                f"ImitationLoss's target is 'expert' or 'replay', got {self.target!r}."
+            )
+        if self.target == "expert" and self.expert_policy is None:
+            raise ValueError(
+                "ImitationLoss clones its expert_policy: give it one, or"
+                " target='replay' to clone the replayed actions."
+            )
+        if self.alpha is not None and self.alpha <= 0:
+            raise ValueError(f"ImitationLoss's alpha is positive, got {self.alpha}.")
 
     def experts(self) -> tuple:
-        return (self.expert_policy,)
+        return () if self.expert_policy is None else (self.expert_policy,)
 
     def needs(self) -> frozenset[str]:
-        """The filter also reads the Q critic."""
-        return super().needs() | ({"q_critic"} if self.q_filter else set())
+        """The filter and ``alpha`` also read the Q critic; the replayed
+        target needs a replay."""
+        q = {"q_critic"} if self.q_filter or self.alpha is not None else set()
+        return super().needs() | q | ({"replay"} if self.target == "replay" else set())
 
     def reads(self) -> Mapping[str, frozenset[str]]:
-        """The filter also reads the critic from the actor-loss batch."""
-        if not self.q_filter:
-            return self.batch_keys
-        return {"actor_loss": self.batch_keys["actor_loss"] | {"critic_state"}}
+        """The filter and ``alpha`` also read the critic from the actor-loss
+        batch, the replayed target its rows' actions."""
+        keys = self.batch_keys["actor_loss"]
+        if self.q_filter or self.alpha is not None:
+            keys = keys | {"critic_state"}
+        if self.target == "replay":
+            keys = keys | {"actions"}
+        return {"actor_loss": keys}
 
     def bind_to_agent(self, **agent_context: Any) -> "ImitationLoss":
         """Read the expert's stored actions when it is the agent's; with the
         filter, bind the agent's replay buffer (its logged share samples it)
         and SAC's observation augmentation."""
-        stored = reads_stored_expert_actions(self, agent_context)
+        expert = self.target == "expert"
+        stored = expert and reads_stored_expert_actions(self, agent_context)
         bound = dataclasses.replace(self, reads_stored_expert=stored)
         if not self.q_filter:
             return bound
@@ -315,6 +361,7 @@ class ImitationLoss(Extension):
         (the agent's own expert), else its call on the raw observations."""
         if self.reads_stored_expert and stored is not None:
             return jax.lax.stop_gradient(stored)
+        assert self.expert_policy is not None  # target "expert" (__post_init__)
         return jax.lax.stop_gradient(self.expert_policy(raw_obs))
 
     def actor_loss(
@@ -336,7 +383,10 @@ class ImitationLoss(Extension):
         obs = batch.get("raw_observations")
         if obs is None:
             obs = batch["observations"]
-        a_expert = self._expert_actions(batch.get("a_expert"), obs)
+        if self.target == "replay":
+            a_expert = jax.lax.stop_gradient(batch["actions"])
+        else:
+            a_expert = self._expert_actions(batch.get("a_expert"), obs)
         sq = jnp.mean(jnp.square(pi_mean - a_expert), axis=-1, keepdims=True)
         mse = jnp.mean(sq)  # before the filter and the schedule
         if self.q_filter:
@@ -354,7 +404,13 @@ class ImitationLoss(Extension):
             )
         if self.anneal_frac is not None:
             sq = sq * anneal_weight(ctx.step, ctx.total_steps, self.anneal_frac)
-        term = self.coef * jnp.mean(sq) / 4.0
+        if self.alpha is None:
+            term = self.coef * jnp.mean(sq) / 4.0
+        else:
+            weight = td3bc_weight(
+                batch["critic_state"], batch["observations"], pi_mean, self.alpha
+            )
+            term = self.coef * weight * jnp.mean(sq)
         return term, {"imitation/term": term, "imitation/mse": mse}
 
     def eval_metrics(
@@ -376,7 +432,11 @@ class ImitationLoss(Extension):
             obs = augment_obs(obs, expert_action=batch.a_expert)
         actor = agent_state.actor_state  # get_pi applies its observation norm
         pi_mean = get_pi(actor, actor.params, obs)[0].mean()
-        a_expert = self._expert_actions(batch.a_expert, batch.raw_obs)
+        a_expert = (
+            batch.action
+            if self.target == "replay"
+            else self._expert_actions(batch.a_expert, batch.raw_obs)
+        )
         keep = q_filter_weight(agent_state.critic_state, obs, a_expert, pi_mean)
         return {"imitation/q_filter_frac": keep.mean()}
 

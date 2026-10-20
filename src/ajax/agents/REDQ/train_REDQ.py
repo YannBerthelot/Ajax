@@ -27,6 +27,7 @@ from ajax.agents.recurrent import (
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.buffers.dataset import TransitionDataset
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -271,6 +272,7 @@ def update_policy(
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
+    actions: Optional[jax.Array] = None,
 ) -> Tuple[REDQState, PolicyAuxiliaries, jax.Array, dict]:
     """The actor step on ``alpha log pi(a|s) - mean_i Q_i(s, a)``; also
     returns its samples' log-probs (temperature) and the extensions'
@@ -284,6 +286,7 @@ def update_policy(
         carries,
         q_reduce=jnp.mean,
         a_expert=a_expert,
+        actions=actions,
     )
     aux = PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()
@@ -345,6 +348,7 @@ def update_agent(
         total_timesteps,
         carries,
         a_expert=batch.a_expert,
+        actions=batch.action,
     )
     agent_state = agent_state.replace(critic_state=critic_state)
     agent_state, aux_temperature = core.update_temperature(
@@ -374,6 +378,7 @@ def make_train(
     start_timestep: int = 0,
     end_timestep: Optional[int] = None,
     expert_policy: Optional[Callable] = None,
+    offline_data: Optional[TransitionDataset] = None,
     extensions: Sequence = (),
 ):
     """REDQ's train function: one step per env, then (from
@@ -402,6 +407,7 @@ def make_train(
         start_timestep=start_timestep,
         end_timestep=end_timestep,
         expert_policy=expert_policy,
+        offline_data=offline_data,
     )
 
     def init(key: jax.Array) -> REDQState:

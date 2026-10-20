@@ -38,7 +38,7 @@ four ways:
 compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix and Rejax, including
 when to use them instead.
 
-Ajax has fourteen agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
+Ajax has sixteen agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
 implements a published paper, and its page lists where it departs from it.
 Several seeds train side by side in one program, on a CPU or a GPU. Research
 features (learning from an expert, exploration rules, diagnostics) are
@@ -74,10 +74,12 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
 | Kind | Agents |
 | --- | --- |
 | Off-policy actor-critic | [SAC](algorithms/sac.md), [ASAC](algorithms/asac.md) (average reward), [REDQ](algorithms/redq.md), [TD3](algorithms/td3.md) |
+| Offline, then online | [IQL](algorithms/iql.md) |
 | Incremental, no replay | [AVG](algorithms/avg.md) |
 | Value-based, discrete actions | [DQN](algorithms/dqn.md), [PQN](algorithms/pqn.md) |
 | On-policy | [PPO](algorithms/ppo.md), [APO](algorithms/apo.md) (average reward) |
 | Supervised, command-conditioned | [UDRL](algorithms/udrl.md) |
+| Imitation of an expert, no reward | [DAgger](algorithms/dagger.md) |
 | Differentiable simulation | [APG](algorithms/apg.md) |
 | World models | [DreamerV3](algorithms/dreamerv3.md), [TD-MPC2 and its multi-task variant](algorithms/tdmpc2.md) |
 

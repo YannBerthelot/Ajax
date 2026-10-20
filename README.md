@@ -41,7 +41,7 @@ version [SBX](https://github.com/araffin/sbx), it differs in four ways:
 compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix and Rejax, including
 when to use them instead.
 
-It has fourteen agents, from SAC and PPO to DreamerV3 and TD-MPC2, each
+It has sixteen agents, from SAC and PPO to DreamerV3 and TD-MPC2, each
 implementing a published paper, with the places where it departs from that
 paper written down. Several seeds train side by side in one program, on a CPU
 or a GPU. Research features (learning from an expert, exploration rules,
@@ -129,11 +129,13 @@ The [quickstart guide](docs/getting-started/quickstart.md) goes on from here.
 | [`REDQ`](docs/algorithms/redq.md) | off-policy | Chen et al., *Randomized Ensembled Double Q-Learning*, 2021 ([arXiv:2101.05982](https://arxiv.org/abs/2101.05982)) | continuous | yes |
 | [`TD3`](docs/algorithms/td3.md) | off-policy | Fujimoto et al., *Addressing Function Approximation Error in Actor-Critic Methods*, 2018 ([arXiv:1802.09477](https://arxiv.org/abs/1802.09477)) | continuous | yes |
 | [`AVG`](docs/algorithms/avg.md) | incremental, no replay | Vasan et al., *Deep Policy Gradient Methods Without Batch Updates, Target Networks, or Replay Buffers*, 2024 ([arXiv:2411.15370](https://arxiv.org/abs/2411.15370)) | continuous | no |
+| [`IQL`](docs/algorithms/iql.md) | offline | Kostrikov, Nair & Levine, *Offline Reinforcement Learning with Implicit Q-Learning*, ICLR 2022 ([arXiv:2110.06169](https://arxiv.org/abs/2110.06169)) | continuous | no |
 | [`DQN`](docs/algorithms/dqn.md) | off-policy, value-based | Mnih et al., *Human-level control through deep reinforcement learning*, Nature 2015 | discrete | no |
 | [`PQN`](docs/algorithms/pqn.md) | on-policy, value-based | Gallici et al., *Simplifying Deep Temporal Difference Learning*, 2024 | discrete | no |
 | [`PPO`](docs/algorithms/ppo.md) | on-policy | Schulman et al., *Proximal Policy Optimization Algorithms*, 2017 ([arXiv:1707.06347](https://arxiv.org/abs/1707.06347)) | both | yes |
 | [`APO`](docs/algorithms/apo.md) | on-policy, average reward | Ma et al., *Average-Reward Reinforcement Learning with Trust Region Methods*, 2021 ([arXiv:2106.03442](https://arxiv.org/abs/2106.03442)) | both | no |
 | [`UDRL`](docs/algorithms/udrl.md) | supervised, command-conditioned | Schmidhuber, *Reinforcement Learning Upside Down*, 2019 ([arXiv:1912.02875](https://arxiv.org/abs/1912.02875)) | both | no |
+| [`DAgger`](docs/algorithms/dagger.md) | imitation, supervised | Ross, Gordon & Bagnell, *A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning*, AISTATS 2011 ([arXiv:1011.0686](https://arxiv.org/abs/1011.0686)) | both | no |
 | [`APG`](docs/algorithms/apg.md) | differentiable simulation | Analytic policy gradient through the simulator; `APG.contextual_controller` is Busetto et al., *One controller to rule them all*, 2024 ([arXiv:2411.06482](https://arxiv.org/abs/2411.06482)) | continuous | yes |
 | [`DreamerV3`](docs/algorithms/dreamerv3.md) | world model | Hafner et al., *Mastering Diverse Domains through World Models*, 2023, Nature 2025 ([arXiv:2301.04104v2](https://arxiv.org/abs/2301.04104v2)) | both | built in |
 | [`TDMPC2`](docs/algorithms/tdmpc2.md) | world model, planning | Hansen, Su & Wang, *TD-MPC2: Scalable, Robust World Models for Continuous Control*, ICLR 2024 ([arXiv:2310.16828](https://arxiv.org/abs/2310.16828)) | continuous | no |
@@ -154,19 +156,23 @@ generated from the code, does.
 
 | Method | In Ajax | Agents |
 | --- | --- | --- |
-| Behaviour cloning before training | `CloningPretrain` | SAC, TD3, REDQ, ASAC, AVG, APO |
-| TD3+BC's actor term (Fujimoto and Gu, 2021); kickstarting (Schmitt et al., 2018) with `anneal_frac` | `ImitationLoss` | SAC, TD3, REDQ, ASAC, AVG, APO; PPO, APG, UDRL with a stateless expert; continuous actions only |
+| Behaviour cloning before training | `CloningPretrain` | SAC, TD3, REDQ, ASAC, AVG, APO, DAgger |
+| TD3+BC's actor term (Fujimoto and Gu, 2021); kickstarting (Schmitt et al., 2018) with `anneal_frac` | `ImitationLoss` | SAC, TD3, REDQ, ASAC, AVG, APO, DAgger; PPO, APG, UDRL with a stateless expert; continuous actions only |
 | Q-filtered behaviour cloning (Nair et al., 2018) | `ImitationLoss(q_filter=True)` | SAC, TD3, REDQ, ASAC, AVG |
 | IBRL targets (Hu et al., 2023) | `IBRL` | SAC, TD3, REDQ, AVG |
 | Residual RL (Johannink et al., 2019) | `ResidualPolicy` | SAC |
 | Jump-start RL hand-over (Uchendu et al., 2023) | `JSRLCurriculum` | SAC |
 | Expert transitions in the replay before training | `expert_buffer_n_steps` | SAC |
 | Prior data in the replay, as RLPD (Ball et al., 2023) without its symmetric sampling, then optional offline updates | `PriorData` with a transition dataset (`ajax.buffers.dataset`) | SAC, TD3, REDQ, ASAC, DQN |
+| Offline training on a transition dataset, then online fine-tuning | `agent.train_offline(dataset, n_updates)` | SAC, TD3, REDQ, ASAC, DQN, IQL |
+| Implicit Q-learning, offline then online (IQL, Kostrikov et al., 2022) | [`IQL`](docs/algorithms/iql.md) with `train_offline` | its own agent |
+| TD3+BC, offline (Fujimoto and Gu, 2021) | [`TD3` with `ImitationLoss(None, target="replay", alpha=2.5)`](docs/algorithms/td3.md#td3bc-offline), trained with `train_offline` | TD3; the term on SAC, REDQ, ASAC too |
 | Offline multi-task training on pooled datasets (TD-MPC2, Hansen et al., 2024) | `TDMPC2MultiTask` | its own agent |
+| Interactive imitation by dataset aggregation, with no reward (DAgger, Ross et al., 2011) | `DAgger` | its own agent |
 | Features developed with Ajax, with no external reference: EDGE exploration, LCB-gated targets, a value-gated hand-over, an expert critic fitted to Monte-Carlo returns and the extensions that read it | `EDGEExploration`, `LCBGatedBootstrap`, `ValueBox`, `MCPretrain`, ... | SAC (LCB: SAC, TD3, REDQ) |
 
-Not in Ajax yet: interactive imitation such as DAgger, adversarial imitation
-such as GAIL, and offline RL algorithms such as CQL or IQL.
+Not in Ajax yet: adversarial imitation such as GAIL, and the offline RL
+algorithms CQL and Cal-QL.
 [Expert guidance](docs/guide/expert-guidance.md) explains the expert's
 conventions and how the pieces combine.
 
@@ -273,7 +279,8 @@ GitHub.
   **[MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)**:
   the environment libraries Ajax trains on.
 - **[flashbax](https://github.com/instadeepai/flashbax)**: the replay buffers of
-  SAC, ASAC, REDQ, TD3 and DQN (UDRL and the world models keep their own).
+  SAC, ASAC, REDQ, TD3, DQN, IQL and DAgger (UDRL and the world models keep
+  their own).
 
 ---
 

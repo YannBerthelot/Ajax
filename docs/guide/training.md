@@ -106,7 +106,7 @@ The defaults differ by agent:
 
 | `n_envs` default | Agents |
 | --- | --- |
-| 1 | SAC, ASAC, REDQ, TD3, AVG, DQN, UDRL, TDMPC2 |
+| 1 | SAC, ASAC, REDQ, TD3, IQL, AVG, DQN, UDRL, DAgger, TDMPC2 |
 | 4 | PPO, APO |
 | 8 | PQN, APG |
 | 16 | DreamerV3 |
@@ -193,6 +193,47 @@ To resume in another process, save the state first:
 
 The call may reuse the memory of the state you pass in. Read or save
 anything you need from it before the call.
+
+## Training offline
+
+A replay agent (SAC, TD3, REDQ, ASAC, DQN, IQL) can train on a
+[transition dataset](../api/buffers.md) alone, with no environment step.
+`train_offline(dataset, n_updates)` puts the dataset's rows in the replay
+and in the normalisers, then runs the agent's own update `n_updates` times.
+With a `logging_config` it evaluates every `log_frequency` updates and logs
+the updates done as the `timestep`. The state it returns is back at
+timestep 0, so `train(initial_state=state, ...)` then fine-tunes it online,
+its replay keeping the dataset's rows:
+
+```python
+import jax
+import jax.numpy as jnp
+
+from ajax import TD3
+from ajax.buffers.dataset import record
+from ajax.logging.wandb_logging import LoggingConfig
+
+
+def pd_expert(obs):
+    theta = jnp.arctan2(obs[..., 1], obs[..., 0])
+    return jnp.clip(-(2.0 * theta + 0.5 * obs[..., 2]), -2.0, 2.0)[..., None]
+
+
+agent = TD3("Pendulum-v1", learning_starts=0)  # online: update from the first step
+data = record(pd_expert, agent.env_args, jax.random.PRNGKey(0), n_steps=1_000)
+logging = LoggingConfig(config={}, log_frequency=500, use_wandb=False)
+state, offline = agent.train_offline(data, n_updates=1_000, seed=[0], logging_config=logging)
+print(offline["timestep"])  # [[ 500 1000]]: updates done
+state, online = agent.train(seed=[0], n_timesteps=1_000, initial_state=state)
+```
+
+The replay samples a row with its successor, so the last row of each
+environment's stream (each env's share of the dataset) is not sampled
+offline. It runs the agent's own update, with its extensions' terms:
+[TD3+BC](../algorithms/td3.md#td3bc-offline) is TD3 with a cloning term, and
+[IQL](../algorithms/iql.md) an agent of its own.
+`PriorData(dataset, offline_updates=N)` runs the same updates inside the
+pre-training of an ordinary `train` call, without evaluations.
 
 ## Learning-rate schedules
 

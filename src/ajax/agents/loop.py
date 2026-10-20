@@ -26,6 +26,14 @@ runs them in the same order (:meth:`TrainLoop.off_policy`)::
                     fold the extensions' post_update
                 evaluate and log every evaluation.every ticks
 
+A replay agent given a dataset trains offline instead
+(:meth:`TrainLoop.offline`)::
+
+    fresh run:  the replay and the normalisers start from the dataset
+    iterate:    state, aux = update(state, None)   # no environment step
+                fold the extensions' post_update
+                evaluate and log every log_frequency updates
+
 The result is :func:`ajax.perf_utils.build_resumable_train`'s jitted
 ``train(key, index, initial_state, resume_from_state)``, which
 :meth:`ajax.agents.base.ActorCritic.train` vmaps over seeds. It returns
@@ -47,15 +55,22 @@ from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 from jax.tree_util import Partial as partial
 
+from ajax.buffers.dataset import TransitionDataset, fill_replay
+from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     collect_experience,
     expert_collect_kwargs,
     preallocate_last_rollout,
+    reward_statistics,
     should_use_uniform_sampling,
+    with_reward_statistics,
 )
+from ajax.environments.obs_norm import update_obs_norm
+from ajax.environments.utils import raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionStack, merge_metrics
 from ajax.log import (
     compose_eval_metrics,
@@ -66,6 +81,8 @@ from ajax.log import (
 from ajax.logging.wandb_logging import LoggingConfig, start_async_logging, vmap_log
 from ajax.perf_utils import build_resumable_train
 from ajax.state import EnvironmentConfig
+from ajax.types import NormalizationInfo
+from ajax.utils import online_normalize
 
 #: The extension phases the loop folds for every agent: a fresh run's
 #: one-shot ``pretrain``, ``post_update`` after each update and
@@ -155,6 +172,47 @@ def with_obs_norm(agent_state: Any) -> Any:
         actor_state=agent_state.actor_state.replace(obs_norm_info=stats),
         critic_state=agent_state.critic_state.replace(obs_norm_info=stats),
     )
+
+
+def seed_replay(
+    agent_state: Any, buffer: Any, data: TransitionDataset, env_args: EnvironmentConfig
+) -> Any:
+    """``agent_state`` with ``data``'s rows in its replay, where they stay
+    (:func:`ajax.buffers.dataset.fill_replay`), and in the normalisers it
+    has, each row counted once as collection counts its own: its own
+    observation statistics, mirrored on its networks, and the env's reward
+    statistics, of the reward or, with the normaliser's ``gamma``, of the
+    discounted return of the episode so far (its running return left as it
+    is)."""
+    collector = agent_state.collector_state
+    collector = collector.replace(
+        buffer_state=fill_replay(buffer, collector.buffer_state, data)
+    )
+    env = env_args.env
+    _, obs_stats = update_obs_norm(
+        jnp.asarray(data.obs), collector.obs_norm_info, raw_obs_columns(env)
+    )
+    collector = collector.replace(obs_norm_info=obs_stats)
+    stats = reward_statistics(collector.env_state)
+    if stats is not None:
+        gamma = strip_ajax_wrappers(env)[1].get("gamma") or 0.0
+        returns, g = np.zeros_like(data.reward), 0.0
+        for t, end in enumerate(data.terminated | data.truncated):
+            g = data.reward[t] + gamma * g
+            returns[t], g = g, 0.0 if end else g
+        returns = jnp.asarray(returns)[:, None]
+        _, count, mean, mean_2, var = online_normalize(
+            returns,
+            stats.count,
+            stats.mean,
+            stats.mean_2,
+            shift=False,
+            returns=returns,
+        )
+        stats = NormalizationInfo(var, count, mean, mean_2, stats.returns)
+        env_state = with_reward_statistics(collector.env_state, stats)
+        collector = collector.replace(_env_state=env_state)
+    return with_obs_norm(agent_state.replace(collector_state=collector))
 
 
 def fold_post_update(
@@ -267,6 +325,8 @@ class TrainLoop:
     end_timestep: Optional[int] = None
     #: The agent's ``expert_policy``, whose actions collection stores.
     expert_policy: Any = None
+    #: A transition dataset to train on alone (:meth:`offline`).
+    offline_data: Optional[TransitionDataset] = None
 
     @classmethod
     def create(
@@ -280,6 +340,7 @@ class TrainLoop:
         start_timestep: int = 0,
         end_timestep: Optional[int] = None,
         expert_policy: Any = None,
+        offline_data: Optional[TransitionDataset] = None,
     ) -> TrainLoop:
         """The loop of one ``make_train`` call; starts the logging worker
         when ``logging_config`` names a backend."""
@@ -299,6 +360,7 @@ class TrainLoop:
             start_timestep=start_timestep,
             end_timestep=end_timestep,
             expert_policy=expert_policy,
+            offline_data=offline_data,
         )
 
     @property
@@ -588,8 +650,19 @@ class TrainLoop:
         ``learning_starts`` gate (:meth:`repeat_update`); ``evaluation``
         replaces the actor's evaluation (:meth:`evaluate_every`);
         ``num_ticks`` the budget.
+
+        With :attr:`offline_data` it trains offline instead (:meth:`offline`).
         """
         collect_args = self.collect_kwargs(recurrent, **(collect_kwargs or {}))
+        if self.offline_data is not None:
+            if collect is not None or n_updates is not None or evaluation is not None:
+                raise ValueError(
+                    "Offline training runs the agent's update on a replay of the"
+                    " dataset; an agent collecting its own way has no such loop."
+                )
+            return self.offline(
+                init, update, collect_args["buffer"], recurrent, eval_kwargs
+            )
 
         def collect_step(agent_state: Any, tick: Any) -> tuple[Any, Any]:
             if collect is not None:
@@ -639,6 +712,47 @@ class TrainLoop:
             update=update,
             buffer=collect_args.get("buffer"),
         )
+
+    def offline(
+        self,
+        init: Init,
+        update: Update,
+        buffer: Any,
+        recurrent: bool = False,
+        eval_kwargs: Optional[dict] = None,
+    ) -> Callable:
+        """Train on :attr:`offline_data` alone, with no environment step.
+
+        A fresh run's replay and normalisers start from the dataset's rows
+        (:func:`seed_replay`). Each tick runs ``update(agent_state, None)``
+        on that replay, folds ``post_update`` and counts the update in the
+        collector's timestep: the schedules run over the updates, and the
+        evaluations (:meth:`evaluate_and_log`) come every ``log_frequency``
+        updates and log the updates done as their timestep. The budget is
+        :attr:`budget` updates.
+        """
+        data = self.offline_data
+        assert data is not None
+
+        def seeded(key: jax.Array) -> Any:
+            return seed_replay(init(key), buffer, data, self.env_args)
+
+        def iteration(
+            agent_state: Any, index: Any, tick: Any
+        ) -> tuple[Any, Optional[dict]]:
+            del tick
+            agent_state, aux = update(agent_state, None)
+            # One (1,)-shaped leaf per metric, as maybe_update hands them.
+            aux = jax.tree.map(lambda x: jnp.reshape(x, (1,)), aux)
+            agent_state = self.post_update(agent_state)
+            collector = agent_state.collector_state
+            collector = collector.replace(timestep=collector.timestep + 1)
+            agent_state = agent_state.replace(collector_state=collector)
+            return self.evaluate_and_log(
+                agent_state, aux, index, recurrent, **(eval_kwargs or {})
+            )
+
+        return self.train(seeded, iteration, self.budget, update=update, buffer=buffer)
 
     def on_policy(
         self,
@@ -697,4 +811,5 @@ __all__ = [
     "fold_post_update",
     "fresh_state",
     "gradient_step",
+    "seed_replay",
 ]

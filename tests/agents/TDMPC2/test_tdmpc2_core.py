@@ -212,14 +212,17 @@ def test_q_pair_logits_evaluates_only_the_pair(state):
 # ------------------------------------------------------------ policy sampling
 
 
-def _reference_pi(mu, raw, eps, low=-10.0, high=2.0):
-    """``world_model.py:132-148`` with ``math.py:12-45``, float64 numpy."""
+def _reference_pi(mu, raw, eps, low=-10.0, high=2.0, pi=None):
+    """``world_model.py:132-148`` with ``math.py:12-45``, float64 numpy;
+    ``pi``, if given, is the action whose tanh correction it takes."""
     mu, raw, eps = (np.asarray(x, np.float64) for x in (mu, raw, eps))
     log_std = low + 0.5 * (high - low) * (np.tanh(raw) + 1)
     size = eps.shape[-1]
     residual = (-0.5 * eps**2 - log_std).sum(-1, keepdims=True)
     log_pi = (residual - 0.5 * math.log(2 * math.pi)) * size
-    pi = np.tanh(mu + eps * np.exp(log_std))
+    if pi is None:
+        pi = np.tanh(mu + eps * np.exp(log_std))
+    pi = np.asarray(pi, np.float64)
     log_pi = log_pi - np.log(np.maximum(1 - pi**2, 0) + 1e-6).sum(-1, keepdims=True)
     return np.tanh(mu), pi, log_pi[..., 0], log_std
 
@@ -240,14 +243,17 @@ def test_squashed_gaussian_is_the_paper_era_policy():
 
 
 def test_log_pi_stays_finite_when_tanh_saturates():
-    """For |u| above ~9, tanh(u) is exactly +-1 in float32 (and here in float64
-    too); the ``+ 1e-6`` of ``math.py:35-37`` keeps log_pi and its gradient
-    finite."""
+    """For |u| above ~9 tanh(u) saturates in float32: exactly +-1 on most
+    backends, a float32 ulp short of it on others (XLA on Linux arm64:
+    0.99999982), which moves log(1 - a^2 + 1e-6) by 0.3. The ``+ 1e-6`` of
+    ``math.py:35-37`` keeps log_pi and its gradient finite either way; log_pi
+    is the reference's at the action the backend gave."""
     mean = jnp.array([[20.0, -20.0]])
     raw, eps = jnp.zeros((1, 2)), jnp.ones((1, 2))
     out = core.squashed_gaussian(mean, raw, eps, TINY)
-    np.testing.assert_array_equal(np.abs(out.action), 1.0)
-    np.testing.assert_allclose(out.log_pi, _reference_pi(mean, raw, eps)[2], rtol=1e-6)
+    np.testing.assert_allclose(np.abs(out.action), 1.0, rtol=0, atol=4e-7)
+    expected = _reference_pi(mean, raw, eps, pi=out.action)[2]
+    np.testing.assert_allclose(out.log_pi, expected, rtol=1e-6)
 
     def total_log_pi(m):
         return jnp.sum(core.squashed_gaussian(m, raw, eps, TINY).log_pi)

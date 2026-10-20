@@ -13,28 +13,33 @@ A change under `src/ajax` also runs `uv run pytest
 tests/probing/test_framework.py` (no training): planted faults quote
 source lines, so any source edit can break one. A change to an agent's
 training runs all of that agent's probe cells (`-k <Agent>` over
-`tests/probing`). Then push and let CI run the rest; fix anything it
+`tests/probing`) and its conformance test, if it has one
+(`tests/conformance`). Then push and let CI run the rest; fix anything it
 reports on the same branch. The checks:
 
 1. **pre-commit** (`make ci-precommit`) — `uv run pre-commit run
    --all-files` (ruff lint, ruff-format, mypy).
 2. **Tests not marked slow + coverage** (`make ci-test`) — `uv run
    coverage erase` (parallel mode never removes old data files), then
-   `uv run coverage run -m pytest -m "not slow" --ignore=tests/probing`,
+   `uv run coverage run -m pytest -m "not slow" --ignore=tests/probing
+   --ignore=tests/conformance`,
    then `uv run coverage combine`
    (coverage measures subprocesses, one data file each), then `uv
    run coverage report --fail-under=70`.
 3. **Slow tests** (`make ci-slow`) — `uv run pytest -m slow
-   --ignore=tests/probing`.
+   --ignore=tests/probing --ignore=tests/conformance`.
 4. **Probing tests** (`make ci-probe`) — `uv run pytest tests/probing`.
-5. **Docs** (`make docs`) — `uv run --group docs mkdocs build --strict`.
+5. **Conformance tests** (`make ci-conformance`) — `uv run pytest
+   tests/conformance`: one training step of each agent against its
+   original implementation.
+6. **Docs** (`make docs`) — `uv run --group docs mkdocs build --strict`.
 
-`make ci` runs all five locally when you do want them, with the GPU
+`make ci` runs all six locally when you do want them, with the GPU
 hidden (`CUDA_VISIBLE_DEVICES=""`, `JAX_PLATFORMS=cpu`) so they never
 compete with a running experiment. `.github/workflows/ci.yml` runs the
 same commands on CPU as parallel jobs: pre-commit; the tests not marked
 slow in three shards, whose coverage one more job combines and checks;
-the slow tests; probing in five shards; the docs build. Its *Lint and Test* job, the one
+the slow tests; probing in five shards; conformance; the docs build. Its *Lint and Test* job, the one
 check branch protection requires, passes only when all of them passed.
 Never merge while any of them is red. If a failure is
 pre-existing and unrelated to the change, call it out explicitly instead

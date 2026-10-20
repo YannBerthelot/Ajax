@@ -6,7 +6,7 @@ SHELL=/bin/bash
 # (newer) + JAX_PLATFORM_NAME (older) are belt-and-suspenders.
 CPU_ENV := CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu JAX_PLATFORM_NAME=cpu
 
-.PHONY: ci ci-precommit ci-test ci-slow ci-probe docs docs-serve test-cpu probe-cpu help
+.PHONY: ci ci-precommit ci-test ci-slow ci-probe ci-conformance docs docs-serve test-cpu probe-cpu help
 
 help:  ## Show this help message
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -18,22 +18,25 @@ help:  ## Show this help message
 # commands so the local checks match what merges.
 # ---------------------------------------------------------------------------
 
-ci: ci-precommit ci-test ci-slow ci-probe docs  ## Full local CI: pre-commit, tests not marked slow + coverage, slow tests, probing, docs
+ci: ci-precommit ci-test ci-slow ci-probe ci-conformance docs  ## Full local CI: pre-commit, tests not marked slow + coverage, slow tests, probing, conformance, docs
 
 ci-precommit:  ## pre-commit on all files (ruff lint + ruff-format + mypy)
 	uv run pre-commit run --all-files
 
-ci-test:  ## Tests not marked slow (deselects probing) + coverage >= 70
+ci-test:  ## Tests not marked slow (deselects probing, conformance) + coverage >= 70
 	uv run coverage erase
-	$(CPU_ENV) uv run coverage run -m pytest -m "not slow" --ignore=tests/probing
+	$(CPU_ENV) uv run coverage run -m pytest -m "not slow" --ignore=tests/probing --ignore=tests/conformance
 	uv run coverage combine
 	uv run coverage report --fail-under=70
 
-ci-slow:  ## Tests marked slow (deselects probing), without coverage
-	$(CPU_ENV) uv run pytest -m slow --ignore=tests/probing
+ci-slow:  ## Tests marked slow (deselects probing, conformance), without coverage
+	$(CPU_ENV) uv run pytest -m slow --ignore=tests/probing --ignore=tests/conformance
 
 ci-probe:  ## Cross-agent probing tests (the known-answer probes)
 	$(CPU_ENV) uv run pytest tests/probing
+
+ci-conformance:  ## Each agent's training step against its original implementation
+	$(CPU_ENV) uv run pytest tests/conformance
 
 docs:  ## Build the documentation site into site/, strictly, as CI does
 	uv run --group docs mkdocs build --strict

@@ -38,8 +38,8 @@ jobs:
   # Shards 1 and 2 name directories; shard 3 runs everything else under
   # tests/ (pyproject's testpaths), so a new test file always runs somewhere.
   # The split balances the per-file times of the CI runs at a1658d9.
-  # Probing (tests/probing) is left out here
-  # and in the slow job: the probing job owns it.
+  # Probing (tests/probing) and conformance (tests/conformance) are left out
+  # here and in the slow job: their own jobs run them.
   tests:
     name: Tests (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -66,7 +66,7 @@ jobs:
             3) paths="tests $(printf -- '--ignore=%s ' $SHARD_1 $SHARD_2)" ;;
           esac
           uv run coverage run -m pytest $paths -m "not slow" \
-            --ignore=tests/probing --durations=30
+            --ignore=tests/probing --ignore=tests/conformance --durations=30
       # The cache only saves time: a failed save must not fail the job (in
       # the test shards it would also skip the coverage upload).
       - name: Save the JAX compile cache
@@ -111,7 +111,7 @@ jobs:
         uses: ./.github/actions/compile-cache
         with:
           job: slow
-      - run: uv run pytest -m slow --ignore=tests/probing --durations=30
+      - run: uv run pytest -m slow --ignore=tests/probing --ignore=tests/conformance --durations=30
       - name: Save the JAX compile cache
         if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
         continue-on-error: true
@@ -164,6 +164,28 @@ jobs:
         with:
           key: ${{ steps.jax-cache.outputs.key }}
 
+  # One training step of each agent against its original implementation, from
+  # the same state with the same random numbers (tests/conformance), in its own
+  # job, without coverage.
+  conformance:
+    name: Conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - id: jax-cache
+        uses: ./.github/actions/compile-cache
+        with:
+          job: conformance
+      - run: uv run pytest tests/conformance -v --durations=30
+      - name: Save the JAX compile cache
+        if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
+        continue-on-error: true
+        uses: ./.github/actions/compile-cache-save
+        with:
+          key: ${{ steps.jax-cache.outputs.key }}
+
   # The documentation site, built strictly: a page missing from the nav, a
   # broken link or a docstring that names a parameter the signature no longer
   # has fails here. mkdocstrings reads the source without importing it, so
@@ -190,15 +212,16 @@ jobs:
   gate:
     name: Lint and Test
     if: always()
-    needs: [lint, tests, coverage, slow, probing, docs]
+    needs: [lint, tests, coverage, slow, probing, conformance, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - run: |
-          echo 'lint=${{ needs.lint.result }} tests=${{ needs.tests.result }} coverage=${{ needs.coverage.result }} slow=${{ needs.slow.result }} probing=${{ needs.probing.result }} docs=${{ needs.docs.result }}'
+          echo 'lint=${{ needs.lint.result }} tests=${{ needs.tests.result }} coverage=${{ needs.coverage.result }} slow=${{ needs.slow.result }} probing=${{ needs.probing.result }} conformance=${{ needs.conformance.result }} docs=${{ needs.docs.result }}'
           test '${{ needs.lint.result }}' = success
           test '${{ needs.tests.result }}' = success
           test '${{ needs.coverage.result }}' = success
           test '${{ needs.slow.result }}' = success
           test '${{ needs.probing.result }}' = success
+          test '${{ needs.conformance.result }}' = success
           test '${{ needs.docs.result }}' = success

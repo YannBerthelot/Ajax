@@ -67,6 +67,8 @@ def init_buffer(
     include_raw_next_obs: bool = False,
     include_raw_obs: bool = False,
     include_is_expert: bool = False,
+    include_return_to_go: bool = False,
+    include_next_action: bool = False,
 ) -> fbx.flat_buffer.TrajectoryBufferState:
     """
     Initialize the flashbax buffer state with correctly shaped dummy transitions.
@@ -82,6 +84,10 @@ def init_buffer(
       observation, ``raw_obs``, and next observation (the final one where
       an episode ended), ``raw_next_obs``, for an expert to read.
     include_is_expert: also keep whether an expert acted, ``is_expert``.
+    include_return_to_go: also keep a dataset row's return to its episode's
+      end, ``return_to_go`` (a collected row's is -inf: unknown).
+    include_next_action: also keep a dataset row's next action, its
+      episode's next row's, ``next_action`` (NaN where unknown).
 
     A field is stored only for a reader: a row is about 40% raw
     observation, which a run without an expert never reads.
@@ -119,6 +125,10 @@ def init_buffer(
         schema["a_expert"] = schema["next_a_expert"] = action
     if include_raw_next_obs:
         schema["raw_next_obs"] = raw_obsv
+    if include_return_to_go:
+        schema["return_to_go"] = jnp.zeros((1,), dtype=jnp.float32)
+    if include_next_action:
+        schema["next_action"] = jnp.zeros(action.shape, dtype=jnp.float32)
     if actor_carry_dim > 0:
         # R2D2-style stored-state replay: the actor's flattened carry at
         # each step (see ajax.networks.memory.flatten_carry).
@@ -143,6 +153,10 @@ class ReplayBatch(NamedTuple):
     next_a_expert: Optional[jax.Array] = None
     # The env's own next observation (include_raw_next_obs).
     raw_next_obs: Optional[jax.Array] = None
+    # A dataset row's return to its episode's end (include_return_to_go).
+    return_to_go: Optional[jax.Array] = None
+    # A dataset row's next action (include_next_action).
+    next_action: Optional[jax.Array] = None
 
 
 def normalized_rewards(reward: jax.Array, stats: NormalizationInfo) -> jax.Array:
@@ -184,6 +198,8 @@ def get_batch_from_buffer(
         a_expert=first.get("a_expert"),
         next_a_expert=first.get("next_a_expert"),
         raw_next_obs=first.get("raw_next_obs"),
+        return_to_go=first.get("return_to_go"),
+        next_action=first.get("next_action"),
     )
 
 

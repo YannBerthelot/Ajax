@@ -97,6 +97,7 @@ def init_SAC(
     count_episode_steps: bool = False,
     store_raw_next_obs: bool = False,
     store_expert_data: bool = False,
+    store_return_to_go: bool = False,
 ) -> SACState:
     rng, init_key, collector_key, expert_key, eval_rng = jax.random.split(key, 5)
 
@@ -137,6 +138,7 @@ def init_SAC(
             ),
             "expert_policy": expert_policy,
             "include_raw_next_obs": store_raw_next_obs,
+            "include_return_to_go": store_return_to_go,
             "include_raw_obs": store_expert_data,
             "include_is_expert": store_expert_data,
         },
@@ -194,6 +196,7 @@ def update_value_functions(
     carries: Optional[RecurrentCarries] = None,
     raw_next_observations: Optional[jax.Array] = None,
     stored_next_a_expert: Optional[jax.Array] = None,
+    return_to_go: Optional[jax.Array] = None,
 ) -> Tuple[SACState, ValueAuxiliaries, dict]:
     # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
     # default partitionable threefry, so the agent's own draws are unchanged.
@@ -270,9 +273,12 @@ def update_value_functions(
         loss_batch = {
             "observations": observations,
             "actions": actions,
+            "next_observations": next_observations,
             "targets": target_q,
             "critic_params": params,
             "critic_state": critic_state,
+            "actor_state": agent_state.actor_state,
+            "return_to_go": return_to_go,
         }
         extra, metrics = extension_stack.fold_critic_loss(
             agent_state,
@@ -516,6 +522,7 @@ def update_agent(
             raw_obs=batch.raw_obs,
             a_expert=batch.a_expert,
             next_a_expert=batch.next_a_expert,
+            return_to_go=batch.return_to_go,
         )
 
     # A truncated row bootstraps on its final observation (bootstrap_obs).
@@ -591,6 +598,7 @@ def update_agent(
             carries=carries,
             raw_next_observations=raw_next_observations,
             stored_next_a_expert=transition.next_a_expert,
+            return_to_go=transition.return_to_go,
         )
         return state, (aux, metrics)
 
@@ -790,6 +798,7 @@ def make_train(
             # Kept only for an extension that declares it reads it.
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),
             store_expert_data=holds_expert(expert_policy, stack),
+            store_return_to_go="return_to_go" in stack.buffer_fields(),
         )
 
     # An extension implementing ``transform_action`` (ResidualPolicy) makes

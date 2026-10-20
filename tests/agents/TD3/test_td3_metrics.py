@@ -57,7 +57,7 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
     np.testing.assert_allclose(v_aux.q_gap, np.mean(np.abs(q[0] - q[1])), rtol=1e-5)
     # The target noise is drawn on the first of the three keys the step splits.
     key = jax.random.split(state.rng, 3)[0]
-    target, clip_frac = train_TD3.compute_td3_td_target(
+    target, clip_frac, _ = train_TD3.compute_td3_td_target(
         state.actor_state,
         critic,
         key,

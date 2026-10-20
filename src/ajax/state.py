@@ -54,6 +54,12 @@ class Transition(Replaceable):
     # The environment's own observation at s_{t+1} (the final one where an
     # episode ended), as raw_obs is at s_t: what an expert reads there.
     raw_next_obs: Optional[jnp.ndarray] = None
+    # A dataset row's discounted return to its episode's end (-inf where
+    # unknown: a collected row), for an extension that reads it (Cal-QL).
+    return_to_go: Optional[jnp.ndarray] = None
+    # A dataset row's next action, its episode's next row's (NaN where
+    # unknown: an episode's end, a collected row), for ReBRAC's TargetBC.
+    next_action: Optional[jnp.ndarray] = None
 
     def __len__(self):
         return self.obs.shape[0] if self.obs.ndim > 0 else 1

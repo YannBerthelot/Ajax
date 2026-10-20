@@ -281,11 +281,12 @@ def update_policy(
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
+    actions: Optional[jax.Array] = None,
 ) -> Tuple[TD3State, PolicyAuxiliaries, dict]:
     """The deterministic policy-gradient step on ``-Q1(s, mu(s))``;
-    ``a_expert``, the expert's stored actions at the rows, reaches the
-    extensions (None without an expert). Also returns the extensions'
-    metrics."""
+    ``a_expert``, the expert's stored actions at the rows (None without an
+    expert), and ``actions``, the rows' own, reach the extensions. Also
+    returns the extensions' metrics."""
     actor_state = agent_state.actor_state
 
     def loss_fn(params: FrozenDict) -> Tuple[jax.Array, Any]:
@@ -299,6 +300,7 @@ def update_policy(
             "actor_params": params,
             "actor_state": actor_state,
             "a_expert": a_expert,
+            "actions": actions,
             "critic_state": agent_state.critic_state,
         }
         extra, metrics = extension_stack.fold_actor_loss(
@@ -360,6 +362,7 @@ def update_agent(
             total_timesteps,
             carries,
             a_expert=batch.a_expert,
+            actions=batch.action,
         )
         agent_state = update_target_networks(agent_state, agent_config.tau)
         return agent_state, (policy_aux, policy_metrics)

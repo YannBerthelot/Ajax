@@ -40,13 +40,15 @@ from . import readouts as R
 # + 4, this note + 1; DAgger's two cells: test_imitation 103, faults/ + 3,
 # this note + 2; the offline mode's cell: test_offline 62, faults/ + 1, this
 # note + 2; TD3+BC's cell: test_offline + 49, faults/ + 2, this note + 1.
+# IQL's cell: test_offline + 67, faults/ + 3, test_p4_split_run + 2, this
+# note + 2.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 223}
-CAPS |= {"test_framework.py": 221, "test_value_chains.py": 1051}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 226}
+CAPS |= {"test_framework.py": 223, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1045, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 791, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
-CAPS |= {"test_action_box.py": 201, "test_imitation.py": 103, "test_offline.py": 111}
+CAPS |= {"test_action_box.py": 201, "test_imitation.py": 103, "test_offline.py": 178}
 
 
 def _modules() -> list:

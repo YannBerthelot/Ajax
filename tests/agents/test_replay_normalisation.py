@@ -32,7 +32,7 @@ REPLAYING = sorted(
 
 
 def test_the_replaying_agents_are_the_replay_buffer_ones() -> None:
-    assert REPLAYING == ["ASAC", "DAgger", "DQN", "REDQ", "SAC", "TD3", "UDRL"]
+    assert REPLAYING == ["ASAC", "DAgger", "DQN", "IQL", "REDQ", "SAC", "TD3", "UDRL"]
 
 
 def _replayed_rows(state: Any) -> np.ndarray:
@@ -98,7 +98,8 @@ def test_an_on_policy_agent_keeps_the_envs_normaliser() -> None:
 
 # UDRL's segments still keep the rewards the env normalised: its commands and
 # their targets are sums of them (docs/guide/environments.md). DAgger learns
-# from no reward and takes no reward normaliser.
+# from no reward, and IQL scales its rewards (reward_scale, as its reference):
+# neither takes a reward normaliser.
 REWARD_NORMALISING = [
     n
     for n in REPLAYING

@@ -47,6 +47,23 @@ def test_the_rewards_are_minus_log_one_minus_d_before_the_discriminator_steps() 
     assert int(stepped.step) == 3 and set(metrics) >= {"gail/disc_loss", "gail/reward"}
 
 
+def test_the_discriminator_reads_the_executed_action() -> None:
+    """A sample beyond [-1, 1] runs as the bound, and is scored as it; a
+    demonstration's action too."""
+    gail = AdversarialReward(demos())
+    ctx = ExtensionContext(step=jnp.asarray(0), rng=KEY)
+    state = gail.init_state(None, KEY)
+    beyond, bound = (rollout() | {"actions": jnp.full((4, 2, 1), a)} for a in (3, 1))
+    zeros = jnp.zeros((4, 2, 1))
+    np.testing.assert_array_equal(
+        gail.reward(None, state, beyond, zeros, ctx)[0],
+        gail.reward(None, state, bound, zeros, ctx)[0],
+    )
+    wide = demos()
+    wide.action[:] = -2.0
+    assert float(AdversarialReward(wide).rows()[:, -1].max()) == -1.0
+
+
 def test_the_discriminator_learns_to_tell_the_rollout_from_the_demonstrations() -> None:
     gail = AdversarialReward(demos(), n_updates=50, learning_rate=1e-2)
     state, batch = gail.init_state(None, KEY), rollout()

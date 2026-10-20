@@ -73,6 +73,9 @@ class EveryPhase(Extension):
     def pretrain(self, agent_state, ext_state, ctx):
         return agent_state, ext_state
 
+    def reward(self, agent_state, ext_state, batch, rewards, ctx):
+        return rewards, ext_state, {}
+
     def on_target(self, agent_state, ext_state, batch, target, ctx):
         return target
 

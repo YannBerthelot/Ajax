@@ -912,6 +912,39 @@ _GOLDEN |= {
         "nudge": 0.22634370625019073,
     },
 }
+# Re-recorded on macOS ARM CPU once the flat replay drew rows alone instead
+# of a row with its successor, so each env's newest row is sampled too:
+# every replay agent draws other indices. Relative shifts (actor, critic or
+# target):
+# ASAC -1e-6, +0.05%; DQN +0.06%, +0.06%; DQN-dueling-nudge -2.60%, -2.57%;
+# REDQ +0.01%, -0.21%; SAC-mcc +0.06%, +0.11%; TD3 +0.03%, -0.13%; TD3-mcc
+# -0.05%, -0.04%. Alphas and nudges move under 3e-4; SAC-gru (sequence
+# replay) is bitwise unchanged.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 17.28061866760254,
+        "critic": 27.380563735961914,
+        "alpha": 0.19999998807907104,
+    },
+    "DQN": {"actor": 9.929774284362793, "target": 9.866254806518555},
+    "DQN-dueling-nudge": {
+        "actor": 10.603666305541992,
+        "target": 10.512863159179688,
+        "nudge": 0.22634370625019073,
+    },
+    "REDQ": {
+        "actor": 10.560783386230469,
+        "critic": 39.15713882446289,
+        "alpha": 0.9724487662315369,
+    },
+    "SAC-mcc": {
+        "actor": 8.316039085388184,
+        "critic": 15.639910697937012,
+        "alpha": 0.9759904146194458,
+    },
+    "TD3": {"actor": 15.43655776977539, "critic": 27.031620025634766},
+    "TD3-mcc": {"actor": 17.494739532470703, "critic": 28.534778594970703},
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

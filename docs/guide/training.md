@@ -227,9 +227,7 @@ print(offline["timestep"])  # [[ 500 1000]]: updates done
 state, online = agent.train(seed=[0], n_timesteps=1_000, initial_state=state)
 ```
 
-The replay samples a row with its successor, so the last row of each
-environment's stream (each env's share of the dataset) is not sampled
-offline. It runs the agent's own update, with its extensions' terms:
+`train_offline` runs the agent's own update, with its extensions' terms:
 [TD3+BC](../algorithms/td3.md#td3bc-offline) is TD3 with a cloning term, and
 [IQL](../algorithms/iql.md) an agent of its own.
 `PriorData(dataset, offline_updates=N)` runs the same updates inside the

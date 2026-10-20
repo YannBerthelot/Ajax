@@ -1,4 +1,4 @@
-"""Imitation agents on a known answer: DAgger.
+"""Imitation on a known answer: DAgger, and GAIL on PPO.
 
 DAgger (Ross, Gordon and Bagnell, 2011) labels with the expert's action the
 states the learner visits. On a one-hot chain, from state 0 an action above
@@ -10,6 +10,10 @@ from the executed action leave the actor where it started (with a first
 iteration of 500 steps, the default, a(3) only drifts, to 0.26). The discrete
 twin, two actions, starts at 0 or 3 at random: a categorical actor's first
 choice cannot be steered, so it reads the cross-entropy fit on every state.
+
+GAIL (Ho and Ermon, 2016) on SignedActionEnv, one step paying clip(a) s,
+whose own optimum is a = s: the demonstrations take a = 0.6 s, and PPO,
+rewarded by the discriminator alone, must take them too.
 """
 
 from __future__ import annotations
@@ -18,7 +22,11 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
+
+from ajax.buffers.dataset import TransitionDataset
+from ajax.extensions.adversarial import AdversarialReward
 
 from . import agents, envs, runs
 from . import readouts as R
@@ -72,6 +80,27 @@ def dagger_readings(discrete: bool) -> Any:
     return runs.readings(build, read)
 
 
+DEMO = 0.6  # the demonstrations' action at s = 1, times s
+
+
+def gail_readings() -> Any:
+    s = np.repeat([-1.0, 1.0], 32)[:, None]
+    ends = np.ones(64, bool)
+    demos = TransitionDataset(s, DEMO * s, np.zeros(64), ends, ~ends, s)
+
+    def build() -> Any:
+        env = envs.package(envs.SignedActionEnv)
+        return agents.make("PPO", *env, extensions=(AdversarialReward(demos),))
+
+    def read(run: runs.Run) -> dict:
+        def at(n: R.Nets) -> dict:
+            return {f"a({x:g})": R.action(n, x) for x in (-1.0, 1.0)}
+
+        return R.per_seed(at, R.nets(run.state))
+
+    return runs.readings(build, read)
+
+
 _SELF = {"labels from the executed action": 0.0}
 CASES: dict[str, Case] = {
     "dagger-off-path-DAgger": Case(
@@ -94,8 +123,19 @@ CASES: dict[str, Case] = {
         (0.064, 0.098, 0.048),
         note="ladder 250-4000 on 1000-1031, 250-2000 on 2000-2031: 500; cert 32/32",
     ),
+    "gail-signed-PPO": Case(
+        "gail-signed-PPO",
+        tuple(
+            Query(f"a({x:g})", DEMO * x, {"the env's reward": x, "untrained": 0.0})
+            for x in (-1.0, 1.0)
+        ),
+        gail_readings(),
+        32000,
+        (0.069, 0.065),
+        note="ladder 2000-32000 on 1000-1031, 16000-32000 on 2000-2031: 32000; cert 32/32",
+    ),
 }
-ANSWER_DIGEST = "cda15133aef7"
+ANSWER_DIGEST = "a0d53941daec"
 
 
 @pytest.mark.parametrize("case", params(CASES))

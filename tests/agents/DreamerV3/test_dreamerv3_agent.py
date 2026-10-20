@@ -367,9 +367,10 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
     np.testing.assert_array_equal(state.replay_state.popped, full.replay_state.popped)
     jax.tree.map(np.testing.assert_array_equal, state.ext_state, full.ext_state)
     # The values come from two separately compiled programs, which XLA need
-    # not round alike (under JAX 0.11 1e-7 apart after two ticks). Training
-    # amplifies that (1e-4 after the half run, and on CI a flipped action), so
-    # they are compared after a short continuation.
+    # not round alike (under JAX 0.11 1e-7 apart after two ticks locally, up
+    # to 2e-5 on some CI runners). Training amplifies that (1e-4 after the
+    # half run, and on CI a flipped action), so they are compared after a
+    # short continuation, to well under a wiring bug's O(0.1).
     two_ticks = 2 * N_ENVS  # rows
     short_resumer = cartpole_agent(extensions=[CounterExt(), MetricExt()])
     short_skeleton = short_resumer.train(seed=SEEDS, n_timesteps=0)
@@ -386,7 +387,7 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
         jax.tree.leaves((whole.world_model_state.params, whole.replay_state.deter)),
         strict=True,
     ):
-        np.testing.assert_allclose(ours, theirs, rtol=1e-5, atol=1e-6)
+        np.testing.assert_allclose(ours, theirs, rtol=1e-5, atol=1e-4)
     # Exact: CartPole's observations depend on the networks only through the
     # discrete actions, which a different stream or update would flip.
     np.testing.assert_array_equal(short.replay_state.obs, whole.replay_state.obs)

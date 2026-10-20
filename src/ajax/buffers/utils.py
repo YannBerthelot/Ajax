@@ -1,8 +1,9 @@
-from typing import NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
 
 import flashbax as fbx
 import jax
 import jax.numpy as jnp
+from flashbax.buffers.trajectory_buffer import TrajectoryBufferSample
 from jax.tree_util import Partial as partial
 
 from ajax.environments.utils import get_state_action_shapes
@@ -17,31 +18,26 @@ def get_buffer(
     n_envs: int = 1,
     sequence_length: Optional[int] = None,
 ):
-    """Replay buffer factory.
+    """Replay buffer factory: a trajectory buffer of ``buffer_size // n_envs``
+    rows per env, whose ``add`` takes the single-step (n_envs, ...)
+    transitions the collector writes.
 
-    sequence_length=None (default) returns the usual flat buffer of
-    independent transitions. When set (recurrent agents), returns a
-    trajectory buffer whose ``sample`` yields contiguous per-env sequences
-    of that length, shaped (batch_size, sequence_length, ...). The ``add``
-    signature is wrapped to accept the same single-step (n_envs, ...)
-    transitions the collector already writes.
+    sequence_length=None (default) samples rows alone, uniformly over every
+    stored one: a row holds its next observation, so it needs no successor
+    (flashbax's flat buffer samples a row with its successor, which leaves
+    each env's newest row out). When set (recurrent agents), ``sample``
+    yields contiguous per-env sequences of that length, shaped
+    (batch_size, sequence_length, ...).
     """
-    if sequence_length is None:
-        return fbx.make_flat_buffer(
-            max_length=buffer_size,
-            sample_batch_size=batch_size,
-            min_length=batch_size,
-            add_batch_size=n_envs,
-        )
-
     from flashbax.utils import add_dim_to_args
 
     buffer = fbx.make_trajectory_buffer(
         add_batch_size=n_envs,
         sample_batch_size=batch_size,
-        sample_sequence_length=sequence_length,
+        sample_sequence_length=sequence_length or 1,
         period=1,
-        min_length_time_axis=sequence_length + 1,
+        # Rows per env before can_sample: a sample's own, plus one.
+        min_length_time_axis=(sequence_length or batch_size // n_envs) + 1,
         max_length_time_axis=buffer_size // n_envs,
     )
     # The collector adds one transition of shape (n_envs, ...) per call;
@@ -49,7 +45,15 @@ def get_buffer(
     add_fn = add_dim_to_args(
         buffer.add, axis=1, starting_arg_index=1, ending_arg_index=2
     )
-    return buffer.replace(add=add_fn)  # type: ignore[attr-defined]
+    if sequence_length is not None:
+        return buffer.replace(add=add_fn)  # type: ignore[attr-defined]
+
+    def sample_rows(state: Any, key: jax.Array) -> TrajectoryBufferSample:
+        experience = buffer.sample(state, key).experience  # (B, 1, ...)
+        rows = jax.tree.map(lambda x: x[:, 0], experience)
+        return TrajectoryBufferSample(experience=rows)
+
+    return buffer.replace(add=add_fn, sample=sample_rows)  # type: ignore[attr-defined]
 
 
 def init_buffer(
@@ -176,8 +180,7 @@ def get_batch_from_buffer(
     ``reward_stats``, a reward normaliser's current statistics
     (:func:`ajax.environments.interaction.reward_statistics`), they come
     divided by them, as SB3's replay buffer does under VecNormalize."""
-    batch = buffer.sample(buffer_state, key).experience
-    first = batch.first
+    first = buffer.sample(buffer_state, key).experience
     reward = first["reward"]
     if reward_stats is not None:
         reward = normalized_rewards(reward, reward_stats)

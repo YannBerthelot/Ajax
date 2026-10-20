@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 from gymnax import make as make_gymnax_env
 
@@ -73,6 +74,28 @@ def test_get_batch_from_buffer(setup):
         assert sample.shape == (setup.batch_size, *trailing)
     # Fields the buffer does not store come back None.
     assert b.a_expert is None and b.next_a_expert is None and b.raw_next_obs is None
+
+
+@pytest.mark.parametrize("steps", [3, 6])  # 4 rows per env: filling, then wrapped
+def test_every_stored_row_is_sampled(steps: int) -> None:
+    """Each env's newest row too: a row stores its next observation, so the
+    replay draws rows alone, not a row with its successor."""
+    buffer = get_buffer(8, 6, n_envs=2)
+    env, env_params = build_env_from_id("CartPole-v1")
+    env_args = EnvironmentConfig(
+        env=env, env_params=env_params, continuous=False, n_envs=2
+    )
+    state = init_buffer(buffer, env_args)
+    for t in range(steps):
+        row = jax.tree.map(lambda x: jnp.zeros_like(x[:, 0]), state.experience)
+        row["obs"] = row["obs"] + jnp.array([[t], [100 + t]], jnp.float32)
+        state = buffer.add(state, row)
+    keys = jax.random.split(jax.random.PRNGKey(0), 64)
+    obs = jax.vmap(lambda k: get_batch_from_buffer(buffer, state, k).obs)(keys)
+    kept = range(max(0, steps - 4), steps)
+    assert set(np.asarray(obs[..., 0]).ravel().tolist()) == {
+        t + env for t in kept for env in (0, 100)
+    }
 
 
 @pytest.mark.parametrize(

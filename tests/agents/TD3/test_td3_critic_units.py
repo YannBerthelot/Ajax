@@ -14,7 +14,7 @@ from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3 import train_TD3
 from ajax.agents.TD3.TD3 import TD3
 from ajax.environments.utils import critic_action_units
-from ajax.extensions.expert import td3bc_weight
+from ajax.extensions.expert import td3bc_lambda
 from ajax.networks.networks import predict_value
 from tests.agents.TD3.test_td3_metrics import KEY, NET, _batch
 
@@ -70,7 +70,7 @@ def test_td3_sets_its_critics_units_and_sac_does_not():
 
 def test_every_query_of_the_critic_reads_the_mapped_actions():
     """``predict_value``, which the extensions and the evaluation call with
-    ``concat(obs, action)``, maps the action slice too: TD3+BC's weight is
+    ``concat(obs, action)``, maps the action slice too: TD3+BC's lambda is
     one such query."""
     agent = TD3("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
     state = train_TD3.init_TD3(
@@ -93,7 +93,7 @@ def test_every_query_of_the_critic_reads_the_mapped_actions():
     )
     q1 = q_values(critic, critic.params, batch.obs, batch.action)[0]
     np.testing.assert_allclose(
-        td3bc_weight(critic, batch.obs, batch.action, 2.5),
-        jnp.mean(jnp.abs(q1)) / 2.5,
+        td3bc_lambda(critic, batch.obs, batch.action, 2.5),
+        2.5 / jnp.mean(jnp.abs(q1)),
         rtol=1e-6,
     )

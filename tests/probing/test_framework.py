@@ -37,17 +37,18 @@ from . import readouts as R
 # cells' faults: faults/ + 5, this note + 1; PriorData's cell: faults/ + 2,
 # this note + 1; imitation on TD3, REDQ, ASAC, AVG: test_extensions + 25,
 # faults/ + 4, this note + 1; APO's q7-cloning rate note: test_extensions
-# + 4, this note + 1; the offline mode's cell: test_offline 62, faults/ + 1,
-# this note + 1; TD3+BC's cell: test_offline + 49, faults/ + 2; IQL's cell:
-# test_offline + 67, faults/ + 3, test_p4_split_run + 2, this note + 1; CQL's
-# cell: test_offline + 60, faults/ + 2, this note + 1.
+# + 4, this note + 1; DAgger's two cells: test_imitation 103, faults/ + 3,
+# this note + 2; the offline mode's cell: test_offline 62, faults/ + 1, this
+# note + 2; TD3+BC's cell: test_offline + 49, faults/ + 2, this note + 1.
+# IQL's cell: test_offline + 67, faults/ + 3, test_p4_split_run + 2, this
+# note + 2; CQL's cell: test_offline + 60, faults/ + 2, this note + 1.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 225}
-CAPS |= {"test_framework.py": 222, "test_value_chains.py": 1051}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 228}
+CAPS |= {"test_framework.py": 223, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1045, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 791, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
-CAPS |= {"test_action_box.py": 201, "test_offline.py": 238}
+CAPS |= {"test_action_box.py": 201, "test_imitation.py": 103, "test_offline.py": 238}
 
 
 def _modules() -> list:
@@ -207,7 +208,7 @@ def test_every_file_keeps_to_its_cap() -> None:
 def test_the_directory_keeps_to_its_budget() -> None:
     """Every file git tracks or would track (untracked, not ignored): 7,000,
     plus 400 for the offline-learning and imitation probes (2026-10-20:
-    DAgger, the offline mode, TD3+BC, IQL, then CQL/Cal-QL, ReBRAC, GAIL)."""
+    DAgger, the offline mode, TD3+BC, then IQL, CQL/Cal-QL, ReBRAC, GAIL)."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True

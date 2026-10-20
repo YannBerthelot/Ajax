@@ -70,6 +70,7 @@ extensions were given.
 | --- | --- | --- | --- |
 | `init_state(agent_state, rng)` | the extension's state (`()`: none) | one entry each | every agent, fresh runs only |
 | `pretrain(agent_state, ext_state, ctx)` | `(agent_state, ext_state)` | in order, each sees the last one's agent state | every agent, fresh runs only |
+| `reward(agent_state, ext_state, batch, rewards, ctx)` | `(rewards, ext_state, metrics)`: the rollout's new rewards | in order, each transforms the last one's rewards | PPO, after each rollout, before its targets |
 | `on_target(agent_state, ext_state, batch, target, ctx)` | the new target, or `(target, metrics)` (below) | in order, each transforms the last one's target | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, PPO, APO |
 | `critic_loss(agent_state, ext_state, batch, ctx)` | a term added to the critic loss, or `(term, metrics)` | summed | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, PPO, APO |
 | `actor_loss(agent_state, ext_state, batch, ctx)` | a term added to the actor loss, or `(term, metrics)` | summed | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, APG, UDRL |
@@ -130,6 +131,7 @@ agent against that list:
 
 | Phase | Agents | Keys |
 | --- | --- | --- |
+| `reward` | PPO | `observations`, `raw_observations`, `actions` (the rollout's) |
 | `on_target` | every agent folding it | `observations`, `next_observations`, `rewards`, `gamma` |
 | | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN | `actions`, `dones`, `reward_scale` |
 | | PQN, PPO, APO | `terminated`, `truncated` |

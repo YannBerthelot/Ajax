@@ -157,6 +157,44 @@ Defaults are those of the constructor.
   `num_minibatches` to divide `n_envs`. `unroll_length` is for feedforward
   policies; recurrent ones use `bptt_length`.
 
+## GAIL: imitation by a discriminator
+
+GAIL (Ho and Ermon, *Generative Adversarial Imitation Learning*, NeurIPS 2016,
+[arXiv:1606.03476](https://arxiv.org/abs/1606.03476)) trains a policy to
+imitate demonstrations without their rewards. A discriminator learns to tell
+the policy's rollouts from the demonstrations, and the policy is rewarded
+where it is mistaken for the expert. In Ajax it is PPO with the
+`AdversarialReward` extension, which folds the `reward` phase:
+
+```python
+import jax
+import jax.numpy as jnp
+
+from ajax import PPO
+from ajax.buffers.dataset import record
+from ajax.extensions.adversarial import AdversarialReward
+
+
+def pd_expert(obs):
+    theta = jnp.arctan2(obs[..., 1], obs[..., 0])
+    return jnp.clip(-(2.0 * theta + 0.5 * obs[..., 2]), -2.0, 2.0)[..., None]
+
+
+env_args = PPO("Pendulum-v1").env_args
+demonstrations = record(pd_expert, env_args, jax.random.PRNGKey(0), n_steps=1_000)
+agent = PPO("Pendulum-v1", extensions=(AdversarialReward(demonstrations),))
+```
+
+After each rollout, the rewards become `-log(1 - D(s, a))` from the current
+discriminator, and the discriminator takes `n_updates` (2) cross-entropy
+steps on the rollout's rows and as many demonstration rows. It follows
+HumanCompatibleAI/imitation at `e5ef188` (`algorithms/adversarial/gail.py`,
+`common.py`): its 32-32 ReLU reward network and torch's Adam at 1e-3. PPO
+replaces the paper's TRPO, as in that code. The evaluations still report
+the environment's return. Deviations: the discriminator reads `(s, a)` raw,
+without the running normalisation of the reference's examples, and trains
+on the whole rollout, where the reference draws `demo_batch_size` rows.
+
 ## Results
 
 The [reproduction results](../reproduction/results.md) set PPO beside

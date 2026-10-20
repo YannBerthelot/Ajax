@@ -102,6 +102,7 @@ class ExtensionContext:
 # folds is almost certainly a user error).
 PHASES: tuple[str, ...] = (
     "pretrain",
+    "reward",
     "on_target",
     "critic_loss",
     "actor_loss",
@@ -115,6 +116,7 @@ PHASES: tuple[str, ...] = (
 #: The keys of each phase's ``batch`` ("Phase batches" above): per phase,
 #: the agents passing them ("*": every agent folding it) -> the keys.
 PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
+    "reward": {"PPO": "observations raw_observations actions"},
     "on_target": {
         "*": "observations next_observations rewards gamma",
         "SAC TD3 REDQ ASAC AVG DQN PQN IQL": "actions dones reward_scale",
@@ -360,6 +362,19 @@ class Extension:
         del a_expert
         return actions
 
+    def reward(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        batch: Any,
+        rewards: jax.Array,
+        ctx: ExtensionContext,
+    ) -> tuple[jax.Array, Any, dict]:
+        """Replace a rollout's ``rewards`` before the agent's targets read
+        them. Returns ``(rewards, ext_state, metrics)``."""
+        del agent_state, batch, ctx
+        return rewards, ext_state, {}
+
     # -- state-threading + logging --------------------------------------
     def post_update(
         self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
@@ -553,6 +568,31 @@ class ExtensionStack:
                 agent_state, ext_states[i], ctx
             )
         return agent_state.replace(ext_state=tuple(ext_states))
+
+    def fold_reward(
+        self,
+        agent_state: Any,
+        batch: Any,
+        rewards: jax.Array,
+        step: Any,
+        rng: jax.Array,
+        total_steps: int,
+    ) -> tuple[Any, jax.Array, dict]:
+        """Reward fold, in list order, each seeing the previous rewards;
+        returns the state (the extensions' states updated), the rewards and
+        the metrics."""
+        if not self.extensions:
+            return agent_state, rewards, {}
+        ext_states, metrics = list(agent_state.ext_state), dict[str, Any]()
+        for i, (ext, key) in enumerate(
+            zip(self.extensions, self._keys(rng), strict=True)
+        ):
+            ctx = ExtensionContext(step=step, rng=key, total_steps=total_steps)
+            rewards, ext_states[i], ext_metrics = ext.reward(
+                agent_state, ext_states[i], batch, rewards, ctx
+            )
+            metrics = merge_metrics(metrics, ext_metrics)
+        return agent_state.replace(ext_state=tuple(ext_states)), rewards, metrics
 
     def fold_on_target(
         self,

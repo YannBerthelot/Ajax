@@ -23,6 +23,7 @@ from typing import Any, Callable, ClassVar, Optional
 import jax
 import jax.numpy as jnp
 
+from ajax.environments.utils import critic_action_units
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.networks.networks import phi_star_critic_state, predict_value
 
@@ -204,17 +205,17 @@ def q_filter_weight(
     return jax.lax.stop_gradient(keep.astype(jnp.float32))
 
 
-def td3bc_weight(
+def td3bc_lambda(
     critic_state: Any, observations: jax.Array, pi_mean: jax.Array, alpha: float
 ) -> jax.Array:
-    """TD3+BC's ``1 / lambda = mean|Q_1(s, pi(s))| / alpha``, held constant,
+    """TD3+BC's ``lambda = alpha / mean|Q_1(s, pi(s))|``, held constant,
     with Q_1 the first critic, the one TD3's actor follows
     (sfujim/TD3_BC@8791ad7, TD3_BC.py:141-143: ``lmbda = alpha /
     Q.abs().mean().detach()``, actor loss ``-lmbda * Q.mean() +
     mse_loss(pi, action)``)."""
     x = jnp.concatenate([observations, jax.lax.stop_gradient(pi_mean)], axis=-1)
     q1 = predict_value(critic_state, critic_state.params, x)[0]
-    return jax.lax.stop_gradient(jnp.mean(jnp.abs(q1)) / alpha)
+    return jax.lax.stop_gradient(alpha / jnp.mean(jnp.abs(q1)))
 
 
 @dataclass(frozen=True)
@@ -263,12 +264,14 @@ class ImitationLoss(Extension):
     ``target="replay"`` clones the replayed rows' own actions (``actions``,
     which SAC, TD3, REDQ and ASAC put in their actor-loss batch) instead of
     an expert's: logged data needs no expert, and ``expert_policy`` may be
-    None. ``alpha`` gives the term TD3+BC's weight (Fujimoto and Gu, 2021;
-    :func:`td3bc_weight`): ``coef · mean|Q_1(s, μ(s))| / alpha · mean((μ(s)
-    - a)²)``, without the ``/ 4``. That is the paper's actor loss, ``-λ
-    mean Q + mean((π(s) - a)²)`` with ``λ = alpha / mean|Q|``, divided by
-    ``λ`` (the agent's own term stays ``-mean Q``): the same direction, at
-    a scale Adam's step nearly cancels. With both, on TD3, a transition
+    None. ``alpha`` makes the actor loss TD3+BC's (Fujimoto and Gu, 2021),
+    ``λ · (the agent's own) + coef · mean((μ(s) - a)²)`` with ``λ = alpha /
+    mean|Q_1(s, μ(s))|`` (:func:`td3bc_lambda`), the actions compared in
+    the env's units and without the ``/ 4``: the term adds ``(λ - 1)`` times
+    the agent's own loss (``agent_loss`` in its actor batch), already
+    counted. On TD3, whose own loss is ``-mean Q_1``, that is the paper's
+    ``-λ mean Q + mean((π(s) - a)²)``; ``anneal_frac`` and the filter act
+    on the cloning part only. With both, on TD3, a transition
     dataset trained offline (``train_offline``) and
     ``normalize_observations=True`` (the dataset's statistics, sqrt(var +
     1e-8) in place of the reference's std + 1e-3), it is TD3+BC.
@@ -288,6 +291,7 @@ class ImitationLoss(Extension):
     # Agent context, bound by bind_to_agent.
     reads_stored_expert: bool = False
     buffer: Any = None  # the Q-filter's logged share samples it
+    action_scale: Optional[tuple] = None  # with alpha: the env's half-ranges
     augment_obs_with_expert_action: bool = False
     name: str = "imitation_loss"
     requires: ClassVar[frozenset[str]] = frozenset({"continuous_actions"})
@@ -330,17 +334,25 @@ class ImitationLoss(Extension):
         keys = self.batch_keys["actor_loss"]
         if self.q_filter or self.alpha is not None:
             keys = keys | {"critic_state"}
+        if self.alpha is not None:
+            keys = keys | {"agent_loss"}
         if self.target == "replay":
             keys = keys | {"actions"}
         return {"actor_loss": keys}
 
     def bind_to_agent(self, **agent_context: Any) -> "ImitationLoss":
-        """Read the expert's stored actions when it is the agent's; with the
-        filter, bind the agent's replay buffer (its logged share samples it)
-        and SAC's observation augmentation."""
+        """Read the expert's stored actions when it is the agent's; with
+        ``alpha``, the env's action half-ranges (TD3+BC compares env actions);
+        with the filter, bind the agent's replay buffer (its logged share
+        samples it) and SAC's observation augmentation."""
         expert = self.target == "expert"
         stored = expert and reads_stored_expert_actions(self, agent_context)
         bound = dataclasses.replace(self, reads_stored_expert=stored)
+        env_args = agent_context.get("env_args")
+        if self.alpha is not None and env_args is not None:
+            units = critic_action_units(env_args.env, env_args.env_params)
+            scale = None if units is None else units[1]
+            bound = dataclasses.replace(bound, action_scale=scale)
         if not self.q_filter:
             return bound
         exts = agent_context.get("extensions", ())
@@ -387,7 +399,10 @@ class ImitationLoss(Extension):
             a_expert = jax.lax.stop_gradient(batch["actions"])
         else:
             a_expert = self._expert_actions(batch.get("a_expert"), obs)
-        sq = jnp.mean(jnp.square(pi_mean - a_expert), axis=-1, keepdims=True)
+        diff = pi_mean - a_expert
+        if self.alpha is not None and self.action_scale is not None:
+            diff = diff * jnp.asarray(self.action_scale, diff.dtype)  # env units
+        sq = jnp.mean(jnp.square(diff), axis=-1, keepdims=True)
         mse = jnp.mean(sq)  # before the filter and the schedule
         if self.q_filter:
             if "critic_state" not in batch:
@@ -407,10 +422,10 @@ class ImitationLoss(Extension):
         if self.alpha is None:
             term = self.coef * jnp.mean(sq) / 4.0
         else:
-            weight = td3bc_weight(
+            lam = td3bc_lambda(
                 batch["critic_state"], batch["observations"], pi_mean, self.alpha
             )
-            term = self.coef * weight * jnp.mean(sq)
+            term = (lam - 1.0) * batch["agent_loss"] + self.coef * jnp.mean(sq)
         return term, {"imitation/term": term, "imitation/mse": mse}
 
     def eval_metrics(

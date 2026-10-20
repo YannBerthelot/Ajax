@@ -1,0 +1,101 @@
+name: Compile preview
+
+# Measures, on GitHub's runners, what would make the tests compile less
+# (the two-tier test plan's "compilation first"): whether a compile cache
+# built on one runner loads on another when XLA's code generation is capped
+# at one instruction set every runner has, and how much XLA's optimisation
+# level 0 and xdist workers save without a cache. It gates nothing and runs
+# only by hand (about 6 runner-hours), on any branch: `gh workflow run
+# compile-preview.yml --ref BRANCH`. The runs are in
+# .github/scripts/compile-preview.sh; the table is in the summary job.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  CUDA_VISIBLE_DEVICES: ""
+  JAX_PLATFORMS: cpu
+  JAX_PLATFORM_NAME: cpu
+
+jobs:
+  # A cache built from empty, capped at AVX2 or at the runner's own CPU.
+  produce:
+    name: Produce (${{ matrix.isa }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        isa: [native, avx2]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - run: .github/scripts/compile-preview.sh produce ${{ matrix.isa }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cache-${{ matrix.isa }}
+          path: ${{ runner.temp }}/cache
+      - uses: actions/upload-artifact@v7
+        with:
+          name: stats-produce-${{ matrix.isa }}
+          path: stats/*.json
+
+  # Four runners per cache, on whatever CPUs GitHub assigns: a portable cache
+  # hits on all of them, with no ISA warning and little compile time.
+  consume:
+    name: Consume (${{ matrix.isa }} ${{ matrix.replica }})
+    needs: produce
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        isa: [native, avx2]
+        replica: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v8
+        with:
+          name: cache-${{ matrix.isa }}
+          path: ${{ runner.temp }}/cache
+      - run: .github/scripts/compile-preview.sh consume ${{ matrix.isa }} ${{ matrix.replica }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: stats-consume-${{ matrix.isa }}-${{ matrix.replica }}
+          path: stats/*.json
+
+  # Without a cache, each lever against today on the same runner.
+  levers:
+    name: Levers (${{ matrix.replica }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [1, 2]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - run: .github/scripts/compile-preview.sh levers ${{ matrix.replica }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: stats-levers-${{ matrix.replica }}
+          path: stats/*.json*
+
+  summary:
+    name: Summary
+    if: always()
+    needs: [produce, consume, levers]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: stats-*
+          path: stats
+      - run: python3 .github/scripts/compile_preview_summary.py stats | tee -a "$GITHUB_STEP_SUMMARY"

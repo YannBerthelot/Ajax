@@ -5,6 +5,7 @@ those takes Adam steps of another size on its action inputs."""
 from __future__ import annotations
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 
 from ajax.agents.PQN.PQN import PQN
@@ -13,6 +14,8 @@ from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3 import train_TD3
 from ajax.agents.TD3.TD3 import TD3
 from ajax.environments.utils import critic_action_units
+from ajax.extensions.expert import td3bc_lambda
+from ajax.networks.networks import predict_value
 from tests.agents.TD3.test_td3_metrics import KEY, NET, _batch
 
 
@@ -62,4 +65,35 @@ def test_td3_sets_its_critics_units_and_sac_does_not():
     assert sac.critic_state.action_units is None
     assert jax.tree.structure(td3.critic_state) != jax.tree.structure(
         td3.critic_state.replace(action_units=None)
+    )
+
+
+def test_every_query_of_the_critic_reads_the_mapped_actions():
+    """``predict_value``, which the extensions and the evaluation call with
+    ``concat(obs, action)``, maps the action slice too: TD3+BC's lambda is
+    one such query."""
+    agent = TD3("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
+    state = train_TD3.init_TD3(
+        KEY,
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+        agent.buffer,
+        critic_action_units=((0.5,), (2.0,)),
+    )
+    critic, batch = state.critic_state, _batch(agent)
+    plain = critic.replace(action_units=None)
+    x = jnp.concatenate([batch.obs, batch.action], axis=-1)
+    mapped = jnp.concatenate([batch.obs, 0.5 + 2.0 * batch.action], axis=-1)
+    np.testing.assert_allclose(
+        predict_value(critic, critic.params, x),
+        predict_value(plain, plain.params, mapped),
+        rtol=1e-6,
+    )
+    q1 = q_values(critic, critic.params, batch.obs, batch.action)[0]
+    np.testing.assert_allclose(
+        td3bc_lambda(critic, batch.obs, batch.action, 2.5),
+        2.5 / jnp.mean(jnp.abs(q1)),
+        rtol=1e-6,
     )

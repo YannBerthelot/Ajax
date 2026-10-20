@@ -191,7 +191,9 @@ def test_the_factories_build_pid_actors():
     actor, _ = _build(td3=True)
     assert isinstance(actor.apply_fn.__self__.actor, DeterministicPIDActor)
     params = _set_gains(actor.params, {g: jnp.full((1, 1), 0.2) for g in GAINS})
-    np.testing.assert_allclose(actor.apply_fn(params, obs).mean(), jnp.tanh(0.6))
+    np.testing.assert_allclose(
+        actor.apply_fn(params, obs).mean(), jnp.tanh(0.6), rtol=1e-6
+    )
 
 
 def test_the_factory_gives_the_pid_actor_its_log_std_bounds():

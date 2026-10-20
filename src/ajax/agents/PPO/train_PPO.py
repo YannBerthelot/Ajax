@@ -610,10 +610,25 @@ def update_agent(
     """One PPO update on the ``(n_steps, n_envs)`` ``rollout`` collected
     from ``start``: ``n_epochs`` passes over its minibatches, then brax's
     periodic forced reset."""
-    rewards = rollout.reward
     n_steps, n_envs = rollout.obs.shape[:2]
     geometry = minibatch_geometry(agent_config, n_steps, n_envs, recurrent)
     actions, log_probs = rollout_actions(rollout)
+    rewards, reward_metrics = rollout.reward, dict[str, Any]()
+    if "reward" in extension_stack.implemented_phases():
+        # The extensions' rewards replace the env's (GAIL's discriminator).
+        reward_key, rng = jax.random.split(agent_state.rng)
+        agent_state, rewards, reward_metrics = extension_stack.fold_reward(
+            agent_state.replace(rng=rng),
+            {
+                "observations": rollout.obs,
+                "raw_observations": rollout.raw_obs,
+                "actions": actions,
+            },
+            rewards,
+            agent_state.collector_state.timestep,
+            reward_key,
+            total_timesteps,
+        )
     batch = {
         "obs": rollout.obs,
         "actions": actions,
@@ -806,7 +821,9 @@ def update_agent(
         agent_state, shuffle_key, minibatches, minibatch_step, agent_config.n_epochs
     )
     # The flat and recurrent updates fold on_target once, over the rollout.
-    aux = aux.replace(extensions=merge_metrics(rollout_metrics, aux.extensions))
+    aux = aux.replace(
+        extensions=merge_metrics(reward_metrics, rollout_metrics, aux.extensions)
+    )
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
 
     # brax's num_resets_per_eval: every env reset every reset_every updates.

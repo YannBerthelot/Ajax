@@ -12,6 +12,8 @@ it uses. The [user guide](../guide/extensions.md) shows how to use them and
 
 ::: ajax.extensions.target_mods
 
+::: ajax.extensions.adversarial
+
 ::: ajax.extensions.exploration
 
 ::: ajax.extensions.ensemble

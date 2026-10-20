@@ -3,7 +3,7 @@
 An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships twenty of them,
+or measurements logged at each evaluation. Ajax ships twenty-one of them,
 listed in the [catalogue](#catalogue) below.
 
 Why extensions instead of agent options? An agent's constructor takes its
@@ -77,6 +77,7 @@ where it may act. Every other phase keeps a default that changes nothing.
 | --- | --- | --- | --- |
 | `init_state` | once, on a fresh run | build the extension's state | one state per extension |
 | `pretrain` | once, before training, on a fresh run | change the agent's state (clone the actor, pre-train a critic) | in list order |
+| `reward` | after each rollout, before the agent's targets | replace the rollout's rewards, and update the extension's own state | in list order, each sees the previous result |
 | `on_target` | at each critic update | change the TD or value target, and log metrics | in list order, each sees the previous result |
 | `critic_loss` | at each critic update | add a term to the critic loss, and log metrics | summed |
 | `actor_loss` | at each actor update | add a term to the actor loss, and log metrics | summed |
@@ -296,6 +297,12 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | `PhiRefresh` | Every `interval` steps, refits `φ*` for `steps` updates on the replay rows where the expert acted. | `post_update` | SAC with an expert and `MCPretrain` |
 | `PriorData` | Adds a transition dataset (`ajax.buffers.dataset`) to the replay, where it stays, and to the observation and reward statistics, then runs `offline_updates` of the agent's own update on it before acting. Pair it with `learning_starts=0`. | `pretrain` | SAC, TD3, REDQ, ASAC, DQN (other agents refuse it when built) |
 
+**Adversarial imitation** (`ajax.extensions.adversarial`)
+
+| Extension | What it does | Phases | Works with |
+| --- | --- | --- | --- |
+| `AdversarialReward` | GAIL: a discriminator, trained after each rollout to tell its rows from a transition dataset of demonstrations, replaces the rollout's rewards with `-log(1 - D(s, a))`; the environment's own reward is not used. Logs `gail/reward`, `gail/disc_loss`, `gail/expert_acc` and `gail/policy_acc`. | `reward` | PPO with continuous actions (see [PPO](../algorithms/ppo.md#gail-imitation-by-a-discriminator)) |
+
 **Critic ensembles** (`ajax.extensions.ensemble`)
 
 | Extension | What it does | Phases | Works with |
@@ -310,7 +317,7 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | `BiasVoreDecomposition` | Splits the critic's squared one-step error into squared bias and variance (`EVarEst/bias_sq`, `EVarEst/var_resid`, `EVarEst/mse`, `EVarEst/abs_bias`), against a one-step target on its current parameters, or your own `value_target_fn`. | `eval_metrics` | as `ConditioningMetrics` |
 | `BiasVorePenalty` | Adds `((1 − 2α)/α) · Var(residual)` to the critic loss; `alpha=0.5` adds nothing. Logs `bias_vore/penalty` and `bias_vore/residual_var`. | `critic_loss` | every agent with a `critic_loss` phase: SAC, TD3, REDQ, ASAC, AVG, PPO, APO, DQN, PQN |
 
-Sources: TD3+BC is Fujimoto and Gu, 2021; Q-filtered BC is Nair et al.,
+Sources: TD3+BC is Fujimoto and Gu, 2021; GAIL is Ho and Ermon, 2016; Q-filtered BC is Nair et al.,
 ICRA 2018; residual RL is Johannink et al., 2019; JSRL is Uchendu et al.,
 2023; the kernel's bandwidth follows the median heuristic of SVGD (Liu and
 Wang, 2016); effective rank is Kumar et al., 2021, and dormant units Sokar et

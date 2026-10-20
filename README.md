@@ -165,12 +165,12 @@ generated from the code, does.
 | Expert transitions in the replay before training | `expert_buffer_n_steps` | SAC |
 | Prior data in the replay, as RLPD (Ball et al., 2023) without its symmetric sampling, then optional offline updates | `PriorData` with a transition dataset (`ajax.buffers.dataset`) | SAC, TD3, REDQ, ASAC, DQN |
 | Offline training on a transition dataset, then online fine-tuning | `agent.train_offline(dataset, n_updates)` | SAC, TD3, REDQ, ASAC, DQN |
+| Adversarial imitation from demonstrations, with no reward (GAIL, Ho and Ermon, 2016) | [`AdversarialReward`](docs/algorithms/ppo.md#gail-imitation-by-a-discriminator) with a transition dataset | PPO, continuous actions |
 | Offline multi-task training on pooled datasets (TD-MPC2, Hansen et al., 2024) | `TDMPC2MultiTask` | its own agent |
 | Interactive imitation by dataset aggregation, with no reward (DAgger, Ross et al., 2011) | `DAgger` | its own agent |
 | Features developed with Ajax, with no external reference: EDGE exploration, LCB-gated targets, a value-gated hand-over, an expert critic fitted to Monte-Carlo returns and the extensions that read it | `EDGEExploration`, `LCBGatedBootstrap`, `ValueBox`, `MCPretrain`, ... | SAC (LCB: SAC, TD3, REDQ) |
 
-Not in Ajax yet: adversarial imitation such as GAIL, and offline RL
-algorithms such as CQL or IQL.
+Not in Ajax yet: offline RL algorithms such as CQL or IQL.
 [Expert guidance](docs/guide/expert-guidance.md) explains the expert's
 conventions and how the pieces combine.
 

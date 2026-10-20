@@ -68,6 +68,7 @@ CNN = "the cnn options are not on this agent yet (batch network-reach)"
 MEMORY = "memory is not wired on this agent yet (batch network-reach)"
 DEFERRED = "memory on this agent has no published form (deferred)"
 PRIOR = "the agent's own replay is not handed to its pretraining yet"
+REWARD = "only PPO folds the reward phase (GAIL's AdversarialReward)"
 
 #: Module forms not written yet: a refusal for these capabilities alone is
 #: a gap, not inherent.
@@ -133,6 +134,10 @@ GAPS: dict[str, dict[str, str]] = {
     },
     MEMORY: {"memory": "APO APO/discrete DQN PQN DAgger DAgger/discrete"},
     DEFERRED: {"memory": "AVG UDRL UDRL/discrete"},
+    REWARD: {
+        "AdversarialReward": "SAC TD3 REDQ ASAC AVG APG APO UDRL DAgger DreamerV3"
+        " TDMPC2 TDMPC2MultiTask"
+    },
     PRIOR: {
         "PriorData": "UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3"
         " DreamerV3/discrete TDMPC2MultiTask"
@@ -169,7 +174,12 @@ def field_values(env: str) -> dict[str, Any]:
     expert = _discrete_expert if env == "CartPole-v1" else _expert
     one = np.zeros((1, 1))
     episode = TransitionDataset(one, one, one[:, 0], one[:, 0] + 1, one[:, 0], one)
-    return {"expert_policy": expert, "threshold": 1.0, "dataset": episode}
+    return {
+        "expert_policy": expert,
+        "threshold": 1.0,
+        "dataset": episode,
+        "demonstrations": episode,
+    }
 
 
 def build_extension(cls: type[Extension], env: str) -> Extension:

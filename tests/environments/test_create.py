@@ -41,6 +41,17 @@ def test_unknown_env_id_raises(env_id):
         build_env_from_id(env_id)
 
 
+def test_a_key_error_inside_a_brax_env_is_not_reported_as_an_unknown_id(
+    monkeypatch,
+):
+    def env_failing_inside(env_name, **kwargs):
+        raise KeyError("a key the env reads")
+
+    monkeypatch.setattr(create.brax.envs, "get_environment", env_failing_inside)
+    with pytest.raises(KeyError, match="a key the env reads"):
+        build_env_from_id("ant")
+
+
 @pytest.mark.parametrize(
     "env_input,normalize_obs,normalize_reward,expected_continuous,mode",
     [

@@ -13,9 +13,8 @@ dependencies = [
     "jax>=0.10.0",
     "flax>=0.12.8",
     # Exactly the packages Ajax imports: each is declared rather than left
-    # to the packages that pull it in, and nothing else is. brax is capped:
-    # create.py uses its private brax.envs._envs.
-    "brax>=0.14.2,<0.15",
+    # to the packages that pull it in, and nothing else is.
+    "brax>=0.14.2",
     "chex>=0.1.91,<0.2",
     "numpy>=2.1,<3",
     "optax>=0.2.6,<0.3",

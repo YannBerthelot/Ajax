@@ -417,8 +417,7 @@ lock.
 - **Floors only.** Each lower bound is the oldest version Ajax works with.
   Raise it when Ajax needs something newer or an older version is known to
   break, with a comment saying why. Add an upper bound only after a known
-  break, with its reason (brax's, for its private API), and remove it once
-  Ajax is fixed.
+  break, with its reason, and remove it once Ajax is fixed.
 - **The ranges are tested.** The Compatibility workflow
   ([compat.yml](.github/workflows/compat.yml)) runs the tests not marked
   slow every Monday, and on pull requests that change the dependencies,

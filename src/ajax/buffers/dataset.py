@@ -220,7 +220,16 @@ def _replay_rows(data: TransitionDataset) -> dict[str, np.ndarray]:
         "a_expert": data.a_expert,
         "raw_next_obs": data.next_obs,
         "return_to_go": col(data.return_to_go),
+        "next_action": next_actions(data),
     }
+
+
+def next_actions(data: TransitionDataset) -> np.ndarray:
+    """Each row's next action, its episode's next row's; NaN on an episode's
+    last row (a terminal one needs none; a time limit's is unknown)."""
+    ends = data.terminated | data.truncated
+    after = np.roll(data.action, -1, axis=0)
+    return np.where(ends[:, None], np.nan, after).astype(np.float32)
 
 
 def fill_replay(buffer: Any, buffer_state: Any, data: TransitionDataset) -> Any:

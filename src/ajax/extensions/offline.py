@@ -3,6 +3,7 @@
 * :class:`ConservativeQ` — CQL(H)'s conservative critic term.
 * :class:`CalQL`         — the same term, its policy-action values floored at
   the data's Monte-Carlo returns (Cal-QL).
+* :class:`TargetBC`      — ReBRAC's penalty on the target's next actions.
 """
 
 from __future__ import annotations
@@ -150,4 +151,49 @@ class CalQL(ConservativeQ):
         return jnp.maximum(q, bound), {"calql/bound_frac": jnp.mean(q < bound)}
 
 
-__all__ = ["CalQL", "ConservativeQ"]
+@dataclass(frozen=True)
+class TargetBC(Extension):
+    """ReBRAC's critic penalty (Tarasov, Kurenkov, Nikulin and Kolesnikov,
+    NeurIPS 2023; tinkoff-ai/ReBRAC@694385b, src/algorithms/rebrac.py:
+    134-144): the bootstrap less ``beta`` times the squared distance from
+    the next actions the target scored (TD3's smoothed ``next_actions``) to
+    the dataset's next action ``a'`` (``next_action``)::
+
+        y -= gamma (1 - d) beta sum_i (next_actions_i - a'_i)^2
+
+    A row whose ``a'`` is unknown (an episode's last row, a collected one:
+    NaN) keeps its target. Logs ``target_bc/penalty``, the mean penalty, and
+    ``target_bc/known_frac``, the share of rows with an ``a'``.
+    """
+
+    beta: float = 1.0
+    name: str = "target_bc"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"actor", "continuous_actions", "discounted", "q_critic"}
+    )
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "on_target": frozenset({"dones", "gamma", "next_action", "next_actions"})
+    }
+    buffer_fields: ClassVar[frozenset[str]] = frozenset({"next_action"})
+
+    def on_target(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        batch: Any,
+        target: jax.Array,
+        ctx: ExtensionContext,
+    ) -> Any:
+        del agent_state, ext_state, ctx
+        a_next = batch["next_action"]
+        known = jnp.all(jnp.isfinite(a_next), axis=-1, keepdims=True)
+        gap = batch["next_actions"] - jnp.where(known, a_next, 0.0)
+        penalty = jnp.where(known, self.beta * jnp.sum(gap**2, -1, keepdims=True), 0.0)
+        target = target - batch["gamma"] * (1.0 - batch["dones"]) * penalty
+        return target, {
+            "target_bc/penalty": jnp.mean(penalty),
+            "target_bc/known_frac": jnp.mean(known),
+        }
+
+
+__all__ = ["CalQL", "ConservativeQ", "TargetBC"]

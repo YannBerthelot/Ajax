@@ -74,6 +74,7 @@ CNN = "the cnn options are not on this agent yet (batch network-reach)"
 MEMORY = "memory is not wired on this agent yet (batch network-reach)"
 DEFERRED = "memory on this agent has no published form (deferred)"
 PRIOR = "the agent's own replay is not handed to its pretraining yet"
+NEXT = "only TD3 hands on_target the next actions its target scored (ReBRAC's TargetBC)"
 
 #: Module forms not written yet: a refusal for these capabilities alone is
 #: a gap, not inherent.
@@ -124,7 +125,10 @@ GAPS: dict[str, dict[str, str]] = {
             "TDMPC2 TDMPC2MultiTask",
         ),
         **dict.fromkeys(
-            ["ImitationLoss(target='replay', alpha=2.5)", "ConservativeQ", "CalQL"],
+            [
+                "ImitationLoss(target='replay', alpha=2.5)",
+                *("ConservativeQ", "CalQL", "TargetBC"),
+            ],
             "TDMPC2 TDMPC2MultiTask",
         ),
         **dict.fromkeys(
@@ -143,6 +147,7 @@ GAPS: dict[str, dict[str, str]] = {
     },
     MEMORY: {"memory": "APO APO/discrete DQN PQN DAgger DAgger/discrete IQL"},
     DEFERRED: {"memory": "AVG UDRL UDRL/discrete"},
+    NEXT: {"TargetBC": "SAC REDQ AVG IQL"},
     PRIOR: {
         "PriorData": "UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3"
         " DreamerV3/discrete TDMPC2MultiTask"

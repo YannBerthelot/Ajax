@@ -250,6 +250,7 @@ def critic_step(
     dones: jax.Array,
     gamma: Optional[float],
     reward_scale: float,
+    target_extras: Optional[dict] = None,
 ) -> tuple[Any, Any, jax.Array, dict]:
     """A replay agent's critic step on ``batch`` (a :class:`Transition`).
 
@@ -258,7 +259,8 @@ def critic_step(
     aux)`` plus their ``critic_loss`` terms. ``rewards``, ``dones`` (where
     the bootstrap is cut), ``gamma`` (None for an average-reward agent) and
     ``reward_scale`` are what the target used; ``key``, split between the
-    two folds, is one the agent draws nothing else on. Returns the stepped
+    two folds, is one the agent draws nothing else on. ``target_extras``
+    joins the ``on_target`` batch (TD3's smoothed next actions). Returns the stepped
     critic state, ``aux``, the gradients' norm (:func:`gradient_step`) and
     the two folds' metrics.
     """
@@ -276,7 +278,9 @@ def critic_step(
         # state; None where the replay keeps neither (a run without an expert).
         "raw_next_observations": batch.raw_next_obs,
         "next_a_expert": batch.next_a_expert,
-    }
+        # The dataset's action at s' (NaN where unknown); None unstored.
+        "next_action": batch.next_action,
+    } | (target_extras or {})
     target_q, target_metrics = extension_stack.fold_on_target(
         agent_state, target_batch, target_q, step, target_key, total_timesteps
     )

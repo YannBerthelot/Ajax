@@ -168,6 +168,7 @@ generated from the code, does.
 | Offline training on a transition dataset, then online fine-tuning | `agent.train_offline(dataset, n_updates)` | SAC, TD3, REDQ, ASAC, DQN, IQL |
 | Implicit Q-learning, offline then online (IQL, Kostrikov et al., 2022) | [`IQL`](docs/algorithms/iql.md) with `train_offline` | its own agent |
 | Conservative Q-learning, offline (CQL, Kumar et al., 2020); calibrated (Cal-QL, Nakamoto et al., 2023) | [`ConservativeQ`, `CalQL`](docs/algorithms/sac.md#cql-and-cal-ql-offline) on SAC, trained with `train_offline` | CQL: SAC, TD3, REDQ, ASAC, AVG, IQL; Cal-QL: SAC, TD3, REDQ, IQL |
+| ReBRAC, offline (Tarasov et al., 2023) | [`TD3` with TD3+BC's term and `TargetBC`](docs/algorithms/td3.md#rebrac-offline), trained with `train_offline` | TD3 |
 | TD3+BC, offline (Fujimoto and Gu, 2021) | [`TD3` with `ImitationLoss(None, target="replay", alpha=2.5)`](docs/algorithms/td3.md#td3bc-offline), trained with `train_offline` | TD3; the term on SAC, REDQ, ASAC too |
 | Offline multi-task training on pooled datasets (TD-MPC2, Hansen et al., 2024) | `TDMPC2MultiTask` | its own agent |
 | Interactive imitation by dataset aggregation, with no reward (DAgger, Ross et al., 2011) | `DAgger` | its own agent |

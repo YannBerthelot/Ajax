@@ -1,5 +1,6 @@
-"""ConservativeQ (CQL) and CalQL (Cal-QL): the floor on the policy actions'
-values, the stored return to go, and the refusals. Whether they make a
+"""ConservativeQ (CQL), CalQL (Cal-QL) and TargetBC (ReBRAC): the floor on the
+policy actions' values, the stored return to go and next action, the target
+penalty, and the refusals. Whether they make a
 critic conservative is the probes' (tests/probing/test_offline)."""
 
 from typing import Any
@@ -10,10 +11,10 @@ import numpy as np
 import pytest
 
 from ajax import SAC
-from ajax.buffers.dataset import TransitionDataset, fill_replay
+from ajax.buffers.dataset import TransitionDataset, fill_replay, next_actions
 from ajax.extensions.base import ExtensionContext
 from ajax.extensions.capabilities import MissingCapability
-from ajax.extensions.offline import CalQL, ConservativeQ
+from ajax.extensions.offline import CalQL, ConservativeQ, TargetBC
 
 KEY = jax.random.PRNGKey(0)
 CTX = ExtensionContext(step=jnp.asarray(0), rng=KEY)
@@ -80,3 +81,31 @@ def test_the_terms_refuse_bad_settings_and_agents_without_their_inputs() -> None
         ASAC("Pendulum-v1", extensions=(CalQL(),))  # an average-reward critic
     with pytest.raises(MissingCapability, match="replay"):
         AVG("Pendulum-v1", extensions=(CalQL(),))  # no replay to hold a dataset
+
+
+def test_target_bc_lowers_the_bootstrap_by_the_next_actions_distance() -> None:
+    """y - gamma (1 - d) beta sum (next_actions - a')^2; a row whose a' is
+    unknown (NaN) or that ended keeps its target."""
+    batch = {
+        "next_actions": jnp.array([[0.5, 0.0], [0.5, 0.0], [0.5, 0.0]]),
+        "next_action": jnp.array([[0.0, 0.0], [jnp.nan, 0.0], [0.0, 0.0]]),
+        "dones": jnp.array([[0.0], [0.0], [1.0]]),
+        "gamma": 0.9,
+    }
+    target, metrics = TargetBC(beta=2.0).on_target(
+        None, (), batch, jnp.ones((3, 1)), CTX
+    )
+    np.testing.assert_allclose(target[:, 0], [1.0 - 0.9 * 2.0 * 0.25, 1.0, 1.0])
+    np.testing.assert_allclose(float(metrics["target_bc/known_frac"]), 2 / 3)
+
+
+def test_a_rows_next_action_is_its_episodes_next_rows() -> None:
+    """NaN on an episode's last row, terminal or cut."""
+    ends = np.array([False, True, False, False, True])
+    action = np.arange(5.0)[:, None]
+    rows = TransitionDataset(
+        np.zeros((5, 1)), action, np.zeros(5), ends, np.zeros(5, bool), np.zeros((5, 1))
+    )
+    np.testing.assert_array_equal(
+        next_actions(rows)[:, 0], [1.0, np.nan, 3.0, 4.0, np.nan]
+    )

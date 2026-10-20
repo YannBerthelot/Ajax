@@ -270,6 +270,7 @@ def sample_replay(
         next_a_expert=b.next_a_expert,
         raw_next_obs=b.raw_next_obs,
         return_to_go=b.return_to_go,
+        next_action=b.next_action,
     )
     return batch, None
 

@@ -57,6 +57,9 @@ class Transition(Replaceable):
     # A dataset row's discounted return to its episode's end (-inf where
     # unknown: a collected row), for an extension that reads it (Cal-QL).
     return_to_go: Optional[jnp.ndarray] = None
+    # A dataset row's next action, its episode's next row's (NaN where
+    # unknown: an episode's end, a collected row), for ReBRAC's TargetBC.
+    next_action: Optional[jnp.ndarray] = None
 
     def __len__(self):
         return self.obs.shape[0] if self.obs.ndim > 0 else 1

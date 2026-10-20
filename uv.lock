@@ -76,6 +76,9 @@ reproduction = [
     { name = "pandas" },
     { name = "pyarrow" },
 ]
+wandb = [
+    { name = "wandb" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -103,7 +106,7 @@ plane = [
     { name = "target-gym" },
 ]
 wandb = [
-    { name = "wandb" },
+    { name = "ajax", extra = ["wandb"] },
 ]
 
 [package.metadata]
@@ -128,8 +131,9 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'reproduction'", specifier = ">=15" },
     { name = "tensorboardx", specifier = ">=2.6.4,<3" },
     { name = "tqdm", specifier = ">=4.65.0,<5" },
+    { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.19.9" },
 ]
-provides-extras = ["cuda", "compare", "reproduction"]
+provides-extras = ["cuda", "compare", "reproduction", "wandb"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -154,7 +158,7 @@ docs = [
     { name = "ruff", specifier = ">=0.11.6,<0.12" },
 ]
 plane = [{ name = "target-gym", specifier = ">=0.6.1,<0.7" }]
-wandb = [{ name = "wandb", specifier = ">=0.19.9,<0.20" }]
+wandb = [{ name = "ajax", extras = ["wandb"] }]
 
 [[package]]
 name = "annotated-types"

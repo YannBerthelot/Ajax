@@ -60,7 +60,7 @@ opt-in.
 | Group | Default | What it adds |
 | --- | --- | --- |
 | `dev` | yes | pytest, coverage, pre-commit, ruff, mypy, and the probing environments the tests train on |
-| `wandb` | yes | Weights & Biases, for [logging](../guide/logging.md) |
+| `wandb` | yes | the `wandb` extra (below) |
 | `plane` | no | [TargetGym](https://github.com/YannBerthelot/TargetGym), for the Plane3DCircle scenario of the speed benchmark (`benchmarks/perf_bench.py`) |
 | `docs` | no | MkDocs and its plugins, to build this site |
 
@@ -80,6 +80,7 @@ imported.
 | `cuda` | JAX with CUDA, on Linux ([above](#cpu-or-gpu)) |
 | `compare` | the `adastop` package, whose confidence sequence [`ajax.compare.estimate`](../guide/comparing-agents.md#one-agent-how-sure-is-a-number) uses; AdaStop itself needs no extra |
 | `reproduction` | Hugging Face Hub, pandas and pyarrow, for `ajax.reproduction.load` ([Reproduction](../reproduction/index.md)) |
+| `wandb` | Weights & Biases, for [logging](../guide/logging.md) with `use_wandb=True`; the default `wandb` group installs it |
 
 ```bash
 uv sync --extra compare

@@ -217,7 +217,9 @@ def capture_step(agent: Any, n_timesteps: int) -> Step:
         got.update(loop=self, init=init, iteration=iteration, kw=kw)
         raise _Captured
 
-    loop.TrainLoop.train = grab  # type: ignore[method-assign]
+    # The test seam replaces a method for the duration of one build (mypy's codes differ with how
+    # much of the project it sees).
+    loop.TrainLoop.train = grab  # type: ignore[method-assign, assignment]
     try:
         agent.train(seed=[0], n_timesteps=n_timesteps)
     except _Captured:

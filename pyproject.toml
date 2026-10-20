@@ -38,6 +38,9 @@ compare = ["adastop"]
 # ajax.reproduction.load, the reference comparisons' published data:
 # `uv sync --extra reproduction`, or depend on `ajax[reproduction]`.
 reproduction = ["huggingface-hub>=0.30,<2", "pandas>=2.2,<3", "pyarrow>=15"]
+# Weights & Biases logging (LoggingConfig's use_wandb, on by default): the
+# default wandb group installs it, or depend on `ajax[wandb]`.
+wandb = ["wandb>=0.19.9"]
 
 [project.urls]
 Homepage = "https://github.com/YannBerthelot/Ajax"
@@ -67,7 +70,8 @@ dev = [
     "pandas>=2.2,<3",
     "pyarrow>=15",
 ]
-wandb = ["wandb>=0.19.9,<0.20"]
+# The wandb extra, installed by default.
+wandb = ["ajax[wandb]"]
 # The Plane3DCircle scenario of benchmarks/perf_bench.py needs target_gym;
 # the framework does not. Opt in with `uv sync --group plane`.
 plane = ["target-gym>=0.6.1,<0.7"]

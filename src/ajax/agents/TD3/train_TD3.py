@@ -249,10 +249,14 @@ def update_value_functions(
     )
 
     def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
-        """Both critics regress on the one target (SAC's critic loss)."""
+        """Every critic regresses on the one target; their squared errors are
+        summed, as sfujim/TD3 sums its two critics' MSEs (TD3.py train):
+        critic_loss_fn averages them, and averaging would halve the gradient,
+        which Adam's eps then weighs twice as much."""
         loss, aux = critic_loss_fn(
             params, agent_state.critic_state, batch.obs, batch.action, target_q, carries
         )
+        loss = loss * agent_config.num_critics
         return loss, ValueAuxiliaries(
             critic_loss=loss,
             target_q=target_q.mean().flatten(),

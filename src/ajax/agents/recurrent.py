@@ -343,6 +343,16 @@ def actor_dist(
     return jax.tree.map(lambda leaf: _bootstrap_steps(carries, leaf), pi)
 
 
+def in_critic_units(critic_state: LoadedTrainState, actions: jax.Array) -> jax.Array:
+    """``actions`` as the critic reads them: ``critic_state.action_units``'
+    affine map of the agent's [-1, 1] actions, or the actions themselves."""
+    units = critic_state.action_units
+    if units is None:
+        return actions
+    offset, scale = (jnp.asarray(u, actions.dtype) for u in units)
+    return offset + scale * actions
+
+
 def q_values(
     critic_state: LoadedTrainState,
     params: Any,
@@ -358,18 +368,25 @@ def q_values(
     burned-in carry, or the target critic's when ``bootstrap`` (``obs``
     then being the rows' next observations, each read after its row,
     :func:`_bootstrap_stream`): the memory reads the actions taken before
-    the rows, ``actions`` are queried at the head.
+    the rows, ``actions`` are queried at the head. Every action reaches the
+    critic in its units (:func:`in_critic_units`).
     """
+    actions = in_critic_units(critic_state, actions)
     if carries is None:
         return predict_value(critic_state, params, action_value_input(obs, actions))
+    prev_actions = in_critic_units(critic_state, carries.prev_actions)
     if not bootstrap:
-        x = action_value_input(obs, actions, carries.prev_actions)
+        x = action_value_input(obs, actions, prev_actions)
         return predict_value_sequence(
             critic_state, params, x, carries.resets, carries.critic_hidden
         )[0]
     # The rows' queries are unread; after a termination nothing came before.
-    rows = action_value_input(carries.obs, actions, carries.prev_actions)
-    taken = jnp.where(carries.next_resets[..., None], 0.0, carries.actions)
+    rows = action_value_input(carries.obs, actions, prev_actions)
+    taken = jnp.where(
+        carries.next_resets[..., None],
+        0.0,
+        in_critic_units(critic_state, carries.actions),
+    )
     xs, resets = _bootstrap_stream(
         carries, rows, action_value_input(obs, actions, taken)
     )

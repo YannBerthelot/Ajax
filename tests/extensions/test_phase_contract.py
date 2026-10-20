@@ -106,11 +106,12 @@ class Recorder(Extension):
         return agent_state.actor_state.params, getattr(critic, "params", None)
 
 
-#: Overrides of the table's runs: SAC's actor steps from its first update;
-#: the rollout agents fold one minibatch of one epoch, so the targets of
+#: Overrides of the table's runs: SAC's and TD3's actors step on every
+#: update; the rollout agents fold one minibatch of one epoch, so the targets of
 #: an update's critic_loss folds are its on_target output, shuffled.
 OVERRIDES: dict[str, dict] = {
     "SAC": {"policy_update_start": 8},
+    "TD3": {"policy_delay": 1},
     "PPO": {"batch_size": 16},
     "APO": {"batch_size": 16},
     "PQN": {"n_epochs": 1, "num_minibatches": 1},
@@ -272,8 +273,7 @@ UNROLL = {"unroll_length": 8, "num_minibatches": 2}
 )
 def test_each_phase_logs_its_metrics_with_the_updates(name: str, options: dict) -> None:
     """Every evaluation logs each folded phase's constant, as the last
-    update's or the update's mean; TD3 logs 0 for the actor's on the
-    updates its ``policy_delay`` skips."""
+    update's or the update's mean."""
     cls, env_id, kwargs, n_timesteps = _setup(name)
     kwargs = kwargs | options
     phases = frozenset(LOGGED) & cls.supported_extension_phases
@@ -289,10 +289,4 @@ def test_each_phase_logs_its_metrics_with_the_updates(name: str, options: dict) 
     assert evaluated.any()
     for phase in phases:
         logged = np.asarray(out[f"logger/{phase}"]).reshape(-1)[evaluated]
-        allowed = [LOGGED[phase]] + (
-            [0.0] if (name, phase) == ("TD3", "actor_loss") else []
-        )
-        assert np.isin(logged, allowed).all() and (logged == LOGGED[phase]).any(), (
-            phase,
-            logged,
-        )
+        assert (logged == LOGGED[phase]).all(), (phase, logged)

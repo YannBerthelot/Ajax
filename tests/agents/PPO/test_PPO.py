@@ -103,7 +103,10 @@ def test_a_split_run_resets_on_the_one_calls_cadence():
     first, _ = agent().train(seed=0, n_timesteps=32, total_timesteps=96)
     np.testing.assert_array_equal(first.n_updates, 3)
     split, _ = agent().train(seed=0, n_timesteps=96 - 48, initial_state=first)
-    assert not readouts.differing_leaves(one, split)
+    # The two runs are separately compiled programs: some CI runners round them
+    # 1.67e-6 apart (the env's last torque). A wrong cadence changes the keys,
+    # the pendulum's state by 1 to 6 and the weights by 9e-3 or more.
+    assert not readouts.differing_leaves(one, split, atol=1e-4)
 
 
 def test_ppo_defaults_to_its_reference_log_std():

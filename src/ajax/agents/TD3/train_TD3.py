@@ -36,6 +36,7 @@ from ajax.environments.interaction import (
     get_pi,
     init_collector_state,
 )
+from ajax.environments.utils import critic_action_units
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -130,6 +131,7 @@ def init_TD3(
     store_raw_next_obs: bool = False,
     store_return_to_go: bool = False,
     store_next_action: bool = False,
+    critic_action_units: Optional[tuple] = None,
 ) -> TD3State:
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state = get_initialized_td3_actor_critic(
@@ -140,6 +142,7 @@ def init_TD3(
         network_config=network_args,
         num_critics=num_critics,
     )
+    critic_state = critic_state.replace(action_units=critic_action_units)
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
@@ -249,10 +252,14 @@ def update_value_functions(
     )
 
     def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
-        """Both critics regress on the one target (SAC's critic loss)."""
+        """Every critic regresses on the one target; their squared errors are
+        summed, as sfujim/TD3 sums its two critics' MSEs (TD3.py train):
+        critic_loss_fn averages them, and averaging would halve the gradient,
+        which Adam's eps then weighs twice as much."""
         loss, aux = critic_loss_fn(
             params, agent_state.critic_state, batch.obs, batch.action, target_q, carries
         )
+        loss = loss * agent_config.num_critics
         return loss, ValueAuxiliaries(
             critic_loss=loss,
             target_q=target_q.mean().flatten(),
@@ -381,8 +388,11 @@ def update_agent(
         shapes = jax.eval_shape(lambda s: policy_and_targets(s)[1], agent_state)
         return agent_state, jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), shapes)
 
+    # sfujim/TD3 counts the update first (total_it += 1), then steps the actor
+    # when the count is a multiple of the delay: its first actor step is the
+    # policy_delay-th update, not the first.
     policy_delay = agent_config.policy_delay
-    do_policy = (agent_state.n_updates % policy_delay) == 0
+    do_policy = ((agent_state.n_updates + 1) % policy_delay) == 0
     agent_state, (policy_aux, policy_metrics) = jax.lax.cond(
         do_policy, policy_and_targets, skip_policy, agent_state
     )
@@ -445,6 +455,10 @@ def make_train(
             recurrent, agent_config.exploration_noise
         )
 
+    # sfujim/TD3's critics read max_action * tanh, the env's units: so do
+    # TD3's (computed once here, from the concrete env params).
+    units = critic_action_units(env_args.env, env_args.env_params)
+
     def init(key: jax.Array) -> TD3State:
         return init_TD3(
             key,
@@ -460,6 +474,7 @@ def make_train(
             store_raw_next_obs="raw_next_obs" in loop.stack.buffer_fields(),
             store_return_to_go="return_to_go" in loop.stack.buffer_fields(),
             store_next_action="next_action" in loop.stack.buffer_fields(),
+            critic_action_units=units,
         )
 
     def update(agent_state: TD3State, _transition: Transition) -> Any:

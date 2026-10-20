@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-import math
 from collections import Counter
 from typing import Any, Callable
 
@@ -109,7 +108,8 @@ def steps(
         actor, alpha = (sum(t >= max(starts, s) for t in its) for s in (200, 300))
         return {"critic": u, "actor": actor, "alpha": alpha}
     return {
-        "TD3": {"critic": u, "actor": math.ceil(u / 3)},
+        # The actor steps on updates 3, 6, ... (sfujim/TD3 counts the update first).
+        "TD3": {"critic": u, "actor": u // 3},
         "REDQ": {"critic": 3 * u, "actor": u, "alpha": u},
         "ASAC": {"critic": u, "actor": u, "alpha": u if learned_alpha else 0},
         "AVG": {"critic": u, "actor": u, "alpha": 0},

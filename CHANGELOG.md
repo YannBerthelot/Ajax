@@ -10,6 +10,12 @@ the minor version. Each release is tagged `vX.Y.Z` on main.
   (or `ajax[brax]` for Brax alone); without them, building one raises an
   error that names the extra. A gymnax-only install drops 34 of its 93
   packages.
+- **TD3** now makes sfujim/TD3's update: its critics' losses are summed
+  (they were averaged, which doubled Adam's eps against the gradient), its
+  first actor step comes with the `policy_delay`-th update (it came with the
+  first), and on boxes other than `[-1, 1]` its critics read actions in the
+  environment's units (on gymnax Pendulum, torque). Default TD3 runs differ
+  from 0.4.0's; no setting restores the old update.
 - **Extras**: `ajax[brax]`, `ajax[playground]` and `ajax[wandb]` (Weights &
   Biases logging).
 - **Dependencies**: brax is no longer capped below 0.15 (Ajax uses its

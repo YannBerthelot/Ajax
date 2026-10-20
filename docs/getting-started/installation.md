@@ -78,6 +78,8 @@ imported.
 | Extra | What it adds |
 | --- | --- |
 | `cuda` | JAX with CUDA, on Linux ([above](#cpu-or-gpu)) |
+| `brax` | [Brax](https://github.com/google/brax), for Brax environments such as `"ant"` |
+| `playground` | [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground) and Brax, for Playground environments such as `"CartpoleBalance"` |
 | `compare` | the `adastop` package, whose confidence sequence [`ajax.compare.estimate`](../guide/comparing-agents.md#one-agent-how-sure-is-a-number) uses; AdaStop itself needs no extra |
 | `reproduction` | Hugging Face Hub, pandas and pyarrow, for `ajax.reproduction.load` ([Reproduction](../reproduction/index.md)) |
 | `wandb` | Weights & Biases, for [logging](../guide/logging.md) with `use_wandb=True`; the default `wandb` group installs it |
@@ -85,6 +87,12 @@ imported.
 ```bash
 uv sync --extra compare
 ```
+
+Until 0.5.0, Brax and MuJoCo Playground also come with Ajax itself. From
+0.5.0 they come only with their extras, so a project that uses their
+environments asks for `ajax[playground]` (or `ajax[brax]`) now. Without
+them, building a Brax or Playground environment raises an error that
+names the extra.
 
 The `compare` extra takes `adastop` from a commit of its main branch, named
 in `[tool.uv.sources]`, until a release includes the confidence sequence.

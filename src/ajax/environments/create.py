@@ -1,11 +1,10 @@
+import importlib
 import inspect
+from types import ModuleType
 from typing import Callable, Optional, Tuple, Union
 
-import brax
-import brax.envs
 import gymnax
 import jax
-from brax.envs.wrappers import training as brax_training
 from gymnax import EnvParams
 
 from ajax.environments.utils import (
@@ -40,6 +39,35 @@ from ajax.wrappers import (
 # two-argument builders registered so far keep working unchanged.
 _PLAYGROUND_BUILDERS: dict = {}
 _BRAX_BUILDERS: dict = {}
+# The optional environment packages: their extra and their name.
+_EXTRAS = {
+    "brax": ("brax", "Brax"),
+    "mujoco_playground": ("playground", "MuJoCo Playground"),
+}
+
+
+def _installed(module: str) -> Optional[ModuleType]:
+    """``module``, or None when its package is not installed (Brax and MuJoCo
+    Playground come with Ajax's ``brax`` and ``playground`` extras). A
+    package that is installed but fails to import raises."""
+    try:
+        return importlib.import_module(module)
+    except ModuleNotFoundError as error:
+        if error.name != module.partition(".")[0]:
+            raise
+        return None
+
+
+def _unknown_env(env_id: str) -> ValueError:
+    missing = [
+        f"{name} (ajax[{extra}])"
+        for package, (extra, name) in _EXTRAS.items()
+        if _installed(package) is None
+    ]
+    hint = f"; not installed: {', '.join(missing)}" if missing else ""
+    return ValueError(
+        f"Environment {env_id} not found in gymnax, brax or MuJoCo Playground{hint}"
+    )
 
 
 def _builder_accepts_action_repeat(builder: Callable) -> bool:
@@ -172,6 +200,7 @@ def _build_playground_env(
             action_repeat,
         )
 
+    from brax.envs.wrappers import training as brax_training
     from mujoco_playground import registry
     from mujoco_playground._src.wrapper import BraxAutoResetWrapper
 
@@ -223,6 +252,9 @@ def _build_brax_env(
             action_repeat,
         )
 
+    import brax.envs
+    from brax.envs.wrappers import training as brax_training
+
     try:
         env = brax.envs.get_environment(env_id)
     except KeyError as error:
@@ -231,7 +263,7 @@ def _build_brax_env(
         # constructor carries another key and propagates.
         if error.args != (env_id,):
             raise
-        raise ValueError(f"Environment {env_id} not found in gymnax or brax") from None
+        raise _unknown_env(env_id) from None
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env, batch_size=n_envs)
     env = FinalObsWrapper(env)
@@ -301,13 +333,14 @@ def build_env_from_id(
             env = FlattenObservationWrapper(env)
         return env, env_params
 
-    from mujoco_playground import registry as mp_registry
-
     # External callers (e.g. SafetyExperiments) may register a playground
     # builder for an env id that is not part of `mp_registry.ALL_ENVS`
     # (e.g. a custom MJX env composed from our own MJCF); a registered
     # builder owns its stack and ignores the auto-reset flags.
-    if env_id in _PLAYGROUND_BUILDERS or env_id in mp_registry.ALL_ENVS:
+    playground = _installed("mujoco_playground")
+    if env_id in _PLAYGROUND_BUILDERS or (
+        playground is not None and env_id in playground.registry.ALL_ENVS
+    ):
         return _build_playground_env(
             env_id,
             n_envs=n_envs,
@@ -317,6 +350,8 @@ def build_env_from_id(
             differentiable_reset=differentiable_reset,
         ), None
 
+    if env_id not in _BRAX_BUILDERS and _installed("brax.envs") is None:
+        raise _unknown_env(env_id)
     return _build_brax_env(
         env_id,
         n_envs=n_envs,

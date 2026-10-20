@@ -14,6 +14,8 @@ dependencies = [
     "flax>=0.12.8",
     # Exactly the packages Ajax imports: each is declared rather than left
     # to the packages that pull it in, and nothing else is.
+    # brax and playground are also the brax and playground extras, and leave
+    # this list in 0.5.0 (CHANGELOG.md).
     "brax>=0.14.2",
     "chex>=0.1.91,<0.2",
     "numpy>=2.1,<3",
@@ -38,6 +40,12 @@ compare = ["adastop"]
 # ajax.reproduction.load, the reference comparisons' published data:
 # `uv sync --extra reproduction`, or depend on `ajax[reproduction]`.
 reproduction = ["huggingface-hub>=0.30,<2", "pandas>=2.2,<3", "pyarrow>=15"]
+# Brax environments ("ant", "fast", ...): `uv sync --extra brax`, or depend on
+# `ajax[brax]`.
+brax = ["brax>=0.14.2"]
+# MuJoCo Playground environments, which run in brax's wrappers: `uv sync
+# --extra playground`, or depend on `ajax[playground]`.
+playground = ["ajax[brax]", "playground>=0.2.0,<0.3"]
 # Weights & Biases logging (LoggingConfig's use_wandb, on by default): the
 # default wandb group installs it, or depend on `ajax[wandb]`.
 wandb = ["wandb>=0.19.9"]

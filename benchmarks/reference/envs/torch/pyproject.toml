@@ -1,0 +1,25 @@
+# The PyTorch originals of the conformance checks (tests/conformance), with
+# CPU-only torch wheels: CI syncs this env on every run, and the default
+# Linux torch wheel pulls gigabytes of CUDA libraries. jax and gymnax at the
+# versions the SB3 env pins, so both sides step the same environment code.
+[project]
+name = "conformance-torch"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "torch==2.13.0",
+    "numpy",
+    "jax==0.7.2",
+    "gymnax==1.0.1",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

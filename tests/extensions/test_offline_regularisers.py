@@ -70,6 +70,20 @@ def test_the_replay_keeps_a_datasets_return_and_minus_inf_for_collected_rows() -
     )
 
 
+def test_expert_prefill_rows_keep_minus_inf() -> None:
+    agent = SAC(
+        "Pendulum-v1",
+        buffer_size=64,
+        batch_size=8,
+        extensions=(CalQL(),),
+        expert_policy=lambda obs: jnp.zeros((*obs.shape[:-1], 1)),
+        expert_buffer_n_steps=4,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=0)
+    replay = jax.tree.map(lambda x: x[0], state.collector_state.buffer_state)
+    np.testing.assert_array_equal(replay.experience["return_to_go"][0, :4], -np.inf)
+
+
 def test_the_terms_refuse_bad_settings_and_agents_without_their_inputs() -> None:
     for bad in ({"alpha": -1.0}, {"n_actions": 0}):
         with pytest.raises(ValueError, match="alpha >= 0 and n_actions >= 1"):

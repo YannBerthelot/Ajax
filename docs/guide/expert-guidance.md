@@ -289,7 +289,7 @@ Ajax" marks a feature with no external reference.
 | You want to | Use | Method |
 | --- | --- | --- |
 | Start the replay with good experience | `expert_buffer_n_steps` (SAC, on by default); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
-| Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, ASAC, DQN) | offline training on the agent's own update |
+| Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, ASAC, DQN, IQL) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
 | Keep the actor near the dataset's actions | `ImitationLoss(None, target="replay", alpha=2.5)` (SAC, TD3, REDQ, ASAC) | TD3+BC (Fujimoto and Gu, 2021) on TD3 |
 | Start the actor as a copy of the expert | `CloningPretrain` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger) | behaviour cloning |
 | Imitate the expert, with no reward | the `DAgger` agent | DAgger (Ross, Gordon and Bagnell, 2011); `ImitationLoss` with a replay agent's own expert is its aggregation plus the RL loss |

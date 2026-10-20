@@ -106,7 +106,7 @@ target, a critic, an actor, a collection step it lets an extension change.
 | Agent | `on_target` | `critic_loss` | `actor_loss` | `action`, `transform_action` |
 | --- | --- | --- | --- | --- |
 | [SAC](../algorithms/sac.md) | yes | yes | yes | yes, with an `expert_policy` |
-| [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [ASAC](../algorithms/asac.md), [AVG](../algorithms/avg.md) | yes | yes | yes | no |
+| [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [ASAC](../algorithms/asac.md), [AVG](../algorithms/avg.md), [IQL](../algorithms/iql.md) | yes | yes | yes | no |
 | [PPO](../algorithms/ppo.md), [APO](../algorithms/apo.md) | yes (value targets) | yes | yes | no |
 | [DQN](../algorithms/dqn.md), [PQN](../algorithms/pqn.md) | yes | yes (the Q-network's loss) | no | no |
 | [UDRL](../algorithms/udrl.md), [DAgger](../algorithms/dagger.md), [APG](../algorithms/apg.md) | no | no | yes | no |
@@ -119,12 +119,12 @@ Each agent says what its algorithm has, in `capabilities`:
 | Capability | Meaning | Agents |
 | --- | --- | --- |
 | `actor` | a policy network trained by gradient | all but DQN, PQN |
-| `q_critic` | a learned action value Q(s, a) | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, TDMPC2 |
-| `v_critic` | a learned state value V(s) | PPO, APO, DreamerV3 |
+| `q_critic` | a learned action value Q(s, a) | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, TDMPC2, IQL |
+| `v_critic` | a learned state value V(s) | PPO, APO, DreamerV3, IQL |
 | `discounted` | it maximises a discounted return | all but ASAC, APO, UDRL, DAgger, APG |
-| `replay` | its updates sample stored past transitions | SAC, TD3, REDQ, ASAC, DQN, UDRL, DAgger, DreamerV3, TDMPC2 |
+| `replay` | its updates sample stored past transitions | SAC, TD3, REDQ, ASAC, DQN, UDRL, DAgger, DreamerV3, TDMPC2, IQL |
 | `off_policy` | its update stays correct on actions its policy did not choose | all but PPO, APO, APG |
-| `critic_ensemble` | two critics or more | SAC, TD3, REDQ, ASAC, TDMPC2; AVG with `num_critics` of 2 or more |
+| `critic_ensemble` | two critics or more | SAC, TD3, REDQ, ASAC, TDMPC2, IQL; AVG with `num_critics` of 2 or more |
 | `obs_networks` | its policy and value networks read the observation, not a world model's latent state (memory needs it) | all but DreamerV3, TDMPC2 |
 
 A run adds what its configuration gives: `critic` (a Q or V critic),

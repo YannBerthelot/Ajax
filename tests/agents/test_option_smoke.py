@@ -28,7 +28,7 @@ from ajax.agents.DQN.DQN import DQN
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.TD3.train_TD3 import make_default_action_pipeline
 from ajax.buffers.dataset import TransitionDataset
-from ajax.extensions import ensemble, expert, exploration, instrumentation
+from ajax.extensions import adversarial, ensemble, expert, exploration, instrumentation
 from ajax.extensions import pretrain as pre
 from ajax.extensions import target_mods as tm
 from ajax.extensions.base import Extension
@@ -60,15 +60,18 @@ def stateless_expert(obs: jax.Array) -> jax.Array:
     return jnp.clip(-obs[..., :1], -2.0, 2.0)
 
 
-def prior_data() -> Extension:
+def pendulum_rows() -> TransitionDataset:
     """16 logged rows shaped as Pendulum's, two episodes cut by the time
-    limit, and two offline updates."""
+    limit."""
     obs = np.random.default_rng(0).uniform(-1.0, 1.0, (17, 3))
     limit, still = np.arange(16) % 8 == 7, np.zeros(16, bool)
-    rows = TransitionDataset(
+    return TransitionDataset(
         obs[:-1], np.full((16, 1), 0.1), -obs[:-1, 0], still, limit, obs[1:]
     )
-    return pre.PriorData(rows, offline_updates=2)
+
+
+def prior_data() -> Extension:
+    return pre.PriorData(pendulum_rows(), offline_updates=2)
 
 
 EXPERT, GRU = Expert(), MemoryConfig(kind="gru", hidden_size=8)
@@ -157,6 +160,10 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "BiasVorePenalty": (instrumentation.BiasVorePenalty, "AVG"),
     "ConditioningMetrics": (instrumentation.ConditioningMetrics, "PQN"),
     "BiasVoreDecomposition": (instrumentation.BiasVoreDecomposition, "PPO"),
+    "AdversarialReward": (
+        lambda: adversarial.AdversarialReward(pendulum_rows()),
+        "PPO",
+    ),
 }
 ACTING = {"ValueBox", "EDGEExploration", "JSRLCurriculum", "ResidualPolicy"}
 PHI_STAR = (
@@ -189,8 +196,10 @@ EXCLUSIVE = [
     ({"CartPole-v1"}, EXPERTS | {"ImitationLoss"}),
     # The rows are Pendulum's own observations: the replay's of another env,
     # one widened by the training fraction, or one keeping the expert's next
-    # action (an expert_policy) cannot take them.
+    # action (an expert_policy) cannot take them; GAIL's discriminator reads
+    # Pendulum's (s, a) only.
     ({"PriorData"}, {"fast", "CartPole-v1", "use_train_frac"} | EXPERTS),
+    ({"AdversarialReward"}, {"fast", "CartPole-v1"}),
 ]
 TABLE = CASES | {"APG": Case(APG, {"horizon": 1, "pid": None}, ())}
 #: The exported agents off TABLE, and the tests that run their options.

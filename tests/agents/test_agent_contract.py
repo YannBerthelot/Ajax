@@ -36,6 +36,7 @@ from ajax.agents.DAgger.DAgger import DAgger
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.DreamerV3.state import DreamerV3State
+from ajax.agents.IQL.IQL import IQL
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
@@ -130,6 +131,7 @@ CASES = {
         buffer=True,
     ),
     "TD3": Case(TD3, OFF_POLICY, CONTINUOUS, buffer=True),
+    "IQL": Case(IQL, OFF_POLICY, CONTINUOUS, buffer=True),
     "AVG": Case(
         AVG,
         {"actor_architecture": NET, "critic_architecture": NET},
@@ -509,7 +511,9 @@ def test_a_world_model_acts_on_the_whole_box(name: str) -> None:
 
 
 #: Every agent on ActorCritic (TD-MPC2 multi-task, offline, builds no env).
-ACTOR_CRITICS = "APG APO ASAC AVG DAgger DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL"
+ACTOR_CRITICS = (
+    "APG APO ASAC AVG DAgger DQN DreamerV3 IQL PPO PQN REDQ SAC TD3 TDMPC2 UDRL"
+)
 
 
 class _Built(Exception):
@@ -568,7 +572,7 @@ def test_no_agent_class_lets_its_seeds_update_unequally() -> None:
 #: papers do.
 CLIPS: dict[str, tuple[str, float | None]] = {
     **dict.fromkeys(
-        "AVG DAgger DQN REDQ SAC TD3 UDRL".split(), ("max_grad_norm", None)
+        "AVG DAgger DQN IQL REDQ SAC TD3 UDRL".split(), ("max_grad_norm", None)
     ),
     # BobMak/asac @4b68862: every hparams/*/asac.yaml sets max_grad_norm 10.
     "ASAC": ("max_grad_norm", 10.0),

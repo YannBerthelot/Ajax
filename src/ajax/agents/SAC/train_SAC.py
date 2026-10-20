@@ -25,6 +25,7 @@ from ajax.agents.SAC.core import (
 )
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
+from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import augment_obs, reward_statistics
 from ajax.environments.utils import get_state_action_shapes
@@ -314,8 +315,10 @@ def policy_loss_function(
     carries: Optional[RecurrentCarries] = None,
     agent_state: Any = None,
     total_timesteps: int = 1,
+    replay_actions: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, dict]]:
-    """SAC actor loss with composable expert modifiers."""
+    """SAC actor loss with composable expert modifiers; ``replay_actions``,
+    the rows' own actions, reach the extensions as ``actions``."""
     _raw_obs = (
         raw_observations if raw_observations is not None else observations[..., :-1]
     )
@@ -370,6 +373,7 @@ def policy_loss_function(
         "actor_params": actor_params,
         "actor_state": actor_state,
         "a_expert": a_expert,
+        "actions": replay_actions,
         "critic_state": critic_states,
     }
     bc_term, metrics = extension_stack.fold_actor_loss(
@@ -404,6 +408,7 @@ def update_policy(
     policy_action_transform: Optional[Callable] = None,
     total_timesteps: int = 1,
     carries: Optional[RecurrentCarries] = None,
+    replay_actions: Optional[jax.Array] = None,
 ) -> Tuple[SACState, PolicyAuxiliaries, jax.Array, dict]:
     """Returns (new_state, aux, log_probs, metrics): log_probs from a fresh
     pass of the updated actor, for update_temperature (CleanRL's SAC order;
@@ -428,6 +433,7 @@ def update_policy(
         extension_stack=extension_stack,
         agent_state=agent_state,
         total_timesteps=total_timesteps,
+        replay_actions=replay_actions,
     )
 
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
@@ -604,6 +610,7 @@ def update_agent(
         extension_stack=extension_stack,
         total_timesteps=total_timesteps,
         carries=carries,
+        replay_actions=transition.action,
     )
     agent_state = jax.lax.cond(
         agent_state.collector_state.timestep >= policy_update_start,
@@ -695,6 +702,7 @@ def make_train(
     use_pid_policy: bool = False,
     # Gain-policy mode: actor output dim = len(expert.learnable_fields)
     action_dim_override: Optional[int] = None,
+    offline_data: Optional[TransitionDataset] = None,
     extensions: Sequence = (),
 ):
     """SAC's train function on :meth:`TrainLoop.off_policy`.
@@ -755,6 +763,7 @@ def make_train(
         start_timestep=start_timestep,
         end_timestep=end_timestep,
         expert_policy=expert_policy,
+        offline_data=offline_data,
     )
 
     def init(key: jax.Array) -> SACState:

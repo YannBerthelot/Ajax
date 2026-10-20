@@ -32,6 +32,7 @@ from ajax.agents.recurrent import (
 )
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.memory import zeros_carry_like
@@ -274,6 +275,7 @@ def update_policy(
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
+    actions: Optional[jax.Array] = None,
 ) -> Tuple[ASACState, PolicyAuxiliaries, dict]:
     """The actor step on ``alpha log pi(a|s) - min_i Q_i(s, a)``; also
     returns the extensions' metrics."""
@@ -285,6 +287,7 @@ def update_policy(
         total_timesteps,
         carries,
         a_expert=a_expert,
+        actions=actions,
     )
     aux = PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()
@@ -368,6 +371,7 @@ def update_agent(
         total_timesteps,
         carries,
         a_expert=transition.a_expert,
+        actions=transition.action,
     )
     agent_state, log_probs = sample_updated_policy(agent_state, transition.obs, carries)
     # The dual-gradient step towards ``target_entropy`` (target entropy
@@ -416,6 +420,7 @@ def make_train(
     start_timestep: int = 0,
     end_timestep: Optional[int] = None,
     expert_policy: Optional[Callable] = None,
+    offline_data: Optional[TransitionDataset] = None,
     extensions: Sequence = (),
     fixed_alpha: bool = True,
 ):
@@ -443,6 +448,7 @@ def make_train(
         start_timestep=start_timestep,
         end_timestep=end_timestep,
         expert_policy=expert_policy,
+        offline_data=offline_data,
     )
 
     def init(key: jax.Array) -> ASACState:

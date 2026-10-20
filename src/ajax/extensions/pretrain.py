@@ -26,30 +26,25 @@ from typing import Any, Callable, ClassVar, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.cloning import pre_train
-from ajax.agents.loop import with_obs_norm
-from ajax.buffers.dataset import TransitionDataset, fill_replay
+from ajax.agents.loop import seed_replay
+from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     augment_from_batch,
     augment_obs,
     collect_experience_from_expert_policy,
     reward_statistics,
-    with_reward_statistics,
 )
-from ajax.environments.obs_norm import update_obs_norm
 from ajax.environments.utils import get_state_action_shapes, raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.state import EnvironmentConfig, LoadedTrainState
 from ajax.types import BufferType, NormalizationInfo
-from ajax.utils import online_normalize
 
 
 @struct.dataclass
@@ -1057,12 +1052,7 @@ class PriorData(Extension):
                 "PriorData adds its rows to the agent's replay: give it to an"
                 " agent replaying transitions (SAC, TD3, REDQ, ASAC, DQN)."
             )
-        collector = agent_state.collector_state
-        replay = fill_replay(ctx.buffer, collector.buffer_state, self.dataset)
-        collector = collector.replace(buffer_state=replay)
-        agent_state = self.with_statistics(
-            agent_state.replace(collector_state=collector), ctx
-        )
+        agent_state = seed_replay(agent_state, ctx.buffer, self.dataset, ctx.env_args)
 
         def update(agent_state: Any, _: None) -> tuple[Any, None]:
             return agent_update(agent_state, None)[0], None
@@ -1071,39 +1061,6 @@ class PriorData(Extension):
             update, agent_state, None, length=self.offline_updates
         )
         return agent_state, ext_state
-
-    def with_statistics(self, agent_state: Any, ctx: ExtensionContext) -> Any:
-        """``agent_state`` with the dataset in the normalisers it has: its
-        own observation statistics, mirrored on its networks, and the env's
-        reward statistics, of the reward or, with the normaliser's
-        ``gamma``, of the discounted return of the episode so far (its
-        running return left as it is)."""
-        data, collector = self.dataset, agent_state.collector_state
-        env = ctx.env_args.env
-        _, obs_stats = update_obs_norm(
-            jnp.asarray(data.obs), collector.obs_norm_info, raw_obs_columns(env)
-        )
-        collector = collector.replace(obs_norm_info=obs_stats)
-        stats = reward_statistics(collector.env_state)
-        if stats is not None:
-            gamma = strip_ajax_wrappers(env)[1].get("gamma") or 0.0
-            returns, g = np.zeros_like(data.reward), 0.0
-            for t, end in enumerate(data.terminated | data.truncated):
-                g = data.reward[t] + gamma * g
-                returns[t], g = g, 0.0 if end else g
-            returns = jnp.asarray(returns)[:, None]
-            _, count, mean, mean_2, var = online_normalize(
-                returns,
-                stats.count,
-                stats.mean,
-                stats.mean_2,
-                shift=False,
-                returns=returns,
-            )
-            stats = NormalizationInfo(var, count, mean, mean_2, stats.returns)
-            env_state = with_reward_statistics(collector.env_state, stats)
-            collector = collector.replace(_env_state=env_state)
-        return with_obs_norm(agent_state.replace(collector_state=collector))
 
 
 __all__ = [

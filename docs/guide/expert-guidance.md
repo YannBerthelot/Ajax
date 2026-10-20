@@ -12,7 +12,8 @@ In Ajax, an expert is any function you pass to an agent or to an
 with the expert's experience and lets the expert extensions shape
 collection, the critic and the actor. SAC, TD3, REDQ, ASAC, AVG and APO can
 clone it before training, and those and PPO, APG and UDRL can imitate it
-through an extra actor-loss term. Recorded transitions, from an expert or
+through an extra actor-loss term. [DAgger](../algorithms/dagger.md)
+imitates it with no reward at all. Recorded transitions, from an expert or
 any earlier run, can start a replay agent's buffer (`PriorData`).
 [Choosing the pieces](#choosing-the-pieces) names each method, its paper and
 the agents that run it.
@@ -102,6 +103,7 @@ refused when the agent is built.
 | --- | --- | --- |
 | [SAC](../algorithms/sac.md) | replay prefill, warm-up actions, collection extensions, the expert's evaluation return | all |
 | [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [ASAC](../algorithms/asac.md), [AVG](../algorithms/avg.md), [APO](../algorithms/apo.md) | the expert's evaluation return | `CloningPretrain`, `ImitationLoss`; `IBRL`, `LCBGatedBootstrap` on TD3, REDQ and AVG; `ExpertValueMetrics` on TD3, REDQ and ASAC |
+| [DAgger](../algorithms/dagger.md) | required: the expert acts and labels every visited state; its evaluation return | `CloningPretrain`, `ImitationLoss` (continuous actions) |
 
 The other agents (PPO, DQN, PQN, UDRL, APG and the world models) take no
 expert: `CloningPretrain` raises on them when training starts. PPO, APG and
@@ -287,8 +289,11 @@ Ajax" marks a feature with no external reference.
 | You want to | Use | Method |
 | --- | --- | --- |
 | Start the replay with good experience | `expert_buffer_n_steps` (SAC, on by default); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
-| Start the actor as a copy of the expert | `CloningPretrain` (SAC, TD3, REDQ, ASAC, AVG, APO) | behaviour cloning |
-| Keep the actor near the expert early on | `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO; PPO, APG, UDRL with a stateless expert), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |
+| Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, ASAC, DQN, IQL) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
+| Keep the actor near the dataset's actions | `ImitationLoss(None, target="replay", alpha=2.5)` (SAC, TD3, REDQ, ASAC) | TD3+BC (Fujimoto and Gu, 2021) on TD3 |
+| Start the actor as a copy of the expert | `CloningPretrain` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger) | behaviour cloning |
+| Imitate the expert, with no reward | the `DAgger` agent | DAgger (Ross, Gordon and Bagnell, 2011); `ImitationLoss` with a replay agent's own expert is its aggregation plus the RL loss |
+| Keep the actor near the expert early on | `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger; PPO, APG, UDRL with a stateless expert), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |
 | Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC, TD3, REDQ, ASAC, AVG) | Q-filtered behaviour cloning (Nair et al., 2018) |
 | Let the expert act while the agent is poor | `JSRLCurriculum`, `EDGEExploration`, `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
 | Learn a correction to the expert | `ResidualPolicy` (SAC) | residual RL (Johannink et al., 2019) |

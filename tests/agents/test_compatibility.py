@@ -41,10 +41,10 @@ from tests.agents.TDMPC2.test_TDMPC2MultiTask import make_dataset
 
 #: (agent, environment): each agent on each action kind it takes.
 ROWS = [
-    *((name, "Pendulum-v1") for name in "SAC TD3 REDQ ASAC AVG APG TDMPC2".split()),
+    *((name, "Pendulum-v1") for name in "SAC TD3 REDQ ASAC AVG IQL APG TDMPC2".split()),
     *(
         (name, env)
-        for name in "PPO APO UDRL DreamerV3".split()
+        for name in "PPO APO UDRL DAgger DreamerV3".split()
         for env in ("Pendulum-v1", "CartPole-v1")
     ),
     ("DQN", "CartPole-v1"),
@@ -53,7 +53,13 @@ ROWS = [
 ]
 NETWORK_OPTIONS = ("memory", "cnn")
 #: Module options needing more than the module, each a column of its own.
-VARIANTS = {"ImitationLoss(q_filter=True)": ("ImitationLoss", {"q_filter": True})}
+VARIANTS: dict[str, tuple[str, dict[str, Any]]] = {
+    "ImitationLoss(q_filter=True)": ("ImitationLoss", {"q_filter": True})
+}
+VARIANTS["ImitationLoss(target='replay', alpha=2.5)"] = (
+    "ImitationLoss",
+    {"expert_policy": None, "target": "replay", "alpha": 2.5},
+)
 
 # Why each gap is open, and the work that closes it.
 ACTION = "only SAC folds action and transform_action (batch module-reach)"
@@ -81,36 +87,44 @@ FORM_GAPS = {
 #: for an agent taking both action kinds) where it is not wired yet.
 GAPS: dict[str, dict[str, str]] = {
     ACTION: {
-        "EDGEExploration": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DQN PQN",
-        "JSRLCurriculum": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DQN PQN",
-        "ResidualPolicy": "TD3 REDQ ASAC AVG APG PPO APO UDRL",
-        "ValueBox": "TD3 REDQ AVG DQN PQN",
+        "EDGEExploration": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DAgger"
+        " DAgger/discrete DQN PQN IQL",
+        "JSRLCurriculum": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DAgger"
+        " DAgger/discrete DQN PQN IQL",
+        "ResidualPolicy": "TD3 REDQ ASAC AVG APG PPO APO UDRL DAgger IQL",
+        "ValueBox": "TD3 REDQ AVG DQN PQN IQL",
     },
     MC: {
-        "CriticBlend": "TD3 REDQ AVG DQN PQN",
-        "MCPretrain": "TD3 REDQ AVG PPO PPO/discrete DQN PQN",
-        "MCVarianceCorrection": "TD3 REDQ",
-        "OnlineBC": "TD3 REDQ AVG",
-        "PhiRefresh": "TD3 REDQ DQN",
+        "CriticBlend": "TD3 REDQ AVG DQN PQN IQL",
+        "MCPretrain": "TD3 REDQ AVG PPO PPO/discrete DQN PQN IQL",
+        "MCVarianceCorrection": "TD3 REDQ IQL",
+        "OnlineBC": "TD3 REDQ AVG IQL",
+        "PhiRefresh": "TD3 REDQ DQN IQL",
     },
     CONTEXT: {
         "BellmanPretrain": "TD3 REDQ ASAC",
         "CloningPretrain": "APG PPO UDRL",
     },
     EXPERT: {
-        "BellmanPretrain": "DQN",
-        "ExpertValueMetrics": "DQN",
+        "BellmanPretrain": "DQN IQL",
+        "ExpertValueMetrics": "DQN IQL",
     },
     FORM: {
-        "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DreamerV3/discrete",
-        "ImitationLoss": "PPO/discrete APO/discrete UDRL/discrete DreamerV3/discrete",
-        "ConditioningMetrics": "APG UDRL UDRL/discrete",
+        "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"
+        " DreamerV3/discrete",
+        "ImitationLoss": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"
+        " DreamerV3/discrete",
+        "ConditioningMetrics": "APG UDRL UDRL/discrete DAgger DAgger/discrete",
     },
     WORLD: {
         **dict.fromkeys(
             "CriticBlend IBRL KernelRepulsion LCBGatedBootstrap MCVarianceCorrection"
             " OnlineBC PhiRefresh ValueBox ExpertValueMetrics"
             " ImitationLoss(q_filter=True)".split(),
+            "TDMPC2 TDMPC2MultiTask",
+        ),
+        **dict.fromkeys(
+            ["ImitationLoss(target='replay', alpha=2.5)"],
             "TDMPC2 TDMPC2MultiTask",
         ),
         **dict.fromkeys(
@@ -123,12 +137,15 @@ GAPS: dict[str, dict[str, str]] = {
             "TDMPC2 DreamerV3 TDMPC2MultiTask",
         ),
     },
-    CNN: {"cnn": "SAC TD3 REDQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete"},
-    MEMORY: {"memory": "APO APO/discrete DQN PQN"},
+    CNN: {
+        "cnn": "SAC TD3 REDQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete"
+        " DAgger DAgger/discrete IQL"
+    },
+    MEMORY: {"memory": "APO APO/discrete DQN PQN DAgger DAgger/discrete IQL"},
     DEFERRED: {"memory": "AVG UDRL UDRL/discrete"},
     PRIOR: {
-        "PriorData": "UDRL UDRL/discrete TDMPC2 DreamerV3 DreamerV3/discrete"
-        " TDMPC2MultiTask"
+        "PriorData": "UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3"
+        " DreamerV3/discrete TDMPC2MultiTask"
     },
 }
 
@@ -233,7 +250,9 @@ def columns() -> list[str]:
 
 
 def row_label(agent: str, env: str) -> str:
-    discrete = env == "CartPole-v1" and agent in ("PPO", "APO", "UDRL", "DreamerV3")
+    discrete = env == "CartPole-v1" and agent in (
+        *("PPO", "APO", "UDRL", "DAgger", "DreamerV3"),
+    )
     return f"{agent}/discrete" if discrete else agent
 
 

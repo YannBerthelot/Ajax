@@ -16,12 +16,14 @@ notes on using it:
 | ASAC | `ajax.agents.ASAC.ASAC.ASAC` | [ASAC](../algorithms/asac.md#api) |
 | REDQ | `ajax.agents.REDQ.REDQ.REDQ` | [REDQ](../algorithms/redq.md#api) |
 | TD3 | `ajax.agents.TD3.TD3.TD3` | [TD3](../algorithms/td3.md#api) |
+| IQL | `ajax.agents.IQL.IQL.IQL` | [IQL](../algorithms/iql.md#api) |
 | AVG | `ajax.agents.AVG.AVG.AVG` | [AVG](../algorithms/avg.md#api) |
 | DQN | `ajax.agents.DQN.DQN.DQN` | [DQN](../algorithms/dqn.md#api) |
 | PQN | `ajax.agents.PQN.PQN.PQN` | [PQN](../algorithms/pqn.md#api) |
 | PPO | `ajax.agents.PPO.PPO.PPO` | [PPO](../algorithms/ppo.md#api) |
 | APO | `ajax.agents.APO.APO.APO` | [APO](../algorithms/apo.md#api) |
 | UDRL | `ajax.agents.UDRL.UDRL.UDRL` | [UDRL](../algorithms/udrl.md#api) |
+| DAgger | `ajax.agents.DAgger.DAgger.DAgger` | [DAgger](../algorithms/dagger.md#api) |
 | APG | `ajax.agents.APG.APG.APG` | [APG](../algorithms/apg.md#api) |
 | DreamerV3 | `ajax.agents.DreamerV3.DreamerV3.DreamerV3` | [DreamerV3](../algorithms/dreamerv3.md#api) |
 | TDMPC2 | `ajax.agents.TDMPC2.TDMPC2.TDMPC2` | [TD-MPC2](../algorithms/tdmpc2.md#api) |

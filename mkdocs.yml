@@ -130,12 +130,14 @@ nav:
       - ASAC: algorithms/asac.md
       - REDQ: algorithms/redq.md
       - TD3: algorithms/td3.md
+      - IQL: algorithms/iql.md
       - AVG: algorithms/avg.md
       - DQN: algorithms/dqn.md
       - PQN: algorithms/pqn.md
       - PPO: algorithms/ppo.md
       - APO: algorithms/apo.md
       - UDRL: algorithms/udrl.md
+      - DAgger: algorithms/dagger.md
       - APG: algorithms/apg.md
       - DreamerV3: algorithms/dreamerv3.md
       - TD-MPC2: algorithms/tdmpc2.md

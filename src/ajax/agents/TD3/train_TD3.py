@@ -30,6 +30,7 @@ from ajax.agents.recurrent import (
 from ajax.agents.SAC.core import critic_loss_fn
 from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
+from ajax.buffers.dataset import TransitionDataset
 from ajax.environments.interaction import (
     ActionPipelineResult,
     get_pi,
@@ -280,11 +281,12 @@ def update_policy(
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
+    actions: Optional[jax.Array] = None,
 ) -> Tuple[TD3State, PolicyAuxiliaries, dict]:
     """The deterministic policy-gradient step on ``-Q1(s, mu(s))``;
-    ``a_expert``, the expert's stored actions at the rows, reaches the
-    extensions (None without an expert). Also returns the extensions'
-    metrics."""
+    ``a_expert``, the expert's stored actions at the rows (None without an
+    expert), and ``actions``, the rows' own, reach the extensions. Also
+    returns the extensions' metrics."""
     actor_state = agent_state.actor_state
 
     def loss_fn(params: FrozenDict) -> Tuple[jax.Array, Any]:
@@ -298,6 +300,7 @@ def update_policy(
             "actor_params": params,
             "actor_state": actor_state,
             "a_expert": a_expert,
+            "actions": actions,
             "critic_state": agent_state.critic_state,
         }
         extra, metrics = extension_stack.fold_actor_loss(
@@ -359,6 +362,7 @@ def update_agent(
             total_timesteps,
             carries,
             a_expert=batch.a_expert,
+            actions=batch.action,
         )
         agent_state = update_target_networks(agent_state, agent_config.tau)
         return agent_state, (policy_aux, policy_metrics)
@@ -397,6 +401,7 @@ def make_train(
     end_timestep: Optional[int] = None,
     expert_policy: Optional[Callable] = None,
     action_pipeline: Optional[Callable] = None,
+    offline_data: Optional[TransitionDataset] = None,
     extensions: Sequence = (),
 ):
     """TD3's train function: one step per env, then (from ``learning_starts``)
@@ -425,6 +430,7 @@ def make_train(
         start_timestep=start_timestep,
         end_timestep=end_timestep,
         expert_policy=expert_policy,
+        offline_data=offline_data,
     )
     if action_pipeline is None:
         action_pipeline = make_default_action_pipeline(

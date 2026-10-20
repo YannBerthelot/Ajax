@@ -228,6 +228,10 @@ def fill_replay(buffer: Any, buffer_state: Any, data: TransitionDataset) -> Any:
     run of ``data``, so a sequence replay reads its episodes whole. A replay
     already holding rows drops its oldest when full, as collection does.
 
+    A flat replay samples a row with its successor, so it never samples its
+    newest row: each env's last row of ``data`` trains only once a later
+    row follows it (collection's next step).
+
     Raises ``ValueError`` when the replay keeps fields ``data`` does not
     hold or of another width, when ``data``'s rows do not divide among its
     envs (flashbax advances every env's row together), or when they

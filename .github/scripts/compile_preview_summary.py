@@ -28,11 +28,11 @@ for meta_path in sorted(
     rows.append({**meta, **stats})
 
 print(
-    "| run | CPU | wall s | exit | ISA warnings | hits | misses | compile requests | compile s | cache read s |"
+    "| run | CPU | cache key | wall s | exit | ISA warnings | hits | misses | compile requests | compile s | cache read s |"
 )
-print("|---|---|---|---|---|---|---|---|---|---|")
+print("|---|---|---|---|---|---|---|---|---|---|---|")
 for r in rows:
     print(
-        f"| {r['run']} | {r['cpu']} | {r['wall_s']} | {r['status']} | {r['isa_warnings']} |"
+        f"| {r['run']} | {r['cpu']} | {r.get('key', '')} | {r['wall_s']} | {r['status']} | {r['isa_warnings']} |"
         f" {r['hits']} | {r['misses']} | {r['requests']} | {r['compile_s']:.0f} | {r['retrieval_s']:.0f} |"
     )

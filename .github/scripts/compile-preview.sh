@@ -5,7 +5,8 @@
 #   consume ISA REPLICA  run it again on that cache, moved under this runner's
 #                        fingerprint, as a key without the CPU's flags would find it
 #   levers REPLICA       without a cache, on one runner: as today, at XLA's
-#                        optimisation level 0, and with 2 and 4 xdist workers
+#                        optimisation level 0, with 2 and 4 xdist workers,
+#                        and at level 0 with 2 workers
 # ISA "avx2" caps XLA's code generation at AVX2 (every runner has it); "native"
 # leaves it at the runner's own CPU. Each run leaves stats/NAME.json (the
 # compile statistics, tests/compile_stats.py) and stats/NAME.meta.json.
@@ -13,7 +14,12 @@ set -euo pipefail
 SUBSET=${SUBSET:-"tests/agents/test_agent_contract.py tests/agents/test_weight_decay.py
   tests/environments/test_wrapper_contract.py tests/agents/test_agent_pins.py
   tests/networks/test_memory.py"}
-CPU=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | xargs || uname -m)
+# lscpu names arm64 CPUs too (their /proc/cpuinfo has no model name).
+CPU=$(lscpu 2>/dev/null | sed -n 's/^Model name: *//p' | head -1 || true)
+CPU=${CPU:-$(uname -m)}
+# The cache directory Ajax keys this runner's entries by (its fingerprint).
+KEY=$(AJAX_NO_COMPILE_CACHE=1 uv run python -c \
+  "from ajax._compile_cache import cache_dir_for, host_fingerprint as h; print(cache_dir_for('', h()))")
 ROOT="$RUNNER_TEMP/cache"
 mkdir -p stats
 
@@ -25,8 +31,8 @@ measure() {  # NAME XLA_FLAGS PYTEST_ARGS...: the subset, without coverage
     > "stats/$name.log" 2>&1 || status=$?
   local warned
   warned=$(grep -c "could lead to SIGILL" "stats/$name.log" || true)
-  printf '{"run": "%s", "cpu": "%s", "wall_s": %d, "status": %d, "isa_warnings": %d}\n' \
-    "$name" "$CPU" $((SECONDS - start)) "$status" "$warned" > "stats/$name.meta.json"
+  printf '{"run": "%s", "cpu": "%s", "key": "%s", "wall_s": %d, "status": %d, "isa_warnings": %d}\n' \
+    "$name" "$CPU" "$KEY" $((SECONDS - start)) "$status" "$warned" > "stats/$name.meta.json"
   echo "$name on $CPU: $((SECONDS - start)) s, exit $status, $warned ISA warnings"
 }
 
@@ -46,8 +52,10 @@ print(cache_dir_for('$ROOT', h()))")
   levers)
     export AJAX_NO_COMPILE_CACHE=1
     measure "levers-$2-today" ""
-    measure "levers-$2-O0" "--xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true"
+    O0="--xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true"
+    measure "levers-$2-O0" "$O0"
     WITH=(--with pytest-xdist==3.6.1)
     measure "levers-$2-xdist2" "" -n 2
-    measure "levers-$2-xdist4" "" -n 4 ;;
+    measure "levers-$2-xdist4" "" -n 4
+    measure "levers-$2-O0-xdist2" "$O0" -n 2 ;;
 esac

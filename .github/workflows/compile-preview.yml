@@ -10,6 +10,13 @@ name: Compile preview
 # .github/scripts/compile-preview.sh; the table is in the summary job.
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: The runner label (ubuntu-latest, ubuntu-24.04-arm, ...).
+        default: ubuntu-latest
+      isas:
+        description: The instruction-set caps to try, as JSON (["native"] on arm64).
+        default: '["native", "avx2"]'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -24,12 +31,12 @@ jobs:
   # A cache built from empty, capped at AVX2 or at the runner's own CPU.
   produce:
     name: Produce (${{ matrix.isa }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        isa: [native, avx2]
+        isa: ${{ fromJSON(inputs.isas) }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
@@ -48,12 +55,12 @@ jobs:
   consume:
     name: Consume (${{ matrix.isa }} ${{ matrix.replica }})
     needs: produce
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        isa: [native, avx2]
+        isa: ${{ fromJSON(inputs.isas) }}
         replica: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
@@ -71,7 +78,7 @@ jobs:
   # Without a cache, each lever against today on the same runner.
   levers:
     name: Levers (${{ matrix.replica }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false

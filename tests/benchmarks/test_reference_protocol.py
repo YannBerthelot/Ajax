@@ -215,3 +215,13 @@ def test_a_record_is_judged_under_the_spec_it_ran(monkeypatch):
     record["manifest"]["spec_sha256"] = "0" * 64
     with pytest.raises(LookupError, match="has its hash"):
         protocol.spec_of("PQN", record)
+
+
+def test_deviations_document_the_codes_without_changing_what_a_spec_runs():
+    for name, spec in COMPARISONS.items():
+        assert spec_sha256(spec) == spec_sha256(
+            dataclasses.replace(spec, deviations=())
+        ), name
+        for d in spec.deviations:
+            assert d.kind in ("ajax", "convention", "reference defect"), (name, d.name)
+            assert d.check.startswith("tests/conformance/") and "::test_" in d.check

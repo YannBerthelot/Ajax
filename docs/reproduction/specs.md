@@ -233,6 +233,12 @@ Not matched:
 - time limits: the reference treats them as terminations
 - evaluation: purejaxql scores the last episode each of its 128 test envs ends within one 500-step window, Ajax one episode per env
 
+Deviations found by the conformance checks (`tests/conformance`):
+
+- per-step epsilon (ajax, collection, epsilon-greedy actions): Ajax reads epsilon at the collector's timestep, so it moves at every env step; purejaxql reads it once per update. While epsilon decays, Ajax explores slightly less within a rollout. Code: src/ajax/agents/DQN/train_DQN.py linear_epsilon; vendor/purejaxql/pqn_gymnax.py:189. Pinned by `tests/conformance/test_pqn_purejaxql.py::test_exploration_differs_only_by_the_per_step_epsilon`.
+- time limits (convention, Q(lambda) targets): purejaxql treats a time-limit cut as a termination (the target is the reward); Ajax bootstraps it. Only the targets of episodes cut by a time limit differ. Code: refcmp_jax._FiveValueStep; src/ajax/agents/PQN/utils.py compute_q_lambda_targets. Pinned by `tests/conformance/test_pqn_purejaxql.py::test_time_limit_cuts_change_only_their_episodes_targets`.
+- Q(lambda) off-by-one (reference defect, Q(lambda) targets): purejaxql's backward pass starts with the last step's bootstrap, V(next_obs) of the last transition, as the next value of the second-to-last one, whose next value is V(obs) of the last; that target, and through lambda those before it in its episode, differ from Q(lambda). Ajax computes Q(lambda). Reported upstream as purejaxql issue #12. Code: vendor/purejaxql/pqn_gymnax.py:246-254. Pinned by `tests/conformance/test_pqn_purejaxql.py::test_targets_differ_only_by_purejaxqls_off_by_one`.
+
 ## PQN-Asterix, version 1
 
 Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py with config/alg/pqn_minatar.yaml but the length. That config is for pqn_minatar.py, whose CNN Ajax's CNN encoder cannot build (VALID padding, LayerNorm after the convolution); both sides use pqn_gymnax.py's MLP on the flattened image instead.
@@ -279,6 +285,12 @@ Not matched:
 - weight initialisation (lecun_normal vs Ajax's)
 - time limits: the reference treats them as terminations
 - evaluation: purejaxql scores the last episode each of its 128 test envs ends within one 1000-step window, Ajax one episode per env
+
+Deviations found by the conformance checks (`tests/conformance`):
+
+- per-step epsilon (ajax, collection, epsilon-greedy actions): Ajax reads epsilon at the collector's timestep, so it moves at every env step; purejaxql reads it once per update. While epsilon decays, Ajax explores slightly less within a rollout. Code: src/ajax/agents/DQN/train_DQN.py linear_epsilon; vendor/purejaxql/pqn_gymnax.py:189. Pinned by `tests/conformance/test_pqn_purejaxql.py::test_exploration_differs_only_by_the_per_step_epsilon`.
+- time limits (convention, Q(lambda) targets): purejaxql treats a time-limit cut as a termination (the target is the reward); Ajax bootstraps it. Only the targets of episodes cut by a time limit differ. Code: refcmp_jax._FiveValueStep; src/ajax/agents/PQN/utils.py compute_q_lambda_targets. Pinned by `tests/conformance/test_pqn_purejaxql.py::test_time_limit_cuts_change_only_their_episodes_targets`.
+- Q(lambda) off-by-one (reference defect, Q(lambda) targets): purejaxql's backward pass starts with the last step's bootstrap, V(next_obs) of the last transition, as the next value of the second-to-last one, whose next value is V(obs) of the last; that target, and through lambda those before it in its episode, differ from Q(lambda). Ajax computes Q(lambda). Reported upstream as purejaxql issue #12. Code: vendor/purejaxql/pqn_gymnax.py:246-254. Pinned by `tests/conformance/test_pqn_purejaxql.py::test_targets_differ_only_by_purejaxqls_off_by_one`.
 
 ## APG, version 1
 

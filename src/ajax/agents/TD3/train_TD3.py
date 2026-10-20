@@ -36,6 +36,7 @@ from ajax.environments.interaction import (
     get_pi,
     init_collector_state,
 )
+from ajax.environments.utils import critic_action_units
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -130,6 +131,7 @@ def init_TD3(
     store_raw_next_obs: bool = False,
     store_return_to_go: bool = False,
     store_next_action: bool = False,
+    critic_action_units: Optional[tuple] = None,
 ) -> TD3State:
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state = get_initialized_td3_actor_critic(
@@ -140,6 +142,7 @@ def init_TD3(
         network_config=network_args,
         num_critics=num_critics,
     )
+    critic_state = critic_state.replace(action_units=critic_action_units)
     collector_state = init_collector_state(
         collector_key,
         env_args=env_args,
@@ -452,6 +455,10 @@ def make_train(
             recurrent, agent_config.exploration_noise
         )
 
+    # sfujim/TD3's critics read max_action * tanh, the env's units: so do
+    # TD3's (computed once here, from the concrete env params).
+    units = critic_action_units(env_args.env, env_args.env_params)
+
     def init(key: jax.Array) -> TD3State:
         return init_TD3(
             key,
@@ -467,6 +474,7 @@ def make_train(
             store_raw_next_obs="raw_next_obs" in loop.stack.buffer_fields(),
             store_return_to_go="return_to_go" in loop.stack.buffer_fields(),
             store_next_action="next_action" in loop.stack.buffer_fields(),
+            critic_action_units=units,
         )
 
     def update(agent_state: TD3State, _transition: Transition) -> Any:

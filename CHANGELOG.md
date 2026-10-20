@@ -5,6 +5,12 @@ the minor version. Each release is tagged `vX.Y.Z` on main.
 
 ## Unreleased
 
+- **TD3** now makes sfujim/TD3's update: its critics' losses are summed
+  (they were averaged, which doubled Adam's eps against the gradient), its
+  first actor step comes with the `policy_delay`-th update (it came with the
+  first), and on boxes other than `[-1, 1]` its critics read actions in the
+  environment's units (on gymnax Pendulum, torque). Default TD3 runs differ
+  from 0.4.0's; no setting restores the old update.
 - **Extras**: `ajax[brax]` for Brax environments, `ajax[playground]` for
   MuJoCo Playground ones (with Brax). Ajax imports brax and
   mujoco_playground only to build their environments.

@@ -174,6 +174,12 @@ class LoadedTrainState(TrainState):
     # obs portion of the (obs, action) input before normalising — the
     # action portion stays raw.
     obs_norm_info: Optional[NormalizationInfo] = None
+    # The affine map ``offset + scale * a`` a critic applies to the agent's
+    # [-1, 1] actions before reading them (recurrent.q_values), as static
+    # ``(offsets, scales)`` tuples. An original that acts in the env's units
+    # (sfujim/TD3's max_action * tanh) trains its critic on those, and Adam's
+    # steps on the action inputs depend on the scale. None: [-1, 1] as is.
+    action_units: Optional[tuple] = struct.field(pytree_node=False, default=None)
 
     def soft_update(self, tau):
         new_target_params = optax.incremental_update(

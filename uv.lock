@@ -142,7 +142,7 @@ dev = [
     { name = "probing-environments", git = "https://github.com/YannBerthelot/ProbingEnvironments.git?branch=feature%2Fgymnax-1.0-compat" },
     { name = "pyarrow", specifier = ">=15" },
     { name = "pytest", specifier = "==7.4.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "ruff", specifier = ">=0.11.6,<0.12" },
     { name = "types-pyyaml", specifier = ">=6.0.0" },
 ]

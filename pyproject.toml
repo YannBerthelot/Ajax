@@ -57,7 +57,8 @@ dev = [
     # Only the benchmarks/ and docs/ scripts plot.
     "matplotlib>=3.8.0,<4",
     # docs/world_models/reference_comparison/compare.py reads run configs.
-    "PyYAML>=6.0",
+    # 6.0.1 is the first with Python 3.12 wheels; 6.0 no longer builds.
+    "PyYAML>=6.0.1",
     "coverage[toml]>=7.8.0,<8",
     "ruff>=0.11.6,<0.12",
     # From the branch in [tool.uv.sources].

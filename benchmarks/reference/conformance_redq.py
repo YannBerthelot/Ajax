@@ -7,8 +7,9 @@ experiments/train_redq_sac.py's loop, written out below: uniform random actions 
 the policy's sampled action, done False at a time limit, one train() per step. Before the train() calls
 in CALLS (counted among those that update), the call is run on a copy with its draws recorded (each of
 its 20 updates' batch indices and 2-of-10 subset, and every noise of the policy's rsample: 20 next
-actions, then the actor's), and again in float64 with the same draws. One .npz per call: ``in.*``,
-``batch.*`` (the 20 batches, stacked), ``subset``, ``noise``, ``max_action``, ``f32.*`` and ``f64.*``.
+actions, then the actor's), and again in float64 with the same draws. One .npz per call: ``in.*`` (with
+``alpha_used``, the temperature REDQ reads), ``batch.*`` (the 20 batches, stacked), ``subset``,
+``noise``, ``max_action``, ``f32.*`` and ``f64.*``.
 """
 
 import copy
@@ -57,6 +58,9 @@ def state(agent) -> dict:
         for name, p in net.named_parameters()
     ]
     out["log_alpha"] = agent.log_alpha.detach().numpy().copy()
+    # The temperature its targets and actor loss read: exp(log_alpha) once it has stepped, the alpha
+    # argument (0.2) before, which its __init__ sets last (redq_sac.py:80).
+    out["alpha_used"] = np.asarray(agent.alpha, np.float64)
     pairs.append(("opt.alpha", agent.log_alpha, agent.alpha_optim))
     for prefix, p, opt in pairs:
         # An Adam that has not stepped holds no state: its moments are zeros, its step 0.

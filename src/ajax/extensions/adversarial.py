@@ -43,11 +43,15 @@ class AdversarialReward(Extension):
     logsigmoid(-logits)``), then the discriminator takes ``n_updates``
     steps of binary cross-entropy, the demonstrations labelled 1, on the
     rollout's rows and as many demonstration rows drawn uniformly. The
-    environment's own reward is not used. Its 32-32 ReLU network starts as
+    environment's own reward is not used. The discriminator reads the action
+    the env executes, clipped to ``[-1, 1]`` in agent units
+    (:func:`~ajax.environments.utils.agent_action_to_env`), as the reference
+    records it (its ``BufferingWrapper`` sees the action SB3 steps the env
+    with, clipped to the box). Its 32-32 ReLU network starts as
     torch's ``nn.Linear`` and steps by torch's Adam (learning rate 1e-3),
     the reference's ``BasicRewardNet`` and optimiser. Deviations: the
-    discriminator reads ``(s, a)`` raw, without the reference examples'
-    running normalisation; its generator batch is the whole rollout, the
+    discriminator reads ``(s, a)`` unnormalised, without the reference
+    examples' running normalisation; its generator batch is the whole rollout, the
     reference's ``demo_batch_size`` rows of its last one; PPO stands in for
     the paper's TRPO, as in the reference. Logs ``gail/reward``,
     ``gail/disc_loss`` and the shares of expert and rollout rows it
@@ -65,9 +69,10 @@ class AdversarialReward(Extension):
     }
 
     def rows(self) -> jax.Array:
-        """The demonstrations' (observation, action) rows."""
+        """The demonstrations' (observation, executed action) rows."""
         data = self.demonstrations
-        return jnp.asarray(np.concatenate([data.obs, data.action], -1))
+        executed = np.clip(data.action, -1.0, 1.0)
+        return jnp.asarray(np.concatenate([data.obs, executed], -1))
 
     def init_state(self, agent_state: Any, rng: jax.Array) -> TrainState:
         del agent_state
@@ -86,7 +91,9 @@ class AdversarialReward(Extension):
         ctx: ExtensionContext,
     ) -> tuple[jax.Array, TrainState, dict]:
         del agent_state
-        x = jnp.concatenate([batch["raw_observations"], batch["actions"]], -1)
+        # A Gaussian sample outside [-1, 1] runs as the bound: as the expert's.
+        executed = jnp.clip(batch["actions"], -1.0, 1.0)
+        x = jnp.concatenate([batch["raw_observations"], executed], -1)
         logits = ext_state.apply_fn(ext_state.params, x)
         new_rewards = jax.lax.stop_gradient(-jax.nn.log_sigmoid(-logits))
         policy = x.reshape(-1, x.shape[-1])

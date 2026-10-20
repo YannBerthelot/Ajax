@@ -3,6 +3,15 @@
 Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged `vX.Y.Z` on main.
 
+## Unreleased
+
+- **Extras**: `ajax[brax]` for Brax environments, `ajax[playground]` for
+  MuJoCo Playground ones (with Brax). Ajax imports brax and
+  mujoco_playground only to build their environments.
+- **Deprecated**: brax and playground in the core install. 0.5.0 removes
+  them, so a project that uses their environments should ask for
+  `ajax[playground]` or `ajax[brax]` now.
+
 ## 0.4.0
 
 The first release since 0.3.1 (April 2025), which held SAC alone. Ajax has

@@ -1,3 +1,4 @@
+import brax.envs
 import jax
 import jax.numpy as jnp
 import pytest
@@ -39,6 +40,28 @@ def test_build_env_from_id(env_id, expected_params):
 def test_unknown_env_id_raises(env_id):
     with pytest.raises(ValueError):
         build_env_from_id(env_id)
+
+
+def test_a_package_that_is_installed_but_fails_to_import_raises(tmp_path, monkeypatch):
+    (tmp_path / "ajax_test_broken").mkdir()
+    (tmp_path / "ajax_test_broken" / "__init__.py").write_text(
+        "import ajax_test_missing_dependency\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    assert create._installed("ajax_test_absent.registry") is None
+    with pytest.raises(ModuleNotFoundError, match="ajax_test_missing_dependency"):
+        create._installed("ajax_test_broken")
+
+
+def test_a_key_error_inside_a_brax_env_is_not_reported_as_an_unknown_id(
+    monkeypatch,
+):
+    def env_failing_inside(env_name, **kwargs):
+        raise KeyError("a key the env reads")
+
+    monkeypatch.setattr(brax.envs, "get_environment", env_failing_inside)
+    with pytest.raises(KeyError, match="a key the env reads"):
+        build_env_from_id("ant")
 
 
 @pytest.mark.parametrize(

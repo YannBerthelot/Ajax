@@ -20,7 +20,9 @@ class APO(ActorCritic):
     """
 
     name: str = "APO"
-    capabilities: frozenset = frozenset("actor obs_networks v_critic".split())
+    capabilities: frozenset = frozenset(
+        "actor obs_networks policy_density v_critic".split()
+    )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",

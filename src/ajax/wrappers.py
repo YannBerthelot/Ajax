@@ -2,14 +2,12 @@
 
 import dataclasses
 from functools import cache, cached_property, partial
-from typing import Any, Callable, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple
 
 import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
-from brax.envs.base import State
-from brax.envs.base import Wrapper as BraxWrapper
 from flax import struct
 from gymnax.environments import environment, spaces
 
@@ -20,6 +18,9 @@ from ajax.environments.utils import (
 )
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.utils import online_normalize
+
+if TYPE_CHECKING:  # brax comes with the brax extra
+    from brax.envs.base import State
 
 # Return signature of ``Environment.step`` since gymnax 1.0: the single
 # pre-1.0 ``done`` flag was split into Gymnasium-style ``terminated`` (the
@@ -51,6 +52,45 @@ class GymnaxWrapper:
         if "unwrapped" not in dir(self._env):
             return self._env
         return self._env.unwrapped
+
+
+class BraxWrapper:
+    """Base class for the wrappers of a brax or MuJoCo Playground stack.
+
+    A copy of ``brax.envs.base.Wrapper`` (brax 0.14.2, Apache-2.0) without
+    its ``Env`` base class, so that Ajax imports brax only to build a brax
+    env (brax comes with the ``brax`` extra).
+    """
+
+    def __init__(self, env):
+        self.env = env
+
+    def reset(self, rng: jax.Array) -> "State":
+        return self.env.reset(rng)
+
+    def step(self, state: "State", action: jax.Array) -> "State":
+        return self.env.step(state, action)
+
+    @property
+    def observation_size(self):
+        return self.env.observation_size
+
+    @property
+    def action_size(self) -> int:
+        return self.env.action_size
+
+    @property
+    def unwrapped(self):
+        return self.env.unwrapped
+
+    @property
+    def backend(self) -> str:
+        return self.unwrapped.backend
+
+    def __getattr__(self, name):
+        if name == "__setstate__":
+            raise AttributeError(name)
+        return getattr(self.env, name)
 
 
 # Keys under which the supported backends expose the pre-reset ("final")
@@ -406,7 +446,7 @@ class NormalizeVecObservationBrax(_OnlineNormalization, BraxWrapper):
     def _trace_reset(self) -> Any:
         return jax.eval_shape(self.env.reset, jax.random.PRNGKey(0)).obs
 
-    def _with_stats(self, state: State, norm_info, extra: dict, **fields) -> State:
+    def _with_stats(self, state: "State", norm_info, extra: dict, **fields) -> "State":
         info = {**state.info, **extra, "normalization_info": norm_info}
         return state.replace(info=info, **fields)
 
@@ -419,7 +459,7 @@ class NormalizeVecObservationBrax(_OnlineNormalization, BraxWrapper):
             extra = extra | {RAW_OBS_KEY: raw_obs}
         return obs, stats, extra
 
-    def reset(self, rng: jax.Array) -> State:
+    def reset(self, rng: jax.Array) -> "State":
         state = self.env.reset(rng)
         obs, _, norm_info, extra = self._normalize(
             state.obs, state.info, self._initial_stats()
@@ -429,7 +469,7 @@ class NormalizeVecObservationBrax(_OnlineNormalization, BraxWrapper):
             extra |= {RAW_REWARD_KEY: state.reward}
         return self._with_stats(state, norm_info, extra, obs=obs)
 
-    def step(self, state: State, action: jax.Array) -> State:
+    def step(self, state: "State", action: jax.Array) -> "State":
         stats = state.info["normalization_info"]
         state = self.env.step(state, action)
         obs, reward, norm_info, extra = self._normalize(
@@ -529,7 +569,7 @@ class AutoResetWrapper(BraxWrapper):
         self.differentiable_reset = differentiable_reset
         self.n_envs = jax.eval_shape(env.reset, jax.random.PRNGKey(0)).obs.shape[0]
 
-    def reset(self, rng: jax.Array) -> State:
+    def reset(self, rng: jax.Array) -> "State":
         state = self.env.reset(rng)
         state.info["rng"] = jnp.tile(rng, (self.n_envs, 1))
         return state
@@ -547,7 +587,7 @@ class AutoResetWrapper(BraxWrapper):
         rng = split(rng)
         return rng, rng
 
-    def step(self, state: State, action: jax.Array) -> State:
+    def step(self, state: "State", action: jax.Array) -> "State":
         if "steps" in state.info:
             steps = state.info["steps"]
             steps = jnp.where(state.done, jnp.zeros_like(steps), steps)
@@ -844,7 +884,7 @@ class ObservationNoiseWrapperBrax(BraxWrapper):
         self.sigma = sigma
         self.scale = scale
 
-    def _noisy(self, state: State, key: jax.Array) -> State:
+    def _noisy(self, state: "State", key: jax.Array) -> "State":
         key, draw = jax.random.split(key)
         noise = jax.random.normal(draw, state.obs.shape)
         noise = self.sigma * jnp.asarray(self.scale) * noise
@@ -854,9 +894,9 @@ class ObservationNoiseWrapperBrax(BraxWrapper):
         info[self._RNG_KEY] = jnp.tile(key, (state.obs.shape[0], 1))
         return state.replace(obs=state.obs + noise, info=info)
 
-    def reset(self, rng: jax.Array) -> State:
+    def reset(self, rng: jax.Array) -> "State":
         return self._noisy(self.env.reset(rng), jax.random.fold_in(rng, 0))
 
-    def step(self, state: State, action: jax.Array) -> State:
+    def step(self, state: "State", action: jax.Array) -> "State":
         key = state.info[self._RNG_KEY][0]
         return self._noisy(self.env.step(state, action), key)

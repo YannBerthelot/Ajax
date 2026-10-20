@@ -185,7 +185,8 @@ maximum of each policy action's value and the row's return to go first
 (nakamotoo/Cal-QL at `ac6eafe`, `JaxCQL/conservative_sac.py:227-240`). The
 return to go is the transition dataset's, at its `gamma`. Online rows have
 none, so they are not floored; the reference computes them as episodes
-end. Deviation: SAC's target keeps its entropy term, which the CQL
+end. Both need a policy with a density, so a deterministic one (TD3's) is
+refused. Deviation: SAC's target keeps its entropy term, which the CQL
 reference's `deterministic_backup` drops.
 
 ## Results

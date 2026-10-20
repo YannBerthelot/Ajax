@@ -25,6 +25,7 @@ from ajax.agents.SAC.core import (
 )
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
+from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import augment_obs, reward_statistics
 from ajax.environments.utils import get_state_action_shapes
@@ -695,6 +696,7 @@ def make_train(
     use_pid_policy: bool = False,
     # Gain-policy mode: actor output dim = len(expert.learnable_fields)
     action_dim_override: Optional[int] = None,
+    offline_data: Optional[TransitionDataset] = None,
     extensions: Sequence = (),
 ):
     """SAC's train function on :meth:`TrainLoop.off_policy`.
@@ -755,6 +757,7 @@ def make_train(
         start_timestep=start_timestep,
         end_timestep=end_timestep,
         expert_policy=expert_policy,
+        offline_data=offline_data,
     )
 
     def init(key: jax.Array) -> SACState:

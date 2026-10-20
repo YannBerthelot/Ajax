@@ -30,6 +30,7 @@ from ajax.agents.recurrent import (
 from ajax.agents.SAC.core import critic_loss_fn
 from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
+from ajax.buffers.dataset import TransitionDataset
 from ajax.environments.interaction import (
     ActionPipelineResult,
     get_pi,
@@ -397,6 +398,7 @@ def make_train(
     end_timestep: Optional[int] = None,
     expert_policy: Optional[Callable] = None,
     action_pipeline: Optional[Callable] = None,
+    offline_data: Optional[TransitionDataset] = None,
     extensions: Sequence = (),
 ):
     """TD3's train function: one step per env, then (from ``learning_starts``)
@@ -425,6 +427,7 @@ def make_train(
         start_timestep=start_timestep,
         end_timestep=end_timestep,
         expert_policy=expert_policy,
+        offline_data=offline_data,
     )
     if action_pipeline is None:
         action_pipeline = make_default_action_pipeline(

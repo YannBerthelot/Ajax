@@ -37,6 +37,7 @@ from ajax.agents.DQN.networks import (
 )
 from ajax.agents.DQN.state import DQNConfig, DQNState
 from ajax.agents.loop import TrainLoop, gradient_step
+from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     ActionPipelineResult,
@@ -471,6 +472,7 @@ def make_train(
     td_target_fn: Optional[Callable] = None,
     td_loss_fn: Optional[Callable] = None,
     q_network_cls: Optional[type] = None,
+    offline_data: Optional[TransitionDataset] = None,
     extensions: Sequence = (),
 ):
     """DQN's train function: one step per env, then (from ``learning_starts``)
@@ -484,6 +486,7 @@ def make_train(
         extensions,
         start_timestep=start_timestep,
         end_timestep=end_timestep,
+        offline_data=offline_data,
     )
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_target_fn = td_target_fn if td_target_fn is not None else compute_dqn_td_target

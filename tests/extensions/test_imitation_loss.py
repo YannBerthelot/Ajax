@@ -160,19 +160,39 @@ def test_the_replayed_target_clones_the_rows_own_actions() -> None:
         ImitationLoss(EXPERT, target="data")
 
 
-def test_alpha_weighs_the_term_by_the_first_critics_mean_absolute_value() -> None:
-    """TD3+BC's 1 / lambda = mean|Q_1(s, pi(s))| / alpha (Q_1 = a here),
-    without the / 4."""
+def test_alpha_makes_the_actor_loss_td3bcs() -> None:
+    """With alpha the actor loss is TD3+BC's, lambda * (the agent's own) +
+    mean((pi - a)^2), lambda = alpha / mean|Q_1(s, pi(s))| (Q_1 = a here):
+    the term adds (lambda - 1) times the agent's own loss, and compares the
+    actions in the env's units (half-range 2 here), without the / 4."""
     obs = jnp.zeros((PI.shape[0], 3))
-    batch = {"pi_mean": PI, "observations": obs, "actions": jnp.zeros_like(PI)}
+    batch = {
+        "pi_mean": PI,
+        "observations": obs,
+        "actions": jnp.zeros_like(PI),
+        "critic_state": _critic(),
+        "agent_loss": jnp.asarray(0.3),
+    }
     ext = ImitationLoss(None, target="replay", alpha=0.5)
-    term, _ = ext.actor_loss(None, (), batch | {"critic_state": _critic()}, CTX)
     pi = np.asarray(PI)[:, 0]
-    np.testing.assert_allclose(
-        float(term), np.mean(np.abs(pi)) / 0.5 * np.mean(pi**2), rtol=1e-6
-    )
+    lam = 0.5 / np.mean(np.abs(pi))
+    term, _ = ext.actor_loss(None, (), batch, CTX)
+    np.testing.assert_allclose(float(term), (lam - 1) * 0.3 + np.mean(pi**2), rtol=1e-6)
+    scaled = dataclasses.replace(ext, action_scale=(2.0,))
+    term, _ = scaled.actor_loss(None, (), batch, CTX)
+    want = (lam - 1) * 0.3 + np.mean((2 * pi) ** 2)
+    np.testing.assert_allclose(float(term), want, rtol=1e-6)
     with pytest.raises(ValueError, match="alpha"):
         ImitationLoss(None, target="replay", alpha=0.0)
+
+
+def test_alpha_binds_the_envs_action_half_ranges() -> None:
+    """TD3+BC compares env actions: bound to Pendulum (torque in [-2, 2]) the
+    term scales the agent's [-1, 1] actions by 2; on a [-1, 1] box by none."""
+    ext = ImitationLoss(None, target="replay", alpha=2.5)
+    pendulum = ext.bind_to_agent(env_args=TD3("Pendulum-v1").env_args)
+    car = ext.bind_to_agent(env_args=TD3("MountainCarContinuous-v0").env_args)
+    assert (pendulum.action_scale, car.action_scale) == ((2.0,), None)
 
 
 def test_the_agents_own_expert_is_read_as_the_agent_stored_it() -> None:

@@ -89,8 +89,11 @@ def test_the_terms_refuse_bad_settings_and_agents_without_their_inputs() -> None
     for bad in ({"alpha": -1.0}, {"n_actions": 0}):
         with pytest.raises(ValueError, match="alpha >= 0 and n_actions >= 1"):
             ConservativeQ(**bad)
-    from ajax import ASAC, AVG
+    from ajax import ASAC, AVG, TD3
 
+    for term in (ConservativeQ(), CalQL()):
+        with pytest.raises(MissingCapability, match="policy_density"):
+            TD3("Pendulum-v1", extensions=(term,))  # a point mass, no density
     with pytest.raises(MissingCapability, match="discounted"):
         ASAC("Pendulum-v1", extensions=(CalQL(),))  # an average-reward critic
     with pytest.raises(MissingCapability, match="replay"):

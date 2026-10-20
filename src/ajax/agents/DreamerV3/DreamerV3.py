@@ -128,7 +128,7 @@ class DreamerV3(ActorCritic):
 
     name: str = "DreamerV3"
     capabilities: frozenset = frozenset(
-        "actor discounted off_policy replay v_critic".split()
+        "actor discounted off_policy policy_density replay v_critic".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES
     pretrain_context: frozenset = frozenset("env_args update".split())

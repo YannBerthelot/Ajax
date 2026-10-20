@@ -60,7 +60,9 @@ class ConservativeQ(Extension):
     critic down on actions away from the data's and up on the data's. The
     reference sums each critic's Bellman loss and term; Ajax's critics share
     one mean squared error, so the term is the mean over them, at the same
-    ratio. Deviations from the reference's SAC: its target keeps SAC's
+    ratio. It needs a policy with a density: a deterministic one (TD3's) is
+    a point mass, whose samples are copies of one action and whose density
+    is undefined. Deviations from the reference's SAC: its target keeps SAC's
     entropy term (the reference's ``deterministic_backup`` drops it). Logs
     ``cql/term`` and ``cql/gap``, the logsumexp minus the data's value.
     """
@@ -68,8 +70,10 @@ class ConservativeQ(Extension):
     alpha: float = 5.0
     n_actions: int = 10
     name: str = "conservative_q"
+    # The logsumexp weighs the policy's samples by their density: a point
+    # mass has none (TD3's Deterministic reports 0), so it is refused.
     requires: ClassVar[frozenset[str]] = frozenset(
-        {"actor", "continuous_actions", "q_critic"}
+        {"actor", "continuous_actions", "policy_density", "q_critic"}
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "critic_loss": frozenset(

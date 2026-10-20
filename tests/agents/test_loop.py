@@ -263,7 +263,10 @@ def test_the_extensions_see_the_cuts_the_target_used() -> None:
     params = {"w": jnp.zeros(())}
     critic = TrainState.create(apply_fn=None, params=params, tx=optax.sgd(1.0))
     state = SimpleNamespace(
-        collector_state=Collector(jnp.asarray(0)), critic_state=critic, ext_state=((),)
+        collector_state=Collector(jnp.asarray(0)),
+        critic_state=critic,
+        actor_state=None,
+        ext_state=((),),
     )
 
     def value_loss(params, target_q):

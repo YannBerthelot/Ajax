@@ -55,6 +55,8 @@ def collect_and_store_expert_transitions(
             "a_expert": step.a_expert,
             "next_a_expert": step.next_a_expert,
             "raw_next_obs": step.raw_next_obs,
+            # Unknown, as the live collector's: no Cal-QL floor on the row.
+            "return_to_go": jnp.full_like(step.reward, -jnp.inf),
         }
         # The fields the buffer holds (init_buffer).
         row = {k: v.astype(schema[k].dtype) for k, v in row.items() if k in schema}

@@ -128,6 +128,8 @@ def init_TD3(
     expert_policy: Optional[Callable] = None,
     store_expert_data: bool = False,
     store_raw_next_obs: bool = False,
+    store_return_to_go: bool = False,
+    store_next_action: bool = False,
 ) -> TD3State:
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
     actor_state, critic_state = get_initialized_td3_actor_critic(
@@ -147,6 +149,8 @@ def init_TD3(
         actor_carry_dim=stored_actor_carry_dim(network_args.memory, stored_state),
         include_raw_obs=store_expert_data,
         include_raw_next_obs=store_raw_next_obs,
+        include_return_to_go=store_return_to_go,
+        include_next_action=store_next_action,
         include_is_expert=store_expert_data,
         expert_policy=expert_policy,
     )
@@ -171,9 +175,10 @@ def compute_td3_td_target(
     target_noise_clip: float,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
-) -> Tuple[jax.Array, jax.Array]:
+) -> Tuple[jax.Array, jax.Array, jax.Array]:
     """y = r + gamma * (1-d) * min_i Q_target_i(s', clip(mu_target(s') + clip(N, -c, c), -1, 1)),
-    and the share of the noise samples the clip to ``[-c, c]`` changed."""
+    the share of the noise samples the clip to ``[-c, c]`` changed, and
+    those smoothed next actions."""
     rewards = rewards * reward_scale
     next_action = actor_dist(
         actor_state,
@@ -196,7 +201,7 @@ def compute_td3_td_target(
         bootstrap=True,
     )
     target = rewards + gamma * (1.0 - dones) * jnp.min(q_targets, axis=0)
-    return jax.lax.stop_gradient(target), clip_frac
+    return jax.lax.stop_gradient(target), clip_frac, next_action
 
 
 def policy_loss_function(
@@ -229,7 +234,7 @@ def update_value_functions(
     key, rng, ext_key = jax.random.split(agent_state.rng, 3)
     # A truncated row bootstraps on its final observation (bootstrap_obs).
     dones = batch.terminated
-    target_q, noise_clip_frac = compute_td3_td_target(
+    target_q, noise_clip_frac, next_actions = compute_td3_td_target(
         agent_state.actor_state,
         agent_state.critic_state,
         key,
@@ -268,6 +273,9 @@ def update_value_functions(
         dones=dones,
         gamma=agent_config.gamma,
         reward_scale=agent_config.reward_scale,
+        # The smoothed next actions the target scored, for a target term
+        # on them (TargetBC).
+        target_extras={"next_actions": next_actions},
     )
     aux = aux.replace(grad_norm=grad_norm)
     return agent_state.replace(rng=rng, critic_state=critic_state), aux, metrics
@@ -450,6 +458,8 @@ def make_train(
             expert_policy=expert_policy,
             store_expert_data=holds_expert(expert_policy, loop.stack),
             store_raw_next_obs="raw_next_obs" in loop.stack.buffer_fields(),
+            store_return_to_go="return_to_go" in loop.stack.buffer_fields(),
+            store_next_action="next_action" in loop.stack.buffer_fields(),
         )
 
     def update(agent_state: TD3State, _transition: Transition) -> Any:

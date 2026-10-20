@@ -3,7 +3,7 @@
 An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships twenty of them,
+or measurements logged at each evaluation. Ajax ships twenty-three of them,
 listed in the [catalogue](#catalogue) below.
 
 Why extensions instead of agent options? An agent's constructor takes its
@@ -296,6 +296,14 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | `PhiRefresh` | Every `interval` steps, refits `φ*` for `steps` updates on the replay rows where the expert acted. | `post_update` | SAC with an expert and `MCPretrain` |
 | `PriorData` | Adds a transition dataset (`ajax.buffers.dataset`) to the replay, where it stays, and to the observation and reward statistics, then runs `offline_updates` of the agent's own update on it before acting. Pair it with `learning_starts=0`. | `pretrain` | SAC, TD3, REDQ, ASAC, DQN (other agents refuse it when built) |
 
+**Offline RL** (`ajax.extensions.offline`)
+
+| Extension | What it does | Phases | Works with |
+| --- | --- | --- | --- |
+| `ConservativeQ` | CQL(H)'s critic term: `alpha` times, for each critic, the logsumexp of its values at `n_actions` uniform actions and as many of the policy's at `s` and `s'` (each less its log-density), minus its value at the data's action. Logs `cql/term` and `cql/gap`. | `critic_loss` | SAC, TD3, REDQ, ASAC, AVG, IQL: a Q critic and an actor (see [SAC](../algorithms/sac.md#cql-and-cal-ql-offline)) |
+| `CalQL` | `ConservativeQ` with the policy actions' values floored at the row's return to go (Cal-QL), from a transition dataset (`return_to_go`; collected rows have none). Also logs `calql/bound_frac`, the share it raised. | `critic_loss` | SAC, TD3, REDQ, IQL (the replays that keep the return to go); refused on an average-reward critic (ASAC) or without a replay (AVG) |
+| `TargetBC` | ReBRAC's critic penalty: the target less `γ (1 − d) β Σ (ã′ − a′)²`, `ã′` the next actions the target scored and `a′` the dataset's next action (`next_action`; a row without one keeps its target). Logs `target_bc/penalty` and `target_bc/known_frac`. | `on_target` | TD3, whose on_target batch holds its target's next actions (see [ReBRAC](../algorithms/td3.md#rebrac-offline)) |
+
 **Critic ensembles** (`ajax.extensions.ensemble`)
 
 | Extension | What it does | Phases | Works with |
@@ -310,7 +318,7 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | `BiasVoreDecomposition` | Splits the critic's squared one-step error into squared bias and variance (`EVarEst/bias_sq`, `EVarEst/var_resid`, `EVarEst/mse`, `EVarEst/abs_bias`), against a one-step target on its current parameters, or your own `value_target_fn`. | `eval_metrics` | as `ConditioningMetrics` |
 | `BiasVorePenalty` | Adds `((1 − 2α)/α) · Var(residual)` to the critic loss; `alpha=0.5` adds nothing. Logs `bias_vore/penalty` and `bias_vore/residual_var`. | `critic_loss` | every agent with a `critic_loss` phase: SAC, TD3, REDQ, ASAC, AVG, PPO, APO, DQN, PQN |
 
-Sources: TD3+BC is Fujimoto and Gu, 2021; Q-filtered BC is Nair et al.,
+Sources: TD3+BC is Fujimoto and Gu, 2021; CQL is Kumar et al., 2020, Cal-QL Nakamoto et al., 2023, and ReBRAC Tarasov et al., 2023; Q-filtered BC is Nair et al.,
 ICRA 2018; residual RL is Johannink et al., 2019; JSRL is Uchendu et al.,
 2023; the kernel's bandwidth follows the median heuristic of SVGD (Liu and
 Wang, 2016); effective rank is Kumar et al., 2021, and dormant units Sokar et

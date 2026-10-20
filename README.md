@@ -166,13 +166,14 @@ generated from the code, does.
 | Prior data in the replay, as RLPD (Ball et al., 2023) without its symmetric sampling, then optional offline updates | `PriorData` with a transition dataset (`ajax.buffers.dataset`) | SAC, TD3, REDQ, ASAC, DQN |
 | Offline training on a transition dataset, then online fine-tuning | `agent.train_offline(dataset, n_updates)` | SAC, TD3, REDQ, ASAC, DQN, IQL |
 | Implicit Q-learning, offline then online (IQL, Kostrikov et al., 2022) | [`IQL`](docs/algorithms/iql.md) with `train_offline` | its own agent |
+| Conservative Q-learning, offline (CQL, Kumar et al., 2020); calibrated (Cal-QL, Nakamoto et al., 2023) | [`ConservativeQ`, `CalQL`](docs/algorithms/sac.md#cql-and-cal-ql-offline) on SAC, trained with `train_offline` | CQL: SAC, TD3, REDQ, ASAC, AVG, IQL; Cal-QL: SAC, TD3, REDQ, IQL |
+| ReBRAC, offline (Tarasov et al., 2023) | [`TD3` with TD3+BC's term and `TargetBC`](docs/algorithms/td3.md#rebrac-offline), trained with `train_offline` | TD3 |
 | TD3+BC, offline (Fujimoto and Gu, 2021) | [`TD3` with `ImitationLoss(None, target="replay", alpha=2.5)`](docs/algorithms/td3.md#td3bc-offline), trained with `train_offline` | TD3; the term on SAC, REDQ, ASAC too |
 | Offline multi-task training on pooled datasets (TD-MPC2, Hansen et al., 2024) | `TDMPC2MultiTask` | its own agent |
 | Interactive imitation by dataset aggregation, with no reward (DAgger, Ross et al., 2011) | `DAgger` | its own agent |
 | Features developed with Ajax, with no external reference: EDGE exploration, LCB-gated targets, a value-gated hand-over, an expert critic fitted to Monte-Carlo returns and the extensions that read it | `EDGEExploration`, `LCBGatedBootstrap`, `ValueBox`, `MCPretrain`, ... | SAC (LCB: SAC, TD3, REDQ) |
 
-Not in Ajax yet: adversarial imitation such as GAIL, and the offline RL
-algorithms CQL and Cal-QL.
+Not in Ajax yet: adversarial imitation such as GAIL.
 [Expert guidance](docs/guide/expert-guidance.md) explains the expert's
 conventions and how the pieces combine.
 
@@ -180,7 +181,7 @@ conventions and how the pieces combine.
 
 ## What else is in the box
 
-- **[Extensions](docs/guide/extensions.md)**: twenty of them, for expert
+- **[Extensions](docs/guide/extensions.md)**: twenty-three of them, for expert
   guidance, exploration, critic-target changes, actor and critic
   pre-training, prior data, ensemble diversity and critic diagnostics, passed
   as `extensions=(...)`; the [compatibility table](docs/guide/compatibility.md)

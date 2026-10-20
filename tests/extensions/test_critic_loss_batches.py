@@ -44,6 +44,7 @@ def test_critic_step_hands_the_extensions_the_targets() -> None:
     state = SimpleNamespace(
         collector_state=SimpleNamespace(timestep=jnp.asarray(0)),
         critic_state=critic,
+        actor_state=None,  # the batch's, for a term sampling the policy
         ext_state=((),),
     )
 

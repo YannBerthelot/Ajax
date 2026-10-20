@@ -52,7 +52,7 @@ class IQL(ActorCritic):
         "actor_optimizer_args buffer env_args".split()
     )
     replays_transitions: bool = True
-    supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
+    supported_buffer_fields: frozenset = frozenset({"raw_next_obs", "return_to_go"})
     make_train = staticmethod(make_train)
 
     def __init__(

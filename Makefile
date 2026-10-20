@@ -5,6 +5,9 @@ SHELL=/bin/bash
 # the CUDA driver entirely so even CUDA init can't probe it. JAX_PLATFORMS
 # (newer) + JAX_PLATFORM_NAME (older) are belt-and-suspenders.
 CPU_ENV := CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu JAX_PLATFORM_NAME=cpu
+# The tests not marked slow check logic on tiny programs: XLA's optimisation
+# level 0 compiles them faster (ci.yml's FAST_XLA_FLAGS).
+FAST_XLA := XLA_FLAGS="--xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true"
 
 .PHONY: ci ci-precommit ci-test ci-slow ci-probe ci-conformance docs docs-serve test-cpu probe-cpu help
 
@@ -25,7 +28,7 @@ ci-precommit:  ## pre-commit on all files (ruff lint + ruff-format + mypy)
 
 ci-test:  ## Tests not marked slow (deselects probing, conformance) + coverage >= 70
 	uv run coverage erase
-	$(CPU_ENV) uv run coverage run -m pytest -m "not slow" --ignore=tests/probing --ignore=tests/conformance
+	$(CPU_ENV) $(FAST_XLA) uv run coverage run -m pytest -m "not slow" --ignore=tests/probing --ignore=tests/conformance
 	uv run coverage combine
 	uv run coverage report --fail-under=70
 

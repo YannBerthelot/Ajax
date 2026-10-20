@@ -9,13 +9,15 @@ make that possible without changing the code under test:
   program order (a callback returning nothing may run anywhere, even after the main loop).
   :func:`replaying` returns, for each draw, the value a table holds under the draw's own key, with no
   callback on the value path. A role is the sampler, its first caller in an owned package, and the
-  draw's shape and dtype; a permutation of an array is taped as its index permutation. Samplers decide
+  draw's shape and dtype; a permutation of an array is taped as its index permutation, and a run in
+  float64 replays a float32 tape (a 64-bit draw takes its role's 32-bit entry, cast). Samplers decide
   at trace time, so both clear JAX's trace caches: an inner ``jax.jit`` would otherwise keep the trace
   of the other mode.
 * :func:`capture_step` returns an agent's loop ``iteration``, its ``update`` and its ``init``, by
   intercepting :meth:`TrainLoop.train` while the agent builds its train function, before any
   tracing; :func:`capture_scan` does the same for a ``lax.scan`` body (an original's step function)
-  and :func:`stashing` keeps the stacked outputs of named scans, such as the rollout.
+  and :func:`stashing` keeps the outputs of named scans (carry and stacked), such as the rollout;
+  :func:`substituting` gives named scans such outputs in place of running them.
 """
 
 from __future__ import annotations
@@ -54,6 +56,7 @@ SAMPLERS = (
 #: Packages whose callers name a role (the first such frame); vendored originals live under vendor/.
 OWNERS = ("/src/ajax/", "/gymnax/", "/brax/", "/mujoco_playground/", "/vendor/")
 _HERE = pathlib.Path(__file__).resolve()
+_NARROW = {"float64": "float32", "int64": "int32", "uint64": "uint32"}
 
 
 @dataclasses.dataclass
@@ -112,15 +115,16 @@ def _wrap(
                 value,
                 ordered=False,
             )
-        if role not in table:
+        entry = table.get(role, table.get((*role[:3], _NARROW.get(role[3], role[3]))))
+        if entry is None:
             session.unreplayed.add(role)
             return sample(key)
-        keys, values = table[role]
+        keys, values = entry
         hit = jnp.all(jnp.asarray(keys) == kd, axis=-1)
         jax.debug.callback(
             lambda h: None if np.asarray(h).any() else session.misses.append(role), hit
         )
-        return jnp.asarray(values)[jnp.argmax(hit)]
+        return jnp.asarray(values, role[3])[jnp.argmax(hit)]
 
     def sampler(key: jax.Array, *args: Any, **kwargs: Any) -> jax.Array:
         site = _call_site()
@@ -272,14 +276,14 @@ def capture_scan(name: str, run: Callable[[], Any]) -> tuple[Callable, Any]:
 
 @contextlib.contextmanager
 def stashing(*names: str) -> Iterator[dict]:
-    """While tracing a step, keep the stacked outputs of the first scan of each named body, so the
-    traced step can return them beside its own output."""
+    """While tracing a step, keep the outputs ``(carry, stacked)`` of the first scan of each named
+    body, so the traced step can return them beside its own output."""
     original, stash = jax.lax.scan, {}
 
     def scan(f: Callable, init: Any, *args: Any, **kwargs: Any) -> Any:
         out = original(f, init, *args, **kwargs)
         if _body_name(f) in names and _body_name(f) not in stash:
-            stash[_body_name(f)] = out[1]
+            stash[_body_name(f)] = out
         return out
 
     jax.lax.scan = scan
@@ -287,3 +291,24 @@ def stashing(*names: str) -> Iterator[dict]:
         yield stash
     finally:
         jax.lax.scan = original
+
+
+@contextlib.contextmanager
+def substituting(outputs: Mapping[str, Any]) -> Iterator[None]:
+    """While tracing a step, give each scan named in ``outputs`` those outputs ``(carry, stacked)``
+    in place of running it: a step run again in float64 from a float32 run's collection, say. It
+    decides at trace time, so it clears JAX's trace caches, as the tape does."""
+    original = jax.lax.scan
+
+    def scan(f: Callable, init: Any, *args: Any, **kwargs: Any) -> Any:
+        if _body_name(f) in outputs:
+            return jax.tree_util.tree_map(jnp.asarray, outputs[_body_name(f)])
+        return original(f, init, *args, **kwargs)
+
+    jax.lax.scan = scan
+    jax.clear_caches()
+    try:
+        yield
+    finally:
+        jax.lax.scan = original
+        jax.clear_caches()

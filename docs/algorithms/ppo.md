@@ -191,9 +191,12 @@ steps on the rollout's rows and as many demonstration rows. It follows
 HumanCompatibleAI/imitation at `e5ef188` (`algorithms/adversarial/gail.py`,
 `common.py`): its 32-32 ReLU reward network and torch's Adam at 1e-3. PPO
 replaces the paper's TRPO, as in that code. The evaluations still report
-the environment's return. Deviations: the discriminator reads `(s, a)` raw,
-without the running normalisation of the reference's examples, and trains
-on the whole rollout, where the reference draws `demo_batch_size` rows.
+the environment's return. The discriminator reads the action the
+environment runs, clipped to `[-1, 1]`, on the rollout and on the
+demonstrations, as the reference records the clipped action SB3 steps with.
+Deviations: it reads `(s, a)` without the running normalisation of the
+reference's examples, and trains on the whole rollout, where the reference
+draws `demo_batch_size` rows.
 
 ## Results
 

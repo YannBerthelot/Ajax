@@ -27,10 +27,12 @@ four ways:
   tasks that never end.
 - **[Expert-guided agents](guide/expert-guidance.md)**: learn from a
   controller you already have, or from recorded transitions, by cloning,
-  imitation, residual policies, hand-over or prior data in the replay.
+  imitation, residual policies, hand-over, prior data in the replay or
+  offline training.
   [Choosing the pieces](guide/expert-guidance.md#choosing-the-pieces) names
   each method and its paper: TD3+BC, Q-filtered cloning, kickstarting,
-  residual RL, JSRL, IBRL, RLPD's prior data.
+  residual RL, JSRL, IBRL, RLPD's prior data, IQL, CQL, Cal-QL, ReBRAC,
+  GAIL, DAgger.
 - **[World models](guide/world-models.md)**: DreamerV3 and TD-MPC2, following
   the code behind their papers' results.
 
@@ -86,8 +88,11 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
 ## What else is in the box
 
 - [Extensions](guide/extensions.md): expert guidance, exploration, critic-target
-  changes, actor and critic pre-training and diagnostics, each usable with
-  the agents that run the training phases it touches.
+  changes, actor and critic pre-training, offline RL, adversarial imitation
+  and diagnostics, each usable with the agents that run the training phases
+  it touches.
+- [Training offline](guide/training.md#training-offline): a replay agent
+  trains on a transition dataset before it acts, then fine-tunes online.
 - [Expert guidance](guide/expert-guidance.md): learn from an existing
   controller, which reads the environment's raw observations and answers in
   its action units.

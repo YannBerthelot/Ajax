@@ -106,7 +106,7 @@ so a project that depends on Ajax declares only where Ajax comes from:
 
 ```toml
 [project]
-dependencies = ["ajax"]  # "ajax[cuda]" to ask for CUDA
+dependencies = ["ajax"]  # "ajax[cuda]" for CUDA, "ajax[playground]" for Brax and Playground envs
 
 [tool.uv.sources]
 ajax = { git = "https://github.com/YannBerthelot/Ajax.git" }

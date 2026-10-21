@@ -32,8 +32,8 @@ version [SBX](https://github.com/araffin/sbx), it differs in four ways:
   discount, for tasks that never end.
 - **[Expert-guided agents](docs/guide/expert-guidance.md)**: learn from a
   controller you already have, or from recorded transitions, by cloning,
-  imitation, residual policies, hand-over or prior data in the replay
-  ([methods below](#learning-from-an-expert-or-from-data)).
+  imitation, residual policies, hand-over, prior data in the replay or
+  offline training ([methods below](#learning-from-an-expert-or-from-data)).
 - **[World models](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2,
   following the code behind their papers' results.
 
@@ -65,8 +65,9 @@ uv sync   # creates .venv with the locked dependencies
 
 uv installs the versions in `uv.lock`, which CI tests, with JAX for the CPU;
 on a Linux machine with an NVIDIA GPU, add CUDA with `uv sync --extra cuda`
-(a project that depends on Ajax asks for `ajax[cuda]`). Brax and MuJoCo
-Playground environments come with the `brax` and `playground` extras
+(a project that depends on Ajax asks for `ajax[cuda]`). A project that
+trains on Brax or MuJoCo Playground environments asks for
+`ajax[playground]`, which brings Brax too, or `ajax[brax]` alone
 ([Installation](docs/getting-started/installation.md#extras)).
 
 pip works too. It does not read `uv.lock`, so it takes the newest versions
@@ -114,7 +115,7 @@ agent = SAC("Pendulum-v1", memory={"kind": "lstm", "hidden_size": 64})
 # A research feature as an extension: the critic's health at each evaluation.
 agent = PPO("CartPole-v1", expose_recent_rollout=True, extensions=(ConditioningMetrics(),))
 
-# Brax and MuJoCo Playground environments by id, here 8 copies in parallel.
+# Brax and MuJoCo Playground environments by id (their extras), here 8 copies in parallel.
 agent = PPO("ant", n_envs=8)
 ```
 
@@ -185,8 +186,8 @@ conventions and how the pieces combine.
 
 - **[Extensions](docs/guide/extensions.md)**: twenty-four of them, for expert
   guidance, exploration, critic-target changes, actor and critic
-  pre-training, prior data, ensemble diversity and critic diagnostics, passed
-  as `extensions=(...)`; the [compatibility table](docs/guide/compatibility.md)
+  pre-training, prior data, offline RL, adversarial imitation, ensemble
+  diversity and critic diagnostics, passed as `extensions=(...)`; the [compatibility table](docs/guide/compatibility.md)
   says which agents run each one.
 - **[Expert guidance](docs/guide/expert-guidance.md)**: the expert reads the
   environment's raw observations and answers in the environment's action
@@ -239,9 +240,9 @@ conventions and how the pieces combine.
   with known answers: each agent trains on them briefly, and each probe checks
   one capability of the whole agent. A catalogue of planted bugs lists the
   probes that should catch each one; CI checks that every bug still applies
-  to the code, and planting them to run the probes is done by hand. A
-  mismatch of convention with a reference implementation is left to code
-  review.
+  to the code, and planting them to run the probes is done by hand.
+  Conformance checks run one update of an agent and of its original
+  implementation from the same state and compare them (PQN and TD3 so far).
 - **[Performance](docs/guide/performance.md)**: seeds vectorised with
   `jax.vmap`, a persistent compile cache, one per machine and JAX version, and
   a per-agent benchmark script, run by hand, that flags slowdowns over 10%
@@ -292,10 +293,11 @@ GitHub.
 Bug reports, new agents and new extensions are welcome. After installing, run
 `uv run pre-commit install` once, so ruff and mypy check every commit.
 [CONTRIBUTING.md](CONTRIBUTING.md) explains where the code lives, how to add an
-agent or an extension, and how the tests check them. CI runs pre-commit, the
-tests with coverage, the slow tests, the probing tests and a strict build of
-the documentation site on every pull request; `make ci` runs the same locally
-(about an hour of CPU).
+agent or an extension, and how the tests check them. Every pull request
+runs pre-commit, the tests, the conformance checks and a strict build of the
+documentation site in CI; the slow tier, every test that trains, also runs
+daily on main, on a pull request labelled `run-slow-tier`, and before each
+release. `make ci` runs the checks locally (about an hour of CPU).
 
 ## Citation
 

@@ -98,7 +98,10 @@ evenly into `num_minibatches`; PQN raises otherwise.
 
 The [reproduction results](../reproduction/results.md) set PQN beside its
 authors' code (purejaxql) on CartPole and Asterix-MinAtar, with learning
-curves. Unit tests
+curves. A conformance check (`tests/conformance/test_pqn_purejaxql.py`)
+runs one training iteration of each from the same state with the same
+random numbers and compares them step by step; the differences it finds
+are listed in the [specifications](../reproduction/specs.md). Unit tests
 (`tests/agents/PQN` and the contracts every agent shares) check its pieces
 against exact contracts, without learning. The probes (`tests/probing`)
 train it briefly on tiny environments with known answers: its Q(lambda)

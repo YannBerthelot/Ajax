@@ -1,7 +1,8 @@
 # Testing
 
 Ajax checks its code with two kinds of tests, and each answers a different
-question:
+question (the [conformance checks](#conformance-checks), below, are a third,
+against an agent's original implementation):
 
 - **Unit tests** check one component against an exact contract, with no
   learning. Where agents or extensions share a contract, the test is
@@ -34,7 +35,12 @@ restructuring can show it changed nothing.
 | Pins | `tests/agents/test_agent_pins.py`, `tests/agents/SAC/test_sac_parity.py`, `tests/extensions/test_sac_extensions_equivalence.py`, `tests/test_downstream_api.py` | Tests |
 | Slow | anywhere, marked `@pytest.mark.slow`: the option matrix, the resume contract, long trainings | Slow tests |
 | Probes | `tests/probing/` | Probing |
+| Conformance | `tests/conformance/` (below) | Conformance |
 | Learning checks | `benchmarks/world_models/learning_checks.py`: a world model learns its task at a small preset; hours on a CPU, run before merging such an agent | none |
+
+The *Slow tier* workflow also runs every test that trains, the probes
+included, daily on main, on a pull request labelled `run-slow-tier`, and
+before a release; [Contributing](contributing.md#testing) lists the CI jobs.
 
 Every directory of `tests/` that holds Python files is a package, so tests
 import shared helpers by their full name (`from tests.environments.identity_env
@@ -91,6 +97,32 @@ its own commit, saying why. `test_downstream_api.py` pins the names and
 keywords the downstream projects import, so that removing one is a
 deliberate step (CLAUDE.md, rule 10).
 
+## Conformance checks
+
+A conformance check runs one training step of an Ajax agent and of its
+original implementation from the same state, with the same random numbers,
+and compares the change each makes to every leaf of the state: parameters,
+optimiser moments, and for PQN the collected rollout and its targets. The
+tolerance comes from rounding alone: each side's float32 run against the
+same run in float64, times 10 (`tests/conformance/submaps.py`). A planted
+fault, such as TD3's target noise at 0.22 instead of 0.2, must fail the
+check.
+
+| Agent | Original | Test |
+| --- | --- | --- |
+| PQN | purejaxql (JAX) | `tests/conformance/test_pqn_purejaxql.py` |
+| TD3 | sfujim/TD3 (PyTorch) | `tests/conformance/test_td3_sfujim.py` |
+
+The originals are vendored under `benchmarks/reference/vendor`. A PyTorch
+original runs in its own environment (`benchmarks/reference/envs/torch`)
+and records its states to disk; CI keeps those records between runs while
+the original, its recorder and that environment's lock stay the same
+(`AJAX_CONFORMANCE_RECORDS`). `tests/conformance/kit.py` holds the seams
+that make one step comparable without changing the code under test: a tape
+of the random draws, and the capture of an agent's update. A difference
+that is the original's convention or defect is pinned as a deviation in
+the test and listed in the [reproduction specifications](../reproduction/specs.md).
+
 ## Running tests locally
 
 The full suite costs about an hour of CPU, so CI runs it on the pull request.
@@ -113,7 +145,7 @@ agent's training runs all of that agent's probe cells (`-k <Agent>` over
 `tests/probing`).
 
 `make ci` runs everything CI runs (`ci-precommit`, `ci-test`, `ci-slow`,
-`ci-probe`, and `docs`, the strict build of this site). The `make` targets
+`ci-probe`, `ci-conformance`, and `docs`, the strict build of this site). The `make` targets
 hide the GPU (`CUDA_VISIBLE_DEVICES=""`, `JAX_PLATFORMS=cpu`), so tests never
 compete with an experiment running on it. Outside `make`, set
 `JAX_PLATFORMS=cpu` while a GPU is busy.

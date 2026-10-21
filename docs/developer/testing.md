@@ -33,14 +33,10 @@ restructuring can show it changed nothing.
 | Unit, one component | `tests/<area>/` (environments, networks, buffers, logging, ...), `tests/agents/<AGENT>/` | Tests |
 | Unit, generic contracts | `tests/agents/test_*_contract.py`, `tests/extensions/test_phase_contract.py`, `tests/extensions/test_no_silent_noop.py`, `tests/environments/test_wrapper_contract.py`, ... (below) | Tests, Slow tests |
 | Pins | `tests/agents/test_agent_pins.py`, `tests/agents/SAC/test_sac_parity.py`, `tests/extensions/test_sac_extensions_equivalence.py`, `tests/test_downstream_api.py` | Tests |
-| Slow | anywhere, marked `@pytest.mark.slow`: the option matrix, the resume contract, long trainings | Slow tests |
-| Probes | `tests/probing/` | Probing |
+| Slow | anywhere, marked `@pytest.mark.slow`: the option matrix, the resume contract, long trainings | Slow tests (and the Slow tier workflow) |
+| Probes | `tests/probing/` | Probing (and the Slow tier workflow) |
 | Conformance | `tests/conformance/` (below) | Conformance |
 | Learning checks | `benchmarks/world_models/learning_checks.py`: a world model learns its task at a small preset; hours on a CPU, run before merging such an agent | none |
-
-The *Slow tier* workflow also runs every test that trains, the probes
-included, daily on main, on a pull request labelled `run-slow-tier`, and
-before a release; [Contributing](contributing.md#testing) lists the CI jobs.
 
 Every directory of `tests/` that holds Python files is a package, so tests
 import shared helpers by their full name (`from tests.environments.identity_env
@@ -156,20 +152,36 @@ silently runs in the wrong job.
 
 ## How CI splits the suite
 
+The tests come in two tiers. The *fast tier* is the tests not marked slow,
+which every pull request must pass. A fast test may train, but for at most
+128 gradient steps and about 30 s; `tests/conftest.py` lists the tests past
+either limit at the end of a run, without failing them yet. The *slow tier*
+is every test that trains: `tests/probing` (marked slow as it is collected,
+but for the harness's own checks) and the tests marked slow elsewhere.
+[Contributing](contributing.md#testing) describes both.
+
 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)
 runs on CPU for every pull request and every push to `main`:
 
 | Job | What it runs |
 | --- | --- |
 | Pre-commit | ruff lint, ruff-format and mypy on every file |
-| Tests (3 shards) | the tests not marked slow, probing excluded, under coverage. Shards 1 and 2 name directories; shard 3 runs everything else, so a new test file always runs somewhere |
+| Tests (3 shards) | the tests not marked slow, probing and conformance excluded, under coverage, a pytest-xdist worker per vCPU, at XLA optimisation level 0, on arm64 runners. Shards 1 and 2 name directories; shard 3 runs everything else, so a new test file always runs somewhere |
 | Coverage | the three shards' data combined; fails below 70% |
 | Slow tests | `-m slow`, probing excluded, without coverage (its tracing would lengthen them) |
-| Probing (5 shards) | `tests/probing`, slow cases included. Shards 1-3 split the memory probes by memory kind; the last shard takes any probe file the others do not name |
+| Probing (5 shards) | `tests/probing`, in five shards by recorded duration (`--shard I/5`, `tests/.durations`), without the families out of the gate (`faults.OUT_OF_THE_GATE`: `test_p4_split_run.py` and `test_memory.py`), which run only in the slow tier |
+| Conformance | `tests/conformance`: one training step of each agent that has a check against its original implementation (above) |
 | Docs | `mkdocs build --strict` with the `docs` group alone: a broken link, a page left out of the navigation or a docstring naming a parameter the signature lacks fails it |
 | Lint and Test | passes only when every job above passed; the one check branch protection requires |
 
-The test, slow and probing jobs restore Ajax's compile cache as the last push
+The *Slow tier* workflow ([`slow.yml`](../../.github/workflows/slow.yml))
+runs the slow tier in six shards: daily on `main` when it changed, by hand,
+and on a pull request each time the label `run-slow-tier` is added. A red run
+on `main` opens an issue and, when that is cheap, bisects the merges since
+the last green run. The *Release* workflow tags a version only once the slow
+tier has passed on `main`'s head.
+
+The test, slow, probing and conformance jobs restore Ajax's compile cache as the last push
 to `main` left it for that job, so a program a change leaves alone is loaded
 instead of compiled. A new push to a pull request cancels the run it
 supersedes. Nothing merges while any job is red; a failure that is
@@ -389,4 +401,5 @@ goes wrong without crashing:
    raising the cap.
 
 A new agent needs probe presets in `agents.py` and at least one case; a new
-probe file runs in CI's last probing shard without any workflow change.
+probe file joins a probing shard without any workflow change (a test
+missing from `tests/.durations` counts one second).

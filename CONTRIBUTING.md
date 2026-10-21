@@ -340,6 +340,20 @@ tiny run produces today, so a restructuring can show it changed nothing:
 `tests/test_downstream_api.py` (the names downstream projects import). *Slow
 tests* (`@pytest.mark.slow`) are the long trainings.
 
+The tests come in two tiers. The *fast tier* is the tests not marked slow,
+which every pull request must pass (CI runs the probing harness's own checks
+and `tests/conformance` in jobs of their own). A fast test may
+run a tiny training, but at most 128 gradient steps and about 30 s:
+`tests/conftest.py` times each test, counts its gradient steps (the larger of
+the agent's update count and each train state's step) and lists the tests
+past either line at the end of the run (`AJAX_FAST_MAX_UPDATES`,
+`AJAX_FAST_MAX_SECONDS`). For now it only reports. A test past the lines
+belongs in `tests/probing`, or is marked slow. The *slow tier* is everything
+that trains: `tests/probing`, which `tests/conftest.py` marks slow, and the
+tests marked slow elsewhere. Until the fast tests catch what the probes catch,
+pull requests also run the slow tests, the probes and the conformance tests
+(below).
+
 Every directory of `tests/` that holds Python files is a package (an empty
 `__init__.py`; `tests/test_repo_hygiene.py` checks it), so tests import shared
 helpers by their full name: `from tests.agents.extension_stubs import
@@ -349,8 +363,8 @@ CounterExt`. The benchmark scripts the tests import are on the path through
 ```bash
 uv run pytest --collect-only -q   # everything imports and collects
 uv run pytest tests/agents/TD3    # the tests of what you changed
-uv run pytest -m "not slow"       # skip the long trainings
-make ci   # what CI runs: ci-precommit, ci-test, ci-slow, ci-probe, docs
+uv run pytest -m "not slow" -n auto   # the fast tier, a worker per core
+make ci   # what CI runs: ci-precommit, ci-test, ci-slow, ci-probe, ci-conformance, docs
 ```
 
 The `make` targets hide the GPU (`CPU_ENV`) so tests never compete with a
@@ -358,11 +372,13 @@ running experiment; elsewhere set `JAX_PLATFORMS=cpu` while a GPU is busy.
 
 **CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs on CPU for
 every pull request and push to `main`: *Pre-commit*; *Tests* (three shards:
-the tests not marked slow, probing excluded, under coverage; the last shard
-runs whatever the first two do not name, so a new test file always runs);
-*Coverage* (the shards combined, at least 70%); *Slow tests* (without
-coverage, which would lengthen them); *Probing* (five shards; the last takes
-any new probe file); *Conformance* (each agent's training step against its
+the tests not marked slow, probing excluded, under coverage, a pytest-xdist
+worker per vCPU, at XLA's optimisation level 0 since these programs are tiny;
+the last shard runs whatever the first two do not name, so a new test file
+always runs); *Coverage* (the shards combined, at least 70%); *Slow tests*
+(without coverage, which would lengthen them); *Probing* (five shards by
+recorded duration, without the families out of the gate, below);
+*Conformance* (each agent's training step against its
 original implementation); *Docs* (the documentation site, `mkdocs build
 --strict`). *Lint and Test*, the one check branch protection requires, passes
 only when all of them passed. Pre-commit, Tests, Coverage, Conformance and
@@ -377,6 +393,16 @@ recorded duration (`--shard I/N`, `tests/.durations`, `make durations`): daily
 on main when main changed, by hand, and on a pull request each time the label
 `run-slow-tier` is added. A red run on main opens an issue, and bisects the
 merges since the last green run when that is cheap.
+
+A probe family leaves the pull-request gate once the fast tests catch every
+fault its catalogue lists (`tests/probing/faults/<family>.jsonl`). Each such
+fault's `fast` field names the fast tests that catch it, measured by planting
+the fault in a scratch copy and running the fast tests that execute its lines
+(`uv run python -m tests.fault_catches SCRATCH FAMILY`). The families out of
+the gate are listed in `faults.OUT_OF_THE_GATE`, and ci.yml's Probing job
+ignores their files; `tests/probing/test_framework.py` checks both. They still
+run in the slow tier. Out so far: resuming a split run (`test_p4_split_run.py`)
+and memory (`test_memory.py`).
 
 ### The probing tests
 

@@ -91,8 +91,8 @@ def cartpole():
     The logging worker is not started and the log callback records what it
     is sent, so the run is hermetic. Spies record, per update and per seed
     (the seed ``vmap`` unrolls a callback over the seeds, in no guaranteed
-    order within an update): the trained observations and the first noise
-    leaf (``train_step``), the rows and the drawn windows (``sample``) and
+    order within an update): the trained observations and every noise draw
+    (``train_step``), the rows and the drawn windows (``sample``) and
     the written-back windows and latents (``write_back``). They call the
     originals, so the run is the unspied one.
     """
@@ -106,9 +106,7 @@ def cartpole():
         logged.append((int(index), {k: np.asarray(v) for k, v in metrics.items()}))
 
     def train_step_spy(state, batch, noise, *, config):
-        jax.debug.callback(
-            _recorder(spied.batches), batch.obs, jax.tree.leaves(noise)[0]
-        )
+        jax.debug.callback(_recorder(spied.batches), batch.obs, *noise)
         return train_step(state, batch, noise, config=config)
 
     def sample_spy(self, state, rows, key):
@@ -272,14 +270,16 @@ def _per_update(records: list, n_updates: int) -> list:
 def test_updates_train_on_written_rows_with_fresh_noise(cartpole):
     """Every update samples after its tick's rows were added (deviation D3):
     no trained row is an unwritten ring slot (CartPole observations are
-    never exactly zero; an empty slot is); and each draws fresh noise."""
+    never exactly zero; an empty slot is); and each draws fresh noise, for
+    the posterior, the imagined priors and the actions alike."""
     total = cartpole.agent.schedule.total_updates(ROWS // N_ENVS)
     batches = _per_update(cartpole.spied.batches, total)
     for pair in batches:
-        for obs, _ in pair:
+        for obs, *_ in pair:
             assert np.all(np.any(obs != 0, -1)), "an update read an unwritten row"
-    noise = {eps.tobytes() for pair in batches for _, eps in pair}
-    assert len(noise) == len(SEEDS) * total
+    for draw in range(len(batches[0][0]) - 1):
+        noise = {rec[1 + draw].tobytes() for pair in batches for rec in pair}
+        assert len(noise) == len(SEEDS) * total, draw
 
 
 def test_online_items_follow_the_reference_loop(cartpole):

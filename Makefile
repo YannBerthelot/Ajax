@@ -26,10 +26,9 @@ ci: ci-precommit ci-test ci-slow ci-probe ci-conformance docs  ## Full local CI:
 ci-precommit:  ## pre-commit on all files (ruff lint + ruff-format + mypy)
 	uv run pre-commit run --all-files
 
-ci-test:  ## Tests not marked slow (deselects probing, conformance) + coverage >= 70
+ci-test:  ## Tests not marked slow (deselects probing, conformance) + coverage >= 70, one worker per core
 	uv run coverage erase
-	$(CPU_ENV) $(FAST_XLA) uv run coverage run -m pytest -m "not slow" --ignore=tests/probing --ignore=tests/conformance
-	uv run coverage combine
+	$(CPU_ENV) $(FAST_XLA) uv run pytest -n auto --cov --cov-report= --cov-fail-under=0 -m "not slow" --ignore=tests/probing --ignore=tests/conformance
 	uv run coverage report --fail-under=70
 
 ci-slow:  ## Tests marked slow (deselects probing, conformance), without coverage

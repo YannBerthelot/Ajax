@@ -35,7 +35,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "01a11ae06287"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "e24797ba284a"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -485,27 +485,28 @@ for key, (steps, tols) in PILOT_CAL.items():
 # s0 -> s1 -> end, raw observations 5 then 1 (1 at the end too): the
 # normaliser settles at mean 3, sd 2, so the networks see s0 as +1 and s1 as
 # -1; raw s1 reads as normalised s0, twice-normalised s0 as s1. Discrete(3):
-# r(s0) = 1[a = 0], r(s1) = 0.3 1[a = 0] + 1[a = 2]; Box: r(s0) = c0 -
-# (a + 0.5)^2, r(s1) = 1 - (a - 0.5)^2, c0 = 1 (0 for ASAC, whose
-# termination penalty would dwarf r(s1)). Read: the last logged evaluation,
-# and a value at s0 against its oracle from the final policy (with alpha,
-# TD3's smoothing noise or ASAC's penalty). Ladder on 1000-1031 and
-# 2000-2031; 32/32 of 3000-3031 within (PPO-discrete 31/32). PPO-continuous,
-# its log-std one parameter from std 1, on 4096-16,384 steps: V's worst error
-# 0.153, 0.133, 0.099, 0.066, 0.035 (12,288 misses); its evaluation reads
-# 1.5, as untrained, on every seed at 4096 (cert worst 0.038 and 0.007).
+# r(s0) = 1[a = 0], r(s1) = 0.3 1[a = 0] + 1[a = 2]; Box: r(s0) = 1 -
+# (a + 0.5)^2, r(s1) = 1 - (a - 0.5)^2. ASAC runs without its termination
+# penalty (p_0 0): its authors' penalty reads two rows' rewards, noise p5
+# and q1 own. Read: the last logged evaluation, and a value at s0 against
+# its oracle from the final policy (with alpha or TD3's smoothing noise).
+# Ladder on 1000-1031 and 2000-2031; 32/32 of 3000-3031 within (PPO-discrete
+# 31/32). PPO-continuous, its log-std one parameter from std 1, on
+# 4096-16,384 steps: V's worst error 0.153, 0.133, 0.099, 0.066, 0.035
+# (12,288 misses); its evaluation reads 1.5, as untrained, on every seed at
+# 4096 (cert worst 0.038 and 0.007).
 
 S0, S1 = 5.0, 1.0
 
 
-def _p1_reward(discrete: bool, c0: float = 1.0) -> Callable:
+def _p1_reward(discrete: bool) -> Callable:
     def reward(s: Any, a: Any) -> jax.Array:
         if discrete:
             r0 = jnp.where(a == 0, 1.0, 0.0)
             r1 = jnp.where(a == 0, 0.3, 0.0) + jnp.where(a == 2, 1.0, 0.0)
         else:
             a = jnp.clip(a, -1.0, 1.0)
-            r0, r1 = c0 - (a + 0.5) ** 2, 1.0 - (a - 0.5) ** 2
+            r0, r1 = 1.0 - (a + 0.5) ** 2, 1.0 - (a - 0.5) ** 2
         return jnp.where(s == 0, r0, r1)
 
     return reward
@@ -524,7 +525,6 @@ def _p1_chain(reward: Callable, actions: int) -> envs.Spec:
 
 
 P1_REWARD = {"discrete": _p1_reward(True), "continuous": _p1_reward(False)}
-P1_REWARD["asymmetric"] = _p1_reward(False, 0.0)
 P1_CHAIN = {k: _p1_chain(r, 3 if k == "discrete" else 0) for k, r in P1_REWARD.items()}
 _ON = {"normalize_observations": True}
 P1_CELLS: dict[str, tuple[str, str, int, dict]] = {  # agent, chain, budget, overrides
@@ -538,7 +538,7 @@ P1_CELLS: dict[str, tuple[str, str, int, dict]] = {  # agent, chain, budget, ove
     "SAC": ("SAC", "continuous", 5000, _ON),
     "TD3": ("TD3", "continuous", 2500, _ON),
     "REDQ": ("REDQ", "continuous", 2500, _ON | {"num_critic_updates": 2}),
-    "ASAC": ("ASAC", "asymmetric", 5000, _ON),
+    "ASAC": ("ASAC", "continuous", 5000, _ON | {"p_0": 0.0}),
     "SAC-running": ("SAC", "continuous", 5000, {"normalize_obs_running": True}),
 }
 
@@ -568,15 +568,15 @@ def _p1_read(model: Any, cell: str, n: R.Nets) -> dict:
         oracle = jnp.mean(r(0, a0)) + G * jnp.mean(r(1, a1))
         return out | {"V(s0) - oracle": R.critic(n, S0) - oracle}
     if name == "ASAC":
-        # ASAC charges a learned penalty p on terminating rewards and neither
-        # discounts nor masks: Q(s0, .) = r0 - c + V1, Q(s1, .) = r1 - p - c + V0,
-        # V the soft means, so V1 - V0 = (w1 - p - w0) / 2 whatever the gauge c.
+        # ASAC charges a learned penalty p at a termination, drops the next
+        # value there and does not discount: Q(s1, .) = r1 - p - c, Q(s0, .) =
+        # r0 - c + w1 - p - c, w1 s1's soft mean reward, so Q(s0, .) - 2 Q(s1, .)
+        # = r0 - 2 r1 + w1 + p whatever the gauge c (theta plus the origin's Q).
         p, alpha = n.extra[2].reshape(()), R.alpha(n)
-        w0 = R.soft_value(pi0, alpha, lambda a: r(0, a), k0)
         w1 = R.soft_value(pi1, alpha, lambda a: r(1, a), k1)
-        oracle = r(0, -0.5) - (r(1, 0.5) - p) + 0.5 * (w1 - p - w0)
-        gap = R.critic(n, S0, -0.5) - R.critic(n, S1, 0.5)
-        return out | {"Q(s0,-0.5) - Q(s1,0.5) - oracle": gap - oracle}
+        oracle = r(0, -0.5) - 2 * r(1, 0.5) + w1 + p
+        gap = R.critic(n, S0, -0.5) - 2 * R.critic(n, S1, 0.5)
+        return out | {"Q(s0,-0.5) - 2 Q(s1,0.5) - oracle": gap - oracle}
     if name == "TD3":
         c = model.agent_config
         noise = c.target_policy_noise * jax.random.normal(R.KEY, (4096,))
@@ -614,7 +614,6 @@ _D, _ALONE = (
 _TWICE = "(b) normalised twice / (d) raw, at the optimum: at most"
 EVAL_D = Query("eval", 2.0, {CLIP: 1.3, _ALONE: 1.0, _D: 1.3})
 EVAL_C = Query("eval", 2.0, {_TWICE: 1.0, "untrained (actions near 0)": 1.5})
-EVAL_A = Query("eval", 1.0, {f"{_D}: at most": 0.0, "untrained": 0.5})
 _GREEDY = {RAW: 1 / (1 - G), "(c) training clip: V(s1) = 0.3": 1 + G * 0.3}
 Q_GREEDY = Query("Q(s0,0)", 1 + G, _GREEDY | {"untrained": 0.0})
 Q_A2 = Query("Q(s1,2)", 1.0, {CLIP: 0.0})
@@ -623,15 +622,15 @@ Q_A2 = Query("Q(s1,2)", 1.0, {CLIP: 0.0})
 Q_SOFT = Query("Q(s0,-0.5) - oracle", 0.0, {RAW: 0.95, "untrained": -1.58})
 V_CONTINUOUS = Query("V(s0) - oracle", 0.0, {RAW: 1.0, "untrained": -1.2})
 V_DISCRETE = Query("V(s0) - oracle", 0.0, {RAW: 1.45, "untrained": -1.19})
-# Under (a) s1 also bootstraps on the untrained input 5: measured (seeds 0-7).
-_MEASURED = {"(a) raw next obs (planted, measured)": -0.9, "untrained": 1.15}
-ASAC_GAP = Query("Q(s0,-0.5) - Q(s1,0.5) - oracle", 0.0, _MEASURED)
+# (a) differs only at an end, which ASAC's target masks: it reads the truth
+# (planted, seeds 0-7). Untrained: the median at 64 steps (seeds 1000-2031).
+ASAC_GAP = Query("Q(s0,-0.5) - 2 Q(s1,0.5) - oracle", 0.0, {"untrained": 0.52})
 P1_CASES = {  # cell, queries, tolerances (none for a live defect: half the gap)
     "SAC": ("SAC", (EVAL_C, Q_SOFT), (0.036, 0.081)),
     "TD3": ("TD3", (EVAL_C, Q_SOFT), (0.02, 0.048)),
     "REDQ": ("REDQ", (EVAL_C, Q_SOFT), (0.049, 0.084)),
     "SAC-running": ("SAC-running", (EVAL_C, Q_SOFT), (0.036, 0.087)),
-    "ASAC": ("ASAC", (EVAL_A, ASAC_GAP), (0.02, 0.086)),
+    "ASAC": ("ASAC", (EVAL_C, ASAC_GAP), (0.02, 0.098)),
     "AVG": ("AVG", (EVAL_C,), (0.077,)),
     "PPO-continuous": ("PPO-continuous", (V_CONTINUOUS,), (0.069,)),
     "PPO-discrete": ("PPO-discrete", (V_DISCRETE,), (0.072,)),

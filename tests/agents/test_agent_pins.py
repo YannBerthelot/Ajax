@@ -991,6 +991,17 @@ _GOLDEN |= {
         "nudge": 0.2874566912651062,
     },
 }
+# Re-recorded on macOS ARM CPU once ASAC followed its authors' code at episode
+# ends, for theta's and the temperature's sample, the penalty, log(1/nA) and
+# the tanh log-det's 1e-6 (Pendulum: no termination, one action dimension):
+# actor +0.025%, critic -0.024%, alpha unchanged.
+_GOLDEN |= {
+    "ASAC": {
+        "actor": 17.28484535217285,
+        "critic": 27.374101638793945,
+        "alpha": 0.19999998807907104,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

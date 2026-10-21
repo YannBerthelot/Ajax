@@ -560,6 +560,28 @@ def test_evaluation_plans_with_the_agents_discount(pendulum, monkeypatch):
     assert seen == [(agent.gamma, True)]
 
 
+def test_fixed_length_episodes_are_collected_in_the_static_reset_mode(monkeypatch):
+    """Without ``episodic`` every episode lasts T steps and the collector
+    resets on the schedule's boundaries, through the env's own reset (and any
+    task wrapper's initial state): the static mode, not the dynamic one of
+    the episodic mode. The spy reads the mode as the run is traced, then
+    stops it."""
+
+    class Traced(Exception):
+        pass
+
+    seen = []
+
+    def spy(*args, reset_mode, **kwargs):
+        seen.append(reset_mode)
+        raise Traced
+
+    monkeypatch.setattr(train_TDMPC2, "collect_row", spy)
+    with pytest.raises(Traced):
+        _pendulum_agent().train(seed=SEEDS, n_timesteps=FIRST)
+    assert seen == ["static"]
+
+
 def test_playground_cartpole_trains_and_logs(monkeypatch):
     logged = []
 

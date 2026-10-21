@@ -167,6 +167,10 @@ class ASAC(ActorCritic):
         # policy_rnn.py:75, :93) keeps it too. Ajax's shared default is 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=1e-8)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=1e-8)
+        # The reference's actor is stable-baselines3's squashed Gaussian
+        # (2.4.0, distributions.py), whose log-prob subtracts log(1 - tanh^2
+        # + 1e-6).
+        self.network_args = self.network_args.replace(squash_log_det_eps=1e-6)
 
         self.alpha_args = AlphaConfig(
             learning_rate=alpha_learning_rate,

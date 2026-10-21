@@ -4,10 +4,11 @@ SAC for the average-reward criterion: the critics learn the differential
 soft Q, bootstrapped without discount on ``r - theta``, where ``theta``
 tracks the entropy-regularised reward rate. Every target is shifted by the
 target critics' value at the origin ``Q(0, 0)`` (their reference point), and
-terminations are charged a penalty learned from the non-terminal rewards
-(``p_0`` scales it) so episodic tasks fit the continuing criterion.
+a termination drops the next value and is charged a penalty learned from the
+rewards (``p_0`` scales it) so episodic tasks fit the continuing criterion.
 """
 
+import math
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple, Union
 
@@ -25,7 +26,6 @@ from ajax.agents.ASAC.utils import (
 from ajax.agents.loop import TrainLoop, critic_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
-    actor_dist,
     q_values,
     sample_replay,
     unsupported_recurrent_options,
@@ -128,25 +128,31 @@ def init_ASAC(
     )
 
 
+def uniform_log_prob(action_dim: int) -> float:
+    """log(1 / nA), the authors' reference point for the entropy term
+    (``darer/ASAC.py:54``, ``:182``, ``:191``): 0 for one action dimension."""
+    return -math.log(action_dim)
+
+
 def compute_asac_td_target(
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
     rng: jax.Array,
     next_observations: jax.Array,
-    # Unused (see the docstring); kept so the planted Q1-mask-* faults in
-    # tests/probing can mask the target with it.
-    dones: jax.Array,  # noqa: ARG001
+    dones: jax.Array,
     rewards: jax.Array,
     theta: float | jax.Array,
     alpha: jax.Array,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[jax.Array, jax.Array]:
-    """``r - theta + min_i Q_target_i(s', a') - Q_target(0, 0) - alpha log pi(a'|s')``.
+    """``r - theta + (1 - done) (min_i Q_target_i(s', a') - alpha (log pi(a'|s')
+    - log(1 / nA))) - Q_target(0, 0)``, ``r`` with a termination's penalty.
 
-    Returns the stop_gradient'd target and the next actions' log-probs.
-    ``dones`` is unused: the differential target bootstraps through every
-    end, terminations being charged their penalty in the rewards instead.
+    As the authors' code (BobMak/asac@4b68862, ``darer/ASAC.py:179-205``): a
+    termination drops the next value and is charged the penalty; the origin
+    shift applies to every row. Returns the stop_gradient'd target and the
+    next actions' log-probs.
     """
     rewards = rewards * reward_scale
     sample_key, _ = jax.random.split(rng)
@@ -179,11 +185,12 @@ def compute_asac_td_target(
                 carries.target_critic_hidden, 1, batch_axis=1
             ),
         )
-    shifted_q_targets = q_targets - jnp.mean(shift_value)
-    q1_target, q2_target = jnp.split(shifted_q_targets, 2, axis=0)
+    q1_target, q2_target = jnp.split(q_targets, 2, axis=0)
     min_q_target = jnp.minimum(q1_target, q2_target).squeeze(0)
-    target = jax.lax.stop_gradient(rewards - theta + (min_q_target - alpha * log_probs))
-    return target, log_probs
+    logpi0 = uniform_log_prob(next_actions.shape[-1])
+    next_value = (1.0 - dones) * (min_q_target - alpha * (log_probs - logpi0))
+    target = rewards - theta + next_value - jnp.mean(shift_value)
+    return jax.lax.stop_gradient(target), log_probs
 
 
 def value_loss_function(
@@ -276,9 +283,10 @@ def update_policy(
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
     actions: Optional[jax.Array] = None,
-) -> Tuple[ASACState, PolicyAuxiliaries, dict]:
+) -> Tuple[ASACState, PolicyAuxiliaries, jax.Array, dict]:
     """The actor step on ``alpha log pi(a|s) - min_i Q_i(s, a)``; also
-    returns the extensions' metrics."""
+    returns its samples' log-probs (the temperature and ``theta`` read them)
+    and the extensions' metrics."""
     agent_state, (loss, log_probs, q_min), metrics = core.soft_actor_step(
         agent_state,
         observations,
@@ -292,30 +300,21 @@ def update_policy(
     aux = PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()
     )
-    return agent_state, aux, metrics
-
-
-def sample_updated_policy(
-    agent_state: ASACState,
-    observations: jax.Array,
-    carries: Optional[RecurrentCarries] = None,
-) -> Tuple[ASACState, jax.Array]:
-    """``log pi(a|s)`` per action dimension, ``a ~ pi(.|s)``, of the updated
-    policy: one sample the temperature and ``theta`` steps both read."""
-    rng, sample_key = jax.random.split(agent_state.rng)
-    actor_state = agent_state.actor_state
-    pi = actor_dist(actor_state, actor_state.params, observations, carries)
-    _, log_probs = pi.sample_and_log_prob(seed=sample_key)
-    return agent_state.replace(rng=rng), log_probs
+    return agent_state, aux, log_probs, metrics
 
 
 def update_theta(
-    agent_state: ASACState, tau: float, rewards: jax.Array, log_probs: jax.Array
+    agent_state: ASACState,
+    tau: float,
+    rewards: jax.Array,
+    log_probs: jax.Array,
+    action_dim: int,
 ) -> ASACState:
-    """Track the entropy-regularised reward rate: an EMA of
-    ``mean(r - alpha log pi(a|s))`` over the batch, ``a ~ pi(.|s)``."""
+    """Track the entropy-regularised reward rate: an EMA of ``mean(r -
+    alpha (log pi(a|s) - log(1 / nA)))`` over the batch, ``a ~ pi(.|s)``."""
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
-    new_theta = jnp.mean(rewards - alpha * log_probs.sum(-1, keepdims=True))
+    log_pi = log_probs.sum(-1, keepdims=True) - uniform_log_prob(action_dim)
+    new_theta = jnp.mean(rewards - alpha * log_pi)
     theta = agent_state.theta * (1 - tau) + tau * new_theta
     return agent_state.replace(theta=theta)
 
@@ -363,7 +362,9 @@ def update_agent(
         total_timesteps,
         carries,
     )
-    agent_state, aux_policy, policy_metrics = update_policy(
+    # The temperature and theta read the actor's own sample, drawn before its
+    # step, as the authors' code does (darer/ASAC.py:146-213).
+    agent_state, aux_policy, log_probs, policy_metrics = update_policy(
         agent_state,
         transition.obs,
         transition.raw_obs,
@@ -373,7 +374,6 @@ def update_agent(
         a_expert=transition.a_expert,
         actions=transition.action,
     )
-    agent_state, log_probs = sample_updated_policy(agent_state, transition.obs, carries)
     # The dual-gradient step towards ``target_entropy`` (target entropy
     # per dimension times the action dimension).
     # ``fixed_alpha`` drops the step but keeps its logged auxiliaries, as
@@ -384,12 +384,14 @@ def update_agent(
     if not fixed_alpha:
         agent_state = tempered
     # In the target's units: the reward rate theta is subtracted from the
-    # scaled rewards there.
+    # scaled rewards there. It averages the rewards without the penalty, as
+    # the authors' code (darer/ASAC.py:191).
     agent_state = update_theta(
         agent_state,
         agent_config.tau_theta,
-        rewards * agent_config.reward_scale,
+        transition.reward * agent_config.reward_scale,
         log_probs,
+        transition.action.shape[-1],
     )
     agent_state = core.update_target_networks(agent_state, tau)
     aux = AuxiliaryLogs(

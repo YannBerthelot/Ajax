@@ -17,12 +17,13 @@ import subprocess
 
 import numpy as np
 import pytest
+from refcmp_protocol import subproject_env
 
 from tests.conformance import submaps, td3_sfujim
 
 REPO = pathlib.Path(__file__).parents[2]
 ENVS = ("MountainCarContinuous-v0", "Pendulum-v1")
-CPU = os.environ | {"JAX_PLATFORMS": "cpu", "CUDA_VISIBLE_DEVICES": ""}
+CPU = subproject_env(JAX_PLATFORMS="cpu", CUDA_VISIBLE_DEVICES="")
 #: Where CI keeps the originals' records between runs, under a key that hashes the vendored originals,
 #: their recorders and the torch env's lock; unset, every session records them.
 KEPT = os.environ.get("AJAX_CONFORMANCE_RECORDS")

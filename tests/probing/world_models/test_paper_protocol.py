@@ -19,7 +19,7 @@ import paper_report
 import pytest
 from wm_runs import build_agent
 
-from .smoke_helpers import run_resumed
+from tests.world_models.validation.smoke_helpers import run_resumed
 
 pytestmark = pytest.mark.slow
 

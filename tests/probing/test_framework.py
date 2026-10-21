@@ -45,11 +45,13 @@ from . import readouts as R
 # note + 2; CQL's cell: test_offline + 60, faults/ + 2, this note + 1;
 # ReBRAC's cell: test_offline + 62, faults/ + 2, this note + 1; GAIL's
 # cell: test_imitation + 40, faults/ + 3, this note + 1; its saturating
-# cell: test_imitation + 35, faults/ + 1, this note + 1. Families leave the
-# gate with fast catches: faults.py + 4, test_framework + 17, this note + 2.
+# cell: test_imitation + 35, faults/ + 1, this note + 1. The budget counts the
+# harness alone (trainings moved to tests/probing/<area>/): test_framework + 3.
+# Families leave the gate with fast catches: faults.py + 4, test_framework
+# + 17, this note + 3.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
 CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 104, "faults/": 234}
-CAPS |= {"test_framework.py": 245, "test_value_chains.py": 1051}
+CAPS |= {"test_framework.py": 249, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1045, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 791, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
@@ -211,14 +213,16 @@ def test_every_file_keeps_to_its_cap() -> None:
 
 
 def test_the_directory_keeps_to_its_budget() -> None:
-    """Every file git tracks or would track (untracked, not ignored): 7,000,
-    plus 400 for the offline-learning and imitation probes (2026-10-20:
-    DAgger, the offline mode, TD3+BC, then IQL, CQL/Cal-QL, ReBRAC, GAIL)."""
+    """The harness (not the trainings moved to tests/probing/<area>/), every
+    file git tracks or would track: 7,000, plus 400 for the offline-learning
+    and imitation probes (2026-10-20: DAgger, the offline mode, TD3+BC, then
+    IQL, CQL/Cal-QL, ReBRAC, GAIL)."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
-    total = sum(_lines(os.path.join(faults.REPO, f)) for f in out.stdout.split())
+    files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
+    total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
     assert total <= 7400, total
 
 

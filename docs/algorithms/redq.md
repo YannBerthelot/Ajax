@@ -122,7 +122,14 @@ extension; a cloning term during training is `ImitationLoss`
 
 ## Results
 
-The repository records no learning curves for REDQ yet. Unit tests
+The repository records no learning curves for REDQ yet. A conformance
+check (`tests/conformance/test_redq_original.py`) runs one training step of
+Ajax's REDQ and of watchernyu/REDQ from the same state, with the same
+batches, subsets and noises, and compares every critic, target, the actor,
+the temperature and their optimisers. It accounts for two differences of
+the authors' code: its first step reads the temperature 0.2 its
+constructor leaves behind, and its tanh log-determinant adds `1e-6`. Unit
+tests
 (`tests/agents/REDQ` and the contracts every agent shares) check its pieces
 against exact contracts, without learning: the summed critic loss, the
 random subset, the critics the actor reads and the target entropy. The

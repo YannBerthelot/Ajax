@@ -25,6 +25,10 @@ pip installs Ajax from its repository:
 pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git"
 ```
 
+Brax and MuJoCo Playground environments need an [extra](#extras):
+`"ajax[playground] @ git+..."` installs both, `"ajax[brax] @ git+..."`
+Brax alone.
+
 pip does not read `uv.lock`, so it takes the newest versions that
 `pyproject.toml` allows. A weekly CI job tests those too, and another the
 oldest versions allowed

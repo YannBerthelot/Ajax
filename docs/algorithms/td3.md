@@ -9,8 +9,9 @@ off-policy from a replay buffer.
 
 **Paper.** Fujimoto et al., *Addressing Function Approximation Error in
 Actor-Critic Methods*, 2018 ([arXiv:1802.09477](https://arxiv.org/abs/1802.09477)).
-The defaults follow its Table 1 and Algorithm 1, and the critic follows the
-authors' code (`sfujim/TD3`).
+The update follows its Algorithm 1 as the authors' code (`sfujim/TD3`)
+makes it, and the defaults are that code's as updated in 2019 (see
+[Notes](#notes)).
 
 ## Can I use?
 
@@ -142,6 +143,9 @@ statistics. The reference divides by the standard deviation plus `1e-3`,
 Ajax by `sqrt(var + 1e-8)`; the two differ on a column the dataset holds
 constant. The [offline mode](../guide/training.md#training-offline)
 evaluates every `log_frequency` updates, as the reference does every 5,000.
+A conformance check (`tests/conformance/test_td3bc_sfujim.py`) makes one
+update of each from the same state, batch and noise, on Pendulum and
+MountainCarContinuous, and compares them.
 
 ## ReBRAC: offline
 
@@ -196,7 +200,11 @@ Deviations from the reference:
 
 ## Results
 
-The repository records no learning curves for TD3 yet. Unit tests
+The repository records no learning curves for TD3 yet. A conformance
+check (`tests/conformance/test_td3_sfujim.py`) runs one update of Ajax's
+TD3 and of sfujim/TD3 from the same state, batch and noise, on
+MountainCarContinuous and Pendulum, and compares the change each makes to
+every parameter and optimiser moment. Unit tests
 (`tests/agents/TD3` and the contracts every agent shares) check its pieces
 against exact contracts, without learning, such as its smoothed target. The
 probes (`tests/probing`) train it briefly on tiny environments with known

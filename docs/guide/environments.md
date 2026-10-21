@@ -17,8 +17,10 @@ uses the first match:
 2. MuJoCo Playground: `"CheetahRun"`, `"CartpoleBalance"`, ...
 3. Brax: `"ant"`, `"halfcheetah"`, ...
 
-An unknown id raises `ValueError`. The agent builds `n_envs` copies, which
-step in parallel.
+Brax and Playground ids need Ajax's `brax` or `playground` extra
+([Installation](../getting-started/installation.md#extras)). An unknown id
+raises `ValueError`, naming the extras that are not installed. The agent
+builds `n_envs` copies, which step in parallel.
 
 ```python
 from ajax import PPO, SAC

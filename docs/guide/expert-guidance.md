@@ -291,6 +291,9 @@ Ajax" marks a feature with no external reference.
 | Start the replay with good experience | `expert_buffer_n_steps` (SAC, on by default); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
 | Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, ASAC, DQN, IQL) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
 | Keep the actor near the dataset's actions | `ImitationLoss(None, target="replay", alpha=2.5)` (SAC, TD3, REDQ, ASAC) | TD3+BC (Fujimoto and Gu, 2021) on TD3 |
+| Keep the critic's target near the dataset's actions too | `TargetBC` with TD3+BC's term (TD3) | ReBRAC (Tarasov et al., 2023) |
+| Keep the critic low on actions the dataset lacks | `ConservativeQ` (SAC, REDQ, ASAC, AVG, IQL), `CalQL` (SAC, REDQ, IQL) | CQL (Kumar et al., 2020), Cal-QL (Nakamoto et al., 2023) |
+| Imitate demonstrations, with no reward and no expert | `AdversarialReward` with a transition dataset (PPO, continuous actions) | GAIL (Ho and Ermon, 2016) |
 | Start the actor as a copy of the expert | `CloningPretrain` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger) | behaviour cloning |
 | Imitate the expert, with no reward | the `DAgger` agent | DAgger (Ross, Gordon and Bagnell, 2011); `ImitationLoss` with a replay agent's own expert is its aggregation plus the RL loss |
 | Keep the actor near the expert early on | `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger; PPO, APG, UDRL with a stateless expert), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |

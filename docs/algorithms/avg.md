@@ -105,7 +105,14 @@ observations, and no reward normalisation.
 
 ## Results
 
-The repository records no learning curves for AVG yet. Unit tests
+The repository records no learning curves for AVG yet. A conformance
+check (`tests/conformance/test_avg_original.py`) makes one update of Ajax's
+AVG and of gauthamvasan/avg from the same state and transition, and
+compares the actor, the critic, their optimisers and the TD-error scaler.
+Two differences of the authors' code are asserted there: its `log_std`
+head is read as a log-variance (a covariance's diagonal), and it hands its
+`tanh` action to the environment without mapping it onto the box. Unit
+tests
 (`tests/agents/AVG` and the contracts every agent shares) check its pieces
 against exact contracts, without learning. The probes (`tests/probing`)
 train it briefly on tiny environments with known answers: its target,

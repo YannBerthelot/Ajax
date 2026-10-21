@@ -1,7 +1,8 @@
 # Testing
 
 Ajax checks its code with two kinds of tests, and each answers a different
-question:
+question (the [conformance checks](#conformance-checks), below, are a third,
+against an agent's original implementation):
 
 - **Unit tests** check one component against an exact contract, with no
   learning. Where agents or extensions share a contract, the test is
@@ -32,8 +33,9 @@ restructuring can show it changed nothing.
 | Unit, one component | `tests/<area>/` (environments, networks, buffers, logging, ...), `tests/agents/<AGENT>/` | Tests |
 | Unit, generic contracts | `tests/agents/test_*_contract.py`, `tests/extensions/test_phase_contract.py`, `tests/extensions/test_no_silent_noop.py`, `tests/environments/test_wrapper_contract.py`, ... (below) | Tests, Slow tests |
 | Pins | `tests/agents/test_agent_pins.py`, `tests/agents/SAC/test_sac_parity.py`, `tests/extensions/test_sac_extensions_equivalence.py`, `tests/test_downstream_api.py` | Tests |
-| Slow | anywhere, marked `@pytest.mark.slow`: the option matrix, the resume contract, long trainings | Slow tests |
-| Probes | `tests/probing/` | Probing |
+| Slow | anywhere, marked `@pytest.mark.slow`: the option matrix, the resume contract, long trainings | Slow tests (and the Slow tier workflow) |
+| Probes | `tests/probing/` | Probing (and the Slow tier workflow) |
+| Conformance | `tests/conformance/` (below) | Conformance |
 | Learning checks | `benchmarks/world_models/learning_checks.py`: a world model learns its task at a small preset; hours on a CPU, run before merging such an agent | none |
 
 Every directory of `tests/` that holds Python files is a package, so tests
@@ -91,6 +93,36 @@ its own commit, saying why. `test_downstream_api.py` pins the names and
 keywords the downstream projects import, so that removing one is a
 deliberate step (CLAUDE.md, rule 10).
 
+## Conformance checks
+
+A conformance check runs one training step of an Ajax agent and of its
+original implementation from the same state, with the same random numbers,
+and compares the change each makes to every leaf of the state: parameters,
+optimiser moments, and for PQN the collected rollout and its targets. The
+tolerance comes from rounding alone: each side's float32 run against the
+same run in float64, times 10 (`tests/conformance/submaps.py`). A planted
+fault, such as TD3's target noise at 0.22 instead of 0.2, must fail the
+check.
+
+| Agent | Original | Test |
+| --- | --- | --- |
+| PQN | purejaxql (JAX) | `tests/conformance/test_pqn_purejaxql.py` |
+| TD3 | sfujim/TD3 (PyTorch) | `tests/conformance/test_td3_sfujim.py` |
+| TD3+BC | sfujim/TD3_BC (PyTorch) | `tests/conformance/test_td3bc_sfujim.py` |
+| REDQ | watchernyu/REDQ (PyTorch) | `tests/conformance/test_redq_original.py` |
+| AVG | gauthamvasan/avg (PyTorch) | `tests/conformance/test_avg_original.py` |
+
+The originals are vendored under `benchmarks/reference/vendor`. A PyTorch
+original runs in its own environment (`benchmarks/reference/envs/torch`)
+and records its states to disk; CI keeps those records between runs while
+the original, its recorder and that environment's lock stay the same
+(`AJAX_CONFORMANCE_RECORDS`). `tests/conformance/kit.py` holds the seams
+that make one step comparable without changing the code under test: a tape
+of the random draws, and the capture of an agent's update. A difference
+that is the original's convention or defect is registered with its reason
+(`benchmarks/reference/refcmp_specs.py`) and asserted by a test of its own;
+PQN's also appear in the [reproduction specifications](../reproduction/specs.md).
+
 ## Running tests locally
 
 The full suite costs about an hour of CPU, so CI runs it on the pull request.
@@ -113,7 +145,7 @@ agent's training runs all of that agent's probe cells (`-k <Agent>` over
 `tests/probing`).
 
 `make ci` runs everything CI runs (`ci-precommit`, `ci-test`, `ci-slow`,
-`ci-probe`, and `docs`, the strict build of this site). The `make` targets
+`ci-probe`, `ci-conformance`, and `docs`, the strict build of this site). The `make` targets
 hide the GPU (`CUDA_VISIBLE_DEVICES=""`, `JAX_PLATFORMS=cpu`), so tests never
 compete with an experiment running on it. Outside `make`, set
 `JAX_PLATFORMS=cpu` while a GPU is busy.
@@ -124,20 +156,36 @@ silently runs in the wrong job.
 
 ## How CI splits the suite
 
+The tests come in two tiers. The *fast tier* is the tests not marked slow,
+which every pull request must pass. A fast test may train, but for at most
+128 gradient steps and about 30 s; `tests/conftest.py` lists the tests past
+either limit at the end of a run, without failing them yet. The *slow tier*
+is every test that trains: `tests/probing` (marked slow as it is collected,
+but for the harness's own checks) and the tests marked slow elsewhere.
+[Contributing](contributing.md#testing) describes both.
+
 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)
 runs on CPU for every pull request and every push to `main`:
 
 | Job | What it runs |
 | --- | --- |
 | Pre-commit | ruff lint, ruff-format and mypy on every file |
-| Tests (3 shards) | the tests not marked slow, probing excluded, under coverage. Shards 1 and 2 name directories; shard 3 runs everything else, so a new test file always runs somewhere |
+| Tests (3 shards) | the tests not marked slow, probing and conformance excluded, under coverage, a pytest-xdist worker per vCPU, at XLA optimisation level 0, on arm64 runners. Shards 1 and 2 name directories; shard 3 runs everything else, so a new test file always runs somewhere |
 | Coverage | the three shards' data combined; fails below 70% |
 | Slow tests | `-m slow`, probing excluded, without coverage (its tracing would lengthen them) |
-| Probing (5 shards) | `tests/probing`, slow cases included. Shards 1-3 split the memory probes by memory kind; the last shard takes any probe file the others do not name |
+| Probing (5 shards) | `tests/probing`, in five shards by recorded duration (`--shard I/5`, `tests/.durations`), without the families out of the gate (`faults.OUT_OF_THE_GATE`: `test_p4_split_run.py` and `test_memory.py`), which run only in the slow tier |
+| Conformance | `tests/conformance`: one training step of each agent that has a check against its original implementation (above) |
 | Docs | `mkdocs build --strict` with the `docs` group alone: a broken link, a page left out of the navigation or a docstring naming a parameter the signature lacks fails it |
 | Lint and Test | passes only when every job above passed; the one check branch protection requires |
 
-The test, slow and probing jobs restore Ajax's compile cache as the last push
+The *Slow tier* workflow ([`slow.yml`](../../.github/workflows/slow.yml))
+runs the slow tier in six shards: daily on `main` when it changed, by hand,
+and on a pull request each time the label `run-slow-tier` is added. A red run
+on `main` opens an issue and, when that is cheap, bisects the merges since
+the last green run. The *Release* workflow tags a version only once the slow
+tier has passed on `main`'s head.
+
+The test, slow, probing and conformance jobs restore Ajax's compile cache as the last push
 to `main` left it for that job, so a program a change leaves alone is loaded
 instead of compiled. A new push to a pull request cancels the run it
 supersedes. Nothing merges while any job is red; a failure that is
@@ -357,4 +405,5 @@ goes wrong without crashing:
    raising the cap.
 
 A new agent needs probe presets in `agents.py` and at least one case; a new
-probe file runs in CI's last probing shard without any workflow change.
+probe file joins a probing shard without any workflow change (a test
+missing from `tests/.durations` counts one second).

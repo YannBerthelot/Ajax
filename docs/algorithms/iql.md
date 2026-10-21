@@ -98,13 +98,11 @@ Each update samples one replay batch and runs, in the reference's order:
   the factor from your dataset and pass it as `reward_scale` (or shift the
   dataset's rewards).
 - **Critics' loss.** Their mean squared error over both critics, half the
-  reference's sum. Adam's step is the same.
+  reference's sum. Adam's step is the same but for its eps, whose weight
+  against the gradient doubles.
 - **The value's input.** V reads the raw observation. With
   `normalize_observations=True` only the actor and the critics normalise
   theirs.
-- **Data.** The replay samples a row with its successor, so the last row of
-  each environment's share of the dataset is not sampled offline
-  ([Training offline](../guide/training.md#training-offline)).
 
 ## Results
 

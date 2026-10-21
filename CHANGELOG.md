@@ -29,6 +29,11 @@ PyPI as `ajax-rl`.
   instead of at every step, and the rollout's second-to-last step reads
   the last step's bootstrap, as purejaxql's backward pass does. Its
   reproduction comparisons become version 2.
+- **APO** ends an episode at a time limit, its next value dropped, and
+  leaves that step out of the loss, as xtma/apo does (`bootstrap_timelimit`):
+  it bootstrapped on the final observation and trained on the step. With
+  `normalize_advantage`, the advantages use the other steps' mean and
+  unbiased standard deviation, floored at `1e-6`.
 - `NetworkConfig.squash_log_det_eps` sets the guard inside the `tanh`
   log-det, `log(1 - tanh(u)^2 + eps)`, for an agent whose reference uses
   one; 0, the exact log-det, by default. `NetworkConfig.log_variance_head`

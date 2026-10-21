@@ -59,6 +59,15 @@ class ValueAuxiliaries(PPOValueAuxiliaries):
     average_reward: jax.Array | float = jnp.nan
 
 
+def valid_mean(x: jax.Array, valid: Optional[jax.Array]) -> jax.Array:
+    """The mean over the rows trained on, rlpyt's ``valid_mean``
+    (``rlpyt/utils/tensor.py``); every row when ``valid`` is None."""
+    if valid is None:
+        return jnp.mean(x)
+    valid = valid.reshape(x.shape)
+    return jnp.sum(x * valid) / jnp.sum(valid)
+
+
 def policy_loss_function(
     actor_params: FrozenDict,
     actor_state: LoadedTrainState,
@@ -70,11 +79,13 @@ def policy_loss_function(
     ent_coef: float,
     raw_actions: Optional[jax.Array] = None,
     entropy_key: Optional[jax.Array] = None,
+    valid: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, Optional[jax.Array]]]:
     """PPO's clipped surrogate with PPO's entropy bonus (APO's Gaussian's,
     exact; a squashed policy's executed action's, sampled with
-    ``entropy_key``); also returns the policy mean for extensions (``None``
-    for a discrete policy, which has no mean action)."""
+    ``entropy_key``), each averaged over the ``valid`` rows (appo.py:149-158);
+    also returns the policy mean for extensions (``None`` for a discrete
+    policy, which has no mean action)."""
     pi, _ = get_pi(actor_state, actor_params, observations)
     new_log_probs = recompute_log_prob(pi, actions, raw_actions)
     entropy = policy_entropy(pi, entropy_key)
@@ -83,7 +94,7 @@ def policy_loss_function(
         f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
     )
     loss_actor, clip_fraction = clipped_surrogate(ratio, gae, clip_coef)
-    total_loss = (loss_actor - ent_coef * entropy.mean()).mean()
+    total_loss = valid_mean(loss_actor, valid) - ent_coef * valid_mean(entropy, valid)
     aux = PolicyAuxiliaries(
         policy_loss=total_loss,
         log_probs=new_log_probs.mean(),
@@ -126,6 +137,7 @@ def value_loss_function(
     nu: float,
     b: float | jax.Array,
     vf_coef: float = 1.0,
+    valid: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """The differential value loss ``vf_coef 0.5 (V(s) - (target - nu b))^2``.
 
@@ -133,11 +145,12 @@ def value_loss_function(
     ``nu b`` from the critic's target, so with ``b`` the mean value each fit
     pulls the values back towards zero mean (Ma et al., 2021, the value
     bias penalty); adding it would push them away and let ``|b|`` grow.
-    ``vf_coef`` is its ``value_loss_coeff`` (``appo.py:152-153``).
+    ``vf_coef`` is its ``value_loss_coeff`` (``appo.py:152-153``), the mean
+    over the ``valid`` rows.
     """
     # The single critic still has the ensemble's leading axis.
     v_preds = predict_value(critic_states, critic_params, observations).squeeze(0)
-    loss = vf_coef * 0.5 * jnp.mean((v_preds - (value_targets - nu * b)) ** 2)
+    loss = vf_coef * 0.5 * valid_mean((v_preds - (value_targets - nu * b)) ** 2, valid)
     return loss, ValueAuxiliaries(
         critic_loss=loss,
         predictions=v_preds.mean().flatten(),
@@ -191,6 +204,7 @@ def update_networks(
             ent_coef=agent_config.ent_coef,
             raw_actions=minibatch["raw_actions"],
             entropy_key=minibatch["entropy_key"],
+            valid=minibatch["valid"],
         )
         value_loss, value_aux = value_loss_function(
             critic_params,
@@ -200,6 +214,7 @@ def update_networks(
             agent_config.nu,
             b,
             agent_config.vf_coef,
+            minibatch["valid"],
         )
         critic_batch = {
             "observations": minibatch["obs"],
@@ -269,11 +284,9 @@ def update_agent(
     code (``xtma/apo``, ``apo/algos/utils.py``,
     ``generalized_advantage_estimation`` with ``discount = 1``, and
     ``apo/algos/apg/base.py``, ``process_returns``): ``V(s')`` is dropped
-    on a termination and the lambda-carry is cut at every episode end. The
-    reference's ``done`` includes time limits and it drops time-limited
-    samples from the loss (``bootstrap_timelimit``), having only the reset
-    observation; Ajax keeps the final observation, so a truncated step
-    bootstraps on it and is trained on (PPO's convention here).
+    at every episode end, a time limit included (the reference's ``done``,
+    gym's, includes them), and the lambda-carry is cut there; a time-limited
+    row then leaves the loss (``bootstrap_timelimit``, ``base.py:73-77``).
     """
     critic_state = agent_state.critic_state
     values = predict_value(critic_state, critic_state.params, transition.obs).squeeze(0)
@@ -294,11 +307,13 @@ def update_agent(
     b = jnp.where(first, jnp.mean(values), b)
     agent_state = agent_state.replace(average_reward=average_reward, b=b)
 
+    ends = jnp.maximum(transition.terminated, transition.truncated)
+    valid = 1.0 - transition.truncated
     gae, value_targets = _compute_gae(
         rewards=transition.reward - average_reward,
         values=values,
         next_values=next_values,
-        terminateds=transition.terminated,
+        terminateds=ends,
         truncateds=transition.truncated,
         gamma=1.0,
         gae_lambda=agent_config.gae_lambda,
@@ -329,11 +344,13 @@ def update_agent(
             total_timesteps,
         )
 
-    # Normalise advantages ONCE over the full rollout (PPO here normalises
-    # per minibatch, as brax's loss does; unverified): per-minibatch
-    # normalisation uses noisy mean/std estimates on tiny minibatches.
+    # Normalised once over the rollout, by the trained rows' mean and
+    # torch's unbiased std, floored at 1e-6 (base.py:79-88).
     if agent_config.normalize_advantage:
-        gae = (gae - gae.mean()) / (gae.std() + 1e-8)
+        n = valid.sum()
+        mean = (gae * valid).sum() / n
+        std = jnp.sqrt(((gae - mean) ** 2 * valid).sum() / (n - 1))
+        gae = (gae - mean) / jnp.maximum(std, 1e-6)
 
     actions, log_probs = rollout_actions(transition)
     batch = {
@@ -342,6 +359,7 @@ def update_agent(
         "targets": value_targets,
         "gae": gae,
         "log_probs": log_probs,
+        "valid": valid,
         "raw_obs": transition.raw_obs,
         "raw_actions": transition.raw_action,
         # None leaves the minibatches as they were without an expert.

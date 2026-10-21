@@ -85,14 +85,15 @@ PPO's clipped surrogate, the value loss and the entropy bonus.
 
 ## Notes
 
-- **Episode ends.** The advantage chain stops at every episode end, and a
-  terminal state's next value is dropped, as in the official code. One
-  difference: the reference drops time-limited steps from the loss because it
-  has only the reset observation there. Ajax keeps the final observation, so a
-  truncated step bootstraps on it and is trained on, as PPO does.
+- **Episode ends.** As in the official code, the advantage chain stops at
+  every episode end and the next value is dropped there, a time limit
+  included (the reference's done flag does not tell them apart), and a
+  time-limited step leaves the loss (`bootstrap_timelimit`): the losses
+  average over the other steps.
 - **Advantage normalisation** runs once over the whole rollout, not per
-  minibatch as in Ajax's PPO; the official code's config turns it off (the
-  differences below).
+  minibatch as in Ajax's PPO, by the trained steps' mean and unbiased
+  standard deviation (floored at `1e-6`), as the official code would; its
+  config turns it off (the differences below).
 - **Shuffling.** Every epoch draws a new split of the rollout into
   minibatches, as APO's official code does.
 - **Hidden layers.** The actor and the critic each have two hidden layers

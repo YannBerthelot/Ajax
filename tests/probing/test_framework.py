@@ -50,11 +50,12 @@ from . import readouts as R
 # Families leave the gate with fast catches: faults.py + 4, test_framework
 # + 17, this note + 3; the memory family's two uncatalogued faults: faults/
 # + 2, this note + 1; PQN as purejaxql's estimator: oracles.py + 2,
-# test_extensions + 3, this note + 1.
+# test_extensions + 3, this note + 1; APO's time limits as xtma/apo's:
+# oracles.py + 4, test_episode_ends + 5, faults/ + 1, this note + 1.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 194, "faults.py": 104, "faults/": 236}
-CAPS |= {"test_framework.py": 251, "test_value_chains.py": 1051}
-CAPS |= {"test_episode_ends.py": 1045, "test_bookkeeping.py": 1013}
+CAPS |= {"readouts.py": 220, "oracles.py": 198, "faults.py": 104, "faults/": 237}
+CAPS |= {"test_framework.py": 252, "test_value_chains.py": 1051}
+CAPS |= {"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 794, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
 CAPS |= {"test_action_box.py": 201, "test_imitation.py": 178, "test_offline.py": 300}
@@ -217,15 +218,15 @@ def test_every_file_keeps_to_its_cap() -> None:
 def test_the_directory_keeps_to_its_budget() -> None:
     """The harness (not the trainings moved to tests/probing/<area>/), every
     file git tracks or would track: 7,000, plus 400 for the offline-learning
-    and imitation probes (2026-10-20: DAgger, the offline mode, TD3+BC, then
-    IQL, CQL/Cal-QL, ReBRAC, GAIL)."""
+    and imitation probes (2026-10-20: DAgger, offline mode, TD3+BC, IQL,
+    CQL/Cal-QL, ReBRAC, GAIL) and 10 for PQN's and APO's original rules."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 7400, total
+    assert total <= 7410, total
 
 
 def test_every_family_out_of_the_gate_lists_its_fast_catches() -> None:

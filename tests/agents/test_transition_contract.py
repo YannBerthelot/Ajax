@@ -4,7 +4,9 @@ whose observation [t, c] says which step of which episode a row is:
 
 (i) a row that did not terminate continues its own episode: its s' is
 [t + 1, c] for its s = [t, c], a time-limited row's the final observation
-(t = LIMIT), not the next episode's first, nor another env's;
+(t = LIMIT), not the next episode's first, nor another env's; a replayed
+row that terminated holds the next episode's first observation (t = 0), the
+reset state a continuing target (ASAC's) bootstraps on, not its own;
 (ii) the flags are those the step raised: ``dones`` (where the target cuts
 the bootstrap) the termination, ``terminated`` and ``truncated`` apart;
 (iii) under reward normalisation, an agent learning from its rollout reads
@@ -104,6 +106,8 @@ def test_on_target_rows_are_their_episodes_transitions(name, monkeypatch):
     assert terminated.any() and truncated.any(), "no episode end was learned from"
     # (i)
     np.testing.assert_array_equal(nxt[~terminated], obs[~terminated] + [1.0, 0.0])
+    if case.cls.replays_transitions:  # a replayed termination's s' is a reset state
+        np.testing.assert_array_equal(nxt[terminated][:, 0], 0.0)
     # (ii)
     flags = [k for k in FLAGS if k in BATCHES[0]]
     assert set(flags) - {"truncated"}, f"no termination flag in {sorted(BATCHES[0])}"

@@ -233,6 +233,16 @@ def test_a_subproject_runs_without_the_callers_venv_and_resolution_mode(monkeypa
     monkeypatch.setenv("UV_RESOLUTION", "lowest-direct")
     monkeypatch.setenv("VIRTUAL_ENV", "/caller/.venv")
     monkeypatch.setenv("AJAX_KEPT", "1")
-    env = protocol.subproject_env(JAX_PLATFORMS="cpu")
+    env = protocol.subproject_env(protocol.HERE / "envs" / "torch", JAX_PLATFORMS="cpu")
     assert not set(protocol.CALLER_SETTINGS) & set(env)
     assert (env["AJAX_KEPT"], env["JAX_PLATFORMS"]) == ("1", "cpu")
+
+
+def test_ajax_s_own_project_keeps_the_callers_resolution_mode(monkeypatch):
+    """The lowest job's lowest-direct sync rewrote Ajax's own uv.lock in that mode, so Ajax's side
+    of a comparison runs `uv run --locked` in it too (#214); only the virtualenv goes."""
+    monkeypatch.setenv("UV_RESOLUTION", "lowest-direct")
+    monkeypatch.setenv("VIRTUAL_ENV", "/caller/.venv")
+    env = protocol.subproject_env(protocol.ROOT)
+    assert env["UV_RESOLUTION"] == "lowest-direct"
+    assert "VIRTUAL_ENV" not in env

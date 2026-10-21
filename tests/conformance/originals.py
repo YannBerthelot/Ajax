@@ -18,9 +18,9 @@ from refcmp_protocol import subproject_env
 from tests.conformance import submaps
 
 REPO = pathlib.Path(__file__).parents[2]
-CPU = subproject_env(JAX_PLATFORMS="cpu", CUDA_VISIBLE_DEVICES="")
 KEPT = os.environ.get("AJAX_CONFORMANCE_RECORDS")
 TORCH_ENV = "benchmarks/reference/envs/torch"  # CPU-only PyTorch, gymnax, jax
+CPU = subproject_env(REPO / TORCH_ENV, JAX_PLATFORMS="cpu", CUDA_VISIBLE_DEVICES="")
 
 
 def recorded(

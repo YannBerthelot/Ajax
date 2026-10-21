@@ -140,11 +140,10 @@ jobs:
           key: ${{ steps.jax-cache.outputs.key }}
 
   # The agent-level learning checks, in their own job so adding probes does
-  # not lengthen the other jobs, split across runners by the per-node times
-  # of a full local run (each shard about 400 s there). Shards 1-3 run the
-  # memory probes by memory kind, 2 and 3 with named files; shard 4 names
-  # files; shard 5 runs everything else (and any new probe file), plus the
-  # memory probes' tests that name no memory kind.
+  # not lengthen the other jobs, in shards by recorded duration
+  # (tests/.durations). The probe families out of the pull-request gate
+  # (tests/probing/faults.py's OUT_OF_THE_GATE, whose fast tests catch every
+  # fault they list) are left out: the Slow tier workflow runs them daily.
   probing:
     name: Probing (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -153,11 +152,6 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5]
-    env:
-      MEMORY: tests/probing/test_memory.py
-      SHARD_2: tests/probing/test_world_models.py
-      SHARD_3: tests/probing/test_bookkeeping.py
-      SHARD_4: tests/probing/test_episode_ends.py tests/probing/test_extensions.py
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
@@ -166,17 +160,9 @@ jobs:
         with:
           job: probing-${{ matrix.shard }}
       - name: Run the shard
-        run: |
-          run() { uv run pytest "$@" -v --durations=30; }
-          case "${{ matrix.shard }}" in
-            1) run $MEMORY -k gru ;;
-            2) run $MEMORY -k mamba && run $SHARD_2 ;;
-            3) run $MEMORY -k "lstm or transformer" && run $SHARD_3 ;;
-            4) run $SHARD_4 ;;
-            5) run tests/probing \
-                 $(printf -- '--ignore=%s ' $MEMORY $SHARD_2 $SHARD_3 $SHARD_4) \
-               && run $MEMORY -k "not gru and not mamba and not lstm and not transformer" ;;
-          esac
+        run: >-
+          uv run pytest tests/probing --shard ${{ matrix.shard }}/5 -v --durations=30
+          --ignore=tests/probing/test_p4_split_run.py
       - name: Save the JAX compile cache
         if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
         continue-on-error: true

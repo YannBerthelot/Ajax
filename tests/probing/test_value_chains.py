@@ -35,13 +35,15 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "e24797ba284a"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "d9cbe2abb456"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
 # s0 (obs 0) -> s1 (obs 1) -> end; action a at s1 pays (0, 0.5, 1)[a]; gamma
 # 0.8, so Q(s0) = 0.8 max_a Q(s1, a). PQN runs at q_lambda 0: at its default
-# 0.65 the mean-bootstrap answer sits 0.14 away and no budget qualifies.
+# 0.65 the mean-bootstrap answer sits 0.14 away and no budget qualifies. Its
+# 16-step rollouts of 2-step episodes put one s0 row in 8 at step T - 2,
+# which reads step T - 1's terminal bootstrap, 0 (purejaxql's off-by-one).
 
 R3, G3 = (0.0, 0.5, 1.0), 0.8
 
@@ -64,6 +66,8 @@ Q_S1 = tuple(
     for a in range(3)
 )
 Q_S0_WRONG = {"mean bootstrap (D01)": G3 * 0.5, "no discount": 1.0}
+PJ0 = 1 - 2 / 16  # PQN's s0 rows away from step T - 2
+PJ0_WRONG = {k: v * PJ0 for k, v in Q_S0_WRONG.items()}
 GREEDY = Query("greedy action at s1", 2.0, {"readout one up": 0.0, "one down": 1.0})
 
 
@@ -97,12 +101,14 @@ CASES["p0a-DQN"] = Case(
 )
 CASES["p0a-PQN"] = Case(
     "p0a-PQN",
-    (*Q_S1, Query("max_a Q(s0, a)", G3, Q_S0_WRONG), GREEDY),
+    (*Q_S1, Query("max_a Q(s0, a)", G3 * PJ0, PJ0_WRONG), GREEDY),
     # PQN's own rate, not the preset's 1e-3: with RAdam no budget from 2500
     # to 40,000 qualified at 1e-3, the greedy Q(s0) jittering about 0.08 off.
-    _three_run("PQN", q_lambda=0.0, learning_rate=2.5e-4),
-    40_000,
-    (0.02, 0.092, 0.02, 0.055, 0.02),
+    # 16 envs: with 8 the share of s0 rows at step T - 2 per update spread
+    # the greedy Q(s0) 0.047 at any budget.
+    _three_run("PQN", q_lambda=0.0, learning_rate=2.5e-4, n_envs=16),
+    80_000,
+    (0.022, 0.085, 0.02, 0.067, 0.02),
     note="cert 32/32; reads the greedy Q(s0): the others drift, rarely explored",
 )
 CASES["p0a-PPO"] = Case(
@@ -123,13 +129,14 @@ def test_p0a_targets_are_the_max_bootstrap_fixed_point() -> None:
     """src's compute_q_lambda_targets gives Q(s0) = 0.8 with the max
     bootstrap and 0.4 with the mean at lambda 0 (0.787 and 0.647 at 0.65,
     where the decayed epsilon-greedy reward at s1, 0.975, weighs in); a
-    terminal step's target is its reward whatever follows."""
+    terminal step's target is its reward whatever follows. A third row
+    keeps s0 off step T - 2, which reads step T - 1's bootstrap."""
     for lam, right, wrong in ((0, 0.8, 0.4), (0.65, 0.787, 0.647)):
         for boot, want in ((1.0, right), (0.5, wrong)):
-            rows = ([0.0, 0.975], [boot, 123.0], [0.0, 1.0], [0.0, 0.0])
-            args = [jnp.array(x).reshape(2, 1, 1) for x in rows]
+            rows = ([0.0, 0.975, 0], [boot, 123.0, 7], [0, 1, 0], [0, 0, 0])
+            args = [jnp.array(x, jnp.float32).reshape(3, 1, 1) for x in rows]
             t = compute_q_lambda_targets(*args, G3, lam).reshape(-1)
-            np.testing.assert_allclose(t, [want, 0.975], atol=1e-6)
+            np.testing.assert_allclose(t[:2], [want, 0.975], atol=1e-6)
 
 
 # --- Q11: APG through a differentiable transition ---------------------------
@@ -238,8 +245,9 @@ def test_q11_chain_passes_its_gradient_only_once_enabled() -> None:
 # --- Q9: an estimator's fingerprint under aliasing --------------------------
 # Four hidden steps share observation 1.0 and pay (1, 1, -1, 0), the 4th
 # terminal; gamma 0.9, lambda 0.3 (neither default). The value there is the
-# fixed point of the agent's own estimator: 0.5378 for the lambda-return. PQN
-# acts on Discrete(1), so max_a Q is the regressed value itself.
+# fixed point of the agent's own estimator: 0.5378 for the lambda-return,
+# 0.4790 for purejaxql's (PQN's: each rollout's step T - 2 reads step T - 1's
+# bootstrap). PQN acts on Discrete(1), so max_a Q is the regressed value.
 
 R9, G9, L9 = (1.0, 1.0, -1.0, 0.0), 0.9, 0.3
 
@@ -274,12 +282,14 @@ def forward_view(c: float, gamma: float, lam: float) -> np.ndarray:
     return out
 
 
-Q9_COMMON = {
-    "gamma and lambda swapped": alias_value(16, L9, G9),
-    "TD(0)": alias_value(16, lam=0.0),
-    "Monte Carlo": alias_value(16, lam=1.0),
-    "harness gamma 0.62": alias_value(16, gamma=0.62),
-}
+def q9_common(**rule: Any) -> dict[str, float]:
+    kw: dict[str, dict] = {"gamma and lambda swapped": {"gamma": L9, "lam": G9}}
+    kw |= {"TD(0)": {"lam": 0.0}}
+    kw |= {"Monte Carlo": {"lam": 1.0}, "harness gamma 0.62": {"gamma": 0.62}}
+    return {k: alias_value(16, **v, **rule) for k, v in kw.items()}
+
+
+PJ = {"off_by_one": True}  # purejaxql's estimator, PQN's
 Q9_WRONG = {
     # P03 (gamma off the GAE trace, i.e. lambda / gamma) reads 0.5095, too
     # close to gate; the src target test catches it.
@@ -289,9 +299,10 @@ Q9_WRONG = {
         "V-trace port wired": alias_value(32, vtrace=True),
     },
     "PQN": {
-        "PQN lambda not forwarded (default 0.65)": alias_value(16, lam=0.65),
-        "Q01: lambda and 1 - lambda swapped": alias_value(16, lam=1.0 - L9),
-        "Q02: Q(lambda) scan runs forward": alias_value(16, forward=True),
+        "PQN lambda not forwarded (default 0.65)": alias_value(16, lam=0.65, **PJ),
+        "Q01: lambda and 1 - lambda swapped": alias_value(16, lam=1.0 - L9, **PJ),
+        "Q02: Q(lambda) scan runs forward": alias_value(16, forward=True, **PJ),
+        "the lambda-return (Ajax's before purejaxql's)": alias_value(16),
     },
 }
 # PPO without gradient clipping: with the default 0.5 the flat path's
@@ -322,7 +333,9 @@ def _q9_agent(agent: str, kw: dict) -> Callable:
 
 
 for cell, (agent, budget, tol, kw) in Q9_CELLS.items():
-    query = Query("V", alias_value(16), Q9_COMMON | Q9_WRONG[agent])
+    rule = PJ if agent == "PQN" else {}
+    truth, common = alias_value(16, **rule), q9_common(**rule)
+    query = Query("V", truth, common | Q9_WRONG[agent])
     reads = runs.readings(_q9_agent(agent, kw), _q9_read)
     CASES[f"q9-{cell}"] = Case(f"q9-{cell}", (query,), reads, budget, (tol,))
 
@@ -339,18 +352,22 @@ def test_q9_oracle_is_the_forward_view_fixed_point() -> None:
 
 @pytest.mark.parametrize("n_steps", [32, 16])
 def test_q9_target_functions_return_the_lambda_return(n_steps: int) -> None:
-    """PQN's compute_q_lambda_targets and PPO's _compute_gae (advantages +
-    values), on the probe's rollout with V = 0.5378, return each step's
-    forward-view lambda-return: a wrong recursion (Q01, Q02, P03, a forward
-    GAE scan) fails here even where the trained cells cannot see it."""
+    """PPO's _compute_gae (advantages + values) and PQN's
+    compute_q_lambda_targets, on the probe's rollout with V = 0.5378, return
+    each step's forward-view lambda-return, PQN's but in its last episode
+    (off_by_one): a wrong recursion (Q01, Q02, P03, a forward GAE scan)
+    fails here even where the trained cells cannot see it."""
     c, rows, shape = alias_value(16), np.array(_alias_rows(n_steps)), (n_steps, 1, 1)
     r, term = (jnp.asarray(rows[:, i], jnp.float32).reshape(shape) for i in (1, 4))
     v, zeros = jnp.full(shape, c), jnp.zeros(shape)
     want = np.tile(forward_view(c, G9, L9), n_steps // 4)
-    q = compute_q_lambda_targets(r, v, term, zeros, G9, L9)
     g = _compute_gae(r, v, v, term, zeros, G9, L9)[1]
-    for targets in (q, g):
-        np.testing.assert_allclose(np.asarray(targets).reshape(-1), want, atol=1e-5)
+    np.testing.assert_allclose(np.asarray(g).reshape(-1), want, atol=1e-5)
+    q = compute_q_lambda_targets(r, v, term, zeros, G9, L9)
+    ro, pj = oracles.stack([(1.0, _alias_rows(n_steps))]), oracles.Rule(off_by_one=True)
+    pj = oracles.targets(ro, np.full(1, c), G9, L9, pj)[0]
+    np.testing.assert_allclose(np.asarray(q).reshape(-1), pj, atol=1e-5)
+    np.testing.assert_allclose(pj[:-4], want[:-4], atol=1e-9)
 
 
 @pytest.mark.parametrize("cell", list(Q9_CELLS))
@@ -473,9 +490,15 @@ def _pilot_read(agent: str, queries: tuple[Query, ...]) -> Callable:
     return lambda run: R.per_seed(read, R.nets(run.state))
 
 
+# PQN's 16-step rollouts of 2-step episodes put one s0 row in 8 at step
+# T - 2, whose next value is step T - 1's terminal bootstrap, 0: its target
+# is gamma lambda r, not gamma r (lambda 0.65; purejaxql's off-by-one).
+PJ_V0 = G * (1 - (1 - 0.65) * 2 / 16)
 for key, (steps, tols) in PILOT_CAL.items():
     agent, probe = key.split("-")
     env_cls, qs = PILOT["discrete" if agent in ("DQN", "PQN") else "continuous"][probe]
+    if key == "PQN-discounting":
+        qs = (Query("V(0)", PJ_V0, {k: v * PJ_V0 / G for k, v in _V0.items()}), qs[1])
     build = functools.partial(agents.make, agent, *envs.package(env_cls))
     reads = runs.readings(build, _pilot_read(agent, qs))
     CASES[f"pilot-{key}"] = Case(f"pilot-{key}", qs, reads, steps, tols)

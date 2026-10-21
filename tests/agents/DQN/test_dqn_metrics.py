@@ -65,31 +65,39 @@ def test_a_q_step_reports_the_td_error_size_and_gradient_norm() -> None:
 
 
 @pytest.mark.parametrize(
-    "agent",
+    "agent, lag",
     [
-        lambda: DQN(
-            "CartPole-v1",
-            n_envs=2,
-            architecture=NET,
-            learning_starts=16,
-            batch_size=8,
-            buffer_size=256,
-            epsilon_decay_frac=0.5,
+        (
+            lambda: DQN(
+                "CartPole-v1",
+                n_envs=2,
+                architecture=NET,
+                learning_starts=16,
+                batch_size=8,
+                buffer_size=256,
+                epsilon_decay_frac=0.5,
+            ),
+            0,
         ),
-        lambda: PQN(
-            "CartPole-v1",
-            n_envs=2,
-            architecture=NET,
-            n_steps=8,
-            n_epochs=2,
-            num_minibatches=2,
-            epsilon_decay_frac=0.5,
+        (
+            lambda: PQN(
+                "CartPole-v1",
+                n_envs=2,
+                architecture=NET,
+                n_steps=8,
+                n_epochs=2,
+                num_minibatches=2,
+                epsilon_decay_frac=0.5,
+            ),
+            16,
         ),
     ],
     ids=["DQN", "PQN"],
 )
-def test_the_logged_epsilon_is_the_schedules_at_each_evaluation(agent) -> None:
-    """Epsilon falls from 1 to 0.05 over the first half of 256 steps."""
+def test_the_logged_epsilon_is_the_schedules_at_each_evaluation(agent, lag) -> None:
+    """Epsilon falls from 1 to 0.05 over the first half of 256 steps; PQN
+    reads it once per update, at its rollout's start (``lag`` steps before
+    the log, purejaxql's reading)."""
     logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
     _, out = agent().train(
         seed=0, n_timesteps=256, num_episode_test=1, logging_config=logging
@@ -97,6 +105,7 @@ def test_the_logged_epsilon_is_the_schedules_at_each_evaluation(agent) -> None:
     timestep = np.asarray(out["timestep"]).reshape(-1)
     evaluated = timestep >= 0
     epsilon = np.asarray(out["policy/epsilon"]).reshape(-1)[evaluated]
-    expected = linear_epsilon(jnp.asarray(timestep[evaluated]), 256, 1.0, 0.05, 0.5)
+    start = jnp.asarray(timestep[evaluated] - lag)
+    expected = linear_epsilon(start, 256, 1.0, 0.05, 0.5)
     assert evaluated.sum() >= 4
     np.testing.assert_allclose(epsilon, expected, rtol=1e-6)

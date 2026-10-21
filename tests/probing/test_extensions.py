@@ -34,7 +34,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "dc881a003619"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "12771096b552"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -233,7 +233,10 @@ LAMBDA["PQN"] = _default(PQN, "q_lambda")
 
 def chain_v0(agent: str, v1: float, shift: float) -> float:
     """V(0) when V(1) = v1 and ``shift`` lands after the agent's estimator,
-    whose lambda-return mixes V(1) with the unshifted Monte Carlo return."""
+    whose lambda-return mixes V(1) with the unshifted Monte Carlo return;
+    PQN's rollouts put one s0 row in 8 at step T - 2, whose next value is
+    step T - 1's terminal bootstrap, 0 (purejaxql's off-by-one)."""
+    v1 *= (1.0 - 2 / 16) if agent == "PQN" else 1.0
     return shift + GAMMA * ((1.0 - LAMBDA[agent]) * v1 + LAMBDA[agent])
 
 
@@ -269,7 +272,7 @@ P3_CAL = {
     "E1-SAC": ("A", 2500, ()),
     "E1-PPO": ("A", 2500, (0.02, 0.02)),
     "E1-DQN": ("A", 2500, (0.079, 0.098)),  # 625 and 1250 do not qualify
-    "E1-PQN": ("A", 10_000, (0.02, 0.084)),  # RAdam: 2500 and 5000 do not qualify
+    "E1-PQN": ("A", 10_000, (0.02, 0.02)),  # cert 31/32; RAdam: 5000 fails
     "E9-SAC": ("F", 2500, ()),
     "E9-PPO": ("F", 2500, (0.02, 0.02)),
     "E9-DQN": ("F", 625, (0.087, 0.031)),

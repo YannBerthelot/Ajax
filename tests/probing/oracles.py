@@ -22,7 +22,8 @@ class Rule:
     ``rollout_end``: the last bootstrap "terminal" or "zero"; ``cut``: an end
     stops the trace; ``peng``: it corrects the bootstrap (Q(lambda)), not the
     next obs (GAE); ``anchor``: subtracted by every bootstrap (ASAC), masked
-    with it unless ``shift_outside``."""
+    with it unless ``shift_outside``; ``off_by_one``: step T - 2 reads step
+    T - 1's bootstrap (purejaxql's PQN)."""
 
     mask: str = "terminated"
     next: str = "final"
@@ -34,6 +35,7 @@ class Rule:
     peng: bool = False
     anchor: int | None = None
     shift_outside: bool = False
+    off_by_one: bool = False
 
 
 RIGHT = Rule()
@@ -55,11 +57,13 @@ def targets(ro: dict, v: Any, gamma: float, lam: float, rule: Rule) -> np.ndarra
     inside, outside = (0.0, shift) if rule.shift_outside else (shift, 0.0)
     out, u = np.zeros(term.shape), None
     for t in range(term.shape[1]) if rule.forward else range(term.shape[1] - 1, -1, -1):
-        boot, trace = v[nxt[:, t]], np.zeros(())
+        slip = rule.off_by_one and t == term.shape[1] - 2
+        own = np.where(masked[:, -1], 0.0, v[nxt[:, -1]]) if slip else v[nxt[:, t]]
+        boot, trace = own, np.zeros(())
         if u is not None:  # the trace goes on from step u
             go = ~done[:, t] if rule.cut else True
             boot = np.where(go, out[:, u], boot) if rule.vtrace else boot
-            corrected = v[nxt[:, t]] if rule.peng else v[ro["obs"][:, u]]
+            corrected = own if rule.peng or slip else v[ro["obs"][:, u]]
             trace = np.where(go, out[:, u] - corrected, 0.0)
         boot = np.where(masked[:, t], 0.0, boot - inside) - outside
         out[:, t] = ro["reward"][:, t] + gamma * boot + gamma * lam * trace

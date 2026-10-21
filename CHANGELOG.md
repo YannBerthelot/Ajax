@@ -24,6 +24,11 @@ PyPI as `ajax-rl`.
   does (`gauthamvasan/avg`): the policy's standard deviation is
   `exp(out / 2)`, its clip bounding the log-variance. Runs start with a
   different spread and learn otherwise.
+- **PQN** now does what purejaxql does: a time limit ends an episode in
+  its returns (it bootstrapped there), epsilon is read once per update
+  instead of at every step, and the rollout's second-to-last step reads
+  the last step's bootstrap, as purejaxql's backward pass does. Its
+  reproduction comparisons become version 2.
 - `NetworkConfig.squash_log_det_eps` sets the guard inside the `tanh`
   log-det, `log(1 - tanh(u)^2 + eps)`, for an agent whose reference uses
   one; 0, the exact log-det, by default. `NetworkConfig.log_variance_head`

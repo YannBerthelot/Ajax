@@ -2,7 +2,7 @@
 extensions, evaluation / logging and the termination guard.
 
 Module-scoped runs train once at a tiny size and are asserted many ways
-(``docs/world_models/DESIGN.md`` §10, "Agent"): gymnax Pendulum-v1 (T = 200,
+(``docs/world_models/DESIGN.md`` §10, "Agent"): gymnax Pendulum-v1 (episodes cut to T = 20,
 torque bounds [-2, 2] mapped from the agent's [-1, 1]) as a first run, its
 resumption from a checkpoint by a new agent (the new-process flow of
 ``ajax.checkpoint``) and an uninterrupted run of the same total length;
@@ -17,6 +17,7 @@ import inspect
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+import gymnax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -42,16 +43,20 @@ from .toy_envs import ConstantRewardEnv, TerminatingEnv
 TINY = TINY_AGENT
 SEEDS = [0, 1]
 N_ENVS = 2
-# Pendulum: T = 200. S = 400 puts the seed tick on per-env step 200 (the
-# first step of the second episode), so the first run (260 steps per env)
-# holds the burst and 59 regular ticks; its ring holds the 2 rounds of its
-# 520 steps. The resumed run (350 more steps per env) completes a third
-# round, which only a ring sized for the whole run keeps.
-PENDULUM_S, FIRST, RESUMED = 400, 2 * 260, 2 * 350
+# Pendulum with episodes cut to T = 20 agent steps, so that the longest run
+# (FIRST + RESUMED) takes 120 updates, under the fast tier's line of 128.
+# S = 40 puts the seed tick on per-env step 20 (the first step of the second
+# episode), so the first run (26 steps per env) holds the burst and 5
+# regular ticks; its ring holds the 2 rounds of its 52 steps. The resumed run
+# (35 more steps per env) completes a third round, which only a ring sized
+# for the whole run keeps.
+PENDULUM_T = 20
+PENDULUM_PARAMS = gymnax.make("Pendulum-v1")[1].replace(max_steps_in_episode=PENDULUM_T)
+PENDULUM_S, FIRST, RESUMED = 40, 2 * 26, 2 * 35
 # A continuation short enough that the rounding of two separately compiled
 # programs has not grown (see the resume test): 10 steps per env.
 SHORT = 2 * 10
-SEED_STEP = 200  # Schedule.seed_step: max(400 // 2, T)
+SEED_STEP = 20  # Schedule.seed_step: max(40 // 2, T)
 
 
 @dataclass(frozen=True)
@@ -101,6 +106,7 @@ def _scheduled_updates(schedule: Schedule, n_ticks: int) -> int:
 def _pendulum_agent(**kwargs):
     return TDMPC2(
         "Pendulum-v1",
+        env_params=PENDULUM_PARAMS,
         n_envs=N_ENVS,
         seed_steps=PENDULUM_S,
         extensions=[CounterExt()],
@@ -145,7 +151,7 @@ def pendulum(tmp_path_factory):
     full_short, _ = _pendulum_agent().train(
         seed=SEEDS, n_timesteps=FIRST + SHORT, num_episode_test=2
     )
-    schedule = Schedule(n_envs=N_ENVS, episode_length=200, seed_steps=PENDULUM_S)
+    schedule = Schedule(n_envs=N_ENVS, episode_length=PENDULUM_T, seed_steps=PENDULUM_S)
     return SimpleNamespace(
         agent=agent,
         resumer=resumer,
@@ -377,8 +383,8 @@ def test_smoke_outputs_are_finite_and_shaped_per_seed(pendulum):
     for tree in (state.world_model_state, state.actor_state, state.update_metrics):
         for leaf in jax.tree.leaves(tree):
             assert np.all(np.isfinite(leaf))
-    # The ring: R = ceil(520 / (200 * 2)) + 1 = 3 rounds of 2 episodes.
-    assert state.buffer_state.obs.shape == (len(SEEDS), 3 * N_ENVS, 201, 3)
+    # The ring: R = ceil(52 / (20 * 2)) + 1 = 3 rounds of 2 episodes.
+    assert state.buffer_state.obs.shape == (len(SEEDS), 3 * N_ENVS, PENDULUM_T + 1, 3)
     assert pendulum.first_capacity == FIRST
     cs = state.collector_state
     np.testing.assert_array_equal(cs.timestep, FIRST)
@@ -408,7 +414,7 @@ def test_adam_steps_equal_the_scheduled_updates(pendulum):
     state, schedule = pendulum.first, pendulum.schedule
     expected = _scheduled_updates(schedule, schedule.num_ticks(FIRST))
     # The burst of S at the seed tick, then n_envs per stepping tick.
-    assert expected == PENDULUM_S + N_ENVS * (260 - (SEED_STEP + 1))
+    assert expected == PENDULUM_S + N_ENVS * (26 - (SEED_STEP + 1))
     for count in (
         state.n_updates,
         state.world_model_state.step,
@@ -465,7 +471,7 @@ def test_a_new_agent_resumes_a_checkpoint_as_the_uninterrupted_run(pendulum):
     )
     # Every call sizes the ring for the run so far: the skeleton's is the
     # smallest (R = 2), the resumed and the uninterrupted runs' hold
-    # ceil(1220 / 400) + 1 = 5 rounds, of which 3 are complete.
+    # ceil(122 / 40) + 1 = 5 rounds, of which 3 are complete.
     assert pendulum.skeleton_slots == 2 * N_ENVS
     assert pendulum.resumer.replay_capacity == FIRST + RESUMED
     assert pendulum.full_agent.replay_capacity == FIRST + RESUMED
@@ -475,7 +481,7 @@ def test_a_new_agent_resumes_a_checkpoint_as_the_uninterrupted_run(pendulum):
     # ticks, random streams and replayed episodes, to float32 rounding. The
     # two programs are compiled separately and XLA need not round them alike
     # (under JAX 0.11 they differ by 7e-9 after one tick); training amplifies
-    # that (5e-3 in the parameters after RESUMED steps), so the values are
+    # that (to 5e-3 in the parameters over 700 updates), so the values are
     # compared after a short continuation. A different stream or episode
     # shows there at once.
     short, whole = pendulum.resumed_short, pendulum.full_short
@@ -505,8 +511,9 @@ def test_evaluation_runs_the_planner_for_whole_episodes(pendulum):
     )
     key = jax.random.PRNGKey(0)
     out = evaluate(state, key)
-    assert float(out["Eval/mean episodic length"]) == 200
-    assert -2000 < float(out["Eval/episodic mean reward"]) < 0
+    assert float(out["Eval/mean episodic length"]) == PENDULUM_T
+    # A step costs at most pi^2 + 0.1 * 8^2 + 0.001 * 2^2 < 17.
+    assert -17 * PENDULUM_T < float(out["Eval/episodic mean reward"]) < 0
     # Deterministic per state and key; another key (the next evaluation's:
     # tests/logging/test_maybe_eval_and_log.py) starts other episodes.
     again = evaluate(state, key)

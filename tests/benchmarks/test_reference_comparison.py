@@ -96,7 +96,8 @@ def test_gymnax_vec_env_flags_time_limits_and_keeps_final_observations():
 
 
 def test_ajax_runs_return_one_curve_per_seed():
-    curve = refcmp_ajax.run(COMPARISONS["DQN"], "matched", [0, 1], 2_000, 1_000)
+    # Past the matched DQN's 1,000-step warm-up: 101 updates, 2 evaluations.
+    curve = refcmp_ajax.run(COMPARISONS["DQN"], "matched", [0, 1], 1_100, 550)
     assert np.asarray(curve).shape == (2, 2)
     # APG is scored on its final controller only, by the shared evaluator.
     curve = refcmp_ajax.run(COMPARISONS["APG"], "matched", [0], 2 * 64 * 32)

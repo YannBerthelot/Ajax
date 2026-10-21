@@ -556,8 +556,8 @@ def test_an_episodic_run_takes_its_updates_per_step():
         updates_per_step=2.0,
         **{**CHAIN, "seed_steps": 20},
     )
-    state, _ = agent.train(seed=0, n_timesteps=120, num_episode_test=1)
-    ticks = np.arange(60)
+    state, _ = agent.train(seed=0, n_timesteps=80, num_episode_test=1)
+    ticks = np.arange(40)
     stepping = (ticks > 10) & (ticks % 4 != 3)
     expected = 20 + 4 * int(stepping.sum())
     for count in (state.n_updates, state.world_model_state.step):

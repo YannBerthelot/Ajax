@@ -3,7 +3,7 @@
 Everything under tests/probing trains and is the slow tier: its tests are
 marked slow here, except the harness's own checks (test_framework.py). A test
 elsewhere is fast unless marked slow by hand (the breadth rows of a fast
-contract). A fast test trains nothing: the guard reads the gradient updates
+contract). A fast test trains nothing: the guard reads the gradient steps
 every train program a test runs has applied, off the states it returns, and
 times the test; the session's summary names the fast tests past the budgets.
 It only reports for now; the switch to the two tiers makes it fail them.
@@ -20,8 +20,10 @@ from typing import Any
 import numpy as np
 import pytest
 
-#: Gradient updates a fast test may apply (a split run's 2 + 2).
-MAX_UPDATES = int(os.environ.get("AJAX_FAST_MAX_UPDATES", "4"))
+#: Gradient steps a fast test may take (owner, 2026-10-21): above it sat the
+#: trainings (a PID policy learned, whole-episode logs, the world models'
+#: smoke runs); below it, the contract tests' tiny runs.
+MAX_UPDATES = int(os.environ.get("AJAX_FAST_MAX_UPDATES", "128"))
 #: Seconds a fast test may take, setup to teardown, on CI's runners.
 MAX_SECONDS = float(os.environ.get("AJAX_FAST_MAX_SECONDS", "30"))
 _START = pytest.StashKey[float]()

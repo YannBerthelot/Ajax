@@ -955,6 +955,17 @@ _GOLDEN |= {
     "TD3-mcc": {"actor": 17.490346908569336, "critic": 28.536087036132812},
 }
 
+# Re-recorded on macOS ARM CPU once REDQ's critics read the env's units, as
+# its authors' code's (Pendulum's torque in [-2, 2]). Relative shifts (actor,
+# critic, alpha): -2.4e-04, +1.0e-02, -2.1e-06.
+_GOLDEN |= {
+    "REDQ": {
+        "actor": 10.5582275390625,
+        "critic": 39.56052017211914,
+        "alpha": 0.9724466800689697,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

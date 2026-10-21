@@ -7,6 +7,7 @@ from ajax.agents.ASAC import train_ASAC
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.SAC import core
 from ajax.networks.networks import get_initialized_actor_critic
+from tests.environments.identity_env import IdentityEnv
 
 
 @pytest.mark.parametrize(
@@ -158,3 +159,34 @@ def test_recurrent_asac_keeps_its_previous_initialisation():
     np.testing.assert_allclose(mean.T @ mean, 1e-4 * np.eye(1), atol=1e-8)
     np.testing.assert_array_equal(actor["log_std"]["kernel"], 0.0)
     np.testing.assert_array_equal(actor["log_std"]["bias"], -1.0)
+
+
+def test_a_terminated_rows_reward_is_charged_the_running_penalty(monkeypatch):
+    """ASAC's critics learn r - p d: each replayed row's reward less the
+    termination penalty p (its running average, updated on the batch first)
+    where the row terminated (Adamczyk et al., 2025). The identity task
+    terminates some episodes; p_0 = 1 and tau_theta = 1 make p the batch's
+    mean reward on the rows that go on."""
+    seen = []
+    update = train_ASAC.update_value_functions
+
+    def spy(agent_state, transition, rewards, *args, **kwargs):
+        jax.debug.callback(
+            lambda *v: seen.append(tuple(map(np.asarray, v))),
+            rewards,
+            transition.reward,
+            transition.terminated,
+            agent_state.episode_termination_penalty,
+        )
+        return update(agent_state, transition, rewards, *args, **kwargs)
+
+    monkeypatch.setattr(train_ASAC, "update_value_functions", spy)
+    env = IdentityEnv()
+    kw = {"learning_starts": 16, "batch_size": 16, "p_0": 1.0, "tau_theta": 1.0}
+    ASAC(env, env_params=env.default_params, n_envs=2, **kw).train(
+        seed=0, n_timesteps=48
+    )
+    jax.effects_barrier()
+    assert any(t.any() and p != 0 for _, _, t, p in seen), "nothing was charged"
+    for charged, reward, terminated, penalty in seen:
+        np.testing.assert_allclose(charged, reward - penalty * terminated, rtol=1e-6)

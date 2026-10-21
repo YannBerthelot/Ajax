@@ -37,6 +37,7 @@ OUT_OF_THE_GATE = frozenset(
         "world_models",
         "bookkeeping",
         "extensions",
+        "episode_ends",
     }
 )
 COPIED = ("src", "tests", "benchmarks", "docs", "pyproject.toml")

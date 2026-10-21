@@ -9,30 +9,33 @@ CPU_ENV := CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu JAX_PLATFORM_NAME=cpu
 # level 0 compiles them faster (as ci.yml's test shards do).
 FAST_XLA := XLA_FLAGS="--xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true"
 
-.PHONY: ci ci-precommit ci-test ci-slow ci-probe ci-conformance docs docs-serve test-cpu probe-cpu durations help
+.PHONY: ci ci-all ci-precommit ci-test ci-slow ci-probe ci-conformance docs docs-serve test-cpu probe-cpu durations help
 
 help:  ## Show this help message
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 # ---------------------------------------------------------------------------
-# Canonical local-CI -- mirrors .github/workflows/ci.yml: the same commands,
-# CPU environment and markers. CI splits ci-test across three runners and
-# only adds reporting flags (--durations, -v). Use these instead of ad-hoc
+# Canonical local-CI -- mirrors .github/workflows/ci.yml (the pull-request
+# gate, `ci`) and slow.yml (the slow tier, `ci-slow`): the same commands, CPU
+# environment and markers. CI splits ci-test across three runners and only
+# adds reporting flags (--durations, -v). Use these instead of ad-hoc
 # commands so the local checks match what merges.
 # ---------------------------------------------------------------------------
 
-ci: ci-precommit ci-test ci-slow ci-probe ci-conformance docs  ## Full local CI: pre-commit, tests not marked slow + coverage, slow tests, probing, conformance, docs
+ci: ci-precommit ci-test ci-conformance docs  ## The pull-request gate: pre-commit, the fast tier + coverage, conformance, docs
+
+ci-all: ci ci-slow  ## The gate and the slow tier
 
 ci-precommit:  ## pre-commit on all files (ruff lint + ruff-format + mypy)
 	uv run pre-commit run --all-files
 
-ci-test:  ## Tests not marked slow (deselects probing, conformance) + coverage >= 70, one worker per core
+ci-test:  ## The fast tier: tests not marked slow (conformance aside) + coverage >= 90, one worker per core
 	uv run coverage erase
-	$(CPU_ENV) $(FAST_XLA) uv run pytest -n auto --cov --cov-report= --cov-fail-under=0 -m "not slow" --ignore=tests/probing --ignore=tests/conformance
-	uv run coverage report --fail-under=70
+	$(CPU_ENV) $(FAST_XLA) uv run pytest -n auto --cov --cov-report= --cov-fail-under=0 -m "not slow" --ignore=tests/conformance
+	uv run coverage report --fail-under=90
 
-ci-slow:  ## Tests marked slow (deselects probing, conformance), without coverage
-	$(CPU_ENV) uv run pytest -m slow --ignore=tests/probing --ignore=tests/conformance
+ci-slow:  ## The slow tier: every test that trains (tests/probing and the tests marked slow), without coverage
+	$(CPU_ENV) uv run pytest -m slow
 
 ci-probe:  ## Cross-agent probing tests (the known-answer probes)
 	$(CPU_ENV) uv run pytest tests/probing

@@ -4,6 +4,13 @@ Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged `vX.Y.Z` on main and published to
 PyPI as `ajax-rl`.
 
+## Unreleased
+
+- **Development**: pull requests run the fast tier alone: the tests not
+  marked slow, each under 128 gradient steps, and the conformance checks.
+  The probes and every other training run in the slow tier, daily on main,
+  on a labelled pull request and before a release.
+
 ## 0.4.0
 
 The first release since 0.3.1 (April 2025), which held SAC alone. Ajax has

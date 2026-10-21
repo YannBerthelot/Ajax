@@ -9,7 +9,7 @@ CPU_ENV := CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu JAX_PLATFORM_NAME=cpu
 # level 0 compiles them faster (as ci.yml's test shards do).
 FAST_XLA := XLA_FLAGS="--xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true"
 
-.PHONY: ci ci-precommit ci-test ci-slow ci-probe ci-conformance docs docs-serve test-cpu probe-cpu help
+.PHONY: ci ci-precommit ci-test ci-slow ci-probe ci-conformance docs docs-serve test-cpu probe-cpu durations help
 
 help:  ## Show this help message
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -39,6 +39,9 @@ ci-probe:  ## Cross-agent probing tests (the known-answer probes)
 
 ci-conformance:  ## Each agent's training step against its original implementation
 	$(CPU_ENV) uv run pytest tests/conformance
+
+durations:  ## Refresh tests/.durations (pytest --shard) from junit reports: make durations REPORTS="a.xml b.xml"
+	uv run python .github/scripts/durations.py $(REPORTS)
 
 docs:  ## Build the documentation site into site/, strictly, as CI does
 	uv run --group docs mkdocs build --strict

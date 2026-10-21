@@ -26,6 +26,10 @@ the minor version. Each release is tagged `vX.Y.Z` on main.
 - **Deprecated**: brax and playground in the core install. 0.5.0 removes
   them, so a project that uses their environments should ask for
   `ajax[playground]` or `ajax[brax]` now.
+- **Development**: the tests come in two tiers (CONTRIBUTING.md, Testing).
+  The slow tier, everything that trains, also runs daily on main, on a pull
+  request labelled `run-slow-tier` and before each release; tags come only
+  from the Release workflow, once the slow tier passed on main's head.
 
 ## 0.4.0
 

@@ -1012,6 +1012,15 @@ _GOLDEN |= {
         "alpha": 0.9881011843681335,
     },
 }
+# Re-recorded on macOS ARM CPU once AVG read its log-std head as a
+# log-variance, as its authors' code: actor +0.97%, critic -2.7%.
+_GOLDEN |= {
+    "AVG": {
+        "actor": 5.612788677215576,
+        "critic": 18.186851501464844,
+        "alpha": 0.07000000029802322,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

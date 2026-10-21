@@ -68,6 +68,13 @@ def record(scratch: str) -> str:
     return data
 
 
+def failed_nodes(stdout: str) -> list[str]:
+    """The tests pytest's short summary names: failed, or errored in setup (a
+    fault that breaks a fixture is caught too)."""
+    lines = stdout.splitlines()
+    return [ln.split()[1] for ln in lines if ln.startswith(("FAILED ", "ERROR "))]
+
+
 def catch(fault: faults.Fault, nodes: list[str], scratch: str) -> dict:
     root = os.path.join(scratch, fault.id)
     shutil.rmtree(root, ignore_errors=True)
@@ -78,9 +85,7 @@ def catch(fault: faults.Fault, nodes: list[str], scratch: str) -> dict:
     cmd = [sys.executable, "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider", *nodes]
     run = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
     shutil.rmtree(root, ignore_errors=True)
-    failed = [
-        ln.split()[1] for ln in run.stdout.splitlines() if ln.startswith("FAILED ")
-    ]
+    failed = failed_nodes(run.stdout)
     first_fail = failed[0] if failed else None
     return {"caught": run.returncode not in (0, 5), "first_fail": first_fail}
 

@@ -91,10 +91,37 @@ def pytest_configure(config: pytest.Config) -> None:
     TrainLoop.train = _counting_loop(TrainLoop.train)  # type: ignore[method-assign]
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--shard",
+        default=None,
+        help="I/N: run shard I of N, split by recorded durations (tests/shards.py)",
+    )
+
+
+def pytest_itemcollected(item: pytest.Item) -> None:
+    if is_slow_tier(item.path.as_posix()):
+        item.add_marker(pytest.mark.slow)
+
+
+@pytest.hookimpl(trylast=True)  # after -m and -k have deselected
 def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
-    for item in items:
-        if is_slow_tier(item.path.as_posix()):
-            item.add_marker(pytest.mark.slow)
+    option = config.getoption("--shard")
+    if option is None:
+        return
+    index, n = (int(x) for x in option.split("/"))
+    if not 1 <= index <= n:
+        raise pytest.UsageError(f"--shard {option}: need 1 <= I <= N")
+    from tests import shards
+
+    mine = [
+        s == index - 1
+        for s in shards.assign([i.nodeid for i in items], shards.load(), n)
+    ]
+    config.hook.pytest_deselected(
+        items=[i for i, keep in zip(items, mine, strict=False) if not keep]
+    )
+    items[:] = [i for i, keep in zip(items, mine, strict=False) if keep]
 
 
 @pytest.hookimpl(hookwrapper=True)

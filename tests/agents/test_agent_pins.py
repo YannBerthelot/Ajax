@@ -1021,6 +1021,13 @@ _GOLDEN |= {
         "alpha": 0.07000000029802322,
     },
 }
+# Re-recorded on macOS ARM CPU once PQN computed purejaxql's returns (time
+# limits as ends, its off-by-one) and read epsilon once per update: actor
+# +0.0015% (PQN), +0.0018% (PQN-nudge), the nudge unchanged.
+_GOLDEN |= {
+    "PQN": {"actor": 34.022178649902344},
+    "PQN-nudge": {"actor": 34.02018737792969, "nudge": 0.33566388487815857},
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

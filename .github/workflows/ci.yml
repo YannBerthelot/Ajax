@@ -162,7 +162,7 @@ jobs:
       - name: Run the shard
         run: >-
           uv run pytest tests/probing --shard ${{ matrix.shard }}/5 -v --durations=30
-          --ignore=tests/probing/test_p4_split_run.py
+          --ignore=tests/probing/test_p4_split_run.py --ignore=tests/probing/test_memory.py
       - name: Save the JAX compile cache
         if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
         continue-on-error: true

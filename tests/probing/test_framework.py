@@ -50,9 +50,9 @@ from . import readouts as R
 # Families leave the gate with fast catches: faults.py + 4, test_framework
 # + 17, this note + 3; the memory family's two uncatalogued faults: faults/
 # + 2, this note + 1; the families out of the gate, one a line once they
-# outgrow one: faults.py + 12, this note + 2.
+# outgrow one: faults.py + 13, this note + 2.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 116, "faults/": 236}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 117, "faults/": 236}
 CAPS |= {"test_framework.py": 252, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1045, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 791, "test_p4_split_run.py": 360}

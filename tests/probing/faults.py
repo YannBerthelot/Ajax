@@ -28,7 +28,15 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 #: The families out of the pull-request gate (the two-tier test plan): their
 #: probe files run in the slow tier alone, which ci.yml's probing job ignores.
 OUT_OF_THE_GATE = frozenset(
-    {"p4_split_run", "memory", "action_box", "imitation", "offline", "world_models"}
+    {
+        "p4_split_run",
+        "memory",
+        "action_box",
+        "imitation",
+        "offline",
+        "world_models",
+        "bookkeeping",
+    }
 )
 COPIED = ("src", "tests", "benchmarks", "docs", "pyproject.toml")
 

@@ -44,10 +44,11 @@ describes the result. What a user of 0.3.1 meets:
 - **Development**: dependency floors without caps, tested weekly at the
   newest and the oldest versions allowed; `uv.lock` refreshed monthly.
   Conformance checks (`tests/conformance`) compare one update of an agent
-  with its original implementation's, PQN and TD3 so far. The slow tier,
-  every test that trains, runs daily on main, on a pull request labelled
-  `run-slow-tier`, and before each release; tags come only from the
-  Release workflow.
+  with its original implementation's, PQN and TD3 so far. The tests come in
+  two tiers (CONTRIBUTING.md, Testing): the slow tier, every test that
+  trains, also runs daily on main, on a pull request labelled
+  `run-slow-tier` and before each release; tags come only from the Release
+  workflow, once the slow tier passed on main's head.
 
 ### Default changes
 

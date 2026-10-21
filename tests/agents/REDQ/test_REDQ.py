@@ -3,7 +3,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax.agents.REDQ import train_REDQ
 from ajax.agents.REDQ.REDQ import REDQ
+from ajax.agents.SAC import core
 from ajax.networks.networks import get_initialized_actor_critic
 
 NET = ("16", "relu")
@@ -38,6 +40,40 @@ def test_alpha_tracks_target_entropy(target_entropy_per_dim, expected_sign):
     log_alpha = float(jnp.asarray(state.alpha.params["log_alpha"]).ravel()[0])
     assert log_alpha != 0.0, "alpha never moved from alpha_init"
     assert jnp.sign(log_alpha) == expected_sign
+
+
+def test_the_first_update_reads_redqs_first_temperature(monkeypatch):
+    """REDQ's code reads alpha 0.2 until its first temperature step
+    (watchernyu/REDQ@7b5d1bf redq_sac.py:61, :80): the first update's critic
+    targets and actor loss read 0.2, the second's exp(log_alpha), and the
+    temperature steps the learned log_alpha from its start, 0. Its policy's
+    log-probability subtracts log(1 - tanh^2 + 1e-6) (core.py:232)."""
+    targets, actor = [], []
+    target_fn, loss_fn = train_REDQ.compute_redq_td_target, core.soft_policy_loss
+
+    def target_spy(*args):
+        jax.debug.callback(lambda a: targets.append(float(a)), args[7])
+        return target_fn(*args)
+
+    def loss_spy(params, actor_state, critic_state, obs, alpha, *rest, **kw):
+        jax.debug.callback(lambda a: actor.append(float(a)), alpha)
+        return loss_fn(params, actor_state, critic_state, obs, alpha, *rest, **kw)
+
+    monkeypatch.setattr(train_REDQ, "compute_redq_td_target", target_spy)
+    monkeypatch.setattr(core, "soft_policy_loss", loss_spy)
+    kw = {"actor_architecture": NET, "critic_architecture": NET, "num_critics": 2}
+    agent = REDQ("Pendulum-v1", num_critic_updates=2, learning_starts=4, **kw)
+    assert agent.network_args.squash_log_det_eps == 1e-6
+    state, _ = agent.train(seed=0, n_timesteps=6)
+    updates = len(actor)  # an actor step per update, after its two critic steps
+    assert updates >= 2 and len(targets) == 2 * updates
+    first, later = sorted(targets)[:2] + sorted(actor)[:1], sorted(targets)[2:]
+    np.testing.assert_allclose(first, 0.2, rtol=1e-6)
+    later = np.asarray(later + sorted(actor)[1:])
+    assert np.all(np.abs(later - 1.0) < 1e-3 * updates), later
+    # Adam's steps of 3e-4 from log_alpha 0, not from log(0.2).
+    log_alpha = float(jnp.ravel(state.alpha.params["log_alpha"])[0])
+    assert abs(log_alpha) <= 3e-4 * updates + 1e-6, log_alpha
 
 
 def test_adam_eps_is_the_references():

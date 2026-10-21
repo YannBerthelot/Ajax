@@ -1002,6 +1002,16 @@ _GOLDEN |= {
         "alpha": 0.19999998807907104,
     },
 }
+# Re-recorded on macOS ARM CPU once REDQ read 0.2 until its first temperature
+# step and the tanh log-det's 1e-6, as its authors' code: actor -0.005%,
+# critic -0.008%, alpha +0.0003%.
+_GOLDEN |= {
+    "REDQ": {
+        "actor": 10.615142822265625,
+        "critic": 36.88837432861328,
+        "alpha": 0.9881011843681335,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

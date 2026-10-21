@@ -85,14 +85,15 @@ extension; a cloning term during training is `ImitationLoss`
 - **One update.** `num_critic_updates` critic steps, each on a fresh replay
   minibatch and each followed by a target update; then one actor step and
   one temperature step on the last minibatch.
-- **Following the authors' code.** Three choices come from `watchernyu/REDQ`
+- **Following the authors' code.** Four choices come from `watchernyu/REDQ`
   rather than the paper's Algorithm 1. The actor step reads the critics as
   they were before the last critic step, since the code computes the actor
   loss before that step's optimizer update; the saved state keeps the
   updated critics. The critic loss is the sum over the critics of each one's
   mean squared error. `alpha_init=1.0` matches the code's `log_alpha`
   starting at 0; the code then uses `alpha=0.2` until its first temperature
-  step, a transient Ajax does not reproduce.
+  step (its constructor sets the temperature twice), and so does Ajax: the
+  first update's critic targets and actor loss read 0.2.
 - **Initialisation.** As the authors' code: every layer of the actor and
   the critics, the mean and log-std layers included, starts Xavier-uniform
   with a zero bias, each critic of the ensemble drawn on its own. With
@@ -110,7 +111,8 @@ extension; a cloning term during training is `ImitationLoss`
   second, against SAC's 2,218 on the same preset.
 - **Actions and evaluation.** As SAC: a `tanh`-squashed Gaussian in
   `[-1, 1]`, mapped onto the environment's bounds; evaluation uses the mean
-  action. The critics read actions in the environment's units, as the
+  action. Its log-probability subtracts `log(1 - tanh(u)^2 + 1e-6)`, as the
+  authors' code (`core.py:232`). The critics read actions in the environment's units, as the
   authors' code's do (`act_limit * tanh`, `core.py:238`): on a box other
   than `[-1, 1]` Adam then steps their action inputs as the authors' does.
 - **Time limits.** A transition cut by a time limit bootstraps on its final
@@ -126,10 +128,8 @@ The repository records no learning curves for REDQ yet. A conformance
 check (`tests/conformance/test_redq_original.py`) runs one training step of
 Ajax's REDQ and of watchernyu/REDQ from the same state, with the same
 batches, subsets and noises, and compares every critic, target, the actor,
-the temperature and their optimisers. It accounts for two differences of
-the authors' code: its first step reads the temperature 0.2 its
-constructor leaves behind, and its tanh log-determinant adds `1e-6`. Unit
-tests
+the temperature and their optimisers, the first step (temperature 0.2)
+included. Unit tests
 (`tests/agents/REDQ` and the contracts every agent shares) check its pieces
 against exact contracts, without learning: the summed critic loss, the
 random subset, the critics the actor reads and the target entropy. The

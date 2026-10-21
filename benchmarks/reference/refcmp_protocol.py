@@ -149,14 +149,24 @@ def clean_tree() -> bool:
     return not _run("git", "status", "--porcelain", "--", ".", *records)
 
 
+#: What the caller sets that belongs to the caller's project: its virtualenv, and the uv resolution
+#: settings compat.yml's lowest job exports (UV_RESOLUTION) for Ajax's own `uv run --locked`. A
+#: reference subproject resolves in the mode its own uv.lock records, or --locked refuses it.
+CALLER_SETTINGS = ("VIRTUAL_ENV", "UV_RESOLUTION", "UV_PRERELEASE", "UV_EXCLUDE_NEWER")
+
+
+def subproject_env(**extra: str) -> dict[str, str]:
+    """The environment of a ``uv run --locked --project`` child on a reference subproject
+    (benchmarks/reference/envs/...): the caller's, without :data:`CALLER_SETTINGS`, plus ``extra``."""
+    return {k: v for k, v in os.environ.items() if k not in CALLER_SETTINGS} | extra
+
+
 def train(name: str, side: str, seeds: list) -> dict:
     """Train ``seeds`` of one side on the CPU; the batch's record."""
     spec, lib = COMPARISONS[name], implementation(name, side)
     project, runner, per_seed, _ = IMPLEMENTATIONS[lib]
     groups = [[s] for s in seeds] if per_seed else [seeds]
-    # Each project's own environment, not the caller's.
-    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
-    env |= {"JAX_PLATFORMS": "cpu"}
+    env = subproject_env(JAX_PLATFORMS="cpu")
     before, start = resource.getrusage(resource.RUSAGE_CHILDREN), time.perf_counter()
     command = ["uv", "run", "--locked", "--project", str(project), "python"]
     processes = [

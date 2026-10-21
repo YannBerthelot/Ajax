@@ -370,6 +370,14 @@ Docs run on GitHub's arm64 runners, which all come on one CPU model, so a job
 finds main's compile cache (JAX keys it by the CPU); Slow tests and Probing
 run on x86, the platform most users train on.
 
+The *Slow tier* workflow ([slow.yml](.github/workflows/slow.yml)) runs
+everything that trains (`pytest -m slow`: `tests/probing`, marked slow by
+`tests/conftest.py`, and the tests marked slow elsewhere) in six shards by
+recorded duration (`--shard I/N`, `tests/.durations`, `make durations`): daily
+on main when main changed, by hand, and on a pull request each time the label
+`run-slow-tier` is added. A red run on main opens an issue, and bisects the
+merges since the last green run when that is cheap.
+
 ### The probing tests
 
 A unit test checks a contract; it cannot show that an agent learns what it
@@ -437,7 +445,10 @@ lock.
   change (a raised floor, a removed keyword) bumps the minor version. A
   release is an entry in [CHANGELOG.md](CHANGELOG.md) and a `vX.Y.Z` tag on
   main, which downstream projects can pin. Public names change by expand
-  then contract (CLAUDE.md, rule 10).
+  then contract (CLAUDE.md, rule 10). Tags come only from the *Release*
+  workflow ([release.yml](.github/workflows/release.yml), by hand, with the
+  version): it tags main's head once the slow tier has passed there,
+  running it first if needed.
 
 ## Style
 

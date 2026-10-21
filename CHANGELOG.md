@@ -6,6 +6,18 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **ASAC** now does what the authors' code does (`darer/ASAC.py`): a
+  termination drops the next value in the critic's target (it bootstrapped
+  through it); the termination penalty follows their rule, `p_0` times the
+  larger reward of the batch's first two rows; `theta` averages the reward
+  without the penalty, at the actions the actor step sampled, which the
+  temperature step reads too; the entropy terms are measured from
+  `log(1/nA)`; and the policy's log-probability takes stable-baselines3's
+  `+1e-6` in the `tanh` correction. Runs with terminations learn other
+  values; continuing tasks change less.
+- `NetworkConfig.squash_log_det_eps` sets the guard inside the `tanh`
+  log-det, `log(1 - tanh(u)^2 + eps)`, for an agent whose reference uses
+  one; 0, the exact log-det, by default.
 - **Development**: pull requests run the fast tier alone: the tests not
   marked slow, each under 128 gradient steps, and the conformance checks.
   The probes and every other training run in the slow tier, daily on main,

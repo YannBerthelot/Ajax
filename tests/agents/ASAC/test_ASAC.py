@@ -6,8 +6,11 @@ import pytest
 from ajax.agents.ASAC import train_ASAC
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.SAC import core
-from ajax.networks.networks import get_initialized_actor_critic
+from ajax.networks.distributions import GuardedTanh
+from ajax.networks.networks import get_initialized_actor_critic, predict_value
+from tests.conformance import kit
 from tests.environments.identity_env import IdentityEnv
+from tests.probing import envs
 
 
 @pytest.mark.parametrize(
@@ -66,11 +69,18 @@ def test_tau_theta_alone_moves_theta_and_the_penalty():
     assert np.all(moved[0].theta != 0.0)
 
 
-def test_temperature_and_theta_read_one_sample_of_the_policy(monkeypatch):
-    """One sample of the updated policy feeds both the temperature and the
-    reward-rate (theta) steps: the actor runs once for the two."""
-    seen = []
+def test_temperature_and_theta_read_the_actors_own_sample(monkeypatch):
+    """The temperature and the reward-rate (theta) steps read the sample
+    the actor's loss drew, before its step, as the authors' code
+    (BobMak/asac @4b68862, darer/ASAC.py:146-213): no other draw."""
+    seen, drawn = [], []
     temperature, theta = core.update_temperature, train_ASAC.update_theta
+    policy = train_ASAC.update_policy
+
+    def policy_spy(*args, **kwargs):
+        out = policy(*args, **kwargs)
+        drawn.append(out[2])  # its sample's log-probabilities
+        return out
 
     def temperature_spy(*args):
         seen.append(args[1])  # the log-probabilities
@@ -80,6 +90,7 @@ def test_temperature_and_theta_read_one_sample_of_the_policy(monkeypatch):
         seen.append(args[3])
         return theta(*args)
 
+    monkeypatch.setattr(train_ASAC, "update_policy", policy_spy)
     monkeypatch.setattr(core, "update_temperature", temperature_spy)
     monkeypatch.setattr(train_ASAC, "update_theta", theta_spy)
     net = ("8", "relu")
@@ -93,7 +104,73 @@ def test_temperature_and_theta_read_one_sample_of_the_policy(monkeypatch):
     agent.train(seed=0, n_timesteps=8)
     # The update is traced twice: once for it, once for the structure of
     # the NaN metrics before learning_starts (TrainLoop.maybe_update).
-    assert len(seen) == 4 and seen[0] is seen[1] and seen[2] is seen[3]
+    assert len(seen) == 4 and len(drawn) == 2
+    assert seen[0] is seen[1] is drawn[0] and seen[2] is seen[3] is drawn[1]
+
+
+def test_a_termination_drops_the_next_value_and_keeps_the_shift():
+    """``r - theta + (1 - done) (min_i Q'_i(s', a') - alpha log pi(a'|s'))
+    - Q'(0, 0)``, as the authors' code (darer/ASAC.py:179-205)."""
+    net = ("8", "relu")
+    agent = ASAC("Pendulum-v1", actor_architecture=net, critic_architecture=net)
+    state = kit.capture_step(agent, 64).fresh(jax.random.PRNGKey(0))
+    next_obs = jax.random.normal(jax.random.PRNGKey(1), (4, 3))
+    rewards = jnp.array([[1.0], [2.0], [3.0], [4.0]])
+    dones = jnp.array([[1.0], [0.0], [1.0], [0.0]])
+
+    def target(d):
+        return train_ASAC.compute_asac_td_target(
+            state.actor_state,
+            state.critic_state,
+            jax.random.PRNGKey(2),
+            next_obs,
+            d,
+            rewards,
+            0.5,
+            jnp.asarray(0.2),
+            1.0,
+        )[0]
+
+    critic = state.critic_state
+    origin = predict_value(critic, critic.target_params, jnp.zeros((1, 4))).mean()
+    ended, going = target(dones), target(jnp.zeros_like(dones))
+    np.testing.assert_allclose(ended[0::2], rewards[0::2] - 0.5 - origin, rtol=1e-6)
+    np.testing.assert_allclose(ended[1::2], going[1::2], rtol=1e-6)
+    assert np.all(np.abs(going[0::2] - ended[0::2]) > 1e-6)
+
+
+def test_the_entropy_terms_are_relative_to_a_uniform_policy_over_the_actions():
+    """With nA = 2 action dimensions, the target's and theta's entropy terms
+    read alpha (log pi - log(1 / nA)) (darer/ASAC.py:54, :182, :191); the
+    policy's log-prob subtracts log(1 - tanh^2 + 1e-6), as the reference's
+    stable-baselines3 actor."""
+    spec = envs.Spec("two", lambda st, a, k: (st, 0.0, False), box=(-1.0, 1.0, 2))
+    net = ("8", "relu")
+    env, params = spec.make()
+    agent = ASAC(
+        env, env_params=params, actor_architecture=net, critic_architecture=net
+    )
+    state = kit.capture_step(agent, 64).fresh(jax.random.PRNGKey(0))
+    next_obs = jax.random.normal(jax.random.PRNGKey(1), (4, 1))
+    dones, rewards = jnp.array([[1.0], [0.0], [0.0], [1.0]]), jnp.ones((4, 1))
+
+    def target(alpha):
+        args = (state.actor_state, state.critic_state, jax.random.PRNGKey(2), next_obs)
+        return train_ASAC.compute_asac_td_target(
+            *args, dones, rewards, 0.5, jnp.asarray(alpha), 1.0
+        )
+
+    (soft, log_pi), (hard, _) = target(0.2), target(0.0)
+    want = -0.2 * (log_pi + np.log(2.0)) * (1.0 - dones)
+    np.testing.assert_allclose(soft - hard, want, rtol=1e-5, atol=1e-6)
+
+    log_probs = jnp.array([[-1.0], [0.5]])
+    moved = train_ASAC.update_theta(state, 1.0, jnp.ones((2, 1)), log_probs, 2)
+    want_theta = 1.0 - 0.2 * (np.mean([-1.0, 0.5]) + np.log(2.0))
+    np.testing.assert_allclose(moved.theta, want_theta, rtol=1e-6)
+
+    pi = state.actor_state.apply_fn(state.actor_state.params, next_obs)
+    assert isinstance(pi.bijector, GuardedTanh) and pi.bijector.eps == 1e-6
 
 
 def test_asac_starts_every_layer_as_torch_nn_linear():
@@ -161,14 +238,16 @@ def test_recurrent_asac_keeps_its_previous_initialisation():
     np.testing.assert_array_equal(actor["log_std"]["bias"], -1.0)
 
 
-def test_a_terminated_rows_reward_is_charged_the_running_penalty(monkeypatch):
+def test_a_terminated_rows_reward_is_charged_the_penalty_for_the_critics_alone(
+    monkeypatch,
+):
     """ASAC's critics learn r - p d: each replayed row's reward less the
-    termination penalty p (its running average, updated on the batch first)
-    where the row terminated (Adamczyk et al., 2025). The identity task
-    terminates some episodes; p_0 = 1 and tau_theta = 1 make p the batch's
-    mean reward on the rows that go on."""
-    seen = []
-    update = train_ASAC.update_value_functions
+    termination penalty p (its running value, updated on the batch first)
+    where the row terminated; theta tracks the rewards themselves (BobMak/asac
+    @4b68862, darer/ASAC.py:179-205). The identity task terminates some
+    episodes; p_0 = 1 and tau_theta = 1 make p the batch's own."""
+    seen, theta_rewards = [], []
+    update, update_theta = train_ASAC.update_value_functions, train_ASAC.update_theta
 
     def spy(agent_state, transition, rewards, *args, **kwargs):
         jax.debug.callback(
@@ -180,13 +259,22 @@ def test_a_terminated_rows_reward_is_charged_the_running_penalty(monkeypatch):
         )
         return update(agent_state, transition, rewards, *args, **kwargs)
 
+    def theta_spy(agent_state, tau, rewards, *args, **kwargs):
+        jax.debug.callback(lambda r: theta_rewards.append(np.asarray(r)), rewards)
+        return update_theta(agent_state, tau, rewards, *args, **kwargs)
+
     monkeypatch.setattr(train_ASAC, "update_value_functions", spy)
+    monkeypatch.setattr(train_ASAC, "update_theta", theta_spy)
     env = IdentityEnv()
     kw = {"learning_starts": 16, "batch_size": 16, "p_0": 1.0, "tau_theta": 1.0}
-    ASAC(env, env_params=env.default_params, n_envs=2, **kw).train(
-        seed=0, n_timesteps=48
-    )
+    agent = ASAC(env, env_params=env.default_params, n_envs=4, **kw)
+    agent.train(seed=0, n_timesteps=96)
     jax.effects_barrier()
     assert any(t.any() and p != 0 for _, _, t, p in seen), "nothing was charged"
-    for charged, reward, terminated, penalty in seen:
+    assert len(theta_rewards) == len(seen)
+    scale = agent.agent_config.reward_scale
+    for (charged, reward, terminated, penalty), theta in zip(
+        seen, theta_rewards, strict=True
+    ):
         np.testing.assert_allclose(charged, reward - penalty * terminated, rtol=1e-6)
+        np.testing.assert_allclose(theta, reward * scale, rtol=1e-6)

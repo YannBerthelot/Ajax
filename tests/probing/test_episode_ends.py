@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "d0490d911233"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "19c6bcfdeca6"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -483,46 +483,45 @@ def _steps(trace: np.ndarray, right: float) -> np.ndarray:
         return np.log2(np.sqrt(np.mean(np.diff(trace, axis=-1) ** 2, -1)) / right)
 
 
-# ASAC (p_0 20, tau 0.005, batch 256): the penalty settles at p_0 mean(r (1 -
-# term)) = 10, theta at what update_theta averages, s E[r - 10 term] + alpha H
-# = -8 + alpha H in the target's units, and the critic at Q(0, .) = s E[r_pen]
-# - theta + alpha H, so the origin shift pins Q(0, 0) to 0.
-P0, TAU, PEN = 20.0, 0.005, 10.0
+# ASAC (p_0 20, tau 0.005, batch 256), half its rows terminating: the penalty
+# settles at P = p_0 E[max(r_0, r_1)] = 30, the coins of the batch's rows 0
+# and 1 (darer/ASAC.py:187 reads them); theta at what update_theta averages,
+# the reward without its penalty (:191), s E[r] + alpha H = 2 + alpha H in
+# the target's units. A termination drops the next value and is charged P,
+# the origin shift outside the mask: (1 + 1/2) Q(0, .) = -(s P + alpha H) / 2,
+# so Q(0, 0) + (alpha H + s P) / 3 reads 0, and theta off by d in the target
+# moves it by -2 d / 3 (THETA owns small d).
+P0, TAU, PEN = 20.0, 0.005, 30.0
 R_PEN = 1.0 - PEN / 2  # mean penalised reward per row, before the scale
-LEVELS = {  # p_0 falls back to ASACConfig's 10 / no penalty, or B06 / sign flipped
-    "p_0 Config default (10) leaks": S5 * (1.0 - 5.0 / 2),
-    "penalty never applied, or terminated read as truncated (B06)": S5,
-    "penalty sign flipped": S5 * (1.0 + PEN / 2),
-}
 THETA = Query(
     "theta - alpha*H",
-    S5 * R_PEN,
-    LEVELS | {"theta averages unscaled rewards": R_PEN, "theta never updated": 0.0},
-)
-ORIGIN = Query(
-    "Q(0,0)",
-    0.0,
+    S5,
     {
-        "theta in unscaled units": (S5 - 1.0) * R_PEN,
-        "theta never updated": S5 * R_PEN,
-        "theta sign flipped in the target (A01)": (S5 + 1.0) * R_PEN,
+        "theta averages unscaled rewards": 1.0,
+        "theta averages the penalised rewards": S5 * R_PEN,
+        "theta never updated": 0.0,
     },
 )
-PENALTY = Query(
-    "penalty / p_0",
-    0.5,
-    {"p_0 Config default (10) leaks": 0.25, "penalty never updated": 0.0, "B06": 1.0},
-)
+PENALTY_WRONG = {"p_0 Config default (10) leaks": 0.75, "penalty never updated": 0.0}
+PENALTY_WRONG |= {"the batch's mean non-terminal reward": 0.5, "B06: row 0's": 1.0}
+PENALTY = Query("penalty / p_0", 1.5, PENALTY_WRONG)
+SP = S5 * PEN  # the penalty in the target's units
 CRITIC = Query(
-    "Q(0,0) + theta - alpha*H",
-    S5 * R_PEN,
-    LEVELS | {"reward scaled twice in the target, or A01": S5**2 * R_PEN},
+    "Q(0,0) + (alpha*H + s*penalty)/3",
+    0.0,
+    {
+        "theta sign flipped in the target (A01)": 4 * S5 / 3,
+        "theta penalised, or the penalty never charged": SP / 3,
+        "penalty sign flipped": 2 * SP / 3,
+        "terminated read as truncated (B06)": S5 * P0 / 3,
+        "no done mask, or the origin shift inside it": -SP / 6,
+        "reward scaled twice in the target (S13)": (S5**2 - S5) * (2 - PEN) / 3,
+    },
 )
-THETA_SD = math.sqrt((1.0 + PEN**2 / 4) / 256)  # one batch's mean penalised reward
-PEN_SD = P0 * math.sqrt(0.75 / 256)  # one batch's p_0 mean(r (1 - term))
-THETA_RMS = oracles.ema_step_rms(TAU, S5 * THETA_SD)
+PEN_SD = P0 * math.sqrt(0.75)  # one batch's p_0 max(r_0, r_1)
+THETA_RMS = oracles.ema_step_rms(TAU, S5 / 16)  # one batch's s mean(r): sd 1 / 16
 PEN_RMS = oracles.ema_step_rms(TAU, PEN_SD)
-THETA_STEP = _step_query("theta", THETA_RMS, oracles.ema_step_rms(1 - TAU, THETA_SD))
+THETA_STEP = _step_query("theta", THETA_RMS, oracles.ema_step_rms(1 - TAU, S5 / 16))
 PEN_STEP = _step_query("the penalty", PEN_RMS, oracles.ema_step_rms(1 - TAU, PEN_SD))
 ASAC_TRACE = Trace(("theta", "penalty", "Q(0,0)"), 1500)
 
@@ -543,17 +542,16 @@ def _entropy0(actor: Any, key: jax.Array, n: int = 4096) -> jax.Array:
 
 
 def _asac_read(run: runs.Run) -> dict:
-    """theta - alpha*H at the end; Q(0, 0) over the last 1000 updates (the
-    critic wanders by 0.4 per update); the penalty over the trace."""
+    """theta - alpha*H at the end; Q(0, 0) and the penalty it reads over the
+    last 1000 updates (the critic wanders by 0.4 per update); the penalty's
+    level over the trace."""
     keys = jax.random.split(R.KEY, len(run.seeds))
     nets = R.nets(run.state, keys)
     a_h = R.per_seed(lambda n: {"": R.alpha(n) * _entropy0(n.actor, n.extra)}, nets)[""]
-    theta, tr = (
-        np.asarray(run.state.theta) - a_h,
-        ASAC_TRACE.unroll(run.state.ext_state[0]),
-    )
-    q00 = tr["Q(0,0)"][:, -1000:].mean(-1)
-    out = {THETA.name: theta, ORIGIN.name: q00, CRITIC.name: q00 + theta}
+    tr = ASAC_TRACE.unroll(run.state.ext_state[0])
+    q00, pen = (tr[k][:, -1000:].mean(-1) for k in ("Q(0,0)", "penalty"))
+    out = {THETA.name: np.asarray(run.state.theta) - a_h}
+    out |= {CRITIC.name: q00 + (a_h + S5 * pen) / 3}
     out |= {PENALTY.name: tr["penalty"].mean(-1) / P0}
     return (
         out
@@ -562,18 +560,15 @@ def _asac_read(run: runs.Run) -> dict:
     )
 
 
-# Calibrated on 1000-1031 + 2000-2031 at 3000 steps, certified on 3000-3031,
-# theta and the origin with update_theta fed rewards * reward_scale (the
-# units fix since made). The tolerances are half the gap, not 0.1: levels of
-# size 8 carry buffer and critic noise. theta's step holds both units
-# (unscaled -0.65 to -0.41; scaled +0.34 to +0.58); at 4500 steps the
-# unscaled theta reads -1, so the budget must not move.
+# Calibrated on 1000-1031 + 2000-2031 at 3000 steps, certified 32/32 on
+# 3000-3031 (worst errors 0.19; 0.075 and 0.26; 0.41 and 0.064). Not 0.1:
+# theta carries the buffer's coin mean and the critic the two-row penalty's
+# noise, which a penalty read over the critic's own window halves.
 ASAC_RUN = runs.readings(lambda: _asac((ASAC_TRACE,)), _asac_read)
 for part, queries, tols in (
-    ("theta", (THETA,), (1.08,)),
-    ("origin", (ORIGIN,), (0.91,)),
-    ("levels", (PENALTY, CRITIC), (0.074, 1.44)),
-    ("steps", (THETA_STEP, PEN_STEP), (1.29, 0.178)),
+    ("theta", (THETA,), (0.463,)),
+    ("levels", (PENALTY, CRITIC), (0.195, 0.695)),
+    ("steps", (THETA_STEP, PEN_STEP), (0.989, 0.152)),
 ):
     CASES[f"p5-ASAC-{part}"] = Case(
         f"p5-ASAC-{part}", queries, ASAC_RUN, 3000, tols, ceiling=math.inf
@@ -838,7 +833,7 @@ def cycle(obs: tuple, r: tuple, terminal: bool, **kw: Any) -> envs.Spec:
     return envs.Spec("cycle", transition, show, obs_box=(-1.0, 1.0), **kw)
 
 
-# ASAC: R -> A -> B -> terminated (obs 1, 0, -1; r 0, 1, 3; p_0 1). The reset
+# ASAC: R -> A -> B -> terminated (obs 1, 0, -1; r 0, 1, 3; p_0 1/6). The reset
 # obs R differs from the anchor A (obs 0), so a SAC-style done mask shows.
 ASAC_TERM = cycle((1.0, 0.0, -1.0), (0.0, 1.0, 3.0), True)
 ASAC_TRUNC = cycle((0.0, 1.0), (0.0, 3.0), False, limit=3)  # A <-> B, limit 3
@@ -847,53 +842,54 @@ APO_CONST = cycle((1.0,), (1.0,), False, actions=2)  # no boundary at all
 
 
 def asac_values(rule: Rule, penalty: float) -> np.ndarray:
-    """Q(s) - Q(A) on the chain from ASAC's target (train_ASAC.py:135-187):
-    r - P term - theta + Q'(s') - Q'(0, 0), no done mask, theta the mean
-    penalised reward, alpha log pi dropped; one buffer row per position."""
-    t = np.array([0, 0, 1])
-    r = np.array([0.0, 1.0, 3.0]) - penalty * t
-    r -= r.mean()
+    """Q(s) - Q(A) on the chain from ASAC's target (train_ASAC.py:130-185):
+    r - P term - theta + (1 - term) Q'(s') - Q'(0, 0), theta the mean reward
+    without the penalty, alpha log pi dropped; one buffer row per position."""
+    t, raw = np.array([0, 0, 1]), np.array([0.0, 1.0, 3.0])
+    r = raw - penalty * t - raw.mean()
     rows = [(1.0, [(i, r[i], min(i + 1, 2), (i + 1) % 3, t[i], 0)]) for i in range(3)]
     q = oracles.fixed_point(oracles.stack(rows), 3, 1.0, 0.0, rule)
     return q - q[1]
 
 
-P_TERM = 1.0 / 3  # p_0 mean(r (1 - term))
-RESET = Rule(mask="none", next="reset", anchor=1)
-Q1_RIGHT = asac_values(RESET, P_TERM)
+P_TERM = 1.0 / 3  # p_0 E[max(r_0, r_1)], two rows' rewards: 2 p_0
+MASK = Rule(anchor=1, shift_outside=True)
+Q1_RIGHT = asac_values(MASK, P_TERM)
 Q1_WRONG = {
-    "final obs on termination": asac_values(Rule(mask="none", anchor=1), P_TERM),
+    "reset obs bootstrapped": asac_values(Rule("none", "reset", anchor=1), P_TERM),
+    "final obs bootstrapped": asac_values(Rule(mask="none", anchor=1), P_TERM),
     "done mask, shift inside": asac_values(Rule(anchor=1), P_TERM),
-    "done mask, shift outside": asac_values(Rule(anchor=1, shift_outside=True), P_TERM),
-    "penalty dropped (P5 owns it)": asac_values(RESET, 0.0),
-    "penalty sign flipped (P5 owns it)": asac_values(RESET, -P_TERM),
+    "penalty dropped (P5 owns it)": asac_values(MASK, 0.0),
+    "penalty sign flipped (P5 owns it)": asac_values(MASK, -P_TERM),
 }
 
 
 def test_q1_oracle_matches_the_hand_derivation() -> None:
-    """Penalty 1/3, theta 11/9: (Q(R) - Q(A), Q(B) - Q(A)) = (-11/9, 2/9);
-    final obs (-8/3, 5/3); a done mask (-11/6, 5/6) with the shift inside,
-    (-44/27, 17/27) outside; penalty dropped (-4/3, 1/3), flipped (-13/9, 4/9)."""
-    w = [(-11, 2, 9), (-8, 5, 3), (-11, 5, 6), (-44, 17, 27), (-4, 1, 3), (-13, 4, 9)]
+    """Penalty 1/3, theta 4/3: (Q(R) - Q(A), Q(B) - Q(A)) = (-5/3, 2/3); the
+    reset obs bootstrapped (-11/9, 2/9), the final obs (-8/3, 5/3); the shift
+    inside the mask (-11/6, 5/6); penalty dropped (-16/9, 7/9), flipped
+    (-17/9, 8/9). theta from the penalised rewards reads (-44/27, 17/27),
+    1/27 off: P5 owns it (a gap of 10 there)."""
+    w = [(-5, 2, 3), (-11, 2, 9), (-8, 5, 3), (-11, 5, 6), (-16, 7, 9), (-17, 8, 9)]
     for v, (r_a, b_a, d) in zip([Q1_RIGHT, *Q1_WRONG.values()], w, strict=True):
         np.testing.assert_allclose(v, [r_a / d, 0.0, b_a / d], atol=1e-9)
 
 
 def _q1_asac(spec: envs.Spec, at: dict[str, float]) -> Callable:
-    """ASAC with alpha fixed at 1e-3 (alpha log pi negligible), p_0 1:
+    """ASAC with alpha fixed at 1e-3 (alpha log pi negligible), p_0 1/6:
     Q(x, mean action) - Q(A, mean action), averaged over the ensemble."""
 
     def one(n: R.Nets) -> dict:
         base = R.value("ASAC", n, 0.0)
         return {k: R.value("ASAC", n, x) - base for k, x in at.items()}
 
-    kw: dict[str, Any] = {"alpha_init": 1e-3, "alpha_learning_rate": 0.0, "p_0": 1.0}
+    kw: dict[str, Any] = {"alpha_init": 1e-3, "alpha_learning_rate": 0.0, "p_0": 1 / 6}
     build = functools.partial(agents.make, "ASAC", *spec.make(), **kw)
     return runs.readings(build, lambda run: R.per_seed(one, R.nets(run.state)))
 
 
-# Calibrated on 1000-1031 + 2000-2031 at 1250 steps (worst 0.0108, 0.0105 at
-# the reference init; 625 reads 0.15 off), certified 32/32 on 3000-3031.
+# Calibrated on 1000-1031 + 2000-2031 at 1250 steps (worst 0.019, 0.019),
+# certified 32/32 on 3000-3031 (worst 0.014, 0.012).
 TERM_Q = tuple(
     Query(name, Q1_RIGHT[i], {k: v[i] for k, v in Q1_WRONG.items()})
     for name, i in (("Q(R) - Q(A)", 0), ("Q(B) - Q(A)", 2))

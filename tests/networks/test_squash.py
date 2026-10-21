@@ -50,6 +50,22 @@ def test_the_log_prob_of_a_sample_is_the_one_sampling_gave():
     )
 
 
+def test_a_guarded_squash_takes_the_log_det_of_its_references():
+    """``log_det_eps`` > 0: log pi = log N(u) - log(1 - tanh(u)^2 + eps), as
+    stable-baselines3's squashed Gaussian computes it, by sampling and from
+    the action (to 1e-3, as the exact one); near saturation (u ~ 4) it
+    differs from the exact one."""
+    actions, log_probs = Squash(NORMAL, 1e-6).sample_and_log_prob(seed=KEY)
+    got = Squash(NORMAL, 1e-6).log_prob(actions)
+    np.testing.assert_allclose(got.sum(), log_probs.sum(), rtol=1e-3, atol=1e-3)
+    far = distrax.Normal(jnp.full(3, 4.0), jnp.ones(3))
+    actions, log_probs, raw = Squash(far, 1e-6).sample_with_raw(KEY)
+    want = far.log_prob(raw) - jnp.log(1.0 - actions**2 + 1e-6)
+    np.testing.assert_allclose(log_probs, want, rtol=1e-6)
+    exact = Squash(far).log_prob_from_raw(raw)
+    assert np.all(np.abs(exact - want) > 1e-4), exact - want
+
+
 def test_the_raw_sample_gives_the_sampling_log_prob():
     """The path behind a squashed PPO's ratio: from the pre-tanh draw, the
     log-probability sampling gave, without inverting tanh."""

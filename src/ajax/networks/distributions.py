@@ -55,27 +55,51 @@ class Deterministic:
         return -((x - self._action) ** 2)
 
 
+class GuardedTanh(distrax.Tanh):
+    """``tanh`` whose log-det-Jacobian is ``log(1 - tanh(x)^2 + eps)``, as
+    stable-baselines3's squashed Gaussian (eps 1e-6) and REDQ (core.py:232)
+    compute it; distrax's own is exact."""
+
+    def __init__(self, eps: float):
+        super().__init__()
+        self.eps = eps
+
+    def forward_log_det_jacobian(self, x: jax.Array) -> jax.Array:
+        return jnp.log(1.0 - jnp.tanh(x) ** 2 + self.eps)
+
+    def forward_and_log_det(self, x: jax.Array) -> Tuple[jax.Array, jax.Array]:
+        return jnp.tanh(x), self.forward_log_det_jacobian(x)
+
+    def inverse_and_log_det(self, y: jax.Array) -> Tuple[jax.Array, jax.Array]:
+        return jnp.arctanh(y), -jnp.log(1.0 - y**2 + self.eps)
+
+    def same_as(self, other: distrax.Bijector) -> bool:
+        return type(other) is GuardedTanh and other.eps == self.eps
+
+
 class Squash(distrax.Transformed):
     """``tanh`` of a policy distribution, its latent: any distrax
     distribution (a ``Block`` spans its event dimensions, if it has any).
+    ``log_det_eps`` > 0 takes :class:`GuardedTanh`'s log-det instead.
 
-    Exact: sampling and log-probabilities. ``log_prob(action)`` inverts
-    ``tanh``, finite only while ``|action| < 1``, which float32 loses once
-    the latent sample passes about 9; :meth:`log_prob_from_raw` reads the
-    latent sample itself and stays finite.
+    Exact (with ``log_det_eps`` 0): sampling and log-probabilities.
+    ``log_prob(action)`` inverts ``tanh``, finite only while ``|action| <
+    1``, which float32 loses once the latent sample passes about 9;
+    :meth:`log_prob_from_raw` reads the latent sample itself and stays
+    finite.
 
     Not exact, as neither has a closed form: :meth:`mean` is ``tanh`` of the
     latent's mean, the deterministic action, not the mean of the squashed
     action; :meth:`entropy` is sampled.
     """
 
-    def __init__(self, distribution: distrax.Distribution):
+    def __init__(self, distribution: distrax.Distribution, log_det_eps: float = 0.0):
         if not jnp.issubdtype(distribution.dtype, jnp.floating):
             raise ValueError(
                 "tanh squashes a continuous distribution, not a"
                 f" {type(distribution).__name__}."
             )
-        bijector = distrax.Tanh()
+        bijector = GuardedTanh(log_det_eps) if log_det_eps else distrax.Tanh()
         event_ndims = len(distribution.event_shape)
         if event_ndims:
             bijector = distrax.Block(bijector, event_ndims)
@@ -111,13 +135,13 @@ class Squash(distrax.Transformed):
         return self.distribution.entropy() + self.bijector.forward_log_det_jacobian(raw)
 
 
-def squash(pi: Any) -> Any:
+def squash(pi: Any, log_det_eps: float = 0.0) -> Any:
     """``pi`` bounded by ``tanh``: :class:`Squash` of it, or, for a
     :class:`Deterministic` one, ``tanh`` of its action (a point mass has no
     density to correct)."""
     if isinstance(pi, Deterministic):
         return Deterministic(jnp.tanh(pi.mean()))
-    return Squash(pi)
+    return Squash(pi, log_det_eps)
 
 
 def latent(pi: Any) -> Any:

@@ -1,6 +1,8 @@
 """ASAC's episode-termination penalty on hand-computed values: the running
-penalty moves by ``tau`` towards ``p_0`` times the mean reward of the steps
-that did not terminate, and a terminated step's reward pays it."""
+penalty moves by ``tau`` towards ``p_0`` times the largest reward
+``gather(rewards, 0, terminated)`` reads (row 0's for a step that did not
+terminate, row 1's for one that did, as the authors' code), and a
+terminated step's reward pays it."""
 
 import jax.numpy as jnp
 import numpy as np
@@ -18,17 +20,20 @@ NONE = [0.0, 0.0, 0.0]
 @pytest.mark.parametrize(
     "rewards, terminated, p_0, tau, expected",
     [
-        (R, NONE, 0.1, 0.5, 0.5 * 0.5 + 0.5 * 0.1 * 2.0),
+        (R, NONE, 0.1, 0.5, 0.5 * 0.5 + 0.5 * 0.1 * 1.0),  # row 0's reward
         (R, NONE, 0.1, 0.0, 0.5),  # tau = 0 keeps the penalty
-        (R, NONE, 0.2, 1.0, 0.2 * 2.0),  # tau = 1 jumps to p_0 * mean
-        # a terminated step's reward leaves the mean (still over 3 steps)
-        (R, [1.0, 0.0, 1.0], 0.1, 0.5, 0.5 * 0.5 + 0.5 * 0.1 * 2.0 / 3),
-        # a batch of minibatches: the mean over all of them, a scalar
-        ([R, [2.0, 4.0, 6.0]], [NONE, NONE], 0.1, 0.3, 0.5 * 0.7 + 0.3 * 0.1 * 3.0),
+        (R, NONE, 0.2, 1.0, 0.2 * 1.0),  # tau = 1 jumps to p_0 * r[0]
+        # a terminated row reads row 1's reward: max(r[1], r[0], r[1])
+        (R, [1.0, 0.0, 1.0], 0.1, 0.5, 0.5 * 0.5 + 0.5 * 0.1 * 2.0),
+        # not the largest non-terminal reward (5), nor their mean (4)
+        ([3.0, -1.0, 5.0], [0.0, 1.0, 0.0], 1.0, 1.0, 3.0),
+        ([3.0, -1.0, 5.0], [1.0, 1.0, 1.0], 1.0, 1.0, -1.0),  # all terminate
+        # a batch of minibatches: rows of the flattened batch, a scalar
+        ([[2.0, 4.0], [6.0, 8.0]], [[0.0, 1.0], [0.0, 0.0]], 0.1, 0.3, 0.35 + 0.12),
     ],
-    ids=["basic", "tau-zero", "tau-one", "terminated", "batched"],
+    ids=["basic", "tau-zero", "tau-one", "terminated", "rows", "all-end", "batched"],
 )
-def test_the_penalty_moves_towards_p0_times_the_mean_reward(
+def test_the_penalty_moves_towards_p0_times_the_rows_the_original_reads(
     rewards, terminated, p_0, tau, expected
 ):
     penalty = compute_episode_termination_penalty(

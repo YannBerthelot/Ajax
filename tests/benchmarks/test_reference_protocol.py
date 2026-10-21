@@ -225,3 +225,14 @@ def test_deviations_document_the_codes_without_changing_what_a_spec_runs():
         for d in spec.deviations:
             assert d.kind in ("ajax", "convention", "reference defect"), (name, d.name)
             assert d.check.startswith("tests/conformance/") and "::test_" in d.check
+
+
+def test_a_subproject_runs_without_the_callers_venv_and_resolution_mode(monkeypatch):
+    """compat.yml's lowest job exports UV_RESOLUTION=lowest-direct for Ajax's own lock; a reference
+    subproject's uv.lock records its own mode, which `uv run --locked` would otherwise refuse."""
+    monkeypatch.setenv("UV_RESOLUTION", "lowest-direct")
+    monkeypatch.setenv("VIRTUAL_ENV", "/caller/.venv")
+    monkeypatch.setenv("AJAX_KEPT", "1")
+    env = protocol.subproject_env(JAX_PLATFORMS="cpu")
+    assert not set(protocol.CALLER_SETTINGS) & set(env)
+    assert (env["AJAX_KEPT"], env["JAX_PLATFORMS"]) == ("1", "cpu")

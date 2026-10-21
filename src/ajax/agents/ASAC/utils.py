@@ -9,7 +9,14 @@ def compute_episode_termination_penalty(
     p_0: float,
     tau: float,
 ) -> jax.Array:
-    p_bar = p_0 * jnp.mean(rewards * (1 - terminated))
+    """Move the penalty by ``tau`` towards ``p_0`` times the largest reward
+    ``gather(rewards, 0, terminated)`` reads, as the authors' code
+    (BobMak/asac@4b68862, ``darer/ASAC.py:187``, with 20 for ``p_0``): a
+    row reads the reward of the flattened batch's row 0 when it did not
+    terminate, of row 1 when it did. Their comment means the mean
+    non-terminal reward."""
+    rows = terminated.reshape(-1).astype(jnp.int32)
+    p_bar = p_0 * jnp.max(rewards.reshape(-1)[rows])
     episode_termination_penalty = episode_termination_penalty * (1 - tau) + tau * p_bar
     return episode_termination_penalty
 

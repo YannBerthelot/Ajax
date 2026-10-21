@@ -71,22 +71,27 @@ and `ImitationLoss` extensions ([Expert guidance](../guide/expert-guidance.md)).
 
 ## Notes
 
-- **Target.** `r - theta + min(Q'_1, Q'_2)(s', a') - Q'(0, 0) - alpha log pi(a'|s')`
-  with `a' ~ pi(.|s')`. The shift by the target critics' value at the origin,
-  `Q'(0, 0)`, is their reference point: a differential value is defined only
-  up to a constant.
-- **Episode ends.** The target bootstraps through every end. A termination
-  is charged a penalty instead, subtracted from the terminal transition's
-  reward: an average (at rate `tau_theta`) of `p_0` times the batch's mean reward,
-  terminal rewards counted as zero.
+- **Target.** `r - theta + (1 - done) (min(Q'_1, Q'_2)(s', a') - alpha (log pi(a'|s') - log(1/nA))) - Q'(0, 0)`
+  with `a' ~ pi(.|s')`, `done` a termination and `nA` the action
+  dimension, as the authors' code measures the entropy term. The shift by the target
+  critics' value at the origin, `Q'(0, 0)`, is their reference point: a
+  differential value is defined only up to a constant. It applies to every
+  row, terminal ones included, as in the authors' code.
+- **Episode ends.** A termination drops the next value and is charged a
+  penalty, subtracted from the terminal transition's reward: an average (at
+  rate `tau_theta`) of `p_0` times the larger of the rewards of the batch's
+  first row (read for the rows that do not terminate) and its second row
+  (for those that do). The authors' code computes it this way (`gather` by
+  the done flags);
+  its comment describes the mean reward of the steps that did not
+  terminate. A time limit bootstraps from the final observation.
 - **Reward rate.** After each update `theta` moves, at rate `tau_theta`, towards
-  the batch mean of the penalised reward minus `alpha log pi(a|s)`, with
-  fresh actions `a ~ pi(.|s)`.
+  the batch mean of the reward, without the penalty, minus `alpha (log pi(a|s)
+  - log(1/nA))`, at the actions `a ~ pi(.|s)` the actor step sampled.
 - **One update.** The penalty, then a critic step, an actor step on
-  `alpha log pi - min_i Q_i`, a temperature step on fresh samples of the
-  updated policy (skipped with `fixed_alpha`), the `theta` step and the
-  target update. Each iteration
-  steps every env once, then makes one update.
+  `alpha log pi - min_i Q_i`, a temperature step on the actor step's samples
+  (skipped with `fixed_alpha`), the `theta` step and the target update. Each
+  iteration steps every env once, then makes one update.
 - **Temperature.** As in the authors' published runs, `alpha` is fixed:
   0.2 by default. Those runs use 0.05 for Humanoid and Swimmer; pass
   `alpha_init=0.05` for those. `fixed_alpha=False` learns it as SAC does.
@@ -100,7 +105,8 @@ and `ImitationLoss` extensions ([Expert guidance](../guide/expert-guidance.md)).
   initialisation until Ni et al.'s is audited.
 - **Actions and evaluation.** As SAC: a `tanh`-squashed Gaussian in
   `[-1, 1]`, mapped onto the environment's bounds; evaluation uses the mean
-  action. The logged evaluation return is the usual episodic sum. ASAC
+  action. Its log-probability subtracts `log(1 - tanh(u)^2 + 1e-6)`, as the
+  authors' stable-baselines3 actor does. The logged evaluation return is the usual episodic sum. ASAC
   reports no `Eval/mean bias`.
 
 ## Results

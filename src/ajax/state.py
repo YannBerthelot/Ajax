@@ -305,6 +305,9 @@ class NetworkConfig(Replaceable):
     # ``agent.network_args.replace(encoder_layer_norm=True)``.
     encoder_layer_norm: bool = False
     squash: bool = False
+    # The tanh log-det's guard, Squash's ``log_det_eps``: 0 keeps the exact
+    # log-det; an agent whose reference adds one inside the log sets it.
+    squash_log_det_eps: float = flax.struct.field(pytree_node=False, default=0.0)
 
     def __post_init__(self):
         check_log_std_bounds(self.log_std_bounds)

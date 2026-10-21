@@ -143,6 +143,9 @@ statistics. The reference divides by the standard deviation plus `1e-3`,
 Ajax by `sqrt(var + 1e-8)`; the two differ on a column the dataset holds
 constant. The [offline mode](../guide/training.md#training-offline)
 evaluates every `log_frequency` updates, as the reference does every 5,000.
+A conformance check (`tests/conformance/test_td3bc_sfujim.py`) makes one
+update of each from the same state, batch and noise, on Pendulum and
+MountainCarContinuous, and compares them.
 
 ## ReBRAC: offline
 

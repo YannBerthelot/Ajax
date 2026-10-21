@@ -11,15 +11,16 @@ describes the result. What a user of 0.3.1 meets:
 
 - **Requirements**: Python 3.12 or newer; JAX 0.10 and flax 0.12.8 or newer,
   with no upper bounds; gymnax 1.0.1 from PyPI instead of a fork. Ajax
-  declares only the packages it imports, so gymnasium, mujoco, pandas,
-  matplotlib, pydantic and scipy are no longer installed with it. pip
-  installs Ajax from its repository as uv does.
-- **Extras**: `ajax[cuda]` (JAX with CUDA, Linux), `ajax[brax]` and
-  `ajax[playground]` (Brax and MuJoCo Playground environments; Playground
-  brings Brax), `ajax[compare]`, `ajax[reproduction]` and `ajax[wandb]`.
-- **Deprecated**: brax and playground in the core install. 0.4.0 still
-  installs them; 0.5.0 will not, so a project that uses their environments
-  should ask for `ajax[playground]` or `ajax[brax]` now.
+  declares only the packages it imports, so gymnasium, mujoco, mujoco-mjx,
+  pandas, matplotlib, pydantic and scipy are no longer installed with it.
+  pip installs Ajax from its repository as uv does.
+- **Breaking**: Brax and MuJoCo Playground are no longer installed with
+  Ajax. A project that uses their environments asks for `ajax[playground]`
+  (which brings Brax) or `ajax[brax]`; without them, building one of their
+  environments raises an error that names the extra.
+- **Extras**: `ajax[cuda]` (JAX with CUDA, Linux), `ajax[brax]`,
+  `ajax[playground]`, `ajax[compare]`, `ajax[reproduction]` and
+  `ajax[wandb]`.
 - **Agents**: sixteen, each from a published paper: SAC, ASAC, REDQ, TD3,
   AVG, DQN, PQN, PPO, APO, UDRL, APG, DreamerV3, TDMPC2, TDMPC2MultiTask,
   IQL and DAgger, on one training loop, with several seeds in one compiled
@@ -44,7 +45,8 @@ describes the result. What a user of 0.3.1 meets:
 - **Development**: dependency floors without caps, tested weekly at the
   newest and the oldest versions allowed; `uv.lock` refreshed monthly.
   Conformance checks (`tests/conformance`) compare one update of an agent
-  with its original implementation's, PQN and TD3 so far. The tests come in
+  with its original implementation's: PQN, TD3, TD3+BC, REDQ and AVG so
+  far. The tests come in
   two tiers (CONTRIBUTING.md, Testing): the slow tier, every test that
   trains, also runs daily on main, on a pull request labelled
   `run-slow-tier` and before each release; tags come only from the Release

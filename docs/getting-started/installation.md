@@ -25,6 +25,10 @@ pip installs Ajax from its repository:
 pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git"
 ```
 
+Brax and MuJoCo Playground environments need an [extra](#extras):
+`"ajax[playground] @ git+..."` installs both, `"ajax[brax] @ git+..."`
+Brax alone.
+
 pip does not read `uv.lock`, so it takes the newest versions that
 `pyproject.toml` allows. A weekly CI job tests those too, and another the
 oldest versions allowed
@@ -59,7 +63,7 @@ opt-in.
 
 | Group | Default | What it adds |
 | --- | --- | --- |
-| `dev` | yes | pytest, coverage, pre-commit, ruff, mypy, and the probing environments the tests train on |
+| `dev` | yes | pytest, coverage, pre-commit, ruff, mypy, the probing environments the tests train on, and the `playground` extra |
 | `wandb` | yes | the `wandb` extra (below) |
 | `plane` | no | [TargetGym](https://github.com/YannBerthelot/TargetGym), for the Plane3DCircle scenario of the speed benchmark (`benchmarks/perf_bench.py`) |
 | `docs` | no | MkDocs and its plugins, to build this site |
@@ -88,11 +92,11 @@ imported.
 uv sync --extra compare
 ```
 
-Until 0.5.0, Brax and MuJoCo Playground also come with Ajax itself. From
-0.5.0 they come only with their extras, so a project that uses their
-environments asks for `ajax[playground]` (or `ajax[brax]`) now. Without
-them, building a Brax or Playground environment raises an error that
-names the extra.
+Brax and MuJoCo Playground come only with their extras: a project that
+uses their environments asks for `ajax[playground]`, or `ajax[brax]` for
+Brax alone. Without them, building a Brax or Playground environment raises
+an error that names the extra. The `dev` group installs both, so `uv sync`
+in this repository has them.
 
 The `compare` extra takes `adastop` from a commit of its main branch, named
 in `[tool.uv.sources]`, until a release includes the confidence sequence.

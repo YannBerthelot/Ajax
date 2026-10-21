@@ -65,9 +65,10 @@ uv sync   # creates .venv with the locked dependencies
 
 uv installs the versions in `uv.lock`, which CI tests, with JAX for the CPU;
 on a Linux machine with an NVIDIA GPU, add CUDA with `uv sync --extra cuda`
-(a project that depends on Ajax asks for `ajax[cuda]`). A project that
-trains on Brax or MuJoCo Playground environments asks for
-`ajax[playground]`, which brings Brax too, or `ajax[brax]` alone
+(a project that depends on Ajax asks for `ajax[cuda]`). Brax and MuJoCo
+Playground environments need an extra: `ajax[playground]`, which brings
+Brax, or `ajax[brax]` alone. In this repository `uv sync` installs it with
+the development tools
 ([Installation](docs/getting-started/installation.md#extras)).
 
 pip works too. It does not read `uv.lock`, so it takes the newest versions
@@ -75,6 +76,7 @@ that `pyproject.toml` allows:
 
 ```bash
 pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git"
+pip install "ajax[playground] @ git+https://github.com/YannBerthelot/Ajax.git"  # with Brax and Playground
 ```
 
 [Installation](docs/getting-started/installation.md) covers the extras
@@ -242,7 +244,8 @@ conventions and how the pieces combine.
   probes that should catch each one; CI checks that every bug still applies
   to the code, and planting them to run the probes is done by hand.
   Conformance checks run one update of an agent and of its original
-  implementation from the same state and compare them (PQN and TD3 so far).
+  implementation from the same state and compare them (PQN, TD3, TD3+BC,
+  REDQ and AVG so far).
 - **[Performance](docs/guide/performance.md)**: seeds vectorised with
   `jax.vmap`, a persistent compile cache, one per machine and JAX version, and
   a per-agent benchmark script, run by hand, that flags slowdowns over 10%

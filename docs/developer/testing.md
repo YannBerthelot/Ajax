@@ -108,6 +108,9 @@ check.
 | --- | --- | --- |
 | PQN | purejaxql (JAX) | `tests/conformance/test_pqn_purejaxql.py` |
 | TD3 | sfujim/TD3 (PyTorch) | `tests/conformance/test_td3_sfujim.py` |
+| TD3+BC | sfujim/TD3_BC (PyTorch) | `tests/conformance/test_td3bc_sfujim.py` |
+| REDQ | watchernyu/REDQ (PyTorch) | `tests/conformance/test_redq_original.py` |
+| AVG | gauthamvasan/avg (PyTorch) | `tests/conformance/test_avg_original.py` |
 
 The originals are vendored under `benchmarks/reference/vendor`. A PyTorch
 original runs in its own environment (`benchmarks/reference/envs/torch`)
@@ -116,8 +119,9 @@ the original, its recorder and that environment's lock stay the same
 (`AJAX_CONFORMANCE_RECORDS`). `tests/conformance/kit.py` holds the seams
 that make one step comparable without changing the code under test: a tape
 of the random draws, and the capture of an agent's update. A difference
-that is the original's convention or defect is pinned as a deviation in
-the test and listed in the [reproduction specifications](../reproduction/specs.md).
+that is the original's convention or defect is registered with its reason
+(`benchmarks/reference/refcmp_specs.py`) and asserted by a test of its own;
+PQN's also appear in the [reproduction specifications](../reproduction/specs.md).
 
 ## Running tests locally
 

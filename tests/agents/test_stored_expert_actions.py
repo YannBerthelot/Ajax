@@ -86,7 +86,7 @@ AGENTS: dict[str, tuple[type, dict]] = {
         },
     ),
     "TD3": (TD3, REPLAY),
-    "REDQ": (REDQ, REPLAY),
+    "REDQ": (REDQ, REPLAY | {"num_critic_updates": 2}),  # not its 20 a step
     "ASAC": (ASAC, REPLAY),
     "AVG": (AVG, {"learning_starts": 16}),
     "APO": (

@@ -474,7 +474,8 @@ lock.
   then contract (CLAUDE.md, rule 10). Tags come only from the *Release*
   workflow ([release.yml](.github/workflows/release.yml), by hand, with the
   version): it tags main's head once the slow tier has passed there,
-  running it first if needed.
+  running it first if needed, then publishes that commit to PyPI as
+  `ajax-rl`.
 
 ## Style
 

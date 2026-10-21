@@ -40,4 +40,4 @@ __all__ = [
     "DreamerV3",
     "TDMPC2MultiTask",
 ]
-__version__ = version("ajax")
+__version__ = version("ajax-rl")

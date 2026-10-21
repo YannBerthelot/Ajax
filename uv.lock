@@ -44,7 +44,7 @@ wheels = [
 ]
 
 [[package]]
-name = "ajax"
+name = "ajax-rl"
 version = "0.4.0"
 source = { editable = "." }
 dependencies = [
@@ -86,7 +86,7 @@ wandb = [
 [package.dev-dependencies]
 dev = [
     { name = "adastop" },
-    { name = "ajax", extra = ["playground"] },
+    { name = "ajax-rl", extra = ["playground"] },
     { name = "coverage" },
     { name = "matplotlib" },
     { name = "mypy" },
@@ -112,13 +112,13 @@ plane = [
     { name = "target-gym" },
 ]
 wandb = [
-    { name = "ajax", extra = ["wandb"] },
+    { name = "ajax-rl", extra = ["wandb"] },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "adastop", marker = "extra == 'compare'", git = "https://github.com/TimotheeMathieu/adastop.git?rev=07e7159643f11467c154266b5ef3b1be6ca8ddd8" },
-    { name = "ajax", extras = ["brax"], marker = "extra == 'playground'" },
+    { name = "ajax-rl", extras = ["brax"], marker = "extra == 'playground'" },
     { name = "brax", marker = "extra == 'brax'", specifier = ">=0.14.2" },
     { name = "chex", specifier = ">=0.1.91,<0.2" },
     { name = "distrax", specifier = ">=0.1.9" },
@@ -142,7 +142,7 @@ provides-extras = ["cuda", "compare", "reproduction", "brax", "playground", "wan
 [package.metadata.requires-dev]
 dev = [
     { name = "adastop", git = "https://github.com/TimotheeMathieu/adastop.git?rev=07e7159643f11467c154266b5ef3b1be6ca8ddd8" },
-    { name = "ajax", extras = ["playground"] },
+    { name = "ajax-rl", extras = ["playground"] },
     { name = "coverage", extras = ["toml"], specifier = ">=7.8.0,<8" },
     { name = "matplotlib", specifier = ">=3.8.0,<4" },
     { name = "mypy", specifier = ">=1.4.1,<2" },
@@ -165,7 +165,7 @@ docs = [
     { name = "ruff", specifier = ">=0.11.6,<0.12" },
 ]
 plane = [{ name = "target-gym", specifier = ">=0.6.1,<0.7" }]
-wandb = [{ name = "ajax", extras = ["wandb"] }]
+wandb = [{ name = "ajax-rl", extras = ["wandb"] }]
 
 [[package]]
 name = "annotated-types"

@@ -49,7 +49,7 @@ assert not check_env_is_brax(env)
 try:
     build_env_from_id("ant")
 except ValueError as error:
-    assert "ajax[brax]" in str(error) and "ajax[playground]" in str(error), error
+    assert "ajax-rl[brax]" in str(error) and "ajax-rl[playground]" in str(error), error
 else:
     raise AssertionError("ant built without brax")
 PPO("CartPole-v1", n_envs=1, n_steps=16, batch_size=8).train(seed=0, n_timesteps=32)

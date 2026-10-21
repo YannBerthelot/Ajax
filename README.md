@@ -54,29 +54,29 @@ which agent runs which.
 
 ## Installation
 
-Ajax installs from source with [uv](https://docs.astral.sh/uv/), on Python 3.12
-or newer:
+Ajax is on PyPI as `ajax-rl`, for Python 3.12 or newer, and imports as
+`ajax`:
+
+```bash
+pip install ajax-rl
+pip install "ajax-rl[playground]"  # with Brax and MuJoCo Playground
+```
+
+JAX comes for the CPU; on a Linux machine with an NVIDIA GPU, add CUDA with
+`ajax-rl[cuda]`. Brax and MuJoCo Playground environments need an extra:
+`ajax-rl[playground]`, which brings Brax, or `ajax-rl[brax]` alone
+([Installation](docs/getting-started/installation.md#extras)). pip takes the
+newest versions that `pyproject.toml` allows; main installs with
+`pip install "ajax-rl @ git+https://github.com/YannBerthelot/Ajax.git"`.
+
+From source, [uv](https://docs.astral.sh/uv/) installs the versions in
+`uv.lock`, which CI tests, with the development tools and the `playground`
+extra (`uv sync --extra cuda` adds CUDA):
 
 ```bash
 git clone https://github.com/YannBerthelot/Ajax.git
 cd Ajax
 uv sync   # creates .venv with the locked dependencies
-```
-
-uv installs the versions in `uv.lock`, which CI tests, with JAX for the CPU;
-on a Linux machine with an NVIDIA GPU, add CUDA with `uv sync --extra cuda`
-(a project that depends on Ajax asks for `ajax[cuda]`). Brax and MuJoCo
-Playground environments need an extra: `ajax[playground]`, which brings
-Brax, or `ajax[brax]` alone. In this repository `uv sync` installs it with
-the development tools
-([Installation](docs/getting-started/installation.md#extras)).
-
-pip works too. It does not read `uv.lock`, so it takes the newest versions
-that `pyproject.toml` allows:
-
-```bash
-pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git"
-pip install "ajax[playground] @ git+https://github.com/YannBerthelot/Ajax.git"  # with Brax and Playground
 ```
 
 [Installation](docs/getting-started/installation.md) covers the extras

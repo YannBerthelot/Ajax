@@ -3,7 +3,7 @@
 Every run of the reproduction protocol, Ajax's and the reference
 implementations', as tables: ``runs`` has one row per seed and evaluation,
 ``batches`` each batch's speed and manifest, ``summary`` each comparison's
-verdict. Needs the ``reproduction`` extra (``pip install "ajax[reproduction]"``).
+verdict. Needs the ``reproduction`` extra (``pip install "ajax-rl[reproduction]"``).
 """
 
 import pathlib

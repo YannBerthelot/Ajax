@@ -3,8 +3,8 @@ name: Release
 # Tags a release, by hand, only on a commit the slow tier passed on (the
 # two-tier test plan, owner 2026-10-20): the version's CHANGELOG entry must
 # be on main; with no green Slow tier run on main's head, the slow tier runs
-# there first (slow.yml); then the vX.Y.Z tag is created. Tags come only
-# from this workflow.
+# there first (slow.yml); then the vX.Y.Z tag is created and the tagged
+# commit is published to PyPI as ajax-rl. Tags come only from this workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -70,3 +70,30 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v$VERSION" -m "Ajax $VERSION" "${{ needs.check.outputs.sha }}"
           git push origin "v$VERSION"
+
+  # Trusted publishing: PyPI accepts uploads from this workflow in the pypi
+  # environment, so no token is stored anywhere.
+  publish:
+    needs: tag
+    if: always() && needs.tag.result == 'success'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/v${{ inputs.version }}
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: "0.11.28"
+      - run: uv build --no-sources
+      - env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          meta=$(unzip -p "dist/ajax_rl-$VERSION-py3-none-any.whl" '*.dist-info/METADATA')
+          grep -qx "Name: ajax-rl" <<< "$meta" || { echo "the wheel is not ajax-rl"; exit 1; }
+          grep -qx "Version: $VERSION" <<< "$meta" || { echo "the wheel is not $VERSION"; exit 1; }
+          test -f "dist/ajax_rl-$VERSION.tar.gz"
+      - run: uv publish --trusted-publishing always

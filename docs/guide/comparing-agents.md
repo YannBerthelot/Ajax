@@ -141,7 +141,7 @@ wide. The intervals are the hedged betting confidence sequence of
 Waudby-Smith and Ramdas ("Estimating means of bounded random variables by
 betting", JRSS-B, Section 4.4), the authors' `Bounded_Confseq` from the
 `adastop` package: install the `compare` extra (`uv sync --extra compare`,
-or depend on `ajax[compare]`). It comes from adastop's main branch until a
+or depend on `ajax-rl[compare]`). It comes from adastop's main branch until a
 release includes it.
 
 - **Valid at every seed count at once**: with probability at least

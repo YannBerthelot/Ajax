@@ -1,7 +1,8 @@
 # Changelog
 
 Versions follow semantic versioning; before 1.0, a breaking change bumps
-the minor version. Each release is tagged `vX.Y.Z` on main.
+the minor version. Each release is tagged `vX.Y.Z` on main and published to
+PyPI as `ajax-rl`.
 
 ## 0.4.0
 
@@ -13,14 +14,17 @@ describes the result. What a user of 0.3.1 meets:
   with no upper bounds; gymnax 1.0.1 from PyPI instead of a fork. Ajax
   declares only the packages it imports, so gymnasium, mujoco, mujoco-mjx,
   pandas, matplotlib, pydantic and scipy are no longer installed with it.
-  pip installs Ajax from its repository as uv does.
+  pip installs Ajax from PyPI or from its repository.
+- **Distribution name**: Ajax is on PyPI as `ajax-rl` (`pip install
+  ajax-rl`); the import is unchanged, `import ajax`. A project that declares
+  `ajax` from git or a path renames it `ajax-rl`.
 - **Breaking**: Brax and MuJoCo Playground are no longer installed with
-  Ajax. A project that uses their environments asks for `ajax[playground]`
-  (which brings Brax) or `ajax[brax]`; without them, building one of their
+  Ajax. A project that uses their environments asks for `ajax-rl[playground]`
+  (which brings Brax) or `ajax-rl[brax]`; without them, building one of their
   environments raises an error that names the extra.
-- **Extras**: `ajax[cuda]` (JAX with CUDA, Linux), `ajax[brax]`,
-  `ajax[playground]`, `ajax[compare]`, `ajax[reproduction]` and
-  `ajax[wandb]`.
+- **Extras**: `ajax-rl[cuda]` (JAX with CUDA, Linux), `ajax-rl[brax]`,
+  `ajax-rl[playground]`, `ajax-rl[compare]`, `ajax-rl[reproduction]` and
+  `ajax-rl[wandb]`.
 - **Agents**: sixteen, each from a published paper: SAC, ASAC, REDQ, TD3,
   AVG, DQN, PQN, PPO, APO, UDRL, APG, DreamerV3, TDMPC2, TDMPC2MultiTask,
   IQL and DAgger, on one training loop, with several seeds in one compiled

@@ -238,14 +238,16 @@ def test_recurrent_asac_keeps_its_previous_initialisation():
     np.testing.assert_array_equal(actor["log_std"]["bias"], -1.0)
 
 
-def test_a_terminated_rows_reward_is_charged_the_running_penalty(monkeypatch):
+def test_a_terminated_rows_reward_is_charged_the_penalty_for_the_critics_alone(
+    monkeypatch,
+):
     """ASAC's critics learn r - p d: each replayed row's reward less the
-    termination penalty p (its running average, updated on the batch first)
-    where the row terminated (Adamczyk et al., 2025). The identity task
-    terminates some episodes; p_0 = 1 and tau_theta = 1 make p the batch's
-    mean reward on the rows that go on."""
-    seen = []
-    update = train_ASAC.update_value_functions
+    termination penalty p (its running value, updated on the batch first)
+    where the row terminated; theta tracks the rewards themselves (BobMak/asac
+    @4b68862, darer/ASAC.py:179-205). The identity task terminates some
+    episodes; p_0 = 1 and tau_theta = 1 make p the batch's own."""
+    seen, theta_rewards = [], []
+    update, update_theta = train_ASAC.update_value_functions, train_ASAC.update_theta
 
     def spy(agent_state, transition, rewards, *args, **kwargs):
         jax.debug.callback(
@@ -257,13 +259,22 @@ def test_a_terminated_rows_reward_is_charged_the_running_penalty(monkeypatch):
         )
         return update(agent_state, transition, rewards, *args, **kwargs)
 
+    def theta_spy(agent_state, tau, rewards, *args, **kwargs):
+        jax.debug.callback(lambda r: theta_rewards.append(np.asarray(r)), rewards)
+        return update_theta(agent_state, tau, rewards, *args, **kwargs)
+
     monkeypatch.setattr(train_ASAC, "update_value_functions", spy)
+    monkeypatch.setattr(train_ASAC, "update_theta", theta_spy)
     env = IdentityEnv()
     kw = {"learning_starts": 16, "batch_size": 16, "p_0": 1.0, "tau_theta": 1.0}
-    ASAC(env, env_params=env.default_params, n_envs=2, **kw).train(
-        seed=0, n_timesteps=48
-    )
+    agent = ASAC(env, env_params=env.default_params, n_envs=4, **kw)
+    agent.train(seed=0, n_timesteps=96)
     jax.effects_barrier()
     assert any(t.any() and p != 0 for _, _, t, p in seen), "nothing was charged"
-    for charged, reward, terminated, penalty in seen:
+    assert len(theta_rewards) == len(seen)
+    scale = agent.agent_config.reward_scale
+    for (charged, reward, terminated, penalty), theta in zip(
+        seen, theta_rewards, strict=True
+    ):
         np.testing.assert_allclose(charged, reward - penalty * terminated, rtol=1e-6)
+        np.testing.assert_allclose(theta, reward * scale, rtol=1e-6)

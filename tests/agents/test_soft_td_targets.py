@@ -1,8 +1,8 @@
 """The soft TD targets (SAC, REDQ, ASAC): each is ``c r + ...``, the reward
 scaled once by the agent's reward_scale ``c``, and ASAC's less its average
-reward ``theta``, whatever the critics' values; SAC's and REDQ's cut the
-bootstrap at a termination; the next action's log-probability is the joint
-one; the target critics read the agent's observation normalisation."""
+reward ``theta``, whatever the critics' values; each cuts the bootstrap at a
+termination; the next action's log-probability is the joint one; the target
+critics read the agent's observation normalisation."""
 
 import functools
 
@@ -15,6 +15,7 @@ from ajax import ASAC, REDQ, SAC
 from ajax.agents.ASAC.train_ASAC import compute_asac_td_target
 from ajax.agents.REDQ.train_REDQ import compute_redq_td_target
 from ajax.agents.SAC.core import compute_td_target, sample_next_actions
+from ajax.networks.networks import action_value_input, predict_value
 from tests.environments import paid_action
 
 KEY = jax.random.PRNGKey(0)
@@ -82,12 +83,16 @@ def test_asacs_target_subtracts_its_average_reward() -> None:
     np.testing.assert_allclose(raised, -1.0, atol=1e-5)
 
 
-def test_asacs_target_bootstraps_through_every_end() -> None:
-    """The differential target has no (1 - d) mask: ASAC charges a
-    termination its penalty in the reward instead (train_ASAC's update)."""
-    rewards = jnp.zeros((ROWS, 1))
-    ended = _target("ASAC", rewards, 1.0, dones=jnp.ones((ROWS, 1)))
-    np.testing.assert_allclose(ended, _target("ASAC", rewards, 1.0), atol=1e-6)
+def test_asacs_target_drops_the_next_value_at_a_termination() -> None:
+    """As the authors' code (BobMak/asac@4b68862, darer/ASAC.py:179-205), a
+    termination's target is r - theta - Q_target(0, 0): no next value, the
+    origin shift on every row."""
+    critic = _state("ASAC").critic_state
+    zero = action_value_input(jnp.zeros((1, 3)), jnp.zeros((1, 1)))
+    origin = jnp.mean(predict_value(critic, critic.target_params, zero))
+    rewards = jnp.linspace(-1.0, 1.0, ROWS)[:, None]
+    ended = _target("ASAC", rewards, 2.0, theta=0.5, dones=jnp.ones((ROWS, 1)))
+    np.testing.assert_allclose(ended, 2.0 * rewards - 0.5 - origin, atol=1e-5)
 
 
 @pytest.mark.parametrize("name", ["SAC", "REDQ"])

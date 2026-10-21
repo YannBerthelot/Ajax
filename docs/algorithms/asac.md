@@ -111,7 +111,12 @@ and `ImitationLoss` extensions ([Expert guidance](../guide/expert-guidance.md)).
 
 ## Results
 
-The repository records no learning curves for ASAC yet. Unit tests
+The repository records no learning curves for ASAC yet. A conformance
+check (`tests/conformance/test_asac_original.py`) makes one update of
+Ajax's ASAC and of BobMak/asac from the same state and batch, on two
+gymnasium tasks and on a Pendulum with a two-dimensional torque that
+terminates every 20th step, and compares the actor, both critics and their
+targets, the three optimisers, `theta` and the penalty. Unit tests
 (`tests/agents/ASAC` and the contracts every agent shares) check its pieces
 against exact contracts, without learning. The probes (`tests/probing`)
 train it briefly on tiny environments with known answers: its differential

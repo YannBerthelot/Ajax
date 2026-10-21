@@ -4,7 +4,7 @@ with them: what their conformance tests share.
 A recorder writes, per recorded state, ``in.*`` (the state), the update's own draws, and the state
 after one update from it in float32 and in float64 (``f32.*``, ``f64.*``), whose difference is the
 rounding the check tolerates. CI keeps the records while the vendored originals, the recorders and the
-torch env's lock stay the same (``AJAX_CONFORMANCE_RECORDS``, under a cache key that hashes them);
+recorders' env locks stay the same (``AJAX_CONFORMANCE_RECORDS``, under a cache key that hashes them);
 unset, every session records them.
 """
 
@@ -20,21 +20,27 @@ from tests.conformance import submaps
 REPO = pathlib.Path(__file__).parents[2]
 KEPT = os.environ.get("AJAX_CONFORMANCE_RECORDS")
 TORCH_ENV = "benchmarks/reference/envs/torch"  # CPU-only PyTorch, gymnax, jax
+ASAC_ENV = "benchmarks/reference/envs/asac"  # BobMak/asac's pins: stable-baselines3 2.4, gymnasium 1.0
 CPU = subproject_env(REPO / TORCH_ENV, JAX_PLATFORMS="cpu", CUDA_VISIBLE_DEVICES="")
 
 
 def recorded(
-    name: str, recorder: str, envs: tuple[str, ...], scratch: pathlib.Path
+    name: str,
+    recorder: str,
+    envs: tuple[str, ...],
+    scratch: pathlib.Path,
+    project: str = TORCH_ENV,
 ) -> pathlib.Path:
     """``recorder``'s records (benchmarks/reference/) on ``envs``: CI's kept ones when whole, else
-    recorded now in the torch env, under the kept directory or else in ``scratch``."""
+    recorded now in ``project`` (an env of benchmarks/reference/envs), under the kept directory or else
+    in ``scratch``."""
     out = REPO / KEPT / name if KEPT else scratch
     marker = out / "envs"  # written last: unfinished records are never taken
     if marker.is_file() and marker.read_text() == " ".join(envs):
         return out
     for env_id in envs:
         script = f"benchmarks/reference/{recorder}"
-        command = ["uv", "run", "--project", TORCH_ENV, "--locked", "python", script]
+        command = ["uv", "run", "--project", project, "--locked", "python", script]
         subprocess.run([*command, env_id, str(out)], cwd=REPO, env=CPU, check=True)
     marker.write_text(" ".join(envs))
     return out

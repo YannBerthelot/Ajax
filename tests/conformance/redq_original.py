@@ -5,19 +5,15 @@ updates, then the actor's and the temperature's) from each of REDQ's recorded st
 The state maps one to one, kernels transposed: the policy's trunk, mean and log_std heads; the 10 Q
 networks and their targets along the ensemble axis; every Adam's moments and step; log_alpha. The 20
 recorded batches are served by the key each critic update samples with, the subsets and noises taped
-by role; the step compiles once per env and mode. Two registered differences
-(refcmp_specs.REDQ_DEVIATIONS) can be accounted for: REDQ's first step reads the temperature its
-``__init__`` overwrote (``effective_alpha``: Ajax starts from it, and log_alpha's change is compared),
-and REDQ's tanh log-det adds 1e-6 (``redq_log_det``).
+by role; the step compiles once per env and mode. Ajax's REDQ reads the temperature REDQ's
+``__init__`` leaves for its first step and REDQ's tanh log-det, so nothing is substituted.
 """
 
 from __future__ import annotations
 
-import contextlib
 import re
-from typing import Any, Iterator
+from typing import Any
 
-import distrax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -86,20 +82,7 @@ def reference_names(path: Any) -> tuple[list[str], str] | None:
     return [f"{n}.{module}.{leaf}{tail}" for n in nets], keys[-1]
 
 
-def _alpha_shift(arrays: dict, effective_alpha: bool) -> float:
-    """What Ajax's starting log_alpha adds to REDQ's: log of the temperature REDQ reads over
-    exp(log_alpha) (0 once REDQ's temperature has stepped)."""
-    if not effective_alpha:
-        return 0.0
-    return float(
-        np.log(arrays["in.alpha_used"])
-        - np.asarray(arrays["in.log_alpha"]).reshape(-1)[0]
-    )
-
-
-def to_ajax(template: Any, arrays: dict, dtype: Any, effective_alpha: bool) -> Any:
-    shift = _alpha_shift(arrays, effective_alpha)
-
+def to_ajax(template: Any, arrays: dict, dtype: Any) -> Any:
     def put(path: Any, x: Any) -> Any:
         found = reference_names(path)
         if found is None:
@@ -110,16 +93,13 @@ def to_ajax(template: Any, arrays: dict, dtype: Any, effective_alpha: bool) -> A
             return jnp.asarray(int(parts[0].reshape(-1)[0]), x.dtype)
         parts = [p.T if kind == "kernel" else p for p in parts]
         value = (np.stack(parts) if len(parts) > 1 else parts[0]).reshape(x.shape)
-        if names == ["log_alpha"]:
-            value = value + shift
         return jnp.asarray(value, dtype)
 
     return jax.tree_util.tree_map_with_path(put, template)
 
 
-def to_reference(state: Any, arrays: dict, effective_alpha: bool) -> dict:
-    """``state`` in REDQ's names; log_alpha back on REDQ's start, so that its change is compared."""
-    shift = _alpha_shift(arrays, effective_alpha)
+def to_reference(state: Any) -> dict:
+    """``state`` in REDQ's names."""
     out = {}
     for path, x in jax.tree_util.tree_leaves_with_path(state):
         found = reference_names(path)
@@ -130,8 +110,6 @@ def to_reference(state: Any, arrays: dict, effective_alpha: bool) -> dict:
         if kind == "count":
             out[names[0]] = value
             continue
-        if names == ["log_alpha"]:
-            value = value - shift
         values = list(value) if len(names) > 1 else [value]
         for n, v in zip(names, values, strict=True):
             out[n] = (
@@ -140,34 +118,12 @@ def to_reference(state: Any, arrays: dict, effective_alpha: bool) -> dict:
     return out
 
 
-@contextlib.contextmanager
-def redq_log_det() -> Iterator[None]:
-    """Ajax's tanh log-det as REDQ's: log(1 - tanh(u)^2 + 1e-6) (core.py:232), not the exact one."""
-
-    def log_det(self: Any, x: jax.Array) -> jax.Array:
-        return jnp.log(1.0 - jnp.tanh(x) ** 2 + 1e-6)
-
-    tanh = distrax.Tanh
-    saved = tanh.forward_log_det_jacobian, tanh.forward_and_log_det
-    tanh.forward_log_det_jacobian = log_det  # type: ignore[method-assign]
-    tanh.forward_and_log_det = lambda self, x: (jnp.tanh(x), log_det(self, x))  # type: ignore[method-assign]
-    jax.clear_caches()
-    try:
-        yield
-    finally:
-        tanh.forward_log_det_jacobian, tanh.forward_and_log_det = saved  # type: ignore[method-assign]
-        jax.clear_caches()
-
-
 def run(
     records: Any,
     precision: str,
     fault: str | None = None,
-    effective_alpha: bool = True,
-    log_det: bool = True,
 ) -> dict[str, dict]:
-    """Ajax's state after one step from each record, in REDQ's names, by record name: from REDQ's
-    effective temperature (``effective_alpha``), with REDQ's tanh log-det (``log_det``)."""
+    """Ajax's state after one step from each record, in REDQ's names, by record name."""
     dtype = np.float64 if precision == "f64" else np.float32
     # The 20 batches and their keys, set while the update is traced: arguments of the compiled
     # update, so each env compiles once.
@@ -208,10 +164,7 @@ def run(
     train_REDQ.sample_replay = injected
     try:
         for env_id in envs:
-            with redq_log_det() if log_det else contextlib.nullcontext():
-                out |= _env_updates(
-                    records, env_id, dtype, fault, given, effective_alpha
-                )
+            out |= _env_updates(records, env_id, dtype, fault, given)
     finally:
         train_REDQ.sample_replay = sample
     return out
@@ -223,7 +176,6 @@ def _env_updates(
     dtype: Any,
     fault: str | None,
     given: dict,
-    effective_alpha: bool,
 ) -> dict:
     agent = ajax.REDQ(env_id, **(SETTINGS | FAULTS.get(fault or "", {})))
     step = kit.capture_step(agent, 2_000)
@@ -254,7 +206,7 @@ def _env_updates(
             logged.append(np.asarray(k))
             return np.asarray(k)
 
-        state = to_ajax(template, a, np.float32, effective_alpha)
+        state = to_ajax(template, a, np.float32)
         no_keys = np.zeros((20, 2), np.uint32)
         with kit.recording() as rec:
             given["log"] = log
@@ -276,12 +228,12 @@ def _env_updates(
         for n, a in arrays.items():
             tape = _tape(roles, draws[n], a, dtype)
             new = replayed(
-                to_ajax(template, a, dtype, effective_alpha),
+                to_ajax(template, a, dtype),
                 keys[n],
                 batches(a, dtype),
                 tape,
             )
-            out[n] = to_reference(new, a, effective_alpha)
+            out[n] = to_reference(new)
     assert not replay.misses
     return out
 

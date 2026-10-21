@@ -298,6 +298,22 @@ def update_policy(
     return agent_state, aux, log_probs, metrics
 
 
+#: The temperature REDQ's code reads until its first temperature step: ``__init__`` sets
+#: ``self.alpha = exp(log_alpha)``, then ``self.alpha = alpha``, the constructor's 0.2
+#: (watchernyu/REDQ@7b5d1bf, ``redq/algos/redq_sac.py:61``, ``:80``), likely a slip, kept as the
+#: original runs.
+FIRST_ALPHA = 0.2
+
+
+def read_temperature(agent_state: REDQState) -> REDQState:
+    """``agent_state`` with the temperature REDQ's code reads: :data:`FIRST_ALPHA` before the first
+    temperature step, ``exp(log_alpha)`` from it on."""
+    log_alpha = agent_state.alpha.params["log_alpha"]
+    read = jnp.where(agent_state.alpha.step == 0, jnp.log(FIRST_ALPHA), log_alpha)
+    alpha = agent_state.alpha.replace(params=FrozenDict({"log_alpha": read}))
+    return agent_state.replace(alpha=alpha)
+
+
 def update_agent(
     agent_state: REDQState,
     buffer: BufferType,
@@ -313,7 +329,10 @@ def update_agent(
     The actor step reads the critics from before the last critic step, as
     REDQ's official code, which computes the actor loss
     (watchernyu/REDQ@7b5d1bf, ``redq/algos/redq_sac.py:220``) before the
-    critics' optimizers step (``:242``); Algorithm 1 reads them after."""
+    critics' optimizers step (``:242``); Algorithm 1 reads them after. The
+    critic and actor steps read :func:`read_temperature`'s temperature; the
+    temperature step updates the learned one."""
+    learned = agent_state.alpha
 
     def critic_update_step(agent_state: REDQState, _: Any) -> Tuple[REDQState, Any]:
         sample_key, rng = jax.random.split(agent_state.rng)
@@ -340,7 +359,9 @@ def update_agent(
     # Carry-only scan: only the last critic step's metrics, batch and
     # critics before it are kept.
     agent_state, last = final_aux_scan(
-        critic_update_step, agent_state, length=agent_config.num_critic_updates
+        critic_update_step,
+        read_temperature(agent_state),
+        length=agent_config.num_critic_updates,
     )
     aux_value, value_metrics, batch, carries, critics_before = last
     critic_state = agent_state.critic_state
@@ -354,7 +375,7 @@ def update_agent(
         a_expert=batch.a_expert,
         actions=batch.action,
     )
-    agent_state = agent_state.replace(critic_state=critic_state)
+    agent_state = agent_state.replace(critic_state=critic_state, alpha=learned)
     agent_state, aux_temperature = core.update_temperature(
         agent_state, log_probs, jnp.asarray(agent_config.target_entropy)
     )

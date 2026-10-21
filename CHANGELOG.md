@@ -15,6 +15,11 @@ PyPI as `ajax-rl`.
   `log(1/nA)`; and the policy's log-probability takes stable-baselines3's
   `+1e-6` in the `tanh` correction. Runs with terminations learn other
   values; continuing tasks change less.
+- **REDQ** now does what the authors' code does (`watchernyu/REDQ`): its
+  first update's critic targets and actor loss read the temperature 0.2,
+  which the code's constructor leaves until its first temperature step, and
+  the policy's log-probability takes the code's `+1e-6` in the `tanh`
+  correction. Later updates read `exp(log_alpha)` as before.
 - `NetworkConfig.squash_log_det_eps` sets the guard inside the `tanh`
   log-det, `log(1 - tanh(u)^2 + eps)`, for an agent whose reference uses
   one; 0, the exact log-det, by default.

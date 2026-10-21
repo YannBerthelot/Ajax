@@ -133,8 +133,8 @@ class REDQ(ActorCritic):
                 ``alpha=0.2`` default until its first temperature step
                 (``:214-236``), on the last of the 20 critic updates
                 (``utd_ratio``) of the first env step that trains: those
-                updates' targets and the first actor loss read 0.2, a
-                transient not reproduced.
+                updates' targets and the first actor loss read 0.2, and
+                so do Ajax's (``train_REDQ.FIRST_ALPHA``).
             target_entropy_per_dim (float | "mbpo"): Target entropy per
                 action dimension, or ``"mbpo"`` for MBPO's per-task target
                 entropy (:data:`MBPO_TARGET_ENTROPY`), the default of REDQ's
@@ -194,6 +194,9 @@ class REDQ(ActorCritic):
         # Ajax's shared default is 1e-5.
         self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=1e-8)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=1e-8)
+        # REDQ's log-probability subtracts log(1 - tanh^2 + 1e-6)
+        # (redq/algos/core.py:232).
+        self.network_args = self.network_args.replace(squash_log_det_eps=1e-6)
 
         self.alpha_args = AlphaConfig(
             learning_rate=alpha_learning_rate,

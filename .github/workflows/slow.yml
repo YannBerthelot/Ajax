@@ -1,0 +1,159 @@
+name: Slow tier
+
+# The two-tier test plan's slow tier: everything that trains (tests/probing,
+# marked slow by tests/conftest.py, and the tests marked slow elsewhere),
+# in six shards by recorded duration (tests/.durations), on x86, the
+# platform most users train on. It runs daily on main when main changed, by
+# hand on any branch, once per `run-slow-tier` label added to a pull
+# request, and from the Release workflow on the commit to tag. On main, a
+# red run opens an issue (or comments on the open one) and bisects when the
+# range is short; a green run closes it (.github/scripts/slow_report.py).
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit to run on.
+        type: string
+        required: true
+  pull_request:
+    types: [labeled]
+
+# Per pull request and label: adding another label starts a run that skips,
+# and must not cancel a slow run in progress.
+concurrency:
+  group: slow-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ github.event.label.name }}
+  cancel-in-progress: true
+
+env:
+  CUDA_VISIBLE_DEVICES: ""
+  JAX_PLATFORMS: cpu
+  JAX_PLATFORM_NAME: cpu
+
+jobs:
+  # A daily run is skipped when the last green or red daily or by-hand run
+  # on main tested main's head: a red one already has its issue.
+  changed:
+    if: github.event_name != 'pull_request' || github.event.label.name == 'run-slow-tier'
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+      sha: ${{ steps.check.outputs.sha }}
+      last_green: ${{ steps.check.outputs.last_green }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+        run: |
+          runs="repos/${{ github.repository }}/actions/workflows/slow.yml/runs?branch=main&status=completed&per_page=50"
+          ours='.workflow_runs[] | select(.event == "schedule" or .event == "workflow_dispatch")
+            | select(.conclusion == "success" or .conclusion == "failure")'
+          last=$(gh api "$runs" -q "[$ours][0].head_sha // empty")
+          green=$(gh api "$runs" -q "[$ours | select(.conclusion == \"success\")][0].head_sha // empty")
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "last_green=$green" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = schedule ] && [ "$last" = "$SHA" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  slow:
+    name: Slow (shard ${{ matrix.shard }})
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.changed.outputs.sha }}
+      - uses: ./.github/actions/setup
+      - id: jax-cache
+        uses: ./.github/actions/compile-cache
+        with:
+          job: slow-tier-${{ matrix.shard }}
+      - run: >-
+          uv run pytest -m slow --shard ${{ matrix.shard }}/6 -v --durations=30
+          --junitxml=junit-${{ matrix.shard }}.xml
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-${{ matrix.shard }}
+          path: junit-${{ matrix.shard }}.xml
+      - name: Save the JAX compile cache
+        if: always() && github.event_name == 'schedule' && steps.jax-cache.outputs.key
+        continue-on-error: true
+        uses: ./.github/actions/compile-cache-save
+        with:
+          key: ${{ steps.jax-cache.outputs.key }}
+
+  report:
+    needs: [changed, slow]
+    if: >-
+      always() && needs.changed.outputs.run == 'true'
+      && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      issue: ${{ steps.report.outputs.issue }}
+      bisect: ${{ steps.report.outputs.bisect }}
+      nodes: ${{ steps.report.outputs.nodes }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.changed.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: junit-*
+          path: junit
+      - id: report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 .github/scripts/slow_report.py junit
+          --result "${{ needs.slow.result }}" --sha "${{ needs.changed.outputs.sha }}"
+          --last-green "${{ needs.changed.outputs.last_green }}"
+          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  bisect:
+    needs: [changed, report]
+    if: always() && needs.report.outputs.bisect == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.changed.outputs.sha }}
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - id: bisect
+        run: >-
+          .github/scripts/slow_bisect.sh "${{ needs.changed.outputs.last_green }}"
+          ${{ needs.report.outputs.nodes }}
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ steps.bisect.outputs.result }}
+        run: |
+          if [ "$RESULT" = flaky ]; then
+            note="The failing tests pass when re-run at the head: flaky, no bisect."
+          else
+            pr=$(gh pr list --state merged --search "$RESULT" --json number -q '.[0].number // empty')
+            note="Bisect over the merges since the last green run: first bad commit $RESULT${pr:+ (#$pr)}."
+          fi
+          gh issue comment "${{ needs.report.outputs.issue }}" --body "$note"

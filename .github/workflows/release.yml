@@ -1,0 +1,72 @@
+name: Release
+
+# Tags a release, by hand, only on a commit the slow tier passed on (the
+# two-tier test plan, owner 2026-10-20): the version's CHANGELOG entry must
+# be on main; with no green Slow tier run on main's head, the slow tier runs
+# there first (slow.yml); then the vX.Y.Z tag is created. Tags come only
+# from this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version to tag, X.Y.Z, with its "## X.Y.Z" CHANGELOG entry on main.
+        required: true
+
+# The called slow tier opens an issue when red, and reads pull requests to
+# name a bisected merge.
+permissions:
+  contents: write
+  issues: write
+  pull-requests: read
+
+jobs:
+  check:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.check.outputs.sha }}
+      green: ${{ steps.check.outputs.green }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be X.Y.Z"; exit 1; }
+          grep -qx "## $VERSION" CHANGELOG.md || { echo "CHANGELOG.md has no '## $VERSION'"; exit 1; }
+          if git rev-parse -q --verify "refs/tags/v$VERSION" > /dev/null; then
+            echo "v$VERSION exists"; exit 1
+          fi
+          sha=$(git rev-parse HEAD)
+          runs="repos/${{ github.repository }}/actions/workflows/slow.yml/runs"
+          green=$(gh api "$runs?head_sha=$sha&status=success" -q '.total_count')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "green=$([ "$green" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  slow:
+    needs: check
+    if: needs.check.outputs.green == 'false'
+    uses: ./.github/workflows/slow.yml
+    with:
+      ref: ${{ needs.check.outputs.sha }}
+
+  tag:
+    needs: [check, slow]
+    if: >-
+      always() && needs.check.result == 'success'
+      && (needs.slow.result == 'success' || needs.slow.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "Ajax $VERSION" "${{ needs.check.outputs.sha }}"
+          git push origin "v$VERSION"

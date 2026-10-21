@@ -1,7 +1,28 @@
 # Installation
 
-Ajax installs from source with [uv](https://docs.astral.sh/uv/). It needs
-Python 3.12 or newer.
+Ajax is on PyPI as `ajax-rl` and imports as `ajax`. It needs Python 3.12 or
+newer.
+
+```bash
+pip install ajax-rl
+```
+
+Brax and MuJoCo Playground environments need an [extra](#extras):
+`"ajax-rl[playground]"` installs both, `"ajax-rl[brax]"` Brax alone. pip
+installs main from the repository:
+
+```bash
+pip install "ajax-rl @ git+https://github.com/YannBerthelot/Ajax.git"
+```
+
+pip does not read `uv.lock`, so it takes the newest versions that
+`pyproject.toml` allows. A weekly CI job tests those too, and another the
+oldest versions allowed
+([Dependencies and releases](../developer/contributing.md#dependencies-and-releases)).
+
+## From source
+
+[uv](https://docs.astral.sh/uv/) installs Ajax from source:
 
 ```bash
 git clone https://github.com/YannBerthelot/Ajax.git
@@ -17,23 +38,6 @@ Prefix commands with `uv run`, or activate the environment with
 uv run python -c "import ajax; print(ajax.__version__)"
 ```
 
-## With pip
-
-pip installs Ajax from its repository:
-
-```bash
-pip install "ajax @ git+https://github.com/YannBerthelot/Ajax.git"
-```
-
-Brax and MuJoCo Playground environments need an [extra](#extras):
-`"ajax[playground] @ git+..."` installs both, `"ajax[brax] @ git+..."`
-Brax alone.
-
-pip does not read `uv.lock`, so it takes the newest versions that
-`pyproject.toml` allows. A weekly CI job tests those too, and another the
-oldest versions allowed
-([Dependencies and releases](../developer/contributing.md#dependencies-and-releases)).
-
 ## CPU or GPU
 
 Ajax installs JAX for the CPU. CUDA comes only from its `cuda` extra (Linux
@@ -44,7 +48,7 @@ To use the GPU:
 uv sync --extra cuda
 ```
 
-A project that depends on Ajax asks for `ajax[cuda]` instead.
+A project that depends on Ajax asks for `ajax-rl[cuda]` instead.
 
 To keep a run on the CPU on a machine with a GPU, set `JAX_PLATFORMS=cpu`.
 The repository's `make` targets go further and hide the GPU from CUDA as well,
@@ -93,8 +97,8 @@ uv sync --extra compare
 ```
 
 Brax and MuJoCo Playground come only with their extras: a project that
-uses their environments asks for `ajax[playground]`, or `ajax[brax]` for
-Brax alone. Without them, building a Brax or Playground environment raises
+uses their environments asks for `ajax-rl[playground]`, or `ajax-rl[brax]`
+for Brax alone. Without them, building a Brax or Playground environment raises
 an error that names the extra. The `dev` group installs both, so `uv sync`
 in this repository has them.
 
@@ -105,16 +109,18 @@ yourself.
 
 ## Using Ajax from another project
 
-Every runtime dependency of Ajax, gymnax 1.0.1 included, comes from PyPI,
-so a project that depends on Ajax declares only where Ajax comes from:
+Ajax and every runtime dependency, gymnax 1.0.1 included, come from PyPI:
 
 ```toml
 [project]
-dependencies = ["ajax"]  # "ajax[cuda]" for CUDA, "ajax[playground]" for Brax and Playground envs
+dependencies = ["ajax-rl"]  # "ajax-rl[cuda]" for CUDA, "ajax-rl[playground]" for Brax and Playground envs
 
 [tool.uv.sources]
-ajax = { git = "https://github.com/YannBerthelot/Ajax.git" }
+ajax-rl = { git = "https://github.com/YannBerthelot/Ajax.git" }  # optional: main instead of a release
 ```
+
+A project that declared `ajax` from git or a path renames it `ajax-rl`; the
+import stays `import ajax`.
 
 uv resolves that project's own versions within Ajax's bounds, not those of
 Ajax's `uv.lock`.

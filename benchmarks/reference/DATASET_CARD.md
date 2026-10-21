@@ -38,7 +38,7 @@ commands that reproduce these runs are described in
 ## Loading
 
 ```python
-from ajax.reproduction import load  # pip install "ajax[reproduction]"
+from ajax.reproduction import load  # pip install "ajax-rl[reproduction]"
 
 runs = load("runs", "<this repository>")
 ```

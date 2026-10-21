@@ -60,7 +60,7 @@ def _installed(module: str) -> Optional[ModuleType]:
 
 def _unknown_env(env_id: str) -> ValueError:
     missing = [
-        f"{name} (ajax[{extra}])"
+        f"{name} (ajax-rl[{extra}])"
         for package, (extra, name) in _EXTRAS.items()
         if _installed(package) is None
     ]

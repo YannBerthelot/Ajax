@@ -1,10 +1,22 @@
 [project]
-name = "Ajax"
+name = "ajax-rl"
 version = "0.4.0"
 description = "Agents in JAX: Jax based implementations of RL algorithms"
 authors = [{ name = "Yann Berthelot", email = "yannberthelot1@gmail.com" }]
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
+keywords = ["reinforcement-learning", "jax", "flax", "gymnax", "brax"]
+# No license classifier: with a license expression, PEP 639 forbids one.
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "tqdm>=4.65.0,<5",
     # Floors only: a cap is added after a known break, with its reason.
@@ -29,22 +41,22 @@ dependencies = [
 
 [project.optional-dependencies]
 # CUDA (NVIDIA GPUs, Linux only): `uv sync --extra cuda`, or depend on
-# `ajax[cuda]`. Without it JAX runs on the CPU.
+# `ajax-rl[cuda]`. Without it JAX runs on the CPU.
 cuda = ["jax[cuda]>=0.10.0; sys_platform == 'linux'"]
 # ajax.compare.estimate's confidence sequence: `uv sync --extra compare`, or
-# depend on `ajax[compare]`. From the commit in [tool.uv.sources].
+# depend on `ajax-rl[compare]`. From the commit in [tool.uv.sources].
 compare = ["adastop"]
 # ajax.reproduction.load, the reference comparisons' published data:
-# `uv sync --extra reproduction`, or depend on `ajax[reproduction]`.
+# `uv sync --extra reproduction`, or depend on `ajax-rl[reproduction]`.
 reproduction = ["huggingface-hub>=0.30,<2", "pandas>=2.2,<3", "pyarrow>=15"]
 # Brax environments ("ant", "fast", ...): `uv sync --extra brax`, or depend on
-# `ajax[brax]`.
+# `ajax-rl[brax]`.
 brax = ["brax>=0.14.2"]
 # MuJoCo Playground environments, which run in brax's wrappers: `uv sync
-# --extra playground`, or depend on `ajax[playground]`.
-playground = ["ajax[brax]", "playground>=0.2.0,<0.3"]
+# --extra playground`, or depend on `ajax-rl[playground]`.
+playground = ["ajax-rl[brax]", "playground>=0.2.0,<0.3"]
 # Weights & Biases logging (LoggingConfig's use_wandb, on by default): the
-# default wandb group installs it, or depend on `ajax[wandb]`.
+# default wandb group installs it, or depend on `ajax-rl[wandb]`.
 wandb = ["wandb>=0.19.9"]
 
 [project.urls]
@@ -56,7 +68,7 @@ Issues = "https://github.com/YannBerthelot/Ajax/issues"
 [dependency-groups]
 dev = [
     # The tests build Brax and MuJoCo Playground environments.
-    "ajax[playground]",
+    "ajax-rl[playground]",
     "mypy>=1.4.1,<2",
     "types-PyYAML>=6.0.0",
     "pre-commit>=3.3.3,<4",
@@ -82,7 +94,7 @@ dev = [
     "pytest-cov>=6.3.0",
 ]
 # The wandb extra, installed by default.
-wandb = ["ajax[wandb]"]
+wandb = ["ajax-rl[wandb]"]
 # The Plane3DCircle scenario of benchmarks/perf_bench.py needs target_gym;
 # the framework does not. Opt in with `uv sync --group plane`.
 plane = ["target-gym>=0.6.1,<0.7"]
@@ -112,7 +124,8 @@ probing-environments = { git = "https://github.com/YannBerthelot/ProbingEnvironm
 adastop = { git = "https://github.com/TimotheeMathieu/adastop.git", rev = "07e7159643f11467c154266b5ef3b1be6ca8ddd8" }
 
 [tool.uv.build-backend]
-# The distribution is "Ajax"; the import name is lower case.
+# The distribution is "ajax-rl" (on PyPI, "ajax" is another project); the
+# import name is "ajax".
 module-name = "ajax"
 
 [tool.ruff]

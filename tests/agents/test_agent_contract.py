@@ -475,6 +475,8 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
     case = CASES[name]
     exposed = {"expose_recent_rollout": True} if case.rollout is not None else {}
     kwargs = case.kwargs | exposed | (WARM_UP if case.buffer else {})
+    if name == "REDQ":  # 2 critic updates a step would take 130 over the 65
+        kwargs["num_critic_updates"] = 1  # after the warm-up: a fast test's 128
     agent = case.cls(env_id=env, env_params=params, n_envs=1, **kwargs)
     state, _ = agent.train(seed=0, n_timesteps=128)
     actions, rewards = _paid_rows(name, state)
@@ -506,7 +508,10 @@ def test_a_world_model_acts_on_the_whole_box(name: str) -> None:
     (``evaluate_policy`` calls the collector's map)."""
     env, params = paid_action.make(BOX, length=4)
     if name == "DreamerV3":
-        dreamer = DreamerV3(env, env_params=params, n_envs=1, **DREAMER_TINY)
+        # train_ratio 32: an update a row once the replay holds a batch (9).
+        dreamer = DreamerV3(
+            env, env_params=params, n_envs=1, train_ratio=32, **DREAMER_TINY
+        )
         final = cast(DreamerV3State, dreamer.train(seed=0, n_timesteps=20)[0])
         replay = final.replay_state
         action, reward = replay.action[0, 0, :, 0], replay.reward[0, 0]

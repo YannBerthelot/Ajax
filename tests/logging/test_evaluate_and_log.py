@@ -39,7 +39,7 @@ _DISCRETE = {"env_id": "CartPole-v1", "n_envs": 2, "architecture": ("8", "relu")
 AGENTS: dict[str, tuple[type, dict[str, Any]]] = {
     "SAC": (SAC, {**_CONTINUOUS, **_NETS, **_REPLAY}),
     "ASAC": (ASAC, {**_CONTINUOUS, **_NETS, **_REPLAY}),
-    "REDQ": (REDQ, {**_CONTINUOUS, **_NETS, **_REPLAY}),
+    "REDQ": (REDQ, {**_CONTINUOUS, **_NETS, **_REPLAY, "num_critic_updates": 2}),
     "TD3": (TD3, {**_CONTINUOUS, **_NETS, **_REPLAY}),
     "AVG": (AVG, {**_CONTINUOUS, **_NETS, "learning_starts": 8}),
     "APO": (APO, {**_CONTINUOUS, **_NETS, **_ROLLOUT}),

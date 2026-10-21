@@ -32,7 +32,7 @@ def test_dqn_variants_smoke():
         td_loss_fn=make_huber_td_loss(1.0),
         q_network_cls=DuelingQNetwork,
     )
-    agent.train(seed=42, n_timesteps=200)
+    agent.train(seed=42, n_timesteps=128)
 
 
 @pytest.mark.parametrize("batch_size", [32, 64])

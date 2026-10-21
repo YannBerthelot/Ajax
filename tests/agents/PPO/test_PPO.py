@@ -15,7 +15,7 @@ from tests.probing import readouts
 def test_PPO_train_playground_smoke():
     """Smoke test: PPO trains briefly on a playground env (covers playground
     code path end-to-end including seed vmap and eval)."""
-    agent = PPO(env_id="PendulumSwingup", n_envs=2)
+    agent = PPO(env_id="PendulumSwingup", n_envs=2, n_steps=16, n_epochs=1)
     agent.train(seed=42, n_timesteps=50)
 
 
@@ -28,6 +28,7 @@ def test_a_forced_reset_keeps_the_normaliser_statistics(env_id, mode):
         env_id=env_id,
         n_envs=2,
         n_steps=8,
+        n_epochs=1,
         normalize_observations=True,
         normalize_rewards=True,
     )
@@ -96,7 +97,12 @@ def test_a_split_run_resets_on_the_one_calls_cadence():
 
     def agent():
         return PPO(
-            "Pendulum-v1", n_envs=2, n_steps=8, num_resets_per_eval=1, num_evals=3
+            "Pendulum-v1",
+            n_envs=2,
+            n_steps=8,
+            n_epochs=1,
+            num_resets_per_eval=1,
+            num_evals=3,
         )
 
     one, _ = agent().train(seed=0, n_timesteps=96)

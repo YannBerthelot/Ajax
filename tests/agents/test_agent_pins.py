@@ -180,7 +180,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "REDQ": (
         REDQ,
         {**_SMALL, **_REPLAY, "num_critics": 4, "num_critic_updates": 3},
-        200,
+        100,
     ),
     "AVG": (AVG, {**_SMALL, "learning_starts": 20}, 200),
     "TD3": (TD3, {**_SMALL, **_REPLAY}, 200),
@@ -199,7 +199,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "PPO-mcc": (
         PPO,
         {**_PENDULUM, **_MCC, "n_envs": 2, "n_steps": 32, "batch_size": 8},
-        256,
+        128,
     ),
     "SAC-gru": (
         SAC,
@@ -215,10 +215,10 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             "policy_update_start": 40,
             "alpha_update_start": 40,
         },
-        200,
+        120,
     ),
     # Flat shuffle, GAE on the whole rollout: 4 minibatches, 2 envs.
-    "PPO-flat": (PPO, {**_PENDULUM, "n_envs": 2, "n_steps": 32, "batch_size": 8}, 256),
+    "PPO-flat": (PPO, {**_PENDULUM, "n_envs": 2, "n_steps": 32, "batch_size": 8}, 128),
     # The env axis split, GAE per minibatch (brax's time geometry, opted
     # into: unroll_length = n_steps); brax's knobs.
     "PPO-env-split": (
@@ -246,7 +246,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             "num_minibatches": 4,
             "unroll_length": 8,
         },
-        256,
+        128,
     ),
     "PPO-gru": (
         PPO,
@@ -258,7 +258,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             "bptt_length": 4,
             "memory": MemoryConfig(kind="gru", hidden_size=8),
         },
-        256,
+        128,
     ),
     "PPO-discrete-nudge": (
         PPO,
@@ -292,11 +292,11 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "PQN": (PQN, _PQN, 512),
     "PQN-nudge": (PQN, {**_PQN, "extensions": (ValueNudge(),)}, 512),
-    "DQN": (DQN, _DQN, 200),
+    "DQN": (DQN, _DQN, 128),
     "DQN-dueling-nudge": (
         DQN,
         {**_DQN, "q_network_cls": DuelingQNetwork, "extensions": (ValueNudge(),)},
-        200,
+        128,
     ),
     # 40 ticks of 2 rows; the first update after tick 9, one per row after.
     "DreamerV3-drift": (DreamerV3, _DREAMER_TINY, 80),
@@ -963,6 +963,32 @@ _GOLDEN |= {
         "actor": 10.5582275390625,
         "critic": 39.56052017211914,
         "alpha": 0.9724466800689697,
+    },
+}
+# Re-recorded on macOS ARM CPU once the fast tier's line of 128 gradient
+# steps (owner, 2026-10-21) halved these runs: REDQ 200 -> 100 steps, SAC-gru
+# 200 -> 120, PPO-mcc, -flat, -unroll and -gru 256 -> 128, DQN and
+# DQN-dueling-nudge 200 -> 128. The configurations are unchanged.
+_GOLDEN |= {
+    "REDQ": {
+        "actor": 10.615706443786621,
+        "critic": 36.891143798828125,
+        "alpha": 0.9880983829498291,
+    },
+    "SAC-gru": {
+        "actor": 54.373619079589844,
+        "critic": 126.53144836425781,
+        "alpha": 0.9759777784347534,
+    },
+    "PPO-mcc": {"actor": 3.9937541484832764, "critic": 5.057005882263184},
+    "PPO-flat": {"actor": 6.014824390411377, "critic": 7.199977397918701},
+    "PPO-unroll": {"actor": 6.074291229248047, "critic": 7.268352508544922},
+    "PPO-gru": {"actor": 55.264984130859375, "critic": 54.78524398803711},
+    "DQN": {"actor": 9.144020080566406, "target": 9.120902061462402},
+    "DQN-dueling-nudge": {
+        "actor": 9.619275093078613,
+        "target": 9.586074829101562,
+        "nudge": 0.2874566912651062,
     },
 }
 

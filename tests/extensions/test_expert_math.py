@@ -1,16 +1,28 @@
 """The expert-guidance maths: the expert extensions' and target modifiers'
 helpers and SAC's expert plumbing."""
 
+from types import SimpleNamespace
+
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from ajax.environments.interaction import augment_obs
+from ajax.extensions import target_mods
+from ajax.extensions.base import ExtensionContext
 from ajax.extensions.expert import (
+    OnlineBC,
     compute_online_bc_loss,
     residual_action_transform,
 )
-from ajax.extensions.target_mods import blend_modify_target, mc_correction_modify_target
+from ajax.extensions.target_mods import (
+    IBRL,
+    blend_modify_target,
+    mc_correction_modify_target,
+)
+
+CTX = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0), total_steps=100)
 
 # ---------------------------------------------------------------------------
 # Blend target modifier
@@ -118,3 +130,41 @@ def test_compute_online_bc_loss_decays_after_warmup(critic_stub):
     loss_after = compute_online_bc_loss(train_frac=jnp.asarray(0.9), **common)
     assert float(loss_during) > 0.0
     assert float(loss_after) == pytest.approx(0.0)
+
+
+def test_online_bc_weighs_each_row_by_its_place_in_the_experts_value_range(
+    critic_stub,
+):
+    """OnlineBC scales each row's cloning error by clip((V*(s, a_e) - v_min)
+    / (v_max - v_min), 0, 1)^2 on the expert's value range that MCPretrain
+    measured: V* at 1, 3, 5 and 7 on the range [1, 5] weighs 0, 1/4, 1 and 1,
+    so unit errors cost their mean, 9/16, at the start of training."""
+    obs = jnp.zeros((4, 3)).at[:, 0].set(jnp.array([1.0, 3.0, 5.0, 7.0]))
+    agent_state = SimpleNamespace(
+        critic_state=critic_stub(lambda x: x[:, :1]),
+        expert_critic_params={"e": 0.0},
+        expert_v_min=jnp.asarray(1.0),
+        expert_v_max=jnp.asarray(5.0),
+    )
+    batch = {"a_expert": jnp.zeros((4, 1)), "pi_mean": jnp.ones((4, 1))}
+    bc = OnlineBC(bc_coef=1.0, critic_warmup_frac=0.5)
+    term, _ = bc.actor_loss(agent_state, None, batch | {"observations": obs}, CTX)
+    np.testing.assert_allclose(term, 9 / 16, rtol=1e-5)
+
+
+def test_ibrl_adds_the_discounted_expert_advantage_where_the_episode_goes_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IBRL's bonus is gamma (1 - d) max(min Q(s', a_expert') - min Q(s', a_pi'),
+    0) (Hu et al., 2023): with the next state's values at 3 for the expert
+    and 1 for the policy (two critics) and gamma 0.5, it is 1 on rows that go
+    on and 0 on rows that end; a policy ahead of the expert adds nothing."""
+    expert = jnp.full((2, 4, 1), 3.0)
+    policy = jnp.full((2, 4, 1), 1.0).at[:, 3].set(5.0)
+    monkeypatch.setattr(target_mods, "_next_target_q", lambda *a: (expert, policy))
+    batch = {"dones": jnp.array([[0.0], [1.0], [0.0], [0.0]]), "gamma": 0.5}
+    target, metrics = IBRL(expert_policy=abs).on_target(
+        None, None, batch, jnp.zeros((4, 1)), CTX
+    )
+    np.testing.assert_allclose(target, [[1.0], [0.0], [1.0], [0.0]])
+    np.testing.assert_allclose(metrics["ibrl/bonus"], 0.5)

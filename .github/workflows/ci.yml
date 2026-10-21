@@ -165,6 +165,8 @@ jobs:
           --ignore=tests/probing/test_p4_split_run.py --ignore=tests/probing/test_memory.py
           --ignore=tests/probing/test_action_box.py --ignore=tests/probing/test_imitation.py
           --ignore=tests/probing/test_offline.py --ignore=tests/probing/test_world_models.py
+          --ignore=tests/probing/test_bookkeeping.py --ignore=tests/probing/test_extensions.py
+          --ignore=tests/probing/test_episode_ends.py --ignore=tests/probing/test_value_chains.py
       - name: Save the JAX compile cache
         if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
         continue-on-error: true

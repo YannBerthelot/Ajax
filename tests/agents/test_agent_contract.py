@@ -16,6 +16,7 @@ import inspect
 import pkgutil
 import sys
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any, cast
 
 import jax
@@ -258,29 +259,91 @@ def test_a_default_run_keeps_no_extension_state_and_no_rollout(name: str) -> Non
     assert out is None  # no logging config: no evaluations
 
 
-@AGENTS
-def test_a_run_folds_its_extensions_and_keeps_its_rollout(name: str) -> None:
-    """Two counters advance in step on every seed; every evaluation carries
-    the stub's metric; an exposed rollout is (T, n_envs) and finite."""
-    case = CASES[name]
+#: The keys the evaluations of one run hand the policy's evaluation and the
+#: extensions' ``eval_metrics``, in order.
+_EVAL_KEYS: dict[str, list] = {"policy": [], "extensions": []}
+
+
+def _record(kind: str) -> Any:
+    return lambda key: _EVAL_KEYS[kind].append(np.asarray(key).tobytes())
+
+
+@dataclass(frozen=True)
+class _KeyExt(Extension):
+    """Records the key its ``eval_metrics`` is handed."""
+
+    name: str = "key"
+
+    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+        jax.debug.callback(_record("extensions"), rng)
+        return {}
+
+
+@pytest.fixture(scope="module")
+def extended_run() -> Any:
+    """``extended_run(name)``: the agent's run with every extension the three
+    contracts below read (two counters and a metric, the key recorder, and
+    the instrumentation where it has a critic), on 2 seeds and 2 envs of its
+    last env, logging every 32 steps, its rollout exposed where it has one.
+    Built once per agent: each build traces and compiles a train program,
+    and one shared run took half the time of the three it replaced."""
+    runs: dict[str, SimpleNamespace] = {}
+
+    def run(name: str) -> SimpleNamespace:
+        if name not in runs:
+            runs[name] = _extended_run(CASES[name])
+        return runs[name]
+
+    return run
+
+
+def _extended_run(case: Case) -> SimpleNamespace:
     exposed: dict[str, Any] = (
         {} if case.rollout is None else {"expose_recent_rollout": True}
     )
-    agent = case.cls(
-        env_id=case.envs[-1],
-        n_envs=2,
-        extensions=[CounterExt("a"), CounterExt("b"), MetricExt()],
-        **exposed,
-        **(case.kwargs | case.extended),
-    )
-    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
-    state, out = agent.train(
-        seed=[42, 43],
-        n_timesteps=case.n_timesteps,
-        num_episode_test=1,
-        logging_config=logging,
-    )
-    a, b, _ = (np.asarray(s) for s in state.ext_state)
+    kwargs = {"env_id": case.envs[-1], "n_envs": 2, **exposed}
+    kwargs |= case.kwargs | case.extended
+    extensions: list[Extension] = [CounterExt("a"), CounterExt("b"), MetricExt()]
+    extensions.append(_KeyExt())
+    if case.critic:
+        buffer = getattr(case.cls(**kwargs), "buffer", None)
+        extensions += [
+            ConditioningMetrics(buffer=buffer),
+            BiasVoreDecomposition(buffer=buffer),
+        ]
+    shared = evaluate
+
+    def recording(env: Any, actor_state: Any, num_episodes: int, rng: Any, *a, **kw):
+        jax.debug.callback(_record("policy"), rng)
+        return shared(env, actor_state, num_episodes, rng, *a, **kw)
+
+    with pytest.MonkeyPatch.context() as patch:
+        for module in list(sys.modules.values()):
+            if getattr(module, "evaluate", None) is shared:
+                patch.setattr(module, "evaluate", recording)
+        for recorded in _EVAL_KEYS.values():
+            recorded.clear()
+        logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+        state, out = case.cls(**kwargs, extensions=extensions).train(
+            seed=[42, 43],
+            n_timesteps=case.n_timesteps,
+            num_episode_test=1,
+            logging_config=logging,
+        )
+        jax.effects_barrier()
+    keys = {kind: list(seen) for kind, seen in _EVAL_KEYS.items()}
+    return SimpleNamespace(case=case, state=state, out=out, keys=keys)
+
+
+@AGENTS
+def test_a_run_folds_its_extensions_and_keeps_its_rollout(
+    name: str, extended_run: Any
+) -> None:
+    """Two counters advance in step on every seed; every evaluation carries
+    the stub's metric; an exposed rollout is (T, n_envs) and finite."""
+    run = extended_run(name)
+    case, state, out = run.case, run.state, run.out
+    a, b = (np.asarray(s) for s in state.ext_state[:2])
     assert a.shape == (2,) and (a > 1).all() and (a == b).all(), (a, b)
     evaluated = np.asarray(out["timestep"]) >= 0
     assert evaluated.any(axis=1).all()
@@ -297,38 +360,29 @@ def test_a_run_folds_its_extensions_and_keeps_its_rollout(name: str) -> None:
 
 
 @AGENTS
-def test_the_instrumentation_finds_the_critic_on_its_own(name: str) -> None:
+def test_the_instrumentation_finds_the_critic_on_its_own(
+    name: str, extended_run: Any
+) -> None:
     """ConditioningMetrics and BiasVoreDecomposition, with no per-agent
     setting, find the critic (on critic_state, taking the observation or
     the observation and action, or a Q-network on actor_state) and their
     batch (the replay buffer or the exposed rollout): each evaluation of an
     agent with a critic carries all their keys, finite; one without (UDRL)
-    carries none."""
+    is refused them when built, naming what it lacks."""
     case = CASES[name]
-    exposed: dict[str, Any] = (
-        {} if case.rollout is None else {"expose_recent_rollout": True}
-    )
-    kwargs = {"env_id": case.envs[-1], "n_envs": 2, **exposed, **case.kwargs}
-    buffer = getattr(case.cls(**kwargs), "buffer", None)
-    extensions = [
-        ConditioningMetrics(buffer=buffer),
-        BiasVoreDecomposition(buffer=buffer),
-    ]
-    if not case.critic:  # refused when built, naming what it lacks
+    if not case.critic:
+        kwargs = {"env_id": case.envs[-1], "n_envs": 2, **case.kwargs}
+        buffer = getattr(case.cls(**kwargs), "buffer", None)
+        extensions = [
+            ConditioningMetrics(buffer=buffer),
+            BiasVoreDecomposition(buffer=buffer),
+        ]
         with pytest.raises(MissingCapability, match="needs critic"):
             case.cls(**kwargs, extensions=extensions)
         return
-    agent = case.cls(**kwargs, extensions=extensions)
-    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
-    _, out = agent.train(
-        seed=42,
-        n_timesteps=case.n_timesteps,
-        num_episode_test=1,
-        logging_config=logging,
-    )
-    keys = COND_METRIC_KEYS + EVAREST_DECOMP_KEYS
+    out = extended_run(name).out
     evaluated = np.asarray(out["timestep"]) >= 0
-    for key in keys:
+    for key in COND_METRIC_KEYS + EVAREST_DECOMP_KEYS:
         assert np.isfinite(np.asarray(out[key])[evaluated]).all(), key
 
 
@@ -356,59 +410,17 @@ def test_the_evaluation_key_is_apart_from_the_training_key(
     assert not np.array_equal(rng, eval_rng)
 
 
-#: The keys the evaluations of one run hand the policy's evaluation and the
-#: extensions' ``eval_metrics``, in order.
-_EVAL_KEYS: dict[str, list] = {"policy": [], "extensions": []}
-
-
-def _record(kind: str) -> Any:
-    return lambda key: _EVAL_KEYS[kind].append(np.asarray(key).tobytes())
-
-
-@dataclass(frozen=True)
-class _KeyExt(Extension):
-    """Records the key its ``eval_metrics`` is handed."""
-
-    name: str = "key"
-
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
-        jax.debug.callback(_record("extensions"), rng)
-        return {}
-
-
 @AGENTS
-def test_each_evaluation_draws_fresh_keys(
-    name: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_each_evaluation_draws_fresh_keys(name: str, extended_run: Any) -> None:
     """The policy's evaluation (the shared evaluate(), wherever it is
     called from) and the extensions' ``eval_metrics`` draw new keys at each
     evaluation of a run (``eval_rng`` folded with the count of evaluations
     so far): fresh initial states and noise every time."""
-
-    shared = evaluate
-
-    def recording(env: Any, actor_state: Any, num_episodes: int, rng: Any, *a, **kw):
-        jax.debug.callback(_record("policy"), rng)
-        return shared(env, actor_state, num_episodes, rng, *a, **kw)
-
-    for module in list(sys.modules.values()):
-        if getattr(module, "evaluate", None) is shared:
-            monkeypatch.setattr(module, "evaluate", recording)
-    for keys in _EVAL_KEYS.values():
-        keys.clear()
-    case = CASES[name]
-    agent = case.cls(
-        env_id=case.envs[0], n_envs=1, extensions=[_KeyExt()], **case.kwargs
-    )
-    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
-    _, out = agent.train(
-        seed=0, n_timesteps=case.n_timesteps, num_episode_test=1, logging_config=logging
-    )
-    jax.effects_barrier()
-    evaluations = int((np.asarray(out["timestep"]) >= 0).sum())
+    run = extended_run(name)
+    evaluations = int((np.asarray(run.out["timestep"]) >= 0).sum())
     assert evaluations >= 2
     for kind in ("policy", "extensions"):
-        keys = _EVAL_KEYS[kind]
+        keys = run.keys[kind]
         assert len(keys) == evaluations, (kind, len(keys))
         assert len(set(keys)) == evaluations, kind
 

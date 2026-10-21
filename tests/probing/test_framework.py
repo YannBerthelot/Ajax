@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import functools
 import importlib
+import json
 import math
 import os
 import subprocess
@@ -44,10 +45,11 @@ from . import readouts as R
 # note + 2; CQL's cell: test_offline + 60, faults/ + 2, this note + 1;
 # ReBRAC's cell: test_offline + 62, faults/ + 2, this note + 1; GAIL's
 # cell: test_imitation + 40, faults/ + 3, this note + 1; its saturating
-# cell: test_imitation + 35, faults/ + 1, this note + 1.
+# cell: test_imitation + 35, faults/ + 1, this note + 1. Families leave the
+# gate with fast catches: faults.py + 4, test_framework + 17, this note + 2.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 100, "faults/": 234}
-CAPS |= {"test_framework.py": 226, "test_value_chains.py": 1051}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 104, "faults/": 234}
+CAPS |= {"test_framework.py": 245, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1045, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 791, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
@@ -218,6 +220,23 @@ def test_the_directory_keeps_to_its_budget() -> None:
     )
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in out.stdout.split())
     assert total <= 7400, total
+
+
+def test_every_family_out_of_the_gate_lists_its_fast_catches() -> None:
+    """A family leaves the pull-request gate (ci.yml's probing job ignores its
+    file) only once each of its faults names the fast tests measured to catch
+    it (``python -m tests.fault_catches``): live tests outside tests/probing."""
+    ci = open(os.path.join(faults.REPO, ".github", "workflows", "ci.yml")).read()
+    for family in sorted(faults.OUT_OF_THE_GATE):
+        assert f"--ignore=tests/probing/test_{family}.py" in ci, family
+        with open(os.path.join(faults.HERE, "faults", f"{family}.jsonl")) as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
+        for row in rows:
+            assert row.get("fast"), f"{row['id']} lists no fast catch"
+            for node in row["fast"]:
+                path, test = node.split("::")[0], node.split("::")[1].split("[")[0]
+                source = open(os.path.join(faults.REPO, path)).read()
+                assert "tests/probing/" not in path and f"def {test}(" in source, node
 
 
 def test_every_exported_agent_is_probed() -> None:

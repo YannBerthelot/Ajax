@@ -531,6 +531,35 @@ def test_evaluation_runs_the_planner_for_whole_episodes(pendulum):
 # ---------------------------------------------------------------------------
 
 
+def test_evaluation_plans_with_the_agents_discount(pendulum, monkeypatch):
+    """The evaluation's planner, in eval mode, discounts with the gamma it is
+    handed (the agent's, 0.95 at T = 20), not another constant of the config
+    such as the planning horizon's rho (0.5)."""
+    seen = []
+    policy = train_TDMPC2._policy
+
+    def spy(agent_state, config, gamma, eval_mode):
+        seen.append((gamma, eval_mode))
+        return policy(agent_state, config, gamma, eval_mode)
+
+    monkeypatch.setattr(train_TDMPC2, "_policy", spy)
+    agent = pendulum.agent
+    state = jax.tree.map(lambda x: x[0], pendulum.first)
+    evaluate = jax.jit(
+        lambda s, k: evaluate_tdmpc2(
+            s,
+            k,
+            env_args=agent.env_args,
+            config=agent.agent_config,
+            gamma=agent.gamma,
+            num_episodes=1,
+        )
+    )
+    evaluate(state, jax.random.PRNGKey(0))
+    assert agent.gamma != agent.agent_config.rho
+    assert seen == [(agent.gamma, True)]
+
+
 def test_playground_cartpole_trains_and_logs(monkeypatch):
     logged = []
 

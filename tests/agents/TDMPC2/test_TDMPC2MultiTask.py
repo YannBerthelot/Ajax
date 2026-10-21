@@ -236,6 +236,23 @@ def test_each_task_discounts_with_its_own_episode_length():
     assert agent.config["resolved_discounts"] == list(agent.tasks.discounts)
 
 
+def test_the_discount_bounds_reach_every_task():
+    """``discount_denom``, ``discount_min`` and ``discount_max`` shape every
+    task's heuristic, as they shape TDMPC2's."""
+    lengths = (10, 200, 500)
+    agent = TDMPC2MultiTask(
+        make_dataset(episode_lengths=lengths),
+        discount_denom=10,
+        discount_min=0.97,
+        discount_max=0.98,
+        **TINY,
+    )
+    assert agent.tasks.discounts == tuple(
+        core.discount_from_episode_length(t, 10, 0.97, 0.98) for t in lengths
+    )
+    assert agent.tasks.discounts == pytest.approx((0.97, 0.97, 0.98))
+
+
 def test_the_dataset_is_placed_on_the_device_once():
     """A dataset of host (NumPy) arrays is transferred at construction, not
     by every chunk of training."""

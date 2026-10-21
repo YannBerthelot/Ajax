@@ -142,7 +142,7 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: .cache/conformance
-          key: conformance-records-${{ hashFiles('benchmarks/reference/vendor/**', 'benchmarks/reference/conformance_*.py', 'benchmarks/reference/envs/torch/uv.lock') }}
+          key: conformance-records-${{ hashFiles('benchmarks/reference/vendor/**', 'benchmarks/reference/conformance_*.py', 'benchmarks/reference/envs/torch/uv.lock', 'benchmarks/reference/envs/asac/uv.lock') }}
       - name: Install the PyTorch originals' environment
         if: steps.records.outputs.cache-hit != 'true'
         run: uv sync --project benchmarks/reference/envs/torch --locked

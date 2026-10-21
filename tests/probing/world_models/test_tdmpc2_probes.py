@@ -3,7 +3,7 @@
 The ProbingEnvironments package's probes (``tests/probing``) end after 1-2 steps;
 paper-era TD-MPC2 is for fixed-length, non-terminating tasks and its training
 slices need ``T + 1 >= H + 1`` rows, so it is probed on fixed-length
-non-terminating toy envs instead (:mod:`.toy_envs`, ``T = 10``):
+non-terminating toy envs instead (:mod:`tests.agents.TDMPC2.toy_envs`, ``T = 10``):
 
 * constant reward 1: the episode end is a time limit, bootstrapped, so the
   learned value is ``sum_t gamma^t = 1 / (1 - gamma)`` for every action
@@ -29,8 +29,7 @@ import pytest
 from ajax import TDMPC2
 from ajax.agents.TDMPC2 import core
 from ajax.agents.TDMPC2.train_TDMPC2 import planner_policy
-
-from .toy_envs import ConstantRewardEnv, RewardIsActionEnv
+from tests.agents.TDMPC2.toy_envs import ConstantRewardEnv, RewardIsActionEnv
 
 PROBE = {
     "enc_dim": 32,

@@ -48,10 +48,11 @@ from . import readouts as R
 # cell: test_imitation + 35, faults/ + 1, this note + 1. The budget counts the
 # harness alone (trainings moved to tests/probing/<area>/): test_framework + 3.
 # Families leave the gate with fast catches: faults.py + 4, test_framework
-# + 17, this note + 3.
+# + 17, this note + 3; the memory family's two uncatalogued faults: faults/
+# + 2, this note + 1.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 104, "faults/": 234}
-CAPS |= {"test_framework.py": 249, "test_value_chains.py": 1051}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 104, "faults/": 236}
+CAPS |= {"test_framework.py": 250, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1045, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 791, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}

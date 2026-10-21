@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax.agents.UDRL import train_UDRL
 from ajax.agents.UDRL.train_UDRL import init_UDRL
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.environments.utils import get_state_action_shapes
@@ -39,6 +40,49 @@ def test_UDRL_train_updates_actor_params():
     assert any_diff(state.actor_state.params, initial.actor_state.params)
     obs_shape, _ = get_state_action_shapes(agent.env_args.env)
     assert state.collector_state.last_obs.shape[-1] == obs_shape[0] + 2
+
+
+def test_the_actor_sees_the_command_scaled_once_when_acting_and_training(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The buffer keeps the raw (d_r, d_h) = (3, 8); the actor reads it scaled
+    by (command_scale_r, command_scale_h) = (0.04, 0.01) at both of its
+    sites, once (paper, appendix): acting on the first step and fitting a
+    batch that holds the raw command."""
+    seen, get_pi = [], train_UDRL.get_pi
+    raw = np.array(
+        [1.0, 0.5, -0.5, 3.0, 8.0], np.float32
+    )  # Pendulum's obs, then (3, 8)
+
+    def recording(actor_state, actor_params, obs, **kw):
+        jax.debug.callback(lambda o: seen.append(np.asarray(o)), obs)
+        return get_pi(actor_state, actor_params, obs, **kw)
+
+    def batch(key, buffer, stream, size):
+        return jnp.tile(jnp.asarray(raw), (size, 1)), jnp.zeros((size, 1))
+
+    monkeypatch.setattr(train_UDRL, "get_pi", recording)
+    monkeypatch.setattr(train_UDRL, "sample_training_batch", batch)
+    agent = UDRL(
+        env_id="Pendulum-v1",
+        n_envs=1,
+        n_steps=1,
+        batch_size=2,
+        n_updates_per_iter=1,
+        command_return_init=3.0,
+        command_horizon_init=8.0,
+        command_scale_r=0.04,
+        command_scale_h=0.01,
+        command_target_tau=0.0,
+    )
+    agent.train(seed=0, n_timesteps=1)
+    jax.effects_barrier()
+    acting = [x.reshape(-1, 5)[0] for x in seen if x.shape[-2] == 1]
+    training = np.concatenate([x.reshape(-1, 5) for x in seen if x.shape[-2] == 2])
+    np.testing.assert_allclose(acting[0][-2:], [3.0 * 0.04, 8.0 * 0.01], rtol=1e-6)
+    np.testing.assert_allclose(
+        training[:, -2:], [[3.0 * 0.04, 8.0 * 0.01]] * len(training), rtol=1e-6
+    )
 
 
 def test_UDRL_logs_its_training_metrics_and_evaluation_without_a_backend():

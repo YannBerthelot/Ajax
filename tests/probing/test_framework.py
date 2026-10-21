@@ -6,6 +6,7 @@ the directory."""
 from __future__ import annotations
 
 import functools
+import glob
 import importlib
 import json
 import math
@@ -49,12 +50,15 @@ from . import readouts as R
 # harness alone (trainings moved to tests/probing/<area>/): test_framework + 3.
 # Families leave the gate with fast catches: faults.py + 4, test_framework
 # + 17, this note + 3; the memory family's two uncatalogued faults: faults/
-# + 2, this note + 1; PQN as purejaxql's estimator: oracles.py + 2,
-# test_extensions + 3, this note + 1; APO's time limits as xtma/apo's:
-# oracles.py + 4, test_episode_ends + 5, faults/ + 1, this note + 1.
+# + 2, this note + 1; the families out of the gate, one a line once they
+# outgrow one: faults.py + 13, this note + 2; every family out, the set
+# goes: faults.py - 16, test_framework + 1, this note + 1; PQN as
+# purejaxql's estimator: oracles.py + 2, test_extensions + 3, this note + 1;
+# APO's time limits as xtma/apo's: oracles.py + 4, test_episode_ends + 5,
+# faults/ + 1, this note + 2.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 198, "faults.py": 104, "faults/": 237}
-CAPS |= {"test_framework.py": 252, "test_value_chains.py": 1051}
+CAPS |= {"readouts.py": 220, "oracles.py": 198, "faults.py": 101, "faults/": 237}
+CAPS |= {"test_framework.py": 257, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 794, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
@@ -219,24 +223,25 @@ def test_the_directory_keeps_to_its_budget() -> None:
     """The harness (not the trainings moved to tests/probing/<area>/), every
     file git tracks or would track: 7,000, plus 400 for the offline-learning
     and imitation probes (2026-10-20: DAgger, offline mode, TD3+BC, IQL,
-    CQL/Cal-QL, ReBRAC, GAIL) and 10 for PQN's and APO's original rules."""
+    CQL/Cal-QL, ReBRAC, GAIL) and 12 for PQN's and APO's original rules."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 7410, total
+    assert total <= 7412, total
 
 
-def test_every_family_out_of_the_gate_lists_its_fast_catches() -> None:
-    """A family leaves the pull-request gate (ci.yml's probing job ignores its
-    file) only once each of its faults names the fast tests measured to catch
-    it (``python -m tests.fault_catches``): live tests outside tests/probing."""
+def test_every_fault_names_the_fast_tests_that_catch_it() -> None:
+    """The pull-request gate runs the fast tier alone (ci.yml runs no probe:
+    the slow tier does, slow.yml), so each planted fault names the fast tests
+    measured to catch it (``python -m tests.fault_catches``): live tests
+    outside tests/probing."""
     ci = open(os.path.join(faults.REPO, ".github", "workflows", "ci.yml")).read()
-    for family in sorted(faults.OUT_OF_THE_GATE):
-        assert f"--ignore=tests/probing/test_{family}.py" in ci, family
-        with open(os.path.join(faults.HERE, "faults", f"{family}.jsonl")) as fh:
+    assert "pytest tests/probing" not in ci
+    for path in sorted(glob.glob(os.path.join(faults.HERE, "faults", "*.jsonl"))):
+        with open(path) as fh:
             rows = [json.loads(line) for line in fh if line.strip()]
         for row in rows:
             assert row.get("fast"), f"{row['id']} lists no fast catch"

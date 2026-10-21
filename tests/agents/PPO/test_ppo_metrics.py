@@ -1,15 +1,17 @@
 """PPO's and APO's diagnostics: each logged metric equals its definition,
-recomputed here from the same networks and batch."""
+recomputed here from the same networks and batch; a frozen actor's ratio is 1."""
 
 from __future__ import annotations
 
-from typing import cast
+from dataclasses import dataclass
+from typing import Any, cast
 
 import distrax
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+import pytest
 
 from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
@@ -24,9 +26,11 @@ from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PPO.utils import _compute_gae
 from ajax.environments.interaction import get_pi
 from ajax.environments.utils import get_state_action_shapes
-from ajax.extensions.base import ExtensionStack
+from ajax.extensions.base import Extension, ExtensionStack
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import Squash
 from ajax.networks.networks import predict_value
+from tests.environments import paid_action
 
 KEY = jax.random.PRNGKey(0)
 NET = ("16", "relu")
@@ -234,3 +238,85 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
         p_aux.approx_kl, np.mean(np.expm1(log_ratio) - log_ratio), rtol=1e-5
     )
     np.testing.assert_allclose(p_aux.policy_std, np.mean(pi.stddev()), rtol=1e-6)
+
+
+@dataclass(frozen=True)
+class _ZeroActorLoss(Extension):
+    """An actor-loss term of 0: PPO's update then takes its extension path."""
+
+    name: str = "zero_actor_loss"
+
+    def actor_loss(self, agent_state: Any, ext_state: Any, batch: Any, ctx: Any) -> Any:
+        return 0.0
+
+
+WIDE = {"squash": True, "log_std_init": 1.0}  # std 2.7: tanh saturates
+
+
+@pytest.mark.parametrize(
+    "cls, kwargs",
+    [
+        (PPO, WIDE),
+        (PPO, WIDE | {"extensions": (_ZeroActorLoss(),)}),
+        (APO, {"normalize_observations": True}),
+    ],
+    ids=["PPO-squash", "PPO-extension", "APO-normalized"],
+)
+def test_a_frozen_actor_recomputes_its_rollouts_log_probs(
+    cls: Any, kwargs: dict
+) -> None:
+    """With the actor's learning rate at 0, each update's policy is the one
+    that acted, so it recomputes every stored log-probability exactly: from
+    the stored pre-tanh sample (through arctanh a saturated tanh is off),
+    summed over the 2 action dimensions, on the observations the actor saw
+    (normalised). The ratio is 1 and nothing clips at clip_range 1e-4
+    (tests/probing/test_bookkeeping's Q8 cells)."""
+    env, params = paid_action.make((-1.0, 1.0), length=8, dim=2)
+    agent = cls(
+        env,
+        env_params=params,
+        n_envs=1,
+        n_steps=32,
+        batch_size=32,
+        n_epochs=2,
+        actor_learning_rate=0.0,
+        clip_range=1e-4,
+        actor_architecture=NET,
+        critic_architecture=NET,
+        **kwargs,
+    )
+    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    _, out = agent.train(seed=[0], n_timesteps=128, logging_config=logging)
+    clip = np.asarray(out["policy/clip_fraction"])
+    assert clip.size >= 4 and (clip == 0).all(), clip
+
+
+def test_the_entropy_bonus_lowers_the_policy_loss() -> None:
+    """loss = surrogate - ent_coef * entropy (Schulman et al., 2017, eq. 9):
+    ent_coef 0.1 takes a tenth of the entropy off the loss. The coefficient
+    reaches the update from the constructor."""
+    agent = PPO(
+        "Pendulum-v1",
+        n_envs=1,
+        ent_coef=0.1,
+        actor_architecture=NET,
+        critic_architecture=NET,
+    )
+    assert agent.agent_config.ent_coef == 0.1
+    state = train_PPO.init_PPO(
+        KEY,
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+    )
+    actor = state.actor_state
+    obs, actions, log_probs, gae, _ = _batch(agent)
+
+    def loss(ent_coef: float) -> tuple:
+        args = (obs, actions, log_probs, gae, False, 0.2, ent_coef, True)
+        total, (aux, _) = train_PPO.policy_loss_function(actor.params, actor, *args)
+        return float(total), float(aux.entropy)
+
+    (with_bonus, entropy), (without, _) = loss(0.1), loss(0.0)
+    np.testing.assert_allclose(with_bonus - without, -0.1 * entropy, rtol=1e-5)

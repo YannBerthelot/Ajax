@@ -1,6 +1,6 @@
-"""ConservativeQ (CQL), CalQL (Cal-QL) and TargetBC (ReBRAC): the floor on the
-policy actions' values, the stored return to go and next action, the target
-penalty, and the refusals. Whether they make a
+"""ConservativeQ (CQL), CalQL (Cal-QL) and TargetBC (ReBRAC): CQL's gap, the
+floor on the policy actions' values, the stored return to go and next action,
+the target penalty, and the refusals. Whether they make a
 critic conservative is the probes' (tests/probing/test_offline)."""
 
 from typing import Any
@@ -15,6 +15,7 @@ from ajax.buffers.dataset import TransitionDataset, fill_replay, next_actions
 from ajax.extensions.base import ExtensionContext
 from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.offline import CalQL, ConservativeQ, TargetBC
+from ajax.networks.networks import predict_value
 
 KEY = jax.random.PRNGKey(0)
 CTX = ExtensionContext(step=jnp.asarray(0), rng=KEY)
@@ -53,6 +54,31 @@ def test_without_a_floor_calql_is_cql_and_a_floor_above_every_value_binds_all() 
         None, (), sac_batch(1e3), CTX
     )
     assert float(metrics["calql/bound_frac"]) == 1.0 and float(high) > float(cql)
+
+
+def test_the_gap_falls_by_the_datas_own_values() -> None:
+    """CQL's gap is the logsumexp over sampled actions minus Q at the data's
+    actions (Kumar et al., 2020, eq. 4). Only that last term reads the batch's
+    actions, so changing them moves the gap by minus the change in the data's
+    mean value (a critic away from its initial, nearly flat, one)."""
+    batch = sac_batch(-jnp.inf)
+    noise = lambda p: p + 0.3 * jax.random.normal(KEY, p.shape)  # noqa: E731
+    batch["critic_params"] = jax.tree.map(noise, batch["critic_params"])
+    cql = ConservativeQ(alpha=1.0, n_actions=4)
+
+    def gap_and_value(actions: jax.Array) -> tuple[float, float]:
+        at = batch | {"actions": actions}
+        _, metrics = cql.critic_loss(None, (), at, CTX)
+        x = jnp.concatenate([at["observations"], actions], -1)
+        value = predict_value(at["critic_state"], at["critic_params"], x).mean()
+        return float(metrics["cql/gap"]), float(value)
+
+    (gap_0, q_0), (gap_1, q_1) = (
+        gap_and_value(batch["actions"]),
+        gap_and_value(jnp.full((ROWS, 1), 0.8)),
+    )
+    assert abs(q_1 - q_0) > 1e-2
+    np.testing.assert_allclose(gap_1 - gap_0, -(q_1 - q_0), rtol=1e-4)
 
 
 def test_the_replay_keeps_a_datasets_return_and_minus_inf_for_collected_rows() -> None:

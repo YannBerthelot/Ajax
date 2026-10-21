@@ -9,6 +9,7 @@ from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.expert import JSRLCurriculum
 from ajax.networks.networks import get_initialized_actor_critic
 from tests.agents.test_option_smoke import Expert, stateless_expert
+from tests.environments import paid_action
 
 
 def test_skip_critic_pretrain_is_a_transitional_no_op():
@@ -113,6 +114,23 @@ def test_jsrl_flags_the_steps_its_expert_takes():
     actions = np.asarray(rows["action"]).reshape(-1)[:12]
     # In agent units, [-1, 1]: the expert's torque over Pendulum's bound 2.
     np.testing.assert_allclose(actions[4:], expert[4:] / 2.0, rtol=1e-5)
+
+
+def test_the_warmup_draws_each_action_dimension_on_its_own():
+    """Before learning_starts the action is uniform on the box, one draw per
+    dimension (softlearning's uniform policy), also when an expert could take
+    the step instead (the expert-aware pipeline, here at expert_fraction 0):
+    the two columns of a 2-D box's warm-up rows differ, and each spans it."""
+    env, params = paid_action.make((-1.0, 1.0), length=8, dim=2)
+    kw = {"learning_starts": 64, "batch_size": 8, "buffer_size": 128}
+    kw |= {"expert_policy": lambda obs: jnp.zeros(obs.shape[:-1] + (2,))}
+    kw |= {"expert_buffer_n_steps": 0, "expert_fraction": 0.0}
+    agent = SAC(env, env_params=params, n_envs=1, **kw)
+    state, _ = agent.train(seed=0, n_timesteps=32)
+    actions = np.asarray(state.collector_state.buffer_state.experience["action"])
+    rows = actions.reshape(-1, 2)[:32]
+    assert not np.allclose(rows[:, 0], rows[:, 1])
+    assert (rows.min(0) < -0.5).all() and (rows.max(0) > 0.5).all(), rows
 
 
 def test_sac_starts_every_layer_xavier_uniform():

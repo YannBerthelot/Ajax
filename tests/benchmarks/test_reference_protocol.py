@@ -153,8 +153,9 @@ def test_the_dataset_loads_back_and_the_docs_draw_from_it(cache, monkeypatch, tm
         reproduction.load("curves", str(out))
     monkeypatch.setattr(refcmp_publish, "DOCS", tmp_path)
     refcmp_publish.docs(reps=10)
+    version = COMPARISONS["PQN"].version
     assert (
-        "| PQN | v1,  | different | ±25 | 8 | 500 | 9 | -491 ["
+        f"| PQN | v{version},  | different | ±25 | 8 | 500 | 9 | -491 ["
         in (tmp_path / "results.md").read_text()
     )
     assert (tmp_path / "PQN.svg").read_text().startswith("<?xml")

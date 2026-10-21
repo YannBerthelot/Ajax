@@ -104,11 +104,14 @@ def make_epsilon_greedy_pipeline(
     epsilon_end: float,
     epsilon_decay_frac: float,
     total_timesteps: int,
+    steps_per_update: Optional[int] = None,
 ) -> Callable:
     """Build the default DQN ``action_pipeline``: linear-decay epsilon-greedy.
 
     Epsilon follows :func:`linear_epsilon` over the ``total_timesteps``
-    horizon. During the ``learning_starts`` warmup (``uniform`` is set)
+    horizon, at the collector's timestep, or with ``steps_per_update`` once
+    per update, at ``n_updates * steps_per_update`` (PQN's reference reads
+    it so). During the ``learning_starts`` warmup (``uniform`` is set)
     actions are fully random regardless of epsilon.
     """
 
@@ -120,8 +123,13 @@ def make_epsilon_greedy_pipeline(
         )
         greedy_action = jnp.argmax(q_values, axis=-1).astype(jnp.int32)
 
+        timestep = (
+            agent_state.collector_state.timestep
+            if steps_per_update is None
+            else agent_state.n_updates * steps_per_update
+        )
         epsilon = linear_epsilon(
-            agent_state.collector_state.timestep,
+            timestep,
             total_timesteps,
             epsilon_start,
             epsilon_end,

@@ -123,45 +123,6 @@ PUREJAXQL_RENAMES = {
 PUREJAXQL_UNMATCHED = (
     "optimiser: RAdam (eps 1e-8) in purejaxql, Adam (eps 1e-5) in Ajax",
     "weight initialisation (lecun_normal vs Ajax's)",
-    "time limits: the reference treats them as terminations",
-)
-
-_PQN_CHECKS = "tests/conformance/test_pqn_purejaxql.py::"
-PUREJAXQL_DEVIATIONS = (
-    Deviation(
-        name="per-step epsilon",
-        kind="ajax",
-        submap="collection, epsilon-greedy actions",
-        description="Ajax reads epsilon at the collector's timestep, so it moves at every"
-        " env step; purejaxql reads it once per update. While epsilon decays, Ajax explores"
-        " slightly less within a rollout.",
-        where="src/ajax/agents/DQN/train_DQN.py linear_epsilon;"
-        " vendor/purejaxql/pqn_gymnax.py:189",
-        check=_PQN_CHECKS + "test_exploration_differs_only_by_the_per_step_epsilon",
-    ),
-    Deviation(
-        name="time limits",
-        kind="convention",
-        submap="Q(lambda) targets",
-        description="purejaxql treats a time-limit cut as a termination (the target is the"
-        " reward); Ajax bootstraps it. Only the targets of episodes cut by a time limit"
-        " differ.",
-        where="refcmp_jax._FiveValueStep; src/ajax/agents/PQN/utils.py"
-        " compute_q_lambda_targets",
-        check=_PQN_CHECKS + "test_time_limit_cuts_change_only_their_episodes_targets",
-    ),
-    Deviation(
-        name="Q(lambda) off-by-one",
-        kind="reference defect",
-        submap="Q(lambda) targets",
-        description="purejaxql's backward pass starts with the last step's bootstrap,"
-        " V(next_obs) of the last transition, as the next value of the second-to-last one,"
-        " whose next value is V(obs) of the last; that target, and through lambda those"
-        " before it in its episode, differ from Q(lambda). Ajax computes Q(lambda)."
-        " Reported upstream as purejaxql issue #12.",
-        where="vendor/purejaxql/pqn_gymnax.py:246-254",
-        check=_PQN_CHECKS + "test_targets_differ_only_by_purejaxqls_off_by_one",
-    ),
 )
 
 _AVG_CHECKS = "tests/conformance/test_avg_original.py::"
@@ -488,6 +449,11 @@ COMPARISONS = {
         ),
     ),
     "PQN": Comparison(
+        # Version 2: Ajax's PQN does what purejaxql does where version 1's
+        # conformance check found it apart (epsilon read once per update, a
+        # time limit ending an episode, the Q(lambda) off-by-one), so time
+        # limits leave the unmatched list.
+        version=2,
         renames=PUREJAXQL_RENAMES,
         agent="PQN",
         env_id="CartPole-v1",
@@ -556,9 +522,9 @@ COMPARISONS = {
             "evaluation: purejaxql scores the last episode each of its 128 test"
             " envs ends within one 500-step window, Ajax one episode per env",
         ),
-        deviations=PUREJAXQL_DEVIATIONS,
     ),
     "PQN-Asterix": Comparison(
+        version=2,  # as PQN's
         renames=PUREJAXQL_RENAMES,
         agent="PQN",
         env_id="Asterix-MinAtar",
@@ -624,7 +590,6 @@ COMPARISONS = {
             "evaluation: purejaxql scores the last episode each of its 128 test"
             " envs ends within one 1000-step window, Ajax one episode per env",
         ),
-        deviations=PUREJAXQL_DEVIATIONS,
     ),
     "APG": Comparison(
         renames={"num_envs": "n_envs", "horizon_length": "horizon"},

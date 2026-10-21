@@ -67,7 +67,8 @@ def update_agent(
     """One PQN update on an ``(n_steps, n_envs)`` rollout: Q(lambda)
     targets bootstrapped on the current network (no target network), then
     ``n_epochs`` epochs of TD steps, the rollout reshuffled each epoch;
-    also logs ``epsilon_schedule`` at the collector's timestep."""
+    also logs the epsilon its rollout read (``epsilon_schedule`` once per
+    update, as purejaxql reads it)."""
     next_q = predict_q(
         agent_state.actor_state,
         agent_state.actor_state.params,
@@ -151,8 +152,9 @@ def update_agent(
     value_aux, loss_metrics = jax.tree.map(
         lambda x: x.mean().reshape((1,)), (value_aux, loss_metrics)
     )
+    rollout_size = rollout.reward.shape[0] * rollout.reward.shape[1]
+    epsilon = epsilon_schedule(agent_state.n_updates * rollout_size).reshape((1,))
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
-    epsilon = epsilon_schedule(agent_state.collector_state.timestep).reshape((1,))
     return agent_state, AuxiliaryLogs(
         value=value_aux,
         policy=PolicyAuxiliaries(epsilon=epsilon),
@@ -225,12 +227,15 @@ def make_train(
             epsilon_schedule,
         )
 
+    # purejaxql reads epsilon once per update, at its update count
+    # (pqn_gymnax.py:189).
     action_pipeline = make_epsilon_greedy_pipeline(
         n_actions=n_actions,
         epsilon_start=epsilon_start,
         epsilon_end=epsilon_end,
         epsilon_decay_frac=epsilon_decay_frac,
         total_timesteps=total_timesteps,
+        steps_per_update=agent_config.n_steps * env_args.n_envs,
     )
     return loop.on_policy(
         init,

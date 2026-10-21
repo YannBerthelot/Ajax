@@ -65,19 +65,23 @@ evenly into `num_minibatches`; PQN raises otherwise.
 
 ## Notes
 
-- **Returns.** With `V(s) = max_a Q(s, a)`, each step's return is
+- **Returns.** As purejaxql computes them. With `V(s) = max_a Q(s, a)`,
+  each step's return is
   `G_t = r_t + gamma ((1 - lambda) V(s_{t+1}) + lambda G_{t+1})`, and
-  `G_t = r_t + gamma V(s_{t+1})` at the rollout's last step. A termination
-  zeroes `V(s_{t+1})`; a time limit bootstraps on `V(s_{t+1})` but stops
-  the lambda trace there.
+  `G_t = r_t + gamma V(s_{t+1})` at the rollout's last step. At the end of
+  an episode the return is the reward. A time limit ends an episode as a
+  termination does, since gymnax's done flag does not tell them apart. The
+  rollout's second-to-last step reads the last step's `V(s_T)` where its
+  own `V(s_{T-1})` belongs, as purejaxql's backward pass does.
 - **One update.** The returns are computed once per rollout with the
   current network, then held fixed for `n_epochs` passes of
   `num_minibatches` gradient steps, the rollout reshuffled each pass.
 - **Why several envs.** Without a buffer, the data's diversity comes from
   the parallel envs. The probes run PQN with 8 envs because with one
   env the value of the action it stops exploring drifts.
-- **Exploration.** As DQN: epsilon decays linearly with the training
-  fraction; evaluation is greedy.
+- **Exploration.** Epsilon decays linearly with the training fraction,
+  read once per update at the rollout's start, as purejaxql reads it;
+  evaluation is greedy.
 - **Extensions.** `on_target` extensions reshape the returns before they are
   held fixed; `critic_loss` extensions add a term to every minibatch's TD
   loss.

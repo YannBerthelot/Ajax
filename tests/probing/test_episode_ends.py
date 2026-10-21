@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "19c6bcfdeca6"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "fcece8894323"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -82,14 +82,18 @@ FAULTS = {
         "last bootstrap of the rollout zeroed": Rule(rollout_end="zero"),
         "bootstrap from the transition's own obs (P09)": Rule(next="self"),
     },
-    "PQN": {
-        "OR flags": Rule(mask="or"),
-        "flags swapped (B03)": Rule(swap=True),
-        "terminations ignored (Q03)": Rule(mask="none"),
-        "reset-obs bootstrap": Rule(next="reset"),
-        "rollout end treated as terminal": Rule(rollout_end="terminal"),
+    "PQN": {  # its right rule is purejaxql's (LEARNER_RULE)
+        "time limits bootstrapped": Rule(off_by_one=True),
+        "ends ignored (Q03)": Rule(mask="none", cut=False, off_by_one=True),
+        "rollout end treated as terminal": Rule(
+            mask="or", rollout_end="terminal", off_by_one=True
+        ),
     },
 }
+# PQN's estimator is purejaxql's: a time limit ends an episode as a
+# termination does (gymnax's done flag), so V(A) = V(B), and each rollout's
+# step T - 2 reads step T - 1's bootstrap.
+LEARNER_RULE = {"PQN": Rule(mask="or", off_by_one=True)}
 
 
 def twin_values(learner: str, encoding: str, rule: Rule = RIGHT) -> np.ndarray:
@@ -111,7 +115,7 @@ def twin_queries(learner: str, encoding: str) -> tuple[Query, ...]:
     """A value gates only the faults that move it by at least 0.15: below
     that, seed noise would set a tolerance no budget here reaches (V(0) is
     gated only for the on-policy rollout-end faults and P09)."""
-    truth, out = twin_values(learner, encoding), []
+    truth, out = twin_values(learner, encoding, LEARNER_RULE.get(learner, RIGHT)), []
     faulty = {k: twin_values(learner, encoding, r) for k, r in FAULTS[learner].items()}
     for i, name in enumerate(("V(0)", "V(A)", "V(B)")):
         wrong = {k: v[i] for k, v in faulty.items() if abs(v[i] - truth[i]) >= 0.15}
@@ -215,7 +219,7 @@ ONE_STEP = {"SAC": 5000, "REDQ": 1000, "TD3": 5000, "DQN": 5000}
 # 0.057 to 0.075); certified on 3000-3031, 32/32 for each.
 TWIN_CAL = {
     ("gymnax", "PPO"): (10_000, (0.071, 0.056, 0.099)),
-    ("gymnax", "PQN"): (10_000, (0.096, 0.07, 0.089)),
+    ("gymnax", "PQN"): (20_000, (0.02, 0.034, 0.042)),  # 10,000: V(B) 0.055 off
     ("brax", "PPO"): (5000, (0.068, 0.087, 0.089)),
     ("gymnax", "AVG"): (2500, (0.051, 0.055)),  # 1250: 0.19 off; cert 32/32
     ("brax", "REDQ"): (8000, (0.052, 0.095)),  # 4000: 0.072 off; cert 32/32

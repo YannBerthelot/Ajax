@@ -2,9 +2,10 @@
 
 Each check maps purejaxql's state at the start of an iteration into Ajax's, gives Ajax the draws
 purejaxql made in that iteration (by role and order), runs the iteration on both sides, and compares
-its sub-steps: the rollout, the Q(lambda) targets, the update. Where the codes differ, by an Ajax
-choice, a convention or a defect of the original (refcmp_specs.PUREJAXQL_DEVIATIONS), the test
-asserts the predicted difference instead of hiding it.
+its sub-steps: the rollout, the Q(lambda) targets, the update. Ajax follows purejaxql where it reads
+like a slip (its Q(lambda) off-by-one) and in its conventions (epsilon read once per update, a time
+limit ending an episode as gymnax's done flag does), so nothing is set aside. A planted fault (gamma
+0.991 in Ajax's targets) must fail the targets' comparison.
 """
 
 import contextlib
@@ -19,12 +20,10 @@ import numpy as np
 import pytest
 import refcmp_ajax
 import refcmp_jax
-from refcmp_specs import COMPARISONS, PUREJAXQL_DEVIATIONS
+from refcmp_specs import COMPARISONS
 
 import ajax
-import ajax.agents.PQN.train_PQN as train_PQN
 from ajax.agents.DQN.networks import predict_q
-from ajax.agents.DQN.train_DQN import linear_epsilon
 from ajax.agents.PQN.utils import compute_q_lambda_targets
 from tests.conformance import kit, submaps
 
@@ -60,23 +59,15 @@ def time_limit(steps: int | None) -> Iterator[None]:
         gymnax.make = original
 
 
-def build(constant_epsilon: bool, limit: int | None = None) -> Sides:
-    eps = 0.2
-    ref_over = {"EPS_START": eps, "EPS_FINISH": eps} if constant_epsilon else {}
-    ajax_over = {"epsilon_start": eps, "epsilon_end": eps} if constant_epsilon else {}
+def build(limit: int | None = None) -> Sides:
     with time_limit(limit):
         # Evaluation only, not part of the step.
-        config = (
-            dict(SPEC.reference_config, NUM_SEEDS=1, TEST_DURING_TRAINING=False)
-            | ref_over
-        )
+        config = dict(SPEC.reference_config, NUM_SEEDS=1, TEST_DURING_TRAINING=False)
         train = refcmp_jax.load_purejaxql().make_train(config)
         ref_step, rs0 = kit.capture_scan(
             "_update_step", lambda: train(jax.random.PRNGKey(0))
         )
-        agent = ajax.PQN(
-            SPEC.env_id, **(refcmp_ajax.agent_kwargs(SPEC, "matched") | ajax_over)
-        )
+        agent = ajax.PQN(SPEC.env_id, **refcmp_ajax.agent_kwargs(SPEC, "matched"))
         step = kit.capture_step(agent, SPEC.n_timesteps)
     return Sides(ref_step, rs0, config, step, step.fresh(jax.random.PRNGKey(0)))
 
@@ -214,9 +205,9 @@ def iterate(sides: Sides, n: int) -> list[Iteration]:
 
 @pytest.fixture(scope="module")
 def plain() -> tuple[Sides, list[Iteration]]:
-    """Epsilon held at 0.2 on both sides (the per-step epsilon cannot act) and no time-limit cut
-    within two iterations (128 steps per env, against 500)."""
-    sides = build(constant_epsilon=True)
+    """Two iterations with epsilon decaying (read once per update) and no time-limit cut (128 steps
+    per env, against 500)."""
+    sides = build()
     return sides, iterate(sides, 2)
 
 
@@ -303,34 +294,39 @@ def re_derived(it: Iteration, scale: float) -> tuple[np.ndarray, np.ndarray]:
     ), purejaxql_as_written(r, done, v_next, v_obs, m["gamma"], m["q_lambda"])
 
 
-def ajax_targets(it: Iteration) -> np.ndarray:
+def ajax_targets(it: Iteration, gamma: float = SPEC.matched["gamma"]) -> np.ndarray:
     q = predict_q(it.state.actor_state, it.state.actor_state.params, it.roll.next_obs)
     t = compute_q_lambda_targets(
         it.roll.reward * SPEC.matched["reward_scale"],
         jnp.max(q, -1, keepdims=True),
         it.roll.terminated,
         it.roll.truncated,
-        SPEC.matched["gamma"],
+        gamma,
         SPEC.matched["q_lambda"],
     )
     return np.asarray(t[..., 0])
 
 
-def test_targets_differ_only_by_purejaxqls_off_by_one(plain):
+def test_targets_match_purejaxqls(plain):
+    """Ajax's 63 first targets are purejaxql's (its last one, purejaxql's seed, is the last step's
+    bootstrap); at step T - 2 both read V(s_T), where Q(lambda) reads V(s_{T-1})."""
     sides, its = plain
     for it in its:
         textbook, as_written = re_derived(it, sides.config["REW_SCALE"])
         ours, theirs = ajax_targets(it), np.asarray(it.ref["_get_target"])
         tol = TARGET_TOL * np.abs(textbook).max()
-        np.testing.assert_allclose(ours, textbook, rtol=0, atol=tol)
-        np.testing.assert_allclose(theirs, as_written, rtol=0, atol=tol)
-        assert (
-            np.abs(ours[N_STEPS - 2] - theirs[N_STEPS - 2]).max() > tol
-        )  # the defect shows
+        np.testing.assert_allclose(ours[:-1], theirs, rtol=0, atol=tol)
+        np.testing.assert_allclose(ours[:-1], as_written, rtol=0, atol=tol)
+        np.testing.assert_allclose(ours[-1], textbook[-1], rtol=0, atol=tol)
+        assert np.abs(ours[N_STEPS - 2] - textbook[N_STEPS - 2]).max() > tol
 
 
-def returning(value: np.ndarray) -> Any:
-    return lambda *args, **kwargs: jnp.asarray(value)
+def test_a_planted_fault_fails_the_targets(plain):
+    _, its = plain
+    for it in its:
+        theirs = np.asarray(it.ref["_get_target"])
+        faulty = ajax_targets(it, gamma=0.991)[:-1]
+        assert np.abs(faulty - theirs).max() > TARGET_TOL * np.abs(theirs).max()
 
 
 def widened(tree: Any) -> Any:
@@ -366,20 +362,14 @@ def first_true(mask: np.ndarray) -> list:
     ]
 
 
-def test_the_update_matches_when_both_get_the_same_targets(plain, monkeypatch):
-    """Tolerance: each side's float32 rounding, its run against the same run in float64 from the
-    same collection (submaps.rounding_null)."""
+def test_the_update_matches(plain):
+    """From each side's own targets. Tolerance: each side's float32 rounding, its run against the
+    same run in float64 from the same collection (submaps.rounding_null)."""
     sides, its = plain
     step = lambda s: sides.ajax.iteration(s, 0, 0)[0]  # noqa: E731
     ref = lambda rs: sides.ref_step(rs, None)[0]  # noqa: E731
     for i, it in enumerate(its):
-        same = np.concatenate(
-            [np.asarray(it.ref["_get_target"]), ajax_targets(it)[-1:]]
-        )[..., None]
-        monkeypatch.setattr(train_PQN, "compute_q_lambda_targets", returning(same))
-        a32, _ = taped(step, it.state, kit.replaying(it.table))
-        same64 = returning(same.astype(np.float64))
-        monkeypatch.setattr(train_PQN, "compute_q_lambda_targets", same64)
+        a32 = it.out
         a64 = in_float64(step, it.state, "collect_experience", it, it.table)
         r64 = leaves(in_float64(ref, it.rs, "_step_env", it, it.own_table))
         ref32 = leaves(it.rs1)
@@ -390,85 +380,16 @@ def test_the_update_matches_when_both_get_the_same_targets(plain, monkeypatch):
         assert not report.failures, str(report)
 
 
-def test_exploration_differs_only_by_the_per_step_epsilon():
-    sides = build(constant_epsilon=False)
-    cfg, m = sides.config, SPEC.matched
-    events = 0
-    for it in iterate(sides, 2):
-        u = np.stack(
-            [
-                v
-                for _, v in it.ref_draws[
-                    role(it.ref_draws, "uniform", "eps_greedy_exploration")
-                ]
-            ]
-        ).reshape(N_STEPS, N_ENVS)
-        rand = np.stack(
-            [
-                v
-                for _, v in it.ref_draws[
-                    role(it.ref_draws, "randint", "eps_greedy_exploration")
-                ]
-            ]
-        ).reshape(N_STEPS, N_ENVS)
-        greedy = np.asarray(it.ref["_step_env"][0].q_val).argmax(-1)
-        n_upd, ts = (
-            int(leaves(it.rs)["[0].n_updates"]),
-            int(leaves(it.rs)["[0].timesteps"]),
-        )
-        eps_ref = cfg["EPS_START"] + min(
-            n_upd / (cfg["EPS_DECAY"] * cfg["NUM_UPDATES_DECAY"]), 1.0
-        ) * (cfg["EPS_FINISH"] - cfg["EPS_START"])
-        eps_ajax = np.array(
-            [
-                float(
-                    linear_epsilon(
-                        ts + N_ENVS * t,
-                        SPEC.n_timesteps,
-                        m["epsilon_start"],
-                        m["epsilon_end"],
-                        m["epsilon_decay_frac"],
-                    )
-                )
-                for t in range(N_STEPS)
-            ]
-        )
-        # purejaxql explores and Ajax, its epsilon already lower, does not; the random action differs.
-        event = (u >= eps_ajax[:, None]) & (u < eps_ref) & (rand != greedy)
-        a, r = rollouts(it, cfg["REW_SCALE"])
-        mismatch = a["action"] != r["action"]
-        assert first_true(mismatch) == first_true(event)
-        events += int(event.sum())
-    assert events > 0
-
-
-def test_time_limit_cuts_change_only_their_episodes_targets():
-    sides = build(constant_epsilon=True, limit=16)
+def test_targets_match_across_time_limit_cuts():
+    """With CartPole cut at 16 steps, a time limit ends an episode on both sides: the collection and
+    the targets match."""
+    sides = build(limit=16)
     [it] = iterate(sides, 1)
     a, r = rollouts(it, sides.config["REW_SCALE"])
     for k in r:
         np.testing.assert_array_equal(np.asarray(a[k]), np.asarray(r[k]), err_msg=k)
+    assert np.asarray(it.roll.truncated).any()
     ours, theirs = ajax_targets(it)[:-1], np.asarray(it.ref["_get_target"])
-    trunc = np.asarray(it.roll.truncated[..., 0] > 0)[:-1]
-    done = r["done"][:-1]
-    cut, chain = (
-        np.zeros_like(trunc),
-        np.zeros_like(trunc),
-    )  # episodes ending in a cut; the off-by-one's reach
-    for e in range(N_ENVS):
-        start = 0
-        for t in np.nonzero(done[:, e])[0]:
-            cut[start : t + 1, e] = trunc[t, e]
-            start = t + 1
-        chain[start:, e] = True
-    beyond = np.abs(ours - theirs) > TARGET_TOL * np.abs(theirs).max()
-    assert not (beyond & ~cut & ~chain).any()
-    assert (beyond & cut & ~chain).any()
-
-
-def test_every_purejaxql_deviation_is_pinned_here():
-    for d in PUREJAXQL_DEVIATIONS:
-        path, name = d.check.split("::")
-        assert path.endswith(__file__.split("/tests/")[-1]) and name in globals(), (
-            d.name
-        )
+    np.testing.assert_allclose(
+        ours, theirs, rtol=0, atol=TARGET_TOL * np.abs(theirs).max()
+    )

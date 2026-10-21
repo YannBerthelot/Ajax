@@ -49,12 +49,13 @@ from . import readouts as R
 # harness alone (trainings moved to tests/probing/<area>/): test_framework + 3.
 # Families leave the gate with fast catches: faults.py + 4, test_framework
 # + 17, this note + 3; the memory family's two uncatalogued faults: faults/
-# + 2, this note + 1.
+# + 2, this note + 1; PQN as purejaxql's estimator: oracles.py + 2,
+# test_extensions + 3, this note + 1.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 104, "faults/": 236}
-CAPS |= {"test_framework.py": 250, "test_value_chains.py": 1051}
+CAPS |= {"readouts.py": 220, "oracles.py": 194, "faults.py": 104, "faults/": 236}
+CAPS |= {"test_framework.py": 251, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1045, "test_bookkeeping.py": 1013}
-CAPS |= {"test_extensions.py": 791, "test_p4_split_run.py": 360}
+CAPS |= {"test_extensions.py": 794, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
 CAPS |= {"test_action_box.py": 201, "test_imitation.py": 178, "test_offline.py": 300}
 

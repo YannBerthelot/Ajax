@@ -401,8 +401,7 @@ the fault in a scratch copy and running the fast tests that execute its lines
 (`uv run python -m tests.fault_catches SCRATCH FAMILY`). The families out of
 the gate are listed in `faults.OUT_OF_THE_GATE`, and ci.yml's Probing job
 ignores their files; `tests/probing/test_framework.py` checks both. They still
-run in the slow tier. Out so far: resuming a split run (`test_p4_split_run.py`)
-and memory (`test_memory.py`).
+run in the slow tier.
 
 ### The probing tests
 

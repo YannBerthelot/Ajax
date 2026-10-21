@@ -19,13 +19,15 @@ env:
   JAX_PLATFORMS: cpu
   JAX_PLATFORM_NAME: cpu
 
-# The fast jobs (pre-commit, the tests not marked slow, coverage,
-# conformance, docs) run on GitHub's arm64 runners: they all come on one CPU
-# model, so a job always finds main's compile cache for its programs (JAX
-# keys entries by the CPU, and the x86 runners come on several: a cache built
-# on one missed on the others). A warm cache cut a compile-heavy subset from
-# 746 s to about 280 s there (Compile preview, run 39501778659). The probing
-# and slow jobs stay on x86, the platform most users train on.
+# The pull-request gate is the fast tier (CONTRIBUTING.md, Testing):
+# pre-commit, the tests not marked slow under coverage, conformance and the
+# docs. Everything that trains is the slow tier, run by slow.yml (daily on
+# main, by label, before a release) on x86, the platform most users train on.
+# These jobs run on GitHub's arm64 runners: they all come on one CPU model,
+# so a job always finds main's compile cache for its programs (JAX keys
+# entries by the CPU, and the x86 runners come on several: a cache built on
+# one missed on the others). A warm cache cut a compile-heavy subset from
+# 746 s to about 280 s there (Compile preview, run 39501778659).
 jobs:
   lint:
     name: Pre-commit
@@ -45,8 +47,8 @@ jobs:
   # Shards 1 and 2 name directories; shard 3 runs everything else under
   # tests/ (pyproject's testpaths), so a new test file always runs somewhere.
   # The split balances the per-file times of the CI runs at a1658d9.
-  # Probing (tests/probing) and conformance (tests/conformance) are left out
-  # here and in the slow job: their own jobs run them.
+  # tests/conftest.py marks tests/probing slow but for the harness's checks,
+  # which run here; conformance (tests/conformance) has its own job.
   tests:
     name: Tests (shard ${{ matrix.shard }})
     runs-on: ubuntu-24.04-arm
@@ -68,7 +70,7 @@ jobs:
       # XLA's optimisation level 0 (the Makefile's FAST_XLA): these tests
       # check logic on tiny programs, so compiling fast matters more than
       # the code it makes (about 30% off a cold shard, measured by the
-      # Compile preview); the probing and slow jobs keep the default level.
+      # Compile preview); the slow tier keeps the default level.
       - name: Run the shard under coverage
         env:
           XLA_FLAGS: --xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true
@@ -84,7 +86,7 @@ jobs:
           # Coverage job combines the shards' and checks the floor (a shard
           # alone covers less, so pytest-cov must not check it).
           uv run pytest $paths -m "not slow" -n auto --cov --cov-report= \
-            --cov-fail-under=0 --ignore=tests/probing --ignore=tests/conformance \
+            --cov-fail-under=0 --ignore=tests/conformance \
             --durations=30
           mv .coverage ".coverage.shard-${{ matrix.shard }}"
       # The cache only saves time: a failed save must not fail the job (in
@@ -116,63 +118,7 @@ jobs:
           merge-multiple: true
       - run: |
           uv run coverage combine
-          uv run coverage report --fail-under=70
-
-  # Long trainings, run without coverage so its tracing overhead does not
-  # lengthen them.
-  slow:
-    name: Slow tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup
-      - id: jax-cache
-        uses: ./.github/actions/compile-cache
-        with:
-          job: slow
-      - run: uv run pytest -m slow --ignore=tests/probing --ignore=tests/conformance --durations=30
-      - name: Save the JAX compile cache
-        if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
-        continue-on-error: true
-        uses: ./.github/actions/compile-cache-save
-        with:
-          key: ${{ steps.jax-cache.outputs.key }}
-
-  # The agent-level learning checks, in their own job so adding probes does
-  # not lengthen the other jobs, in shards by recorded duration
-  # (tests/.durations). The probe families out of the pull-request gate
-  # (tests/probing/faults.py's OUT_OF_THE_GATE, whose fast tests catch every
-  # fault they list) are left out: the Slow tier workflow runs them daily.
-  probing:
-    name: Probing (shard ${{ matrix.shard }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup
-      - id: jax-cache
-        uses: ./.github/actions/compile-cache
-        with:
-          job: probing-${{ matrix.shard }}
-      - name: Run the shard
-        run: >-
-          uv run pytest tests/probing --shard ${{ matrix.shard }}/5 -v --durations=30
-          --ignore=tests/probing/test_p4_split_run.py --ignore=tests/probing/test_memory.py
-          --ignore=tests/probing/test_action_box.py --ignore=tests/probing/test_imitation.py
-          --ignore=tests/probing/test_offline.py --ignore=tests/probing/test_world_models.py
-          --ignore=tests/probing/test_bookkeeping.py --ignore=tests/probing/test_extensions.py
-          --ignore=tests/probing/test_episode_ends.py --ignore=tests/probing/test_value_chains.py
-      - name: Save the JAX compile cache
-        if: always() && github.event_name == 'push' && steps.jax-cache.outputs.key
-        continue-on-error: true
-        uses: ./.github/actions/compile-cache-save
-        with:
-          key: ${{ steps.jax-cache.outputs.key }}
+          uv run coverage report --fail-under=90
 
   # One training step of each agent against its original implementation, from
   # the same state with the same random numbers (tests/conformance), in its own
@@ -243,16 +189,14 @@ jobs:
   gate:
     name: Lint and Test
     if: always()
-    needs: [lint, tests, coverage, slow, probing, conformance, docs]
+    needs: [lint, tests, coverage, conformance, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - run: |
-          echo 'lint=${{ needs.lint.result }} tests=${{ needs.tests.result }} coverage=${{ needs.coverage.result }} slow=${{ needs.slow.result }} probing=${{ needs.probing.result }} conformance=${{ needs.conformance.result }} docs=${{ needs.docs.result }}'
+          echo 'lint=${{ needs.lint.result }} tests=${{ needs.tests.result }} coverage=${{ needs.coverage.result }} conformance=${{ needs.conformance.result }} docs=${{ needs.docs.result }}'
           test '${{ needs.lint.result }}' = success
           test '${{ needs.tests.result }}' = success
           test '${{ needs.coverage.result }}' = success
-          test '${{ needs.slow.result }}' = success
-          test '${{ needs.probing.result }}' = success
           test '${{ needs.conformance.result }}' = success
           test '${{ needs.docs.result }}' = success

@@ -23,6 +23,10 @@ PyPI as `ajax-rl`.
 - `NetworkConfig.squash_log_det_eps` sets the guard inside the `tanh`
   log-det, `log(1 - tanh(u)^2 + eps)`, for an agent whose reference uses
   one; 0, the exact log-det, by default.
+- **Development**: pull requests run the fast tier alone: the tests not
+  marked slow, each under 128 gradient steps, and the conformance checks.
+  The probes and every other training run in the slow tier, daily on main,
+  on a labelled pull request and before a release.
 
 ## 0.4.0
 

@@ -164,6 +164,60 @@ PUREJAXQL_DEVIATIONS = (
     ),
 )
 
+_REDQ_CHECKS = "tests/conformance/test_redq_original.py::"
+#: watchernyu/REDQ (7b5d1bf) against Ajax's REDQ, from the conformance check (no outcome comparison).
+REDQ_DEVIATIONS = (
+    Deviation(
+        name="first step's temperature",
+        kind="reference defect",
+        submap="targets and actor loss of the first training step",
+        description="REDQ's __init__ derives its temperature from log_alpha (1.0), then sets"
+        " self.alpha = alpha, the unused default 0.2: its first training step's targets and"
+        " actor loss read 0.2, the later ones exp(log_alpha). Ajax reads exp(log_alpha)"
+        " throughout.",
+        where="vendor/watchernyu_redq/redq/algos/redq_sac.py:61,80",
+        check=_REDQ_CHECKS + "test_redqs_first_step_reads_its_overwritten_temperature",
+    ),
+    Deviation(
+        name="tanh log-det",
+        kind="convention",
+        submap="log-probabilities: targets, actor loss, temperature",
+        description="REDQ subtracts log(1 - tanh(u)^2 + 1e-6) from the Gaussian's"
+        " log-probability; Ajax the exact log-det of tanh. They part as actions saturate; the"
+        " check runs Ajax with REDQ's form.",
+        where="vendor/watchernyu_redq/redq/algos/core.py:232;"
+        " src/ajax/networks/distributions.py Squash",
+        check=_REDQ_CHECKS + "test_one_step_matches_redqs",
+    ),
+)
+
+_AVG_CHECKS = "tests/conformance/test_avg_original.py::"
+#: gauthamvasan/avg (6b6822c) against Ajax's AVG, from the conformance check (no outcome comparison).
+AVG_DEVIATIONS = (
+    Deviation(
+        name="log-std read as a log-variance",
+        kind="reference defect",
+        submap="the actor's log-std head",
+        description="AVG builds MultivariateNormal(mu, diag(exp(log_std))), whose second"
+        " argument is a covariance: its log_std head is a log-variance (standard deviation"
+        " exp(log_std / 2), clamped in [-20, 2] as a log-variance). Ajax reads its head as a"
+        " log-std. Mapped forward-equivalently, Adam steps the head twice as far in AVG's"
+        " units; every other leaf conforms.",
+        where="vendor/gauthamvasan_avg/avg.py:70-72",
+        check=_AVG_CHECKS + "test_avgs_log_std_head_is_a_log_variance",
+    ),
+    Deviation(
+        name="actions not mapped onto the box",
+        kind="convention",
+        submap="collection, the executed action",
+        description="AVG hands its tanh action to a ClipAction env unscaled: on Pendulum the"
+        " torque stays in [-1, 1] of [-2, 2]. Ajax maps [-1, 1] onto the box (owner decision"
+        " O6). The update check feeds AVG's own transitions, so it does not see this.",
+        where="vendor/gauthamvasan_avg/avg.py:186-187, :214",
+        check=_AVG_CHECKS + "test_avg_hands_its_tanh_action_to_the_env_unscaled",
+    ),
+)
+
 COMPARISONS = {
     "PPO": Comparison(
         # Version 1 (the pilot, at c4aeac6) set fused_grad_clip, which clipped

@@ -5,6 +5,11 @@ the minor version. Each release is tagged `vX.Y.Z` on main.
 
 ## Unreleased
 
+- **Breaking**: brax and MuJoCo Playground are no longer installed with
+  Ajax. A project that uses their environments asks for `ajax[playground]`
+  (or `ajax[brax]` for Brax alone); without them, building one raises an
+  error that names the extra. A gymnax-only install drops 34 of its 93
+  packages.
 - **TD3** now makes sfujim/TD3's update: its critics' losses are summed
   (they were averaged, which doubled Adam's eps against the gradient), its
   first actor step comes with the `policy_delay`-th update (it came with the
@@ -20,12 +25,11 @@ the minor version. Each release is tagged `vX.Y.Z` on main.
   in `[-1, 1]` units, which Adam does not cancel. TD3's critic, queried by
   the extensions and the evaluation, reads env units there too. TD3+BC and
   ReBRAC runs differ from 0.4.0's.
-- **Extras**: `ajax[brax]` for Brax environments, `ajax[playground]` for
-  MuJoCo Playground ones (with Brax). Ajax imports brax and
-  mujoco_playground only to build their environments.
-- **Deprecated**: brax and playground in the core install. 0.5.0 removes
-  them, so a project that uses their environments should ask for
-  `ajax[playground]` or `ajax[brax]` now.
+- **Extras**: `ajax[brax]`, `ajax[playground]` and `ajax[wandb]` (Weights &
+  Biases logging).
+- **Dependencies**: brax is no longer capped below 0.15 (Ajax uses its
+  public `get_environment`); mujoco, mujoco-mjx and gymnasium are no longer
+  declared, since Ajax does not import them.
 - **Development**: the tests come in two tiers (CONTRIBUTING.md, Testing).
   The slow tier, everything that trains, also runs daily on main, on a pull
   request labelled `run-slow-tier` and before each release; tags come only

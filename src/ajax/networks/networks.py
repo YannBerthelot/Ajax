@@ -247,6 +247,9 @@ class Actor(nn.Module):
     # (ppo_continuous_action.py:129) and PureJaxRL @31756b1
     # (ppo_continuous_action.py:41).
     log_std_state_independent: bool = False
+    # The head's output read as a log-variance, std = exp(out / 2), after
+    # ``log_std_bounds`` (NetworkConfig.log_variance_head).
+    log_variance_head: bool = False
     # None only for a "torch_linear" log-std head, whose layer draws its
     # bias: the starting std is then the layer's, not one constant.
     log_std_init: Optional[float] = -1.0
@@ -363,7 +366,7 @@ class Actor(nn.Module):
                 log_std = self.log_std(embedding)
             if self.log_std_bounds is not None:
                 log_std = jnp.clip(log_std, *self.log_std_bounds)
-            std = jnp.exp(log_std)
+            std = jnp.exp(0.5 * log_std if self.log_variance_head else log_std)
             return distrax.Normal(mean, std)
         return self.model(embedding)
 
@@ -618,6 +621,7 @@ def get_initialized_actor_critic(
             cnn_extra_obs_dim=cnn_extra_obs_dim,
             cnn_spec=cnn_spec,
             log_std_state_independent=network_config.log_std_state_independent,
+            log_variance_head=network_config.log_variance_head,
             log_std_init=network_config.log_std_init,
             log_std_bounds=network_config.log_std_bounds,
             mean_kernel_init=network_config.mean_kernel_init,

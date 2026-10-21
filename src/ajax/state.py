@@ -308,6 +308,10 @@ class NetworkConfig(Replaceable):
     # The tanh log-det's guard, Squash's ``log_det_eps``: 0 keeps the exact
     # log-det; an agent whose reference adds one inside the log sets it.
     squash_log_det_eps: float = flax.struct.field(pytree_node=False, default=0.0)
+    # Read the MLP actor's log-std head as a log-variance: std = exp(out / 2),
+    # ``log_std_bounds`` bounding the log-variance, as an agent whose
+    # reference does (AVG's) sets it.
+    log_variance_head: bool = False
 
     def __post_init__(self):
         check_log_std_bounds(self.log_std_bounds)

@@ -428,6 +428,21 @@ def test_log_std_bounds_clip_either_log_std_head(state_independent, bounds):
     np.testing.assert_allclose(std, np.broadcast_to(np.exp(want), (4, 2)), rtol=1e-5)
 
 
+def test_a_log_variance_head_takes_the_root_after_the_clip():
+    """``log_variance_head`` reads the head as a log-variance, as AVG's code
+    (avg.py:70-72): std = exp(clip(out) / 2), the bounds bounding the
+    log-variance."""
+    kw = {"action_dim": 2, "input_architecture": ARCH, "continuous": True}
+    actor = Actor(log_variance_head=True, log_std_bounds=(-20.0, 2.0), **kw)
+    obs = jax.random.normal(jax.random.PRNGKey(1), (4, 8))
+    params = actor.init(jax.random.PRNGKey(0), obs)["params"]
+    head = jnp.array([3.0, -1.0])  # the first beyond the bound
+    params = {**params, "log_std": {**params["log_std"], "bias": head}}
+    std = actor.apply({"params": params}, obs).stddev()
+    want = np.exp(np.clip(np.asarray(head), -20.0, 2.0) / 2)
+    np.testing.assert_allclose(std, np.broadcast_to(want, (4, 2)), rtol=1e-5)
+
+
 @pytest.mark.parametrize("bounds", [(2.0, -20.0), (1.0, 1.0)])
 def test_the_network_refuses_log_std_bounds_out_of_order(bounds):
     """Where the network is built, not only in an agent's constructor: a

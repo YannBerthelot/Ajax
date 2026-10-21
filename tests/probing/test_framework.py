@@ -6,6 +6,7 @@ the directory."""
 from __future__ import annotations
 
 import functools
+import glob
 import importlib
 import json
 import math
@@ -49,10 +50,12 @@ from . import readouts as R
 # harness alone (trainings moved to tests/probing/<area>/): test_framework + 3.
 # Families leave the gate with fast catches: faults.py + 4, test_framework
 # + 17, this note + 3; the memory family's two uncatalogued faults: faults/
-# + 2, this note + 1.
+# + 2, this note + 1; the families out of the gate, one a line once they
+# outgrow one: faults.py + 13, this note + 2; every family out, the set
+# goes: faults.py - 16, test_framework + 1, this note + 1.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 155, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 104, "faults/": 236}
-CAPS |= {"test_framework.py": 250, "test_value_chains.py": 1051}
+CAPS |= {"readouts.py": 220, "oracles.py": 192, "faults.py": 101, "faults/": 236}
+CAPS |= {"test_framework.py": 254, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1045, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 791, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
@@ -227,14 +230,15 @@ def test_the_directory_keeps_to_its_budget() -> None:
     assert total <= 7400, total
 
 
-def test_every_family_out_of_the_gate_lists_its_fast_catches() -> None:
-    """A family leaves the pull-request gate (ci.yml's probing job ignores its
-    file) only once each of its faults names the fast tests measured to catch
-    it (``python -m tests.fault_catches``): live tests outside tests/probing."""
+def test_every_fault_names_the_fast_tests_that_catch_it() -> None:
+    """The pull-request gate runs the fast tier alone (ci.yml runs no probe:
+    the slow tier does, slow.yml), so each planted fault names the fast tests
+    measured to catch it (``python -m tests.fault_catches``): live tests
+    outside tests/probing."""
     ci = open(os.path.join(faults.REPO, ".github", "workflows", "ci.yml")).read()
-    for family in sorted(faults.OUT_OF_THE_GATE):
-        assert f"--ignore=tests/probing/test_{family}.py" in ci, family
-        with open(os.path.join(faults.HERE, "faults", f"{family}.jsonl")) as fh:
+    assert "pytest tests/probing" not in ci
+    for path in sorted(glob.glob(os.path.join(faults.HERE, "faults", "*.jsonl"))):
+        with open(path) as fh:
             rows = [json.loads(line) for line in fh if line.strip()]
         for row in rows:
             assert row.get("fast"), f"{row['id']} lists no fast catch"

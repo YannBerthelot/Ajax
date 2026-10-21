@@ -40,6 +40,12 @@ def test_a_run_reports_the_steps_its_networks_took() -> None:
     assert conftest._updates == int(np.max(np.asarray(state.critic_state.step))) == 4
 
 
+def test_a_fast_test_fails_past_the_line_of_gradient_steps() -> None:
+    assert conftest.training_past_the_line(conftest.MAX_UPDATES) is None
+    failure = conftest.training_past_the_line(conftest.MAX_UPDATES + 1)
+    assert failure is not None and "tests/probing" in failure
+
+
 def test_a_fast_test_past_a_budget_is_reported(monkeypatch) -> None:
     over: list = []
     monkeypatch.setattr(conftest, "_over", over)

@@ -340,19 +340,17 @@ tiny run produces today, so a restructuring can show it changed nothing:
 `tests/test_downstream_api.py` (the names downstream projects import). *Slow
 tests* (`@pytest.mark.slow`) are the long trainings.
 
-The tests come in two tiers. The *fast tier* is the tests not marked slow,
-which every pull request must pass (CI runs the probing harness's own checks
-and `tests/conformance` in jobs of their own). A fast test may
-run a tiny training, but at most 128 gradient steps and about 30 s:
-`tests/conftest.py` times each test, counts its gradient steps (the larger of
-the agent's update count and each train state's step) and lists the tests
-past either line at the end of the run (`AJAX_FAST_MAX_UPDATES`,
-`AJAX_FAST_MAX_SECONDS`). For now it only reports. A test past the lines
-belongs in `tests/probing`, or is marked slow. The *slow tier* is everything
-that trains: `tests/probing`, which `tests/conftest.py` marks slow, and the
-tests marked slow elsewhere. Until the fast tests catch what the probes catch,
-pull requests also run the slow tests, the probes and the conformance tests
-(below).
+The tests come in two tiers. The *fast tier* is the tests not marked slow:
+every pull request must pass it. A fast test may run a tiny training, of at
+most 128 gradient steps: `tests/conftest.py` counts each test's gradient steps
+(the larger of the agent's update count and each train state's step) and
+fails a fast test past the line (`AJAX_FAST_MAX_UPDATES`); a test that trains
+belongs in `tests/probing`, or is marked slow. It also times each test and
+lists those past 30 s (`AJAX_FAST_MAX_SECONDS`) without failing them:
+compiles, not trainings, set those times. The *slow tier* is everything that
+trains: `tests/probing`, which `tests/conftest.py` marks slow but for the
+harness's own checks, and the tests marked slow elsewhere; a workflow of its
+own runs it (below).
 
 Every directory of `tests/` that holds Python files is a package (an empty
 `__init__.py`; `tests/test_repo_hygiene.py` checks it), so tests import shared
@@ -364,45 +362,42 @@ CounterExt`. The benchmark scripts the tests import are on the path through
 uv run pytest --collect-only -q   # everything imports and collects
 uv run pytest tests/agents/TD3    # the tests of what you changed
 uv run pytest -m "not slow" -n auto   # the fast tier, a worker per core
-make ci   # what CI runs: ci-precommit, ci-test, ci-slow, ci-probe, ci-conformance, docs
+make ci       # the pull-request gate: ci-precommit, ci-test, ci-conformance, docs
+make ci-all   # the gate and the slow tier (ci-slow)
 ```
 
 The `make` targets hide the GPU (`CPU_ENV`) so tests never compete with a
 running experiment; elsewhere set `JAX_PLATFORMS=cpu` while a GPU is busy.
 
-**CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs on CPU for
-every pull request and push to `main`: *Pre-commit*; *Tests* (three shards:
-the tests not marked slow, probing excluded, under coverage, a pytest-xdist
-worker per vCPU, at XLA's optimisation level 0 since these programs are tiny;
-the last shard runs whatever the first two do not name, so a new test file
-always runs); *Coverage* (the shards combined, at least 70%); *Slow tests*
-(without coverage, which would lengthen them); *Probing* (five shards by
-recorded duration, without the families out of the gate, below);
-*Conformance* (each agent's training step against its
-original implementation); *Docs* (the documentation site, `mkdocs build
+**CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the fast
+tier on CPU for every pull request and push to `main`: *Pre-commit*; *Tests*
+(three shards: the tests not marked slow, the probing harness's checks among
+them, under coverage, a pytest-xdist worker per vCPU, at XLA's optimisation
+level 0 since these programs are tiny; the last shard runs whatever the first
+two do not name, so a new test file always runs); *Coverage* (the shards
+combined, at least 90%); *Conformance* (each agent's training step against
+its original implementation); *Docs* (the documentation site, `mkdocs build
 --strict`). *Lint and Test*, the one check branch protection requires, passes
-only when all of them passed. Pre-commit, Tests, Coverage, Conformance and
-Docs run on GitHub's arm64 runners, which all come on one CPU model, so a job
-finds main's compile cache (JAX keys it by the CPU); Slow tests and Probing
-run on x86, the platform most users train on.
+only when all of them passed. They run on GitHub's arm64 runners, which all
+come on one CPU model, so a job finds main's compile cache (JAX keys it by
+the CPU).
 
 The *Slow tier* workflow ([slow.yml](.github/workflows/slow.yml)) runs
-everything that trains (`pytest -m slow`: `tests/probing`, marked slow by
-`tests/conftest.py`, and the tests marked slow elsewhere) in six shards by
-recorded duration (`--shard I/N`, `tests/.durations`, `make durations`): daily
-on main when main changed, by hand, and on a pull request each time the label
-`run-slow-tier` is added. A red run on main opens an issue, and bisects the
-merges since the last green run when that is cheap.
+everything that trains (`pytest -m slow`) on x86, the platform most users
+train on, in six shards by recorded duration (`--shard I/N`,
+`tests/.durations`, `make durations`): daily on main when main changed, by
+hand, and on a pull request each time the label `run-slow-tier` is added. A
+pull request that changes how an agent trains gets the label before it
+merges. A red run on main opens an issue, and bisects the merges since the
+last green run when that is cheap.
 
-A probe family leaves the pull-request gate once the fast tests catch every
-fault its catalogue lists (`tests/probing/faults/<family>.jsonl`). Each such
-fault's `fast` field names the fast tests that catch it, measured by planting
-the fault in a scratch copy and running the fast tests that execute its lines
-(`uv run python -m tests.fault_catches SCRATCH FAMILY`). The families out of
-the gate are listed in `faults.OUT_OF_THE_GATE`, and ci.yml's Probing job
-ignores their files; `tests/probing/test_framework.py` checks both. They still
-run in the slow tier. Out so far: resuming a split run (`test_p4_split_run.py`)
-and memory (`test_memory.py`).
+As the gate runs no probe, every planted fault
+(`tests/probing/faults/<family>.jsonl`) names in its `fast` field the fast
+tests that catch it, measured by planting the fault in a scratch copy and
+running the fast tests that execute its lines (`uv run python -m
+tests.fault_catches SCRATCH [FAMILY ...]`); `tests/probing/test_framework.py`
+checks that each names live tests outside `tests/probing`. A new fault comes
+with its fast catch.
 
 ### The probing tests
 

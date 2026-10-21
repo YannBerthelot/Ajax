@@ -5,8 +5,8 @@ edit others catch too: once, all its catches listed): an ``id``, a ``path``
 under src/ajax, the ``old`` text (exactly one occurrence), its ``new``
 replacement, ``catches``, the nodes the old measured record shows failing
 with it planted, and ``fast``, the fast tests measured to catch it
-(``python -m tests.fault_catches``), which every fault of a family in
-``OUT_OF_THE_GATE`` lists. ``run`` copies the repository to a scratch
+(``python -m tests.fault_catches``), which every fault lists: the
+pull-request gate runs the fast tier alone. ``run`` copies the repository to a scratch
 directory, plants the fault there and runs those nodes, so the checkout is
 never modified; a non-zero exit means caught::
 
@@ -25,9 +25,6 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-#: The families out of the pull-request gate (the two-tier test plan): their
-#: probe files run in the slow tier alone, which ci.yml's probing job ignores.
-OUT_OF_THE_GATE = frozenset({"p4_split_run", "memory"})
 COPIED = ("src", "tests", "benchmarks", "docs", "pyproject.toml")
 
 

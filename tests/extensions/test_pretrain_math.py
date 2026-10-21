@@ -13,6 +13,7 @@ from typing import Any, Optional
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 import pytest
 from flax import struct
@@ -23,10 +24,13 @@ from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.pretrain import (
     BellmanPretrain,
     CloningPretrain,
+    MCPretrain,
     PhiRefresh,
+    pretrain_critic_mc,
     pretrain_critic_online_light,
 )
 from ajax.state import LoadedTrainState
+from tests.environments import paid_action
 
 OBS_DIM = 4
 ACTION_DIM = 2
@@ -135,6 +139,47 @@ def test_bellman_pretrain_binds_the_agent_context():
     assert (bound.update_value_fn, bound.update_target_fn) == (len, abs)
     assert bound.bind_to_agent(**context | {"gamma": 0.5}) is bound
     assert ext.bind_to_agent(env_args=None) is ext
+
+
+def test_mc_pretrain_binds_the_agents_discount_and_reward_scale():
+    ext = MCPretrain(expert_policy=abs)
+    context = {"env_args": "env", "network_args": "net", "gamma": 0.9}
+    context |= {"critic_optimizer_args": "opt", "reward_scale": 2.0}
+    bound = ext.bind_to_agent(**context, expert_policy=abs)
+    assert (bound.env_args, bound.gamma, bound.reward_scale) == ("env", 0.9, 2.0)
+
+
+def test_mc_returns_carry_the_reward_scale():
+    """phi* fits G_t = sum_k gamma^k c r_{t+k}, the rewards scaled by the
+    agent's reward_scale c as its critic's targets are. On one-step episodes
+    paying the expert's 0.5, from a critic at 0 everywhere, the first loss
+    is the mean of G^2 = (0.5 c)^2."""
+    env, params = paid_action.make()
+    net = ("8", "relu")
+    agent = SAC(env, env_params=params, actor_architecture=net, critic_architecture=net)
+    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+    zero = jax.tree.map(jnp.zeros_like, state.critic_state.params)
+    critic = state.critic_state.replace(params=zero)
+
+    def first_loss(reward_scale: float) -> float:
+        out = pretrain_critic_mc(
+            state,
+            critic,
+            lambda obs: jnp.full(obs.shape[:-1] + (1,), 0.5),
+            agent.env_args.mode,
+            agent.env_args,
+            gamma=0.9,
+            reward_scale=reward_scale,
+            n_mc_steps=8,
+            n_mc_episodes=1,
+            n_steps=1,
+            batch_size=4,
+        )
+        return float(out[4].initial_loss)
+
+    np.testing.assert_allclose(
+        [first_loss(1.0), first_loss(2.0)], [0.25, 1.0], rtol=1e-5
+    )
 
 
 def test_bellman_pretrain_needs_the_agent_context_and_expert():

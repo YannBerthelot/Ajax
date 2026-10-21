@@ -111,6 +111,7 @@ check.
 | TD3+BC | sfujim/TD3_BC (PyTorch) | `tests/conformance/test_td3bc_sfujim.py` |
 | REDQ | watchernyu/REDQ (PyTorch) | `tests/conformance/test_redq_original.py` |
 | AVG | gauthamvasan/avg (PyTorch) | `tests/conformance/test_avg_original.py` |
+| APO | xtma/apo on xtma/rlpyt (PyTorch) | `tests/conformance/test_apo_original.py` |
 
 The originals are vendored under `benchmarks/reference/vendor`. A PyTorch
 original runs in its own environment (`benchmarks/reference/envs/torch`)

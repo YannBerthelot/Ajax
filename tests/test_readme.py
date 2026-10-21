@@ -2,9 +2,11 @@
 
 It is the first page a reader sees and its examples are the first code they
 run, so each ``python`` block is executed; a block whose first line is
-``# doc: skip`` (one that would train for minutes, say) is left out. The agent
-table and the relative links are checked too: both go stale quietly when an
-agent or a documentation page is added, renamed or removed.
+``# doc: skip`` (one that would train for minutes, say) is left out. A block
+that trains (calls ``.train(``; the quickstart's PPO takes 1,920 gradient
+steps) runs in the slow tier, word for word. The agent table and the
+relative links are checked too: both go stale quietly when an agent or a
+documentation page is added, renamed or removed.
 """
 
 from __future__ import annotations
@@ -32,7 +34,9 @@ NUMBER_WORDS = (
 
 def _runnable_blocks() -> list:
     return [
-        pytest.param(code, id=f"block{i}")
+        pytest.param(
+            code, id=f"block{i}", marks=[pytest.mark.slow] if ".train(" in code else []
+        )
         for i, code in enumerate(BLOCK.findall(README.read_text()))
         if not code.lstrip().startswith("# doc: skip")
     ]

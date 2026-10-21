@@ -55,11 +55,15 @@ jobs:
           python-version: ${{ matrix.python }}
           sync: ${{ matrix.sync }}
       - run: uv pip list
-      # The tests not marked slow, without the probes (the CI job's set). The
+      # The tests not marked slow, without the probes and the conformance
+      # checks (the CI test shards' set). Conformance runs each original in
+      # its own locked environment, which this job's resolution mode would
+      # put out of date to `--locked`; CI's Conformance job runs it. The
       # exact-output pins are left out: they detect change against the
       # locked versions, and other versions move them by rounding.
       - run: >-
           uv run --no-sync pytest tests -m "not slow" --ignore=tests/probing
+          --ignore=tests/conformance
           --ignore=tests/agents/test_agent_pins.py
           --ignore=tests/agents/SAC/test_sac_parity.py
           --ignore=tests/extensions/test_sac_extensions_equivalence.py

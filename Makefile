@@ -9,7 +9,7 @@ CPU_ENV := CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu JAX_PLATFORM_NAME=cpu
 # level 0 compiles them faster (as ci.yml's test shards do).
 FAST_XLA := XLA_FLAGS="--xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true"
 
-.PHONY: ci ci-precommit ci-test ci-slow ci-probe ci-conformance docs docs-serve test-cpu probe-cpu help
+.PHONY: ci ci-precommit ci-test ci-slow ci-probe ci-conformance docs docs-serve test-cpu probe-cpu durations help
 
 help:  ## Show this help message
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -26,10 +26,9 @@ ci: ci-precommit ci-test ci-slow ci-probe ci-conformance docs  ## Full local CI:
 ci-precommit:  ## pre-commit on all files (ruff lint + ruff-format + mypy)
 	uv run pre-commit run --all-files
 
-ci-test:  ## Tests not marked slow (deselects probing, conformance) + coverage >= 70
+ci-test:  ## Tests not marked slow (deselects probing, conformance) + coverage >= 70, one worker per core
 	uv run coverage erase
-	$(CPU_ENV) $(FAST_XLA) uv run coverage run -m pytest -m "not slow" --ignore=tests/probing --ignore=tests/conformance
-	uv run coverage combine
+	$(CPU_ENV) $(FAST_XLA) uv run pytest -n auto --cov --cov-report= --cov-fail-under=0 -m "not slow" --ignore=tests/probing --ignore=tests/conformance
 	uv run coverage report --fail-under=70
 
 ci-slow:  ## Tests marked slow (deselects probing, conformance), without coverage
@@ -40,6 +39,9 @@ ci-probe:  ## Cross-agent probing tests (the known-answer probes)
 
 ci-conformance:  ## Each agent's training step against its original implementation
 	$(CPU_ENV) uv run pytest tests/conformance
+
+durations:  ## Refresh tests/.durations (pytest --shard) from junit reports: make durations REPORTS="a.xml b.xml"
+	uv run python .github/scripts/durations.py $(REPORTS)
 
 docs:  ## Build the documentation site into site/, strictly, as CI does
 	uv run --group docs mkdocs build --strict

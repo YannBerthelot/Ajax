@@ -76,6 +76,10 @@ dev = [
     # the reproduction extra's Parquet tables.
     "pandas>=2.2,<3",
     "pyarrow>=15",
+    # The tests not marked slow run one worker per core (CI's test shards,
+    # `make ci-test`); pytest-cov measures coverage across the workers.
+    "pytest-xdist>=3.8.0",
+    "pytest-cov>=6.3.0",
 ]
 # The wandb extra, installed by default.
 wandb = ["ajax[wandb]"]

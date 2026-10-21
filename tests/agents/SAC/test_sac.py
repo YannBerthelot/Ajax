@@ -33,7 +33,7 @@ def test_sac_trains_with_rlpd_layernorm_critics():
     updates the norms' scales and keeps every parameter finite."""
     arch = ("64", "layernorm", "relu", "64", "layernorm", "relu")
     agent = SAC(env_id="Pendulum-v1", critic_architecture=arch, learning_starts=100)
-    state, _ = agent.train(seed=0, n_timesteps=400)
+    state, _ = agent.train(seed=0, n_timesteps=200)
     params = state.critic_state.params
     assert all(jnp.isfinite(leaf).all() for leaf in jax.tree.leaves(params))
     scale = params["params"]["ensemble"]["encoder"]["network"]["layers_1"]["scale"]

@@ -3,13 +3,12 @@
 The latest code's support for terminating tasks
 (``nicklashansen/tdmpc2@eece801``, as at ``e9f5932``): the termination head
 and its loss, ``1 - terminated`` in the TD target, the termination-masked
-value estimate of the planner, the variable-length episode replay, and a
-training-level known answer on a terminating chain.
+value estimate of the planner and the variable-length episode replay. The
+known answer on a terminating chain trains, so it is in the slow tier
+(``tests/probing/world_models/test_tdmpc2_chain.py``).
 """
 
 from __future__ import annotations
-
-import functools
 
 import jax
 import jax.numpy as jnp
@@ -17,7 +16,6 @@ import numpy as np
 import pytest
 
 from ajax import TDMPC2
-from ajax.agents.base import ActorCritic
 from ajax.agents.TDMPC2 import core, planner
 from ajax.agents.TDMPC2.buffer import EpisodicBuffer, EpisodicBufferState
 from ajax.agents.TDMPC2.networks import make_world_model
@@ -477,16 +475,10 @@ def test_the_episodic_schedule_honours_updates_per_step(ratio, per_stepped):
         )
 
 
-# The terminating chain s0 -0-> s1 -0-> s2 -1-> s3 (terminal), time limit 10:
-# the values are gamma^2, gamma, 1 at s0, s1, s2. The paper-era agent does
-# not see the termination (gymnax auto-resets to s0 mid-slot), so it learns
-# the continuing chain with reward 1 every third step, gamma^(2 - t) / (1 -
-# gamma^3). Calibrated on seeds 0-3 (1072 updates): the episodic values
-# within 0.008 of the truth and the termination probability below 0.002 or
-# above 0.999; the paper-era values within 0.035 of the continuing chain's.
+# The terminating chain s0 -0-> s1 -0-> s2 -1-> s3 (terminal), time limit 10
+# (``toy_envs.ChainEnv``); what an agent learns on it is probed in
+# ``tests/probing/world_models/test_tdmpc2_chain.py``.
 CHAIN_GAMMA = 0.8
-TRUTH = CHAIN_GAMMA ** np.array([2.0, 1.0, 0.0])
-CONTINUING = TRUTH / (1 - CHAIN_GAMMA**3)
 CHAIN = {
     "n_envs": 2,
     "enc_dim": 32,
@@ -503,94 +495,48 @@ CHAIN = {
     "learning_rate": 1e-3,
     "seed_steps": 100,
 }
-CHAIN_SEEDS = [0, 1]
-ROWS = 1400  # 700 ticks of 2 envs
+#: A short episodic run: the burst of S = 20 on the seed tick
+#: ``max(20 // 2, 10) = 10``, then 50 ticks of 2 envs.
+SHORT_ROWS = 120
 
 
 @pytest.fixture(scope="module")
-def episodic_chain():
-    agent = TDMPC2(ChainEnv(), episodic=True, buffer_size=4000, **CHAIN)
-    state, _ = agent.train(seed=CHAIN_SEEDS, n_timesteps=ROWS, num_episode_test=1)
+def short_chain():
+    agent = TDMPC2(
+        ChainEnv(), episodic=True, buffer_size=4000, **{**CHAIN, "seed_steps": 20}
+    )
+    state, _ = agent.train(seed=[0, 1], n_timesteps=SHORT_ROWS, num_episode_test=1)
     return agent, state
 
 
-def _chain_values(agent, state):
-    """Per seed: Q at s0, s1, s2 (every head, action 0) and the termination
-    probability after one step from each."""
-    out = []
-    for i in range(len(CHAIN_SEEDS)):
-        wm = jax.tree.map(lambda x, i=i: x[i], state.world_model_state)
-        apply = functools.partial(wm.apply_fn, {"params": wm.params})
-        z = apply(jax.nn.one_hot(jnp.arange(3), 4), method="encode")
-        a = jnp.zeros((3, 1))
-        q = agent.agent_config.two_hot.decode(
-            core.q_logits(wm.apply_fn, wm.params, z, a)
-        )
-        p = None
-        if agent.agent_config.episodic:
-            p = jax.nn.sigmoid(
-                apply(apply(z, a, method="next"), method="termination_logits")
-            )
-        out.append((np.asarray(q), p))
-    return out
-
-
-def test_the_episodic_agent_learns_the_terminating_chains_values(episodic_chain):
-    agent, state = episodic_chain
-    for q, p in _chain_values(agent, state):
-        np.testing.assert_allclose(q, np.broadcast_to(TRUTH, q.shape), atol=0.05)
-        np.testing.assert_array_equal(np.asarray(p) > 0.5, [False, False, True])
-
-
-def test_the_paper_era_agent_learns_a_continuing_chain_instead():
-    """Without the episodic mode the agent refuses the chain after training
-    (T10); the base class's ``train`` skips that check, to read what it
-    learned: the values of a chain that never ends."""
-    agent = TDMPC2(ChainEnv(), **CHAIN)
-    budget = ROWS * 3 // 4  # about as many updates as the episodic run
-    buffer = agent._replay_buffer(budget)
-    state, _ = ActorCritic.train(
-        agent,
-        seed=CHAIN_SEEDS,
-        n_timesteps=budget,
-        num_episode_test=1,
-        buffer=buffer,
-        start_tick=0,
-    )
-    assert np.all(np.asarray(state.collector_state.n_offschedule_dones) > 0)
-    for q, _ in _chain_values(agent, state):
-        np.testing.assert_allclose(q, np.broadcast_to(CONTINUING, q.shape), atol=0.1)
-        assert np.all(q > TRUTH + 0.5)
-
-
-def test_an_episodic_run_updates_once_per_env_step(episodic_chain):
+def test_an_episodic_run_updates_once_per_env_step(short_chain):
     """Both envs run the 3-step chain in lockstep: 4 ticks an episode, the
-    last one held. After the burst of S = 100 on the seed tick
-    ``max(100 // 2, 10) = 50``, each tick runs one update per env it
+    last one held. After the burst of S = 20 on the seed tick
+    ``max(20 // 2, 10) = 10``, each tick runs one update per env it
     stepped; the run takes terminations without raising (T10 is the
     paper-era agent's)."""
-    agent, state = episodic_chain
-    ticks = np.arange(agent.schedule.num_ticks(ROWS))
-    assert agent.schedule.seed_tick == 50 and ticks.size == 700
+    agent, state = short_chain
+    ticks = np.arange(agent.schedule.num_ticks(SHORT_ROWS))
+    assert agent.schedule.seed_tick == 10 and ticks.size == 60
     stepped = np.where(ticks % 4 == 3, 0, 2)
-    expected = 100 + stepped[ticks > 50].sum()
+    expected = 20 + stepped[ticks > 10].sum()
     for count in (state.n_updates, state.world_model_state.step):
         np.testing.assert_array_equal(count, expected)
     cs = state.collector_state
-    np.testing.assert_array_equal(cs.timestep, ROWS)  # rows
+    np.testing.assert_array_equal(cs.timestep, SHORT_ROWS)  # rows
     np.testing.assert_array_equal(cs.env_steps, 2 * stepped.sum() // 2)
-    np.testing.assert_array_equal(state.n_terminations, 2 * (700 // 4))
+    np.testing.assert_array_equal(state.n_terminations, 2 * (60 // 4))
     assert "termination_loss" in state.update_metrics
 
 
-def test_the_episodic_ring_holds_the_collected_episodes(episodic_chain):
-    """The rings hold the run's 700 rows per env, ``min(buffer_size,
+def test_the_episodic_ring_holds_the_collected_episodes(short_chain):
+    """The rings hold the run's 60 rows per env, ``min(buffer_size,
     rows) / n_envs`` (the reference's clamp to the run), not 2000. Every
     row's observation is ``one_hot(step)``; the last rows are the terminal
     ``s3`` after 3 steps; the reset rows have no reward."""
-    agent, state = episodic_chain
-    assert agent.replay_capacity == ROWS
-    assert state.buffer_state.obs.shape[-2] == ROWS // 2
+    agent, state = short_chain
+    assert agent.replay_capacity == SHORT_ROWS
+    assert state.buffer_state.obs.shape[-2] == SHORT_ROWS // 2
     replay = jax.tree.map(lambda x: np.asarray(x[0]), state.buffer_state)  # seed 0
     np.testing.assert_array_equal(replay.obs, np.eye(4)[replay.step])
     np.testing.assert_array_equal(replay.last, replay.step == 3)
@@ -610,8 +556,8 @@ def test_an_episodic_run_takes_its_updates_per_step():
         updates_per_step=2.0,
         **{**CHAIN, "seed_steps": 20},
     )
-    state, _ = agent.train(seed=0, n_timesteps=120, num_episode_test=1)
-    ticks = np.arange(60)
+    state, _ = agent.train(seed=0, n_timesteps=80, num_episode_test=1)
+    ticks = np.arange(40)
     stepping = (ticks > 10) & (ticks % 4 != 3)
     expected = 20 + 4 * int(stepping.sum())
     for count in (state.n_updates, state.world_model_state.step):

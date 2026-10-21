@@ -3,8 +3,10 @@
 ``faults/<module>.jsonl`` holds the faults a scenario module catches (an
 edit others catch too: once, all its catches listed): an ``id``, a ``path``
 under src/ajax, the ``old`` text (exactly one occurrence), its ``new``
-replacement, and ``catches``, the nodes the old measured record shows
-failing with it planted. ``run`` copies the repository to a scratch
+replacement, ``catches``, the nodes the old measured record shows failing
+with it planted, and ``fast``, the fast tests measured to catch it
+(``python -m tests.fault_catches``), which every fault of a family in
+``OUT_OF_THE_GATE`` lists. ``run`` copies the repository to a scratch
 directory, plants the fault there and runs those nodes, so the checkout is
 never modified; a non-zero exit means caught::
 
@@ -23,6 +25,9 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
+#: The families out of the pull-request gate (the two-tier test plan): their
+#: probe files run in the slow tier alone, which ci.yml's probing job ignores.
+OUT_OF_THE_GATE = frozenset({"p4_split_run", "memory"})
 COPIED = ("src", "tests", "benchmarks", "docs", "pyproject.toml")
 
 
@@ -33,6 +38,7 @@ class Fault:
     old: str
     new: str
     catches: tuple[str, ...]
+    fast: tuple[str, ...] = ()
 
     @property
     def file(self) -> str:
@@ -45,7 +51,11 @@ def load() -> dict[str, Fault]:
     for path in sorted(glob.glob(os.path.join(HERE, "faults", "*.jsonl"))):
         with open(path) as fh:
             rows += [json.loads(line) for line in fh if line.strip()]
-    faults = {r["id"]: Fault(**{**r, "catches": tuple(r["catches"])}) for r in rows}
+    lists = {"catches": (), "fast": ()}
+    faults = {
+        r["id"]: Fault(**{**r, **{k: tuple(r.get(k, d)) for k, d in lists.items()}})
+        for r in rows
+    }
     if len(faults) != len(rows):
         raise RuntimeError("duplicate fault ids")
     return faults

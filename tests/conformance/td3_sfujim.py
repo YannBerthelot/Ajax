@@ -109,9 +109,13 @@ def updater(step: kit.Step) -> Any:
 
 
 def run(
-    records: pathlib.Path, precision: str, fault: str | None = None
+    records: pathlib.Path,
+    precision: str,
+    fault: str | None = None,
+    extensions: tuple = (),
 ) -> dict[str, dict]:
-    """Ajax's state after one update from each record, in sfujim's names, by record name."""
+    """Ajax's state after one update from each record, in sfujim's names, by record name; TD3 with
+    ``extensions`` (TD3+BC's term against sfujim/TD3_BC, whose state maps the same way)."""
     dtype = np.float64 if precision == "f64" else np.float32
     # The batch the update samples, set while it is traced: the compiled update takes it as an
     # argument, so each env compiles once, not once per record.
@@ -145,17 +149,25 @@ def run(
     train_TD3.sample_replay = injected
     try:
         for env_id in envs:
-            out |= _env_updates(records, env_id, dtype, fault, given)
+            out |= _env_updates(records, env_id, dtype, fault, given, extensions)
     finally:
         train_TD3.sample_replay = sample
     return out
 
 
 def _env_updates(
-    records: pathlib.Path, env_id: str, dtype: Any, fault: str | None, given: dict
+    records: pathlib.Path,
+    env_id: str,
+    dtype: Any,
+    fault: str | None,
+    given: dict,
+    extensions: tuple,
 ) -> dict[str, dict]:
     step = kit.capture_step(
-        ajax.TD3(env_id, **(SETTINGS | FAULTS.get(fault or "", {}))), 2_000
+        ajax.TD3(
+            env_id, **(SETTINGS | FAULTS.get(fault or "", {})), extensions=extensions
+        ),
+        2_000,
     )
     template, update = step.fresh(jax.random.PRNGKey(0)), updater(step)
     paths = sorted(records.glob(f"{env_id}_*.npz"))

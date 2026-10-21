@@ -60,7 +60,7 @@ ROWS = 480  # 120 ticks
 #: half of 60 ticks sizes its ring by its own length (60 rows), which the
 #: resumed second half must grow.
 CAPACITY = N_ENVS * 100
-TRAIN_RATIO = 32  # 1 update per transition with 4 x 8 batches: 4 per tick
+TRAIN_RATIO = 8  # an update every 4 transitions with 4 x 8 batches: 1 a tick
 LOG_EVERY = N_ENVS * 30  # rows
 
 
@@ -192,7 +192,7 @@ def test_every_optimizer_steps_once_per_scheduled_update(cartpole):
 def test_the_replay_holds_the_last_rows_and_their_latents(cartpole):
     """The ring holds rows 20..119 of every env; their stored ``deter`` were
     refreshed by the write-back or set by the policy (never all zero), and
-    the online queue consumed every pushed window (4 updates per tick pop
+    the online queue consumed every pushed window (an update a tick, 4 windows, pops
     faster than 4 envs push one window per 9 rows)."""
     replay = cartpole.state.replay_state
     assert bool(jnp.all(jnp.abs(replay.deter).sum(-1) > 0))
@@ -474,7 +474,8 @@ def test_each_call_resolves_its_ring():
 
 @pytest.fixture(scope="module")
 def pendulum():
-    agent = DreamerV3("Pendulum-v1", n_envs=2, train_ratio=32, **TINY)
+    # One update (train_ratio 1/16): the run checks the stored actions.
+    agent = DreamerV3("Pendulum-v1", n_envs=2, train_ratio=0.0625, **TINY)
     state, _ = agent.train(seed=0, n_timesteps=400)
     return SimpleNamespace(agent=agent, state=state)
 
@@ -505,7 +506,7 @@ def test_playground_cartpole_with_action_repeat():
         n_envs=2,
         action_repeat=2,
         episode_length=40,
-        train_ratio=32,
+        train_ratio=0.0625,  # one update: the run checks the rows and the logs
         **TINY,
     )
     state, _ = agent.train(seed=0, n_timesteps=200)

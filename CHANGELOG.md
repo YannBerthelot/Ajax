@@ -20,9 +20,14 @@ PyPI as `ajax-rl`.
   which the code's constructor leaves until its first temperature step, and
   the policy's log-probability takes the code's `+1e-6` in the `tanh`
   correction. Later updates read `exp(log_alpha)` as before.
+- **AVG** reads its log-std head as a log-variance, as the authors' code
+  does (`gauthamvasan/avg`): the policy's standard deviation is
+  `exp(out / 2)`, its clip bounding the log-variance. Runs start with a
+  different spread and learn otherwise.
 - `NetworkConfig.squash_log_det_eps` sets the guard inside the `tanh`
   log-det, `log(1 - tanh(u)^2 + eps)`, for an agent whose reference uses
-  one; 0, the exact log-det, by default.
+  one; 0, the exact log-det, by default. `NetworkConfig.log_variance_head`
+  reads the log-std head as a log-variance, for the same reason.
 
 ## 0.4.0
 

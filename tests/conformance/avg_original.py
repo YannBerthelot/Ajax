@@ -4,9 +4,9 @@ on the recorded transition, written back in AVG's names.
 
 The state maps one to one, kernels transposed: the actor's trunk, mean and log-std heads; the critic
 (Ajax's one-critic ensemble); both Adams; the TD-error scaler's reward, discount and squared-return
-statistics (n, m, s as count, mean, mean_2) and the return G. AVG's MultivariateNormal reads exp(log_std)
-as a variance (``LOG_STD_SCALE``, its log-std head maps at that scale onto Ajax's, which reads it as a
-standard deviation). The update's next-action noise is taped; the update compiles once per env and mode.
+statistics (n, m, s as count, mean, mean_2) and the return G; the log-std heads read as log-variances on
+both sides (AVG's MultivariateNormal, Ajax's log_variance_head). The update's next-action noise is taped;
+the update compiles once per env and mode.
 """
 
 from __future__ import annotations
@@ -34,8 +34,6 @@ SETTINGS: dict[str, Any] = {
 FAULTS: dict[str, dict[str, Any]] = {"gamma": {"gamma": 0.991}}
 LAYERS = {"layers_0": "phi.0", "layers_2": "phi.2"}
 HEADS = {"mean": "mu", "log_std": "log_std", "model": "q"}
-#: Ajax's log-std head is AVG's times this: AVG's exp(log_std) is a variance, Ajax's a deviation.
-LOG_STD_SCALE = 0.5
 LEAF = re.compile(
     r"\.(actor_state|critic_state)\.(params|step|opt_state\[0\]\.(mu|nu|count))"
     r"(?:\['params'\]\['ensemble'\]|\['params'\])(.*)"
@@ -44,22 +42,22 @@ SCALER = {"reward": "reward_rms", "gamma": "gamma_rms", "G_return": "return_sq_r
 MOMENTS = {"count": "n", "mean": "m", "mean_2": "s"}
 
 
-def reference_names(path: Any) -> tuple[str, str, float] | None:
-    """An Ajax leaf's name in AVG's record, its kind ("kernel", "bias", "count", "stat") and the
-    factor of Ajax's value over AVG's; None for leaves AVG has no counterpart of."""
+def reference_names(path: Any) -> tuple[str, str] | None:
+    """An Ajax leaf's name in AVG's record and its kind ("kernel", "bias", "count", "stat"); None for
+    leaves AVG has no counterpart of."""
     k = jax.tree_util.keystr(path)
     stat = re.fullmatch(r"\.(reward|gamma|G_return)\.(count|mean|mean_2|value)", k)
     if stat:
         owner, field = stat.groups()
         if field == "value":
-            return ("G", "stat", 1.0) if owner == "G_return" else None
-        return f"scaler.{SCALER[owner]}.{MOMENTS[field]}", "stat", 1.0
+            return ("G", "stat") if owner == "G_return" else None
+        return f"scaler.{SCALER[owner]}.{MOMENTS[field]}", "stat"
     count = re.fullmatch(
         r"\.(actor_state|critic_state)\.(step|opt_state\[0\]\.count)", k
     )
     if count:  # a TrainState's step and its Adam's count
         net = "actor" if count.group(1) == "actor_state" else "Q"
-        return f"opt.{net}.phi.0.weight.step", "count", 1.0
+        return f"opt.{net}.phi.0.weight.step", "count"
     m = LEAF.fullmatch(k)
     if m is None:
         return None
@@ -69,17 +67,7 @@ def reference_names(path: Any) -> tuple[str, str, float] | None:
     module = LAYERS.get(keys[-2]) or HEADS[keys[-2]]
     leaf = "weight" if keys[-1] == "kernel" else "bias"
     tail = {"mu": ".exp_avg", "nu": ".exp_avg_sq", None: ""}[moment]
-    name = f"{'opt.' if moment else ''}{net}.{module}.{leaf}{tail}"
-    factor = 1.0
-    if (
-        net == "actor" and module == "log_std"
-    ):  # W_ajax = s W_avg, so g_ajax = g_avg / s
-        factor = {
-            None: LOG_STD_SCALE,
-            "mu": 1 / LOG_STD_SCALE,
-            "nu": 1 / LOG_STD_SCALE**2,
-        }[moment]
-    return name, keys[-1], factor
+    return f"{'opt.' if moment else ''}{net}.{module}.{leaf}{tail}", keys[-1]
 
 
 def to_ajax(template: Any, arrays: dict, dtype: Any) -> Any:
@@ -87,11 +75,11 @@ def to_ajax(template: Any, arrays: dict, dtype: Any) -> Any:
         found = reference_names(path)
         if found is None:
             return jnp.asarray(x, dtype) if jnp.issubdtype(x.dtype, jnp.floating) else x
-        name, kind, factor = found
+        name, kind = found
         value = np.asarray(arrays[f"in.{name}"], np.float64)
         if kind == "count":
             return jnp.asarray(int(value.reshape(-1)[0]), x.dtype)
-        value = (value.T if kind == "kernel" else value) * factor
+        value = value.T if kind == "kernel" else value
         floating = jnp.issubdtype(x.dtype, jnp.floating)
         return jnp.asarray(value.reshape(x.shape), dtype if floating else x.dtype)
 
@@ -104,7 +92,7 @@ def to_reference(state: Any) -> dict:
         found = reference_names(path)
         if found is None:
             continue
-        name, kind, factor = found
+        name, kind = found
         value = np.asarray(x, np.float64)
         if kind == "kernel":
             value = value.reshape(value.shape[-2:]).T
@@ -112,7 +100,7 @@ def to_reference(state: Any) -> dict:
             value = value.reshape(-1)
         elif kind in ("count", "stat"):
             value = value.reshape(())
-        out[name] = value / factor
+        out[name] = value
     return out
 
 

@@ -129,7 +129,11 @@ class AVG(ActorCritic):
         # torch's default, 1e-8, which the reference's Adams keep
         # (gauthamvasan/avg @6b6822c avg.py:116-117, torch >= 2.7.0);
         # Ajax's shared default is 1e-5.
-        self.network_args = self.network_args.replace(penultimate_normalization=True)
+        # Its MultivariateNormal takes exp(log_std) as the covariance's
+        # diagonal (avg.py:70-72): the head is read as a log-variance.
+        self.network_args = self.network_args.replace(
+            penultimate_normalization=True, log_variance_head=True
+        )
         self.actor_optimizer_args = self.actor_optimizer_args.replace(
             beta_1=beta_1, beta_2=beta_2, eps=1e-8
         )

@@ -168,18 +168,6 @@ _AVG_CHECKS = "tests/conformance/test_avg_original.py::"
 #: gauthamvasan/avg (6b6822c) against Ajax's AVG, from the conformance check (no outcome comparison).
 AVG_DEVIATIONS = (
     Deviation(
-        name="log-std read as a log-variance",
-        kind="reference defect",
-        submap="the actor's log-std head",
-        description="AVG builds MultivariateNormal(mu, diag(exp(log_std))), whose second"
-        " argument is a covariance: its log_std head is a log-variance (standard deviation"
-        " exp(log_std / 2), clamped in [-20, 2] as a log-variance). Ajax reads its head as a"
-        " log-std. Mapped forward-equivalently, Adam steps the head twice as far in AVG's"
-        " units; every other leaf conforms.",
-        where="vendor/gauthamvasan_avg/avg.py:70-72",
-        check=_AVG_CHECKS + "test_avgs_log_std_head_is_a_log_variance",
-    ),
-    Deviation(
         name="actions not mapped onto the box",
         kind="convention",
         submap="collection, the executed action",

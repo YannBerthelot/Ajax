@@ -5,9 +5,10 @@ two updates each, with the action's and the next action's noise (benchmarks/refe
 originals.recorded). From the same state, on the same transition, Ajax's AVG folds its TD-error
 statistics and makes the same update (avg_original.py), and every leaf of the actor, the critic, both
 Adams and the TD-error scaler's statistics must change as AVG's do within the float32-rounding
-tolerance. Two registered differences (refcmp_specs.AVG_DEVIATIONS) are asserted, not hidden: AVG's
-log_std head is a log-variance, and AVG hands its tanh action to the env unscaled. A planted fault
-(gamma 0.991 instead of 0.99) must fail the check.
+tolerance. Ajax follows AVG where it reads like a slip (its log_std head is a log-variance); one
+registered difference (refcmp_specs.AVG_DEVIATIONS) is asserted, not hidden: AVG hands its tanh action
+to the env unscaled, where Ajax maps it onto the box. A planted fault (gamma 0.991 instead of 0.99) must
+fail the check.
 """
 
 import numpy as np
@@ -19,7 +20,6 @@ from ajax.environments.utils import critic_action_units
 from tests.conformance import avg_original, originals
 
 ENVS = ("MountainCarContinuous-v0", "Pendulum-v1")
-HEAD = ("actor.log_std.weight", "actor.log_std.bias")
 
 
 @pytest.fixture(scope="module")
@@ -35,24 +35,8 @@ def ours(records) -> dict:
 
 @pytest.mark.parametrize("env_id", ENVS)
 def test_one_update_matches_avgs(records, ours, env_id):
-    """Every leaf but the log-std head's (test_avgs_log_std_head_is_a_log_variance)."""
     for report in originals.reports(records, ours, env_id, ours["f32"]):
-        assert not [c for c in report.failures if c.leaf not in HEAD], str(report)
-
-
-def test_avgs_log_std_head_is_a_log_variance(records, ours):
-    """Mapped forward-equivalently (Ajax's head = AVG's / 2), only the head's leaves differ, and Adam
-    steps the head twice as far in AVG's units: its change is twice AVG's (up to Adam's eps, which
-    weighs differently at the two scales, so the smallest changes are left out)."""
-    for env_id in ENVS:
-        for report in originals.reports(records, ours, env_id, ours["f32"]):
-            assert sorted(c.leaf for c in report.failures) == sorted(HEAD), str(report)
-            start = np.load(records / f"{report.context}.npz")
-            for k in HEAD:
-                theirs = start[f"f32.{k}"] - start[f"in.{k}"]
-                mine = ours["f32"][report.context][k] - start[f"in.{k}"]
-                keep = np.abs(theirs) > 1e-3 * np.abs(theirs).max()
-                assert abs(np.median(mine[keep] / theirs[keep]) - 2.0) < 1e-3, k
+        assert not report.failures, str(report)
 
 
 def test_avg_hands_its_tanh_action_to_the_env_unscaled(records):
@@ -68,7 +52,7 @@ def test_avg_hands_its_tanh_action_to_the_env_unscaled(records):
 def test_a_planted_fault_fails_the_check(records, ours):
     faulty = avg_original.run(records, "f32", "gamma")
     reports = originals.reports(records, ours, ENVS[0], faulty)
-    assert any(c.leaf not in HEAD for r in reports for c in r.failures)
+    assert any(r.failures for r in reports)
 
 
 def test_every_avg_deviation_is_pinned_here():

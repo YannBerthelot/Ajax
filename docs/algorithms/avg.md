@@ -100,8 +100,13 @@ observations, and no reward normalisation.
   included. So the first policy's mean and log-std are unit-scale
   projections of the normalised features, not a near-zero mean and a
   constant std.
+- **Log-std head.** As in the authors' code, the head's output is a
+  log-variance: the standard deviation is `exp(out / 2)`, and its clip to
+  `[-20, 2]` bounds the log-variance. Their code builds a
+  `MultivariateNormal` whose second argument is the covariance.
 - **Actions and evaluation.** A `tanh`-squashed Gaussian in `[-1, 1]`,
   mapped onto the environment's bounds; evaluation uses the mean action.
+  The authors' code hands the `tanh` action to the environment as it is.
 
 ## Results
 
@@ -109,10 +114,9 @@ The repository records no learning curves for AVG yet. A conformance
 check (`tests/conformance/test_avg_original.py`) makes one update of Ajax's
 AVG and of gauthamvasan/avg from the same state and transition, and
 compares the actor, the critic, their optimisers and the TD-error scaler.
-Two differences of the authors' code are asserted there: its `log_std`
-head is read as a log-variance (a covariance's diagonal), and it hands its
-`tanh` action to the environment without mapping it onto the box. Unit
-tests
+Every leaf conforms. One difference is asserted there: the authors' code
+hands its `tanh` action to the environment without mapping it onto the
+box, which Ajax does. Unit tests
 (`tests/agents/AVG` and the contracts every agent shares) check its pieces
 against exact contracts, without learning. The probes (`tests/probing`)
 train it briefly on tiny environments with known answers: its target,

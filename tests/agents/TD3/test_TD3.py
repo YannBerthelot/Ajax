@@ -3,6 +3,8 @@ import numpy as np
 
 from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.TD3 import TD3
+from ajax.agents.TD3.train_TD3 import make_default_action_pipeline
+from ajax.environments.interaction import get_pi
 
 
 def test_td3_networks_are_plain_mlps():
@@ -87,3 +89,29 @@ def test_recurrent_td3_keeps_its_previous_initialisation():
     head = np.asarray(actor["head"]["kernel"])
     assert 1e-3 < np.abs(head).max() <= 3e-3
     np.testing.assert_array_equal(actor["head"]["bias"], 0.0)
+
+
+def test_the_behaviour_policy_adds_its_exploration_noise():
+    """clip(mu(s) + N(0, sigma^2), -1, 1) after the warm-up (Fujimoto et al.,
+    2018): at sigma = 0.3 the executed action is off the actor's mean by
+    about sigma, and at sigma = 0 it is the mean."""
+    agent = TD3(env_id="Pendulum-v1", n_envs=64)
+    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+    keys = jax.random.split(jax.random.PRNGKey(1), 3)
+    actor = state.actor_state
+    mean = get_pi(actor, actor.params, state.collector_state.last_obs)[0].mean()
+
+    def act(sigma: float):
+        pipeline = make_default_action_pipeline(False, sigma)
+        return pipeline(state, None, keys[0], False, keys[1], keys[2]).env_action
+
+    np.testing.assert_allclose(act(0.0), np.clip(mean, -1.0, 1.0), atol=1e-6)
+    spread = np.std(np.asarray(act(0.3) - mean))
+    assert 0.2 < spread < 0.4, spread
+
+
+def test_the_target_noise_clip_reaches_the_update():
+    assert (
+        TD3(env_id="Pendulum-v1", target_noise_clip=0.2).agent_config.target_noise_clip
+        == 0.2
+    )

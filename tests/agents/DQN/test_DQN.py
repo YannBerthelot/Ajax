@@ -5,6 +5,7 @@ import pytest
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.DQN.networks import (
     DuelingQNetwork,
+    GreedyQPolicy,
     QNetwork,
     get_initialized_q_network,
 )
@@ -114,3 +115,9 @@ def test_dqn_trains_minatar_s_network_on_minatar_and_refuses_tinier_images():
     agent.train(seed=0, n_timesteps=32)
     with pytest.raises(ValueError, match="pass a cnn_spec"):
         DQN(env_id="CartPole-v1", cnn_image_shape=(2, 2, 1))
+
+
+def test_the_greedy_policy_takes_the_largest_q_value():
+    """mode = argmax_a Q(s, a): the action DQN and PQN act and evaluate with."""
+    q = jnp.array([[0.1, 0.9, 0.3], [2.0, -1.0, 1.0], [0.0, 0.0, 5.0]])
+    assert GreedyQPolicy(q).mode().tolist() == [1, 0, 2]

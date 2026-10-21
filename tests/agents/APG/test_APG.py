@@ -1,5 +1,7 @@
 """End-to-end tests for the APG agent and its contextual-controller configuration."""
 
+from types import SimpleNamespace
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -12,6 +14,7 @@ from ajax.agents.APG import (
     Controller,
     CurriculumStage,
     PIDHeadConfig,
+    train_APG,
     train_curriculum,
 )
 from ajax.agents.APG.train_APG import (
@@ -518,3 +521,19 @@ def test_apg_returns_its_evaluations_without_a_logging_backend():
     np.testing.assert_array_equal(evaluated, [False, True] * 4)
     _, plain = agent.train(seed=0, n_timesteps=64)
     assert plain.evaluations is None
+
+
+def test_the_evaluation_rolls_out_the_training_horizon(monkeypatch):
+    """APG's evaluation episodes are rollouts of the training horizon, whose
+    length the RMSE divides by."""
+    seen = []
+
+    def rollout(agent_state, params, rng, env_args, system_class, horizon, n):
+        seen.append(horizon)
+        return -jnp.full((n,), 4.0 * horizon), None
+
+    monkeypatch.setattr(train_APG, "rollout_returns", rollout)
+    state = SimpleNamespace(actor_state=SimpleNamespace(params=None))
+    out = evaluate_apg(state, jax.random.PRNGKey(0), None, None, 16, 2)
+    assert seen == [16]
+    np.testing.assert_allclose(out["Eval/m_rmse"], 2.0)

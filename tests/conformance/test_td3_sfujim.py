@@ -23,7 +23,8 @@ from tests.conformance import submaps, td3_sfujim
 
 REPO = pathlib.Path(__file__).parents[2]
 ENVS = ("MountainCarContinuous-v0", "Pendulum-v1")
-CPU = subproject_env(JAX_PLATFORMS="cpu", CUDA_VISIBLE_DEVICES="")
+TORCH = REPO / "benchmarks" / "reference" / "envs" / "torch"
+CPU = subproject_env(TORCH, JAX_PLATFORMS="cpu", CUDA_VISIBLE_DEVICES="")
 #: Where CI keeps the originals' records between runs, under a key that hashes the vendored originals,
 #: their recorders and the torch env's lock; unset, every session records them.
 KEPT = os.environ.get("AJAX_CONFORMANCE_RECORDS")
@@ -41,7 +42,7 @@ def records(tmp_path_factory) -> pathlib.Path:
                 "uv",
                 "run",
                 "--project",
-                "benchmarks/reference/envs/torch",
+                str(TORCH),
                 "--locked",
                 "python",
                 "benchmarks/reference/conformance_sfujim_td3.py",

@@ -4,6 +4,12 @@ Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged `vX.Y.Z` on main and published to
 PyPI as `ajax-rl`.
 
+## Unreleased
+
+- `NetworkConfig.squash_log_det_eps` sets the guard inside the `tanh`
+  log-det, `log(1 - tanh(u)^2 + eps)`, for an agent whose reference uses
+  one; 0, the exact log-det, by default.
+
 ## 0.4.0
 
 The first release since 0.3.1 (April 2025), which held SAC alone. Ajax has

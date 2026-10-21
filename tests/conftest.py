@@ -5,8 +5,9 @@ marked slow here, except the harness's own checks (test_framework.py). A test
 elsewhere is fast unless marked slow by hand (the breadth rows of a fast
 contract). A fast test trains nothing: the guard reads the gradient steps
 every train program a test runs has applied, off the states it returns, and
-times the test; the session's summary names the fast tests past the budgets.
-It only reports for now; the switch to the two tiers makes it fail them.
+times the test. A fast test past MAX_UPDATES fails (its teardown); the
+session's summary names it, and the fast tests past MAX_SECONDS, which it
+only reports (owner, 2026-10-22: compiles, not trainings, set the times).
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import dataclasses
 import functools
 import os
 import time
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import pytest
@@ -24,7 +25,8 @@ import pytest
 #: trainings (a PID policy learned, whole-episode logs, the world models'
 #: smoke runs); below it, the contract tests' tiny runs.
 MAX_UPDATES = int(os.environ.get("AJAX_FAST_MAX_UPDATES", "128"))
-#: Seconds a fast test may take, setup to teardown, on CI's runners.
+#: Seconds a fast test should take, setup to teardown, on CI's runners
+#: (reported, not failed).
 MAX_SECONDS = float(os.environ.get("AJAX_FAST_MAX_SECONDS", "30"))
 _START = pytest.StashKey[float]()
 #: The guard's state, test infrastructure only: the most updates a state the
@@ -134,13 +136,27 @@ def pytest_runtest_protocol(item: pytest.Item, nextitem: Any) -> Any:
     yield
 
 
+def training_past_the_line(updates: int) -> Optional[str]:
+    """Why a fast test that took ``updates`` gradient steps fails, if it does."""
+    if updates <= MAX_UPDATES:
+        return None
+    return (
+        f"a fast test took {updates} gradient steps, past {MAX_UPDATES}: a test"
+        " that trains belongs in tests/probing, or is marked slow"
+    )
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item: pytest.Item, call: Any) -> Any:
     outcome = yield
     if call.when == "teardown" and not item.get_closest_marker("slow"):
         seconds = time.perf_counter() - item.stash[_START]
         measured = {"updates": _updates, "seconds": round(seconds, 1)}
-        outcome.get_result().user_properties.append(("fast_tier", measured))
+        report = outcome.get_result()
+        report.user_properties.append(("fast_tier", measured))
+        failure = training_past_the_line(_updates)
+        if failure is not None and report.passed:
+            report.outcome, report.longrepr = "failed", failure
 
 
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
@@ -156,10 +172,11 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
 def pytest_terminal_summary(terminalreporter: Any) -> None:
     if not _over:
         return
-    terminalreporter.section("fast tier (report only)")
+    terminalreporter.section("fast tier")
     terminalreporter.write_line(
-        f"{len(_over)} fast tests past {MAX_UPDATES} gradient updates or"
-        f" {MAX_SECONDS:.0f} s; a test that trains belongs in tests/probing:"
+        f"{len(_over)} fast tests past {MAX_UPDATES} gradient updates (failed) or"
+        f" {MAX_SECONDS:.0f} s (reported); a test that trains belongs in"
+        " tests/probing:"
     )
     for nodeid, measured in sorted(_over, key=lambda o: -o[1]["seconds"]):
         terminalreporter.write_line(

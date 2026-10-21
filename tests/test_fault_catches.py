@@ -22,6 +22,19 @@ def test_the_tests_running_a_line_are_read_off_their_contexts() -> None:
     }
 
 
+def test_a_catch_is_the_first_test_failed_or_errored() -> None:
+    stdout = (
+        "..F\n"
+        "ERROR tests/a.py::test_x[1] - ValueError: shapes\n"
+        "FAILED tests/b.py::test_y - AssertionError\n"
+        "1 failed, 1 error in 3.0s\n"
+    )
+    assert fault_catches.failed_nodes(stdout) == [
+        "tests/a.py::test_x[1]",
+        "tests/b.py::test_y",
+    ]
+
+
 def test_every_catalogued_fault_has_a_family() -> None:
     from tests.probing import faults
 

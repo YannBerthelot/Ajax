@@ -4,11 +4,14 @@ without one."""
 
 from typing import Any
 
+import gymnax
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax import evaluate as evaluate_module
+from ajax import log
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
@@ -96,3 +99,61 @@ def test_an_agent_logs_the_value_bias_of_its_critic(name: str) -> None:
         assert np.isnan(bias).all()
     else:
         assert np.isfinite(bias).all()
+
+
+def _normalising_sac() -> SAC:
+    net = ("8", "relu")
+    return SAC(
+        "Pendulum-v1",
+        normalize_observations=True,
+        learning_starts=8,
+        batch_size=8,
+        actor_architecture=net,
+        critic_architecture=net,
+    )
+
+
+def test_a_logged_evaluation_is_handed_the_agents_observation_statistics(monkeypatch):
+    """An on-policy agent with normalize_observations normalises in its env:
+    the evaluations a run logs normalise theirs with the training env's
+    statistics (eval_norm_info), not raw."""
+    handed = []
+    evaluate = log.evaluate
+
+    def evaluating(*args, norm_info=None, **kwargs):
+        handed.append(norm_info)
+        return evaluate(*args, norm_info=norm_info, **kwargs)
+
+    monkeypatch.setattr(log, "evaluate", evaluating)
+    logging = LoggingConfig(config={}, log_frequency=16, use_wandb=False)
+    net = ("8", "relu")
+    agent = PPO(
+        "Pendulum-v1",
+        normalize_observations=True,
+        n_steps=16,
+        n_epochs=1,
+        actor_architecture=net,
+        critic_architecture=net,
+    )
+    agent.train(seed=0, n_timesteps=32, num_episode_test=1, logging_config=logging)
+    assert handed and all(n is not None and n.obs is not None for n in handed)
+
+
+def test_an_evaluation_keeps_the_actors_own_statistics(monkeypatch):
+    """A trained replay agent normalises in its networks: evaluating its
+    actor (no env statistics) acts on observations normalised by the actor's
+    statistics, which the evaluation does not drop."""
+    state, _ = _normalising_sac().train(seed=0, n_timesteps=32)
+    actor = jax.tree.map(lambda x: x[0], state.actor_state)
+    assert actor.obs_norm_info is not None
+    read = []
+    get_pi = evaluate_module.get_pi
+
+    def acting(actor_state, *args, **kwargs):
+        read.append(getattr(actor_state, "obs_norm_info", None))
+        return get_pi(actor_state, *args, **kwargs)
+
+    monkeypatch.setattr(evaluate_module, "get_pi", acting)
+    env, params = gymnax.make("Pendulum-v1")
+    evaluate_module.evaluate(env, actor, 1, jax.random.PRNGKey(0), params)
+    assert read and all(info is not None for info in read)

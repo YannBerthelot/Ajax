@@ -31,10 +31,10 @@ restructuring can show it changed nothing.
 | Kind | Where | CI job |
 | --- | --- | --- |
 | Unit, one component | `tests/<area>/` (environments, networks, buffers, logging, ...), `tests/agents/<AGENT>/` | Tests |
-| Unit, generic contracts | `tests/agents/test_*_contract.py`, `tests/extensions/test_phase_contract.py`, `tests/extensions/test_no_silent_noop.py`, `tests/environments/test_wrapper_contract.py`, ... (below) | Tests, Slow tests |
+| Unit, generic contracts | `tests/agents/test_*_contract.py`, `tests/extensions/test_phase_contract.py`, `tests/extensions/test_no_silent_noop.py`, `tests/environments/test_wrapper_contract.py`, ... (below) | Tests, Slow tier |
 | Pins | `tests/agents/test_agent_pins.py`, `tests/agents/SAC/test_sac_parity.py`, `tests/extensions/test_sac_extensions_equivalence.py`, `tests/test_downstream_api.py` | Tests |
-| Slow | anywhere, marked `@pytest.mark.slow`: the option matrix, the resume contract, long trainings | Slow tests (and the Slow tier workflow) |
-| Probes | `tests/probing/` | Probing (and the Slow tier workflow) |
+| Slow | anywhere, marked `@pytest.mark.slow`: the option matrix, the resume contract, long trainings | Slow tier |
+| Probes | `tests/probing/` | Slow tier |
 | Conformance | `tests/conformance/` (below) | Conformance |
 | Learning checks | `benchmarks/world_models/learning_checks.py`: a world model learns its task at a small preset; hours on a CPU, run before merging such an agent | none |
 
@@ -144,8 +144,9 @@ quotes a line of the source, so any source edit can break one. A change to an
 agent's training runs all of that agent's probe cells (`-k <Agent>` over
 `tests/probing`).
 
-`make ci` runs everything CI runs (`ci-precommit`, `ci-test`, `ci-slow`,
-`ci-probe`, `ci-conformance`, and `docs`, the strict build of this site). The `make` targets
+`make ci` runs the pull-request gate (`ci-precommit`, `ci-test`,
+`ci-conformance`, and `docs`, the strict build of this site); `make ci-all`
+adds the slow tier (`ci-slow`). The `make` targets
 hide the GPU (`CUDA_VISIBLE_DEVICES=""`, `JAX_PLATFORMS=cpu`), so tests never
 compete with an experiment running on it. Outside `make`, set
 `JAX_PLATFORMS=cpu` while a GPU is busy.
@@ -158,8 +159,8 @@ silently runs in the wrong job.
 
 The tests come in two tiers. The *fast tier* is the tests not marked slow,
 which every pull request must pass. A fast test may train, but for at most
-128 gradient steps and about 30 s; `tests/conftest.py` lists the tests past
-either limit at the end of a run, without failing them yet. The *slow tier*
+128 gradient steps: `tests/conftest.py` fails a fast test past them, and
+lists those past about 30 s without failing them. The *slow tier*
 is every test that trains: `tests/probing` (marked slow as it is collected,
 but for the harness's own checks) and the tests marked slow elsewhere.
 [Contributing](contributing.md#testing) describes both.
@@ -170,10 +171,8 @@ runs on CPU for every pull request and every push to `main`:
 | Job | What it runs |
 | --- | --- |
 | Pre-commit | ruff lint, ruff-format and mypy on every file |
-| Tests (3 shards) | the tests not marked slow, probing and conformance excluded, under coverage, a pytest-xdist worker per vCPU, at XLA optimisation level 0, on arm64 runners. Shards 1 and 2 name directories; shard 3 runs everything else, so a new test file always runs somewhere |
-| Coverage | the three shards' data combined; fails below 70% |
-| Slow tests | `-m slow`, probing excluded, without coverage (its tracing would lengthen them) |
-| Probing (5 shards) | `tests/probing`, in five shards by recorded duration (`--shard I/5`, `tests/.durations`), without the families out of the gate (`faults.OUT_OF_THE_GATE`: `test_p4_split_run.py` and `test_memory.py`), which run only in the slow tier |
+| Tests (3 shards) | the tests not marked slow (the probing harness's checks among them), conformance excluded, under coverage, a pytest-xdist worker per vCPU, at XLA optimisation level 0, on arm64 runners. Shards 1 and 2 name directories; shard 3 runs everything else, so a new test file always runs somewhere |
+| Coverage | the three shards' data combined; fails below 90% |
 | Conformance | `tests/conformance`: one training step of each agent that has a check against its original implementation (above) |
 | Docs | `mkdocs build --strict` with the `docs` group alone: a broken link, a page left out of the navigation or a docstring naming a parameter the signature lacks fails it |
 | Lint and Test | passes only when every job above passed; the one check branch protection requires |
@@ -185,7 +184,7 @@ on `main` opens an issue and, when that is cheap, bisects the merges since
 the last green run. The *Release* workflow tags a version only once the slow
 tier has passed on `main`'s head.
 
-The test, slow, probing and conformance jobs restore Ajax's compile cache as the last push
+The test and conformance jobs restore Ajax's compile cache as the last push
 to `main` left it for that job, so a program a change leaves alone is loaded
 instead of compiled. A new push to a pull request cancels the run it
 supersedes. Nothing merges while any job is red; a failure that is

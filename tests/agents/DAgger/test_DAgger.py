@@ -1,7 +1,9 @@
 """DAgger's contracts: its beta schedule, the mixing of the expert's and the
-actor's actions at collection, the expert's labels on every stored row, and
-its refusals. Whether it learns is the probes' (tests/probing/test_imitation)."""
+actor's actions at collection, the expert's labels on every stored row, the
+labels as what the actor fits, and its refusals. Whether it learns is the
+probes' (tests/probing/test_imitation)."""
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -9,6 +11,7 @@ import pytest
 from ajax import DAgger
 from ajax.agents.DAgger.state import DAggerConfig
 from ajax.agents.DAgger.train_DAgger import beta
+from ajax.environments.interaction import get_pi
 
 N_ENVS = 2
 
@@ -77,6 +80,42 @@ def test_a_discrete_run_stores_integer_actions_and_labels():
     assert rows["action"].dtype == rows["a_expert"].dtype == np.int32
     np.testing.assert_array_equal(rows["a_expert"], 1)
     np.testing.assert_array_equal(rows["action"], 1)  # beta 1 for 500 steps
+
+
+def _pi(state, obs):
+    actor = jax.tree.map(lambda x: x[0], state.actor_state)  # seed 0
+    return get_pi(actor, actor.params, jnp.asarray(obs))[0]
+
+
+@pytest.mark.parametrize("env_id", ["Pendulum-v1", "CartPole-v1"])
+def test_the_actor_learns_the_experts_labels_not_the_actions_taken(env_id):
+    """The supervised step fits the actor to the stored ``a_expert``, not to
+    the executed action (Ross et al., 2011: the expert labels the states the
+    learner visits). From the second tick on (beta 0) the actor acts alone, so
+    its executed actions are its own: fitting them would hold it where it
+    started, while fitting the labels moves it towards the expert's action.
+    The discrete expert picks the action the untrained actor does not."""
+    continuous = env_id == "Pendulum-v1"
+    kwargs = {"n_envs": N_ENVS, "iteration_steps": N_ENVS, "batch_size": 8}
+    kwargs |= {"buffer_size": 256, "actor_learning_rate": 1e-2}
+    init, _ = DAgger(env_id, expert_policy=push, **kwargs).train(
+        seed=[0], n_timesteps=0
+    )
+    if continuous:
+        expert, label = push, 0.25
+    else:
+        label = 1 - int(_pi(init, jnp.zeros((1, 4))).mode()[0])
+        expert = lambda obs: jnp.full(obs.shape[:-1] + (1,), label, jnp.int32)  # noqa: E731
+    state, _ = DAgger(env_id, expert_policy=expert, **kwargs).train(
+        seed=[0], n_timesteps=64
+    )
+    obs = replay(state)["obs"]
+    if continuous:
+        before, after = (abs(_pi(s, obs).mean() - label).mean() for s in (init, state))
+        assert after < 0.5 * before, (before, after)
+    else:
+        before, after = (_pi(s, obs).probs[:, label].mean() for s in (init, state))
+        assert after > before + 0.05, (before, after)
 
 
 def test_it_refuses_no_expert_and_a_decay_outside_the_unit_interval():

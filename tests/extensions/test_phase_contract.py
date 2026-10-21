@@ -227,6 +227,27 @@ def test_critic_loss_gets_the_target_on_target_returns(name: str) -> None:
         np.testing.assert_allclose(have, want, rtol=1e-6, err_msg=str(step))
 
 
+#: Agents whose actor loss runs the rollout it differentiates (APG: Busetto
+#: et al., 2024), so it sees the env-step count before that rollout.
+ROLLOUT_IN_THE_ACTOR_LOSS = {"APG"}
+
+
+@pytest.mark.parametrize("name", [n for n in AGENTS if "post_update" in _phases(n)])
+def test_every_loss_term_sees_the_collectors_step(name: str) -> None:
+    """``ctx.step`` is the collector's env-step count at the update: the steps
+    the loss terms see are among those ``post_update`` sees (one rollout
+    earlier for an actor loss that runs the rollout)."""
+    steps: dict[str, set] = defaultdict(set)
+    for phase, step, *_ in _run(name).rows:
+        steps[phase].update(np.ravel(step).tolist())
+    after = steps["post_update"]
+    for phase in ("on_target", "critic_loss", "actor_loss"):
+        seen = steps.get(phase, set())
+        if phase == "actor_loss" and name in ROLLOUT_IN_THE_ACTOR_LOSS:
+            seen = {s + min(after) for s in seen}
+        assert seen <= after, (phase, steps)
+
+
 def _flat(params: Any) -> np.ndarray:
     return np.concatenate([np.ravel(leaf) for leaf in jax.tree.leaves(params)])
 

@@ -1028,6 +1028,16 @@ _GOLDEN |= {
     "PQN": {"actor": 34.022178649902344},
     "PQN-nudge": {"actor": 34.02018737792969, "nudge": 0.33566388487815857},
 }
+# Re-recorded on macOS ARM CPU once APO ended an episode at a time limit and
+# left its row out of the loss, as xtma/apo: actor -0.0096%, critic
+# +0.00001%, the nudge unchanged.
+_GOLDEN |= {
+    "APO-nudge": {
+        "actor": 9.203577041625977,
+        "critic": 8.057476997375488,
+        "nudge": 0.33622848987579346,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

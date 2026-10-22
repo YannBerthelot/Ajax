@@ -49,12 +49,10 @@ from ajax.types import BufferType
 
 @struct.dataclass
 class PolicyAuxiliaries:
-    raw_loss: jax.Array  # α·log π - Q: pure SAC gradient
-    policy_loss: jax.Array  # raw_loss + the actor-loss extensions' terms
+    policy_loss: jax.Array  # α·log π - Q, before the extensions' terms
     log_pi: jax.Array  # entropy proxy; tracks target_entropy
     policy_std: jax.Array  # mean unsquashed std; lower = more deterministic
     q_min: jax.Array  # Q(s, π(s)): what policy optimises
-    bc_term: jax.Array  # actor-loss extensions' terms (OnlineBC's: 0 after warmup)
     # Before clipping; the loss builds these metrics before the gradient
     # exists, update_policy fills it in.
     grad_norm: jax.Array | float = jnp.nan
@@ -354,12 +352,10 @@ def policy_loss_function(
     total_loss = loss_actor.mean() + bc_term
 
     aux = PolicyAuxiliaries(
-        policy_loss=total_loss,
+        policy_loss=loss_actor.mean(),
         log_pi=log_probs.mean(),
         policy_std=policy_std,
         q_min=q_min.mean(),
-        raw_loss=loss_actor.mean(),
-        bc_term=bc_term,
     )
     return total_loss, (aux, metrics)
 

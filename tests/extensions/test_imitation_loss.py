@@ -425,7 +425,6 @@ def _apo_update(stack: ExtensionStack) -> Any:
         "log_probs": jnp.zeros((BATCH, 1)),
         "targets": jnp.zeros((BATCH, 1)),
         "entropy_key": KEY,
-        "extension_key": KEY,
         "a_expert": None,  # no expert: update_agent's minibatch without one
     }
     state, _ = train_APO.update_networks(

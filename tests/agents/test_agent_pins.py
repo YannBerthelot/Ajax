@@ -1126,6 +1126,28 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU on 2026-10-22 once PPO, APO and PQN derived
+# their extensions' keys from keys their steps hold (loop.extension_key)
+# instead of splitting them off the state's rng: with extensions, the agent's
+# own stream is now the one it draws without. Relative shifts: PPO-discrete-
+# nudge actor +0.88%, critic -2.3e-5, nudge -6.2%; APO-nudge actor -0.27%,
+# critic +0.23%, nudge -13.1%; PQN-nudge actor +1.0e-4, nudge -0.87%. Plain
+# PPO, APO and PQN runs and PPO-env-split-nudge (time geometry: no key split
+# off for its extensions) are bitwise unchanged.
+_GOLDEN |= {
+    "PPO-discrete-nudge": {
+        "actor": 7.366045951843262,
+        "critic": 9.033742904663086,
+        "nudge": 0.29222556948661804,
+    },
+    "APO-nudge": {
+        "actor": 9.178837776184082,
+        "critic": 8.076091766357422,
+        "nudge": 0.2922629714012146,
+    },
+    "PQN-nudge": {"actor": 34.02363586425781, "nudge": 0.3327599763870239},
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

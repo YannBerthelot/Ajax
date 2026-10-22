@@ -331,7 +331,7 @@ def update_agent(
     """One update on a replay batch: the termination penalty, then the
     critic, actor, temperature, ``theta`` and target steps."""
     tau = agent_config.tau
-    sample_key, rng = jax.random.split(agent_state.rng)
+    agent_state, sample_key = agent_state.next_keys()
     transition, carries = sample_replay(
         agent_state,
         buffer,
@@ -351,7 +351,7 @@ def update_agent(
         episode_termination_penalty, transition.reward, transition.terminated
     )
     agent_state = agent_state.replace(
-        rng=rng, episode_termination_penalty=episode_termination_penalty
+        episode_termination_penalty=episode_termination_penalty
     )
     agent_state, aux_value, value_metrics = update_value_functions(
         agent_state,

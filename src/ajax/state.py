@@ -230,6 +230,12 @@ class BaseAgentState(Replaceable):
     # carry's structure is stable from iteration zero.
     last_rollout: Optional[Any] = None
 
+    def next_keys(self, n: int = 1) -> tuple:
+        """``(state, *keys)``: ``n`` fresh keys and the state whose ``rng``
+        has moved past them (``*keys, rng = split(rng, n + 1)``)."""
+        *keys, rng = jax.random.split(self.rng, n + 1)
+        return (self.replace(rng=rng), *keys)
+
 
 @struct.dataclass
 class BaseAgentConfig(Replaceable):

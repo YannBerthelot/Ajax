@@ -315,9 +315,7 @@ def update_agent(
     """One gradient step on a replay batch, and the target network's
     update every ``target_update_interval`` steps; also logs
     ``epsilon_schedule`` at the collector's timestep."""
-    sample_key, rng = jax.random.split(agent_state.rng)
-    agent_state = agent_state.replace(rng=rng)
-
+    agent_state, sample_key = agent_state.next_keys()
     collector = agent_state.collector_state
     batch = get_batch_from_buffer(
         buffer,

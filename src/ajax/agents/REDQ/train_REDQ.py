@@ -335,7 +335,7 @@ def update_agent(
     learned = agent_state.alpha
 
     def critic_update_step(agent_state: REDQState, _: Any) -> Tuple[REDQState, Any]:
-        sample_key, rng = jax.random.split(agent_state.rng)
+        agent_state, sample_key = agent_state.next_keys()
         critics_before = agent_state.critic_state.params
         batch, carries = sample_replay(
             agent_state,
@@ -346,7 +346,7 @@ def update_agent(
             agent_config.stored_state,
         )
         agent_state, aux_value, value_metrics = update_value_functions(
-            agent_state.replace(rng=rng),
+            agent_state,
             batch,
             agent_config,
             extension_stack,

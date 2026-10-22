@@ -329,8 +329,7 @@ def update_agent(
 ) -> Tuple[TD3State, AuxiliaryLogs]:
     """One update: a critic step on a replay batch and, every
     ``policy_delay`` updates, an actor step and the target updates."""
-    sample_key, rng = jax.random.split(agent_state.rng)
-    agent_state = agent_state.replace(rng=rng)
+    agent_state, sample_key = agent_state.next_keys()
     # Sequence replay burns the TARGET actor's carry in as well: TD3's
     # bootstrap action comes from it.
     batch, carries = sample_replay(

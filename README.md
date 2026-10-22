@@ -1,8 +1,7 @@
 <h1 align="center">Ajax</h1>
 
 <p align="center">
-  <b>Reinforcement-learning agents in JAX, compiled end to end with the environment.</b><br/>
-  A whole training run, environment and every seed included, is one compiled program.
+  <b>Reinforcement-learning agents in JAX: a whole training run, environment and every seed included, is one compiled program.</b>
 </p>
 
 <p align="center">
@@ -23,15 +22,15 @@
 
 Ajax has sixteen agents, each implementing a published paper. Compared with
 [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
-[SBX](https://github.com/araffin/sbx), it differs in four ways: a run is
-[one program on the accelerator](docs/guide/performance.md), environment
-included; [ASAC](docs/algorithms/asac.md) and [APO](docs/algorithms/apo.md)
-maximise the average reward, for tasks that never end; agents
-[learn from an expert or from data](docs/guide/expert-guidance.md); and
-[DreamerV3 and TD-MPC2](docs/guide/world-models.md) follow the code behind
-their papers' results. [Why Ajax](docs/getting-started/why-ajax.md) compares
-it with SB3, SBX, PureJaxRL, Brax, Stoix and Rejax, including when to use
-them instead.
+[SBX](https://github.com/araffin/sbx), it differs in four ways:
+
+- **[One program on the accelerator](docs/guide/performance.md)**: the environment and the training loop compile together, on a CPU or a GPU.
+- **Average reward**: [ASAC](docs/algorithms/asac.md) and [APO](docs/algorithms/apo.md) maximise the reward per step, for tasks that never end.
+- **[Learning from an expert or from data](docs/guide/expert-guidance.md)**: cloning, imitation, prior data and offline training.
+- **[World models](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2, following the code behind their papers' results.
+
+[Why Ajax](docs/getting-started/why-ajax.md) compares it with SB3, SBX,
+PureJaxRL, Brax, Stoix and Rejax, including when to use them instead.
 
 ## Install
 
@@ -86,19 +85,16 @@ agent = PPO("ant", n_envs=8)
 - **Differentiable simulation**: [APG](docs/algorithms/apg.md)
 
 DQN and PQN take discrete actions; PPO, APO, DAgger, UDRL and DreamerV3 take
-both; the others take continuous ones. SAC, TD3, REDQ, ASAC and DQN also train
-offline on a dataset (`train_offline`). Each name opens the agent's page: its
-paper, when to use it, an example, its parameters and where it departs from
-the paper. The [compatibility table](docs/guide/compatibility.md), generated
-from the code, lists every extension per agent.
+both; the others continuous ones. SAC, TD3, REDQ, ASAC and DQN also train
+offline (`train_offline`). Each name opens the agent's page, with its paper;
+the [compatibility table](docs/guide/compatibility.md) lists every extension
+per agent.
 
 ## Learning from an expert or from data
 
-| When | Methods, as named in Ajax |
-| --- | --- |
-| Before training | behaviour cloning (`CloningPretrain`), expert transitions in the replay (`expert_buffer_n_steps`), prior data as in RLPD (`PriorData`) |
-| During training | TD3+BC's actor term, kickstarting and Q-filtered cloning (`ImitationLoss`), IBRL (`IBRL`), residual RL (`ResidualPolicy`), JSRL hand-over (`JSRLCurriculum`), GAIL (`AdversarialReward`), DAgger (`DAgger`) |
-| Instead of online data | `agent.train_offline(dataset, n_updates)`, then online fine-tuning if wanted: IQL, CQL and Cal-QL (`ConservativeQ`, `CalQL`), ReBRAC (`TargetBC`), TD3+BC; TD-MPC2's multi-task agent (`TDMPC2MultiTask`) on pooled datasets |
+- **Before training**: behaviour cloning (`CloningPretrain`), expert transitions in the replay (`expert_buffer_n_steps`), prior data as in RLPD (`PriorData`).
+- **During training**: TD3+BC's actor term, kickstarting and Q-filtered cloning (`ImitationLoss`), IBRL (`IBRL`), residual RL (`ResidualPolicy`), JSRL hand-over (`JSRLCurriculum`), GAIL (`AdversarialReward`), and the `DAgger` agent.
+- **Instead of online data**: `agent.train_offline(dataset, n_updates)`, then online fine-tuning if wanted: IQL, CQL and Cal-QL (`ConservativeQ`, `CalQL`), ReBRAC (`TargetBC`), TD3+BC; TD-MPC2's multi-task agent (`TDMPC2MultiTask`) on pooled datasets.
 
 [Choosing the pieces](docs/guide/expert-guidance.md#choosing-the-pieces) gives
 each method's paper and the agents that take it.
@@ -112,7 +108,9 @@ each method's paper and the agents that take it.
 
 Ajax's PPO beside Stable-Baselines3's and its PQN beside purejaxql's, on the
 same JAX environment, 96 seeds each; both comparisons find the returns similar
-within the registered margin. [Results](docs/reproduction/results.md) has two
+within the registered margin. They ran in October 2026, before 0.4.0 changed
+PPO's and PQN's optimisers to their references' (Ajax commits c4aeac6 and
+7938ae7). [Results](docs/reproduction/results.md) has two
 more comparisons (one inconclusive) and the speed of each side; the
 [protocol](docs/reproduction/protocol.md) says how they are run.
 

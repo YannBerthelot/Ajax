@@ -189,10 +189,12 @@ def update_actor_and_temperature(
         critic_state=critic_state,
     )
     actor_state = actor_state.replace(batch_stats=batch_stats)
+    # The authors' temperature loss: alpha, not log alpha, times the gap.
     agent_state, temperature = core.update_temperature(
         agent_state.replace(actor_state=actor_state),
         jax.lax.stop_gradient(log_probs),
         jnp.asarray(config.target_entropy),
+        core.alpha_temperature_loss_fn,
     )
     return agent_state, (aux, temperature, metrics)
 

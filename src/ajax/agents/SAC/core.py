@@ -365,14 +365,36 @@ def temperature_loss_fn(
     )
 
 
+def alpha_temperature_loss_fn(
+    log_alpha_params: FrozenDict,
+    log_probs: jax.Array,
+    target_entropy: jax.Array,
+) -> Tuple[jax.Array, TemperatureAuxiliaries]:
+    """``alpha (H - H_target)``, ``H = -mean log pi``: the temperature's loss
+    in CrossQ's authors' SBX fork (adityab/CrossQ@a318a26,
+    ``sbx/sac/sac.py:414-416``), alpha in place of log alpha, so its gradient
+    is alpha times :func:`temperature_loss_fn`'s (SBX later took the log)."""
+    log_alpha = log_alpha_params["log_alpha"]
+    alpha = jnp.exp(log_alpha)
+    loss = alpha * jax.lax.stop_gradient(-log_probs.mean() - target_entropy)
+    return loss, TemperatureAuxiliaries(
+        alpha=alpha,
+        log_alpha=log_alpha,
+        effective_target_entropy=target_entropy,
+    )
+
+
 def update_temperature(
     agent_state: S,
     log_probs: jax.Array,
     target_entropy: jax.Array,
+    loss_fn: Callable[..., Tuple[jax.Array, TemperatureAuxiliaries]] = (
+        temperature_loss_fn
+    ),
 ) -> Tuple[S, TemperatureAuxiliaries]:
     """One dual-gradient step of ``log_alpha`` towards ``target_entropy``,
-    ``log_probs`` per action dimension (summed here)."""
-    (_, aux), grads = jax.value_and_grad(temperature_loss_fn, has_aux=True)(
+    ``log_probs`` per action dimension (summed here), down ``loss_fn``."""
+    (_, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(
         agent_state.alpha.params,
         log_probs.sum(-1),
         target_entropy,

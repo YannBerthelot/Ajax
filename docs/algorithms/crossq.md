@@ -72,6 +72,9 @@ Defaults are read from `CrossQ.__init__`, the authors' `train.py -algo crossq`.
   acting, evaluation, the next actions of the target, and the critics in the
   actor's loss. The statistics live on the network's state (`batch_stats`),
   apart from the trained parameters.
+- **Temperature.** The authors' code steps the temperature down `alpha (H - H_target)`, alpha
+  where SAC's loss has log alpha, so its gradient is alpha times SAC's (`sbx/sac/sac.py:414-416`;
+  SBX later took the log). Ajax follows the authors (`core.alpha_temperature_loss_fn`).
 - **Initialisation.** As the authors' code (flax's defaults): lecun-normal
   kernels and zero biases on every layer, the mean and log-std heads
   included.
@@ -92,8 +95,12 @@ The repository records no learning curves for CrossQ yet. Unit tests
 (`tests/agents/CrossQ` and the contracts every agent shares) check the
 authors' settings, the critics' joint pass and the policy delay. The probes
 (`tests/probing`) train it briefly on tiny environments with known answers.
-`BatchRenorm` matches the authors' layer bit for bit. There is no conformance
-check against the authors' code yet.
+`BatchRenorm` matches the authors' layer bit for bit. A conformance check
+(`tests/conformance/test_crossq_original.py`) runs one update of Ajax's CrossQ
+and of `adityab/CrossQ` from the same state, with the same batch and draws.
+It covers a critic step, the policy delay's actor and temperature step, and
+the same step past Batch Renorm's warm-up. It compares every parameter,
+running statistic, Adam moment and count.
 
 ## API
 

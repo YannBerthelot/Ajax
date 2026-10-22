@@ -26,7 +26,7 @@ import jax.numpy as jnp
 from flax import struct
 
 from ajax.agents.IQL.state import IQLConfig, IQLState
-from ajax.agents.loop import TrainLoop, critic_step, gradient_step
+from ajax.agents.loop import TrainLoop, actor_step, critic_step, gradient_step
 from ajax.agents.recurrent import q_values, sample_replay
 from ajax.agents.SAC.core import critic_loss_fn
 from ajax.buffers.dataset import TransitionDataset
@@ -136,32 +136,24 @@ def update_agent(
     v_loss = value_loss(value_state.params)[0]
     v = predict_value(value_state, value_state.params, batch.obs)[0]
     weight = jnp.minimum(jnp.exp(config.temperature * (q - v)), 100.0)
-    actor = agent_state.actor_state
 
-    def actor_loss(params: Any) -> Tuple[jax.Array, Any]:
-        pi, _ = get_pi(actor, params, batch.obs)
+    def actor_loss(params: Any) -> Tuple[jax.Array, jax.Array, jax.Array]:
+        pi, _ = get_pi(agent_state.actor_state, params, batch.obs)
         log_probs = pi.log_prob(batch.action).sum(-1, keepdims=True)
         loss = -jnp.mean(weight * log_probs)
-        actor_batch = {
-            "observations": batch.obs,
-            "raw_observations": batch.raw_obs,
-            "pi_mean": pi.mean(),
-            "actor_params": params,
-            "actor_state": actor,
-            "actions": batch.action,
-            "critic_state": critic,
-            "agent_loss": loss,
-        }
-        extra, metrics = extension_stack.fold_actor_loss(
-            agent_state,
-            actor_batch,
-            agent_state.collector_state.timestep,
-            actor_key,
-            total_timesteps,
-        )
-        return loss + extra, (loss, metrics)
+        return loss, loss, pi.mean()
 
-    actor_state, (a_loss, actor_metrics), _ = gradient_step(actor, actor_loss)
+    actor_state, a_loss, _, actor_metrics = actor_step(
+        agent_state,
+        actor_loss,
+        extension_stack,
+        actor_key,
+        total_timesteps,
+        observations=batch.obs,
+        raw_observations=batch.raw_obs,
+        actions=batch.action,
+        critic_state=critic,
+    )
     next_v = predict_value(value_state, value_state.params, batch.next_obs)[0]
     dones = batch.terminated
     target_q = (

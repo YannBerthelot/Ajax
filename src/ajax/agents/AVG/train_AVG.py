@@ -19,7 +19,7 @@ from flax.serialization import to_state_dict
 
 from ajax.agents.AVG.state import AVGConfig, AVGState, RunningMoments
 from ajax.agents.AVG.utils import compute_td_error_scaling
-from ajax.agents.loop import TrainLoop, critic_step, gradient_step
+from ajax.agents.loop import TrainLoop, actor_step, critic_step
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
@@ -296,7 +296,7 @@ def update_policy(
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     actor_state = agent_state.actor_state
 
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, Any]:
+    def policy_loss(params: FrozenDict) -> Tuple[jax.Array, Any, jax.Array]:
         loss, aux = policy_loss_function(
             params,
             actor_state,
@@ -305,33 +305,22 @@ def update_policy(
             raw_actions,
             alpha,
         )
-        # The mean action only for an extension, which reads it.
-        pi_mean = (
-            get_pi(actor_state, params, observations)[0].mean()
-            if extension_stack
-            else None
-        )
-        actor_batch = {
-            "observations": observations,
-            "raw_observations": raw_observations,
-            "pi_mean": pi_mean,
-            "actor_params": params,
-            "actor_state": actor_state,
-            "a_expert": a_expert,
-            "critic_state": agent_state.critic_state,
-            "agent_loss": loss,
-        }
-        extra, metrics = extension_stack.fold_actor_loss(
-            agent_state,
-            actor_batch,
-            agent_state.collector_state.timestep,
-            # update_value_functions splits the same key in three.
-            jax.random.split(agent_state.rng, 4)[3],
-            total_timesteps,
-        )
-        return loss + extra, (aux, metrics)
+        # The mean action is the extensions' (unused without them, compiled out).
+        pi_mean = get_pi(actor_state, params, observations)[0].mean()
+        return loss, aux, pi_mean
 
-    actor_state, (aux, metrics), _ = gradient_step(actor_state, loss_fn)
+    actor_state, aux, _, metrics = actor_step(
+        agent_state,
+        policy_loss,
+        extension_stack,
+        # update_value_functions splits the same key in three.
+        jax.random.split(agent_state.rng, 4)[3],
+        total_timesteps,
+        observations=observations,
+        raw_observations=raw_observations,
+        a_expert=a_expert,
+        critic_state=agent_state.critic_state,
+    )
     return agent_state.replace(actor_state=actor_state), aux, metrics
 
 

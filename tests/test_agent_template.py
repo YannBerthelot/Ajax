@@ -26,6 +26,7 @@ HELPERS = {
     "off_policy": loop.TrainLoop.off_policy,
     "on_policy": loop.TrainLoop.on_policy,
     "critic_step": loop.critic_step,
+    "actor_step": loop.actor_step,
     "gradient_step": loop.gradient_step,
 }
 METHODS = {"off_policy", "on_policy"}
@@ -90,4 +91,4 @@ def test_template_shows_the_helpers():
     """The template still calls what it documents (else the check above
     passes on nothing)."""
     shown = {name for name, _, _ in _calls("CONTRIBUTING.md")}
-    assert {"off_policy", "on_policy", "critic_step"} <= shown
+    assert {"off_policy", "on_policy", "critic_step", "actor_step"} <= shown

@@ -18,7 +18,7 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
-from ajax.agents.loop import TrainLoop, critic_step, gradient_step
+from ajax.agents.loop import TrainLoop, actor_step, critic_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
@@ -302,34 +302,30 @@ def update_policy(
     ``a_expert``, the expert's stored actions at the rows (None without an
     expert), and ``actions``, the rows' own, reach the extensions. Also
     returns the extensions' metrics."""
-    actor_state = agent_state.actor_state
 
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, Any]:
+    def policy_loss(params: FrozenDict) -> Tuple[jax.Array, Any, jax.Array]:
         loss, (aux, pi_mean) = policy_loss_function(
-            params, actor_state, agent_state.critic_state, observations, carries
+            params,
+            agent_state.actor_state,
+            agent_state.critic_state,
+            observations,
+            carries,
         )
-        actor_batch = {
-            "observations": observations,
-            "raw_observations": raw_observations,
-            "pi_mean": pi_mean,
-            "actor_params": params,
-            "actor_state": actor_state,
-            "a_expert": a_expert,
-            "actions": actions,
-            "critic_state": agent_state.critic_state,
-            "agent_loss": loss,
-        }
-        extra, metrics = extension_stack.fold_actor_loss(
-            agent_state,
-            actor_batch,
-            agent_state.collector_state.timestep,
-            # The next update splits the agent's key in two (update_agent).
-            jax.random.split(agent_state.rng, 3)[2],
-            total_timesteps,
-        )
-        return loss + extra, (aux, metrics)
+        return loss, aux, pi_mean
 
-    actor_state, (aux, metrics), grad_norm = gradient_step(actor_state, loss_fn)
+    actor_state, aux, grad_norm, metrics = actor_step(
+        agent_state,
+        policy_loss,
+        extension_stack,
+        # The next update splits the agent's key in two (update_agent).
+        jax.random.split(agent_state.rng, 3)[2],
+        total_timesteps,
+        observations=observations,
+        raw_observations=raw_observations,
+        a_expert=a_expert,
+        actions=actions,
+        critic_state=agent_state.critic_state,
+    )
     aux = aux.replace(grad_norm=grad_norm)
     return agent_state.replace(actor_state=actor_state), aux, metrics
 

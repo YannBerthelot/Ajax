@@ -308,6 +308,46 @@ def critic_step(
     return critic_state, aux, grad_norm, merge_metrics(target_metrics, loss_metrics)
 
 
+def actor_step(
+    agent_state: Any,
+    policy_loss: Callable[[Any], tuple[jax.Array, Any, Optional[jax.Array]]],
+    extension_stack: ExtensionStack,
+    key: jax.Array,
+    total_timesteps: int,
+    **batch: Any,
+) -> tuple[Any, Any, jax.Array, dict]:
+    """A replay agent's actor step.
+
+    Steps the actor down ``policy_loss(params) -> (loss, aux, pi_mean)``
+    (``pi_mean``: the policy's mean action at the rows, None for a discrete
+    policy) plus the extensions' ``actor_loss`` terms, folded on ``key``, one
+    the agent draws nothing else on. Their batch is ``batch``, the rows'
+    entries the agent passes (``observations``, ``raw_observations``,
+    ``actions``, ``a_expert``, ``critic_state``), with the differentiated
+    ``actor_params``, the ``actor_state``, ``pi_mean`` and ``agent_loss``.
+    Returns the stepped actor state, ``aux``, the gradients' norm
+    (:func:`gradient_step`) and the fold's metrics.
+    """
+    actor_state = agent_state.actor_state
+
+    def loss_fn(params: Any) -> tuple[jax.Array, Any]:
+        loss, aux, pi_mean = policy_loss(params)
+        actor_batch = batch | {
+            "pi_mean": pi_mean,
+            "actor_params": params,
+            "actor_state": actor_state,
+            "agent_loss": loss,
+        }
+        step = agent_state.collector_state.timestep
+        extra, metrics = extension_stack.fold_actor_loss(
+            agent_state, actor_batch, step, key, total_timesteps
+        )
+        return loss + extra, (aux, metrics)
+
+    actor_state, (aux, metrics), grad_norm = gradient_step(actor_state, loss_fn)
+    return actor_state, aux, grad_norm, metrics
+
+
 @dataclasses.dataclass(frozen=True, eq=False)
 class TrainLoop:
     """One call's environment, budget, extensions and logging (compared and
@@ -814,6 +854,7 @@ __all__ = [
     "LOOP_PHASES",
     "Evaluation",
     "TrainLoop",
+    "actor_step",
     "critic_step",
     "fold_post_update",
     "fresh_state",

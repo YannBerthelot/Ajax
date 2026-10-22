@@ -1,7 +1,7 @@
 """Behaviour pins for the agents a refactoring step restructures: SAC's
 descendants (ASAC, REDQ, AVG), TD3, recurrent SAC, PPO on each minibatch
 geometry, APO, PQN, DQN, the world models (DreamerV3, TD-MPC2 single- and
-multi-task), UDRL and APG.
+multi-task), UDRL, APG, DAgger and IQL.
 
 Each case trains a tiny fixed run and compares a fingerprint (the sum of
 squares of each parameter tree, alpha, the ``Nudge`` or ``Drift``
@@ -27,9 +27,11 @@ from ajax.agents.APG.networks import PIDHeadConfig
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
+from ajax.agents.DAgger.DAgger import DAgger
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.DQN.networks import DuelingQNetwork
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
+from ajax.agents.IQL.IQL import IQL
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
@@ -102,6 +104,11 @@ class Drift(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx):
         return {"drift": ext_state}
+
+
+def _push(obs: jax.Array) -> jax.Array:
+    """DAgger's expert: 0.5 in env units on Pendulum's [-2, 2] torque."""
+    return jnp.full(obs.shape[:-1] + (1,), 0.5)
 
 
 def _multitask(**kwargs: Any) -> TDMPC2MultiTask:
@@ -184,6 +191,20 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "AVG": (AVG, {**_SMALL, "learning_starts": 20}, 200),
     "TD3": (TD3, {**_SMALL, **_REPLAY}, 200),
+    "DAgger-nudge": (
+        DAgger,
+        {
+            "env_id": "Pendulum-v1",
+            "n_envs": 2,
+            "actor_architecture": ("32", "relu"),
+            "batch_size": 16,
+            "buffer_size": 400,
+            "expert_policy": _push,
+            "extensions": (ActorNudge(),),
+        },
+        200,
+    ),
+    "IQL-nudge": (IQL, {**_SMALL, **_REPLAY, "extensions": (Nudge(),)}, 200),
     "SAC-mcc": (
         SAC,
         {
@@ -1039,6 +1060,24 @@ _GOLDEN |= {
     },
 }
 
+# Recorded on macOS ARM CPU before loop.actor_step took over DAgger's and
+# IQL's actor steps. DAgger's critic and both agents' actor targets are
+# never-updated copies: not pinned.
+_GOLDEN |= {
+    "DAgger-nudge": {
+        "actor": 2.6231772899627686,
+        "n_updates": 93.0,
+        "nudge": 0.3833875358104706,
+    },
+    "IQL-nudge": {
+        "actor": 7.997806549072266,
+        "critic": 19.84935760498047,
+        "value": 7.8957977294921875,
+        "n_updates": 91.0,
+        "nudge": 0.34812238812446594,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]
@@ -1050,6 +1089,8 @@ def fingerprint(name: str) -> dict[str, float]:
         out["world_model"] = float(
             tree_norm(state.world_model_state.params, squared=True)
         )
+    if getattr(state, "value_state", None) is not None:  # IQL's V
+        out["value"] = float(tree_norm(state.value_state.params, squared=True))
     if getattr(state.actor_state, "target_params", None) is not None:
         out["target"] = float(tree_norm(state.actor_state.target_params, squared=True))
     if getattr(state, "n_updates", None) is not None:

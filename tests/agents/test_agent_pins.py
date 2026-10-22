@@ -1078,6 +1078,20 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU once DQN's warm-up drew its uniform actions on
+# the collector's mix key, as every other agent's warm-up (was a split of the
+# action key): the same distribution, other actions in the first 20 steps.
+# Relative shifts (actor, target): DQN -0.58%, -0.63%; DQN-dueling-nudge
+# +0.17%, +0.27%; the nudge is unchanged.
+_GOLDEN |= {
+    "DQN": {"actor": 9.091397285461426, "target": 9.063859939575195},
+    "DQN-dueling-nudge": {
+        "actor": 9.635614395141602,
+        "target": 9.612397193908691,
+        "nudge": 0.2874566912651062,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

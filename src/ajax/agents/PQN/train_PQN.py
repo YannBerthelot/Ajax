@@ -229,6 +229,7 @@ def make_train(
         n_actions,
         epsilon_schedule,
         steps_per_update=agent_config.n_steps * env_args.n_envs,
+        warmup=False,  # on-policy: no warm-up
     )
     return loop.on_policy(
         init,

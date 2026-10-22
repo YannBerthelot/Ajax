@@ -84,19 +84,23 @@ class AuxiliaryLogs:
 
 
 def make_epsilon_greedy_pipeline(
-    n_actions: int, epsilon: Schedule, steps_per_update: Optional[int] = None
+    n_actions: int,
+    epsilon: Schedule,
+    steps_per_update: Optional[int] = None,
+    warmup: bool = True,
 ) -> Callable:
     """Build the default DQN ``action_pipeline``: epsilon-greedy.
 
     ``epsilon`` is read at the collector's timestep, or with
     ``steps_per_update`` once per update, at ``n_updates *
     steps_per_update`` (PQN's reference reads it so). During the
-    ``learning_starts`` warmup (``uniform`` is set) actions are fully random
-    regardless of epsilon.
+    ``learning_starts`` warmup (``uniform`` is set) actions are uniform,
+    drawn on ``mix_key`` as every agent's warm-up, regardless of epsilon; an
+    agent that never warms up (``warmup=False``, PQN) draws none.
     """
 
     def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
-        del raw_obs, mix_key
+        del raw_obs
         obs = agent_state.collector_state.last_obs
         q_values = predict_q(
             agent_state.actor_state, agent_state.actor_state.params, obs
@@ -119,9 +123,14 @@ def make_epsilon_greedy_pipeline(
         )
         eps_greedy_action = jnp.where(explore, random_action, greedy_action)
 
-        env_action = jax.lax.cond(
-            uniform, lambda: random_action, lambda: eps_greedy_action
-        )
+        env_action = eps_greedy_action
+        if warmup:
+            warmup_action = jax.random.randint(
+                mix_key, shape=greedy_action.shape, minval=0, maxval=n_actions
+            ).astype(jnp.int32)
+            env_action = jax.lax.cond(
+                uniform, lambda: warmup_action, lambda: eps_greedy_action
+            )
         # The env expects (n_envs,) integer actions; the buffer schema
         # stores discrete actions as (n_envs, 1).
         buffer_action = env_action[:, None]

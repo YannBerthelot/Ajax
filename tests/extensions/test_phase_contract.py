@@ -106,12 +106,13 @@ class Recorder(Extension):
         return agent_state.actor_state.params, getattr(critic, "params", None)
 
 
-#: Overrides of the table's runs: SAC's and TD3's actors step on every
+#: Overrides of the table's runs: SAC's, TD3's and CrossQ's actors step on every
 #: update; the rollout agents fold one minibatch of one epoch, so the targets of
 #: an update's critic_loss folds are its on_target output, shuffled.
 OVERRIDES: dict[str, dict] = {
     "SAC": {"policy_update_start": 8},
     "TD3": {"policy_delay": 1},
+    "CrossQ": {"policy_delay": 1},
     "PPO": {"batch_size": 16},
     "APO": {"batch_size": 16},
     "PQN": {"n_epochs": 1, "num_minibatches": 1},

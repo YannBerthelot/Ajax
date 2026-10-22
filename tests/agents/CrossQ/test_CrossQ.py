@@ -27,6 +27,12 @@ def test_the_defaults_are_the_authors() -> None:
     assert config.target_entropy == -1.0 and agent.train_kwargs["num_critics"] == 2
 
 
+def test_the_temperature_takes_the_learning_rate_unless_given_its_own() -> None:
+    assert CrossQ("Pendulum-v1", learning_rate=3e-4).alpha_args.learning_rate == 3e-4
+    agent = CrossQ("Pendulum-v1", alpha_learning_rate=1e-4)
+    assert agent.alpha_args.learning_rate == 1e-4
+
+
 def input_means(batch_stats: Any) -> jax.Array:
     """Each critic's running mean of its input, (obs, action)."""
     return batch_stats["ensemble"]["encoder"]["network"]["layers_0"]["mean"]

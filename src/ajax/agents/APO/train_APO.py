@@ -61,11 +61,12 @@ class ValueAuxiliaries(PPOValueAuxiliaries):
 
 def valid_mean(x: jax.Array, valid: Optional[jax.Array]) -> jax.Array:
     """The mean over the rows trained on, rlpyt's ``valid_mean``
-    (``rlpyt/utils/tensor.py``); every row when ``valid`` is None."""
+    (``rlpyt/utils/tensor.py``); every row when ``valid`` is None. A
+    minibatch with no row to train on gives 0, not rlpyt's 0 / 0."""
     if valid is None:
         return jnp.mean(x)
     valid = valid.reshape(x.shape)
-    return jnp.sum(x * valid) / jnp.sum(valid)
+    return jnp.sum(x * valid) / jnp.maximum(jnp.sum(valid), 1.0)
 
 
 def policy_loss_function(
@@ -204,7 +205,7 @@ def update_networks(
             ent_coef=agent_config.ent_coef,
             raw_actions=minibatch["raw_actions"],
             entropy_key=minibatch["entropy_key"],
-            valid=minibatch["valid"],
+            valid=minibatch.get("valid"),
         )
         value_loss, value_aux = value_loss_function(
             critic_params,
@@ -214,7 +215,7 @@ def update_networks(
             agent_config.nu,
             b,
             agent_config.vf_coef,
-            minibatch["valid"],
+            minibatch.get("valid"),
         )
         critic_batch = {
             "observations": minibatch["obs"],
@@ -308,7 +309,8 @@ def update_agent(
     agent_state = agent_state.replace(average_reward=average_reward, b=b)
 
     ends = jnp.maximum(transition.terminated, transition.truncated)
-    valid = 1.0 - transition.truncated
+    # A time-out as gym's TimeLimit flags it: the limit hit, no termination.
+    valid = 1.0 - transition.truncated * (1.0 - transition.terminated)
     gae, value_targets = _compute_gae(
         rewards=transition.reward - average_reward,
         values=values,

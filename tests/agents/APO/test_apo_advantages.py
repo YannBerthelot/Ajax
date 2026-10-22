@@ -146,7 +146,8 @@ def test_a_time_limited_step_leaves_the_loss(monkeypatch: pytest.MonkeyPatch) ->
     """``bootstrap_timelimit`` (xtma/apo ``base.py:73-77``): the losses average
     over the rows that did not hit a time limit (rlpyt's ``valid_mean``), so a
     truncated row's error moves neither; every minibatch of the update gets
-    ``1 - truncated``."""
+    ``1 - truncated``, except where the step also terminated (gym's
+    ``TimeLimit`` calls that no time-out)."""
     agent = APO(
         "Pendulum-v1",
         n_envs=N_ENVS,
@@ -183,8 +184,10 @@ def test_a_time_limited_step_leaves_the_loss(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(train_APO, "value_loss_function", spy)
     config = cast(APOConfig, agent.agent_config)
     rollout = _rollout()
-    train_APO.update_agent(state, rollout, config, ExtensionStack(()), 1_000)
-    assert len(seen) == 2  # one minibatch, two epochs
-    want = sorted(1.0 - np.asarray(rollout.truncated).reshape(-1))
-    for v in seen:
-        np.testing.assert_array_equal(sorted(v.reshape(-1)), want)
+    both = rollout.replace(terminated=rollout.terminated.at[TRUNCATED].set(1.0))
+    for roll, dropped in ((rollout, 1), (both, 0)):
+        seen.clear()
+        train_APO.update_agent(state, roll, config, ExtensionStack(()), 1_000)
+        assert len(seen) == 2  # one minibatch, two epochs
+        for v in seen:
+            assert (v == 0).sum() == dropped and (v == 1).sum() == T * N_ENVS - dropped

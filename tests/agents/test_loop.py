@@ -27,13 +27,15 @@ from ajax.agents.loop import (
     TrainLoop,
     actor_step,
     critic_step,
+    fold_critic_loss,
+    fold_on_target,
     gradient_step,
     when,
 )
 from ajax.agents.SAC.SAC import SAC
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.evaluate import evaluate
-from ajax.extensions.base import Extension, ExtensionStack
+from ajax.extensions.base import Extension, ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import Transition
 from ajax.types import Replaceable
@@ -294,6 +296,61 @@ def test_the_extensions_see_the_cuts_the_target_used() -> None:
     np.testing.assert_array_equal(seen[:, 0], [0, 0, 1, 1])
     # d/dw mean((w - target)^2) at w = 0 on the target [0, 0, 1, 1]: -1.
     assert float(grad_norm) == 1.0
+
+
+@dataclass(frozen=True)
+class PullTerm(Extension):
+    """Adds ``w * mean(targets)`` to the critic loss and logs the targets."""
+
+    name: str = "pull"
+
+    def critic_loss(self, agent_state, ext_state, batch, ctx):
+        mean = batch["targets"].mean()
+        return batch["critic_params"]["w"] * mean, {"targets": mean}
+
+
+def test_the_critic_steps_halves_compose_to_the_step() -> None:
+    """An agent whose target comes out of its own loss (CrossQ) folds the
+    extensions with critic_step's two halves inside it: the same step, the
+    same metrics as critic_step's."""
+    critic = TrainState.create(
+        apply_fn=None, params={"w": jnp.asarray(0.5)}, tx=optax.sgd(1.0)
+    )
+    state = SimpleNamespace(
+        collector_state=Collector(jnp.asarray(0)),
+        critic_state=critic,
+        actor_state=None,
+        ext_state=((), ()),
+    )
+    stack = ExtensionStack((AddDones(), PullTerm()))
+    key = jax.random.PRNGKey(0)
+    target_args = {
+        "rewards": _ENDS.reward,
+        "dones": _ENDS.terminated,
+        "gamma": 0.9,
+        "reward_scale": 1.0,
+    }
+
+    def value_loss(params, target_q):
+        return jnp.mean((params["w"] - target_q) ** 2), target_q
+
+    stepped, _, _, metrics = critic_step(
+        state, _ENDS, jnp.ones((4, 1)), value_loss, stack, key, 100, **target_args
+    )
+
+    def loss_fn(params):
+        target_q, target_metrics = fold_on_target(
+            stack, state, _ENDS, jnp.ones((4, 1)), key, 100, **target_args
+        )
+        loss, _ = value_loss(params, target_q)
+        extra, loss_metrics = fold_critic_loss(
+            stack, state, _ENDS, params, target_q, key, 100
+        )
+        return loss + extra, merge_metrics(target_metrics, loss_metrics)
+
+    composed, own_metrics, _ = gradient_step(critic, loss_fn)
+    assert float(composed.params["w"]) == float(stepped.params["w"])
+    assert jax.tree.map(float, own_metrics) == jax.tree.map(float, metrics)
 
 
 @dataclass(frozen=True)

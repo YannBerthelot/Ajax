@@ -242,7 +242,9 @@ one optimiser step; `actor_step(...)`, an actor step that folds the
 extensions' `actor_loss` phase; and `critic_step(...)`, a replay critic step that folds
 the extensions' `on_target` and `critic_loss` phases. All three return the
 gradients' global norm, before the optimiser clips them. SAC, TD3, REDQ, ASAC,
-AVG and IQL use `critic_step`.
+AVG and IQL use `critic_step`. Its two folds are public too: `fold_on_target`
+and `fold_critic_loss`. An agent whose target comes out of its own critic
+pass calls them inside its loss.
 SAC, TD3, AVG, DAgger and IQL use `actor_step`; ASAC and REDQ use
 `soft_actor_step` in `SAC/core.py`, on the same `soft_policy_loss` as SAC.
 

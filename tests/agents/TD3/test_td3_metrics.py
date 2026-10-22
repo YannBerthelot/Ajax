@@ -130,17 +130,7 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
         agent.buffer,
     )
     batch = _batch(agent)
-    _, v_aux, _ = train_SAC.update_value_functions(
-        state,
-        batch.obs,
-        batch.action,
-        batch.next_obs,
-        batch.terminated,
-        False,
-        batch.reward,
-        0.99,
-        EMPTY,
-    )
+    _, v_aux, _ = train_SAC.update_value_functions(state, batch, False, 0.99, EMPTY)
     critic, actor = state.critic_state, state.actor_state
     alpha = jnp.exp(state.alpha.params["log_alpha"])
     target = sac_core.compute_td_target(

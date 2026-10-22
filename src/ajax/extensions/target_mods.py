@@ -15,12 +15,13 @@ These reshape the SAC Bellman target before it enters the critic loss
 * :class:`ValueBox`           — value-threshold expert action override
   during collection (the ``action`` phase).
 
-The ``batch`` argument to ``on_target`` is the dict SAC's
-``update_value_functions`` builds: ``observations``, ``actions``,
-``next_observations``, ``rewards`` (unscaled), ``reward_scale``, ``dones``,
-``rng_key``, ``q_preds``, ``gamma``, ``raw_next_observations`` (the
-environment's own next observations, which an extension's expert reads:
-SAC keeps them when an extension carries an expert) and ``recurrent``.
+The ``batch`` argument to ``on_target`` is the dict ``loop.critic_step``
+builds for SAC: ``observations``, ``actions``, ``next_observations``,
+``rewards`` (unscaled), ``reward_scale``, ``dones``, ``gamma``,
+``raw_next_observations`` (the environment's own next observations, which
+an extension's expert reads: SAC keeps them when an extension carries an
+expert), ``next_a_expert``, and SAC's own ``rng_key``, ``q_preds`` and
+``recurrent``.
 """
 
 from __future__ import annotations

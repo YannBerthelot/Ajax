@@ -174,7 +174,7 @@ def update_agent(
     total_timesteps: int,
 ) -> tuple[DAggerState, AuxiliaryLogs]:
     """One supervised step towards the expert's actions on a replay batch."""
-    sample_key, ext_key, rng = jax.random.split(agent_state.rng, 3)
+    agent_state, sample_key, actor_key = agent_state.next_keys(2)
     batch = get_batch_from_buffer(
         buffer, agent_state.collector_state.buffer_state, sample_key
     )
@@ -193,7 +193,7 @@ def update_agent(
         agent_state,
         imitation_loss,
         extension_stack,
-        ext_key,
+        actor_key,
         total_timesteps,
         observations=batch.obs,
         raw_observations=batch.raw_obs,
@@ -201,7 +201,7 @@ def update_agent(
     )
     collector = agent_state.collector_state
     agent_state = agent_state.replace(
-        rng=rng, actor_state=actor_state, n_updates=agent_state.n_updates + 1
+        actor_state=actor_state, n_updates=agent_state.n_updates + 1
     )
     return agent_state, AuxiliaryLogs(
         policy=PolicyAuxiliaries(imitation_loss=loss, grad_norm=grad_norm),

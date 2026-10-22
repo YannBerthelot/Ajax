@@ -230,9 +230,7 @@ def update_value_functions(
     total_timesteps: int,
 ) -> Tuple[AVGState, ValueAuxiliaries, dict]:
     """The critic step on the scaled TD error of ``transition``."""
-    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
-    # default partitionable threefry, so the agent's own draws are unchanged.
-    key, rng, ext_key = jax.random.split(agent_state.rng, 3)
+    agent_state, key = agent_state.next_keys()
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     critic_state = agent_state.critic_state
     # Only a termination cuts the bootstrap: the official code passes
@@ -270,14 +268,14 @@ def update_value_functions(
         target_q,
         value_loss,
         extension_stack,
-        ext_key,
+        key,
         total_timesteps,
         rewards=transition.reward,
         dones=dones,
         gamma=agent_config.gamma,
         reward_scale=agent_config.reward_scale,
     )
-    return agent_state.replace(rng=rng, critic_state=critic_state), aux, metrics
+    return agent_state.replace(critic_state=critic_state), aux, metrics
 
 
 def update_policy(
@@ -293,6 +291,7 @@ def update_policy(
     the env's own observations, the policy's mean action and ``a_expert``,
     the agent's expert's action from its state (None without one). Also
     returns the extensions' metrics."""
+    agent_state, key = agent_state.next_keys()
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     actor_state = agent_state.actor_state
 
@@ -313,8 +312,7 @@ def update_policy(
         agent_state,
         policy_loss,
         extension_stack,
-        # update_value_functions splits the same key in three.
-        jax.random.split(agent_state.rng, 4)[3],
+        key,
         total_timesteps,
         observations=observations,
         raw_observations=raw_observations,
@@ -349,8 +347,10 @@ def update_agent(
         agent_state, transition, agent_config, extension_stack, total_timesteps
     )
     assert transition.raw_action is not None
+    # The actor step reads the networks from before the critic's, its key
+    # drawn after the critic's.
     policy_updated, aux_policy, policy_metrics = update_policy(
-        agent_state,
+        agent_state.replace(rng=critic_updated.rng),
         transition.obs,
         transition.raw_action,
         extension_stack,
@@ -358,7 +358,9 @@ def update_agent(
         raw_observations=transition.raw_obs,
         a_expert=transition.a_expert if stores_expert_actions else None,
     )
-    agent_state = critic_updated.replace(actor_state=policy_updated.actor_state)
+    agent_state = critic_updated.replace(
+        actor_state=policy_updated.actor_state, rng=policy_updated.rng
+    )
     log_alpha = agent_state.alpha.params["log_alpha"]
     aux = AuxiliaryLogs(
         temperature=TemperatureAuxiliaries(

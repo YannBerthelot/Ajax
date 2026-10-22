@@ -253,6 +253,18 @@ def when(pred: Any, fn: Callable[[Any], Any], state: Any, fill: Any = None) -> A
     return jax.lax.cond(pred, lambda: fn(state), lambda: (state, metrics))
 
 
+#: What a step's key is folded with into its extensions' key. fold_in(k, i)
+#: is split(k, n)[i] under JAX's partitionable threefry, so the tag lies far
+#: past any split's length: no key a step splits off its own is theirs.
+EXTENSIONS = 0x45585453  # "EXTS"
+
+
+def extension_key(key: jax.Array) -> jax.Array:
+    """The extensions' key of a step on ``key``, which the step's own draws
+    (on ``key`` and the keys it splits off it) never get."""
+    return jax.random.fold_in(key, EXTENSIONS)
+
+
 def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any, jax.Array]:
     """One optimiser step down ``loss_fn(params) -> (loss, aux)``.
 
@@ -285,14 +297,15 @@ def critic_step(
     then steps the critic down ``value_loss(params, target_q) -> (loss,
     aux)`` plus their ``critic_loss`` terms. ``rewards``, ``dones`` (where
     the bootstrap is cut), ``gamma`` (None for an average-reward agent) and
-    ``reward_scale`` are what the target used; ``key``, split between the
-    two folds, is one the agent draws nothing else on. ``target_extras``
+    ``reward_scale`` are what the target used. The two folds draw on keys
+    derived from ``key``, the step's (:func:`extension_key`), on which the
+    agent may draw too. ``target_extras``
     joins the ``on_target`` batch (TD3's smoothed next actions). Returns the stepped
     critic state, ``aux``, the gradients' norm (:func:`gradient_step`) and
     the two folds' metrics.
     """
     step = agent_state.collector_state.timestep
-    target_key, loss_key = jax.random.split(key)
+    target_key, loss_key = jax.random.split(extension_key(key))
     target_batch = {
         "observations": batch.obs,
         "actions": batch.action,
@@ -347,11 +360,12 @@ def actor_step(
 
     Steps the actor down ``policy_loss(params) -> (loss, aux, pi_mean)``
     (``pi_mean``: the policy's mean action at the rows, None for a discrete
-    policy) plus the extensions' ``actor_loss`` terms, folded on ``key``, one
-    the agent draws nothing else on. Their batch is ``batch``, the rows'
-    entries the agent passes (``observations``, ``raw_observations``,
-    ``actions``, ``a_expert``, ``critic_state``), with the differentiated
-    ``actor_params``, the ``actor_state``, ``pi_mean`` and ``agent_loss``.
+    policy) plus the extensions' ``actor_loss`` terms, folded on a key
+    derived from ``key``, the step's (:func:`extension_key`). Their batch is
+    ``batch``, the rows' entries the agent passes (``observations``,
+    ``raw_observations``, ``actions``, ``a_expert``, ``critic_state``), with
+    the differentiated ``actor_params``, the ``actor_state``, ``pi_mean`` and
+    ``agent_loss``.
     Returns the stepped actor state, ``aux``, the gradients' norm
     (:func:`gradient_step`) and the fold's metrics.
     """
@@ -367,7 +381,7 @@ def actor_step(
         }
         step = agent_state.collector_state.timestep
         extra, metrics = extension_stack.fold_actor_loss(
-            agent_state, actor_batch, step, key, total_timesteps
+            agent_state, actor_batch, step, extension_key(key), total_timesteps
         )
         return loss + extra, (aux, metrics)
 
@@ -877,6 +891,7 @@ __all__ = [
     "TrainLoop",
     "actor_step",
     "critic_step",
+    "extension_key",
     "fold_post_update",
     "fresh_state",
     "gradient_step",

@@ -1092,6 +1092,40 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU once each step took its key from the state
+# (BaseAgentState.next_keys) and critic_step, actor_step and soft_actor_step
+# derived the extensions' keys from it (loop.extension_key): TD3's and AVG's
+# actor steps now draw a key of their own, ASAC's and REDQ's actor key is
+# split first, and DQN with extensions no longer splits a key for them.
+# Relative shifts (actor, critic): TD3 +4.8e-4, +1.4e-4; TD3-mcc +3.9e-4,
+# +8.5e-4; AVG -2.4%, -6.2%; ASAC -5.5e-4, +1.0e-3; REDQ +4.9e-4, +2.7e-4
+# (alpha -2.0e-4); DQN-dueling-nudge actor -0.54%, target -0.41%, nudge
+# +14.7%. Plain DQN, DAgger, IQL, PQN and SAC are unchanged.
+_GOLDEN |= {
+    "TD3": {"actor": 15.442390441894531, "critic": 27.048847198486328},
+    "TD3-mcc": {"actor": 17.49720001220703, "critic": 28.56031608581543},
+    "AVG": {
+        "actor": 5.481132984161377,
+        "critic": 17.05487060546875,
+        "alpha": 0.07000000029802322,
+    },
+    "ASAC": {
+        "actor": 17.27532958984375,
+        "critic": 27.402420043945312,
+        "alpha": 0.19999998807907104,
+    },
+    "REDQ": {
+        "actor": 10.620380401611328,
+        "critic": 36.89820861816406,
+        "alpha": 0.9879003763198853,
+    },
+    "DQN-dueling-nudge": {
+        "actor": 9.583549499511719,
+        "target": 9.572633743286133,
+        "nudge": 0.43414005637168884,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

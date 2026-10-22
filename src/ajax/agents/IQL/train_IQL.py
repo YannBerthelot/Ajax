@@ -123,7 +123,7 @@ def update_agent(
     total_timesteps: int,
 ) -> Tuple[IQLState, AuxiliaryLogs]:
     """One IQL update (the module docstring)."""
-    sample_key, critic_key, actor_key, rng = jax.random.split(agent_state.rng, 4)
+    agent_state, sample_key, critic_key, actor_key = agent_state.next_keys(3)
     batch, _ = sample_replay(agent_state, buffer, sample_key)
     critic = agent_state.critic_state
     q = jnp.min(q_values(critic, critic.target_params, batch.obs, batch.action), axis=0)
@@ -178,7 +178,6 @@ def update_agent(
         reward_scale=config.reward_scale,
     )
     agent_state = agent_state.replace(
-        rng=rng,
         actor_state=actor_state,
         critic_state=critic_state.soft_update(tau=config.tau),
         value_state=value_state,

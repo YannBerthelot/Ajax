@@ -213,9 +213,7 @@ def update_value_functions(
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[TD3State, ValueAuxiliaries, dict]:
     """The critic step on the smoothed, clipped double-Q target."""
-    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
-    # default partitionable threefry, so the agent's own draws are unchanged.
-    key, rng, ext_key = jax.random.split(agent_state.rng, 3)
+    agent_state, key = agent_state.next_keys()
     # A truncated row bootstraps on its final observation (bootstrap_obs).
     dones = batch.terminated
     target_q, noise_clip_frac, next_actions = compute_td3_td_target(
@@ -255,7 +253,7 @@ def update_value_functions(
         target_q,
         value_loss,
         extension_stack,
-        ext_key,
+        key,
         total_timesteps,
         rewards=batch.reward,
         dones=dones,
@@ -266,7 +264,7 @@ def update_value_functions(
         target_extras={"next_actions": next_actions},
     )
     aux = aux.replace(grad_norm=grad_norm)
-    return agent_state.replace(rng=rng, critic_state=critic_state), aux, metrics
+    return agent_state.replace(critic_state=critic_state), aux, metrics
 
 
 def update_policy(
@@ -283,6 +281,7 @@ def update_policy(
     ``a_expert``, the expert's stored actions at the rows (None without an
     expert), and ``actions``, the rows' own, reach the extensions. Also
     returns the extensions' metrics."""
+    agent_state, key = agent_state.next_keys()
 
     def policy_loss(params: FrozenDict) -> Tuple[jax.Array, Any, jax.Array]:
         loss, (aux, pi_mean) = policy_loss_function(
@@ -298,8 +297,7 @@ def update_policy(
         agent_state,
         policy_loss,
         extension_stack,
-        # The next update splits the agent's key in two (update_agent).
-        jax.random.split(agent_state.rng, 3)[2],
+        key,
         total_timesteps,
         observations=observations,
         raw_observations=raw_observations,
@@ -329,8 +327,7 @@ def update_agent(
 ) -> Tuple[TD3State, AuxiliaryLogs]:
     """One update: a critic step on a replay batch and, every
     ``policy_delay`` updates, an actor step and the target updates."""
-    sample_key, rng = jax.random.split(agent_state.rng)
-    agent_state = agent_state.replace(rng=rng)
+    agent_state, sample_key = agent_state.next_keys()
     # Sequence replay burns the TARGET actor's carry in as well: TD3's
     # bootstrap action comes from it.
     batch, carries = sample_replay(

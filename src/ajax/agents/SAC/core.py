@@ -223,9 +223,12 @@ def soft_policy_loss(
     rng: jax.Array,
     carries: Optional[RecurrentCarries] = None,
     q_reduce: Callable[..., jax.Array] = jnp.min,
+    action_transform: Optional[Callable[[jax.Array], jax.Array]] = None,
 ) -> Tuple[jax.Array, Tuple[jax.Array, jax.Array, Any]]:
     """``mean(alpha log pi(a|s) - Q(s, a))``, ``a ~ pi(.|s)``, ``Q`` the
-    critics' values reduced by ``q_reduce`` over the ensemble axis.
+    critics' values reduced by ``q_reduce`` over the ensemble axis, at
+    ``action_transform(a)`` when given (residual RL scores the executed
+    action).
 
     Returns the loss and ``(log_probs, q, pi)``. In sequence mode the
     fresh actions are queried at the critic's head, its memory reading the
@@ -234,6 +237,8 @@ def soft_policy_loss(
     pi = actor_dist(actor_state, actor_params, observations, carries)
     sample_key, rng = jax.random.split(rng)
     actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
+    if action_transform is not None:
+        actions = action_transform(actions)
     q = q_reduce(
         q_values(critic_state, critic_state.params, observations, actions, carries),
         axis=0,

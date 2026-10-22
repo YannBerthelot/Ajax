@@ -243,8 +243,8 @@ extensions' `actor_loss` phase; and `critic_step(...)`, a replay critic step tha
 the extensions' `on_target` and `critic_loss` phases. All three return the
 gradients' global norm, before the optimiser clips them. SAC, TD3, REDQ, ASAC,
 AVG and IQL use `critic_step`.
-TD3, AVG, DAgger and IQL use `actor_step`; SAC and its descendants use
-`soft_actor_step` in `SAC/core.py`.
+SAC, TD3, AVG, DAgger and IQL use `actor_step`; ASAC and REDQ use
+`soft_actor_step` in `SAC/core.py`, on the same `soft_policy_loss` as SAC.
 
 Two more keep control flow out of the updates. `when(pred, fn, state)` runs
 `fn` where `pred` holds and leaves the state as it is elsewhere, its metrics
@@ -313,7 +313,7 @@ agent without extensions traces nothing extra and never guards a fold.
 | `fold_post_update` | after every update: the loop's `maybe_update`, `repeat_update` and `on_policy`; APG, UDRL and `TDMPC2MultiTask` in their own iterations |
 | `fold_eval_metrics` | at every evaluation, merged into the logged metrics (`compose_eval_metrics` in `log.py`) |
 | `fold_on_target`, `fold_critic_loss` | in the agent's critic step; `critic_step` for SAC, TD3, REDQ, ASAC, AVG and IQL |
-| `fold_actor_loss` | in the agent's actor step; `actor_step` for TD3, AVG, DAgger and IQL |
+| `fold_actor_loss` | in the agent's actor step; `actor_step` for SAC, TD3, AVG, DAgger and IQL |
 | the `action` phase | SAC's action pipeline only, with an expert policy |
 
 `fold_on_target`, `fold_critic_loss` and `fold_actor_loss` return their

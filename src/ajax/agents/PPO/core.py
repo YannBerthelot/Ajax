@@ -9,6 +9,7 @@ import jax.numpy as jnp
 from flax import struct
 
 from ajax.networks.distributions import entropy, latent, log_prob_from_raw
+from ajax.schedule import at
 from ajax.state import Transition
 
 
@@ -130,8 +131,7 @@ def resolve_num_minibatches(agent_config: Any) -> int:
 
 def resolve_clip_coef(agent_config: Any, timestep: int | jax.Array) -> Any:
     """The clip range, a constant or a schedule of the timestep."""
-    clip_range = agent_config.clip_range
-    return clip_range(timestep) if callable(clip_range) else clip_range
+    return at(agent_config.clip_range, timestep)
 
 
 def run_epochs(

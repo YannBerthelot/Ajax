@@ -15,7 +15,6 @@ own code is the LayerNorm network, the Q(lambda) target, and this
 on-policy training loop.
 """
 
-import functools
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple
 
@@ -27,7 +26,6 @@ from ajax.agents.DQN.train_DQN import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
     init_DQN,
-    linear_epsilon,
     make_epsilon_greedy_pipeline,
     q_gradient_step,
 )
@@ -40,6 +38,7 @@ from ajax.environments.utils import get_action_dim
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.schedule import linear
 from ajax.state import (
     EnvironmentConfig,
     NetworkConfig,
@@ -195,12 +194,9 @@ def make_train(
     )
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_loss_fn = td_loss_fn if td_loss_fn is not None else half_mse_td_loss
-    epsilon_schedule = functools.partial(
-        linear_epsilon,
-        total_timesteps=total_timesteps,
-        epsilon_start=epsilon_start,
-        epsilon_end=epsilon_end,
-        epsilon_decay_frac=epsilon_decay_frac,
+    # Linear over the first epsilon_decay_frac of the horizon, then flat.
+    epsilon_schedule = linear(
+        epsilon_start, epsilon_end, epsilon_decay_frac * total_timesteps
     )
 
     def init(key: jax.Array) -> PQNState:
@@ -230,11 +226,8 @@ def make_train(
     # purejaxql reads epsilon once per update, at its update count
     # (pqn_gymnax.py:189).
     action_pipeline = make_epsilon_greedy_pipeline(
-        n_actions=n_actions,
-        epsilon_start=epsilon_start,
-        epsilon_end=epsilon_end,
-        epsilon_decay_frac=epsilon_decay_frac,
-        total_timesteps=total_timesteps,
+        n_actions,
+        epsilon_schedule,
         steps_per_update=agent_config.n_steps * env_args.n_envs,
     )
     return loop.on_policy(

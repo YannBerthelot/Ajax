@@ -20,7 +20,6 @@ Differences from the SAC/TD3 template in this codebase:
     one mechanism, no boolean flag.
 """
 
-import functools
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple
 
@@ -36,7 +35,7 @@ from ajax.agents.DQN.networks import (
     q_network_value,
 )
 from ajax.agents.DQN.state import DQNConfig, DQNState
-from ajax.agents.loop import TrainLoop, gradient_step
+from ajax.agents.loop import TrainLoop, gradient_step, when
 from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
@@ -49,6 +48,7 @@ from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.perf_utils import final_aux_scan
+from ajax.schedule import Schedule, at, linear
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -83,36 +83,16 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-def linear_epsilon(
-    timestep: jax.Array | int,
-    total_timesteps: int,
-    epsilon_start: float,
-    epsilon_end: float,
-    epsilon_decay_frac: float,
-) -> jax.Array:
-    """Epsilon at ``timestep``: linear from ``epsilon_start`` to
-    ``epsilon_end`` over the first ``epsilon_decay_frac`` of the
-    ``total_timesteps`` horizon, then flat."""
-    train_frac = timestep / total_timesteps
-    decay = jnp.clip(train_frac / epsilon_decay_frac, 0.0, 1.0)
-    return epsilon_start + decay * (epsilon_end - epsilon_start)
-
-
 def make_epsilon_greedy_pipeline(
-    n_actions: int,
-    epsilon_start: float,
-    epsilon_end: float,
-    epsilon_decay_frac: float,
-    total_timesteps: int,
-    steps_per_update: Optional[int] = None,
+    n_actions: int, epsilon: Schedule, steps_per_update: Optional[int] = None
 ) -> Callable:
-    """Build the default DQN ``action_pipeline``: linear-decay epsilon-greedy.
+    """Build the default DQN ``action_pipeline``: epsilon-greedy.
 
-    Epsilon follows :func:`linear_epsilon` over the ``total_timesteps``
-    horizon, at the collector's timestep, or with ``steps_per_update`` once
-    per update, at ``n_updates * steps_per_update`` (PQN's reference reads
-    it so). During the ``learning_starts`` warmup (``uniform`` is set)
-    actions are fully random regardless of epsilon.
+    ``epsilon`` is read at the collector's timestep, or with
+    ``steps_per_update`` once per update, at ``n_updates *
+    steps_per_update`` (PQN's reference reads it so). During the
+    ``learning_starts`` warmup (``uniform`` is set) actions are fully random
+    regardless of epsilon.
     """
 
     def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
@@ -128,19 +108,15 @@ def make_epsilon_greedy_pipeline(
             if steps_per_update is None
             else agent_state.n_updates * steps_per_update
         )
-        epsilon = linear_epsilon(
-            timestep,
-            total_timesteps,
-            epsilon_start,
-            epsilon_end,
-            epsilon_decay_frac,
-        )
+        explore_rate = at(epsilon, timestep)
 
         explore_key, random_key = jax.random.split(action_key)
         random_action = jax.random.randint(
             random_key, shape=greedy_action.shape, minval=0, maxval=n_actions
         ).astype(jnp.int32)
-        explore = jax.random.uniform(explore_key, shape=greedy_action.shape) < epsilon
+        explore = (
+            jax.random.uniform(explore_key, shape=greedy_action.shape) < explore_rate
+        )
         eps_greedy_action = jnp.where(explore, random_action, greedy_action)
 
         env_action = jax.lax.cond(
@@ -441,12 +417,7 @@ def update_agent(
     )
 
     do_target_update = (agent_state.n_updates % target_update_interval) == 0
-    q_state = jax.lax.cond(
-        do_target_update,
-        lambda s: s.soft_update(tau),
-        lambda s: s,
-        q_state,
-    )
+    q_state = when(do_target_update, lambda s: s.soft_update(tau), q_state)
 
     agent_state = agent_state.replace(
         actor_state=q_state,
@@ -499,12 +470,9 @@ def make_train(
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_target_fn = td_target_fn if td_target_fn is not None else compute_dqn_td_target
     td_loss_fn = td_loss_fn if td_loss_fn is not None else huber_1_td_loss
-    epsilon_schedule = functools.partial(
-        linear_epsilon,
-        total_timesteps=total_timesteps,
-        epsilon_start=epsilon_start,
-        epsilon_end=epsilon_end,
-        epsilon_decay_frac=epsilon_decay_frac,
+    # Linear over the first epsilon_decay_frac of the horizon, then flat.
+    epsilon_schedule = linear(
+        epsilon_start, epsilon_end, epsilon_decay_frac * total_timesteps
     )
 
     def init(key: jax.Array) -> DQNState:
@@ -538,13 +506,7 @@ def make_train(
             one_update, agent_state, length=agent_config.n_gradient_steps
         )
 
-    action_pipeline = make_epsilon_greedy_pipeline(
-        n_actions=n_actions,
-        epsilon_start=epsilon_start,
-        epsilon_end=epsilon_end,
-        epsilon_decay_frac=epsilon_decay_frac,
-        total_timesteps=total_timesteps,
-    )
+    action_pipeline = make_epsilon_greedy_pipeline(n_actions, epsilon_schedule)
     return loop.off_policy(
         init,
         update,

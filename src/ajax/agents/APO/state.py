@@ -3,6 +3,7 @@ from typing import Optional
 import jax.numpy as jnp
 from flax import struct
 
+from ajax.schedule import Schedule
 from ajax.state import BaseAgentConfig, BaseAgentState
 
 
@@ -18,7 +19,7 @@ class APOConfig(BaseAgentConfig):
 
     # The official code's entropy_loss_coeff (APO's constructor).
     ent_coef: float = 0.01
-    clip_range: float = 0.2
+    clip_range: Schedule = 0.2
     n_steps: int = 2048
     batch_size: int = 64
     n_epochs: int = 10

@@ -56,7 +56,7 @@ This budget shows the calls; it is too short to learn the swing-up.
 | `alpha` | 0.1 | update rate of the running averages of the reward rate and of the values |
 | `nu` | 0.1 | weight of the value-bias penalty |
 | `gae_lambda` | 0.95 | GAE's lambda (there is no discount) |
-| `clip_range` | 0.2 | the ratio clip |
+| `clip_range` | 0.2 | the ratio clip; a float or a schedule of the timestep |
 | `ent_coef` | 0.01 | entropy bonus weight, the official code's (see the notes) |
 | `max_grad_norm` | 10 | clips the gradient's global norm over both networks at once (`None` turns it off) |
 | `normalize_advantage` | True | advantages standardised over the whole rollout |

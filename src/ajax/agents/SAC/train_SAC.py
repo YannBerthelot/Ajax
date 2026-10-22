@@ -8,7 +8,7 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
-from ajax.agents.loop import TrainLoop
+from ajax.agents.loop import TrainLoop, when
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
@@ -35,6 +35,7 @@ from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import latent
 from ajax.networks.networks import action_value, predict_value
 from ajax.perf_utils import final_aux_scan
+from ajax.schedule import Schedule, at, linear
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -464,7 +465,7 @@ def update_agent(
     buffer: BufferType,
     recurrent: bool,
     gamma: float,
-    target_entropy: float,
+    target_entropy: Schedule,
     tau: float,
     extension_stack: ExtensionStack,
     num_critic_updates: int = 1,
@@ -475,8 +476,6 @@ def update_agent(
     fixed_alpha: bool = False,
     augment_obs_with_expert_action: bool = False,
     total_timesteps: int = 1,
-    target_entropy_initial: Optional[float] = None,
-    target_entropy_ramp_frac: float = 0.5,
     policy_action_transform: Optional[Callable] = None,
     burn_in: int = 8,
     stored_state: bool = False,
@@ -621,47 +620,21 @@ def update_agent(
         carries=carries,
         replay_actions=transition.action,
     )
-    agent_state = jax.lax.cond(
-        agent_state.collector_state.timestep >= policy_update_start,
-        lambda: new_agent_state,
-        lambda: agent_state,
+    # The policy step is computed from the start, its log-probs feeding the
+    # temperature step, and kept from policy_update_start.
+    timestep = agent_state.collector_state.timestep
+    agent_state = when(
+        timestep >= policy_update_start, lambda _: new_agent_state, agent_state
     )
 
-    if target_entropy_initial is not None:
-        # Time-based ramp from `target_entropy_initial` (low, near
-        # -dim*1) to `target_entropy` over the first
-        # `target_entropy_ramp_frac` of training. Stays at the standard
-        # target after the ramp completes. Used to keep alpha low at
-        # the start of training so the (BC-warmed) policy mean rolls
-        # out near-deterministically and the agent stays alive on
-        # brittle envs; exploration grows as the policy learns.
-        ramp_horizon = jnp.maximum(
-            target_entropy_ramp_frac * jnp.asarray(total_timesteps, jnp.float32),
-            1.0,
-        )
-        progress = jnp.clip(
-            agent_state.collector_state.timestep / ramp_horizon, 0.0, 1.0
-        )
-        effective_target_entropy = (
-            1.0 - progress
-        ) * target_entropy_initial + progress * target_entropy
-    else:
-        effective_target_entropy = jnp.asarray(target_entropy)
-
-    # ``fixed_alpha`` keeps alpha pinned at ``alpha_init`` for the whole run
-    # (the temperature loss is still computed for its logged auxiliaries,
-    # only the gradient step is dropped).
+    # The temperature loss is computed for its logged auxiliaries; its step
+    # is kept from alpha_update_start, never with ``fixed_alpha`` (alpha stays
+    # at ``alpha_init``).
     new_agent_state_temp, aux_temperature = update_temperature(
-        agent_state, policy_log_probs, effective_target_entropy
+        agent_state, policy_log_probs, jnp.asarray(at(target_entropy, timestep))
     )
-    agent_state = jax.lax.cond(
-        jnp.logical_and(
-            not fixed_alpha,
-            agent_state.collector_state.timestep >= alpha_update_start,
-        ),
-        lambda: new_agent_state_temp,
-        lambda: agent_state,
-    )
+    alpha_ready = jnp.logical_and(not fixed_alpha, timestep >= alpha_update_start)
+    agent_state = when(alpha_ready, lambda _: new_agent_state_temp, agent_state)
 
     agent_state = update_target_networks(agent_state, tau=tau)
 
@@ -825,6 +798,19 @@ def make_train(
         else residual.build_eval_transform()
     )
 
+    # A ramp from target_entropy_initial (low: a BC-warmed policy mean rolls
+    # out near-deterministically and stays alive on brittle envs) to the
+    # standard target over the first target_entropy_ramp_frac of training.
+    target_entropy: Schedule = (
+        agent_config.target_entropy
+        if target_entropy_initial is None
+        else linear(
+            target_entropy_initial,
+            agent_config.target_entropy,
+            target_entropy_ramp_frac * total_timesteps,
+        )
+    )
+
     def update(agent_state: SACState, _transition: Transition) -> Any:
         # The step just collected is in the buffer: SAC samples it from there.
         return update_agent(
@@ -832,7 +818,7 @@ def make_train(
             buffer=buffer,
             recurrent=recurrent,
             gamma=agent_config.gamma,
-            target_entropy=agent_config.target_entropy,
+            target_entropy=target_entropy,
             tau=agent_config.tau,
             reward_scale=agent_config.reward_scale,
             expert_policy=expert_policy,
@@ -842,8 +828,6 @@ def make_train(
             num_critic_updates=num_critic_updates,
             augment_obs_with_expert_action=augment_obs_with_expert_action,
             total_timesteps=total_timesteps,
-            target_entropy_initial=target_entropy_initial,
-            target_entropy_ramp_frac=target_entropy_ramp_frac,
             extension_stack=loop.stack,
             policy_action_transform=policy_action_transform,
             burn_in=agent_config.burn_in,

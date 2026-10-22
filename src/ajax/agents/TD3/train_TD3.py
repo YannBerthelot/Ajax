@@ -18,7 +18,7 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
-from ajax.agents.loop import TrainLoop, actor_step, critic_step
+from ajax.agents.loop import TrainLoop, actor_step, critic_step, when
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
@@ -41,6 +41,7 @@ from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import action_value
+from ajax.schedule import Schedule, at
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -77,9 +78,10 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-def make_default_action_pipeline(recurrent: bool, exploration_noise: float):
+def make_default_action_pipeline(recurrent: bool, exploration_noise: Schedule):
     """TD3's behaviour policy: ``clip(mu(s) + N(0, exploration_noise), -1, 1)``,
-    uniform actions during the warm-up."""
+    the noise's scale a schedule of the timestep; uniform actions during the
+    warm-up."""
 
     def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
         del raw_obs
@@ -94,7 +96,8 @@ def make_default_action_pipeline(recurrent: bool, exploration_noise: float):
         )
         # A recurrent actor runs a one-step sequence: drop its time axis.
         mean_action = pi.mean().squeeze(0) if recurrent else pi.mean()
-        noise = jax.random.normal(action_key, mean_action.shape) * exploration_noise
+        sigma = at(exploration_noise, collector.timestep)
+        noise = jax.random.normal(action_key, mean_action.shape) * sigma
         policy_action = jnp.clip(mean_action + noise, -1.0, 1.0)
         uniform_action = jax.random.uniform(
             mix_key, minval=-1.0, maxval=1.0, shape=policy_action.shape
@@ -379,19 +382,12 @@ def update_agent(
         agent_state = update_target_networks(agent_state, agent_config.tau)
         return agent_state, (policy_aux, policy_metrics)
 
-    def skip_policy(agent_state: TD3State) -> Tuple[TD3State, Any]:
-        # Zeros of the actor step's metrics, their structure read from its
-        # trace (with the extensions' names).
-        shapes = jax.eval_shape(lambda s: policy_and_targets(s)[1], agent_state)
-        return agent_state, jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), shapes)
-
     # sfujim/TD3 counts the update first (total_it += 1), then steps the actor
     # when the count is a multiple of the delay: its first actor step is the
-    # policy_delay-th update, not the first.
-    policy_delay = agent_config.policy_delay
-    do_policy = ((agent_state.n_updates + 1) % policy_delay) == 0
-    agent_state, (policy_aux, policy_metrics) = jax.lax.cond(
-        do_policy, policy_and_targets, skip_policy, agent_state
+    # policy_delay-th update, not the first. Skipped, its metrics are zeros.
+    do_policy = ((agent_state.n_updates + 1) % agent_config.policy_delay) == 0
+    agent_state, (policy_aux, policy_metrics) = when(
+        do_policy, policy_and_targets, agent_state, fill=0.0
     )
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
     return agent_state, AuxiliaryLogs(

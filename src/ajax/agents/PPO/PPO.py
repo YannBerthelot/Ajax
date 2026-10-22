@@ -11,6 +11,7 @@ from ajax.agents.PPO.train_PPO import make_train, minibatch_geometry
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import CNNSpec
+from ajax.schedule import Schedule
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -76,7 +77,7 @@ class PPO(ActorCritic):
         max_grad_norm: Optional[float] = 0.5,
         weight_decay: float = 0.0,
         ent_coef: float = 0,
-        clip_range: float = 0.2,
+        clip_range: Schedule = 0.2,  # or a function of the timestep
         n_steps: int = 2048,
         batch_size: int = 64,
         n_epochs: int = 10,

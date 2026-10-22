@@ -240,9 +240,20 @@ on `TrainLoop.train`, and evaluates its command-conditioned policy every
 Three helpers serve the replay agents: `gradient_step(train_state, loss_fn)`,
 one optimiser step; `actor_step(...)`, an actor step that folds the
 extensions' `actor_loss` phase; and `critic_step(...)`, a replay critic step that folds
-the extensions' `on_target` and `critic_loss` phases. Both also return the
-gradients' global norm, before the optimiser clips them. TD3, REDQ, ASAC and AVG
-use `critic_step`; SAC builds its own critic step, with the same folds.
+the extensions' `on_target` and `critic_loss` phases. All three return the
+gradients' global norm, before the optimiser clips them. TD3, REDQ, ASAC, AVG
+and IQL use `critic_step`; SAC builds its own critic step, with the same folds.
+TD3, AVG, DAgger and IQL use `actor_step`; SAC and its descendants use
+`soft_actor_step` in `SAC/core.py`.
+
+Two more keep control flow out of the updates. `when(pred, fn, state)` runs
+`fn` where `pred` holds and leaves the state as it is elsewhere, its metrics
+then NaN (or `fill`): TD3's policy delay, DQN's target refresh, SAC's
+warm-ups and the loop's own `learning_starts` gate. A `Schedule`
+(`ajax.schedule`) is a hyperparameter given as a constant or a function of the
+timestep, read with `at(schedule, timestep)`; `linear(start, end, steps)` is a
+ramp. TD3's exploration noise and PPO's and APO's clip range take one, and
+DQN's and PQN's epsilon and SAC's target-entropy ramp are built as one.
 
 ## Agent state
 

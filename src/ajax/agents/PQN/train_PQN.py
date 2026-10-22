@@ -25,8 +25,8 @@ from ajax.agents.DQN.networks import predict_q, q_network_value
 from ajax.agents.DQN.train_DQN import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
+    epsilon_greedy,
     init_DQN,
-    make_epsilon_greedy_pipeline,
     q_gradient_step,
 )
 from ajax.agents.loop import TrainLoop
@@ -34,6 +34,7 @@ from ajax.agents.PPO.utils import get_minibatches_from_batch
 from ajax.agents.PQN.networks import PQNNetwork
 from ajax.agents.PQN.state import PQNConfig, PQNState
 from ajax.agents.PQN.utils import compute_q_lambda_targets
+from ajax.environments.interaction import explore_pipeline
 from ajax.environments.utils import get_action_dim
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
@@ -224,11 +225,15 @@ def make_train(
         )
 
     # purejaxql reads epsilon once per update, at its update count
-    # (pqn_gymnax.py:189).
-    action_pipeline = make_epsilon_greedy_pipeline(
-        n_actions,
-        epsilon_schedule,
-        steps_per_update=agent_config.n_steps * env_args.n_envs,
+    # (pqn_gymnax.py:189): here at the first step of the rollout, update
+    # count x rollout size.
+    rollout_size = agent_config.n_steps * env_args.n_envs
+
+    def rollout_epsilon(timestep: jax.Array) -> jax.Array:
+        return epsilon_schedule(timestep - timestep % rollout_size)
+
+    action_pipeline = explore_pipeline(
+        epsilon_greedy(rollout_epsilon, n_actions), False, n_actions, warmup=False
     )
     return loop.on_policy(
         init,

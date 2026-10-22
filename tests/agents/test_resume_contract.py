@@ -113,10 +113,10 @@ def _epsilon_trace(legs: tuple[int, ...], horizon: int) -> list[tuple[int, float
     """(timestep, epsilon) at every collected step of a DQN run trained in
     ``legs`` calls, each told the run's horizon."""
     trace: list[tuple[int, float]] = []
-    pipeline = train_DQN.make_epsilon_greedy_pipeline
+    behaviour = train_DQN.epsilon_greedy
 
-    def recorded(n_actions: int, epsilon: Any, *args: Any, **kwargs: Any) -> Any:
-        # The schedule the action pipeline acts with, recorded at each read
+    def recorded(epsilon: Any, n_actions: int) -> Any:
+        # The schedule the behaviour policy acts with, recorded at each read
         # (the logged epsilon, read after each update, is not).
         def acted(timestep: Any) -> Any:
             value = epsilon(timestep)
@@ -125,10 +125,10 @@ def _epsilon_trace(legs: tuple[int, ...], horizon: int) -> list[tuple[int, float
             )
             return value
 
-        return pipeline(n_actions, acted, *args, **kwargs)
+        return behaviour(acted, n_actions)
 
     agent, state = _dqn(), None
-    with mock.patch.object(train_DQN, "make_epsilon_greedy_pipeline", recorded):
+    with mock.patch.object(train_DQN, "epsilon_greedy", recorded):
         for steps in legs:
             state, _ = agent.train(
                 seed=0, n_timesteps=steps, initial_state=state, total_timesteps=horizon

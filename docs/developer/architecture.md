@@ -255,6 +255,15 @@ timestep, read with `at(schedule, timestep)`; `linear(start, end, steps)` is a
 ramp. TD3's exploration noise and PPO's and APO's clip range take one, and
 DQN's and PQN's epsilon and SAC's target-entropy ramp are built as one.
 
+An agent whose behaviour policy is its policy plus exploration writes it as
+`explore(pi, key, step) -> action` (`ajax.environments.interaction`): from the
+policy at the last observations, a key and the timestep, the action to take.
+`explore_pipeline(explore, recurrent, n_actions)` turns it into the action
+pipeline collection calls, which owns the uniform warm-up actions, a recurrent
+actor's carry and a discrete action's stored column. TD3's Gaussian noise
+(`gaussian_exploration`) and DQN's and PQN's epsilon-greedy
+(`epsilon_greedy`) are such functions.
+
 ## Agent state
 
 Everything that changes during training lives in one flax dataclass, the

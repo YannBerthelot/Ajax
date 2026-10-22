@@ -39,7 +39,8 @@ from ajax.agents.loop import TrainLoop, gradient_step, when
 from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
-    ActionPipelineResult,
+    Explore,
+    explore_pipeline,
     init_collector_state,
     reward_statistics,
 )
@@ -83,61 +84,20 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-def make_epsilon_greedy_pipeline(
-    n_actions: int, epsilon: Schedule, steps_per_update: Optional[int] = None
-) -> Callable:
-    """Build the default DQN ``action_pipeline``: epsilon-greedy.
+def epsilon_greedy(epsilon: Schedule, n_actions: int) -> Explore:
+    """DQN's behaviour policy: with probability ``epsilon`` (a schedule of
+    the timestep) a uniform action, else the greedy one."""
 
-    ``epsilon`` is read at the collector's timestep, or with
-    ``steps_per_update`` once per update, at ``n_updates *
-    steps_per_update`` (PQN's reference reads it so). During the
-    ``learning_starts`` warmup (``uniform`` is set) actions are fully random
-    regardless of epsilon.
-    """
-
-    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
-        del raw_obs, mix_key
-        obs = agent_state.collector_state.last_obs
-        q_values = predict_q(
-            agent_state.actor_state, agent_state.actor_state.params, obs
-        )
-        greedy_action = jnp.argmax(q_values, axis=-1).astype(jnp.int32)
-
-        timestep = (
-            agent_state.collector_state.timestep
-            if steps_per_update is None
-            else agent_state.n_updates * steps_per_update
-        )
-        explore_rate = at(epsilon, timestep)
-
-        explore_key, random_key = jax.random.split(action_key)
+    def explore(pi: Any, key: jax.Array, step: jax.Array) -> jax.Array:
+        greedy_action = pi.mode()  # argmax_a Q(s, a)
+        explore_key, random_key = jax.random.split(key)
         random_action = jax.random.randint(
             random_key, shape=greedy_action.shape, minval=0, maxval=n_actions
         ).astype(jnp.int32)
-        explore = (
-            jax.random.uniform(explore_key, shape=greedy_action.shape) < explore_rate
-        )
-        eps_greedy_action = jnp.where(explore, random_action, greedy_action)
+        explore = jax.random.uniform(explore_key, shape=greedy_action.shape)
+        return jnp.where(explore < at(epsilon, step), random_action, greedy_action)
 
-        env_action = jax.lax.cond(
-            uniform, lambda: random_action, lambda: eps_greedy_action
-        )
-        # The env expects (n_envs,) integer actions; the buffer schema
-        # stores discrete actions as (n_envs, 1).
-        buffer_action = env_action[:, None]
-        n_envs = greedy_action.shape[0]
-        return ActionPipelineResult(
-            env_action=env_action,
-            policy_action=buffer_action,
-            log_probs=jnp.zeros((n_envs, 1), dtype=jnp.float32),
-            is_expert_flag=jnp.zeros((n_envs, 1), dtype=jnp.float32),
-            in_value_box=jnp.zeros((n_envs, 1), dtype=jnp.float32),
-            entry_bonus=jnp.zeros((n_envs, 1), dtype=jnp.float32),
-            rng=rng,
-            buffer_action=buffer_action,
-        )
-
-    return pipeline
+    return explore
 
 
 def init_DQN(
@@ -506,7 +466,9 @@ def make_train(
             one_update, agent_state, length=agent_config.n_gradient_steps
         )
 
-    action_pipeline = make_epsilon_greedy_pipeline(n_actions, epsilon_schedule)
+    action_pipeline = explore_pipeline(
+        epsilon_greedy(epsilon_schedule, n_actions), False, n_actions
+    )
     return loop.off_policy(
         init,
         update,

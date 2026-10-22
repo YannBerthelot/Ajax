@@ -183,7 +183,9 @@ class IBRL(Extension):
     expert_policy: Callable
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "ibrl"
-    requires: ClassVar[frozenset[str]] = frozenset({"actor", "discounted", "q_critic"})
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"actor", "discounted", "q_critic", "target_critic"}
+    )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "on_target": frozenset({"dones", "next_a_expert", "raw_next_observations"})
     }
@@ -241,7 +243,7 @@ class LCBGatedBootstrap(Extension):
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "lcb_gated_bootstrap"
     requires: ClassVar[frozenset[str]] = frozenset(
-        {"actor", "critic_ensemble", "discounted", "q_critic"}
+        {"actor", "critic_ensemble", "discounted", "q_critic", "target_critic"}
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "on_target": frozenset({"dones", "next_a_expert", "raw_next_observations"})

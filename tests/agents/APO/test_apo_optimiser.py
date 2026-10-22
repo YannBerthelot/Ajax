@@ -126,6 +126,7 @@ def _minibatches(state: Any) -> list[dict]:
                 "actions": actions,
                 "raw_actions": actions,
                 "log_probs": pi.log_prob(actions).sum(-1, keepdims=True),
+                "valid": jnp.ones((B, 1)),  # no time limit
                 "gae": jax.random.normal(k[2], (B, 1)),
                 "targets": scale * jax.random.normal(k[3], (B, 1)),
                 "entropy_key": k[0],

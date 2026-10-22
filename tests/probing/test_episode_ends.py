@@ -33,7 +33,7 @@ from .oracles import RIGHT, Rule
 from .verdict import STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "fcece8894323"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "75e5b6c3c7d6"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P6: the time-limit twin --------------------------------------------------
@@ -977,10 +977,10 @@ CASES["q1-APO-termination"] = Case(
 
 
 # A <-> B (obs -1, 1; r 0, 1), limit 3: the limit fires on a step from A,
-# whose true next obs is B. Bootstrapping there reads a cycle of rate 1/2
-# where rho is the stream's 1/3, so the value bias takes up the excess: b
-# settles where APO's fixed point puts it (32-step rollouts at every phase).
-# With A at obs 0, one seed of 32 read a flat V near 0.
+# whose true next obs is B. As xtma/apo, the limit ends the episode (no
+# bootstrap) and its row is not fitted (bootstrap_timelimit), while rho and
+# b average every row; b settles where APO's fixed point puts it (32-step
+# rollouts at every phase). With A at obs 0, one seed of 32 read a flat V.
 APO_TRUNC = cycle((-1.0, 1.0), (0.0, 1.0), False, actions=2, limit=3)
 TRUNC_ROWS = [(0, 0.0, 1, 1, 0, 0), (1, 1.0, 0, 0, 0, 0), (0, 0.0, 1, 0, 0, 1)]
 
@@ -999,7 +999,8 @@ def apo_values(rows: list, rule: Rule = RIGHT, phases: bool = True) -> np.ndarra
 
 def test_q1_apo_oracle_reproduces_the_closed_forms() -> None:
     """On aligned rollouts, b, V(A), V(B) as derived: q1-APO-termination's,
-    and the truncation cycle's, where b weights A's two visits; a plain state
+    and the truncation cycle's bootstrapped at the limit (the oracle's
+    default rule), where b weights A's two visits; a plain state
     mean in the fixed point moves b to 3.164 (3.111 on the cell's phases)."""
     rows = [(0, 0.0, 1, 1, 0, 0), (1, 1.0, 1, 0, 1, 0)]
     want = (B_MASK, -(2 - 0.95) * 0.1 * B_MASK, 0.5 - 0.1 * B_MASK)
@@ -1011,21 +1012,25 @@ def test_q1_apo_oracle_reproduces_the_closed_forms() -> None:
     np.testing.assert_allclose(apo_values(TRUNC_ROWS, phases=False), want, atol=1e-9)
 
 
-TRUNC_RIGHT = apo_values(TRUNC_ROWS)
-TRUNC_WRONG = {
-    "truncation treated as terminal": apo_values(TRUNC_ROWS, Rule(mask="or")),
-    "the reset observation bootstrapped": apo_values(TRUNC_ROWS, Rule(next="reset")),
+TRUNC_RIGHT = apo_values(TRUNC_ROWS, Rule(mask="or", drop_truncated=True))
+TRUNC_WRONG = {  # each reading gated by the faults that move it 0.05 or more
+    "final obs bootstrapped and fitted": apo_values(TRUNC_ROWS),
+    "time-limited row fitted": apo_values(TRUNC_ROWS, Rule(mask="or")),
+    "reset obs bootstrapped": apo_values(TRUNC_ROWS, Rule("terminated", "reset")),
 }
+GATED = [
+    {k: v[i] for k, v in TRUNC_WRONG.items() if abs(v - TRUNC_RIGHT)[i] >= 0.05}
+    for i in range(3)
+]
 CASES["q1-APO-truncation"] = Case(
     "q1-APO-truncation",
     tuple(
-        Query(name, TRUNC_RIGHT[i], {k: v[i] for k, v in TRUNC_WRONG.items()})
-        for i, name in enumerate(("b", "V(A)", "V(B)"))
+        Query(n, TRUNC_RIGHT[i], GATED[i]) for i, n in enumerate(("b", "V(A)", "V(B)"))
     ),
     _q1_apo(APO_TRUNC, {"V(A)": -1.0, "V(B)": 1.0}),
-    5000,
-    (0.031, 0.045, 0.02),
-    note="2500: twice the worst errors 0.542, 0.530, 0.461; cert 32/32",
+    2500,
+    (0.02, 0.056, 0.063),
+    note="worst errors 0.004, 0.028, 0.031 (5000: 0.003, 0.021, 0.018); cert 32/32",
 )
 
 

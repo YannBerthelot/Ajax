@@ -23,7 +23,8 @@ class Rule:
     stops the trace; ``peng``: it corrects the bootstrap (Q(lambda)), not the
     next obs (GAE); ``anchor``: subtracted by every bootstrap (ASAC), masked
     with it unless ``shift_outside``; ``off_by_one``: step T - 2 reads step
-    T - 1's bootstrap (purejaxql's PQN)."""
+    T - 1's bootstrap (purejaxql's PQN); ``drop_truncated``: a time-limited
+    row is not fitted (xtma/apo's bootstrap_timelimit)."""
 
     mask: str = "terminated"
     next: str = "final"
@@ -36,6 +37,7 @@ class Rule:
     anchor: int | None = None
     shift_outside: bool = False
     off_by_one: bool = False
+    drop_truncated: bool = False
 
 
 RIGHT = Rule()
@@ -78,11 +80,13 @@ def fixed_point(
     are affine in V); ``centred``: a differential estimator's, mean 0;
     ``bias``: less that times the visited mean V (APO's nu b)."""
     k, w = ro["obs"].ravel(), np.repeat(ro["weight"], ro["obs"].shape[1])
+    fit = w * (1 - ro["truncated"].ravel()) if rule.drop_truncated else w
     visits = np.bincount(k, w, n)
 
     def mean_target(v: np.ndarray) -> np.ndarray:
         g = targets(ro, v, gamma, lam, rule).ravel()
-        return np.bincount(k, w * g, n) / visits - bias * visits @ v / visits.sum()
+        mean = np.bincount(k, fit * g, n) / np.bincount(k, fit, n)
+        return mean - bias * visits @ v / visits.sum()
 
     b = mean_target(np.zeros(n))
     m = np.eye(n) - np.stack([mean_target(e) - b for e in np.eye(n)], 1)

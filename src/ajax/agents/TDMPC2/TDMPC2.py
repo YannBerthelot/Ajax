@@ -123,8 +123,8 @@ class TDMPC2(ActorCritic):
 
     name: str = "TDMPC2"
     capabilities: frozenset = frozenset(
-        "actor critic_ensemble discounted off_policy policy_density q_critic"
-        " replay".split()
+        "actor critic_ensemble discounted off_policy "
+        "policy_density q_critic replay target_critic".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES
     pretrain_context: frozenset = frozenset("env_args update".split())

@@ -37,6 +37,7 @@ from ajax.buffers.utils import (
     normalized_rewards,
 )
 from ajax.environments.interaction import get_pi, get_pi_sequence, reward_statistics
+from ajax.environments.obs_norm import apply_obs_norm
 from ajax.networks.memory import (
     MemoryConfig,
     flat_carry_dim,
@@ -343,6 +344,16 @@ def actor_dist(
     pi = get_pi_sequence(actor_state, params, xs, resets, hidden)[0]
     # A distribution is a pytree of its parameters, time-major.
     return jax.tree.map(lambda leaf: _bootstrap_steps(carries, leaf), pi)
+
+
+def actor_dist_train(
+    actor_state: LoadedTrainState, params: Any, obs: jax.Array
+) -> Tuple[Any, Optional[Any]]:
+    """:func:`actor_dist` in training, feedforward: the actor's distribution
+    over ``obs`` and its running statistics after this pass
+    (:meth:`~ajax.state.LoadedTrainState.apply_train`)."""
+    obs = apply_obs_norm(obs, getattr(actor_state, "obs_norm_info", None))
+    return actor_state.apply_train(params, obs)
 
 
 def q_values(

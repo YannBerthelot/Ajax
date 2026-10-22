@@ -130,6 +130,11 @@ class ActorCritic:
     # to True; every other agent gets a loud error instead of a silent
     # misconfiguration when `memory` is provided.
     supports_memory: bool = False
+    # Agents whose losses run their networks in training, so that BatchRenorm
+    # layers ("batchrenorm" in an architecture) learn their running
+    # statistics (CrossQ), set this; every other agent refuses the layer
+    # instead of normalising by statistics that never move.
+    trains_batch_norm: bool = False
     # Whether the agent takes per-copy (batched) env params, one system per
     # env (ajax.environments.system_class). The shared loop's collector
     # compiles env_args as a static argument, which jax cannot hash with
@@ -307,6 +312,17 @@ class ActorCritic:
             encoder_layer_norm=encoder_layer_norm,
             squash=squash,
         )
+
+        batch_norm = any(
+            isinstance(arch, (tuple, list)) and "batchrenorm" in arch
+            for arch in (actor_architecture, critic_architecture)
+        )
+        if batch_norm and not self.trains_batch_norm:
+            raise ValueError(
+                f"{type(self).__name__} runs its networks with their running"
+                " statistics fixed, so a 'batchrenorm' layer would never learn"
+                " them. CrossQ trains them; remove 'batchrenorm' here."
+            )
 
         self.actor_optimizer_args = OptimizerConfig(
             learning_rate=actor_learning_rate,

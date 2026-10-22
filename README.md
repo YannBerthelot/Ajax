@@ -1,86 +1,48 @@
 <h1 align="center">Ajax</h1>
 
-<h3 align="center">
-  Reinforcement-learning agents in JAX, compiled end to end with the environment,<br/>
-  including average-reward, expert-guided and world-model agents.
-</h3>
-
-<p align="center"><i>A whole training run, environment and every seed included, one compiled program.</i></p>
+<p align="center">
+  <b>Reinforcement-learning agents in JAX, compiled end to end with the environment.</b><br/>
+  A whole training run, environment and every seed included, is one compiled program.
+</p>
 
 <p align="center">
   <a href="https://yannberthelot.github.io/Ajax/"><img alt="Documentation" src="https://img.shields.io/badge/docs-yannberthelot.github.io%2FAjax-blue"></a>
   <a href="https://github.com/YannBerthelot/Ajax/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/YannBerthelot/Ajax/ci.yml?branch=main&label=CI"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue">
+  <a href="https://pypi.org/project/ajax-rl/"><img alt="PyPI" src="https://img.shields.io/pypi/v/ajax-rl"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
-  <img alt="JAX" src="https://img.shields.io/badge/JAX-jit%20%7C%20vmap%20%7C%20grad-orange">
 </p>
 
-Ajax is a library of reinforcement-learning agents written in
-[JAX](https://github.com/jax-ml/jax). Compared with
-[Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and its JAX
-version [SBX](https://github.com/araffin/sbx), it differs in four ways:
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#agents">Agents</a> ·
+  <a href="#learning-from-an-expert-or-from-data">Expert and data</a> ·
+  <a href="#beside-reference-implementations">Reproduction</a> ·
+  <a href="https://yannberthelot.github.io/Ajax/">Documentation</a>
+</p>
 
-- **[End to end on the accelerator](docs/guide/performance.md)**: the
-  environment and the training loop compile into one JAX program, as in
-  [PureJaxRL](https://github.com/luchris429/purejaxrl),
-  [Rejax](https://github.com/keraJLi/rejax),
-  [Stoix](https://github.com/EdanToledo/Stoix) and
-  [Brax](https://github.com/google/brax)'s training agents, with no Python
-  step between them, on a CPU or a GPU.
-- **Average-reward agents**: [ASAC](docs/algorithms/asac.md) and
-  [APO](docs/algorithms/apo.md) maximise the reward per step, with no
-  discount, for tasks that never end.
-- **[Expert-guided agents](docs/guide/expert-guidance.md)**: learn from a
-  controller you already have, or from recorded transitions, by cloning,
-  imitation, residual policies, hand-over, prior data in the replay or
-  offline training ([methods below](#learning-from-an-expert-or-from-data)).
-- **[World models](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2,
-  following the code behind their papers' results.
+Ajax has sixteen agents, each implementing a published paper. Compared with
+[Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
+[SBX](https://github.com/araffin/sbx), it differs in four ways: a run is
+[one program on the accelerator](docs/guide/performance.md), environment
+included; [ASAC](docs/algorithms/asac.md) and [APO](docs/algorithms/apo.md)
+maximise the average reward, for tasks that never end; agents
+[learn from an expert or from data](docs/guide/expert-guidance.md); and
+[DreamerV3 and TD-MPC2](docs/guide/world-models.md) follow the code behind
+their papers' results. [Why Ajax](docs/getting-started/why-ajax.md) compares
+it with SB3, SBX, PureJaxRL, Brax, Stoix and Rejax, including when to use
+them instead.
 
-[Why Ajax](docs/getting-started/why-ajax.md) shows each with an example and
-compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix and Rejax, including
-when to use them instead.
-
-It has sixteen agents, from SAC and PPO to DreamerV3 and TD-MPC2, each
-implementing a published paper, with the places where it departs from that
-paper written down. Several seeds train side by side in one program, on a CPU
-or a GPU. Research features (learning from an expert, exploration rules,
-diagnostics) are *extensions*, passed as `extensions=(...)` rather than added
-as new arguments to the agents. An agent refuses, when built, an extension
-it cannot run; the [compatibility table](docs/guide/compatibility.md) shows
-which agent runs which.
-
----
-
-## Installation
-
-Ajax is on PyPI as `ajax-rl`, for Python 3.12 or newer, and imports as
-`ajax`:
+## Install
 
 ```bash
-pip install ajax-rl
-pip install "ajax-rl[playground]"  # with Brax and MuJoCo Playground
+pip install ajax-rl                 # imports as ajax; Python 3.12 or newer
+pip install "ajax-rl[playground]"   # adds Brax and MuJoCo Playground environments
+pip install "ajax-rl[cuda]"         # adds CUDA, on Linux with an NVIDIA GPU
 ```
 
-JAX comes for the CPU; on a Linux machine with an NVIDIA GPU, add CUDA with
-`ajax-rl[cuda]`. Brax and MuJoCo Playground environments need an extra:
-`ajax-rl[playground]`, which brings Brax, or `ajax-rl[brax]` alone
-([Installation](docs/getting-started/installation.md#extras)). pip takes the
-newest versions that `pyproject.toml` allows; main installs with
-`pip install "ajax-rl @ git+https://github.com/YannBerthelot/Ajax.git"`.
-
-From source, [uv](https://docs.astral.sh/uv/) installs the versions in
-`uv.lock`, which CI tests, with the development tools and the `playground`
-extra (`uv sync --extra cuda` adds CUDA):
-
-```bash
-git clone https://github.com/YannBerthelot/Ajax.git
-cd Ajax
-uv sync   # creates .venv with the locked dependencies
-```
-
-[Installation](docs/getting-started/installation.md) covers the extras
-(`cuda`, `compare`, `reproduction`) and the dependency groups.
+`ajax-rl[brax]` adds Brax alone; [Installation](docs/getting-started/installation.md)
+covers the other extras and `uv sync` from a clone.
 
 ## Quickstart
 
@@ -97,15 +59,8 @@ print(evaluations["timestep"][0])                # when each evaluation ran
 print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column per evaluation
 ```
 
-The three seeds train together, and the run takes about fifteen seconds on a
-laptop CPU, compilation included. `evaluations` maps each logged name to an
-array of shape `(seeds, evaluations)`; `"Eval/episodic mean reward"` is the
-mean return of 10 test episodes (`num_episode_test`). With `use_wandb=True` (the default) or
-`use_tensorboard=True`, the same records also go to Weights & Biases or
-TensorBoard. To train further, pass the state back:
-`agent.train(seed=[1, 2, 3], n_timesteps=more, initial_state=state)`.
-
-Features are arguments of the same agents:
+The three seeds train together, in about fifteen seconds on a laptop CPU,
+compilation included. Features are arguments of the same agents:
 
 ```python
 from ajax import PPO, SAC
@@ -121,188 +76,85 @@ agent = PPO("CartPole-v1", expose_recent_rollout=True, extensions=(ConditioningM
 agent = PPO("ant", n_envs=8)
 ```
 
-The [quickstart guide](docs/getting-started/quickstart.md) goes on from here.
-
----
-
 ## Agents
 
-| Agent | Kind | Paper | Actions | Memory |
-| --- | --- | --- | --- | --- |
-| [`SAC`](docs/algorithms/sac.md) | off-policy | Haarnoja et al., *Soft Actor-Critic*, 2018 ([arXiv:1801.01290](https://arxiv.org/abs/1801.01290)) | continuous | yes |
-| [`ASAC`](docs/algorithms/asac.md) | off-policy, average reward | Adamczyk et al., *Average-Reward Soft Actor-Critic*, 2025 ([arXiv:2501.09080v2](https://arxiv.org/abs/2501.09080v2)) | continuous | yes |
-| [`REDQ`](docs/algorithms/redq.md) | off-policy | Chen et al., *Randomized Ensembled Double Q-Learning*, 2021 ([arXiv:2101.05982](https://arxiv.org/abs/2101.05982)) | continuous | yes |
-| [`TD3`](docs/algorithms/td3.md) | off-policy | Fujimoto et al., *Addressing Function Approximation Error in Actor-Critic Methods*, 2018 ([arXiv:1802.09477](https://arxiv.org/abs/1802.09477)) | continuous | yes |
-| [`AVG`](docs/algorithms/avg.md) | incremental, no replay | Vasan et al., *Deep Policy Gradient Methods Without Batch Updates, Target Networks, or Replay Buffers*, 2024 ([arXiv:2411.15370](https://arxiv.org/abs/2411.15370)) | continuous | no |
-| [`IQL`](docs/algorithms/iql.md) | offline | Kostrikov, Nair & Levine, *Offline Reinforcement Learning with Implicit Q-Learning*, ICLR 2022 ([arXiv:2110.06169](https://arxiv.org/abs/2110.06169)) | continuous | no |
-| [`DQN`](docs/algorithms/dqn.md) | off-policy, value-based | Mnih et al., *Human-level control through deep reinforcement learning*, Nature 2015 | discrete | no |
-| [`PQN`](docs/algorithms/pqn.md) | on-policy, value-based | Gallici et al., *Simplifying Deep Temporal Difference Learning*, 2024 | discrete | no |
-| [`PPO`](docs/algorithms/ppo.md) | on-policy | Schulman et al., *Proximal Policy Optimization Algorithms*, 2017 ([arXiv:1707.06347](https://arxiv.org/abs/1707.06347)) | both | yes |
-| [`APO`](docs/algorithms/apo.md) | on-policy, average reward | Ma et al., *Average-Reward Reinforcement Learning with Trust Region Methods*, 2021 ([arXiv:2106.03442](https://arxiv.org/abs/2106.03442)) | both | no |
-| [`UDRL`](docs/algorithms/udrl.md) | supervised, command-conditioned | Schmidhuber, *Reinforcement Learning Upside Down*, 2019 ([arXiv:1912.02875](https://arxiv.org/abs/1912.02875)) | both | no |
-| [`DAgger`](docs/algorithms/dagger.md) | imitation, supervised | Ross, Gordon & Bagnell, *A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning*, AISTATS 2011 ([arXiv:1011.0686](https://arxiv.org/abs/1011.0686)) | both | no |
-| [`APG`](docs/algorithms/apg.md) | differentiable simulation | Analytic policy gradient through the simulator; `APG.contextual_controller` is Busetto et al., *One controller to rule them all*, 2024 ([arXiv:2411.06482](https://arxiv.org/abs/2411.06482)) | continuous | yes |
-| [`DreamerV3`](docs/algorithms/dreamerv3.md) | world model | Hafner et al., *Mastering Diverse Domains through World Models*, 2023, Nature 2025 ([arXiv:2301.04104v2](https://arxiv.org/abs/2301.04104v2)) | both | built in |
-| [`TDMPC2`](docs/algorithms/tdmpc2.md) | world model, planning | Hansen, Su & Wang, *TD-MPC2: Scalable, Robust World Models for Continuous Control*, ICLR 2024 ([arXiv:2310.16828](https://arxiv.org/abs/2310.16828)) | continuous | no |
-| [`TDMPC2MultiTask`](docs/algorithms/tdmpc2.md) | world model, offline | The same paper's multi-task agent: one model trained offline on the data of several tasks | continuous | no |
+- **Off-policy actor-critic**: [SAC](docs/algorithms/sac.md), [TD3](docs/algorithms/td3.md), [REDQ](docs/algorithms/redq.md), [AVG](docs/algorithms/avg.md) (no replay), [ASAC](docs/algorithms/asac.md) (average reward), [IQL](docs/algorithms/iql.md) (offline)
+- **On-policy**: [PPO](docs/algorithms/ppo.md), [APO](docs/algorithms/apo.md) (average reward)
+- **Value-based**: [DQN](docs/algorithms/dqn.md), [PQN](docs/algorithms/pqn.md)
+- **World models**: [DreamerV3](docs/algorithms/dreamerv3.md), [TDMPC2](docs/algorithms/tdmpc2.md), [TDMPC2MultiTask](docs/algorithms/tdmpc2.md) (multi-task, offline)
+- **Supervised**: [DAgger](docs/algorithms/dagger.md) (imitation of an expert), [UDRL](docs/algorithms/udrl.md) (command-conditioned)
+- **Differentiable simulation**: [APG](docs/algorithms/apg.md)
 
-*Memory* says whether the agent accepts `memory=`; DreamerV3's world model is
-recurrent by design. Every agent is importable from `ajax`
-(`from ajax import TD3`). The [algorithms overview](docs/algorithms/index.md)
-helps choose one.
-
----
+DQN and PQN take discrete actions; PPO, APO, DAgger, UDRL and DreamerV3 take
+both; the others take continuous ones. SAC, TD3, REDQ, ASAC and DQN also train
+offline on a dataset (`train_offline`). Each name opens the agent's page: its
+paper, when to use it, an example, its parameters and where it departs from
+the paper. The [compatibility table](docs/guide/compatibility.md), generated
+from the code, lists every extension per agent.
 
 ## Learning from an expert or from data
 
-Each method is an extension or an agent option. The last column lists the
-agents that accept it, as the [compatibility table](docs/guide/compatibility.md),
-generated from the code, does.
-
-| Method | In Ajax | Agents |
-| --- | --- | --- |
-| Behaviour cloning before training | `CloningPretrain` | SAC, TD3, REDQ, ASAC, AVG, APO, DAgger |
-| TD3+BC's actor term (Fujimoto and Gu, 2021); kickstarting (Schmitt et al., 2018) with `anneal_frac` | `ImitationLoss` | SAC, TD3, REDQ, ASAC, AVG, APO, DAgger; PPO, APG, UDRL with a stateless expert; continuous actions only |
-| Q-filtered behaviour cloning (Nair et al., 2018) | `ImitationLoss(q_filter=True)` | SAC, TD3, REDQ, ASAC, AVG |
-| IBRL targets (Hu et al., 2023) | `IBRL` | SAC, TD3, REDQ, AVG |
-| Residual RL (Johannink et al., 2019) | `ResidualPolicy` | SAC |
-| Jump-start RL hand-over (Uchendu et al., 2023) | `JSRLCurriculum` | SAC |
-| Expert transitions in the replay before training | `expert_buffer_n_steps` | SAC |
-| Prior data in the replay, as RLPD (Ball et al., 2023) without its symmetric sampling, then optional offline updates | `PriorData` with a transition dataset (`ajax.buffers.dataset`) | SAC, TD3, REDQ, ASAC, DQN |
-| Offline training on a transition dataset, then online fine-tuning | `agent.train_offline(dataset, n_updates)` | SAC, TD3, REDQ, ASAC, DQN, IQL |
-| Implicit Q-learning, offline then online (IQL, Kostrikov et al., 2022) | [`IQL`](docs/algorithms/iql.md) with `train_offline` | its own agent |
-| Conservative Q-learning, offline (CQL, Kumar et al., 2020); calibrated (Cal-QL, Nakamoto et al., 2023) | [`ConservativeQ`, `CalQL`](docs/algorithms/sac.md#cql-and-cal-ql-offline) on SAC, trained with `train_offline` | CQL: SAC, REDQ, ASAC, IQL; Cal-QL: SAC, REDQ, IQL |
-| ReBRAC, offline (Tarasov et al., 2023) | [`TD3` with TD3+BC's term and `TargetBC`](docs/algorithms/td3.md#rebrac-offline), trained with `train_offline` | TD3 |
-| Adversarial imitation from demonstrations, with no reward (GAIL, Ho and Ermon, 2016) | [`AdversarialReward`](docs/algorithms/ppo.md#gail-imitation-by-a-discriminator) with a transition dataset | PPO, continuous actions |
-| TD3+BC, offline (Fujimoto and Gu, 2021) | [`TD3` with `ImitationLoss(None, target="replay", alpha=2.5)`](docs/algorithms/td3.md#td3bc-offline), trained with `train_offline` | TD3; the term on SAC, REDQ, ASAC too |
-| Offline multi-task training on pooled datasets (TD-MPC2, Hansen et al., 2024) | `TDMPC2MultiTask` | its own agent |
-| Interactive imitation by dataset aggregation, with no reward (DAgger, Ross et al., 2011) | `DAgger` | its own agent |
-| Features developed with Ajax, with no external reference: EDGE exploration, LCB-gated targets, a value-gated hand-over, an expert critic fitted to Monte-Carlo returns and the extensions that read it | `EDGEExploration`, `LCBGatedBootstrap`, `ValueBox`, `MCPretrain`, ... | SAC (LCB: SAC, TD3, REDQ) |
-
-[Expert guidance](docs/guide/expert-guidance.md) explains the expert's
-conventions and how the pieces combine.
-
----
-
-## What else is in the box
-
-- **[Extensions](docs/guide/extensions.md)**: twenty-four of them, for expert
-  guidance, exploration, critic-target changes, actor and critic
-  pre-training, prior data, offline RL, adversarial imitation, ensemble
-  diversity and critic diagnostics, passed as `extensions=(...)`; the [compatibility table](docs/guide/compatibility.md)
-  says which agents run each one.
-- **[Expert guidance](docs/guide/expert-guidance.md)**: the expert reads the
-  environment's raw observations and answers in the environment's action
-  units; an expert with a state, such as a PID's integral, gets it back at
-  every step.
-- **[Recurrent memory](docs/guide/memory.md)**: a GRU, LSTM, transformer or
-  Mamba block for PPO, SAC, TD3, REDQ, ASAC and APG, with R2D2-style sequence
-  replay (burn-in, stored state) for the replay agents.
-- **[Differentiable simulation](docs/guide/differentiable-simulation.md)**: APG
-  back-propagates the return through gymnax dynamics, across *system classes*
-  (distributions over physical parameters), with Busetto et al.'s in-context
-  controller and its staged curriculum.
-- **[World models](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2
-  (single- and multi-task), following the paper-era official code, with
-  [specifications, deviations and parity tests](docs/world_models/README.md)
-  against that code.
-- **[Networks and the PID policy](docs/guide/networks.md)**: layers and
-  initialisers named by strings, a CNN encoder for image observations (PPO,
-  DQN, PQN, UDRL), and a PID controller as the actor of SAC, TD3, REDQ, ASAC,
-  AVG, PPO or APO, with learned fixed gains that deploy as a plain PID, or
-  gains scheduled on the observation. Where an agent starts from its
-  reference code's initialisation and optimiser settings, its algorithm page
-  says so and cites the code.
-- **[Environments](docs/guide/environments.md)**: gymnax, Brax and MuJoCo
-  Playground by id, `n_envs` copies in parallel, terminations kept apart from
-  time limits (a truncated episode still bootstraps), `episode_length` and
-  `action_repeat` on every agent, and wrappers for normalisation, observation
-  noise, fixed initial states, model-reference tracking and PID error terms.
-  Every continuous agent acts in `[-1, 1]`, mapped onto the environment's
-  action bounds.
-- **[Logging](docs/guide/logging.md)**: `train` returns every evaluation as
-  arrays, with training diagnostics (gradient norms, PPO's approximate KL,
-  explained variance, ...) and each extension's own metrics, and a background
-  worker sends them to Weights & Biases or TensorBoard.
-- **[Comparing agents](docs/guide/comparing-agents.md)**: `ajax.compare` runs
-  AdaStop (Mathieu et al., 2024), which trains more seeds only while the
-  answer is unclear, and `ajax.compare.estimate` gives one agent's metrics
-  confidence intervals that stay valid however many seeds are added.
-- **[Reproduction](docs/reproduction/index.md)**: Ajax agents trained beside
-  a reference implementation (Stable-Baselines3, Brax, the authors' code) on
-  the same JAX environment, run on demand from
-  [`benchmarks/reference`](benchmarks/reference/README.md), under a written
-  protocol; the results so far cover PPO and PQN.
-- **[Checkpoints and resuming](docs/guide/checkpoints.md)**: pass a state back
-  to train further, or save it and resume in another process; the tests
-  check that a split run matches the run left whole.
-- **[Tests](docs/developer/testing.md)**: unit tests check one component
-  against an exact contract with no learning, written once for every agent or
-  extension that shares the contract. Probes are tiny generic environments
-  with known answers: each agent trains on them briefly, and each probe checks
-  one capability of the whole agent. A catalogue of planted bugs lists the
-  probes that should catch each one; CI checks that every bug still applies
-  to the code, and planting them to run the probes is done by hand.
-  Conformance checks run one update of an agent and of its original
-  implementation from the same state and compare them (PQN, TD3, TD3+BC,
-  REDQ and AVG so far).
-- **[Performance](docs/guide/performance.md)**: seeds vectorised with
-  `jax.vmap`, a persistent compile cache, one per machine and JAX version, and
-  a per-agent benchmark script, run by hand, that flags slowdowns over 10%
-  against a recorded baseline.
-
----
-
-## Documentation
-
-| | |
+| When | Methods, as named in Ajax |
 | --- | --- |
-| **[Getting started](docs/getting-started/installation.md)** | Installation and a guided quickstart |
-| **[User guide](docs/guide/training.md)** | Training, environments, networks, memory, logging, checkpoints, performance |
-| **[Research features](docs/guide/extensions.md)** | Extensions, compatibility, expert guidance, comparing agents, differentiable simulation, world models |
-| **[Reproduction](docs/reproduction/index.md)** | Ajax against reference implementations: protocol, specifications, results |
-| **[Algorithms](docs/algorithms/index.md)** | One page per agent: the paper, when to use it, an example, its parameters and deviations |
-| **[API reference](https://yannberthelot.github.io/Ajax/api/agents/)** | Generated from the docstrings |
-| **[Developer guide](docs/developer/architecture.md)** | Architecture, contributing, writing an extension, testing, performance |
-| **[World model design notes](docs/world_models/README.md)** | DreamerV3 and TD-MPC2 specifications, deviations and validation |
+| Before training | behaviour cloning (`CloningPretrain`), expert transitions in the replay (`expert_buffer_n_steps`), prior data as in RLPD (`PriorData`) |
+| During training | TD3+BC's actor term, kickstarting and Q-filtered cloning (`ImitationLoss`), IBRL (`IBRL`), residual RL (`ResidualPolicy`), JSRL hand-over (`JSRLCurriculum`), GAIL (`AdversarialReward`), DAgger (`DAgger`) |
+| Instead of online data | `agent.train_offline(dataset, n_updates)`, then online fine-tuning if wanted: IQL, CQL and Cal-QL (`ConservativeQ`, `CalQL`), ReBRAC (`TargetBC`), TD3+BC; TD-MPC2's multi-task agent (`TDMPC2MultiTask`) on pooled datasets |
 
-The site, with search and navigation, is at
-**[yannberthelot.github.io/Ajax](https://yannberthelot.github.io/Ajax/)**. The
-links above point at the Markdown in this repository, which also reads on
-GitHub.
+[Choosing the pieces](docs/guide/expert-guidance.md#choosing-the-pieces) gives
+each method's paper and the agents that take it.
 
----
+## Beside reference implementations
+
+<p align="center">
+  <img src="docs/reproduction/PPO.svg" width="45%" alt="PPO on CartPole-v1, Ajax and Stable-Baselines3, 96 seeds each">
+  <img src="docs/reproduction/PQN.svg" width="45%" alt="PQN on CartPole-v1, Ajax and purejaxql, 96 seeds each">
+</p>
+
+Ajax's PPO beside Stable-Baselines3's and its PQN beside purejaxql's, on the
+same JAX environment, 96 seeds each; both comparisons find the returns similar
+within the registered margin. [Results](docs/reproduction/results.md) has two
+more comparisons (one inconclusive) and the speed of each side; the
+[protocol](docs/reproduction/protocol.md) says how they are run.
+
+## Also in the box
+
+<table>
+<tr>
+<td width="33%" valign="top"><a href="docs/guide/extensions.md"><b>Extensions</b></a><br/>Twenty-four research features, passed as <code>extensions=(...)</code></td>
+<td width="33%" valign="top"><a href="docs/guide/memory.md"><b>Recurrent memory</b></a><br/>GRU, LSTM, transformer or Mamba, with sequence replay</td>
+<td width="33%" valign="top"><a href="docs/guide/differentiable-simulation.md"><b>Differentiable simulation</b></a><br/>APG back-propagates the return through gymnax dynamics</td>
+</tr>
+<tr>
+<td valign="top"><a href="docs/guide/environments.md"><b>Environments</b></a><br/>gymnax, Brax and MuJoCo Playground by id, many copies at once</td>
+<td valign="top"><a href="docs/guide/networks.md"><b>Networks and the PID policy</b></a><br/>A CNN encoder; a PID controller as the actor</td>
+<td valign="top"><a href="docs/guide/logging.md"><b>Logging</b></a><br/>Every evaluation as arrays; Weights &amp; Biases or TensorBoard</td>
+</tr>
+<tr>
+<td valign="top"><a href="docs/guide/comparing-agents.md"><b>Comparing agents</b></a><br/>AdaStop, which adds seeds only while the answer is unclear</td>
+<td valign="top"><a href="docs/guide/checkpoints.md"><b>Checkpoints</b></a><br/>Save a run and resume it in another process</td>
+<td valign="top"><a href="docs/developer/testing.md"><b>Tests</b></a><br/>Unit tests, probes with known answers, conformance checks</td>
+</tr>
+</table>
+
+The [documentation site](https://yannberthelot.github.io/Ajax/) has the user
+guide, one page per agent, the [API reference](https://yannberthelot.github.io/Ajax/api/agents/)
+and the [developer guide](docs/developer/architecture.md).
 
 ## Related projects
 
-- **[TargetGym](https://github.com/YannBerthelot/TargetGym)**: JAX environments
-  for reaching and holding a setpoint, with tuned PID and MPC baselines. A
-  scenario of Ajax's `benchmarks/perf_bench.py` trains on one of its aircraft
-  tasks (`uv sync --group plane`).
-- **[ProbingEnvironments](https://github.com/YannBerthelot/ProbingEnvironments)**:
-  small environments with known answers, used by Ajax's probing tests.
-- **[gymnax](https://github.com/RobertTLange/gymnax)**,
-  **[Brax](https://github.com/google/brax)** and
-  **[MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)**:
-  the environment libraries Ajax trains on.
-- **[flashbax](https://github.com/instadeepai/flashbax)**: the replay buffers of
-  SAC, ASAC, REDQ, TD3, DQN, IQL and DAgger (UDRL and the world models keep
-  their own).
+[gymnax](https://github.com/RobertTLange/gymnax),
+[Brax](https://github.com/google/brax) and
+[MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)
+provide the environments, [flashbax](https://github.com/instadeepai/flashbax)
+most replay buffers. [TargetGym](https://github.com/YannBerthelot/TargetGym)
+has setpoint-tracking tasks with PID and MPC baselines, and
+[ProbingEnvironments](https://github.com/YannBerthelot/ProbingEnvironments) the
+small environments with known answers that Ajax's probes train on.
 
----
+## Contributing, citing, license
 
-## Contributing
-
-Bug reports, new agents and new extensions are welcome. After installing, run
-`uv run pre-commit install` once, so ruff and mypy check every commit.
-[CONTRIBUTING.md](CONTRIBUTING.md) explains where the code lives, how to add an
-agent or an extension, and how the tests check them. Every pull request
-runs pre-commit, the tests, the conformance checks and a strict build of the
-documentation site in CI; the slow tier, every test that trains, also runs
-daily on main, on a pull request labelled `run-slow-tier`, and before each
-release. `make ci` runs the checks locally (about an hour of CPU).
-
-## Citation
+Bug reports, new agents and new extensions are welcome; see
+[CONTRIBUTING.md](CONTRIBUTING.md). Ajax is MIT-licensed ([LICENSE](LICENSE)).
 
 ```bibtex
 @misc{ajax2025,
@@ -312,7 +164,3 @@ release. `make ci` runs the checks locally (about an hour of CPU).
   url          = {https://github.com/YannBerthelot/Ajax},
 }
 ```
-
-## License
-
-MIT, see [LICENSE](LICENSE).

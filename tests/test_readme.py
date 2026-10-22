@@ -4,7 +4,7 @@ It is the first page a reader sees and its examples are the first code they
 run, so each ``python`` block is executed; a block whose first line is
 ``# doc: skip`` (one that would train for minutes, say) is left out. A block
 that trains (calls ``.train(``; the quickstart's PPO takes 1,920 gradient
-steps) runs in the slow tier, word for word. The agent table and the
+steps) runs in the slow tier, word for word. The agent list and the
 relative links are checked too: both go stale quietly when an agent or a
 documentation page is added, renamed or removed.
 """
@@ -24,8 +24,9 @@ README = ROOT / "README.md"
 BLOCK = re.compile(r"^```python\n(.*?)^```", re.MULTILINE | re.DOTALL)
 # A Markdown link target or an HTML href, up to an anchor, a quote or a space.
 LINK = re.compile(r'\]\(([^)\s#]+)|href="([^"#]+)"')
-# The agent column of the README's agent table: "| [`SAC`](docs/...) |".
-AGENT_ROW = re.compile(r"^\| \[`(\w+)`\]\(", re.MULTILINE)
+# The README's "## Agents" section, and each agent's link in it: "[SAC](docs/algorithms/sac.md)".
+AGENTS_SECTION = re.compile(r"^## Agents\n(.*?)^## ", re.MULTILINE | re.DOTALL)
+AGENT_LINK = re.compile(r"\[(\w+)\]\(docs/algorithms/")
 NUMBER_WORDS = (
     "zero one two three four five six seven eight nine ten eleven twelve"
     " thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty"
@@ -50,11 +51,13 @@ def test_readme_example_runs(code, tmp_path, monkeypatch):
     exec(compile(code, str(README), "exec"), {"__name__": "__readme__"})
 
 
-def test_readme_agent_table_is_complete():
-    """The table lists exactly the agents ``ajax`` exports, and the prose
-    count matches the table."""
+def test_readme_agent_list_is_complete():
+    """The Agents section lists exactly the agents ``ajax`` exports, and the
+    prose count matches the list."""
     readme = README.read_text()
-    listed = AGENT_ROW.findall(readme)
+    section = AGENTS_SECTION.search(readme)
+    assert section, "the README has no '## Agents' section"
+    listed = AGENT_LINK.findall(section.group(1))
     assert len(listed) == len(set(listed)), f"an agent is listed twice: {listed}"
     assert set(listed) == set(ajax.__all__), (
         f"README agents {sorted(listed)} differ from ajax.__all__"

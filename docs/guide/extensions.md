@@ -119,12 +119,12 @@ Each agent says what its algorithm has, in `capabilities`:
 | Capability | Meaning | Agents |
 | --- | --- | --- |
 | `actor` | a policy network trained by gradient | all but DQN, PQN |
-| `q_critic` | a learned action value Q(s, a) | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, TDMPC2, IQL |
+| `q_critic` | a learned action value Q(s, a) | SAC, TD3, REDQ, CrossQ, ASAC, AVG, DQN, PQN, TDMPC2, IQL |
 | `v_critic` | a learned state value V(s) | PPO, APO, DreamerV3, IQL |
 | `discounted` | it maximises a discounted return | all but ASAC, APO, UDRL, DAgger, APG |
-| `replay` | its updates sample stored past transitions | SAC, TD3, REDQ, ASAC, DQN, UDRL, DAgger, DreamerV3, TDMPC2, IQL |
+| `replay` | its updates sample stored past transitions | SAC, TD3, REDQ, CrossQ, ASAC, DQN, UDRL, DAgger, DreamerV3, TDMPC2, IQL |
 | `off_policy` | its update stays correct on actions its policy did not choose | all but PPO, APO, APG |
-| `critic_ensemble` | two critics or more | SAC, TD3, REDQ, ASAC, TDMPC2, IQL; AVG with `num_critics` of 2 or more |
+| `critic_ensemble` | two critics or more | SAC, TD3, REDQ, CrossQ, ASAC, TDMPC2, IQL; AVG with `num_critics` of 2 or more |
 | `target_critic` | a slowly updated copy of its critic, which its bootstrap reads | SAC, TD3, REDQ, ASAC, DQN, TDMPC2, IQL |
 | `obs_networks` | its policy and value networks read the observation, not a world model's latent state (memory needs it) | all but DreamerV3, TDMPC2 |
 

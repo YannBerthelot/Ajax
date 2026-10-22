@@ -140,6 +140,7 @@ ELSEWHERE = {
     "episode_length": "environments/test_create.py",
     "system_class": "agents/APG/test_APG.py",
     "controller_factory": "agents/APG/test_APG.py",
+    "alpha_learning_rate": "agents/CrossQ/test_CrossQ.py",
 }
 #: Each src extension's builder and the agents whose rows take it, in stack
 #: order (cloning seeds the statistics the other pretraining reads).

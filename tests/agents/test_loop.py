@@ -23,7 +23,13 @@ from flax.training.train_state import TrainState
 
 from ajax.agents import loop as loop_module
 from ajax.agents.APO.APO import APO
-from ajax.agents.loop import TrainLoop, actor_step, critic_step, gradient_step
+from ajax.agents.loop import (
+    TrainLoop,
+    actor_step,
+    critic_step,
+    gradient_step,
+    when,
+)
 from ajax.agents.SAC.SAC import SAC
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.evaluate import evaluate
@@ -334,6 +340,30 @@ def test_actor_step_steps_down_the_loss_plus_the_extensions_terms() -> None:
         "pi_mean",
         "agent_loss",
     }
+
+
+def test_when_runs_fn_only_where_the_predicate_holds() -> None:
+    def double(x):
+        return x * 2
+
+    assert float(when(jnp.asarray(True), double, jnp.asarray(3.0))) == 6.0
+    assert float(when(jnp.asarray(False), double, jnp.asarray(3.0))) == 3.0
+
+
+def test_when_fills_a_skipped_fns_metrics() -> None:
+    """Skipped, the metrics keep fn's structure: NaN, and -1 in integer
+    leaves, by default; ``fill`` otherwise."""
+
+    def step(x):
+        return x + 1.0, {"loss": x * 2, "count": jnp.asarray(1)}
+
+    x, metrics = when(jnp.asarray(True), step, jnp.asarray(3.0))
+    assert float(x) == 4.0 and float(metrics["loss"]) == 6.0
+    x, metrics = when(jnp.asarray(False), step, jnp.asarray(3.0))
+    assert float(x) == 3.0 and np.isnan(metrics["loss"])
+    assert int(metrics["count"]) == -1
+    _, metrics = when(jnp.asarray(False), step, jnp.asarray(3.0), fill=0.0)
+    assert float(metrics["loss"]) == 0.0 and int(metrics["count"]) == 0
 
 
 # --- Evaluations without a logging backend -----------------------------------

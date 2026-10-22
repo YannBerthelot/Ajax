@@ -13,7 +13,6 @@ from ajax.agents.DQN.DQN import DQN
 from ajax.agents.DQN.networks import predict_q
 from ajax.agents.DQN.train_DQN import (
     init_DQN,
-    linear_epsilon,
     mse_td_loss,
     q_gradient_step,
     q_loss_fn,
@@ -22,17 +21,9 @@ from ajax.agents.PQN.PQN import PQN
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.schedule import linear
 
 NET = ("16", "relu")
-
-
-def test_epsilon_decays_linearly_then_stays() -> None:
-    def eps(t: float) -> float:
-        return float(linear_epsilon(jnp.asarray(t), 100, 1.0, 0.1, 0.5))
-
-    assert eps(0) == 1.0
-    np.testing.assert_allclose(eps(25), 0.55, rtol=1e-6)
-    assert eps(50) == pytest.approx(0.1) and eps(90) == pytest.approx(0.1)
 
 
 def test_a_q_step_reports_the_td_error_size_and_gradient_norm() -> None:
@@ -106,6 +97,6 @@ def test_the_logged_epsilon_is_the_schedules_at_each_evaluation(agent, lag) -> N
     evaluated = timestep >= 0
     epsilon = np.asarray(out["policy/epsilon"]).reshape(-1)[evaluated]
     start = jnp.asarray(timestep[evaluated] - lag)
-    expected = linear_epsilon(start, 256, 1.0, 0.05, 0.5)
+    expected = linear(1.0, 0.05, 0.5 * 256)(start)
     assert evaluated.sum() >= 4
     np.testing.assert_allclose(epsilon, expected, rtol=1e-6)

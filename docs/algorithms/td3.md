@@ -56,7 +56,7 @@ updated in 2019, not the paper's: see [Notes](#notes).
 | `tau` | `0.005` | Polyak rate of the target networks |
 | `num_critics` | `2` | critics; the target takes their minimum |
 | `policy_delay` | `2` | critic steps per actor and target update |
-| `exploration_noise` | `0.1` | standard deviation of the behaviour noise |
+| `exploration_noise` | `0.1` | standard deviation of the behaviour noise; a float or a schedule of the timestep |
 | `target_policy_noise`, `target_noise_clip` | `0.2`, `0.5` | target smoothing noise and its clip |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |

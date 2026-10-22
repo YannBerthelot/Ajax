@@ -60,6 +60,9 @@ class Transition(Replaceable):
     # A dataset row's next action, its episode's next row's (NaN where
     # unknown: an episode's end, a collected row), for ReBRAC's TargetBC.
     next_action: Optional[jnp.ndarray] = None
+    # 1 where an expert acted at the row, for a replay that stores it (a run
+    # with an expert): the share SAC logs.
+    is_expert: Optional[jnp.ndarray] = None
 
     def __len__(self):
         return self.obs.shape[0] if self.obs.ndim > 0 else 1

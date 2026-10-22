@@ -177,7 +177,8 @@ def _takes_action(
             built = shapes(jax.eval_shape(init, rng, x))
         except ValueError:
             continue
-        if built == shapes(critic_state.params):
+        # The init builds every collection: the running statistics too.
+        if built == shapes(with_batch_stats(critic_state, critic_state.params)):
             return takes_action
     raise ValueError(
         "The critic's parameters fit neither the observation nor the"

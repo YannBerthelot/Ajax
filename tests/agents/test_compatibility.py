@@ -41,7 +41,10 @@ from tests.agents.TDMPC2.test_TDMPC2MultiTask import make_dataset
 
 #: (agent, environment): each agent on each action kind it takes.
 ROWS = [
-    *((name, "Pendulum-v1") for name in "SAC TD3 REDQ ASAC AVG IQL APG TDMPC2".split()),
+    *(
+        (name, "Pendulum-v1")
+        for name in "SAC TD3 REDQ ASAC AVG CrossQ IQL APG TDMPC2".split()
+    ),
     *(
         (name, env)
         for name in "PPO APO UDRL DAgger DreamerV3".split()
@@ -89,22 +92,22 @@ FORM_GAPS = {
 #: for an agent taking both action kinds) where it is not wired yet.
 GAPS: dict[str, dict[str, str]] = {
     ACTION: {
-        "EDGEExploration": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DAgger"
+        "EDGEExploration": "TD3 REDQ CrossQ ASAC AVG UDRL UDRL/discrete DAgger"
         " DAgger/discrete DQN PQN IQL",
-        "JSRLCurriculum": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DAgger"
+        "JSRLCurriculum": "TD3 REDQ CrossQ ASAC AVG UDRL UDRL/discrete DAgger"
         " DAgger/discrete DQN PQN IQL",
-        "ResidualPolicy": "TD3 REDQ ASAC AVG APG PPO APO UDRL DAgger IQL",
-        "ValueBox": "TD3 REDQ AVG DQN PQN IQL",
+        "ResidualPolicy": "TD3 REDQ CrossQ ASAC AVG APG PPO APO UDRL DAgger IQL",
+        "ValueBox": "TD3 REDQ CrossQ AVG DQN PQN IQL",
     },
     MC: {
-        "CriticBlend": "TD3 REDQ AVG DQN PQN IQL",
-        "MCPretrain": "TD3 REDQ AVG PPO PPO/discrete DQN PQN IQL",
-        "MCVarianceCorrection": "TD3 REDQ IQL",
-        "OnlineBC": "TD3 REDQ AVG IQL",
-        "PhiRefresh": "TD3 REDQ DQN IQL",
+        "CriticBlend": "TD3 REDQ CrossQ AVG DQN PQN IQL",
+        "MCPretrain": "TD3 REDQ CrossQ AVG PPO PPO/discrete DQN PQN IQL",
+        "MCVarianceCorrection": "TD3 REDQ CrossQ IQL",
+        "OnlineBC": "TD3 REDQ CrossQ AVG IQL",
+        "PhiRefresh": "TD3 REDQ CrossQ DQN IQL",
     },
     CONTEXT: {
-        "BellmanPretrain": "TD3 REDQ ASAC",
+        "BellmanPretrain": "TD3 REDQ CrossQ ASAC",
         "CloningPretrain": "APG PPO UDRL",
     },
     EXPERT: {
@@ -143,14 +146,14 @@ GAPS: dict[str, dict[str, str]] = {
         ),
     },
     CNN: {
-        "cnn": "SAC TD3 REDQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete"
+        "cnn": "SAC TD3 REDQ CrossQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete"
         " DAgger DAgger/discrete IQL"
     },
     MEMORY: {"memory": "APO APO/discrete DQN PQN DAgger DAgger/discrete IQL"},
-    DEFERRED: {"memory": "AVG UDRL UDRL/discrete"},
-    NEXT: {"TargetBC": "SAC REDQ AVG IQL"},
+    DEFERRED: {"memory": "AVG CrossQ UDRL UDRL/discrete"},
+    NEXT: {"TargetBC": "SAC REDQ CrossQ AVG IQL"},
     REWARD: {
-        "AdversarialReward": "SAC TD3 REDQ ASAC AVG APG APO UDRL DAgger IQL DreamerV3"
+        "AdversarialReward": "SAC TD3 REDQ CrossQ ASAC AVG APG APO UDRL DAgger IQL DreamerV3"
         " TDMPC2 TDMPC2MultiTask"
     },
     PRIOR: {

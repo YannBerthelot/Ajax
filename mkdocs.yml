@@ -129,6 +129,7 @@ nav:
       - SAC: algorithms/sac.md
       - ASAC: algorithms/asac.md
       - REDQ: algorithms/redq.md
+      - CrossQ: algorithms/crossq.md
       - TD3: algorithms/td3.md
       - IQL: algorithms/iql.md
       - AVG: algorithms/avg.md

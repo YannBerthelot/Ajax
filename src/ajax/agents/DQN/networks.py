@@ -25,6 +25,7 @@ from ajax.state import (
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
+    with_batch_stats,
 )
 from ajax.types import ActivationFunction, InitializationFunction
 
@@ -163,7 +164,7 @@ def predict_q(
     the observations normalised first when the agent normalises them
     (``q_state.obs_norm_info``)."""
     obs = apply_obs_norm(obs, getattr(q_state, "obs_norm_info", None))
-    return q_state.apply_fn(q_params, obs).q_values
+    return q_state.apply_fn(with_batch_stats(q_state, q_params), obs).q_values
 
 
 def q_network_value(agent_state, obs: jax.Array, action: jax.Array) -> jax.Array:

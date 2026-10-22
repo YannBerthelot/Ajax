@@ -42,6 +42,7 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
     check_log_std_bounds,
+    with_batch_stats,
 )
 from ajax.types import ActivationFunction, InitializationFunction
 
@@ -501,7 +502,7 @@ class MultiCritic(nn.Module):
             target=Critic,
             in_axes=in_axes,
             out_axes=0,
-            variable_axes={"params": 0},
+            variable_axes={"params": 0, "batch_stats": 0},
             split_rngs={"params": True},
             axis_size=self.num,
             methods=("__call__", "apply_encoder"),
@@ -759,7 +760,7 @@ def init_network_state(
     batch-sized to ``n_envs``.
     """
     if memory is None:
-        params: FrozenDict[str, Any] = FrozenDict(network.init(key, init_x))
+        variables = dict(network.init(key, init_x))
         hidden_state = None
     else:
         init_key, carry_key = jax.random.split(key)
@@ -771,7 +772,7 @@ def init_network_state(
         init_carry_batch = init_network_carry(
             network, memory, carry_key, init_x.shape[0]
         )
-        params = FrozenDict(
+        variables = dict(
             network.init(
                 init_key,
                 init_x[None, ...],
@@ -779,6 +780,9 @@ def init_network_state(
                 done=jnp.zeros((1, init_x.shape[0]), dtype=bool),
             )
         )
+    # Running statistics (BatchRenorm's) live apart from the trained params.
+    batch_stats = variables.pop("batch_stats", None)
+    params: FrozenDict[str, Any] = FrozenDict(variables)
     return LoadedTrainState.create(
         params=params,
         tx=tx,
@@ -786,6 +790,7 @@ def init_network_state(
         hidden_state=hidden_state,
         recurrent=memory is not None,
         target_params=params,
+        batch_stats=None if batch_stats is None else FrozenDict(batch_stats),
     )
 
 
@@ -843,7 +848,10 @@ def predict_value_sequence(
     """
     x = _apply_critic_obs_norm(critic_state, x)
     return critic_state.apply_fn(
-        critic_params, x, hidden_state=initial_hidden, done=resets
+        with_batch_stats(critic_state, critic_params),
+        x,
+        hidden_state=initial_hidden,
+        done=resets,
     )
 
 
@@ -868,7 +876,21 @@ def predict_value(
     x = _apply_critic_action_units(
         critic_state, _apply_critic_obs_norm(critic_state, x)
     )
-    return critic_state.apply_fn(critic_params, x)
+    return critic_state.apply_fn(with_batch_stats(critic_state, critic_params), x)
+
+
+def predict_value_train(
+    critic_state: LoadedTrainState,
+    critic_params: FrozenDict,
+    x: jax.Array,
+) -> Tuple[jax.Array, Optional[FrozenDict]]:
+    """:func:`predict_value` in training: the critic's values at ``x`` and
+    its running statistics after this pass
+    (:meth:`LoadedTrainState.apply_train`)."""
+    x = _apply_critic_action_units(
+        critic_state, _apply_critic_obs_norm(critic_state, x)
+    )
+    return critic_state.apply_train(critic_params, x)
 
 
 def state_value(agent_state: Any, obs: jax.Array, action: jax.Array) -> jax.Array:

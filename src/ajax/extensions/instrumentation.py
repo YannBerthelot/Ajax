@@ -35,6 +35,7 @@ import jax.numpy as jnp
 
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.networks.networks import action_value_input, predict_value
+from ajax.state import with_batch_stats
 
 # Public metric keys — duplicated here so Ajax callers don't need to
 # import from EVAREST. The strings are identical so dashboards built on
@@ -195,7 +196,7 @@ def _critic_kind(
     if _is_ensemble_critic(critic_state):
         return "q" if _takes_action(critic_state, obs, act, rng) else "v"
     actor = agent_state.actor_state
-    if hasattr(actor.apply_fn(actor.params, obs), "q_values"):
+    if hasattr(actor.apply_fn(with_batch_stats(actor, actor.params), obs), "q_values"):
         return "qnet"
     raise ValueError(
         f"{type(agent_state).__name__} has neither an ensemble critic on"
@@ -209,13 +210,16 @@ def _encoder_features_ppo_sac(critic_state: Any, x: jax.Array) -> jax.Array:
     Returns ``(num_critics, batch, d)``.
     """
     return critic_state.apply_fn(
-        critic_state.params, x, method="apply_encoder_ensemble"
+        with_batch_stats(critic_state, critic_state.params),
+        x,
+        method="apply_encoder_ensemble",
     )
 
 
 def _encoder_features_qnet(actor_state: Any, x: jax.Array) -> jax.Array:
     """Penultimate features sown by DQN / PQN Q-networks. ``(1, batch, d)``."""
-    _, mv = actor_state.apply_fn(actor_state.params, x, mutable=["intermediates"])
+    variables = with_batch_stats(actor_state, actor_state.params)
+    _, mv = actor_state.apply_fn(variables, x, mutable=["intermediates"])
     if "encoder_features" not in mv.get("intermediates", {}):
         raise ValueError(
             "ConditioningMetrics found neither an ensemble critic on"

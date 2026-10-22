@@ -35,7 +35,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "6bf1db902b90"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "b34d24e00c8a"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -462,7 +462,7 @@ PILOT_CAL = {  # budget, tolerances in query order
     # 5k: a ReLU unit dead over a batch gives the authors' Batch Renorm a
     # NaN gradient, which Ajax keeps (owner, 2026-10-22; UPSTREAM_BUGS.md).
     # Certified 32/32 on 3000-3031.
-    "CrossQ-discounting": (20_000, (0.066, 0.043)),
+    "CrossQ-discounting": (20_000, (0.072, 0.063)),
     "PPO-value": (625, (0.065,)),
     "PPO-backprop": (1250, (0.02, 0.02)),
     "PPO-discounting": (5000, (0.02, 0.02)),

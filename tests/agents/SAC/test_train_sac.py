@@ -17,6 +17,7 @@ from flax.training.train_state import TrainState
 
 from ajax.agents.recurrent import actor_dist
 from ajax.agents.SAC.core import (
+    alpha_temperature_loss_fn,
     create_alpha_train_state,
     q_regression_loss,
     soft_bellman_target,
@@ -184,3 +185,15 @@ def test_the_soft_policy_objective_is_the_loss_on_a_given_policy(SAC_state):
     )
     assert float(loss) == float(same)
     assert _allclose((log_probs, q), (same_log_probs, same_q))
+
+
+def test_the_alpha_temperature_loss_scales_sacs_gradient_by_alpha():
+    """CrossQ's authors' loss, alpha (H - H_target): its gradient on log alpha
+    is alpha times SAC's, (H - H_target)."""
+    params = FrozenDict({"log_alpha": jnp.log(0.5)})
+    log_probs, target = jnp.array([-1.0, -3.0]), jnp.asarray(-1.0)
+    grad = jax.grad(lambda p: alpha_temperature_loss_fn(p, log_probs, target)[0])
+    sac_grad = jax.grad(lambda p: temperature_loss_fn(p, log_probs, target)[0])
+    entropy_gap = 2.0 - (-1.0)
+    assert float(grad(params)["log_alpha"]) == pytest.approx(0.5 * entropy_gap)
+    assert float(sac_grad(params)["log_alpha"]) == pytest.approx(entropy_gap)

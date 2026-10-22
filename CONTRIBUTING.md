@@ -19,7 +19,7 @@ These are the pieces every agent shares:
 ```
 src/ajax/
 ├── agents/base.py       ActorCritic: environment and network setup, extensions=, train()
-├── agents/loop.py       TrainLoop, the shared loop; critic_step and gradient_step
+├── agents/loop.py       TrainLoop, the shared loop; critic_step, actor_step, gradient_step
 ├── agents/recurrent.py  replay buffers and R2D2-style sequence replay for memory=
 ├── agents/cloning.py    the behaviour-cloning loss and fit (CloningPretrain's)
 ├── extensions/base.py   Extension, ExtensionStack, ExtensionContext, the phases
@@ -55,12 +55,12 @@ only its algorithm:
 
 and picks one of two iterations:
 
-- **`loop.off_policy(init, update, aux_cls, learning_starts, ...)`** (SAC,
+- **`loop.off_policy(init, update, learning_starts, ...)`** (SAC,
   TD3, REDQ, ASAC, AVG, DQN): each iteration collects one step per
   environment, then, from `learning_starts`, runs `update(agent_state,
   transition)` and folds the extensions' `post_update`. Before
-  `learning_starts` the actions are uniform and the metrics are `aux_cls`
-  filled with NaN, which the logger drops.
+  `learning_starts` the actions are uniform and the metrics have the
+  update's structure, filled with NaN, which the logger drops.
 - **`loop.on_policy(init, update, n_steps, ...)`** (PPO, APO, PQN): each
   iteration collects an `n_steps` rollout per environment from the state
   `start`, then runs `update(agent_state, rollout, start)` and folds
@@ -145,7 +145,7 @@ other.
 **Boilerplate goes in the shared code; the algorithm goes in one file**, so a
 reader can follow `train_<AGENT>.py` like the paper's pseudocode. **Lineage
 rule:** an agent descending from another (REDQ from SAC) imports the parent's
-maths from its `core.py`. Use `critic_step` (a replay critic step) and `gradient_step` (an
+maths from its `core.py`. Use `critic_step` (a replay critic step), `actor_step` (an actor step) and `gradient_step` (an
 optimiser step) from `agents/loop.py` rather than writing your own.
 
 These templates for an agent `FOO` follow the replay agents TD3 and REDQ; an
@@ -172,22 +172,34 @@ class FOOConfig(RecurrentReplayConfig):
 **2. `train_FOO.py`.** The paper's maths, then `make_train`. The critic step
 goes through `critic_step`, which folds `on_target` and `critic_loss`; its
 keywords are what the target used (`dones`: where it cut the bootstrap, as
-TD3's `batch.terminated`):
+TD3's `batch.terminated`). The actor step goes through `actor_step`, which
+folds `actor_loss`; its keywords are the rows the extensions read:
 
 ```python
 def update_value_functions(agent_state, batch, agent_config, extension_stack, total_timesteps):
-    key, rng = jax.random.split(agent_state.rng)
+    key, rng, ext_key = jax.random.split(agent_state.rng, 3)  # ext_key: the extensions'
     target_q = compute_foo_td_target(agent_state, key, batch, agent_config)  # the paper's target
 
     def value_loss(params, target_q):  # -> (loss, aux)
         return value_loss_function(params, agent_state.critic_state, batch.obs, batch.action, target_q)
 
-    critic_state, aux = critic_step(
-        agent_state, batch, target_q, value_loss, extension_stack, key, total_timesteps,
+    critic_state, aux, grad_norm, metrics = critic_step(
+        agent_state, batch, target_q, value_loss, extension_stack, ext_key, total_timesteps,
         rewards=batch.reward, dones=batch.terminated,
         gamma=agent_config.gamma, reward_scale=agent_config.reward_scale,
     )
-    return agent_state.replace(rng=rng, critic_state=critic_state), aux
+    return agent_state.replace(rng=rng, critic_state=critic_state), aux, metrics
+
+
+def update_policy(agent_state, batch, extension_stack, key, total_timesteps):
+    def policy_loss(params):  # -> (loss, aux, pi_mean)
+        return foo_policy_loss(params, agent_state, batch.obs)  # the paper's actor loss
+
+    actor_state, aux, grad_norm, metrics = actor_step(
+        agent_state, policy_loss, extension_stack, key, total_timesteps,
+        observations=batch.obs, actions=batch.action,
+    )
+    return agent_state.replace(actor_state=actor_state), aux, metrics
 
 
 def make_train(
@@ -208,18 +220,20 @@ def make_train(
         return update_agent(agent_state, buffer, agent_config, loop.stack, total_timesteps)
 
     return loop.off_policy(
-        init, update, AuxiliaryLogs, agent_config.learning_starts,
+        init, update, agent_config.learning_starts,
         collect_kwargs={"buffer": buffer},
     )
 ```
 
 `update_agent` samples a batch (`sample_replay`), takes the critic step, then
-the actor step, whose loss adds `extension_stack.fold_actor_loss(...)`, and
-returns the state with an `AuxiliaryLogs` of both steps' metrics.
+the actor step, and returns the state with an `AuxiliaryLogs` of both steps' metrics (the
+extensions' under `extensions`, `merge_metrics` of the two steps').
 `ActorCritic.train` calls `make_train` with the keyword names above
-(`start_timestep` when it resumes a run), so keep them. Split a random key
-for the extensions only under `if stack:`, so an agent without extensions
-keeps its random stream.
+(`start_timestep` when it resumes a run), so keep them. A fold's key (the
+actor step's `key` too) is an extra entry of a split the agent already makes,
+as `ext_key` above
+([Randomness](docs/developer/writing-an-extension.md#randomness)), so an
+agent's own random stream is the same with or without extensions.
 
 **3. `FOO.py`.**
 

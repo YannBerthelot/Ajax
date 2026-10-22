@@ -31,7 +31,7 @@ src/ajax/
 ├── __init__.py          the 14 exported agents; configures the compile cache on import
 ├── agents/
 │   ├── base.py          ActorCritic: environment and network setup, extensions=, train(); run_config
-│   ├── loop.py          TrainLoop, the shared loop; critic_step and gradient_step
+│   ├── loop.py          TrainLoop, the shared loop; critic_step, actor_step, gradient_step
 │   ├── recurrent.py     replay buffers and R2D2-style sequence replay for memory=
 │   ├── cloning.py       the behaviour-cloning loss and fit that CloningPretrain runs
 │   └── <AGENT>/         one package per agent (below)
@@ -221,7 +221,7 @@ agent at once. The probes check it end to end: a planted fault that runs
 
 | Shape | Agents | One iteration | Budget |
 | --- | --- | --- | --- |
-| `loop.off_policy(init, update, aux_cls, learning_starts, ...)` | SAC, TD3, REDQ, ASAC, AVG, DQN | one step per env (a *tick*); from `learning_starts` on, one `update(state, transition)` | `budget // n_envs` ticks |
+| `loop.off_policy(init, update, learning_starts, ...)` | SAC, TD3, REDQ, ASAC, AVG, DQN | one step per env (a *tick*); from `learning_starts` on, one `update(state, transition)` | `budget // n_envs` ticks |
 | `loop.on_policy(init, update, n_steps, ...)` | PPO, APO, PQN | an `n_steps` rollout per env from the state `start`, then `update(state, rollout, start)` | `budget // (n_envs * n_steps) + 1` rollouts |
 | `loop.off_policy(..., collect=, n_updates=, evaluation=)` | DreamerV3, TDMPC2 | the agent's own `collect(state, tick)`, then `n_updates(tick, state)` updates (a train ratio, a burst), then the agent's own `Evaluation` | `budget // n_envs` ticks, or `num_ticks` |
 
@@ -237,11 +237,32 @@ on `TrainLoop.train`, and evaluates its command-conditioned policy every
 `TDMPC2MultiTask` call `build_resumable_train` themselves, with the loop's
 `fresh_state` and its `post_update` fold.
 
-Two helpers serve the replay agents: `gradient_step(train_state, loss_fn)`,
-one optimiser step, and `critic_step(...)`, a replay critic step that folds
-the extensions' `on_target` and `critic_loss` phases. Both also return the
-gradients' global norm, before the optimiser clips them. TD3, REDQ, ASAC and AVG
-use `critic_step`; SAC builds its own critic step, with the same folds.
+Three helpers serve the replay agents: `gradient_step(train_state, loss_fn)`,
+one optimiser step; `actor_step(...)`, an actor step that folds the
+extensions' `actor_loss` phase; and `critic_step(...)`, a replay critic step that folds
+the extensions' `on_target` and `critic_loss` phases. All three return the
+gradients' global norm, before the optimiser clips them. TD3, REDQ, ASAC, AVG
+and IQL use `critic_step`; SAC builds its own critic step, with the same folds.
+TD3, AVG, DAgger and IQL use `actor_step`; SAC and its descendants use
+`soft_actor_step` in `SAC/core.py`.
+
+Two more keep control flow out of the updates. `when(pred, fn, state)` runs
+`fn` where `pred` holds and leaves the state as it is elsewhere, its metrics
+then NaN (or `fill`): TD3's policy delay, DQN's target refresh, SAC's
+warm-ups and the loop's own `learning_starts` gate. A `Schedule`
+(`ajax.schedule`) is a hyperparameter given as a constant or a function of the
+timestep, read with `at(schedule, timestep)`; `linear(start, end, steps)` is a
+ramp. TD3's exploration noise and PPO's and APO's clip range take one, and
+DQN's and PQN's epsilon and SAC's target-entropy ramp are built as one.
+
+An agent whose behaviour policy is its policy plus exploration writes it as
+`explore(pi, key, step) -> action` (`ajax.environments.interaction`): from the
+policy at the last observations, a key and the timestep, the action to take.
+`explore_pipeline(explore, recurrent, n_actions)` turns it into the action
+pipeline collection calls, which owns the uniform warm-up actions, a recurrent
+actor's carry and a discrete action's stored column. TD3's Gaussian noise
+(`gaussian_exploration`) and DQN's and PQN's epsilon-greedy
+(`epsilon_greedy`) are such functions.
 
 ## Agent state
 
@@ -291,8 +312,8 @@ agent without extensions traces nothing extra and never guards a fold.
 | `fold_init` (each `init_state`, then each `pretrain`) | `fresh_state`, fresh runs only (a resumed state already carries both) |
 | `fold_post_update` | after every update: the loop's `maybe_update`, `repeat_update` and `on_policy`; APG, UDRL and `TDMPC2MultiTask` in their own iterations |
 | `fold_eval_metrics` | at every evaluation, merged into the logged metrics (`compose_eval_metrics` in `log.py`) |
-| `fold_on_target`, `fold_critic_loss` | in the agent's critic step; `critic_step` for TD3, REDQ, ASAC and AVG |
-| `fold_actor_loss` | in the agent's actor step |
+| `fold_on_target`, `fold_critic_loss` | in the agent's critic step; `critic_step` for TD3, REDQ, ASAC, AVG and IQL |
+| `fold_actor_loss` | in the agent's actor step; `actor_step` for TD3, AVG, DAgger and IQL |
 | the `action` phase | SAC's action pipeline only, with an expert policy |
 
 `fold_on_target`, `fold_critic_loss` and `fold_actor_loss` return their

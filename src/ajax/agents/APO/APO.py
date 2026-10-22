@@ -9,6 +9,7 @@ from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
 from ajax.networks.utils import TORCH_LINEAR
+from ajax.schedule import Schedule
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -73,7 +74,7 @@ class APO(ActorCritic):
         # The value loss's weight in the summed loss, the official code's
         # value_loss_coeff (appo.py:27, which mujoco_appo.py leaves).
         vf_coef: float = 1.0,
-        clip_range: float = 0.2,
+        clip_range: Schedule = 0.2,  # or a function of the timestep
         n_steps: int = 2048,
         batch_size: int = 64,
         n_epochs: int = 10,

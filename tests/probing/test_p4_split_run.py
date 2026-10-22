@@ -80,7 +80,7 @@ def _apg() -> Any:
 # Every SAC part updates from step 50, in both legs. The discrete agents run the
 # coupling env (the discrete discounting env has one action), epsilon constant
 # (the legs are not told the run's horizon, so its default would decay to each
-# leg's own end, train_DQN.linear_epsilon; test_resume_contract covers the
+# leg's own end, as DQN's make_train builds it; test_resume_contract covers the
 # schedules); PQN's two minibatches make its shuffle matter. PPO and PQN run
 # one iteration more per call (TrainLoop.n_rollouts): their second leg is one
 # shorter. PQN's run is short: the two programs round apart (JAX 0.11), and

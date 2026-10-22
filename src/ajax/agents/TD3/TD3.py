@@ -12,6 +12,7 @@ from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.utils import TORCH_LINEAR
+from ajax.schedule import Schedule
 from ajax.types import EnvType
 
 
@@ -74,7 +75,7 @@ class TD3(ActorCritic):
         policy_delay: int = 2,
         target_policy_noise: float = 0.2,
         target_noise_clip: float = 0.5,
-        exploration_noise: float = 0.1,
+        exploration_noise: Schedule = 0.1,  # or a function of the timestep
         # Pluggable memory block (see ajax.networks.memory); trains on
         # replayed sequences with R2D2-style burn-in (see ajax.agents.recurrent).
         memory: Optional[Union[MemoryConfig, dict]] = None,

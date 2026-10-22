@@ -519,3 +519,54 @@ def test_a_value_box_entry_ends_the_agents_episode_whatever_its_bonus(bonus):
     np.testing.assert_allclose(
         boxed.reward[:, 0], plain.reward[:, 0] + bonus * entered[:, 0]
     )
+
+
+@pytest.mark.parametrize("env_id", sorted(COLLECTORS))
+def test_an_explore_policy_acts_after_the_warm_up_and_uniform_during_it(env_id):
+    """explore_pipeline steps and stores explore's action (a discrete one as
+    a column) with zero log-probs and no expert; during the warm-up the env
+    steps a uniform action instead, which the replay stores."""
+    distribution, continuous = COLLECTORS[env_id]
+    env, params = make_gymnax_env(env_id)
+    env_args = EnvironmentConfig(
+        env=env, env_params=params, n_envs=2, continuous=continuous
+    )
+    buffer = get_buffer(buffer_size=16, batch_size=2, n_envs=2)
+    key = jax.random.PRNGKey(0)
+    actor = _constant_actor(distribution)
+    state = BaseAgentState(
+        rng=key,
+        eval_rng=key,
+        actor_state=actor,
+        critic_state=actor,
+        collector_state=init_collector_state(key, env_args, "gymnax", buffer),
+    )
+    chosen = 0.5 if continuous else 1
+
+    def explore(pi, key, step):
+        return jnp.full(pi.sample(seed=key).shape, chosen) + 0 * step
+
+    pipeline = step_module.explore_pipeline(
+        explore, recurrent=False, n_actions=None if continuous else 2
+    )
+    collect = partial(
+        collect_experience,
+        recurrent=False,
+        mode="gymnax",
+        env_args=env_args,
+        buffer=buffer,
+        action_pipeline=pipeline,
+    )
+
+    def stored(state):
+        # The replay is [env, row, ...]: the first row of each env.
+        return np.asarray(state.collector_state.buffer_state.experience["action"])[:, 0]
+
+    acted, transition = collect(state, None)
+    np.testing.assert_array_equal(stored(acted), [[chosen], [chosen]])
+    np.testing.assert_array_equal(transition.action, [[chosen], [chosen]])
+    np.testing.assert_array_equal(transition.log_prob, 0.0)
+    np.testing.assert_array_equal(acted.collector_state.last_expert_frac, 0.0)
+    warm, transition = collect(state, None, uniform=True)
+    np.testing.assert_array_equal(transition.action, [[chosen], [chosen]])
+    assert (stored(warm) != chosen).any() and (np.abs(stored(warm)) <= 1).all()

@@ -226,6 +226,33 @@ def fold_post_update(
     return stack.fold_post_update(agent_state.replace(rng=rng), step, key, total_steps)
 
 
+def when(pred: Any, fn: Callable[[Any], Any], state: Any, fill: Any = None) -> Any:
+    """``fn(state)`` where ``pred`` holds, else ``state`` unchanged: a policy
+    delay, a target refresh, a warm-up.
+
+    ``fn`` returns the new state, or the new state and its metrics. Skipped,
+    the metrics have ``fn``'s structure, read from its trace (with the names
+    the extensions log), filled with ``fill``: by default NaN, -1 in integer
+    leaves (:func:`ajax.log.unevaluated`), which the logger drops. Under the
+    seed ``vmap`` a ``pred`` read from per-seed state runs ``fn`` every time
+    and selects; one from unbatched counters runs it only where it holds.
+    """
+    # The branches close over ``state`` rather than take it as an operand:
+    # with ``state`` an operand, SAC's warm-ups (an ``fn`` returning a state
+    # computed outside) compiled to other float rounding than the
+    # ``lax.cond`` they replaced.
+    out = jax.eval_shape(fn, state)
+    # PyTreeDef compares by structure; its stub does not declare __eq__.
+    if jax.tree.structure(out) == jax.tree.structure(state):  # type: ignore[operator]
+        return jax.lax.cond(pred, lambda: fn(state), lambda: state)
+    metrics = (
+        unevaluated(out[1])
+        if fill is None
+        else jax.tree.map(lambda s: jnp.full(s.shape, fill, s.dtype), out[1])
+    )
+    return jax.lax.cond(pred, lambda: fn(state), lambda: (state, metrics))
+
+
 def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any, jax.Array]:
     """One optimiser step down ``loss_fn(params) -> (loss, aux)``.
 
@@ -306,6 +333,46 @@ def critic_step(
 
     critic_state, (aux, loss_metrics), grad_norm = gradient_step(critic_state, loss_fn)
     return critic_state, aux, grad_norm, merge_metrics(target_metrics, loss_metrics)
+
+
+def actor_step(
+    agent_state: Any,
+    policy_loss: Callable[[Any], tuple[jax.Array, Any, Optional[jax.Array]]],
+    extension_stack: ExtensionStack,
+    key: jax.Array,
+    total_timesteps: int,
+    **batch: Any,
+) -> tuple[Any, Any, jax.Array, dict]:
+    """A replay agent's actor step.
+
+    Steps the actor down ``policy_loss(params) -> (loss, aux, pi_mean)``
+    (``pi_mean``: the policy's mean action at the rows, None for a discrete
+    policy) plus the extensions' ``actor_loss`` terms, folded on ``key``, one
+    the agent draws nothing else on. Their batch is ``batch``, the rows'
+    entries the agent passes (``observations``, ``raw_observations``,
+    ``actions``, ``a_expert``, ``critic_state``), with the differentiated
+    ``actor_params``, the ``actor_state``, ``pi_mean`` and ``agent_loss``.
+    Returns the stepped actor state, ``aux``, the gradients' norm
+    (:func:`gradient_step`) and the fold's metrics.
+    """
+    actor_state = agent_state.actor_state
+
+    def loss_fn(params: Any) -> tuple[jax.Array, Any]:
+        loss, aux, pi_mean = policy_loss(params)
+        actor_batch = batch | {
+            "pi_mean": pi_mean,
+            "actor_params": params,
+            "actor_state": actor_state,
+            "agent_loss": loss,
+        }
+        step = agent_state.collector_state.timestep
+        extra, metrics = extension_stack.fold_actor_loss(
+            agent_state, actor_batch, step, key, total_timesteps
+        )
+        return loss + extra, (aux, metrics)
+
+    actor_state, (aux, metrics), grad_norm = gradient_step(actor_state, loss_fn)
+    return actor_state, aux, grad_norm, metrics
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
@@ -464,14 +531,8 @@ class TrainLoop:
             aux = jax.tree.map(lambda x: jnp.reshape(x, (1,)), aux)
             return self.post_update(agent_state), aux
 
-        def skip_update(agent_state: Any) -> tuple[Any, Any]:
-            # The structure is read from the update's trace: the names the
-            # extensions log are known only once their phases are traced.
-            shapes = jax.eval_shape(lambda s: do_update(s)[1], agent_state)
-            return agent_state, unevaluated(shapes)
-
         ready = agent_state.collector_state.timestep >= learning_starts
-        return jax.lax.cond(ready, do_update, skip_update, agent_state)
+        return when(ready, do_update, agent_state)
 
     def repeat_update(
         self, agent_state: Any, n: Any, update: Callable[[Any], tuple[Any, Any]]
@@ -814,9 +875,11 @@ __all__ = [
     "LOOP_PHASES",
     "Evaluation",
     "TrainLoop",
+    "actor_step",
     "critic_step",
     "fold_post_update",
     "fresh_state",
     "gradient_step",
     "seed_replay",
+    "when",
 ]

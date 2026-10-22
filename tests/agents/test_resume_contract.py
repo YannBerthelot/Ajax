@@ -113,22 +113,22 @@ def _epsilon_trace(legs: tuple[int, ...], horizon: int) -> list[tuple[int, float
     """(timestep, epsilon) at every collected step of a DQN run trained in
     ``legs`` calls, each told the run's horizon."""
     trace: list[tuple[int, float]] = []
-    epsilon_at = train_DQN.linear_epsilon
+    behaviour = train_DQN.epsilon_greedy
 
-    def recorded(timestep: Any, *args: Any, **kwargs: Any) -> Any:
-        epsilon = epsilon_at(timestep, *args, **kwargs)
-        # The action pipeline passes its schedule positionally: that is the
-        # epsilon the agent acts with. The logged epsilon (make_train's
-        # epsilon_schedule, a partial over keywords) is read after each
-        # update and is not recorded.
-        if not kwargs:
+    def recorded(epsilon: Any, n_actions: int) -> Any:
+        # The schedule the behaviour policy acts with, recorded at each read
+        # (the logged epsilon, read after each update, is not).
+        def acted(timestep: Any) -> Any:
+            value = epsilon(timestep)
             jax.debug.callback(
-                lambda t, e: trace.append((int(t), float(e))), timestep, epsilon
+                lambda t, e: trace.append((int(t), float(e))), timestep, value
             )
-        return epsilon
+            return value
+
+        return behaviour(acted, n_actions)
 
     agent, state = _dqn(), None
-    with mock.patch.object(train_DQN, "linear_epsilon", recorded):
+    with mock.patch.object(train_DQN, "epsilon_greedy", recorded):
         for steps in legs:
             state, _ = agent.train(
                 seed=0, n_timesteps=steps, initial_state=state, total_timesteps=horizon

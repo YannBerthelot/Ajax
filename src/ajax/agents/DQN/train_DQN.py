@@ -35,7 +35,7 @@ from ajax.agents.DQN.networks import (
     q_network_value,
 )
 from ajax.agents.DQN.state import DQNConfig, DQNState
-from ajax.agents.loop import TrainLoop, gradient_step, when
+from ajax.agents.loop import TrainLoop, extension_key, gradient_step, when
 from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
@@ -338,30 +338,25 @@ def update_agent(
     )
 
     # The extensions reshape the target, then add their loss terms, each on
-    # a key of its own (drawn only with extensions).
-    loss_key = None
-    target_metrics: dict = {}
-    if extension_stack:
-        ext_key, rng = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=rng)
-        target_key, loss_key = jax.random.split(ext_key)
-        _tgt_batch = {
-            "observations": observations,
-            "actions": actions,
-            "next_observations": next_observations,
-            "rewards": rewards,
-            "dones": dones,
-            "gamma": gamma,
-            "reward_scale": reward_scale,
-        }
-        target_q, target_metrics = extension_stack.fold_on_target(
-            agent_state,
-            _tgt_batch,
-            target_q,
-            agent_state.collector_state.timestep,
-            target_key,
-            total_timesteps,
-        )
+    # a key of its own.
+    target_key, loss_key = jax.random.split(extension_key(sample_key))
+    target_batch = {
+        "observations": observations,
+        "actions": actions,
+        "next_observations": next_observations,
+        "rewards": rewards,
+        "dones": dones,
+        "gamma": gamma,
+        "reward_scale": reward_scale,
+    }
+    target_q, target_metrics = extension_stack.fold_on_target(
+        agent_state,
+        target_batch,
+        target_q,
+        agent_state.collector_state.timestep,
+        target_key,
+        total_timesteps,
+    )
 
     q_state, value_aux, loss_metrics = q_gradient_step(
         agent_state,

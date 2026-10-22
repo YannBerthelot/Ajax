@@ -177,21 +177,23 @@ folds `actor_loss`; its keywords are the rows the extensions read:
 
 ```python
 def update_value_functions(agent_state, batch, agent_config, extension_stack, total_timesteps):
-    key, rng, ext_key = jax.random.split(agent_state.rng, 3)  # ext_key: the extensions'
+    agent_state, key = agent_state.next_keys()  # key, rng = split(rng)
     target_q = compute_foo_td_target(agent_state, key, batch, agent_config)  # the paper's target
 
     def value_loss(params, target_q):  # -> (loss, aux)
         return value_loss_function(params, agent_state.critic_state, batch.obs, batch.action, target_q)
 
     critic_state, aux, grad_norm, metrics = critic_step(
-        agent_state, batch, target_q, value_loss, extension_stack, ext_key, total_timesteps,
+        agent_state, batch, target_q, value_loss, extension_stack, key, total_timesteps,
         rewards=batch.reward, dones=batch.terminated,
         gamma=agent_config.gamma, reward_scale=agent_config.reward_scale,
     )
-    return agent_state.replace(rng=rng, critic_state=critic_state), aux, metrics
+    return agent_state.replace(critic_state=critic_state), aux, metrics
 
 
-def update_policy(agent_state, batch, extension_stack, key, total_timesteps):
+def update_policy(agent_state, batch, extension_stack, total_timesteps):
+    agent_state, key = agent_state.next_keys()
+
     def policy_loss(params):  # -> (loss, aux, pi_mean)
         return foo_policy_loss(params, agent_state, batch.obs)  # the paper's actor loss
 
@@ -229,9 +231,10 @@ def make_train(
 the actor step, and returns the state with an `AuxiliaryLogs` of both steps' metrics (the
 extensions' under `extensions`, `merge_metrics` of the two steps').
 `ActorCritic.train` calls `make_train` with the keyword names above
-(`start_timestep` when it resumes a run), so keep them. A fold's key (the
-actor step's `key` too) is an extra entry of a split the agent already makes,
-as `ext_key` above
+(`start_timestep` when it resumes a run), so keep them. A step takes its
+key from the state with `agent_state.next_keys()`, which splits `rng` and
+writes the new one back; `critic_step` and `actor_step` derive the
+extensions' keys from it
 ([Randomness](docs/developer/writing-an-extension.md#randomness)), so an
 agent's own random stream is the same with or without extensions.
 

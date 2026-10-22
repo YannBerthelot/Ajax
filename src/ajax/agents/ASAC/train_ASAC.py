@@ -228,9 +228,7 @@ def update_value_functions(
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[ASACState, ValueAuxiliaries, dict]:
     """The critic step on the differential target of the penalised ``rewards``."""
-    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
-    # default partitionable threefry, so the agent's own draws are unchanged.
-    key, rng, ext_key = jax.random.split(agent_state.rng, 3)
+    agent_state, key = agent_state.next_keys()
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     dones = batch.terminated
     target_q, next_log_probs = compute_asac_td_target(
@@ -264,14 +262,14 @@ def update_value_functions(
         target_q,
         value_loss,
         extension_stack,
-        ext_key,
+        key,
         total_timesteps,
         rewards=rewards,
         dones=dones,
         gamma=None,
         reward_scale=reward_scale,
     )
-    return agent_state.replace(rng=rng, critic_state=critic_state), aux, metrics
+    return agent_state.replace(critic_state=critic_state), aux, metrics
 
 
 def update_policy(

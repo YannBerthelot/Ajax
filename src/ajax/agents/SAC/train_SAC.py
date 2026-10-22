@@ -11,7 +11,7 @@ from ajax.agents.loop import TrainLoop, actor_step, critic_step, when
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
-    sample_and_burnin_sequences,
+    sample_replay,
     unsupported_recurrent_options,
 )
 from ajax.agents.SAC import core
@@ -24,8 +24,7 @@ from ajax.agents.SAC.core import (
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.dataset import TransitionDataset
-from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.interaction import augment_obs, reward_statistics
+from ajax.environments.interaction import augment_obs
 from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
@@ -361,49 +360,17 @@ def update_agent(
     burn_in: int = 8,
     stored_state: bool = False,
 ) -> Tuple[SACState, AuxiliaryLogs]:
-    # Three keys: the second once drew a batch mixed into this one from the
-    # same buffer; splitting three keeps the agent's key stream unchanged.
-    sample_key, _, rng = jax.random.split(agent_state.rng, 3)
-    agent_state = agent_state.replace(rng=rng)
-
-    carries = None
-    if recurrent:
-        # Sequence replay with burned-in carries (R2D2-style); expert
-        # features are rejected upstream in make_train, so the expert
-        # blocks below are all trace-time no-ops.
-        transition, carries = sample_and_burnin_sequences(
-            agent_state, buffer, sample_key, burn_in, stored_state=stored_state
-        )
-        expert_frac_in_buffer = jnp.zeros(())
-    else:
-        collector = agent_state.collector_state
-        batch = get_batch_from_buffer(
-            buffer,
-            collector.buffer_state,
-            sample_key,
-            reward_statistics(collector.env_state),
-        )
-        # No expert, no stored flags: none acted.
-        expert_frac_in_buffer = (
-            jnp.zeros(()) if batch.is_expert is None else batch.is_expert.mean()
-        )
-        # The expert's actions are stored with an expert policy (the
-        # collector stores them with an expert), None without one; the raw
-        # next observations for extensions that call an expert of their own
-        # (init_SAC's store_raw_next_obs).
-        transition = Transition(
-            batch.obs,
-            batch.action,
-            batch.reward,
-            batch.terminated,
-            batch.truncated,
-            batch.next_obs,
-            raw_obs=batch.raw_obs,
-            a_expert=batch.a_expert,
-            next_a_expert=batch.next_a_expert,
-            return_to_go=batch.return_to_go,
-            raw_next_obs=batch.raw_next_obs,
-        )
+    agent_state, sample_key = agent_state.next_keys()
+    # Sequence replay burns the carries in (R2D2-style); expert features are
+    # rejected with memory upstream (make_train), so the expert blocks below
+    # are trace-time no-ops there.
+    transition, carries = sample_replay(
+        agent_state, buffer, sample_key, recurrent, burn_in, stored_state
+    )
+    # The share of the rows an expert acted in (no stored flags: none).
+    expert_frac_in_buffer = (
+        jnp.zeros(()) if transition.is_expert is None else transition.is_expert.mean()
+    )
 
     # The env observations without train_frac, which is what expert_policy
     # expects.

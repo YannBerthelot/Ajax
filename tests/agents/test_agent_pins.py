@@ -1143,6 +1143,22 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU once SAC stopped splitting a discarded third
+# key off its replay key: relative shifts (actor, critic, alpha) SAC-mcc
+# -1.2e-4, +4.5e-3, +9.0e-5; SAC-gru -5.7e-4, +5.3e-4, -5.5e-5.
+_GOLDEN |= {
+    "SAC-mcc": {
+        "actor": 8.333091735839844,
+        "critic": 15.72756576538086,
+        "alpha": 0.9760676622390747,
+    },
+    "SAC-gru": {
+        "actor": 54.338035583496094,
+        "critic": 126.52761840820312,
+        "alpha": 0.9758655428886414,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

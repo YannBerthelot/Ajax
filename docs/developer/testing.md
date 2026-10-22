@@ -111,10 +111,13 @@ check.
 | TD3+BC | sfujim/TD3_BC (PyTorch) | `tests/conformance/test_td3bc_sfujim.py` |
 | REDQ | watchernyu/REDQ (PyTorch) | `tests/conformance/test_redq_original.py` |
 | AVG | gauthamvasan/avg (PyTorch) | `tests/conformance/test_avg_original.py` |
+| CrossQ | adityab/CrossQ (JAX, its own versions) | `tests/conformance/test_crossq_original.py` |
 
 The originals are vendored under `benchmarks/reference/vendor`. A PyTorch
-original runs in its own environment (`benchmarks/reference/envs/torch`)
-and records its states to disk; CI keeps those records between runs while
+original runs in its own environment (`benchmarks/reference/envs/torch`),
+as does CrossQ's, on the jax, flax and Stable-Baselines3 versions its
+authors pinned (`benchmarks/reference/envs/crossq`). Each records its
+states to disk; CI keeps those records between runs while
 the original, its recorder and that environment's lock stay the same
 (`AJAX_CONFORMANCE_RECORDS`). `tests/conformance/kit.py` holds the seams
 that make one step comparable without changing the code under test: a tape

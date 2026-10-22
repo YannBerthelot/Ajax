@@ -20,22 +20,29 @@ from tests.conformance import submaps
 REPO = pathlib.Path(__file__).parents[2]
 KEPT = os.environ.get("AJAX_CONFORMANCE_RECORDS")
 TORCH_ENV = "benchmarks/reference/envs/torch"  # CPU-only PyTorch, gymnax, jax
-CPU = subproject_env(REPO / TORCH_ENV, JAX_PLATFORMS="cpu", CUDA_VISIBLE_DEVICES="")
+CROSSQ_ENV = "benchmarks/reference/envs/crossq"  # the authors' own jax, flax and SB3
 
 
 def recorded(
-    name: str, recorder: str, envs: tuple[str, ...], scratch: pathlib.Path
+    name: str,
+    recorder: str,
+    envs: tuple[str, ...],
+    scratch: pathlib.Path,
+    project: str = TORCH_ENV,
 ) -> pathlib.Path:
     """``recorder``'s records (benchmarks/reference/) on ``envs``: CI's kept ones when whole, else
-    recorded now in the torch env, under the kept directory or else in ``scratch``."""
+    recorded now in ``project``'s env, under the kept directory or else in ``scratch``."""
     out = REPO / KEPT / name if KEPT else scratch
     marker = out / "envs"  # written last: unfinished records are never taken
     if marker.is_file() and marker.read_text() == " ".join(envs):
         return out
     for env_id in envs:
         script = f"benchmarks/reference/{recorder}"
-        command = ["uv", "run", "--project", TORCH_ENV, "--locked", "python", script]
-        subprocess.run([*command, env_id, str(out)], cwd=REPO, env=CPU, check=True)
+        command = ["uv", "run", "--project", project, "--locked", "python", script]
+        cpu = subproject_env(
+            REPO / project, JAX_PLATFORMS="cpu", CUDA_VISIBLE_DEVICES=""
+        )
+        subprocess.run([*command, env_id, str(out)], cwd=REPO, env=cpu, check=True)
     marker.write_text(" ".join(envs))
     return out
 

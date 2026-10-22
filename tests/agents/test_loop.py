@@ -23,7 +23,7 @@ from flax.training.train_state import TrainState
 
 from ajax.agents import loop as loop_module
 from ajax.agents.APO.APO import APO
-from ajax.agents.loop import TrainLoop, critic_step, gradient_step
+from ajax.agents.loop import TrainLoop, actor_step, critic_step, gradient_step
 from ajax.agents.SAC.SAC import SAC
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.evaluate import evaluate
@@ -288,6 +288,52 @@ def test_the_extensions_see_the_cuts_the_target_used() -> None:
     np.testing.assert_array_equal(seen[:, 0], [0, 0, 1, 1])
     # d/dw mean((w - target)^2) at w = 0 on the target [0, 0, 1, 1]: -1.
     assert float(grad_norm) == 1.0
+
+
+@dataclass(frozen=True)
+class SquareTerm(Extension):
+    """Adds ``w ** 2`` to the actor loss and logs the agent's loss."""
+
+    name: str = "square"
+    seen: dict = dataclasses.field(default_factory=dict, hash=False, compare=False)
+
+    def actor_loss(self, agent_state, ext_state, batch, ctx):
+        self.seen.update(dict.fromkeys(batch))
+        return batch["actor_params"]["w"] ** 2, {"agent_loss": batch["agent_loss"]}
+
+
+def test_actor_step_steps_down_the_loss_plus_the_extensions_terms() -> None:
+    """The extensions see the rows the agent passes with the differentiated
+    parameters, the mean action and the agent's loss; the actor steps down
+    the sum: d/dw (2w + w^2) at w = 3 is 8."""
+    actor = TrainState.create(
+        apply_fn=None, params={"w": jnp.asarray(3.0)}, tx=optax.sgd(0.5)
+    )
+    state = SimpleNamespace(
+        collector_state=Collector(jnp.asarray(0)), actor_state=actor, ext_state=((),)
+    )
+    term = SquareTerm()
+
+    def policy_loss(params):
+        return 2.0 * params["w"], jnp.asarray(1.0), params["w"] + 1.0
+
+    stepped, aux, grad_norm, metrics = actor_step(
+        state,
+        policy_loss,
+        ExtensionStack((term,)),
+        jax.random.PRNGKey(0),
+        100,
+        observations=jnp.zeros((1, 1)),
+    )
+    assert float(stepped.params["w"]) == 3.0 - 0.5 * 8.0 and float(grad_norm) == 8.0
+    assert float(aux) == 1.0 and float(jax.tree.leaves(metrics)[0]) == 6.0
+    assert set(term.seen) == {
+        "observations",
+        "actor_params",
+        "actor_state",
+        "pi_mean",
+        "agent_loss",
+    }
 
 
 # --- Evaluations without a logging backend -----------------------------------

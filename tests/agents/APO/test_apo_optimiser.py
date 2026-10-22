@@ -75,7 +75,7 @@ def test_APO_entropy_bonus_is_its_reference_codes(env_id: str) -> None:
             actions,
             old,
             gae=jnp.zeros((B, 1)),
-            clip_coef=config.clip_range,
+            clip_coef=train_APO.resolve_clip_coef(config, 0),
             ent_coef=config.ent_coef,
             raw_actions=actions,
         )[0]
@@ -162,7 +162,7 @@ def test_APO_steps_its_whole_model_with_one_clipped_adam(options: dict) -> None:
             mb["actions"],
             mb["log_probs"],
             mb["gae"],
-            clip_coef=config.clip_range,
+            clip_coef=train_APO.resolve_clip_coef(config, 0),
             ent_coef=config.ent_coef,
             entropy_key=mb["entropy_key"],
         )

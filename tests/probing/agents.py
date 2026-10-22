@@ -46,6 +46,8 @@ _PROBE = {
     # value of the action it stops exploring drifts.
     "PQN": {**_Q, "n_envs": 8, "n_steps": 16, "n_epochs": 4, "num_minibatches": 1},
     "APG": {"actor_architecture": NET, "n_envs": 64},
+    "CrossQ": {"actor_width": 64, "critic_width": 64, **_NORM, **_REPLAY}
+    | {"gamma": GAMMA, "n_envs": 1},
 }
 
 # One preset for every bookkeeping probe (decision D2): their answers do not
@@ -81,6 +83,8 @@ _BOOKKEEPING = {
     "TDMPC2": {"enc_dim": 32, "mlp_dim": 32, "latent_dim": 16, "num_q": 2}
     | {"batch_size": 16, "num_samples": 32, "num_elites": 4, "num_pi_trajs": 4}
     | {"iterations": 2, "gamma": 0.8, "n_envs": 1},
+    "CrossQ": {"actor_width": 16, "critic_width": 16, **_NORM, **_B_REPLAY}
+    | {"gamma": GAMMA, "n_envs": 1},
 }
 
 # The world models' learning probes (Q10, Q12, Q13): the tiny models of
@@ -102,7 +106,7 @@ _TINY: dict[str, dict[str, Any]] = {
 PRESETS: Mapping[str, Mapping[str, Mapping[str, Any]]] = MappingProxyType(
     {"probe": _PROBE, "bookkeeping": _BOOKKEEPING, "tiny": _TINY}
 )
-DIGEST = "58bb4a76369e"
+DIGEST = "bfc6bd052f34"
 FAMILY = {"PPO": "v", "APO": "v", "DQN": "dqn", "PQN": "dqn"}
 """Which value an agent's readout reads (others: Q at the mean action)."""
 

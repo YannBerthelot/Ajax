@@ -214,7 +214,8 @@ class LoadedTrainState(TrainState):
         out, updates = self.apply_fn(
             with_batch_stats(self, params), *args, mutable=["batch_stats"], **kwargs
         )
-        return out, updates["batch_stats"]
+        # Frozen as init stores them: a state's structure stays one type.
+        return out, flax.core.FrozenDict(updates["batch_stats"])
 
 
 def with_batch_stats(train_state: Any, params: Any) -> Any:

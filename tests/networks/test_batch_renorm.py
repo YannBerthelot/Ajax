@@ -87,7 +87,7 @@ def test_a_critic_keeps_its_statistics_apart_from_its_trained_parameters() -> No
     held = first_mean(state.batch_stats)
     assert held.shape == (2, 3)
     q, updated = predict_value_train(state, state.params, X)
-    assert updated is not None
+    assert type(updated) is type(state.batch_stats)  # one carry structure
     moved = first_mean(updated)
     np.testing.assert_allclose(moved, jnp.tile(0.01 * X.mean(0), (2, 1)), rtol=1e-5)
     assert q.shape == predict_value(state, state.params, X).shape == (2, 8, 1)

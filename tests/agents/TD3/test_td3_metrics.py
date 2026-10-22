@@ -150,10 +150,10 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 
     _, p_aux, *_ = train_SAC.update_policy(state, batch.obs, None, EMPTY)
-    policy_key = jax.random.split(state.rng)[1]  # the step's policy key
+    policy_key = state.next_keys(2)[1]  # the step's policy key
     p_grads = jax.grad(
-        lambda p: train_SAC.policy_loss_function(
-            p, actor, critic, batch.obs, alpha, policy_key, EMPTY, agent_state=state
+        lambda p: sac_core.soft_policy_loss(
+            p, actor, critic, batch.obs, alpha, policy_key
         )[0]
     )(actor.params)
     np.testing.assert_allclose(p_aux.grad_norm, optax.global_norm(p_grads), rtol=1e-6)

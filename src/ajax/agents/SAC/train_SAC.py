@@ -3,17 +3,15 @@ from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-import optax
 from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
-from ajax.agents.loop import TrainLoop, critic_step, when
+from ajax.agents.loop import TrainLoop, actor_step, critic_step, when
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
-    q_values,
-    sample_and_burnin_sequences,
+    sample_replay,
     unsupported_recurrent_options,
 )
 from ajax.agents.SAC import core
@@ -26,8 +24,7 @@ from ajax.agents.SAC.core import (
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.dataset import TransitionDataset
-from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.interaction import augment_obs, reward_statistics
+from ajax.environments.interaction import augment_obs
 from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
@@ -39,7 +36,6 @@ from ajax.schedule import Schedule, at, linear
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
-    LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
     Transition,
@@ -49,12 +45,10 @@ from ajax.types import BufferType
 
 @struct.dataclass
 class PolicyAuxiliaries:
-    raw_loss: jax.Array  # α·log π - Q: pure SAC gradient
-    policy_loss: jax.Array  # raw_loss + the actor-loss extensions' terms
+    policy_loss: jax.Array  # α·log π - Q, before the extensions' terms
     log_pi: jax.Array  # entropy proxy; tracks target_entropy
     policy_std: jax.Array  # mean unsquashed std; lower = more deterministic
     q_min: jax.Array  # Q(s, π(s)): what policy optimises
-    bc_term: jax.Array  # actor-loss extensions' terms (OnlineBC's: 0 after warmup)
     # Before clipping; the loss builds these metrics before the gradient
     # exists, update_policy fills it in.
     grad_norm: jax.Array | float = jnp.nan
@@ -264,105 +258,6 @@ def update_value_functions(
     return agent_state.replace(critic_state=critic_state), aux, metrics
 
 
-def policy_loss_function(
-    actor_params: FrozenDict,
-    actor_state: LoadedTrainState,
-    critic_states: LoadedTrainState,
-    observations: jax.Array,
-    alpha: jax.Array,
-    rng: jax.Array,
-    extension_stack: ExtensionStack,
-    raw_observations: Optional[jax.Array] = None,
-    expert_policy: Optional[Callable] = None,
-    a_expert_precomputed: Optional[jax.Array] = None,
-    policy_action_transform: Optional[Callable] = None,
-    carries: Optional[RecurrentCarries] = None,
-    agent_state: Any = None,
-    total_timesteps: int = 1,
-    replay_actions: Optional[jax.Array] = None,
-) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, dict]]:
-    """SAC actor loss with composable expert modifiers; ``replay_actions``,
-    the rows' own actions, reach the extensions as ``actions``."""
-    _raw_obs = (
-        raw_observations if raw_observations is not None else observations[..., :-1]
-    )
-
-    # 1. Core forward pass + sample (``carries`` for sequence replay).
-    pi = actor_dist(actor_state, actor_params, observations, carries)
-    sample_key, rng = jax.random.split(rng)
-    actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
-    log_probs = log_probs.sum(-1, keepdims=True)
-
-    policy_std = latent(pi).stddev().mean()
-
-    # 2. Action transform modifier (residual RL)
-    q_input_actions = (
-        policy_action_transform(actions, _raw_obs, a_expert_precomputed)
-        if policy_action_transform is not None
-        else actions
-    )
-
-    # Core Q evaluation and SAC loss. In recurrent mode the fresh actions
-    # are queried at the critic's head, its memory reading the actions
-    # taken; gradients flow to the actor through the actions.
-    q_preds = q_values(
-        critic_states, critic_states.params, observations, q_input_actions, carries
-    )
-    q_min = jnp.min(q_preds, axis=0)
-    loss_actor = alpha * log_probs - q_min
-
-    # 3. The actor-loss extensions' terms, which get the expert's action as
-    # collection stored it, from the expert's tracked state (the clone
-    # target of OnlineBC and ImitationLoss), and the critic (the Q-filter's).
-    needs_expert = (
-        "actor_loss" in extension_stack.implemented_phases()
-        and expert_policy is not None
-    )
-    if needs_expert:
-        assert expert_policy is not None
-        a_expert = (
-            a_expert_precomputed
-            if a_expert_precomputed is not None
-            else jax.lax.stop_gradient(expert_policy(_raw_obs))
-        )
-    else:
-        a_expert = None
-
-    ext_batch = {
-        "observations": observations,
-        # The replay keeps them only for a run with an expert: None
-        # without one, never the observations passed off as raw.
-        "raw_observations": raw_observations,
-        "pi_mean": pi.mean(),
-        "actor_params": actor_params,
-        "actor_state": actor_state,
-        "a_expert": a_expert,
-        "actions": replay_actions,
-        "critic_state": critic_states,
-        "agent_loss": loss_actor.mean(),
-    }
-    bc_term, metrics = extension_stack.fold_actor_loss(
-        agent_state,
-        ext_batch,
-        agent_state.collector_state.timestep,
-        rng,
-        total_timesteps,
-    )
-    bc_term = jnp.asarray(bc_term)
-
-    total_loss = loss_actor.mean() + bc_term
-
-    aux = PolicyAuxiliaries(
-        policy_loss=total_loss,
-        log_pi=log_probs.mean(),
-        policy_std=policy_std,
-        q_min=q_min.mean(),
-        raw_loss=loss_actor.mean(),
-        bc_term=bc_term,
-    )
-    return total_loss, (aux, metrics)
-
-
 def update_policy(
     agent_state: SACState,
     observations: jax.Array,
@@ -375,43 +270,71 @@ def update_policy(
     carries: Optional[RecurrentCarries] = None,
     replay_actions: Optional[jax.Array] = None,
 ) -> Tuple[SACState, PolicyAuxiliaries, jax.Array, dict]:
-    """Returns (new_state, aux, log_probs, metrics): log_probs from a fresh
-    pass of the updated actor, for update_temperature (CleanRL's SAC order;
-    cited from memory, unverified), and the extensions' metrics."""
-    rng, policy_key = jax.random.split(agent_state.rng)
+    """The actor step on SAC's soft policy loss (core.soft_policy_loss),
+    the critics scoring ``policy_action_transform``'s executed actions with
+    a residual policy. Returns the state, ``aux``, the log-probs of a fresh
+    sample of the stepped actor for update_temperature (CleanRL's SAC order;
+    cited from memory, unverified) and the extensions' metrics."""
+    agent_state, key, sample_key = agent_state.next_keys(2)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    # The env's observations without train_frac: what the expert reads.
+    raw = raw_observations if raw_observations is not None else observations[..., :-1]
+    transform = None
+    if policy_action_transform is not None:
 
-    (loss, (aux, metrics)), grads = jax.value_and_grad(
-        policy_loss_function, has_aux=True, argnums=0
-    )(
-        agent_state.actor_state.params,
-        agent_state.actor_state,
-        agent_state.critic_state,
-        observations,
-        alpha,
-        policy_key,
+        def transform(actions: jax.Array) -> jax.Array:
+            return policy_action_transform(actions, raw, a_expert_precomputed)
+
+    # The actor-loss extensions get the expert's action as collection stored
+    # it, from its tracked state (the clone target of OnlineBC and
+    # ImitationLoss).
+    a_expert = None
+    if (
+        expert_policy is not None
+        and "actor_loss" in extension_stack.implemented_phases()
+    ):
+        a_expert = a_expert_precomputed
+        if a_expert is None:
+            a_expert = jax.lax.stop_gradient(expert_policy(raw))
+
+    def policy_loss(params: FrozenDict) -> Tuple[jax.Array, Any, jax.Array]:
+        loss, (log_probs, q, pi) = core.soft_policy_loss(
+            params,
+            agent_state.actor_state,
+            agent_state.critic_state,
+            observations,
+            alpha,
+            key,
+            carries,
+            action_transform=transform,
+        )
+        aux = PolicyAuxiliaries(
+            policy_loss=loss,
+            log_pi=log_probs.mean(),
+            policy_std=latent(pi).stddev().mean(),
+            q_min=q.mean(),
+        )
+        return loss, aux, pi.mean()
+
+    actor_state, aux, grad_norm, metrics = actor_step(
+        agent_state,
+        policy_loss,
+        extension_stack,
+        key,
+        total_timesteps,
+        observations=observations,
+        # The replay keeps them only for a run with an expert: None
+        # without one, never the observations passed off as raw.
         raw_observations=raw_observations,
-        expert_policy=expert_policy,
-        a_expert_precomputed=a_expert_precomputed,
-        policy_action_transform=policy_action_transform,
-        carries=carries,
-        extension_stack=extension_stack,
-        agent_state=agent_state,
-        total_timesteps=total_timesteps,
-        replay_actions=replay_actions,
+        a_expert=a_expert,
+        actions=replay_actions,
+        critic_state=agent_state.critic_state,
     )
-
-    updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
-    aux = aux.replace(grad_norm=optax.global_norm(grads))
-
-    temp_rng, temp_sample_key = jax.random.split(rng)
-    pi = actor_dist(
-        updated_actor_state, updated_actor_state.params, observations, carries
-    )
-    _, log_probs = pi.sample_and_log_prob(seed=temp_sample_key)
+    pi = actor_dist(actor_state, actor_state.params, observations, carries)
+    _, log_probs = pi.sample_and_log_prob(seed=sample_key)
     return (
-        agent_state.replace(rng=temp_rng, actor_state=updated_actor_state),
-        aux,
+        agent_state.replace(actor_state=actor_state),
+        aux.replace(grad_norm=grad_norm),
         jax.lax.stop_gradient(log_probs),
         metrics,
     )
@@ -437,49 +360,17 @@ def update_agent(
     burn_in: int = 8,
     stored_state: bool = False,
 ) -> Tuple[SACState, AuxiliaryLogs]:
-    # Three keys: the second once drew a batch mixed into this one from the
-    # same buffer; splitting three keeps the agent's key stream unchanged.
-    sample_key, _, rng = jax.random.split(agent_state.rng, 3)
-    agent_state = agent_state.replace(rng=rng)
-
-    carries = None
-    if recurrent:
-        # Sequence replay with burned-in carries (R2D2-style); expert
-        # features are rejected upstream in make_train, so the expert
-        # blocks below are all trace-time no-ops.
-        transition, carries = sample_and_burnin_sequences(
-            agent_state, buffer, sample_key, burn_in, stored_state=stored_state
-        )
-        expert_frac_in_buffer = jnp.zeros(())
-    else:
-        collector = agent_state.collector_state
-        batch = get_batch_from_buffer(
-            buffer,
-            collector.buffer_state,
-            sample_key,
-            reward_statistics(collector.env_state),
-        )
-        # No expert, no stored flags: none acted.
-        expert_frac_in_buffer = (
-            jnp.zeros(()) if batch.is_expert is None else batch.is_expert.mean()
-        )
-        # The expert's actions are stored with an expert policy (the
-        # collector stores them with an expert), None without one; the raw
-        # next observations for extensions that call an expert of their own
-        # (init_SAC's store_raw_next_obs).
-        transition = Transition(
-            batch.obs,
-            batch.action,
-            batch.reward,
-            batch.terminated,
-            batch.truncated,
-            batch.next_obs,
-            raw_obs=batch.raw_obs,
-            a_expert=batch.a_expert,
-            next_a_expert=batch.next_a_expert,
-            return_to_go=batch.return_to_go,
-            raw_next_obs=batch.raw_next_obs,
-        )
+    agent_state, sample_key = agent_state.next_keys()
+    # Sequence replay burns the carries in (R2D2-style); expert features are
+    # rejected with memory upstream (make_train), so the expert blocks below
+    # are trace-time no-ops there.
+    transition, carries = sample_replay(
+        agent_state, buffer, sample_key, recurrent, burn_in, stored_state
+    )
+    # The share of the rows an expert acted in (no stored flags: none).
+    expert_frac_in_buffer = (
+        jnp.zeros(()) if transition.is_expert is None else transition.is_expert.mean()
+    )
 
     # The env observations without train_frac, which is what expert_policy
     # expects.

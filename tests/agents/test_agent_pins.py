@@ -1126,6 +1126,38 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU once SAC's actor step took its keys from the
+# state (next_keys) and its extensions' key from its policy key: relative
+# shifts (actor, critic, alpha) SAC-mcc +2.2e-3, +1.1e-3, -1.3e-5; SAC-gru
+# -8.7e-5, -5.6e-4, -5.7e-5.
+_GOLDEN |= {
+    "SAC-mcc": {
+        "actor": 8.334127426147461,
+        "critic": 15.657291412353516,
+        "alpha": 0.9759774804115295,
+    },
+    "SAC-gru": {
+        "actor": 54.36890411376953,
+        "critic": 126.46063995361328,
+        "alpha": 0.9759207367897034,
+    },
+}
+
+# Re-recorded on macOS ARM CPU once SAC stopped splitting a discarded third
+# key off its replay key: relative shifts (actor, critic, alpha) SAC-mcc
+# -1.2e-4, +4.5e-3, +9.0e-5; SAC-gru -5.7e-4, +5.3e-4, -5.5e-5.
+_GOLDEN |= {
+    "SAC-mcc": {
+        "actor": 8.333091735839844,
+        "critic": 15.72756576538086,
+        "alpha": 0.9760676622390747,
+    },
+    "SAC-gru": {
+        "actor": 54.338035583496094,
+        "critic": 126.52761840820312,
+        "alpha": 0.9758655428886414,
+    },
+}
 # Re-recorded on macOS ARM CPU on 2026-10-22 once PPO, APO and PQN derived
 # their extensions' keys from keys their steps hold (loop.extension_key)
 # instead of splitting them off the state's rng: with extensions, the agent's

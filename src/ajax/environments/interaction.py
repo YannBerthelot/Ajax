@@ -520,21 +520,22 @@ def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
 class ActionPipelineResult(NamedTuple):
     """What an ``action_pipeline`` hands :func:`collect_experience`.
 
-    The first seven fields are required. The optional ones default to
-    ``None``, and ``collect_experience`` then falls back: it stores the env
-    action, threads no expert state or action, and leaves the actor's carry
-    as the pipeline found it.
+    The first two fields are required. The others default to ``None``, and
+    ``collect_experience`` then falls back: zero log-probs, no expert acting,
+    no value box, the key it handed the pipeline, the env action stored, no
+    expert state or action threaded, and the actor's carry as the pipeline
+    found it.
     """
 
     # Executed in the environment once agent_action_to_env maps it onto the
     # env's bounds: in agent units, [-1, 1], as every action below.
     env_action: jax.Array
     policy_action: jax.Array  # the actor's action, stored in the transition
-    log_probs: jax.Array
-    is_expert_flag: jax.Array  # 1 where an expert acted (buffer bookkeeping)
-    in_value_box: jax.Array  # value-box membership (zeros without a box)
-    entry_bonus: jax.Array  # value-box entry bonus (zeros without a box)
-    rng: jax.Array  # the collector's key after the pipeline's own draws
+    log_probs: Optional[jax.Array] = None
+    is_expert_flag: Optional[jax.Array] = None  # 1 where an expert acted
+    in_value_box: Optional[jax.Array] = None  # value-box membership
+    entry_bonus: Optional[jax.Array] = None  # value-box entry bonus
+    rng: Optional[jax.Array] = None  # the collector's key after its draws
     # A stateful expert's state after this step (PID integrator, CPG phase).
     new_expert_state: Optional[Any] = None
     # Written to the replay buffer instead of env_action: a gain policy's
@@ -592,6 +593,54 @@ def _policy_pipeline(
         new_actor_hidden=agent_state.actor_state.hidden_state,
         raw_action=raw_action,
     )
+
+
+#: ``explore(pi, key, step) -> action``: a behaviour policy. From the
+#: policy ``pi`` at the last observations (a distribution; DQN's greedy
+#: Q-policy), a key of its own and the timestep, the actions to take: in
+#: [-1, 1], or a discrete action's index (:func:`explore_pipeline`).
+Explore = Callable[[Any, jax.Array, jax.Array], jax.Array]
+
+
+def explore_pipeline(
+    explore: Explore, recurrent: bool, n_actions: Optional[int] = None
+) -> Callable:
+    """The action pipeline of the behaviour policy ``explore`` (``n_actions``:
+    a discrete action space's size), or uniform actions, on ``mix_key``,
+    during the warm-up.
+
+    A recurrent actor advances its carry, its one-step time axis dropped
+    from the action. A discrete action is stored as an ``(n_envs, 1)``
+    column. No log-probs, expert or value box.
+    """
+
+    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
+        del raw_obs
+        collector = agent_state.collector_state
+        done = jnp.logical_or(collector.last_terminated, collector.last_truncated)
+        actor = agent_state.actor_state
+        pi, actor = get_pi(actor, actor.params, collector.last_obs, done, recurrent)
+        action = explore(pi, action_key, collector.timestep)
+        action = action.squeeze(0) if recurrent else action
+        if n_actions is None:
+            uniform_action = jax.random.uniform(
+                mix_key, minval=-1.0, maxval=1.0, shape=action.shape
+            )
+        else:
+            uniform_action = jax.random.randint(
+                mix_key, action.shape, minval=0, maxval=n_actions
+            ).astype(action.dtype)
+        env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
+        discrete = n_actions is not None
+        return ActionPipelineResult(
+            env_action=env_action,
+            policy_action=action[:, None] if discrete else action,
+            rng=rng,
+            buffer_action=env_action[:, None] if discrete else None,
+            new_actor_hidden=actor.hidden_state if recurrent else None,
+        )
+
+    return pipeline
 
 
 def with_expert_state(collector_state: Any, expert_policy: Any, n_envs: int) -> Any:
@@ -770,11 +819,12 @@ def collect_experience(
     result = pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key)
     env_action = result.env_action
     action = result.policy_action
-    log_probs = result.log_probs
-    is_expert_flag = result.is_expert_flag
-    in_value_box = result.in_value_box
-    entry_bonus = result.entry_bonus
-    rng = result.rng
+    zeros = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)
+    log_probs = zeros if result.log_probs is None else result.log_probs
+    is_expert_flag = zeros if result.is_expert_flag is None else result.is_expert_flag
+    in_value_box = zeros if result.in_value_box is None else result.in_value_box
+    entry_bonus = zeros if result.entry_bonus is None else result.entry_bonus
+    rng = rng if result.rng is None else result.rng
     new_expert_state = result.new_expert_state
     # A recurrent actor's memory would stay frozen without its advanced carry.
     if result.new_actor_hidden is not None:

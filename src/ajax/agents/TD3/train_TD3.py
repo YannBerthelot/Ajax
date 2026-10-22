@@ -32,8 +32,8 @@ from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
 from ajax.buffers.dataset import TransitionDataset
 from ajax.environments.interaction import (
-    ActionPipelineResult,
-    get_pi,
+    Explore,
+    explore_pipeline,
     init_collector_state,
 )
 from ajax.environments.utils import critic_action_units
@@ -78,45 +78,23 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-def make_default_action_pipeline(recurrent: bool, exploration_noise: Schedule):
+def gaussian_exploration(exploration_noise: Schedule) -> Explore:
     """TD3's behaviour policy: ``clip(mu(s) + N(0, exploration_noise), -1, 1)``,
-    the noise's scale a schedule of the timestep; uniform actions during the
-    warm-up."""
+    the noise's scale a schedule of the timestep."""
 
-    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
-        del raw_obs
-        collector = agent_state.collector_state
-        done = jnp.logical_or(collector.last_terminated, collector.last_truncated)
-        pi, actor_state = get_pi(
-            agent_state.actor_state,
-            agent_state.actor_state.params,
-            collector.last_obs,
-            done,
-            recurrent,
-        )
-        # A recurrent actor runs a one-step sequence: drop its time axis.
-        mean_action = pi.mean().squeeze(0) if recurrent else pi.mean()
-        sigma = at(exploration_noise, collector.timestep)
-        noise = jax.random.normal(action_key, mean_action.shape) * sigma
-        policy_action = jnp.clip(mean_action + noise, -1.0, 1.0)
-        uniform_action = jax.random.uniform(
-            mix_key, minval=-1.0, maxval=1.0, shape=policy_action.shape
-        )
-        zeros = jnp.zeros(mean_action.shape[:-1] + (1,))
-        return ActionPipelineResult(
-            env_action=jax.lax.cond(
-                uniform, lambda: uniform_action, lambda: policy_action
-            ),
-            policy_action=policy_action,
-            log_probs=zeros,
-            is_expert_flag=zeros,
-            in_value_box=zeros,
-            entry_bonus=zeros,
-            rng=rng,
-            new_actor_hidden=actor_state.hidden_state if recurrent else None,
-        )
+    def explore(pi: Any, key: jax.Array, step: jax.Array) -> jax.Array:
+        mean_action = pi.mean()
+        sigma = at(exploration_noise, step)
+        noise = jax.random.normal(key, mean_action.shape) * sigma
+        return jnp.clip(mean_action + noise, -1.0, 1.0)
 
-    return pipeline
+    return explore
+
+
+def make_default_action_pipeline(recurrent: bool, exploration_noise: Schedule):
+    """TD3's action pipeline: :func:`gaussian_exploration`, uniform actions
+    during the warm-up."""
+    return explore_pipeline(gaussian_exploration(exploration_noise), recurrent)
 
 
 def init_TD3(

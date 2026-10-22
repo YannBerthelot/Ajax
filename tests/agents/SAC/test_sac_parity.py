@@ -83,11 +83,16 @@ _PARITY_TIMESTEPS = 200
 # actor +0.019%, target -0.0012%, alpha -0.0055%. Previous goldens: critic
 # 558.0853881835938, actor 267.2794189453125, target 535.9161376953125,
 # alpha 0.973106861114502.
+#
+# Re-blessed once SAC's actor step took its keys from the state (next_keys),
+# its random stream moving: critic +0.21%, actor -0.018%, target +0.015%,
+# alpha +0.0089%. Previous goldens: critic 558.0552978515625, actor
+# 267.3292236328125, target 535.9094848632812, alpha 0.9730522036552429.
 _GOLDEN = {
-    "critic": 558.0552978515625,
-    "actor": 267.3292236328125,
-    "target": 535.9094848632812,
-    "alpha": 0.9730522036552429,
+    "critic": 559.20361328125,
+    "actor": 267.2802734375,
+    "target": 535.9905395507812,
+    "alpha": 0.973141610622406,
 }
 _TOL = 1e-4
 

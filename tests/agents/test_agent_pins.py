@@ -1126,6 +1126,23 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU once SAC's actor step took its keys from the
+# state (next_keys) and its extensions' key from its policy key: relative
+# shifts (actor, critic, alpha) SAC-mcc +2.2e-3, +1.1e-3, -1.3e-5; SAC-gru
+# -8.7e-5, -5.6e-4, -5.7e-5.
+_GOLDEN |= {
+    "SAC-mcc": {
+        "actor": 8.334127426147461,
+        "critic": 15.657291412353516,
+        "alpha": 0.9759774804115295,
+    },
+    "SAC-gru": {
+        "actor": 54.36890411376953,
+        "critic": 126.46063995361328,
+        "alpha": 0.9759207367897034,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

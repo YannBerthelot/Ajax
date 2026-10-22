@@ -106,8 +106,10 @@ def run(records: Any, precision: str, fault: str | None = None) -> dict[str, dic
     given: dict = {}
     sample = train_CrossQ.sample_replay
 
-    def injected(agent_state: Any, buffer: Any, key: Any, *args: Any) -> Any:
-        b, carries = sample(agent_state, buffer, key, *args)
+    def injected(
+        agent_state: Any, buffer: Any, key: Any, *args: Any, **kwargs: Any
+    ) -> Any:
+        b, carries = sample(agent_state, buffer, key, *args, **kwargs)
         values = {
             "obs": given["observations"],
             "action": given["actions"],

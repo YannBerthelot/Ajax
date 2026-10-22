@@ -361,10 +361,7 @@ def update_agent(
     burn_in: int = 8,
     stored_state: bool = False,
 ) -> Tuple[SACState, AuxiliaryLogs]:
-    # Three keys: the second once drew a batch mixed into this one from the
-    # same buffer; splitting three keeps the agent's key stream unchanged.
-    sample_key, _, rng = jax.random.split(agent_state.rng, 3)
-    agent_state = agent_state.replace(rng=rng)
+    agent_state, sample_key = agent_state.next_keys()
 
     carries = None
     if recurrent:

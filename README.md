@@ -1,7 +1,8 @@
 <h1 align="center">Ajax</h1>
 
 <p align="center">
-  <b>Reinforcement-learning agents in JAX: a whole training run, environment and every seed included, is one compiled program.</b>
+  <b>Fast, modular reinforcement learning in JAX.</b><br/>
+  The environment, the agent and every seed run together on the GPU, and agents are built from parts that snap together.
 </p>
 
 <p align="center">
@@ -20,14 +21,15 @@
   <a href="https://yannberthelot.github.io/Ajax/">Documentation</a>
 </p>
 
-Ajax has sixteen agents, each implementing a published paper. Compared with
+Ajax has sixteen agents, each from a published paper. Compared with
 [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
-[SBX](https://github.com/araffin/sbx), it differs in four ways:
+[SBX](https://github.com/araffin/sbx), it offers:
 
-- **[One program on the accelerator](docs/guide/performance.md)**: the environment and the training loop compile together, on a CPU or a GPU.
-- **Average reward**: [ASAC](docs/algorithms/asac.md) and [APO](docs/algorithms/apo.md) maximise the reward per step, for tasks that never end.
-- **[Learning from an expert or from data](docs/guide/expert-guidance.md)**: cloning, imitation, prior data and offline training.
-- **[World models](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2, following the code behind their papers' results.
+- **[Fast and parallel](docs/guide/performance.md)**: the environment steps on the GPU beside the agent, with no Python in the loop, so many seeds and environment copies train at once on one device.
+- **[Modular](docs/guide/extensions.md)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and twenty-four extensions, combined in the agent's constructor. The [compatibility table](docs/guide/compatibility.md) shows which parts go together.
+- **Multi-paradigm**: discounted and average-reward agents ([ASAC](docs/algorithms/asac.md), [APO](docs/algorithms/apo.md)), model-free and model-based, online and offline, all behind one interface.
+- **[Expert-guided](docs/guide/expert-guidance.md)**: cloning, imitation, prior data and offline training.
+- **[World models, ready to use](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2 are among the hardest agents to get right, and their papers run them on over a hundred tasks with one set of hyperparameters. Ajax checks them against the official code, update by update.
 
 [Why Ajax](docs/getting-started/why-ajax.md) compares it with SB3, SBX,
 PureJaxRL, Brax, Stoix and Rejax, including when to use them instead.
@@ -59,7 +61,7 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
 ```
 
 The three seeds train together, in about fifteen seconds on a laptop CPU,
-compilation included. Features are arguments of the same agents:
+compilation included. Parts combine in the constructor:
 
 ```python
 from ajax import PPO, SAC
@@ -108,9 +110,7 @@ each method's paper and the agents that take it.
 
 Ajax's PPO beside Stable-Baselines3's and its PQN beside purejaxql's, on the
 same JAX environment, 96 seeds each; both comparisons find the returns similar
-within the registered margin. They ran in October 2026, before 0.4.0 changed
-PPO's and PQN's optimisers to their references' (Ajax commits c4aeac6 and
-7938ae7). [Results](docs/reproduction/results.md) has two
+within the registered margin. [Results](docs/reproduction/results.md) has two
 more comparisons (one inconclusive) and the speed of each side; the
 [protocol](docs/reproduction/protocol.md) says how they are run.
 

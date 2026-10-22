@@ -8,7 +8,7 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
-from ajax.agents.loop import TrainLoop, extension_key, when
+from ajax.agents.loop import TrainLoop, critic_step, when
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
@@ -182,127 +182,86 @@ def init_SAC(
 
 def update_value_functions(
     agent_state: SACState,
-    observations: jax.Array,
-    actions: jax.Array,
-    next_observations: jax.Array,
-    dones: jax.Array,
+    transition: Transition,
     recurrent: bool,
-    rewards: jax.Array,
     gamma: float,
     extension_stack: ExtensionStack,
     reward_scale: float = 1.0,
     total_timesteps: int = 1,
     next_action_transform: Optional[Callable] = None,
-    next_a_expert: Optional[jax.Array] = None,
     carries: Optional[RecurrentCarries] = None,
-    raw_next_observations: Optional[jax.Array] = None,
-    stored_next_a_expert: Optional[jax.Array] = None,
-    return_to_go: Optional[jax.Array] = None,
 ) -> Tuple[SACState, ValueAuxiliaries, dict]:
-    agent_state, value_loss_key = agent_state.next_keys()
-    target_key, loss_key = jax.random.split(extension_key(value_loss_key))
-    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
-    target_metrics: dict = {}
-
-    # 1. Core Bellman target (pure SAC). Pass next_action_transform so
-    # residual RL evaluates the bootstrap critic at the same residual-
-    # transformed action distribution the critic was trained on.
+    """The critic step on SAC's soft target. ``next_action_transform``
+    (residual RL) evaluates the bootstrap at the transformed next action,
+    from the expert's stored action at s', so the critic is queried where
+    it was trained."""
+    agent_state, key = agent_state.next_keys()
+    # A truncated row bootstraps on its final observation (bootstrap_obs).
+    dones = transition.terminated
     target_q = core.compute_td_target(
         actor_state=agent_state.actor_state,
         critic_state=agent_state.critic_state,
-        next_observations=next_observations,
+        next_observations=transition.next_obs,
         dones=dones,
-        rewards=rewards,
+        rewards=transition.reward,
         gamma=gamma,
-        alpha=alpha,
-        rng=value_loss_key,
+        alpha=jnp.exp(agent_state.alpha.params["log_alpha"]),
+        rng=key,
         recurrent=recurrent,
         reward_scale=reward_scale,
         next_action_transform=next_action_transform,
-        next_a_expert=next_a_expert,
+        next_a_expert=(
+            transition.next_a_expert if next_action_transform is not None else None
+        ),
         carries=carries,
     )
-
-    # 2. The extensions' target modifiers (IBRL, LCBGatedBootstrap,
-    # CriticBlend, MCVarianceCorrection, ...) fold in stack order. They get
-    # the critic's predictions (``q_preds``: MCVarianceCorrection's
-    # variance) from a pass of their own: the target comes before the
-    # gradient-bearing pass inside critic_loss_fn.
+    # The target extensions (MCVarianceCorrection's variance) read the
+    # critics' predictions, from a pass of their own: the target comes
+    # before the gradient-bearing pass.
+    q_preds = None
     if "on_target" in extension_stack.implemented_phases():
-        q_preds_for_var = predict_value(
+        q_preds = predict_value(
             critic_state=agent_state.critic_state,
             critic_params=agent_state.critic_state.params,
-            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+            x=jnp.concatenate(
+                (transition.obs, jax.lax.stop_gradient(transition.action)), axis=-1
+            ),
         )
-        batch = {
-            "observations": observations,
-            "actions": actions,
-            "next_observations": next_observations,
-            "rewards": rewards,
-            "reward_scale": reward_scale,
-            "dones": dones,
-            # The target's own key: IBRL and LCBGatedBootstrap redraw its
-            # next-action sample.
-            "rng_key": value_loss_key,
-            "q_preds": q_preds_for_var,
-            "gamma": gamma,
-            "raw_next_observations": raw_next_observations,
-            # The agent's expert's actions at s', from its state.
-            "next_a_expert": stored_next_a_expert,
-            "recurrent": recurrent,
-        }
-        target_q, target_metrics = extension_stack.fold_on_target(
-            agent_state,
-            batch,
+
+    def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
+        return core.critic_loss_fn(
+            params,
+            agent_state.critic_state,
+            transition.obs,
+            transition.action,
             target_q,
-            agent_state.collector_state.timestep,
-            target_key,
-            total_timesteps,
+            carries=carries,
         )
 
-    # 3. Core critic loss (MSE against the composed target) plus the
-    #    extensions' critic-loss terms, inside the same value_and_grad so
-    #    the one Adam step sees the combined gradient.
-    critic_state = agent_state.critic_state
-
-    def _critic_loss(params):
-        loss, core_aux = core.critic_loss_fn(
-            params, critic_state, observations, actions, target_q, carries=carries
-        )
-        loss_batch = {
-            "observations": observations,
-            "actions": actions,
-            "next_observations": next_observations,
-            "targets": target_q,
-            "critic_params": params,
-            "critic_state": critic_state,
-            "actor_state": agent_state.actor_state,
-            "return_to_go": return_to_go,
-        }
-        extra, metrics = extension_stack.fold_critic_loss(
-            agent_state,
-            loss_batch,
-            agent_state.collector_state.timestep,
-            loss_key,
-            total_timesteps,
-        )
-        return loss + extra, (core_aux, metrics)
-
-    (loss, (core_aux, loss_metrics)), grads = jax.value_and_grad(
-        _critic_loss, has_aux=True
-    )(critic_state.params)
-
+    critic_state, core_aux, grad_norm, metrics = critic_step(
+        agent_state,
+        transition,
+        target_q,
+        value_loss,
+        extension_stack,
+        key,
+        total_timesteps,
+        rewards=transition.reward,
+        dones=dones,
+        gamma=gamma,
+        reward_scale=reward_scale,
+        # The target's key (IBRL and LCBGatedBootstrap redraw its
+        # next-action sample), the critics' predictions and the memory flag.
+        target_extras={"rng_key": key, "q_preds": q_preds, "recurrent": recurrent},
+    )
     aux = ValueAuxiliaries(
         critic_loss=core_aux.critic_loss,
         q_pred_min=core_aux.q_pred_min,
         var_preds=core_aux.var_preds,
         expert_frac_in_buffer=jnp.zeros(1),
-        grad_norm=optax.global_norm(grads),
+        grad_norm=grad_norm,
     )
-
-    updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
-    metrics = merge_metrics(target_metrics, loss_metrics)
-    return agent_state.replace(critic_state=updated_critic_state), aux, metrics
+    return agent_state.replace(critic_state=critic_state), aux, metrics
 
 
 def policy_loss_function(
@@ -492,7 +451,6 @@ def update_agent(
             agent_state, buffer, sample_key, burn_in, stored_state=stored_state
         )
         expert_frac_in_buffer = jnp.zeros(())
-        raw_next_observations = None
     else:
         collector = agent_state.collector_state
         batch = get_batch_from_buffer(
@@ -505,11 +463,10 @@ def update_agent(
         expert_frac_in_buffer = (
             jnp.zeros(()) if batch.is_expert is None else batch.is_expert.mean()
         )
-        # The raw next observations, kept for extensions that call an
-        # expert of their own (init_SAC's store_raw_next_obs).
-        raw_next_observations = batch.raw_next_obs
-        # The expert's actions are stored with an expert policy
-        # (the collector stores them with an expert), None without one.
+        # The expert's actions are stored with an expert policy (the
+        # collector stores them with an expert), None without one; the raw
+        # next observations for extensions that call an expert of their own
+        # (init_SAC's store_raw_next_obs).
         transition = Transition(
             batch.obs,
             batch.action,
@@ -521,10 +478,9 @@ def update_agent(
             a_expert=batch.a_expert,
             next_a_expert=batch.next_a_expert,
             return_to_go=batch.return_to_go,
+            raw_next_obs=batch.raw_next_obs,
         )
 
-    # A truncated row bootstraps on its final observation (bootstrap_obs).
-    dones = transition.terminated
     # The env observations without train_frac, which is what expert_policy
     # expects.
     _raw = (
@@ -565,38 +521,19 @@ def update_agent(
         else:
             a_expert_precomputed = jax.lax.stop_gradient(expert_policy(_raw))
 
-    # --- Critic updates ---
-    # For residual RL: apply the same residual transform to the
-    # bootstrap action in the TD target so the critic is queried in-
-    # distribution. policy_action_transform expects a_expert at s_t,
-    # but at the target it must use a_expert at s_{t+1} = next_a_expert.
-    _next_a_expert_for_target = (
-        transition.next_a_expert
-        if transition.next_a_expert is not None and policy_action_transform is not None
-        else None
-    )
-
     # See ajax.perf_utils.final_aux_scan: carry-only scan that exposes
     # last-step aux without materialising the full ys axis.
     def critic_update_step(state, _):
         state, aux, metrics = update_value_functions(
-            observations=transition.obs,
-            actions=transition.action,
-            next_observations=transition.next_obs,
-            rewards=transition.reward,
-            dones=dones,
-            agent_state=state,
-            recurrent=recurrent,
-            gamma=gamma,
+            state,
+            transition,
+            recurrent,
+            gamma,
+            extension_stack,
             reward_scale=reward_scale,
-            extension_stack=extension_stack,
             total_timesteps=total_timesteps,
             next_action_transform=policy_action_transform,
-            next_a_expert=_next_a_expert_for_target,
             carries=carries,
-            raw_next_observations=raw_next_observations,
-            stored_next_a_expert=transition.next_a_expert,
-            return_to_go=transition.return_to_go,
         )
         return state, (aux, metrics)
 

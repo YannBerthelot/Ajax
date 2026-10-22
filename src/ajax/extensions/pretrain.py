@@ -807,20 +807,16 @@ def pretrain_critic_bellman(
             sample_key,
             reward_statistics(collector.env_state),
         )
-        observations, next_observations = batch.obs, batch.next_obs
         if augment:
             observations, next_observations = augment_from_batch(batch)
+            batch = batch._replace(obs=observations, next_obs=next_observations)
         # The plain Bellman target: no extension's target or loss term.
         agent_state, aux, _ = update_value_fn(
-            observations=observations,
-            actions=batch.action,
-            next_observations=next_observations,
-            rewards=batch.reward,
-            dones=batch.terminated,
-            agent_state=agent_state,
-            recurrent=recurrent,
-            gamma=gamma,
-            extension_stack=ExtensionStack(),
+            agent_state,
+            batch,
+            recurrent,
+            gamma,
+            ExtensionStack(),
             reward_scale=reward_scale,
         )
         agent_state = update_target_fn(agent_state, tau=5e-4)

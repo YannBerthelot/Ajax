@@ -127,7 +127,7 @@ def psi(ref: dict, aj: dict) -> dict:
     values = {}
     for sampler in ("randint", "uniform"):
         a, r = (
-            role(aj, sampler, "pipeline"),
+            role(aj, sampler, "explore"),
             role(ref, sampler, "eps_greedy_exploration"),
         )
         flat = [v for _, v in ref[r]]

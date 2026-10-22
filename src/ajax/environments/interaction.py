@@ -603,11 +603,15 @@ Explore = Callable[[Any, jax.Array, jax.Array], jax.Array]
 
 
 def explore_pipeline(
-    explore: Explore, recurrent: bool, n_actions: Optional[int] = None
+    explore: Explore,
+    recurrent: bool,
+    n_actions: Optional[int] = None,
+    warmup: bool = True,
 ) -> Callable:
     """The action pipeline of the behaviour policy ``explore`` (``n_actions``:
     a discrete action space's size), or uniform actions, on ``mix_key``,
-    during the warm-up.
+    during the warm-up; an agent that never warms up (``warmup=False``, an
+    on-policy one) draws none.
 
     A recurrent actor advances its carry, its one-step time axis dropped
     from the action. A discrete action is stored as an ``(n_envs, 1)``
@@ -622,15 +626,17 @@ def explore_pipeline(
         pi, actor = get_pi(actor, actor.params, collector.last_obs, done, recurrent)
         action = explore(pi, action_key, collector.timestep)
         action = action.squeeze(0) if recurrent else action
-        if n_actions is None:
-            uniform_action = jax.random.uniform(
-                mix_key, minval=-1.0, maxval=1.0, shape=action.shape
-            )
-        else:
-            uniform_action = jax.random.randint(
-                mix_key, action.shape, minval=0, maxval=n_actions
-            ).astype(action.dtype)
-        env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
+        env_action = action
+        if warmup:
+            if n_actions is None:
+                uniform_action = jax.random.uniform(
+                    mix_key, minval=-1.0, maxval=1.0, shape=action.shape
+                )
+            else:
+                uniform_action = jax.random.randint(
+                    mix_key, action.shape, minval=0, maxval=n_actions
+                ).astype(action.dtype)
+            env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
         discrete = n_actions is not None
         return ActionPipelineResult(
             env_action=env_action,

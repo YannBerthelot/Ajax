@@ -19,7 +19,7 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.APO.state import APOConfig, APOState
-from ajax.agents.loop import TrainLoop
+from ajax.agents.loop import TrainLoop, extension_key
 from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
@@ -184,12 +184,13 @@ def update_networks(
     Adam is per coordinate, so the two networks' own Adams, stepped together
     on that one gradient, are that Adam (each its learning rate, as torch's
     parameter groups would). The extensions' critic and actor terms join the
-    sum, on two keys drawn from the minibatch's extension key; the actor's
+    sum, on two keys derived from the minibatch's entropy key
+    (:func:`ajax.agents.loop.extension_key`); the actor's
     also read ``a_expert``, the expert's actions collection stored at the
     rows (None without an expert).
     """
     actor_state, critic_state = agent_state.actor_state, agent_state.critic_state
-    critic_key, actor_key = jax.random.split(minibatch["extension_key"])
+    critic_key, actor_key = jax.random.split(extension_key(minibatch["entropy_key"]))
     timestep = agent_state.collector_state.timestep
 
     def loss_fn(params: tuple) -> Tuple[jax.Array, AuxiliaryLogs]:
@@ -321,11 +322,11 @@ def update_agent(
         gae_lambda=agent_config.gae_lambda,
     )
 
-    # A key is drawn only with extensions.
+    # The update's key: it shuffles the rollout, and on_target folds on a key
+    # derived from it.
+    agent_state, shuffle_key = agent_state.next_keys()
     target_metrics: dict = {}
     if extension_stack:
-        target_key, rng = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=rng)
         target_batch = {
             "observations": transition.obs,
             "next_observations": transition.next_obs,
@@ -342,7 +343,7 @@ def update_agent(
             target_batch,
             value_targets,
             agent_state.collector_state.timestep,
-            target_key,
+            extension_key(shuffle_key),
             total_timesteps,
         )
 
@@ -367,19 +368,15 @@ def update_agent(
         # None leaves the minibatches as they were without an expert.
         "a_expert": transition.a_expert if stores_expert_actions else None,
     }
-    shuffle_key, rng = jax.random.split(agent_state.rng)
-    agent_state = agent_state.replace(rng=rng)
     num_minibatches = resolve_num_minibatches(agent_config)
 
     def minibatches(key: jax.Array) -> dict:
         """One epoch's partition of the rollout, each minibatch with a key
-        for its entropy sample and one for the extensions' loss terms,
-        derived from the epoch's key so the agent's own key stream is drawn
-        as before."""
+        for its entropy sample, derived from the epoch's key so the agent's
+        own key stream is drawn as before."""
         parts = get_minibatches_from_batch(batch, key, num_minibatches)
         keys = jax.random.split(jax.random.fold_in(key, 1), num_minibatches)
-        ext_keys = jax.random.split(jax.random.fold_in(key, 2), num_minibatches)
-        return parts | {"entropy_key": keys, "extension_key": ext_keys}
+        return parts | {"entropy_key": keys}
 
     def step(agent_state: APOState, mb: dict) -> Tuple[APOState, AuxiliaryLogs]:
         return update_networks(

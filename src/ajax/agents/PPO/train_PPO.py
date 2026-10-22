@@ -27,7 +27,7 @@ import jax.numpy as jnp
 import optax
 from flax.core import FrozenDict
 
-from ajax.agents.loop import TrainLoop
+from ajax.agents.loop import TrainLoop, extension_key
 from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
@@ -564,7 +564,7 @@ def _force_reset(
     actor and critic restart their memory on the reset observation, as at
     any episode start.
     """
-    reset_key, new_rng = jax.random.split(agent_state.rng)
+    agent_state, reset_key = agent_state.next_keys()
     saved = _normalisation_info(agent_state.collector_state.env_state, mode)
     reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
@@ -592,7 +592,7 @@ def _force_reset(
         episodic_return_state=returns,
         last_truncated=jnp.ones_like(collector.last_truncated),
     )
-    return agent_state.replace(collector_state=new_collector, rng=new_rng)
+    return agent_state.replace(collector_state=new_collector)
 
 
 def update_agent(
@@ -613,12 +613,15 @@ def update_agent(
     n_steps, n_envs = rollout.obs.shape[:2]
     geometry = minibatch_geometry(agent_config, n_steps, n_envs, recurrent)
     actions, log_probs = rollout_actions(rollout)
+    # The update's key: it shuffles the rollout, and the rollout's folds draw
+    # on keys derived from it.
+    agent_state, shuffle_key = agent_state.next_keys()
+    reward_key, target_key = jax.random.split(extension_key(shuffle_key))
     rewards, reward_metrics = rollout.reward, dict[str, Any]()
     if "reward" in extension_stack.implemented_phases():
         # The extensions' rewards replace the env's (GAIL's discriminator).
-        reward_key, rng = jax.random.split(agent_state.rng)
         agent_state, rewards, reward_metrics = extension_stack.fold_reward(
-            agent_state.replace(rng=rng),
+            agent_state,
             {
                 "observations": rollout.obs,
                 "raw_observations": rollout.raw_obs,
@@ -675,8 +678,6 @@ def update_agent(
             gae_lambda=agent_config.gae_lambda,
         )
         if extension_stack:
-            target_key, rng = jax.random.split(agent_state.rng)
-            agent_state = agent_state.replace(rng=rng)
             target_batch = {
                 "observations": rollout.obs,
                 "next_observations": rollout.next_obs,
@@ -698,8 +699,6 @@ def update_agent(
             )
         batch |= {"targets": value_targets, "gae": gae}
 
-    shuffle_key, rng = jax.random.split(agent_state.rng)
-    agent_state = agent_state.replace(rng=rng)
     k, length = geometry.num_minibatches, geometry.length
 
     def minibatches(key: jax.Array) -> dict:
@@ -712,12 +711,11 @@ def update_agent(
 
     def minibatch_step(agent_state: PPOState, mb: dict) -> tuple[PPOState, Any]:
         """A critic and an actor step, both from the state before either."""
-        ent_rng, ext_rng, new_rng = jax.random.split(agent_state.rng, 3)
+        agent_state, ent_rng = agent_state.next_keys()
         target_metrics: dict = {}
-        agent_state = agent_state.replace(rng=new_rng)
         critic, actor = agent_state.critic_state, agent_state.actor_state
         # The extensions' target and loss terms, each on a key of its own.
-        target_key, critic_key, actor_key = jax.random.split(ext_rng, 3)
+        target_key, critic_key, actor_key = jax.random.split(extension_key(ent_rng), 3)
         critic_extra = _stack_critic_loss(
             extension_stack, agent_state, critic_key, total_timesteps
         )

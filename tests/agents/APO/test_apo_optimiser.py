@@ -130,7 +130,6 @@ def _minibatches(state: Any) -> list[dict]:
                 "gae": jax.random.normal(k[2], (B, 1)),
                 "targets": scale * jax.random.normal(k[3], (B, 1)),
                 "entropy_key": k[0],
-                "extension_key": k[1],
                 "a_expert": None,
             }
         )

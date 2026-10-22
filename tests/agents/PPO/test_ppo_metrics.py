@@ -204,7 +204,6 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
         "raw_obs": None,
         "a_expert": None,
         "entropy_key": KEY,
-        "extension_key": KEY,
     }
     _, aux = train_APO.update_networks(state, minibatch, config, b, stack, 1)
     v_aux, p_aux = cast(train_APO.ValueAuxiliaries, aux.value), aux.policy

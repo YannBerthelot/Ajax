@@ -1158,6 +1158,53 @@ _GOLDEN |= {
         "alpha": 0.9758655428886414,
     },
 }
+# Re-recorded on macOS ARM CPU on 2026-10-22 once PPO, APO and PQN derived
+# their extensions' keys from keys their steps hold (loop.extension_key)
+# instead of splitting them off the state's rng: with extensions, the agent's
+# own stream is now the one it draws without. Relative shifts: PPO-discrete-
+# nudge actor +0.88%, critic -2.3e-5, nudge -6.2%; APO-nudge actor -0.27%,
+# critic +0.23%, nudge -13.1%; PQN-nudge actor +1.0e-4, nudge -0.87%. Plain
+# PPO, APO and PQN runs and PPO-env-split-nudge (time geometry: no key split
+# off for its extensions) are bitwise unchanged.
+_GOLDEN |= {
+    "PPO-discrete-nudge": {
+        "actor": 7.366045951843262,
+        "critic": 9.033742904663086,
+        "nudge": 0.29222556948661804,
+    },
+    "APO-nudge": {
+        "actor": 9.178837776184082,
+        "critic": 8.076091766357422,
+        "nudge": 0.2922629714012146,
+    },
+    "PQN-nudge": {"actor": 34.02363586425781, "nudge": 0.3327599763870239},
+}
+# Re-recorded on macOS ARM CPU on 2026-10-22 once PPO's minibatch step drew
+# one key from the state, not three (the extensions' key, unused since they
+# derive theirs from the entropy key, is gone): the state's rng, which
+# collection and the next update's shuffle draw on, moves for every PPO run.
+# Relative shifts (actor, critic): PPO-mcc +0.31%, +0.067%; PPO-flat -0.25%,
+# +0.27%; PPO-env-split -0.026%, -1.4%; PPO-unroll -1.0%, -0.16%; PPO-gru
+# +0.22%, +0.022%; PPO-discrete-nudge -2.1%, -0.71%, nudge +4.8%;
+# PPO-env-split-nudge -0.17%, +0.012%, nudge +6.7%. APO and PQN are
+# bitwise unchanged.
+_GOLDEN |= {
+    "PPO-mcc": {"actor": 4.0060930252075195, "critic": 5.060414791107178},
+    "PPO-flat": {"actor": 5.9997878074646, "critic": 7.219112396240234},
+    "PPO-env-split": {"actor": 6.002913951873779, "critic": 7.049428939819336},
+    "PPO-unroll": {"actor": 6.012901306152344, "critic": 7.256919860839844},
+    "PPO-gru": {"actor": 55.387298583984375, "critic": 54.797359466552734},
+    "PPO-discrete-nudge": {
+        "actor": 7.213113307952881,
+        "critic": 8.969327926635742,
+        "nudge": 0.3061334490776062,
+    },
+    "PPO-env-split-nudge": {
+        "actor": 5.666478157043457,
+        "critic": 7.248126029968262,
+        "nudge": 0.33081668615341187,
+    },
+}
 
 
 def fingerprint(name: str) -> dict[str, float]:

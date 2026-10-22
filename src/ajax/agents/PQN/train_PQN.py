@@ -29,7 +29,7 @@ from ajax.agents.DQN.train_DQN import (
     init_DQN,
     q_gradient_step,
 )
-from ajax.agents.loop import TrainLoop
+from ajax.agents.loop import TrainLoop, extension_key
 from ajax.agents.PPO.utils import get_minibatches_from_batch
 from ajax.agents.PQN.networks import PQNNetwork
 from ajax.agents.PQN.state import PQNConfig, PQNState
@@ -83,18 +83,13 @@ def update_agent(
         agent_config.gamma,
         agent_config.q_lambda,
     )
-    # The extensions reshape the target before it is held constant, then add
-    # their loss terms, each on a key of its own (drawn only with extensions):
-    # one per epoch and minibatch.
-    loss_keys = None
+    rng, key = jax.random.split(agent_state.rng)
+    agent_state = agent_state.replace(rng=rng)
+    # The extensions reshape the target before it is held constant, on a key
+    # derived from the update's, then add their loss terms, on keys derived
+    # from each epoch's: one per minibatch.
     target_metrics: dict = {}
     if extension_stack:
-        rng, ext_key = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=rng)
-        target_key, loss_key = jax.random.split(ext_key)
-        loss_keys = jax.random.split(
-            loss_key, (agent_config.n_epochs, agent_config.num_minibatches)
-        )
         _tgt_batch = {
             "observations": rollout.obs,
             "actions": rollout.action,
@@ -112,20 +107,20 @@ def update_agent(
             _tgt_batch,
             targets,
             agent_state.collector_state.timestep,
-            target_key,
+            extension_key(key),
             total_timesteps,
         )
     targets = jax.lax.stop_gradient(targets)
     batch = (rollout.obs, rollout.action, targets)
 
-    rng, epoch_rng = jax.random.split(agent_state.rng)
-    agent_state = agent_state.replace(rng=rng)
-    epoch_keys = jax.random.split(epoch_rng, agent_config.n_epochs)
+    epoch_keys = jax.random.split(key, agent_config.n_epochs)
 
-    def epoch_body(agent_state: PQNState, keys: tuple) -> Tuple[Any, Any]:
-        epoch_key, epoch_loss_keys = keys
+    def epoch_body(agent_state: PQNState, epoch_key: jax.Array) -> Tuple[Any, Any]:
         minibatches = get_minibatches_from_batch(
             batch, epoch_key, agent_config.num_minibatches
+        )
+        loss_keys = jax.random.split(
+            extension_key(epoch_key), agent_config.num_minibatches
         )
 
         def mb_body(agent_state: PQNState, xs: tuple) -> Tuple[Any, Any]:
@@ -143,10 +138,10 @@ def update_agent(
             agent_state = agent_state.replace(actor_state=q_state)
             return agent_state, (value_aux, loss_metrics)
 
-        return jax.lax.scan(mb_body, agent_state, (minibatches, epoch_loss_keys))
+        return jax.lax.scan(mb_body, agent_state, (minibatches, loss_keys))
 
     agent_state, (value_aux, loss_metrics) = jax.lax.scan(
-        epoch_body, agent_state, (epoch_keys, loss_keys)
+        epoch_body, agent_state, epoch_keys
     )
     # (n_epochs, num_minibatches, ...) -> one (1,) value per metric.
     value_aux, loss_metrics = jax.tree.map(

@@ -1,116 +1,116 @@
 {
   "test_empty_stack_matches_legacy_plain_sac": {
-    "critic": 554.5269775390625,
-    "actor": 267.16717529296875,
-    "target": 535.032470703125,
-    "alpha": 0.9818704724311829
+    "critic": 555.1937866210938,
+    "actor": 267.0611877441406,
+    "target": 535.060791015625,
+    "alpha": 0.9818669557571411
   },
   "test_expert_policy_matches_legacy_expert_policy": {
-    "critic": 553.564453125,
-    "actor": 267.0657043457031,
-    "target": 535.001953125,
-    "alpha": 0.9818556308746338
+    "critic": 554.9965209960938,
+    "actor": 267.1128845214844,
+    "target": 535.045654296875,
+    "alpha": 0.9818887114524841
   },
   "test_online_bc_matches_legacy_flag": {
-    "critic": 558.133056640625,
-    "actor": 267.08135986328125,
-    "target": 535.1194458007812,
-    "alpha": 0.9819109439849854
+    "critic": 557.9580078125,
+    "actor": 267.06915283203125,
+    "target": 535.0988159179688,
+    "alpha": 0.9819226264953613
   },
   "test_residual_policy_matches_legacy_use_residual_rl": {
-    "critic": 554.4249267578125,
-    "actor": 267.06036376953125,
-    "target": 535.031982421875,
-    "alpha": 0.9818888902664185
+    "critic": 553.82275390625,
+    "actor": 267.0206298828125,
+    "target": 535.0311889648438,
+    "alpha": 0.9819216132164001
   },
   "test_jsrl_curriculum_matches_legacy_flag": {
-    "critic": 554.7139892578125,
-    "actor": 267.0643005371094,
-    "target": 535.0286254882812,
-    "alpha": 0.9818888902664185
+    "critic": 554.2798461914062,
+    "actor": 267.07470703125,
+    "target": 535.0009765625,
+    "alpha": 0.9818969368934631
   },
   "test_ibrl_matches_legacy_flag": {
-    "critic": 554.8300170898438,
-    "actor": 267.10107421875,
-    "target": 535.0364990234375,
-    "alpha": 0.9818914532661438
+    "critic": 554.4730834960938,
+    "actor": 267.0819396972656,
+    "target": 535.0059204101562,
+    "alpha": 0.9819052219390869
   },
   "test_edge_exploration_matches_legacy_flags[fixed]": {
-    "critic": 555.3084716796875,
-    "actor": 267.04132080078125,
-    "target": 535.0451049804688,
-    "alpha": 0.9819841384887695
+    "critic": 554.847900390625,
+    "actor": 267.17401123046875,
+    "target": 535.0361938476562,
+    "alpha": 0.9819272756576538
   },
   "test_edge_exploration_matches_legacy_flags[argmax]": {
-    "critic": 554.7214965820312,
-    "actor": 267.0704345703125,
-    "target": 535.0261840820312,
-    "alpha": 0.9818888306617737
+    "critic": 554.2703247070312,
+    "actor": 267.07501220703125,
+    "target": 535.0008544921875,
+    "alpha": 0.9818968176841736
   },
   "test_edge_exploration_matches_legacy_flags[boltzmann]": {
-    "critic": 555.3084716796875,
-    "actor": 267.04132080078125,
-    "target": 535.0451049804688,
-    "alpha": 0.9819841384887695
+    "critic": 554.847900390625,
+    "actor": 267.17401123046875,
+    "target": 535.0361938476562,
+    "alpha": 0.9819272756576538
   },
   "test_edge_exploration_matches_legacy_flags[lcb]": {
-    "critic": 554.5513305664062,
-    "actor": 267.06640625,
-    "target": 535.0338745117188,
-    "alpha": 0.98198002576828
+    "critic": 554.4852905273438,
+    "actor": 267.151611328125,
+    "target": 535.0313720703125,
+    "alpha": 0.9819298982620239
   },
   "test_edge_exploration_matches_legacy_flags[argmax_lcb]": {
-    "critic": 554.2891235351562,
-    "actor": 267.083251953125,
-    "target": 535.0243530273438,
-    "alpha": 0.9818980097770691
+    "critic": 553.7955932617188,
+    "actor": 267.0715026855469,
+    "target": 534.99658203125,
+    "alpha": 0.9818890690803528
   },
   "test_edge_exploration_matches_legacy_flags[thompson]": {
-    "critic": 555.0681762695312,
-    "actor": 267.03753662109375,
-    "target": 535.0504150390625,
-    "alpha": 0.9819856286048889
+    "critic": 554.841552734375,
+    "actor": 267.1156921386719,
+    "target": 535.041015625,
+    "alpha": 0.9819263219833374
   },
   "test_lcb_gated_bootstrap_matches_legacy_flag": {
-    "critic": 554.8558959960938,
-    "actor": 267.1002197265625,
-    "target": 535.036865234375,
-    "alpha": 0.9818914532661438
+    "critic": 554.4913330078125,
+    "actor": 267.08184814453125,
+    "target": 535.0059814453125,
+    "alpha": 0.9819052219390869
   },
   "test_mc_pretrain_matches_legacy_flag": {
-    "critic": 558.1804809570312,
-    "actor": 267.10125732421875,
-    "target": 535.121826171875,
-    "alpha": 0.9818987250328064
+    "critic": 557.9769287109375,
+    "actor": 267.0711975097656,
+    "target": 535.0988159179688,
+    "alpha": 0.9819126129150391
   },
   "test_bellman_pretrain_matches_legacy_flag": {
-    "critic": 562.3468017578125,
-    "actor": 267.01849365234375,
-    "target": 535.2047729492188,
-    "alpha": 0.9818357825279236
+    "critic": 561.4686889648438,
+    "actor": 267.11846923828125,
+    "target": 535.2037353515625,
+    "alpha": 0.9819570779800415
   },
   "test_critic_blend_matches_legacy_flag": {
-    "critic": 557.7384033203125,
-    "actor": 267.05499267578125,
-    "target": 535.108154296875,
-    "alpha": 0.9819163084030151
+    "critic": 557.5790405273438,
+    "actor": 267.0747375488281,
+    "target": 535.087646484375,
+    "alpha": 0.9819254279136658
   },
   "test_mc_variance_correction_matches_legacy_flag": {
-    "critic": 536.2942504882812,
-    "actor": 267.01959228515625,
-    "target": 534.6038818359375,
-    "alpha": 0.9818992614746094
+    "critic": 536.2958984375,
+    "actor": 266.9858093261719,
+    "target": 534.6102294921875,
+    "alpha": 0.9818975329399109
   },
   "test_value_box_matches_legacy_flag": {
-    "critic": 555.7222900390625,
-    "actor": 267.08831787109375,
-    "target": 535.0842895507812,
-    "alpha": 0.9818962812423706
+    "critic": 555.0855102539062,
+    "actor": 267.0661315917969,
+    "target": 535.0642700195312,
+    "alpha": 0.9818910956382751
   },
   "test_phi_refresh_matches_legacy_flag": {
-    "critic": 556.0299072265625,
-    "actor": 267.0800476074219,
-    "target": 535.1032104492188,
-    "alpha": 0.9819285869598389
+    "critic": 558.3507690429688,
+    "actor": 267.0790710449219,
+    "target": 535.1078491210938,
+    "alpha": 0.9820255041122437
   }
 }

@@ -8,7 +8,7 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
-from ajax.agents.loop import TrainLoop, critic_step, when
+from ajax.agents.loop import TrainLoop, critic_step, extension_key, when
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
@@ -289,6 +289,7 @@ def policy_loss_function(
 
     # 1. Core forward pass + sample (``carries`` for sequence replay).
     pi = actor_dist(actor_state, actor_params, observations, carries)
+    ext_key = extension_key(rng)
     sample_key, rng = jax.random.split(rng)
     actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
     log_probs = log_probs.sum(-1, keepdims=True)
@@ -345,7 +346,7 @@ def policy_loss_function(
         agent_state,
         ext_batch,
         agent_state.collector_state.timestep,
-        rng,
+        ext_key,
         total_timesteps,
     )
     bc_term = jnp.asarray(bc_term)
@@ -378,7 +379,7 @@ def update_policy(
     """Returns (new_state, aux, log_probs, metrics): log_probs from a fresh
     pass of the updated actor, for update_temperature (CleanRL's SAC order;
     cited from memory, unverified), and the extensions' metrics."""
-    rng, policy_key = jax.random.split(agent_state.rng)
+    agent_state, policy_key, temp_sample_key = agent_state.next_keys(2)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
 
     (loss, (aux, metrics)), grads = jax.value_and_grad(
@@ -404,13 +405,12 @@ def update_policy(
     updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
     aux = aux.replace(grad_norm=optax.global_norm(grads))
 
-    temp_rng, temp_sample_key = jax.random.split(rng)
     pi = actor_dist(
         updated_actor_state, updated_actor_state.params, observations, carries
     )
     _, log_probs = pi.sample_and_log_prob(seed=temp_sample_key)
     return (
-        agent_state.replace(rng=temp_rng, actor_state=updated_actor_state),
+        agent_state.replace(actor_state=updated_actor_state),
         aux,
         jax.lax.stop_gradient(log_probs),
         metrics,

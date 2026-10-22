@@ -156,7 +156,6 @@ def compute_td_target(
     critic loss.
     """
     del recurrent
-    rewards = rewards * reward_scale
     sample_key, rng = jax.random.split(rng)
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries
@@ -176,9 +175,28 @@ def compute_td_target(
         bootstrap=True,
     )
     min_q_target = jnp.min(q_targets, axis=0, keepdims=False)
-
-    target = rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs)
+    target = soft_bellman_target(
+        min_q_target, log_probs, rewards, dones, gamma, alpha, reward_scale
+    )
     return jax.lax.stop_gradient(target)
+
+
+def soft_bellman_target(
+    next_q: jax.Array,
+    next_log_probs: jax.Array,
+    rewards: jax.Array,
+    dones: jax.Array,
+    gamma: float,
+    alpha: jax.Array,
+    reward_scale: float = 1.0,
+) -> jax.Array:
+    """SAC's Bellman target ``r + gamma (1 - d)(Q' - alpha log pi(a'|s'))``
+    from the bootstrap value ``next_q`` (the critics' reduced value at
+    ``(s', a')``) and ``a'``'s log-probabilities, however the agent computed
+    them: a target critic's pass (:func:`compute_td_target`) or CrossQ's
+    joint pass."""
+    rewards = rewards * reward_scale
+    return rewards + gamma * (1.0 - dones) * (next_q - alpha * next_log_probs)
 
 
 def critic_loss_fn(
@@ -201,6 +219,16 @@ def critic_loss_fn(
         jax.lax.stop_gradient(actions),
         carries,
     )
+    return q_regression_loss(q_preds, target_q)
+
+
+def q_regression_loss(
+    q_preds: jax.Array, target_q: jax.Array
+) -> Tuple[jax.Array, CoreCriticAux]:
+    """The critics' mean squared error to the held ``target_q`` and its
+    logs, from their predictions ``q_preds`` (the ensemble axis first),
+    however the agent computed them: :func:`critic_loss_fn`'s pass or
+    CrossQ's joint one."""
     var_preds = q_preds.var(axis=0, keepdims=True)
 
     total_loss = jnp.mean((q_preds - target_q) ** 2)
@@ -235,6 +263,23 @@ def soft_policy_loss(
     actions taken (:func:`~ajax.agents.recurrent.q_values`).
     """
     pi = actor_dist(actor_state, actor_params, observations, carries)
+    return soft_policy_objective(
+        pi, critic_state, observations, alpha, rng, carries, q_reduce, action_transform
+    )
+
+
+def soft_policy_objective(
+    pi: Any,
+    critic_state,
+    observations: jax.Array,
+    alpha: jax.Array,
+    rng: jax.Array,
+    carries: Optional[RecurrentCarries] = None,
+    q_reduce: Callable[..., jax.Array] = jnp.min,
+    action_transform: Optional[Callable[[jax.Array], jax.Array]] = None,
+) -> Tuple[jax.Array, Tuple[jax.Array, jax.Array, Any]]:
+    """:func:`soft_policy_loss` on the policy ``pi`` at ``observations``,
+    however the agent computed it (CrossQ's actor in training)."""
     sample_key, rng = jax.random.split(rng)
     actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
     if action_transform is not None:

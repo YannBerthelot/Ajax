@@ -42,8 +42,8 @@ class SAC(ActorCritic):
     supports_memory: bool = True
     replays_transitions: bool = True
     capabilities: frozenset = frozenset(
-        "actor critic_ensemble discounted "
-        "obs_networks off_policy policy_density q_critic replay".split()
+        "actor critic_ensemble discounted obs_networks "
+        "off_policy policy_density q_critic replay target_critic".split()
     )
     # ``action`` reaches only the action pipeline's slots, and
     # ``transform_action`` the pipeline, with an expert policy

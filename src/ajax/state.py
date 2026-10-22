@@ -183,6 +183,10 @@ class LoadedTrainState(TrainState):
     # (sfujim/TD3's max_action * tanh) trains its critic on those, and Adam's
     # steps on the action inputs depend on the scale. None: [-1, 1] as is.
     action_units: Optional[tuple] = struct.field(pytree_node=False, default=None)
+    # The network's running statistics (its BatchRenorm layers'
+    # ``batch_stats`` collection), apart from the trained ``params``: the
+    # optimiser never steps them. None for a network without any.
+    batch_stats: Optional[flax.core.FrozenDict] = None
 
     def soft_update(self, tau):
         new_target_params = optax.incremental_update(
@@ -199,7 +203,29 @@ class LoadedTrainState(TrainState):
         return instance.replace(hidden_state=hidden_state, recurrent=recurrent)
 
     def apply(self, params, *args, **kwargs):
-        return self.apply_fn(params, *args, **kwargs)
+        """The network at ``params``, reading its running statistics."""
+        return self.apply_fn(with_batch_stats(self, params), *args, **kwargs)
+
+    def apply_train(self, params, *args, **kwargs):
+        """The network in training at ``params``: ``(out, batch_stats)``,
+        its running statistics after this pass (None without any)."""
+        if self.batch_stats is None:
+            return self.apply_fn(params, *args, **kwargs), None
+        out, updates = self.apply_fn(
+            with_batch_stats(self, params), *args, mutable=["batch_stats"], **kwargs
+        )
+        # Frozen as init stores them: a state's structure stays one type.
+        return out, flax.core.FrozenDict(updates["batch_stats"])
+
+
+def with_batch_stats(train_state: Any, params: Any) -> Any:
+    """The variables a forward pass at ``params`` reads: ``params`` and the
+    train state's running statistics, if it has any
+    (:attr:`LoadedTrainState.batch_stats`)."""
+    batch_stats = getattr(train_state, "batch_stats", None)
+    if batch_stats is None:
+        return params
+    return {**params, "batch_stats": batch_stats}
 
 
 @struct.dataclass

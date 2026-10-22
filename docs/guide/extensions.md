@@ -125,6 +125,7 @@ Each agent says what its algorithm has, in `capabilities`:
 | `replay` | its updates sample stored past transitions | SAC, TD3, REDQ, ASAC, DQN, UDRL, DAgger, DreamerV3, TDMPC2, IQL |
 | `off_policy` | its update stays correct on actions its policy did not choose | all but PPO, APO, APG |
 | `critic_ensemble` | two critics or more | SAC, TD3, REDQ, ASAC, TDMPC2, IQL; AVG with `num_critics` of 2 or more |
+| `target_critic` | a slowly updated copy of its critic, which its bootstrap reads | SAC, TD3, REDQ, ASAC, DQN, TDMPC2, IQL |
 | `obs_networks` | its policy and value networks read the observation, not a world model's latent state (memory needs it) | all but DreamerV3, TDMPC2 |
 
 A run adds what its configuration gives: `critic` (a Q or V critic),

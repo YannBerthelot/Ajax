@@ -221,7 +221,7 @@ agent at once. The probes check it end to end: a planted fault that runs
 
 | Shape | Agents | One iteration | Budget |
 | --- | --- | --- | --- |
-| `loop.off_policy(init, update, aux_cls, learning_starts, ...)` | SAC, TD3, REDQ, ASAC, AVG, DQN | one step per env (a *tick*); from `learning_starts` on, one `update(state, transition)` | `budget // n_envs` ticks |
+| `loop.off_policy(init, update, learning_starts, ...)` | SAC, TD3, REDQ, ASAC, AVG, DQN | one step per env (a *tick*); from `learning_starts` on, one `update(state, transition)` | `budget // n_envs` ticks |
 | `loop.on_policy(init, update, n_steps, ...)` | PPO, APO, PQN | an `n_steps` rollout per env from the state `start`, then `update(state, rollout, start)` | `budget // (n_envs * n_steps) + 1` rollouts |
 | `loop.off_policy(..., collect=, n_updates=, evaluation=)` | DreamerV3, TDMPC2 | the agent's own `collect(state, tick)`, then `n_updates(tick, state)` updates (a train ratio, a burst), then the agent's own `Evaluation` | `budget // n_envs` ticks, or `num_ticks` |
 

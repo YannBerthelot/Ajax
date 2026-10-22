@@ -88,8 +88,9 @@ class CrossQ(ActorCritic):
         Args:
             learning_rate (float): The actor's and the critics' (and the
                 temperature's, unless ``alpha_learning_rate`` is given).
-            actor_width, critic_width (int): The units of the two hidden
-                layers; the paper's critics are 2048 wide (SBX's 1024).
+            actor_width (int): The units of the actor's two hidden layers.
+            critic_width (int): The units of the critics' two hidden layers;
+                the paper's are 2048 wide (SBX's 1024).
             adam_beta_1 (float): The actor's and the critics' Adam beta1;
                 the temperature's Adam keeps 0.9, as the authors'.
         """

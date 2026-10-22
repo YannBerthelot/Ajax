@@ -711,10 +711,7 @@ def update_agent(
 
     def minibatch_step(agent_state: PPOState, mb: dict) -> tuple[PPOState, Any]:
         """A critic and an actor step, both from the state before either."""
-        # A deliberate workaround: the second key, the extensions' before they
-        # derived theirs from ent_rng, is unused; drawing it keeps every PPO
-        # run's random stream as it was.
-        agent_state, ent_rng, _ = agent_state.next_keys(2)
+        agent_state, ent_rng = agent_state.next_keys()
         target_metrics: dict = {}
         critic, actor = agent_state.critic_state, agent_state.actor_state
         # The extensions' target and loss terms, each on a key of its own.

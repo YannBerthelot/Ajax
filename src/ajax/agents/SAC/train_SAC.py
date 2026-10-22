@@ -8,7 +8,7 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
-from ajax.agents.loop import TrainLoop, when
+from ajax.agents.loop import TrainLoop, extension_key, when
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
@@ -199,10 +199,8 @@ def update_value_functions(
     stored_next_a_expert: Optional[jax.Array] = None,
     return_to_go: Optional[jax.Array] = None,
 ) -> Tuple[SACState, ValueAuxiliaries, dict]:
-    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
-    # default partitionable threefry, so the agent's own draws are unchanged.
-    value_loss_key, rng, ext_key = jax.random.split(agent_state.rng, 3)
-    target_key, loss_key = jax.random.split(ext_key)
+    agent_state, value_loss_key = agent_state.next_keys()
+    target_key, loss_key = jax.random.split(extension_key(value_loss_key))
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     target_metrics: dict = {}
 
@@ -304,7 +302,7 @@ def update_value_functions(
 
     updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
     metrics = merge_metrics(target_metrics, loss_metrics)
-    return agent_state.replace(rng=rng, critic_state=updated_critic_state), aux, metrics
+    return agent_state.replace(critic_state=updated_critic_state), aux, metrics
 
 
 def policy_loss_function(

@@ -324,8 +324,7 @@ def update_agent(
     # A key is drawn only with extensions.
     target_metrics: dict = {}
     if extension_stack:
-        target_key, rng = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=rng)
+        agent_state, target_key = agent_state.next_keys()
         target_batch = {
             "observations": transition.obs,
             "next_observations": transition.next_obs,
@@ -367,8 +366,7 @@ def update_agent(
         # None leaves the minibatches as they were without an expert.
         "a_expert": transition.a_expert if stores_expert_actions else None,
     }
-    shuffle_key, rng = jax.random.split(agent_state.rng)
-    agent_state = agent_state.replace(rng=rng)
+    agent_state, shuffle_key = agent_state.next_keys()
     num_minibatches = resolve_num_minibatches(agent_config)
 
     def minibatches(key: jax.Array) -> dict:

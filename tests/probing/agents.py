@@ -48,6 +48,7 @@ _PROBE = {
     "APG": {"actor_architecture": NET, "n_envs": 64},
     "CrossQ": {"actor_width": 64, "critic_width": 64, **_NORM, **_REPLAY}
     | {"gamma": GAMMA, "n_envs": 1},
+    "TQC": _SAC,
 }
 
 # One preset for every bookkeeping probe (decision D2): their answers do not
@@ -85,6 +86,7 @@ _BOOKKEEPING = {
     | {"iterations": 2, "gamma": 0.8, "n_envs": 1},
     "CrossQ": {"actor_width": 16, "critic_width": 16, **_NORM, **_B_REPLAY}
     | {"gamma": GAMMA, "n_envs": 1},
+    "TQC": _B_SAC,
 }
 
 # The world models' learning probes (Q10, Q12, Q13): the tiny models of
@@ -106,7 +108,7 @@ _TINY: dict[str, dict[str, Any]] = {
 PRESETS: Mapping[str, Mapping[str, Mapping[str, Any]]] = MappingProxyType(
     {"probe": _PROBE, "bookkeeping": _BOOKKEEPING, "tiny": _TINY}
 )
-DIGEST = "bfc6bd052f34"
+DIGEST = "f05e778fb820"
 FAMILY = {"PPO": "v", "APO": "v", "DQN": "dqn", "PQN": "dqn"}
 """Which value an agent's readout reads (others: Q at the mean action)."""
 

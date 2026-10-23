@@ -372,7 +372,8 @@ class ActorCritic:
         dim = None
         if transforms:
             expert = getattr(self, "expert_policy", None)
-            dim = transforms[0].policy_action_dim(self.env_args, expert)
+            with_features = self.env_args.replace(observers=observers)
+            dim = transforms[0].policy_action_dim(with_features, expert)
         self.env_args = self.env_args.replace(
             observers=observers, transforms=transforms, policy_action_dim=dim
         )

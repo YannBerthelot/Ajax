@@ -14,7 +14,7 @@ from typing import Optional, Tuple, Union
 import flax.linen as nn
 import jax
 
-from ajax.environments.utils import get_action_dim
+from ajax.controller import policy_action_dim
 from ajax.extensions.observe import pid_terms_at
 from ajax.modules.pid_actor import PIDLaw, PIDPolicy, check_pid_actor
 from ajax.networks.distributions import Deterministic
@@ -110,7 +110,7 @@ def get_initialized_td3_actor_critic(
     on the actor and both initialisations are
     :func:`get_initialized_actor_critic`'s.
     """
-    action_dim = get_action_dim(env_config.env, env_config.env_params)
+    action_dim = policy_action_dim(env_config)  # gain mode's gains
     actor: nn.Module
     if isinstance(network_config.actor_architecture, PIDPolicy):
         check_pid_actor(True, network_config.memory)

@@ -18,6 +18,8 @@ import jax
 import jax.numpy as jnp
 
 from ajax.environments.obs_norm import normalized_obs
+from ajax.environments.utils import critic_action_units as env_critic_action_units
+from ajax.environments.utils import get_action_dim
 from ajax.networks.memory import flatten_carry
 from ajax.types import NormalizationInfo
 
@@ -198,6 +200,24 @@ def executed_fn(env_args: Any) -> Optional[Callable[[jax.Array, Any], jax.Array]
     if any("transform_action" in t.implemented_phases() for t in env_args.transforms):
         return partial(executed_actions, env_args)
     return None
+
+
+def policy_action_dim(env_args: Any) -> int:
+    """The dimension of the actions the policy chooses: gain mode's, the
+    expert's learnable gains (``env_args.policy_action_dim``), else the
+    env's."""
+    if env_args.policy_action_dim is not None:
+        return env_args.policy_action_dim
+    return get_action_dim(env_args.env, env_args.env_params)
+
+
+def critic_action_units(env_args: Any) -> Any:
+    """The critic's map of its action input to the env's units
+    (:func:`ajax.environments.utils.critic_action_units`); none under gain
+    mode, whose critics read the gains."""
+    if env_args.policy_action_dim is not None:
+        return None
+    return env_critic_action_units(env_args.env, env_args.env_params)
 
 
 def reads_progress(env_args: Any) -> bool:

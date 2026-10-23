@@ -10,10 +10,10 @@ from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.SAC.action_pipeline import check_action_extensions
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
+from ajax.controller import policy_action_dim
 from ajax.deprecation import warn_inert
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
-    get_action_dim,
 )
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import ExpertGains
@@ -286,23 +286,9 @@ class SAC(ActorCritic):
             self.extension_stack,
             dispatched=expert_policy is not None and not gain_mode,
         )
-        # Gain mode's critic, buffer and target entropy act in gain space.
-        action_dim_override = self.env_args.policy_action_dim
-        if gain_mode and any(
-            isinstance(e, ExpertActionInput) for e in self.env_args.observers
-        ):
-            raise ValueError(
-                "Gain mode cannot take the expert's action as an observation"
-                " feature (ExpertActionInput): the actor's output sets the"
-                " gains the expert acts with, so the expert's action does not"
-                " exist before the actor reads its observation."
-            )
 
-        action_dim = (
-            action_dim_override
-            if action_dim_override is not None
-            else get_action_dim(self.env_args.env, env_params)
-        )
+        # Gain mode's critic, buffer and target entropy act in gain space.
+        action_dim = policy_action_dim(self.env_args)
         self.agent_config: SACConfig = SACConfig(
             gamma=gamma,
             tau=tau,
@@ -347,5 +333,4 @@ class SAC(ActorCritic):
                 else None
             ),
             "target_entropy_ramp_frac": target_entropy_ramp_frac,
-            "action_dim_override": action_dim_override,
         }

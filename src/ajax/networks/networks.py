@@ -11,9 +11,9 @@ from flax.core import FrozenDict
 from flax.linen.initializers import constant, lecun_normal, orthogonal
 from flax.serialization import to_state_dict
 
-from ajax.controller import feature_width
+from ajax.controller import feature_width, policy_action_dim
 from ajax.environments.obs_norm import apply_obs_norm
-from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.observe import pid_terms_at
 from ajax.modules.pid_actor import (
     PID_LOG_STD_INIT,
@@ -583,7 +583,6 @@ def get_initialized_actor_critic(
     squash: bool = False,
     num_critics: int = 4,
     extra_obs_dim: int = 0,
-    action_dim_override: Optional[int] = None,
     actor: Optional[nn.Module] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """
@@ -598,13 +597,11 @@ def get_initialized_actor_critic(
     fed; the observation features (``env_config.observers``) join them.
 
     A :class:`PIDPolicy` as ``network_config.actor_architecture`` makes the
-    actor a :class:`PIDActor` (see :mod:`ajax.modules.pid_actor`).
+    actor a :class:`PIDActor` (see :mod:`ajax.modules.pid_actor`). The
+    actions are the policy's (:func:`ajax.controller.policy_action_dim`:
+    gain mode's gains).
     """
-    action_dim = (
-        action_dim_override
-        if action_dim_override is not None
-        else get_action_dim(env_config.env, env_config.env_params)
-    )
+    action_dim = policy_action_dim(env_config)
 
     memory = parse_memory_config(network_config.memory)
 
@@ -692,8 +689,8 @@ def get_initialized_actor_critic(
     # n_envs rows would allocate an n_envs-times larger zero tensor for
     # nothing, which matters with many envs or image observations.
     init_obs = jnp.zeros((1, *observation_shape))
-    if action_dim_override is not None:
-        action_shape = (action_dim_override,)
+    if env_config.policy_action_dim is not None:
+        action_shape = (env_config.policy_action_dim,)
     init_action = jnp.zeros((1, *action_shape))
 
     actor_state = init_network_state(

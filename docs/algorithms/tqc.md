@@ -24,7 +24,7 @@ follows the code.
 | Learning | Off-policy, replay buffer |
 | Vectorised environments (`n_envs`) | Yes |
 | Recurrent memory (`memory=`) | Yes: trains on replayed sequences (R2D2-style burn-in) |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `on_target`, `critic_loss`, `actor_loss` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate` |
 
 ## Example
 

@@ -28,8 +28,7 @@ from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.buffers.dataset import TransitionDataset
-from ajax.controller import executed_fn
-from ajax.environments.utils import critic_action_units
+from ajax.controller import critic_action_units, executed_fn
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -447,7 +446,7 @@ def make_train(
 
     # REDQ's official critics read act_limit * tanh, the env's units
     # (watchernyu/REDQ@7b5d1bf, core.py:238): so do Ajax's.
-    units = critic_action_units(env_args.env, env_args.env_params)
+    units = critic_action_units(env_args)
 
     def init(key: jax.Array) -> REDQState:
         return init_REDQ(

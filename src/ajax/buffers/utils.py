@@ -60,7 +60,6 @@ def get_buffer(
 def init_buffer(
     buffer: fbx.flat_buffer.TrajectoryBuffer,
     env_args: EnvironmentConfig,
-    action_dim_override: Optional[int] = None,
     include_expert_fields: bool = False,
     actor_carry_dim: int = 0,
     include_raw_next_obs: bool = False,
@@ -93,8 +92,8 @@ def init_buffer(
     observation, which a run without an expert never reads.
     """
     observation_shape, action_shape = get_state_action_shapes(env_args.env)
-    if action_dim_override is not None:
-        action_shape = (action_dim_override,)
+    if env_args.policy_action_dim is not None:  # gain mode's gains
+        action_shape = (env_args.policy_action_dim,)
     raw_observation_shape = observation_shape
     # The observation features (env_args.observers) are stored with it.
     extra = feature_width(env_args)

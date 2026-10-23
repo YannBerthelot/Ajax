@@ -26,6 +26,7 @@ import jax.numpy as jnp
 
 from ajax.environments.utils import critic_action_units
 from ajax.extensions.base import Extension, ExtensionContext
+from ajax.extensions.observe import ExpertActionInput
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.schedule import progress
 
@@ -498,11 +499,17 @@ class ExpertGains(Extension):
     )
 
     def policy_action_dim(self, env_args: Any, expert: Any) -> int:
-        del env_args
         if not (hasattr(expert, "learnable_fields") and hasattr(expert, "init_state")):
             raise ValueError(
                 "ExpertGains needs a stateful expert with learnable_fields"
                 " (registered via register_learnable_gains)."
+            )
+        if any(isinstance(e, ExpertActionInput) for e in env_args.observers):
+            raise ValueError(
+                "Gain mode cannot take the expert's action as an observation"
+                " feature (ExpertActionInput): the actor's output sets the"
+                " gains the expert acts with, so the expert's action does not"
+                " exist before the actor reads its observation."
             )
         return len(expert.learnable_fields)
 

@@ -383,19 +383,23 @@ agent = TD3(
 state, _ = agent.train(seed=0, n_timesteps=2_000)
 ```
 
-## Learning a PID's gains: SAC's gain mode
+## Learning a PID's gains: gain mode
 
 With a stateful PID expert that exposes `learnable_fields`, `anchor_gains`
 and `step_with_gains` (TargetGym's `FunctionalExpertPolicy` after
-`register_learnable_gains`), `SAC(extensions=(ExpertGains(),))`
-(`ajax.extensions.expert`; `use_pid_policy=True` builds it and warns) learns
-to schedule the expert's gains instead of acting directly. The actor outputs one number
-`a` in `[-1, 1]` per learnable gain; the gain applied is `anchor · 10^a`,
-between a tenth and ten times the expert's own. The PID computes the action.
-SAC refuses this mode, when it is built, with the collection extensions
-(their `action` phase never runs in it), `ResidualPolicy` and
-`ExpertActionInput` (the expert's action does not exist before the actor has
-chosen the gains).
+`register_learnable_gains`), the `ExpertGains` extension
+(`ajax.extensions.expert`) makes an agent schedule the expert's gains
+instead of acting directly: SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO and IQL run it with the expert as their
+`expert_policy` (SAC's `use_pid_policy=True` builds it and warns). The
+actor outputs one number `a` in `[-1, 1]` per learnable gain; the gain
+applied is `anchor · 10^a`, between a tenth and ten times the expert's own.
+The PID computes the action. The replay, or the rollout, holds the gains
+(the agent's actions, as many as the learnable gains), so the critics score
+them and the warm-up draws uniform gains; the expert's own action is stored
+as `a_expert`. An agent refuses this mode, when it is built, with
+`ResidualPolicy` (one transform a run) and `ExpertActionInput` (the
+expert's action does not exist before the actor has chosen the gains), and
+SAC with its collection extensions (their `action` phase never runs in it).
 
 It is different from the [PID policy](networks.md#the-pid-policy), in which
 the actor itself is a PID whose gains are learned, for any

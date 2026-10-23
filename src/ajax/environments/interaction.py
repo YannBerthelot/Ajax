@@ -1295,7 +1295,6 @@ def init_collector_state(
     mode: str,
     buffer: Optional[fbx.flat_buffer.TrajectoryBuffer] = None,
     window_size: int = 10,
-    action_dim_override: Optional[int] = None,
     include_expert_fields: bool = False,
     actor_carry_dim: int = 0,
     include_raw_next_obs: bool = False,
@@ -1319,8 +1318,8 @@ def init_collector_state(
     reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     obs_shape, action_shape = get_state_action_shapes(env_args.env)
-    if action_dim_override is not None:
-        action_shape = (action_dim_override,)
+    if env_args.policy_action_dim is not None:  # gain mode's gains
+        action_shape = (env_args.policy_action_dim,)
 
     observer_states = None
     if env_args.observers:
@@ -1355,7 +1354,6 @@ def init_collector_state(
         init_buffer(
             buffer,
             env_args,
-            action_dim_override=action_dim_override,
             include_expert_fields=include_expert_fields,
             actor_carry_dim=actor_carry_dim,
             include_raw_next_obs=include_raw_next_obs,

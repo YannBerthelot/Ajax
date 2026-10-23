@@ -29,6 +29,7 @@ class APO(ActorCritic):
         "critic_loss",
         "actor_loss",
         "transform_action",
+        "actuate",
     }
     phase_batch_keys: Mapping[str, frozenset] = {
         "on_target": frozenset("terminated truncated gae values".split()),

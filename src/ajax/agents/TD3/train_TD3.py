@@ -31,13 +31,12 @@ from ajax.agents.SAC.core import critic_loss_fn
 from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
 from ajax.buffers.dataset import TransitionDataset
-from ajax.controller import executed_fn
+from ajax.controller import critic_action_units, executed_fn
 from ajax.environments.interaction import (
     Explore,
     explore_pipeline,
     init_collector_state,
 )
-from ajax.environments.utils import critic_action_units
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -456,7 +455,7 @@ def make_train(
 
     # sfujim/TD3's critics read max_action * tanh, the env's units: so do
     # TD3's (computed once here, from the concrete env params).
-    units = critic_action_units(env_args.env, env_args.env_params)
+    units = critic_action_units(env_args)
 
     def init(key: jax.Array) -> TD3State:
         return init_TD3(

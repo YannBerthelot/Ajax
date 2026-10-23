@@ -26,7 +26,7 @@ at `09d7002` (`learner.py`, `critic.py`, `actor.py`, `policy.py`,
 | Memory (`memory=`) | no |
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `on_target`, `critic_loss`, `actor_loss` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate` |
 
 ## Example
 

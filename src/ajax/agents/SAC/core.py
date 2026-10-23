@@ -81,12 +81,11 @@ def init_soft_actor_critic(
     num_critics: int,
     window_size: int = 10,
     stored_state: bool = False,
-    network_extras: Optional[dict] = None,
     collector_extras: Optional[dict] = None,
 ) -> Tuple[Any, Any, Any]:
     """A soft actor-critic's squashed-Gaussian actor, ``num_critics``
     Q-critics and collector (writing to ``buffer`` when given); the
-    ``*_extras`` reach the network and collector builders."""
+    ``collector_extras`` reach the collector's builder."""
     actor_state, critic_state = get_initialized_actor_critic(
         key=init_key,
         env_config=env_args,
@@ -97,7 +96,6 @@ def init_soft_actor_critic(
         action_value=True,
         squash=True,
         num_critics=num_critics,
-        **(network_extras or {}),
     )
     collector_state = init_collector_state(
         collector_key,

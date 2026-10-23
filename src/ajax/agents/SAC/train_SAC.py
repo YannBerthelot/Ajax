@@ -83,7 +83,6 @@ def init_SAC(
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
     num_critics: int = 2,
     expert_buffer_n_steps: int = 20_000,
-    action_dim_override: Optional[int] = None,
     count_episode_steps: bool = False,
     store_raw_next_obs: bool = False,
     store_expert_data: bool = False,
@@ -102,9 +101,7 @@ def init_SAC(
         num_critics=num_critics,
         window_size=window_size,
         stored_state=stored_state,
-        network_extras={"action_dim_override": action_dim_override},
         collector_extras={
-            "action_dim_override": action_dim_override,
             "expert_policy": expert_policy,
             "include_raw_next_obs": store_raw_next_obs,
             "include_return_to_go": store_return_to_go,
@@ -452,8 +449,6 @@ def make_train(
     target_entropy_initial: Optional[float] = None,
     target_entropy_ramp_frac: float = 0.5,
     store_policy_action: bool = False,
-    # Gain mode (ExpertGains): actor output dim = len(expert.learnable_fields)
-    action_dim_override: Optional[int] = None,
     offline_data: Optional[TransitionDataset] = None,
     extensions: Sequence = (),
 ):
@@ -527,7 +522,6 @@ def make_train(
             expert_buffer_n_steps=(
                 expert_buffer_n_steps if expert_policy is not None else 0
             ),
-            action_dim_override=action_dim_override,
             count_episode_steps=any(e.reads_step_in_episode for e in stack),
             # Kept only for an extension that declares it reads it.
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),

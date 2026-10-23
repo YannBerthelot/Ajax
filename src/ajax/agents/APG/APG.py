@@ -58,8 +58,9 @@ APG_MEMORY_INITS = {"transformer": "nanogpt"}
 
 class APG(ActorCritic):
     name: str = "APG"
-    capabilities: frozenset = frozenset("actor obs_networks".split())
-    supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
+    capabilities: frozenset = frozenset("actor obs_networks reward_learning".split())
+    # Its differentiable rollout is its own: no observation features yet.
+    supported_extension_phases: frozenset = (LOOP_PHASES - {"observe"}) | {"actor_loss"}
     phase_batch_keys: Mapping[str, frozenset] = {
         "actor_loss": frozenset(
             "actor_state observations raw_observations pi_mean rollout returns".split()

@@ -34,6 +34,19 @@ def init_agent_obs_norm(obs_dim: int) -> NormalizationInfo:
     return init_norm_info(batch_size=1, obs_shape=(obs_dim,))
 
 
+def _covered(obs: jnp.ndarray, info: NormalizationInfo) -> tuple:
+    """``obs``'s leading columns, which ``info``'s statistics cover, and the
+    raw features after them (None when there are none)."""
+    span = info.mean.shape[-1]
+    if obs.shape[-1] == span:
+        return obs, None
+    return obs[..., :span], obs[..., span:]
+
+
+def _joined(normalised: jnp.ndarray, raw: Optional[jnp.ndarray]) -> jnp.ndarray:
+    return normalised if raw is None else jnp.concatenate([normalised, raw], -1)
+
+
 def update_obs_norm(
     obs: jnp.ndarray, info: Optional[NormalizationInfo], raw_columns: int = 0
 ) -> Tuple[jnp.ndarray, Optional[NormalizationInfo]]:
@@ -41,12 +54,14 @@ def update_obs_norm(
 
     ``obs`` shape: ``(n_envs, obs_dim)``. When ``info is None`` the call is
     a no-op (returns input unchanged) so call sites can stay unconditional.
-    The leading ``raw_columns`` stay raw (see ``online_normalize``).
+    The leading ``raw_columns`` stay raw (see ``online_normalize``), as do
+    the raw features after the columns the statistics cover.
     """
     if info is None:
         return obs, None
+    own, raw = _covered(obs, info)
     new_obs, count, mean, mean_2, var = online_normalize(
-        obs,
+        own,
         info.count,
         info.mean,
         info.mean_2,
@@ -61,7 +76,7 @@ def update_obs_norm(
         var=var,
         returns=info.returns,
     )
-    return new_obs, new_info
+    return _joined(new_obs, raw), new_info
 
 
 def normalized_obs(
@@ -73,8 +88,9 @@ def normalized_obs(
     reset observations. ``info`` None: ``obs`` as it is."""
     if info is None:
         return obs
-    return online_normalize(
-        obs,
+    own, raw = _covered(obs, info)
+    normalised = online_normalize(
+        own,
         info.count,
         info.mean,
         info.mean_2,
@@ -82,6 +98,7 @@ def normalized_obs(
         nan_safe=False,
         raw_columns=raw_columns,
     )[0]
+    return _joined(normalised, raw)
 
 
 def apply_obs_norm(obs: jnp.ndarray, info: Optional[NormalizationInfo]) -> jnp.ndarray:

@@ -14,8 +14,8 @@ PID gain mode, `store_policy_action`), kept because they change the
 collection or the action pipeline, which extensions do not reach yet
 ([SAC](../algorithms/sac.md#expert-options)). Observation features (an
 expert's action or state, the training progress) are extensions too:
-`ajax.extensions.observe`, on SAC so far. A
-feature written into
+`ajax.extensions.observe`, on every agent that collects with the shared
+collector. A feature written into
 an agent grows that agent's file and ties it to one experiment; SAC once had
 about a hundred constructor keywords that way. Kept apart, a feature works
 with every agent that runs the parts of training it touches, and each
@@ -130,6 +130,7 @@ Each agent says what its algorithm has, in `capabilities`:
 | `target_critic` | a slowly updated copy of its critic, which its bootstrap reads | SAC, TD3, REDQ, TQC, ASAC, DQN, TDMPC2, IQL |
 | `distributional_critic` | its critic predicts quantiles of the return, and regresses on many target values per row | TQC |
 | `obs_networks` | its policy and value networks read the observation, not a world model's latent state (memory needs it) | all but DreamerV3, TDMPC2 |
+| `reward_learning` | it learns from the reward, not from an expert's labels alone (`ExpertActionInput` needs it) | all but DAgger |
 
 A run adds what its configuration gives: `critic` (a Q or V critic),
 `scalar_target` (a critic regressing on one target value per row, not a
@@ -288,9 +289,9 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `ExpertActionInput` | Appends the expert's action at each observation, from the state the agent tracks it in; raw (an action). | `observe` | SAC with an expert, without `use_pid_policy` |
-| `ExpertStateInput` | Appends a stateful expert's internal state before its call at the observation (`ExpertStateInput.for_expert(expert)` sizes it). | `observe` | SAC with a stateful expert |
-| `TrainingProgressInput` | Appends the fraction of training done (`ajax.schedule.progress`); an evaluation holds the collector's. | `observe` | SAC |
+| `ExpertActionInput` | Appends the expert's action at each observation, from the state the agent tracks it in; raw (an action). | `observe` | agents with an expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, APO), SAC without `use_pid_policy`; not DAgger, which would read the label it learns |
+| `ExpertStateInput` | Appends a stateful expert's internal state before its call at the observation (`ExpertStateInput.for_expert(expert)` sizes it). | `observe` | agents with a stateful expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, APO, DAgger) |
+| `TrainingProgressInput` | Appends the fraction of training done (`ajax.schedule.progress`); an evaluation holds the collector's. | `observe` | every agent but APG, UDRL and the world models, which collect on their own |
 
 **Exploration** (`ajax.extensions.exploration`)
 

@@ -57,7 +57,8 @@ class REDQ(ActorCritic):
     name: str = "REDQ"
     capabilities: frozenset = frozenset(
         "actor critic_ensemble discounted obs_networks "
-        "off_policy policy_density q_critic replay target_critic".split()
+        "off_policy policy_density q_critic replay target_critic "
+        "reward_learning".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",

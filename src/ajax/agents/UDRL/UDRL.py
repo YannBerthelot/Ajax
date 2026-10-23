@@ -18,9 +18,11 @@ class UDRL(ActorCritic):
 
     name: str = "UDRL"
     capabilities: frozenset = frozenset(
-        "actor obs_networks off_policy policy_density replay".split()
+        "actor obs_networks off_policy policy_density replay reward_learning".split()
     )
-    supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
+    # Its collector, which appends the command, is its own: no observation
+    # features yet.
+    supported_extension_phases: frozenset = (LOOP_PHASES - {"observe"}) | {"actor_loss"}
     phase_batch_keys: Mapping[str, frozenset] = {
         "actor_loss": frozenset(
             "actor_state observations raw_observations pi_mean actions".split()

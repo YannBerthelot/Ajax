@@ -55,6 +55,7 @@ from ajax.environments.interaction import (
     get_pi_sequence,
     init_collector_state,
     reset,
+    reset_features,
 )
 from ajax.environments.obs_norm import normalized_obs
 from ajax.environments.utils import (
@@ -542,8 +543,9 @@ def _force_reset(
 ) -> PPOState:
     """Reset every env on a fresh key (brax's ``num_resets_per_eval``).
 
-    The reset observations are normalised with the agent's running
-    statistics, which they do not count in. A reward normaliser in the env
+    The reset observations get their features (from fresh observer states)
+    and are normalised with the agent's running statistics, which they do
+    not count in. A reward normaliser in the env
     stack keeps its running statistics: its reset restarts them, so the
     saved ones are put back. The cut episodes are abandoned, not finished:
     the next return starts from zero, and they are flagged truncated, so a
@@ -560,20 +562,25 @@ def _force_reset(
             new_env_state = new_env_state.replace(info=info)
         else:
             new_env_state = new_env_state.replace(normalization_info=saved)
+    collector = agent_state.collector_state
+    observer_states = collector.observer_states
+    if env_args.observers:
+        # PPO's collector tracks no expert.
+        new_obs, observer_states = reset_features(
+            new_obs, new_env_state, env_args, mode, None, collector.train_time_fraction
+        )
     if env_args.store_normalized_obs:
         new_obs = normalized_obs(
-            new_obs,
-            agent_state.collector_state.obs_norm_info,
-            raw_obs_columns(env_args.env),
+            new_obs, collector.obs_norm_info, raw_obs_columns(env_args.env)
         )
     returns = agent_state.collector_state.episodic_return_state
     returns = returns.replace(
         cumulative_reward=jnp.zeros_like(returns.cumulative_reward)
     )
-    collector = agent_state.collector_state
     new_collector = collector.replace(
         _env_state=new_env_state,
         last_obs=new_obs,
+        observer_states=observer_states,
         episodic_return_state=returns,
         last_truncated=jnp.ones_like(collector.last_truncated),
     )

@@ -79,13 +79,11 @@ DEFERRED = "memory on this agent has no published form (deferred)"
 PRIOR = "the agent's own replay is not handed to its pretraining yet"
 NEXT = "only TD3 hands on_target the next actions its target scored (ReBRAC's TargetBC)"
 REWARD = "only PPO folds the reward phase (GAIL's AdversarialReward)"
-OBSERVE = "only SAC folds the observe phase (observation features on every agent)"
-#: Every row but SAC's.
-NOT_SAC = (
-    "TD3 REDQ TQC CrossQ ASAC AVG IQL APG TDMPC2 TDMPC2MultiTask DQN PQN"
-    " PPO PPO/discrete APO APO/discrete UDRL UDRL/discrete DAgger DAgger/discrete"
-    " DreamerV3 DreamerV3/discrete"
+OWN_ROLLOUT = (
+    "the agent's own collector does not observe features yet (APG's differentiable"
+    " rollout, UDRL's command)"
 )
+FEATURES = "ExpertActionInput ExpertStateInput TrainingProgressInput".split()
 
 #: Module forms not written yet: a refusal for these capabilities alone is
 #: a gap, not inherent.
@@ -120,6 +118,7 @@ GAPS: dict[str, dict[str, str]] = {
     EXPERT: {
         "BellmanPretrain": "DQN IQL",
         "ExpertValueMetrics": "DQN IQL",
+        **dict.fromkeys(FEATURES[:2], "DQN PQN IQL PPO PPO/discrete"),
     },
     FORM: {
         "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"
@@ -151,7 +150,11 @@ GAPS: dict[str, dict[str, str]] = {
             "CloningPretrain ImitationLoss ResidualPolicy".split(),
             "TDMPC2 DreamerV3 TDMPC2MultiTask",
         ),
+        **dict.fromkeys(
+            FEATURES, "TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask"
+        ),
     },
+    OWN_ROLLOUT: dict.fromkeys(FEATURES, "APG UDRL UDRL/discrete"),
     CNN: {
         "cnn": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete"
         " DAgger DAgger/discrete IQL"
@@ -167,9 +170,6 @@ GAPS: dict[str, dict[str, str]] = {
         "PriorData": "UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3"
         " DreamerV3/discrete TDMPC2MultiTask"
     },
-    OBSERVE: dict.fromkeys(
-        "ExpertActionInput ExpertStateInput TrainingProgressInput".split(), NOT_SAC
-    ),
 }
 
 

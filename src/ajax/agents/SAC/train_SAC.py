@@ -24,7 +24,7 @@ from ajax.agents.SAC.core import (
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.dataset import TransitionDataset
-from ajax.controller import Controller, reads_progress
+from ajax.controller import Controller
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -81,7 +81,6 @@ def init_SAC(
     window_size: int = 10,
     stored_state: bool = False,
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
-    max_timesteps: Optional[int] = None,
     num_critics: int = 2,
     expert_buffer_n_steps: int = 20_000,
     action_dim_override: Optional[int] = None,
@@ -105,8 +104,6 @@ def init_SAC(
         stored_state=stored_state,
         network_extras={"action_dim_override": action_dim_override},
         collector_extras={
-            # The horizon the training-progress feature reads.
-            "max_timesteps": max_timesteps,
             "action_dim_override": action_dim_override,
             "expert_policy": expert_policy,
             "include_raw_next_obs": store_raw_next_obs,
@@ -528,7 +525,6 @@ def make_train(
             alpha_args=alpha_args,
             buffer=buffer,
             expert_policy=expert_policy,
-            max_timesteps=total_timesteps if reads_progress(env_args) else None,
             num_critics=num_critics,
             expert_buffer_n_steps=(
                 expert_buffer_n_steps if expert_policy is not None else 0

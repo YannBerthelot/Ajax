@@ -87,10 +87,14 @@ def test_cnn_encoder_rejects_a_miscounted_input_width():
         encoder.init(jax.random.PRNGKey(0), jnp.ones((BATCH, 4)))
 
 
-def test_a_q_network_reads_the_env_trailing_dims(cartpole):
+@pytest.mark.parametrize("progress", [False, True])
+def test_a_q_network_reads_the_env_trailing_dims(cartpole, progress):
+    """DQN's and PQN's network: the env's trailing dims and a feature's
+    column join after the convolutions."""
+    features = (TrainingProgressInput(),) if progress else ()
     q_state = get_initialized_q_network(
         key=jax.random.PRNGKey(0),
-        env_config=cartpole,
+        env_config=cartpole.replace(observers=features),
         optimizer_config=OPTIMIZER,
         network_config=NetworkConfig(
             actor_architecture=ARCH,
@@ -102,7 +106,8 @@ def test_a_q_network_reads_the_env_trailing_dims(cartpole):
         n_actions=2,
     )
     assert _conv_params(q_state.params)
-    q_values = q_state.apply_fn(q_state.params, jnp.ones((BATCH, 4))).q_values
+    obs = jnp.ones((BATCH, 4 + progress))
+    q_values = q_state.apply_fn(q_state.params, obs).q_values
     assert q_values.shape == (BATCH, 2) and jnp.all(jnp.isfinite(q_values))
 
 

@@ -23,11 +23,13 @@ from ajax.schedule import progress
 @dataclass(frozen=True)
 class ExpertActionInput(Extension):
     """The agent's expert's action at the observation, called from the
-    state it holds there, in agent units: raw, since it is an action."""
+    state it holds there, in agent units: raw, since it is an action. An
+    agent learning from the expert's labels alone (DAgger) would read the
+    label it learns: it refuses it (``reward_learning``)."""
 
     name: str = "expert_action"
     observes_normalised: ClassVar[bool] = False
-    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert"})
+    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert", "reward_learning"})
 
     def observation_width(self, env_args: Any) -> int:
         return get_action_dim(env_args.env, env_args.env_params)

@@ -60,7 +60,7 @@ import optax
 from jax.tree_util import Partial as partial
 
 from ajax.buffers.dataset import TransitionDataset, fill_replay
-from ajax.controller import Controller
+from ajax.controller import Controller, reads_progress
 from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     collect_experience,
@@ -86,10 +86,12 @@ from ajax.types import NormalizationInfo
 from ajax.utils import online_normalize
 
 #: The extension phases the loop folds for every agent: a fresh run's
-#: one-shot ``pretrain``, ``post_update`` after each update and
-#: ``eval_metrics`` at each evaluation. An agent adds the phases its own
-#: update folds (``ActorCritic.supported_extension_phases``).
-LOOP_PHASES = frozenset({"pretrain", "post_update", "eval_metrics"})
+#: one-shot ``pretrain``, ``post_update`` after each update,
+#: ``eval_metrics`` at each evaluation and ``observe`` wherever the shared
+#: collector and evaluation meet an observation (an agent rolling out on
+#: its own removes it). An agent adds the phases its own update folds
+#: (``ActorCritic.supported_extension_phases``).
+LOOP_PHASES = frozenset({"pretrain", "post_update", "eval_metrics", "observe"})
 
 #: The keys of the extensions' batches the shared steps below build, which
 #: an agent on them declares (``ActorCritic.phase_batch_keys``), with any it
@@ -180,8 +182,22 @@ def fresh_state(
     ``extension_key`` (:meth:`ExtensionStack.fold_init`; ``context``: the
     pretraining's static context fields)."""
     init_key, extension_key = jax.random.split(key)
-    state = with_obs_norm(init(init_key), context.get("env_args"))
+    env_args = context.get("env_args")
+    state = with_obs_norm(init(init_key), env_args)
+    state = with_horizon(state, env_args, total_steps)
     return stack.fold_init(state, extension_key, total_steps, **context)
+
+
+def with_horizon(agent_state: Any, env_args: Any, total_steps: int) -> Any:
+    """A state whose collector keeps the run's horizon ``total_steps``,
+    which a feature reading the training progress needs
+    (:func:`ajax.controller.reads_progress`); a resumed run measures its
+    progress against its own call's."""
+    if env_args is None or not reads_progress(env_args):
+        return agent_state
+    horizon = jnp.asarray(total_steps, jnp.int32)
+    collector = agent_state.collector_state.replace(max_timesteps=horizon)
+    return agent_state.replace(collector_state=collector)
 
 
 def with_obs_norm(agent_state: Any, env_args: Any = None) -> Any:
@@ -712,14 +728,9 @@ class TrainLoop:
 
     # -- the train function ------------------------------------------------
     def continued(self, agent_state: Any) -> Any:
-        """A resumed state, its training fraction measured against the
+        """A resumed state, its training progress measured against the
         run's horizon (a fresh state is built with it)."""
-        collector = agent_state.collector_state
-        if collector.max_timesteps is None:
-            return agent_state
-        horizon = jnp.asarray(self.total_timesteps, jnp.int32)
-        collector = collector.replace(max_timesteps=horizon)
-        return agent_state.replace(collector_state=collector)
+        return with_horizon(agent_state, self.env_args, self.total_timesteps)
 
     def train(
         self,

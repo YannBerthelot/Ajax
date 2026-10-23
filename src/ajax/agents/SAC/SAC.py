@@ -74,7 +74,8 @@ class SAC(ActorCritic):
     replays_transitions: bool = True
     capabilities: frozenset = frozenset(
         "actor critic_ensemble discounted obs_networks "
-        "off_policy policy_density q_critic replay target_critic".split()
+        "off_policy policy_density q_critic replay target_critic "
+        "reward_learning".split()
     )
     # ``action`` reaches only the action pipeline's slots, and
     # ``transform_action`` the pipeline, with an expert policy
@@ -85,7 +86,6 @@ class SAC(ActorCritic):
         "actor_loss",
         "action",
         "transform_action",
-        "observe",
     }
     # Its critic step's target_extras join the shared step's on_target keys.
     phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS | {

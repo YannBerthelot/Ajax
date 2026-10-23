@@ -320,14 +320,16 @@ agent without extensions traces nothing extra and never guards a fold.
 | `fold_on_target`, `fold_critic_loss` | in the agent's critic step; `critic_step` for SAC, TD3, REDQ, ASAC, AVG and IQL |
 | `fold_actor_loss` | in the agent's actor step; `actor_step` for SAC, TD3, AVG, DAgger and IQL |
 | the `action` phase | SAC's action pipeline only, with an expert policy |
+| the `observe` phase | the observers the agent lifts out of its stack (`env_args.observers`): the shared collector, at reset and after each step, PPO's forced reset, the expert prefill and evaluation |
 
 `fold_on_target`, `fold_critic_loss` and `fold_actor_loss` return their
 value and the metrics the phases returned beside theirs; the agent carries
 them out of its loss as an aux and logs them, in its `AuxiliaryLogs`'
 `extensions` field, under their own names.
 
-The first three are the loop's own (`LOOP_PHASES`: `pretrain`,
-`post_update`, `eval_metrics`); an agent lists those plus the phases its
+The loop's own phases are `LOOP_PHASES`: `pretrain`, `post_update`,
+`eval_metrics` and `observe`, which an agent collecting on its own (APG,
+UDRL, the world models) removes; an agent lists those plus the phases its
 update folds in `supported_extension_phases`, and construction rejects any
 other. Each fold gets a key of its own, split from one the agent draws
 nothing else on, so an extension never shares randomness with the agent's

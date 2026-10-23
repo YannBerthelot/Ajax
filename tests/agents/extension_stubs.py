@@ -1,13 +1,16 @@
 """Extension stubs the agent tests share: a counter of the ``post_update``
-folds, a constant evaluation metric and an ``on_target`` pass-through (a
-phase the world-model agents refuse). Frozen dataclasses, so hashable: an
+folds, a constant evaluation metric, an ``on_target`` pass-through (a
+phase the world-model agents refuse) and the training progress as a raw
+observation feature. Frozen dataclasses, so hashable: an
 extension stack is a static argument of the jitted train function."""
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 import jax.numpy as jnp
 
 from ajax.extensions.base import Extension
+from ajax.extensions.observe import TrainingProgressInput
 
 METRIC = "stub/metric"
 
@@ -44,3 +47,11 @@ class TargetTweak(Extension):
 
     def on_target(self, agent_state, ext_state, batch, target, ctx):
         return target
+
+
+@dataclass(frozen=True)
+class RawProgress(TrainingProgressInput):
+    """The training progress kept raw: the observation's last column."""
+
+    name: str = "raw_progress"
+    observes_normalised: ClassVar[bool] = False

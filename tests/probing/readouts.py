@@ -1,9 +1,9 @@
 """One readout layer: what a trained agent says at chosen inputs, per seed.
 
 Readers take one seed's ``Nets`` (``per_seed`` maps them over seeds). Inputs
-pass the env-side normaliser (``env_stats``) when given, then ``get_pi`` and
-``predict_value``, training's own paths; recurrent readers start from a
-fresh carry; draws take explicit keys; state readers return numpy."""
+pass the on-policy collector's statistics (``env_stats``) when given, then
+``get_pi`` and ``predict_value``, training's own paths; recurrent readers
+start from a fresh carry; draws take explicit keys; state readers return numpy."""
 
 from __future__ import annotations
 
@@ -40,12 +40,11 @@ def nets(state: Any, extra: Any = None, stats: Any = None) -> Nets:
 
 
 def env_stats(run: Any) -> Any:
-    """The env-side observation normaliser's statistics; None without one."""
-    env = run.agent.env_args.env
-    while env is not None and not hasattr(env, "normalize_obs"):
-        env = getattr(env, "_env", None)
-    on = env is not None and env.normalize_obs
-    return run.state.collector_state.env_state.normalization_info.obs if on else None
+    """The statistics an on-policy agent's collector normalises the
+    observations it stores with; None for an agent that stores them raw."""
+    if not run.agent.env_args.store_normalized_obs:
+        return None
+    return run.state.collector_state.obs_norm_info
 
 
 def per_seed(fn: Callable[[Nets], Mapping[str, Any]], n: Nets) -> dict[str, np.ndarray]:
@@ -57,12 +56,14 @@ def _x(x: Any) -> jax.Array:
 
 
 def inp(n: Nets, x: Any) -> jax.Array:
-    """What the networks receive for the raw observation ``x``: the env-side
-    normaliser's own ``online_normalize``, with env 0's final statistics."""
+    """What the networks receive for the raw observation ``x``: normalised
+    as the collector stores it, with its final statistics."""
     if n.stats is None:
         return _x(x)
-    s = n.stats  # leaves (n_envs, 1, obs_dim), every row the same
-    return online_normalize(_x(x), s.count[0], s.mean[0], s.mean_2[0], train=False)[0]
+    s = n.stats
+    return online_normalize(
+        _x(x), s.count, s.mean, s.mean_2, train=False, nan_safe=False
+    )[0]
 
 
 def input_error(n: Nets, raw: jax.Array, last_obs: jax.Array) -> jax.Array:

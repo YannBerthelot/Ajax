@@ -595,18 +595,12 @@ def test_a_checkpoint_of_another_agent_still_fails(sac_run, tmp_path):
         restore_into(skeleton, path)
 
 
-def test_a_brax_state_saved_before_its_raw_observation_restores_it(tmp_path):
-    """A brax env state saved before the observation normaliser kept the raw
-    observation in its info restores with it, un-normalised from the saved
-    observation and statistics. PPO normalises through the env (a replay
-    agent normalises observations itself)."""
-    import pickle
-
+def _ppo_normalising(env_id: str):
     from ajax.agents.PPO.PPO import PPO
 
     net = ("8", "relu")
-    agent = PPO(
-        env_id="fast",
+    return PPO(
+        env_id=env_id,
         n_envs=2,
         actor_architecture=net,
         critic_architecture=net,
@@ -614,17 +608,100 @@ def test_a_brax_state_saved_before_its_raw_observation_restores_it(tmp_path):
         batch_size=8,
         normalize_observations=True,
     )
-    state, _ = agent.train(seed=0, n_timesteps=16)
+
+
+def _saved(state, tmp_path) -> tuple[str, dict]:
+    import pickle
+
     path = str(tmp_path / "old.pkl")
     save_checkpoint(state, path)
     with open(path, "rb") as fh:
-        saved = pickle.load(fh)
-    info = saved["collector_state"]["_env_state"]["info"]
-    want = info.pop("raw_obs")
+        return path, pickle.load(fh)
+
+
+def _resave(path: str, saved: dict) -> None:
+    import pickle
+
     with open(path, "wb") as fh:
         pickle.dump(saved, fh)
-    got = restore_into(state, path).collector_state.env_state.info["raw_obs"]
-    np.testing.assert_allclose(got, want, rtol=1e-6)
+
+
+def test_a_gymnax_on_policy_checkpoint_with_env_statistics_restores_them_merged(
+    tmp_path,
+):
+    """An on-policy checkpoint from when each gymnax env's normaliser kept
+    its own observation statistics restores them into the collector as one
+    set: the statistics of every env's observations together."""
+    from ajax.environments.obs_norm import init_agent_obs_norm, update_obs_norm
+
+    state, _ = _ppo_normalising("Pendulum-v1").train(seed=0, n_timesteps=16)
+    path, saved = _saved(state, tmp_path)
+    rows = np.arange(15, dtype=np.float32).reshape(5, 3)
+    per_env = [
+        update_obs_norm(jnp.asarray(r), init_agent_obs_norm(3))[1]
+        for r in (rows[:2], rows[2:])
+    ]
+    # One set per env, under the run's seed axis.
+    stacked = jax.tree.map(lambda *x: np.stack(x)[None], *per_env)
+    collector = saved["collector_state"]
+    collector["obs_norm_info"] = None
+    collector["_env_state"]["normalization_info"] = {
+        "obs": {
+            k: np.asarray(getattr(stacked, k))
+            for k in ("var", "count", "mean", "mean_2")
+        }
+        | {"returns": None},
+        "reward": None,
+    }
+    _resave(path, saved)
+    got = restore_into(state, path).collector_state.obs_norm_info
+    want = update_obs_norm(jnp.asarray(rows), init_agent_obs_norm(3))[1]
+    for field in ("count", "mean", "mean_2", "var"):
+        want_field = np.asarray(getattr(want, field))[None]
+        np.testing.assert_allclose(getattr(got, field), want_field, rtol=1e-5)
+
+
+@pytest.mark.parametrize("with_raw", [True, False], ids=["raw-in-info", "before-raw"])
+def test_a_brax_on_policy_checkpoint_with_env_statistics_restores_them(
+    tmp_path, with_raw
+):
+    """An on-policy brax checkpoint from when the env's normaliser kept the
+    batch's observation statistics (every row the same) and the normalised
+    observation restores the statistics into the collector and the raw
+    observation into the env state: its info's, else un-normalised."""
+    from ajax.environments.obs_norm import init_agent_obs_norm, update_obs_norm
+    from ajax.utils import online_normalize
+
+    state, _ = _ppo_normalising("fast").train(seed=0, n_timesteps=16)
+    path, saved = _saved(state, tmp_path)
+    env = saved["collector_state"]["_env_state"]
+    raw = np.asarray(env["obs"])  # (seed, env, obs)
+    stats = update_obs_norm(jnp.asarray(raw[0]), init_agent_obs_norm(raw.shape[-1]))[1]
+    rows = {
+        k: np.repeat(np.asarray(getattr(stats, k)), 2, axis=0)[None]
+        for k in ("var", "count", "mean", "mean_2")
+    }
+    env["obs"] = np.asarray(
+        online_normalize(raw, rows["count"], rows["mean"], rows["mean_2"], train=False)[
+            0
+        ]
+    )
+    env["info"]["normalization_info"] = {
+        "obs": rows | {"returns": None},
+        "reward": None,
+    }
+    if with_raw:
+        env["info"]["raw_obs"] = raw
+    saved["collector_state"]["obs_norm_info"] = None
+    _resave(path, saved)
+    restored = restore_into(state, path).collector_state
+    for field in ("count", "mean", "mean_2", "var"):
+        want_field = np.asarray(getattr(stats, field))[None]
+        np.testing.assert_allclose(
+            getattr(restored.obs_norm_info, field), want_field, rtol=1e-6
+        )
+    np.testing.assert_allclose(restored.env_state.obs, raw, rtol=1e-5, atol=1e-5)
+    assert "normalization_info" not in restored.env_state.info
 
 
 def test_a_checkpoint_of_another_shape_is_refused(sac_run, tmp_path):

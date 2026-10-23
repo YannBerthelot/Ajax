@@ -94,11 +94,16 @@ class EnvironmentConfig(Replaceable):
     # ``ajax.environments.create``). Static: it fixes shapes and schedules
     # (episode length in agent steps), never a traced value.
     action_repeat: int = struct.field(pytree_node=False, default=1)
-    # The agent normalises the observations itself (a replay agent's
-    # ``normalize_observations``): the env passes them raw, the collector
-    # keeps running statistics (CollectorState.obs_norm_info) and the
-    # networks apply the current ones (ajax.environments.obs_norm).
+    # The agent normalises the observations itself (``normalize_observations``):
+    # the env passes them raw and the collector keeps running statistics
+    # (CollectorState.obs_norm_info). A replay agent's networks apply the
+    # current ones to raw observations (ajax.environments.obs_norm).
     normalize_obs_in_agent: bool = struct.field(pytree_node=False, default=False)
+    # An on-policy agent's collector stores each observation normalised with
+    # the statistics of its collection, updated with it after the env step,
+    # and its networks read them as stored (openai/baselines ppo2's
+    # VecNormalize).
+    store_normalized_obs: bool = struct.field(pytree_node=False, default=False)
 
     @property
     def mode(self) -> str:

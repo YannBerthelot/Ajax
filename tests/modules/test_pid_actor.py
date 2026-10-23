@@ -291,7 +291,7 @@ def _obs_statistics(state):
     """The observation statistics the policy is queried with, if any."""
     if state.actor_state.obs_norm_info is not None:
         return state.actor_state.obs_norm_info
-    return getattr(state.collector_state.env_state, "normalization_info", None)
+    return state.collector_state.obs_norm_info  # stored normalised (on-policy)
 
 
 @pytest.mark.parametrize("case", list(AGENTS))

@@ -208,13 +208,13 @@ The logged returns stay in the environment's units. Evaluation normalises
 observations with the training statistics, frozen, and never normalises
 rewards.
 
-The agents learning from the rollout they just collected (PPO, APO and PQN)
-normalise in the environment. Its statistics live in the
-environment state: `state.collector_state.env_state.normalization_info.obs`
-for gymnax (in `info["normalization_info"]` for Brax), with `mean` and
-`var`. Every copy holds the same pooled values. To run the policy on a new
-observation yourself, normalise it as `(obs - mean) / sqrt(var + 1e-8)`
-first.
+The agents learning from the rollout they just collected (PPO, APO, PQN and
+AVG) store each observation normalised with the statistics of its
+collection, which count it: the rollout holds what the actor saw, as
+openai/baselines ppo2's `VecNormalize` keeps it. The statistics live in
+`state.collector_state.obs_norm_info`, with `mean` and `var`. To run the
+policy on a new observation yourself, normalise it as `(obs - mean) /
+sqrt(var + 1e-8)` first.
 
 The replay agents (SAC, TD3, REDQ, ASAC, DQN, UDRL) learn from rows
 collected long before, so their replay keeps the environment's own

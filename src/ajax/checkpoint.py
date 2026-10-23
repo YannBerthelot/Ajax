@@ -84,7 +84,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
     state_dict = _with_new_empty_fields(skeleton_dict, state_dict)
     if _took_a_joint_clip(skeleton):
         state_dict = _without_own_gradient_clip(skeleton_dict, state_dict)
-    state_dict = _with_raw_obs_info(skeleton, state_dict)
+    state_dict = _with_agent_obs_stats(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
     _check_leaf_shapes(skeleton, restored)
     return jax.tree.map(
@@ -421,10 +421,16 @@ def _check_log_std_head(skeleton: Any, saved: Any) -> None:
             _check_log_std_head(value, saved[key])
 
 
-def _with_raw_obs_info(skeleton: Any, state_dict: Any) -> Any:
-    """Give a brax env state saved before the observation normaliser kept
-    its raw observation in the info (``RAW_OBS_KEY``) that entry: the saved
-    observation un-normalised by the statistics saved with it.
+def _with_agent_obs_stats(skeleton: Any, state_dict: Any) -> Any:
+    """Give an on-policy agent's checkpoint saved while its observation
+    statistics lived in its env's normaliser (before 2026-10-23) those
+    statistics in its collector, where they live now: a gymnax env's sets,
+    one per env, merged into one (the parallel variance of Chan, Golub and
+    LeVeque, 1979, cited from memory), a brax batch's rows, all the same,
+    read once. The env state keeps its reward statistics, and a brax one
+    its raw observation (its info's, else un-normalised from the saved
+    statistics). The saved last observation stays as the env normalised
+    it: one step acts on it.
 
     Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as
     ``_with_replay_next_obs``.
@@ -432,19 +438,49 @@ def _with_raw_obs_info(skeleton: Any, state_dict: Any) -> Any:
     from ajax.utils import online_denormalize
     from ajax.wrappers import RAW_OBS_KEY
 
-    env_state = getattr(getattr(skeleton, "collector_state", None), "_env_state", None)
-    if RAW_OBS_KEY not in getattr(env_state, "info", {}):
+    collector = getattr(skeleton, "collector_state", None)
+    stats = getattr(collector, "obs_norm_info", None)
+    saved = state_dict.get("collector_state") if isinstance(state_dict, dict) else None
+    if stats is None or not isinstance(saved, dict) or saved.get("obs_norm_info"):
         return state_dict
-    saved = state_dict["collector_state"]["_env_state"]
-    if RAW_OBS_KEY in saved["info"]:
+    env = dict(saved["_env_state"])
+    brax = isinstance(env.get("info"), dict)
+    holder = dict(env["info"]) if brax else env
+    norm = holder.get("normalization_info")
+    if not isinstance(norm, dict) or norm.get("obs") is None:
         return state_dict
-    stats = saved["info"]["normalization_info"]["obs"]
-    raw = online_denormalize(
-        saved["obs"], stats["count"], stats["mean"], stats["mean_2"]
+    count, mean, mean_2 = (
+        np.asarray(norm["obs"][k]) for k in ("count", "mean", "mean_2")
     )
-    info = {**saved["info"], RAW_OBS_KEY: np.asarray(raw, saved["obs"].dtype)}
-    collector = {**state_dict["collector_state"], "_env_state": {**saved, "info": info}}
-    return {**state_dict, "collector_state": collector}
+    if brax:
+        raw = holder.pop(RAW_OBS_KEY, None)
+        if raw is None:
+            raw = online_denormalize(env["obs"], count, mean, mean_2)
+        env["obs"] = np.asarray(raw, np.asarray(env["obs"]).dtype)
+        count, mean, mean_2 = count[..., :1, :], mean[..., :1, :], mean_2[..., :1, :]
+    else:
+        seeds = np.ndim(stats.count) - 2  # the leading axes of a seed batch
+        c = count.reshape(count.shape[: seeds + 1])  # (*seeds, n_envs)
+        m = mean.reshape(*c.shape, -1)
+        m2 = mean_2.reshape(*c.shape, -1)
+        total = c.sum(-1, keepdims=True)[..., None]  # (*seeds, 1, 1)
+        merged = (c[..., None] * m).sum(-2, keepdims=True) / total
+        mean_2 = (m2 + c[..., None] * (m - merged) ** 2).sum(-2, keepdims=True)
+        count, mean = total, merged
+    assert collector is not None  # it holds the statistics
+    env_state = collector._env_state
+    kept = env_state.info if brax else vars(env_state)
+    if "normalization_info" in kept:
+        holder["normalization_info"] = {**norm, "obs": None}
+    else:
+        del holder["normalization_info"]
+    if brax:
+        env["info"] = holder
+    arrays = {"var": mean_2 / count, "count": count, "mean": mean, "mean_2": mean_2}
+    moved: dict[str, Any] = {k: v.astype(np.float32) for k, v in arrays.items()}
+    moved["returns"] = None
+    collector_dict = {**saved, "_env_state": env, "obs_norm_info": moved}
+    return {**state_dict, "collector_state": collector_dict}
 
 
 def _check_raw_replay(skeleton: Any, saved: dict, saved_format: int) -> None:

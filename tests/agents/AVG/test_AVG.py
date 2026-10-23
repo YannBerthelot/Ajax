@@ -16,7 +16,7 @@ def test_avg_keeps_its_network_optimizer_and_env_settings():
     assert agent.network_args.log_variance_head
     for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
         assert (args.beta_1, args.beta_2, args.eps) == (0.0, 0.99, 1e-8)
-    assert "NormalizeVecObservation" in type(agent.env_args.env._env).__name__
+    assert agent.env_args.store_normalized_obs  # normalised at collection
     assert not AVG.supports_memory
     assert agent.get_make_train().keywords["alpha_args"] is agent.alpha_args
 

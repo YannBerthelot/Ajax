@@ -65,6 +65,26 @@ def update_obs_norm(
     return new_obs, new_info
 
 
+def normalized_obs(
+    obs: jnp.ndarray, info: Optional[NormalizationInfo], raw_columns: int = 0
+) -> jnp.ndarray:
+    """``obs`` normalised with the statistics ``info``, not updated, as
+    :func:`update_obs_norm` normalises (``online_normalize``): the frozen
+    statistics of an on-policy agent's evaluation and of its final and
+    reset observations. ``info`` None: ``obs`` as it is."""
+    if info is None:
+        return obs
+    return online_normalize(
+        obs,
+        info.count,
+        info.mean,
+        info.mean_2,
+        train=False,
+        nan_safe=False,
+        raw_columns=raw_columns,
+    )[0]
+
+
 def apply_obs_norm(obs: jnp.ndarray, info: Optional[NormalizationInfo]) -> jnp.ndarray:
     """Normalize ``obs`` using existing stats (no update). Used at every
     actor/critic ``apply_fn`` site that consumes obs sampled from the

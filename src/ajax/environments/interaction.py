@@ -21,6 +21,7 @@ from ajax.controller import (
 from ajax.environments.obs_norm import (
     apply_obs_norm,
     init_agent_obs_norm,
+    normalized_obs,
     update_obs_norm,
 )
 from ajax.environments.system_class import env_params_is_batched
@@ -798,7 +799,10 @@ def collect_experience(
     # forward pass), then sync into actor/critic so the very first step
     # of training already uses non-zero stats. This avoids a step-1
     # divide-by-≈0 in apply_obs_norm.
-    if agent_state.collector_state.obs_norm_info is not None:
+    if (
+        agent_state.collector_state.obs_norm_info is not None
+        and not env_args.store_normalized_obs
+    ):
         _, _new_obs_norm = update_obs_norm(
             agent_state.collector_state.last_obs,
             agent_state.collector_state.obs_norm_info,
@@ -862,6 +866,13 @@ def collect_experience(
     final_obs = get_final_obs(info, obsv).astype(obsv.dtype)
     # The same in the environment's own units, what an expert reads.
     raw_final_obs = get_raw_final_obs(info, final_obs)
+    obs_norm_info = agent_state.collector_state.obs_norm_info
+    if env_args.store_normalized_obs:
+        # The next observation counts in the statistics it is normalised
+        # with, and so is the step's final one (the transition's next).
+        cols = raw_obs_columns(env_args.env)
+        obsv, obs_norm_info = update_obs_norm(obsv, obs_norm_info, cols)
+        final_obs = normalized_obs(final_obs, obs_norm_info, cols)
 
     # An agent conditioned on the training fraction sees it as a last
     # column of every observation, the next one (the final observation off
@@ -871,7 +882,7 @@ def collect_experience(
         if agent_state.collector_state.max_timesteps is not None
         else None
     )
-    raw_next_obs = maybe_append_train_frac(get_final_obs(info, obsv), train_frac)
+    raw_next_obs = maybe_append_train_frac(final_obs, train_frac)
     obsv = maybe_append_train_frac(obsv, train_frac)
 
     # The replay keeps the env's own reward, which a replayed batch divides
@@ -1017,6 +1028,7 @@ def collect_experience(
         buffer_state=buffer_state,
         last_expert_frac=jnp.mean(is_expert_flag),
         last_in_box=in_value_box.astype(jnp.float32),
+        obs_norm_info=obs_norm_info,
         **({"expert_state": new_expert_state} if new_expert_state is not None else {}),
         **({"step_in_episode": _new_step_in_ep} if _new_step_in_ep is not None else {}),
     )
@@ -1274,6 +1286,10 @@ def init_collector_state(
     obs_norm_info = None
     if env_args.normalize_obs_in_agent:
         obs_norm_info = init_agent_obs_norm(last_obs.shape[-1])
+    if env_args.store_normalized_obs:
+        last_obs, obs_norm_info = update_obs_norm(
+            last_obs, obs_norm_info, raw_obs_columns(env_args.env)
+        )
 
     collector_state = CollectorState(
         rng=rng,

@@ -12,6 +12,12 @@ import optax
 Schedule = Union[float, Callable[[Any], Any]]
 
 
+def progress(timestep: Any, horizon: Any) -> Any:
+    """The share of a run of ``horizon`` steps (at least one) done at
+    ``timestep``, unclipped: what every schedule over training reads."""
+    return timestep / jnp.maximum(horizon, 1)
+
+
 def at(schedule: Schedule, timestep: Any) -> Any:
     """``schedule``'s value at ``timestep``."""
     return schedule(timestep) if callable(schedule) else schedule

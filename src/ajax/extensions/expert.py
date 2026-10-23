@@ -26,6 +26,7 @@ import jax.numpy as jnp
 from ajax.environments.utils import critic_action_units
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.networks.networks import phi_star_critic_state, predict_value
+from ajax.schedule import progress
 
 
 def residual_action_transform(
@@ -163,7 +164,7 @@ class OnlineBC(Extension):
         a_expert = batch["a_expert"]
         if agent_state.expert_critic_params is None or self.critic_warmup_frac <= 0:
             return 0.0
-        train_frac = ctx.step / ctx.total_steps
+        train_frac = progress(ctx.step, ctx.total_steps)
         term = compute_online_bc_loss(
             batch["pi_mean"],
             a_expert,
@@ -183,8 +184,7 @@ class OnlineBC(Extension):
 def anneal_weight(step: jax.Array, total_steps: int, anneal_frac: float) -> jax.Array:
     """1 at the start of training, falling linearly to 0 at ``anneal_frac``
     of ``total_steps``, 0 after."""
-    progress = step / (anneal_frac * max(total_steps, 1))
-    return jnp.clip(1.0 - progress, 0.0, 1.0)
+    return jnp.clip(1.0 - progress(step, anneal_frac * total_steps), 0.0, 1.0)
 
 
 def q_filter_weight(
@@ -566,8 +566,7 @@ class JSRLCurriculum(Extension):
     def horizon(self, timestep: Any, total_steps: int) -> jax.Array:
         """``H_t``: ``episode_length`` at the start, falling linearly to 0 at
         ``decay_frac`` of the run."""
-        total_timesteps = max(int(total_steps), 1)
-        train_frac = timestep / jnp.maximum(total_timesteps, 1)
+        train_frac = progress(timestep, total_steps)
         curriculum_progress = jnp.clip(train_frac / self.decay_frac, 0.0, 1.0)
         return self.episode_length * (1.0 - curriculum_progress)
 

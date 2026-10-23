@@ -292,7 +292,6 @@ class ImitationLoss(Extension):
     reads_stored_expert: bool = False
     buffer: Any = None  # the Q-filter's logged share samples it
     action_scale: Optional[tuple] = None  # with alpha: the env's half-ranges
-    augment_obs_with_expert_action: bool = False
     name: str = "imitation_loss"
     requires: ClassVar[frozenset[str]] = frozenset({"continuous_actions"})
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
@@ -361,11 +360,8 @@ class ImitationLoss(Extension):
                 "ImitationLoss(q_filter=True) reads the critic at the policy's"
                 " mean action; ResidualPolicy's critic reads the executed one."
             )
-        augment = agent_context.get("augment_obs_with_expert_action", False)
         return dataclasses.replace(
-            bound,
-            buffer=agent_context.get("buffer", self.buffer),
-            augment_obs_with_expert_action=augment,
+            bound, buffer=agent_context.get("buffer", self.buffer)
         )
 
     def _expert_actions(self, stored: Any, raw_obs: jax.Array) -> jax.Array:
@@ -434,7 +430,7 @@ class ImitationLoss(Extension):
         """``imitation/q_filter_frac``, the share of a replay batch the
         Q-filter keeps (an agent with a replay, which it binds)."""
         from ajax.buffers.utils import get_batch_from_buffer
-        from ajax.environments.interaction import augment_obs, get_pi
+        from ajax.environments.interaction import get_pi
 
         del ext_state, ctx
         if self.buffer is None:
@@ -442,9 +438,7 @@ class ImitationLoss(Extension):
         batch = get_batch_from_buffer(
             self.buffer, agent_state.collector_state.buffer_state, rng
         )
-        obs = batch.obs
-        if self.augment_obs_with_expert_action:
-            obs = augment_obs(obs, expert_action=batch.a_expert)
+        obs = batch.obs  # with the agent's observation features
         actor = agent_state.actor_state  # get_pi applies its observation norm
         pi_mean = get_pi(actor, actor.params, obs)[0].mean()
         a_expert = (
@@ -590,13 +584,12 @@ class ExpertValueMetrics(Extension):
     One replay batch per evaluation pays for them, not a critic pass (two
     with ``φ*``) per update for three logged numbers. ``a_E`` is the
     expert's action stored at collection. A replay agent with an
-    ``expert_policy`` (SAC, TD3, REDQ, ASAC) binds its replay buffer, its
-    expert and its observation augmentation.
+    ``expert_policy`` (SAC, TD3, REDQ, ASAC) binds its replay buffer and its
+    expert.
     """
 
     buffer: Any = None
     expert_policy: Optional[Callable] = None
-    augment_obs_with_expert_action: bool = False
     name: str = "expert_value_metrics"
     requires: ClassVar[frozenset[str]] = frozenset(
         {"agent_expert", "q_critic", "replay"}
@@ -614,19 +607,12 @@ class ExpertValueMetrics(Extension):
                 " actions the agent stored for its expert_policy: it needs a"
                 " replay agent (SAC, TD3, REDQ, ASAC) with an expert_policy."
             )
-        augment = agent_context.get("augment_obs_with_expert_action", False)
-        return dataclasses.replace(
-            self,
-            buffer=buffer,
-            expert_policy=expert,
-            augment_obs_with_expert_action=augment,
-        )
+        return dataclasses.replace(self, buffer=buffer, expert_policy=expert)
 
     def eval_metrics(
         self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
     ) -> dict:
         from ajax.buffers.utils import get_batch_from_buffer
-        from ajax.environments.interaction import augment_obs
 
         del ext_state, ctx
         batch = get_batch_from_buffer(
@@ -635,8 +621,6 @@ class ExpertValueMetrics(Extension):
         obs, actions = batch.obs, batch.action
         # The expert's actions as collection stored them (from its state).
         a_expert = batch.a_expert
-        if self.augment_obs_with_expert_action:
-            obs = augment_obs(obs, expert_action=a_expert)
         critic = agent_state.critic_state
 
         def q_min(params: Any, a: jax.Array, state: Any = critic) -> jax.Array:

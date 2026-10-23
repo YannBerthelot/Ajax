@@ -33,7 +33,6 @@ from ajax.environments.utils import (
     env_keys,
     get_env_type,
     get_raw_env,
-    maybe_append_train_frac,
     wrapper_chain,
 )
 from ajax.networks.distributions import latent
@@ -316,7 +315,6 @@ def step_environment(
     actor_state,
     continuous,
     expert_policy=None,
-    train_frac: Optional[float] = None,
     agent_state=None,
     controller: Optional[Controller] = None,
     value_estimate: Optional[ValueEstimate] = None,
@@ -377,9 +375,7 @@ def step_environment(
             carry=carry.actor_hidden,
             obs_norm=obs_norm,
         )
-        obs_for_actor, observed_state = controller.observe(
-            acting, expert_policy, expert_obs
-        )
+        obs_for_actor = controller.observe(acting)
         if command is not None:
             obs_for_actor = command.actor_input(obs_for_actor, carry.command)
 
@@ -389,7 +385,7 @@ def step_environment(
             )
         )
         actions, new_expert_state = controller.act(
-            raw_actions, acting, expert_policy, expert_obs, observed_state
+            raw_actions, acting, expert_policy, expert_obs
         )
         value = (
             carry.value
@@ -408,7 +404,6 @@ def step_environment(
             mode,
             env_params,
         )
-        obs = maybe_append_train_frac(obs, train_frac)
 
         new_done = jnp.logical_or(new_term, new_trunc)
         still_running = 1 - done
@@ -598,7 +593,6 @@ def evaluate(
     norm_info: Optional[NormalizationInfo] = None,
     avg_reward_mode: bool = False,
     expert_policy: Optional[Callable] = None,
-    train_frac: Optional[float] = None,
     max_eval_steps: Optional[int] = None,
     agent_state=None,
     controller: Optional[Controller] = None,
@@ -648,7 +642,7 @@ def evaluate(
             actor_state.hidden_state,
         )
 
-    first_obs = maybe_append_train_frac(obs, train_frac)
+    first_obs = obs
     expert_state = _init_expert_state(expert_policy, num_episodes)
     observer_states = None
     controller = Controller() if controller is None else controller
@@ -685,7 +679,6 @@ def evaluate(
         actor_state,
         continuous,
         expert_policy=expert_policy,
-        train_frac=train_frac,
         agent_state=agent_state,
         controller=controller,
         value_estimate=None if recurrent else value_estimate,

@@ -4,14 +4,13 @@ Lives inside ``CollectorState.obs_norm_info`` so stats are part of
 ``agent_state`` and thread through naturally. Normalization is applied
 at every actor/critic ``apply_fn`` boundary; stats are updated only at
 collection time (online interaction and BC dataset prep). The replay
-buffer stores RAW augmented observations so changing stats don't poison
+buffer stores raw observations (their features included) so changing stats do not poison
 old samples; we re-normalize at sample time.
 
-Why agent-side and not env-wrapper-side: when ``augment_obs_with_expert_state``
-is on, the ``expert_state`` (PID integrators etc.) is appended AFTER the
-env step, in the collector. The env wrapper can't see those dims, so
-its running stats don't cover them. Agent-side normalization wraps the
-full augmented vector.
+Agent-side so that the statistics are the agent's, shipped with its policy,
+and cover its observation features (``ajax.controller``), which the env never
+sees: the env's columns and the normalised features; the raw features (an
+expert's action) come last and stay raw.
 """
 
 from typing import Optional, Tuple
@@ -93,9 +92,9 @@ def apply_obs_norm(obs: jnp.ndarray, info: Optional[NormalizationInfo]) -> jnp.n
     stats are still empty (count == 0), avoiding a divide-by-≈0 at
     step 1 before any update.
 
-    The statistics cover the agent's own observation, the leading columns;
-    what is appended after it stays raw: the expert's action
-    (``interaction.augment_obs``) and a critic's action, already in action
+    The statistics cover the leading columns: the env's and the normalised
+    features'; what follows stays raw: a raw feature (an expert's action)
+    and a critic's action, already in action
     units, as the env's ``raw_columns`` keep a PID's terms raw."""
     if info is None or info.var is None:
         return obs

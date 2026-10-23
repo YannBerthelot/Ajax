@@ -79,33 +79,21 @@ def test_the_actors_input_is_normalised_when_the_agent_stores_it_so():
         obs=obs, done=jnp.zeros(1, bool), timestep=None, obs_norm=stats
     )
     normalising = Controller(normalize_obs=True, raw_columns=1)
-    actor_obs, _ = normalising.observe(acting, None, None)
+    actor_obs = normalising.observe(acting)
     np.testing.assert_allclose(actor_obs, [[7.0, 1.0]], rtol=1e-4)
-
-
-def test_the_actors_input_is_the_observation_then_the_experts_state_and_action():
-    obs, expert = jnp.ones((2, 3)), _GainExpert()
-    plain, untouched = Controller().observe(_acting(obs), expert, obs)
-    np.testing.assert_array_equal(plain, obs)
-    assert untouched is None  # the input does not read the expert
-    both = Controller(observe_expert_action=True, observe_expert_state=True)
-    actor_obs, state = both.observe(_acting(obs), expert, obs)
-    np.testing.assert_array_equal(actor_obs[:, :3], obs)
-    np.testing.assert_array_equal(actor_obs[:, 3:], [[0.0, -2.0], [0.0, -2.0]])
-    np.testing.assert_array_equal(state, 1.0)  # after the call made for it
 
 
 def test_the_executed_action_is_the_actors_the_transforms_or_the_gains():
     obs, expert, actions = jnp.ones((2, 1)), _GainExpert(), jnp.full((2, 1), 0.5)
     acting = _acting(obs)
-    own, _ = Controller().act(actions, acting, expert, obs, None)
+    own, _ = Controller().act(actions, acting, expert, obs)
     np.testing.assert_array_equal(own, actions)
     mixed, state = Controller(transform=lambda a, e: a + e).act(
-        actions, acting, expert, obs, None
+        actions, acting, expert, obs
     )
     np.testing.assert_array_equal(mixed, 0.5 - 2.0)  # the expert called for it
     np.testing.assert_array_equal(state, 1.0)
-    gained, _ = Controller(gains=True).act(actions, acting, expert, obs, None)
+    gained, _ = Controller(gains=True).act(actions, acting, expert, obs)
     np.testing.assert_allclose(gained, -2.0 * 10**0.5, rtol=1e-6)  # anchor * 10^a
 
 
@@ -159,3 +147,18 @@ def test_features_join_the_observation_and_carry_their_state():
     np.testing.assert_array_equal(obs[:, 2], [2.0, 2.0])
     same, _ = observe_features(raw, ObserveInputs(raw), (), ())
     assert same is raw  # no features: the observation itself
+
+
+def test_the_expert_steps_every_step_its_state_feeds_the_features():
+    """With observation features the expert is called each step, as
+    collection calls it, so the next observation's expert state is current;
+    without, its state is left as it is."""
+    obs, expert, actions = jnp.ones((2, 1)), _GainExpert(), jnp.full((2, 1), 0.5)
+    acting = _acting(obs)
+    own, still = Controller().act(actions, acting, expert, obs)
+    observed, stepped = Controller(observers=(_Count(),)).act(
+        actions, acting, expert, obs
+    )
+    np.testing.assert_array_equal(observed, own)  # the actor's action either way
+    np.testing.assert_array_equal(still, 0.0)
+    np.testing.assert_array_equal(stepped, 1.0)

@@ -34,6 +34,7 @@ from ajax.extensions import (
     expert,
     exploration,
     instrumentation,
+    observe,
     offline,
 )
 from ajax.extensions import pretrain as pre
@@ -175,6 +176,9 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
         lambda: adversarial.AdversarialReward(pendulum_rows()),
         "PPO",
     ),
+    "ExpertActionInput": (observe.ExpertActionInput, "SAC"),
+    "ExpertStateInput": (lambda: observe.ExpertStateInput.for_expert(EXPERT), "SAC"),
+    "TrainingProgressInput": (observe.TrainingProgressInput, "SAC"),
 }
 ACTING = {"ValueBox", "EDGEExploration", "JSRLCurriculum", "ResidualPolicy"}
 PHI_STAR = (
@@ -183,6 +187,7 @@ PHI_STAR = (
 NEEDS_EXPERT = "augment_obs_with_expert_action augment_obs_with_expert_state"
 NEEDS_EXPERT += " use_pid_policy expert_buffer_n_steps IBRL LCBGatedBootstrap"
 NEEDS_EXPERT += " ExpertValueMetrics CloningPretrain ResidualPolicy JSRLCurriculum"
+NEEDS_EXPERT += " ExpertActionInput ExpertStateInput"
 #: What an option or extension needs on in its row: phi* is MCPretrain's,
 #: BellmanPretrain reads its prefilled replay.
 REQUIRES = {o: {"MCPretrain"} for o in (*PHI_STAR.split(), "BellmanPretrain")}
@@ -203,13 +208,22 @@ EXCLUSIVE = [
     # The gain policy bypasses SAC's action slots, and the expert acts on its
     # output (SAC refuses its action in the observation).
     ({"use_pid_policy"}, ACTING | {"augment_obs_with_expert_action"}),
+    ({"use_pid_policy"}, {"ExpertActionInput"}),
+    # A feature and the deprecated keyword making it would widen the
+    # observation twice under one name.
+    ({"ExpertActionInput"}, {"augment_obs_with_expert_action"}),
+    ({"ExpertStateInput"}, {"augment_obs_with_expert_state"}),
+    ({"TrainingProgressInput"}, {"use_train_frac"}),
     # Experts act in continuous spaces; ImitationLoss reads a mean action.
     ({"CartPole-v1"}, EXPERTS | {"ImitationLoss"}),
     # The rows are Pendulum's own observations: the replay's of another env,
     # one widened by the training fraction, or one keeping the expert's next
     # action (an expert_policy) cannot take them; GAIL's discriminator reads
     # Pendulum's (s, a) only.
-    ({"PriorData"}, {"fast", "CartPole-v1", "use_train_frac"} | EXPERTS),
+    (
+        {"PriorData"},
+        {"fast", "CartPole-v1", "use_train_frac", "TrainingProgressInput"} | EXPERTS,
+    ),
     # Cal-QL is CQL's term with a floor: a stack holds one of them.
     ({"ConservativeQ"}, {"CalQL"}),
     ({"AdversarialReward"}, {"fast", "CartPole-v1"}),

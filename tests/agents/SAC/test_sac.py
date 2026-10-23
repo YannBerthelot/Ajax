@@ -7,6 +7,11 @@ import pytest
 
 from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.expert import JSRLCurriculum
+from ajax.extensions.observe import (
+    ExpertActionInput,
+    ExpertStateInput,
+    TrainingProgressInput,
+)
 from ajax.networks.networks import get_initialized_actor_critic
 from tests.agents.test_option_smoke import Expert, stateless_expert
 from tests.environments import paid_action
@@ -25,7 +30,7 @@ def test_the_gain_policy_refuses_the_experts_action_in_the_observation():
     expert's action cannot be in the observation the actor reads."""
     kw = {"expert_policy": Expert(), "use_pid_policy": True}
     SAC(env_id="Pendulum-v1", augment_obs_with_expert_state=True, **kw)
-    with pytest.raises(ValueError, match="augment_obs_with_expert_action"):
+    with pytest.raises(ValueError, match="ExpertActionInput"):
         SAC(env_id="Pendulum-v1", augment_obs_with_expert_action=True, **kw)
 
 
@@ -199,3 +204,22 @@ def test_recurrent_sac_keeps_its_previous_initialisation():
     np.testing.assert_allclose(mean.T @ mean, 1e-4 * np.eye(1), atol=1e-8)
     np.testing.assert_array_equal(actor["log_std"]["kernel"], 0.0)
     np.testing.assert_array_equal(actor["log_std"]["bias"], -1.0)
+
+
+def test_the_augmentation_keywords_build_their_features_in_column_order():
+    """use_train_frac, augment_obs_with_expert_state and
+    augment_obs_with_expert_action build the features they stand for (with
+    a warning) in their old columns' order: the progress, the expert's
+    state, its action; they leave the learner's extension stack alone."""
+    with pytest.warns(FutureWarning, match="TrainingProgressInput"):
+        agent = SAC(
+            env_id="Pendulum-v1",
+            expert_policy=Expert(),
+            use_train_frac=True,
+            augment_obs_with_expert_state=True,
+            augment_obs_with_expert_action=True,
+        )
+    kinds = [type(o) for o in agent.env_args.observers]
+    assert kinds == [TrainingProgressInput, ExpertStateInput, ExpertActionInput]
+    assert agent.env_args.observers[1].width == 1  # the expert's state
+    assert not agent.extension_stack  # observe-only: the controller's

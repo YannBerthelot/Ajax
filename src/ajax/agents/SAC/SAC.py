@@ -16,10 +16,41 @@ from ajax.environments.utils import (
     get_action_dim,
 )
 from ajax.extensions.base import Extension
+from ajax.extensions.observe import (
+    ExpertActionInput,
+    ExpertStateInput,
+    TrainingProgressInput,
+)
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
+
+
+def augmentation_features(
+    expert: Any, *, progress: bool, state: bool, action: bool
+) -> tuple:
+    """The observation features SAC's augmentation keywords stand for, in
+    their columns' order: the training progress (``use_train_frac``), the
+    expert's state (``augment_obs_with_expert_state``, a stateful expert's)
+    and its action (``augment_obs_with_expert_action``, with an expert).
+    Expand-then-contract (CLAUDE.md rule 10): the keywords warn, and go
+    once AjaxExperiments passes the features."""
+    if progress or state or action:
+        warnings.warn(
+            "SAC's use_train_frac, augment_obs_with_expert_state and"
+            " augment_obs_with_expert_action will be removed: pass"
+            " TrainingProgressInput(), ExpertStateInput.for_expert(expert) and"
+            " ExpertActionInput() (ajax.extensions.observe) in extensions.",
+            FutureWarning,
+            stacklevel=3,
+        )
+    stateful = expert is not None and hasattr(expert, "init_state")
+    return (
+        *([TrainingProgressInput()] if progress else []),
+        *([ExpertStateInput.for_expert(expert)] if state and stateful else []),
+        *([ExpertActionInput()] if action and expert is not None else []),
+    )
 
 
 class SAC(ActorCritic):
@@ -29,10 +60,10 @@ class SAC(ActorCritic):
 
     Several kwargs remain because they thread into network init,
     collection, or the action pipeline at a level the extension
-    framework doesn't reach (``use_pid_policy``,
-    ``augment_obs_with_expert_action``, ``augment_obs_with_expert_state``,
-    ``use_train_frac``, ``store_policy_action``).
-    They mirror the matching extension's "static" flag.
+    framework doesn't reach (``use_pid_policy``, ``store_policy_action``).
+    ``augment_obs_with_expert_action``, ``augment_obs_with_expert_state``
+    and ``use_train_frac`` build the observation features they stand for
+    (:mod:`ajax.extensions.observe`) and warn: pass those instead.
     ``normalize_obs_running`` is ``normalize_observations`` under its old
     name, kept with a FutureWarning until the downstream projects pass the
     new one.
@@ -54,6 +85,7 @@ class SAC(ActorCritic):
         "actor_loss",
         "action",
         "transform_action",
+        "observe",
     }
     # Its critic step's target_extras join the shared step's on_target keys.
     phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS | {
@@ -61,11 +93,9 @@ class SAC(ActorCritic):
     }
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     extension_context: frozenset = frozenset(
-        "actor_optimizer_args augment_obs_with_expert_action "
-        "augment_obs_with_expert_state buffer critic_optimizer_args "
-        "env_args expert_policy expert_state_aug_dim extensions "
-        "gamma network_args num_critics recurrent reward_scale "
-        "update_target_fn update_value_fn use_train_frac".split()
+        "actor_optimizer_args buffer critic_optimizer_args env_args "
+        "expert_policy extensions gamma network_args num_critics recurrent "
+        "reward_scale update_target_fn update_value_fn".split()
     )
     supported_buffer_fields: frozenset = frozenset({"raw_next_obs", "return_to_go"})
     stores_expert_actions: bool = True
@@ -200,6 +230,12 @@ class SAC(ActorCritic):
                     "log_std_kernel_init": "xavier_uniform",
                     "log_std_init": 0.0,
                 }
+        features = augmentation_features(
+            expert_policy,
+            progress=use_train_frac,
+            state=augment_obs_with_expert_state,
+            action=augment_obs_with_expert_action,
+        )
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -218,7 +254,7 @@ class SAC(ActorCritic):
             **reference_init,
             episode_length=episode_length,
             action_repeat=action_repeat,
-            extensions=extensions,
+            extensions=(*extensions, *features),
         )
         # Adam's eps is TensorFlow's default, 1e-8, which softlearning's
         # tf.train.AdamOptimizer keeps (a1253bc sac.py:236-244, :318-324);
@@ -247,12 +283,12 @@ class SAC(ActorCritic):
                     " learnable_fields (registered via register_learnable_gains)."
                 )
             action_dim_override = len(expert_policy.learnable_fields)
-            if augment_obs_with_expert_action:
+            if any(isinstance(e, ExpertActionInput) for e in self.env_args.observers):
                 raise ValueError(
-                    "use_pid_policy=True cannot take augment_obs_with_expert_action"
-                    "=True: the actor's output sets the gains the expert acts"
-                    " with, so the expert's action does not exist before the"
-                    " actor reads its observation."
+                    "use_pid_policy=True cannot take the expert's action as an"
+                    " observation feature (ExpertActionInput): the actor's output"
+                    " sets the gains the expert acts with, so the expert's action"
+                    " does not exist before the actor reads its observation."
                 )
 
         action_dim = (
@@ -285,11 +321,6 @@ class SAC(ActorCritic):
             " them (JSRLCurriculum).",
             jsrl_curriculum=jsrl_curriculum,
         )
-        expert_state_aug_dim = 0
-        if augment_obs_with_expert_state and expert_policy is not None:
-            from ajax.environments.interaction import expert_state_dim
-
-            expert_state_aug_dim = expert_state_dim(expert_policy)
         self.train_kwargs = {
             "buffer": self.buffer,
             "alpha_args": self.alpha_args,
@@ -300,14 +331,10 @@ class SAC(ActorCritic):
             "num_critics": num_critics,
             "num_critic_updates": num_critic_updates,
             "expert_buffer_n_steps": expert_buffer_n_steps,
-            "augment_obs_with_expert_action": augment_obs_with_expert_action,
-            "use_train_frac": use_train_frac,
             "policy_update_start": policy_update_start,
             "alpha_update_start": alpha_update_start,
             "expert_fraction": expert_fraction,
-            "augment_obs_with_expert_state": augment_obs_with_expert_state,
             "store_policy_action": store_policy_action,
-            "expert_state_aug_dim": expert_state_aug_dim,
             "target_entropy_initial": (
                 target_entropy_initial_per_dim * action_dim
                 if target_entropy_initial_per_dim is not None

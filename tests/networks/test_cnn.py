@@ -10,6 +10,7 @@ import pytest
 from ajax.agents.DQN.networks import get_initialized_q_network
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.environments.create import build_env_from_id
+from ajax.extensions.observe import TrainingProgressInput
 from ajax.networks.networks import (
     CNNEncoder,
     CNNSpec,
@@ -39,21 +40,24 @@ def _conv_params(params) -> list:
 
 
 @pytest.mark.parametrize(
-    "image_shape, env_extra, appended, max_timesteps",
+    "image_shape, env_extra, appended, progress",
     [
-        ((2, 2, 1), 0, 0, None),  # the whole observation is the image
-        ((1, 3, 1), 1, 0, None),  # PPO-style: one trailing env dim
-        ((2, 2, 1), 0, 2, None),  # UDRL-style: the command appended
-        ((2, 2, 1), 0, 0, 100),  # the train fraction appended
-        ((1, 3, 1), 1, 2, 100),  # all three
+        ((2, 2, 1), 0, 0, False),  # the whole observation is the image
+        ((1, 3, 1), 1, 0, False),  # PPO-style: one trailing env dim
+        ((2, 2, 1), 0, 2, False),  # UDRL-style: the command appended
+        ((2, 2, 1), 0, 0, True),  # an observation feature appended
+        ((1, 3, 1), 1, 2, True),  # all three
     ],
 )
 def test_actor_and_state_value_critic_read_the_same_layout(
-    cartpole, image_shape, env_extra, appended, max_timesteps
+    cartpole, image_shape, env_extra, appended, progress
 ):
+    """A feature's columns (TrainingProgressInput's one) join after the
+    convolutions, with the env's trailing dims and UDRL's command."""
+    features = (TrainingProgressInput(),) if progress else ()
     actor_state, critic_state = get_initialized_actor_critic(
         key=jax.random.PRNGKey(0),
-        env_config=cartpole,
+        env_config=cartpole.replace(observers=features),
         actor_optimizer_config=OPTIMIZER,
         critic_optimizer_config=OPTIMIZER,
         network_config=NetworkConfig(
@@ -65,10 +69,9 @@ def test_actor_and_state_value_critic_read_the_same_layout(
         ),
         num_critics=1,
         extra_obs_dim=appended,
-        max_timesteps=max_timesteps,
     )
     assert _conv_params(actor_state.params) and _conv_params(critic_state.params)
-    width = 4 + appended + (max_timesteps is not None)
+    width = 4 + appended + progress
     obs = jax.random.normal(jax.random.PRNGKey(1), (BATCH, width))
     logits = actor_state.apply_fn(actor_state.params, obs).logits
     assert logits.shape == (BATCH, 2) and jnp.all(jnp.isfinite(logits))

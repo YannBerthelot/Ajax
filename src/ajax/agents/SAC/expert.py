@@ -1,5 +1,5 @@
 """SAC's expert plumbing outside the Extension phases: the expert replay
-prefill (observations are augmented by ``interaction.augment_obs``)."""
+prefill (observations carry the agent's features, as collection's)."""
 
 from typing import Any, Callable
 
@@ -18,15 +18,13 @@ def collect_and_store_expert_transitions(
     buffer_state: Any,
     rng: jax.Array,
     n_steps: int,
-    augment_obs_with_expert_state: bool = False,
-    with_train_frac: bool = False,
 ) -> Any:
     """Collect ``n_steps`` expert steps per env and store them in the replay
     buffer row by row as the live collector does: one step of every env
     per add (the buffer's add batch is the env axis), with the expert's
     actions at s and s' as ``a_expert`` and ``next_a_expert``, and the
-    collector's observation layout (the training fraction, 0 before
-    training, then the expert's state)."""
+    observations with the agent's features (the training progress holds 0
+    before training)."""
     mode = env_args.mode
     transitions = collect_experience_from_expert_policy(
         expert_policy=expert_policy,
@@ -34,8 +32,6 @@ def collect_and_store_expert_transitions(
         mode=mode,
         env_args=env_args,
         n_timesteps=n_steps,
-        augment_obs_with_expert_state=augment_obs_with_expert_state,
-        train_frac=0.0 if with_train_frac else None,
     )
     schema = buffer_state.experience
 

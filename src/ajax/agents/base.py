@@ -364,6 +364,15 @@ class ActorCritic:
         observers = observers_of(self.extension_stack)
         if observers:
             self.env_args = self.env_args.replace(observers=observers)
+            # A feature that only observes belongs to the controller: it takes
+            # no part in the learner's folds (no state, no key of its own).
+            self.extension_stack = ExtensionStack(
+                [
+                    e
+                    for e in self.extension_stack
+                    if e.implemented_phases() != frozenset({"observe"})
+                ]
+            )
 
     def _in_agent_units(self, expert: Any) -> Any:
         """``expert`` read in agent units (:class:`ExpertInAgentUnits`),

@@ -469,6 +469,8 @@ class BiasVorePenalty(Extension):
     # so the MSE:Var ratio matches paper eq. (6) for PPO too.
     loss_scale: float = 1.0
     name: str = "bias_vore_penalty"
+    # The residual is a value's minus its one target.
+    requires: ClassVar[frozenset[str]] = frozenset({"scalar_target"})
 
     def _penalty(self, coeff: float, resid: jax.Array) -> tuple[jax.Array, dict]:
         """The penalty on the residual ``Q - target``, and what it logs."""

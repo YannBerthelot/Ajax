@@ -635,11 +635,17 @@ def explore_pipeline(
 def with_acting_state(pipeline: Optional[Callable]) -> Optional[Callable]:
     """``pipeline`` in the protocol :func:`collect_experience` calls, the
     step's :class:`~ajax.controller.ActingState` second. One written before
-    it, ``(agent_state, raw_obs, rng, uniform, mix_key, action_key)``, is
-    adapted with a warning. A deliberate transitional shim (CLAUDE.md rule
-    10): remove it once AjaxExperiments' TD3 variants take ``acting``."""
-    if pipeline is None or "acting" in inspect.signature(pipeline).parameters:
+    it, ``(agent_state, raw_obs, rng, uniform, mix_key, action_key)``, which
+    cannot take the seven arguments, is adapted with a warning. A deliberate
+    transitional shim (CLAUDE.md rule 10): remove it once AjaxExperiments'
+    TD3 variants take ``acting``."""
+    if pipeline is None:
         return pipeline
+    try:
+        inspect.signature(pipeline).bind(*range(7))
+        return pipeline
+    except TypeError:
+        pass
     warnings.warn(
         "An action pipeline now takes the step's ActingState second:"
         " (agent_state, acting, raw_obs, rng, uniform, mix_key, action_key)."

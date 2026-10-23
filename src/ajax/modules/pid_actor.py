@@ -1,8 +1,9 @@
 """PID policies: an actor that is a PID controller with learned gains.
 
 The actor acts on the error terms ``(e, I, D)`` that
-:class:`ajax.environments.pid_terms.PIDTermsWrapper` puts first in the
-observation; its pre-squash action, per action dimension ``a``, is::
+:class:`ajax.extensions.observe.PIDTermsInput` appends to the observation
+(or a deprecated :class:`ajax.environments.pid_terms.PIDTermsWrapper` puts
+first); its pre-squash action, per action dimension ``a``, is::
 
     u_a = sum_j Kp[a, j] e_j + Ki[a, j] I_j + Kd[a, j] D_j
 
@@ -34,8 +35,8 @@ the box's centre (no control on a symmetric box). The stochastic agents
 explore with a learned, state-independent log-std, clipped to the agent's
 ``log_std_bounds`` (PPO's and APO's default: no clip). Gains start at zero.
 Observation normalisation (env- or agent-side) leaves the terms raw, as
-the wrapper declares them, so the gains act on the errors in the env's
-units; the gain network of ``gains="observation"`` reads the rest
+the feature and the wrapper declare them, so the gains act on the errors in
+the env's units; the gain network of ``gains="observation"`` reads the rest
 normalised.
 """
 
@@ -60,8 +61,8 @@ GAIN_NAMES = ("kp", "ki", "kd")
 class PIDPolicy:
     """A PID actor, passed as an agent's ``actor_architecture``.
 
-    n_errors: errors the :class:`PIDTermsWrapper` tracks (its terms are
-        the first ``3 * n_errors`` observation entries).
+    n_errors: errors the :class:`PIDTermsInput` tracks (``3 * n_errors``
+        observation entries).
     gains: ``"fixed"`` (learned constants) or ``"observation"`` (an MLP of
         ``architecture`` predicts them from the observation).
     architecture: the gain network's hidden layers (``"observation"``
@@ -83,10 +84,12 @@ class PIDPolicy:
 
 
 class PIDLaw(nn.Module):
-    """The PID output ``u`` for an observation, shape ``(..., action_dim)``."""
+    """The PID output ``u`` for an observation, shape ``(..., action_dim)``;
+    its terms start at column ``terms_at`` (:func:`ajax.extensions.observe.pid_terms_at`)."""
 
     policy: PIDPolicy
     action_dim: int
+    terms_at: int = 0
 
     def setup(self):
         shape = (self.action_dim, self.policy.n_errors)
@@ -114,7 +117,7 @@ class PIDLaw(nn.Module):
         return self.head(h).reshape(*obs.shape[:-1], *shape)
 
     def __call__(self, obs: jax.Array) -> jax.Array:
-        terms = split_pid_terms(obs, self.policy.n_errors)
+        terms = split_pid_terms(obs, self.policy.n_errors, self.terms_at)
         return jnp.einsum("...tak,...tk->...a", self.gains(obs), terms)
 
 
@@ -136,10 +139,11 @@ class PIDActor(nn.Module):
     # The log-std's (low, high) clip, the agent's ``log_std_bounds``
     # (NetworkConfig); None: not clipped.
     log_std_bounds: Optional[Tuple[float, float]] = LOG_STD_BOUNDS
+    terms_at: int = 0  # PIDLaw's
 
     def setup(self):
         check_log_std_bounds(self.log_std_bounds)
-        self.pid = PIDLaw(self.policy, self.action_dim)
+        self.pid = PIDLaw(self.policy, self.action_dim, self.terms_at)
         self.log_std = self.param(
             "log_std", nn.initializers.constant(self.log_std_init), (self.action_dim,)
         )
@@ -166,7 +170,7 @@ def check_pid_actor(continuous: bool, memory: object) -> None:
     if memory is not None:
         raise NotImplementedError(
             "A PIDPolicy reads its integral and difference from the"
-            " observation (PIDTermsWrapper); it takes no memory."
+            " observation (PIDTermsInput); it takes no memory."
         )
 
 

@@ -24,10 +24,16 @@ over from the previous episode.
 The wrapper declares the terms raw (``raw_obs_columns``): Ajax's
 observation normalisers leave them in the env's units, so gains acting on
 them are a PID's, and normalise the rest of the observation as usual.
+
+The wrapper is deprecated: the terms are the controller's, which computes
+them from the observation it is handed, so they are an observation feature
+(:class:`ajax.extensions.observe.PIDTermsInput`, which reads the functions
+below). The PID policy reads them wherever the observation holds them.
 """
 
 from __future__ import annotations
 
+import warnings
 from math import prod
 from typing import Any, Optional, Sequence
 
@@ -39,10 +45,64 @@ from gymnax.environments import spaces
 from ajax.wrappers import _FINAL_OBS_KEYS, GymnaxWrapper
 
 
-def split_pid_terms(obs: jax.Array, n_errors: int) -> jax.Array:
-    """The ``(e, I, D)`` a :class:`PIDTermsWrapper` puts first in ``obs``,
-    stacked as ``(..., 3, n_errors)``."""
-    return obs[..., : 3 * n_errors].reshape(*obs.shape[:-1], 3, n_errors)
+def split_pid_terms(obs: jax.Array, n_errors: int, at: int = 0) -> jax.Array:
+    """The ``(e, I, D)`` held in ``obs`` from column ``at`` (a
+    :class:`PIDTermsWrapper` puts them first), stacked as
+    ``(..., 3, n_errors)``."""
+    terms = obs[..., at : at + 3 * n_errors]
+    return terms.reshape(*obs.shape[:-1], 3, n_errors)
+
+
+def check_pid_terms(
+    current_idx: Sequence[int],
+    target_idx: Sequence[int],
+    dt: float,
+    integral_limit: Optional[float],
+) -> None:
+    """Refuse terms without one set-point per controlled value, or with a
+    period or clamp that is not positive."""
+    if not current_idx or len(current_idx) != len(target_idx):
+        raise ValueError(
+            "current_idx and target_idx need one entry per error, got"
+            f" {tuple(current_idx)} and {tuple(target_idx)}."
+        )
+    if dt <= 0 or (integral_limit is not None and integral_limit <= 0):
+        raise ValueError(
+            f"dt and integral_limit must be positive, got {dt} and {integral_limit}."
+        )
+
+
+def tracking_error(
+    flat_obs: jax.Array, current_idx: Sequence[int], target_idx: Sequence[int]
+) -> jax.Array:
+    """``e = target - current`` from a flat observation's last axis."""
+    return flat_obs[..., jnp.array(target_idx)] - flat_obs[..., jnp.array(current_idx)]
+
+
+def clamp_integral(integral: jax.Array, integral_limit: Optional[float]) -> jax.Array:
+    """Clamping anti-windup; ``integral_limit`` None: no clamp."""
+    if integral_limit is None:
+        return integral
+    return jnp.clip(integral, -integral_limit, integral_limit)
+
+
+def start_terms(
+    error: jax.Array, dt: float, integral_limit: Optional[float]
+) -> tuple[jax.Array, jax.Array]:
+    """``(I_0, D_0)`` at an episode's first error ``e_0``."""
+    return clamp_integral(dt * error, integral_limit), jnp.zeros_like(error)
+
+
+def advance_terms(
+    error: jax.Array,
+    last_error: jax.Array,
+    integral: jax.Array,
+    dt: float,
+    integral_limit: Optional[float],
+) -> tuple[jax.Array, jax.Array]:
+    """``(I_t, D_t)`` from ``e_t``, ``e_{t-1}`` and ``I_{t-1}``."""
+    integral = clamp_integral(integral + dt * error, integral_limit)
+    return integral, (error - last_error) / dt
 
 
 @struct.dataclass
@@ -60,7 +120,9 @@ class PIDTermsState:
 
 
 class PIDTermsWrapper(GymnaxWrapper):
-    """Observation ``[e, I, D, raw obs]`` for a gymnax env.
+    """Observation ``[e, I, D, raw obs]`` for a gymnax env. Deprecated: pass
+    :class:`ajax.extensions.observe.PIDTermsInput` with the same arguments
+    in the agent's extensions.
 
     Args:
         env: gymnax env; its observation is flattened, and the indices
@@ -81,16 +143,14 @@ class PIDTermsWrapper(GymnaxWrapper):
         integral_limit: Optional[float] = None,
     ):
         super().__init__(env)
-        if not current_idx or len(current_idx) != len(target_idx):
-            raise ValueError(
-                "current_idx and target_idx need one entry per error, got"
-                f" {tuple(current_idx)} and {tuple(target_idx)}."
-            )
-        if dt <= 0 or (integral_limit is not None and integral_limit <= 0):
-            raise ValueError(
-                f"dt and integral_limit must be positive, got {dt} and"
-                f" {integral_limit}."
-            )
+        warnings.warn(
+            "PIDTermsWrapper is deprecated: pass PIDTermsInput(current_idx,"
+            " target_idx, dt, integral_limit) (ajax.extensions.observe) in the"
+            " agent's extensions instead.",
+            FutureWarning,
+            stacklevel=2,
+        )
+        check_pid_terms(current_idx, target_idx, dt, integral_limit)
         self.current_idx = tuple(current_idx)
         self.target_idx = tuple(target_idx)
         self.dt = dt
@@ -113,29 +173,22 @@ class PIDTermsWrapper(GymnaxWrapper):
 
     def _error(self, raw_obs: jax.Array) -> jax.Array:
         flat = jnp.reshape(raw_obs, (-1,))
-        return flat[jnp.array(self.target_idx)] - flat[jnp.array(self.current_idx)]
-
-    def _clip(self, integral: jax.Array) -> jax.Array:
-        if self.integral_limit is None:
-            return integral
-        return jnp.clip(integral, -self.integral_limit, self.integral_limit)
+        return tracking_error(flat, self.current_idx, self.target_idx)
 
     def _start(self, env_state: Any, raw_obs: jax.Array) -> PIDTermsState:
         error = self._error(raw_obs)
         return PIDTermsState(
-            env_state, error, self._clip(self.dt * error), jnp.zeros_like(error)
+            env_state, error, *start_terms(error, self.dt, self.integral_limit)
         )
 
     def _advance(
         self, state: PIDTermsState, env_state: Any, raw_obs: jax.Array
     ) -> PIDTermsState:
         error = self._error(raw_obs)
-        return PIDTermsState(
-            env_state,
-            error,
-            self._clip(state.integral + self.dt * error),
-            (error - state.error) / self.dt,
+        terms = advance_terms(
+            error, state.error, state.integral, self.dt, self.integral_limit
         )
+        return PIDTermsState(env_state, error, *terms)
 
     @staticmethod
     def _observation(state: PIDTermsState, raw_obs: jax.Array) -> jax.Array:

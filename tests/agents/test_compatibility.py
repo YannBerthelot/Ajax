@@ -83,7 +83,9 @@ OWN_ROLLOUT = (
     "the agent's own collector does not observe features yet (APG's differentiable"
     " rollout, UDRL's command)"
 )
-FEATURES = "ExpertActionInput ExpertStateInput TrainingProgressInput".split()
+FEATURES = (
+    "ExpertActionInput ExpertStateInput TrainingProgressInput PIDTermsInput".split()
+)
 
 #: Module forms not written yet: a refusal for these capabilities alone is
 #: a gap, not inherent.
@@ -207,6 +209,9 @@ def field_values(env: str) -> dict[str, Any]:
         "threshold": 1.0,
         "dataset": episode,
         "demonstrations": episode,
+        # A PID's error x[1] - x[0], on every row's observation.
+        "current_idx": (0,),
+        "target_idx": (1,),
     }
 
 

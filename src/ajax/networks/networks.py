@@ -14,6 +14,7 @@ from flax.serialization import to_state_dict
 from ajax.controller import feature_width
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.extensions.observe import pid_terms_at
 from ajax.modules.pid_actor import (
     PID_LOG_STD_INIT,
     PIDActor,
@@ -627,12 +628,14 @@ def get_initialized_actor_critic(
         # log-std kernel init is for its Dense head and does not apply, and
         # a start that head's layer would draw (None) is the PID actor's own.
         log_std_init = network_config.log_std_init
+        policy = network_config.actor_architecture
         actor = PIDActor(
-            policy=network_config.actor_architecture,
+            policy=policy,
             action_dim=action_dim,
             tanh_mean=network_config.tanh_mean,
             log_std_init=PID_LOG_STD_INIT if log_std_init is None else log_std_init,
             log_std_bounds=network_config.log_std_bounds,
+            terms_at=pid_terms_at(env_config, policy.n_errors),
         )
     else:
         actor = Actor(

@@ -179,6 +179,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "ExpertActionInput": (observe.ExpertActionInput, "SAC"),
     "ExpertStateInput": (lambda: observe.ExpertStateInput.for_expert(EXPERT), "SAC"),
     "TrainingProgressInput": (observe.TrainingProgressInput, "SAC"),
+    "PIDTermsInput": (lambda: observe.PIDTermsInput((0,), (1,)), "SAC"),
 }
 ACTING = {"ValueBox", "EDGEExploration", "JSRLCurriculum", "ResidualPolicy"}
 PHI_STAR = (
@@ -222,7 +223,9 @@ EXCLUSIVE = [
     # Pendulum's (s, a) only.
     (
         {"PriorData"},
-        {"fast", "CartPole-v1", "use_train_frac", "TrainingProgressInput"} | EXPERTS,
+        {"fast", "CartPole-v1", "use_train_frac", "TrainingProgressInput"}
+        | {"PIDTermsInput"}
+        | EXPERTS,
     ),
     # Cal-QL is CQL's term with a floor: a stack holds one of them.
     ({"ConservativeQ"}, {"CalQL"}),

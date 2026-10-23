@@ -14,6 +14,7 @@ from ajax.agents.TD3.networks import (
     get_initialized_td3_actor_critic,
 )
 from ajax.evaluate import evaluate
+from ajax.extensions.observe import PIDTermsInput, pid_terms_at
 from ajax.modules.pid_actor import (
     PID_LOG_STD_INIT,
     PIDActor,
@@ -146,6 +147,21 @@ def test_observation_gains_vary_with_the_observation():
 def test_bad_policies_raise(kwargs):
     with pytest.raises(ValueError):
         PIDPolicy(**kwargs)
+
+
+def test_a_pid_law_reads_the_terms_where_the_features_put_them():
+    """PIDTermsInput's terms trail the env's columns: the builders point the
+    law at them, and refuse a feature tracking another number of errors."""
+    task, params = setpoint_env.Setpoint(), setpoint_env.Params()
+    bare = EnvironmentConfig(env=task, env_params=params, n_envs=2, continuous=True)
+    fed = bare.replace(observers=(PIDTermsInput((0,), (1,)),))
+    assert (pid_terms_at(bare, 1), pid_terms_at(fed, 1)) == (0, 2)
+    with pytest.raises(ValueError, match="n_errors=2"):
+        pid_terms_at(fed, 2)
+    law = PIDLaw(PIDPolicy(), action_dim=1, terms_at=2)
+    obs = jnp.array([[9.0, 9.0, 0.5, 0.25, -1.0]])  # x, r, then e, I, D
+    ones = jax.tree.map(jnp.ones_like, law.init(jax.random.PRNGKey(0), obs))
+    np.testing.assert_allclose(law.apply(ones, obs), [[0.5 + 0.25 - 1.0]])
 
 
 def _build(

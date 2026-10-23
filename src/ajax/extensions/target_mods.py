@@ -318,8 +318,10 @@ class CriticBlend(Extension):
     critic_warmup_frac: float = 0.15
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "critic_blend"
+    # The blend is of one target value: atoms blended toward it would shrink
+    # a distribution's spread.
     requires: ClassVar[frozenset[str]] = frozenset(
-        {"discounted", "phi_star", "q_critic"}
+        {"discounted", "phi_star", "q_critic", "scalar_target"}
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "on_target": frozenset(
@@ -399,8 +401,10 @@ class MCVarianceCorrection(Extension):
 
     threshold: float
     name: str = "mc_variance_correction"
+    # It swaps one target value for the oracle's: a distribution's would
+    # collapse to that point.
     requires: ClassVar[frozenset[str]] = frozenset(
-        {"critic_ensemble", "phi_star", "q_critic"}
+        {"critic_ensemble", "phi_star", "q_critic", "scalar_target"}
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "on_target": frozenset({"actions", "q_preds"})

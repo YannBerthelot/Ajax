@@ -28,6 +28,7 @@ from ajax.extensions.capabilities import (
 )
 from ajax.extensions.ensemble import KernelRepulsion
 from ajax.extensions.expert import JSRLCurriculum, OnlineBC, ResidualPolicy
+from ajax.extensions.instrumentation import BiasVorePenalty
 from ajax.extensions.pretrain import MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import CriticBlend, MCVarianceCorrection, ValueBox
 
@@ -164,11 +165,42 @@ def test_run_capabilities_follow_the_environment_expert_and_critics():
     caps = run_capabilities(
         {"q_critic", "critic_ensemble"}, continuous=False, has_expert=False
     )
-    assert caps == {"q_critic", "critic_ensemble", "critic", "discrete_actions"}
+    assert caps == {
+        "q_critic",
+        "critic_ensemble",
+        "critic",
+        "scalar_target",
+        "discrete_actions",
+    }
     one = run_capabilities(
         {"v_critic", "critic_ensemble"}, continuous=True, has_expert=True, num_critics=1
     )
-    assert one == {"v_critic", "critic", "continuous_actions", "agent_expert"}
+    assert one == {
+        "v_critic",
+        "critic",
+        "scalar_target",
+        "continuous_actions",
+        "agent_expert",
+    }
+
+
+def test_a_distributional_critic_refuses_what_reads_one_target_per_row():
+    """A critic regressing on quantiles (TQC's) lacks ``scalar_target``, so
+    the extensions that blend its target toward one value, replace it with
+    one, or compare one value with it refuse the agent."""
+    algorithm = {"actor", "q_critic", "critic_ensemble", "discounted"}
+    one = run_capabilities(algorithm, continuous=True, has_expert=True)
+    many = run_capabilities(
+        algorithm | {"distributional_critic"}, continuous=True, has_expert=True
+    )
+    assert "scalar_target" in one and "scalar_target" not in many
+    for module in (
+        CriticBlend(expert_policy=_expert),
+        MCVarianceCorrection(threshold=1.0),
+        BiasVorePenalty(alpha=0.25),
+    ):
+        with pytest.raises(MissingCapability, match="scalar_target"):
+            check_extensions("X", [module], many, frozenset(PHASES))
 
 
 def test_agents_declare_only_known_capabilities():

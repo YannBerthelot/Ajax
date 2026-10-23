@@ -30,6 +30,10 @@ ALGORITHM_CAPABILITIES: Mapping[str, str] = {
     "off_policy": "its update stays correct on actions its policy did not choose",
     "critic_ensemble": "two critics or more (num_critics, where the agent has it)",
     "target_critic": "a slowly updated copy of its critic, which its bootstrap reads",
+    "distributional_critic": (
+        "its critic predicts quantiles of the return, and regresses on many"
+        " target values per row"
+    ),
     "policy_density": "a stochastic policy, with a density over its actions",
     "obs_networks": (
         "its policy and value networks read the observation, not a world"
@@ -40,6 +44,7 @@ ALGORITHM_CAPABILITIES: Mapping[str, str] = {
 #: The capabilities a run gives, with what gives them.
 RUN_CAPABILITIES: Mapping[str, str] = {
     "critic": "a q_critic or a v_critic",
+    "scalar_target": "a critic that regresses on one target per row, not a distributional_critic",
     "continuous_actions": "an environment with continuous actions",
     "discrete_actions": "an environment with discrete actions",
     "agent_expert": "give the agent an expert_policy",
@@ -90,6 +95,8 @@ def run_capabilities(
         caps -= {"critic_ensemble"}
     derived = {
         "critic": bool(caps & {"q_critic", "v_critic"}),
+        "scalar_target": bool(caps & {"q_critic", "v_critic"})
+        and "distributional_critic" not in caps,
         "continuous_actions": continuous,
         "discrete_actions": not continuous,
         "agent_expert": has_expert,

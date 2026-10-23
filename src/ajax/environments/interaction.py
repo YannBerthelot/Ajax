@@ -533,9 +533,11 @@ def _policy_pipeline(
     *,
     recurrent: bool,
     n_envs: int,
+    transform: Any = None,
 ) -> ActionPipelineResult:
-    """The default action pipeline: the policy's action, or a uniform one
-    in [-1, 1] while ``uniform`` (the warm-up)."""
+    """The default action pipeline: the policy's action, through the run's
+    residual ``transform`` (its ``transform_action``) where it has one, or a
+    uniform one in [-1, 1] while ``uniform`` (the warm-up)."""
     action, log_probs, raw_action, agent_state = get_action_and_log_probs(
         action_key=action_key,
         agent_state=agent_state,
@@ -548,9 +550,10 @@ def _policy_pipeline(
     # A discrete policy's action is stepped and stored as a float, the
     # uniform draw's dtype, which the cond needs both branches to share.
     action = action.astype(uniform_action.dtype)
+    executed = executed_action(transform, action, acting, _raw_obs)
     no_box = jnp.zeros((n_envs, 1), dtype=jnp.float32)
     return ActionPipelineResult(
-        env_action=jax.lax.cond(uniform, lambda: uniform_action, lambda: action),
+        env_action=jax.lax.cond(uniform, lambda: uniform_action, lambda: executed),
         policy_action=action,
         log_probs=log_probs,
         is_expert_flag=jnp.zeros_like(action[..., :1], dtype=jnp.float32),
@@ -569,14 +572,28 @@ def _policy_pipeline(
 Explore = Callable[[Any, jax.Array, jax.Array], jax.Array]
 
 
+def executed_action(
+    transform: Any, action: jax.Array, acting: ActingState, raw_obs: jax.Array
+) -> jax.Array:
+    """The policy's ``action`` through a residual ``transform`` (its
+    ``transform_action``), from the expert's action on ``acting``; the
+    action itself otherwise (gain mode's actuation comes after the choice)."""
+    if transform is None or "transform_action" not in transform.implemented_phases():
+        return action
+    inputs = TransformInputs(raw_obs=raw_obs, expert_action=acting.expert_action)
+    return transform.transform_action(action, inputs)
+
+
 def explore_pipeline(
     explore: Explore,
     recurrent: bool,
     n_actions: Optional[int] = None,
     warmup: bool = True,
+    transform: Any = None,
 ) -> Callable:
     """The action pipeline of the behaviour policy ``explore`` (``n_actions``:
-    a discrete action space's size), or uniform actions, on ``mix_key``,
+    a discrete action space's size), through the run's residual
+    ``transform`` where it has one, or uniform actions, on ``mix_key``,
     during the warm-up; an agent that never warms up (``warmup=False``, an
     on-policy one) draws none.
 
@@ -586,12 +603,11 @@ def explore_pipeline(
     """
 
     def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
-        del raw_obs
         actor = agent_state.actor_state.replace(hidden_state=acting.carry)
         pi, actor = get_pi(actor, actor.params, acting.obs, acting.done, recurrent)
         action = explore(pi, action_key, acting.timestep)
         action = action.squeeze(0) if recurrent else action
-        env_action = action
+        env_action = executed_action(transform, action, acting, raw_obs)
         if warmup:
             if n_actions is None:
                 uniform_action = jax.random.uniform(
@@ -601,7 +617,8 @@ def explore_pipeline(
                 uniform_action = jax.random.randint(
                     mix_key, action.shape, minval=0, maxval=n_actions
                 ).astype(action.dtype)
-            env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
+            executed = env_action
+            env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: executed)
         discrete = n_actions is not None
         return ActionPipelineResult(
             env_action=env_action,
@@ -698,7 +715,7 @@ def expert_collect_kwargs(
     action_pipeline: Optional[Callable],
     recurrent: bool,
     n_envs: int,
-    actuate: Any = None,
+    transform: Any = None,
 ) -> dict:
     """:func:`collect_experience`'s ``action_pipeline`` and ``next_expert_fn``
     for an agent storing its expert's actions (``a_expert`` at s,
@@ -707,15 +724,19 @@ def expert_collect_kwargs(
     chosen: ``action_pipeline`` (None: the policy's) reads its action on the
     acting state (``expert_action``), with the same draws, and the stored
     action and the expert's next state are the call's where the pipeline
-    returns none of its own. With an
-    ``actuate`` transform (gain mode) the chosen action is executed through
-    the expert, which that steps, and stored as chosen. Without an expert,
-    ``action_pipeline`` alone."""
+    returns none of its own. The run's ``transform``: a residual one the
+    default pipeline applies before the choice (a pipeline of the agent's
+    applies it itself); an ``actuate`` one (gain mode) executes the chosen
+    action through the expert, which that steps, and the chosen one is
+    stored. Without an expert, ``action_pipeline`` alone."""
     if expert_policy is None:
         return {"action_pipeline": action_pipeline}
     inner = action_pipeline or partial(
-        _policy_pipeline, recurrent=recurrent, n_envs=n_envs
+        _policy_pipeline, recurrent=recurrent, n_envs=n_envs, transform=transform
     )
+    actuate = None
+    if transform is not None and "actuate" in transform.implemented_phases():
+        actuate = transform
 
     def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
         a_expert, new_state = expert_step(expert_policy, acting, raw_obs, n_envs)

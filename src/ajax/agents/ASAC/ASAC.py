@@ -31,6 +31,7 @@ class ASAC(ActorCritic):
         "on_target",
         "critic_loss",
         "actor_loss",
+        "transform_action",
     }
     phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS
     pretrain_context: frozenset = frozenset("buffer env_args update".split())

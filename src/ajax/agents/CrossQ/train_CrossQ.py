@@ -30,6 +30,7 @@ from ajax.agents.recurrent import actor_dist_train, sample_replay
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import CoreCriticAux, TemperatureAuxiliaries
 from ajax.buffers.dataset import TransitionDataset
+from ajax.controller import executed_fn
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -103,13 +104,19 @@ def update_critics(
     config: CrossQConfig,
     stack: ExtensionStack,
     total_timesteps: int,
+    executed: Optional[Callable] = None,
 ) -> tuple[CrossQState, CoreCriticAux, dict]:
     """One critic step on one training pass over ``(s, a)`` and ``(s',
-    a')``, its running statistics kept (``sbx/sac/sac.py:251-342``)."""
+    a')``, its running statistics kept (``sbx/sac/sac.py:251-342``); ``a'``
+    is executed (``executed``, a residual policy's)."""
     agent_state, key, next_key = agent_state.next_keys(2)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     next_actions, next_log_probs = core.sample_next_actions(
-        agent_state.actor_state, batch.next_obs, next_key
+        agent_state.actor_state,
+        batch.next_obs,
+        next_key,
+        executed=executed,
+        next_a_expert=batch.next_a_expert,
     )
     critic_state = agent_state.critic_state
     rows = jnp.concatenate(
@@ -158,18 +165,25 @@ def update_actor_and_temperature(
     config: CrossQConfig,
     stack: ExtensionStack,
     total_timesteps: int,
+    executed: Optional[Callable] = None,
 ) -> tuple[CrossQState, tuple]:
     """The actor step in training, the critics read with their running
-    statistics, then the temperature's on the same samples
-    (``sbx/sac/sac.py:355-400``)."""
+    statistics (at the executed actions, a residual policy's), then the
+    temperature's on the same samples (``sbx/sac/sac.py:355-400``)."""
     agent_state, key = agent_state.next_keys()
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     actor_state, critic_state = agent_state.actor_state, agent_state.critic_state
+    transform = None
+    if executed is not None:
+        score = executed
+
+        def transform(actions: jax.Array) -> jax.Array:
+            return score(actions, batch.a_expert)
 
     def policy_loss(params: Any) -> tuple[jax.Array, Any, jax.Array]:
         pi, batch_stats = actor_dist_train(actor_state, params, batch.obs)
         loss, (log_probs, q, pi) = core.soft_policy_objective(
-            pi, critic_state, batch.obs, alpha, key
+            pi, critic_state, batch.obs, alpha, key, action_transform=transform
         )
         aux = PolicyAuxiliaries(
             policy_loss=loss, log_pi=log_probs.mean(), q_min=q.mean()
@@ -205,6 +219,7 @@ def update_agent(
     config: CrossQConfig,
     stack: ExtensionStack,
     total_timesteps: int,
+    executed: Optional[Callable] = None,
 ) -> tuple[CrossQState, AuxiliaryLogs]:
     """One update: a critic step on a fresh replay batch, then, on the
     ``policy_delay``-th, an actor and a temperature step on the same batch
@@ -213,13 +228,13 @@ def update_agent(
     agent_state, sample_key = agent_state.next_keys()
     batch, _ = sample_replay(agent_state, buffer, sample_key)
     agent_state, value, value_metrics = update_critics(
-        agent_state, batch, config, stack, total_timesteps
+        agent_state, batch, config, stack, total_timesteps, executed
     )
     due = (agent_state.n_updates + 1) % config.policy_delay == 0
     agent_state, (policy, temperature, policy_metrics) = when(
         due,
         lambda s: update_actor_and_temperature(
-            s, batch, config, stack, total_timesteps
+            s, batch, config, stack, total_timesteps, executed
         ),
         agent_state,
     )
@@ -296,7 +311,12 @@ def make_train(
     def update(agent_state: CrossQState, _transition: Transition) -> Any:
         # The step just collected is in the buffer: CrossQ samples it there.
         return update_agent(
-            agent_state, buffer, agent_config, loop.stack, total_timesteps
+            agent_state,
+            buffer,
+            agent_config,
+            loop.stack,
+            total_timesteps,
+            executed_fn(env_args),
         )
 
     return loop.off_policy(

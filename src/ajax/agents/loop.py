@@ -612,18 +612,11 @@ class TrainLoop:
         n_envs = self.env_args.n_envs
         # The observation features read the expert the collector tracks.
         expert = {"expert": self.expert_policy} if self.env_args.observers else {}
-        actuate = next(
-            (
-                t
-                for t in self.env_args.transforms
-                if "actuate" in t.implemented_phases()
-            ),
-            None,
-        )
+        transform = next(iter(self.env_args.transforms), None)
         return (
             args
             | expert_collect_kwargs(
-                self.expert_policy, pipeline, recurrent, n_envs, actuate
+                self.expert_policy, pipeline, recurrent, n_envs, transform
             )
             | expert
         )

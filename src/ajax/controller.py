@@ -11,7 +11,8 @@ rollout, so the action pipelines read one state whichever runs them.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, NamedTuple, Optional
+from functools import partial
+from typing import Any, Callable, NamedTuple, Optional
 
 import jax
 import jax.numpy as jnp
@@ -188,6 +189,15 @@ def executed_actions(env_args: Any, actions: jax.Array, a_expert: Any) -> jax.Ar
             inputs = TransformInputs(expert_action=a_expert)
             return transform.transform_action(actions, inputs)
     return actions
+
+
+def executed_fn(env_args: Any) -> Optional[Callable[[jax.Array, Any], jax.Array]]:
+    """``(actions, a_expert) -> actions`` the critics score, where the run has
+    a residual policy (:func:`executed_actions`); None otherwise, so the
+    learner traces nothing extra."""
+    if any("transform_action" in t.implemented_phases() for t in env_args.transforms):
+        return partial(executed_actions, env_args)
+    return None
 
 
 def reads_progress(env_args: Any) -> bool:

@@ -99,10 +99,10 @@ FORM_GAPS = {
 #: The pinned gaps: reason -> module -> the rows (agents, and "/discrete"
 #: for an agent taking both action kinds) where it is not wired yet.
 GAPS: dict[str, dict[str, str]] = {
-    TRANSFORM: dict.fromkeys(
-        ["ResidualPolicy", "ExpertGains"],
-        "TD3 REDQ TQC CrossQ ASAC AVG APG PPO APO UDRL IQL",
-    ),
+    TRANSFORM: {
+        "ResidualPolicy": "APG PPO APO UDRL IQL",
+        "ExpertGains": "TD3 REDQ TQC CrossQ ASAC AVG APG PPO APO UDRL IQL",
+    },
     ACTION: {
         "EDGEExploration": "TD3 REDQ TQC CrossQ ASAC AVG UDRL UDRL/discrete DAgger"
         " DAgger/discrete DQN PQN IQL",

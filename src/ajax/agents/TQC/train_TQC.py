@@ -31,6 +31,7 @@ from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.agents.TQC.state import TQCConfig, TQCState
 from ajax.buffers.dataset import TransitionDataset
+from ajax.controller import executed_fn
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -151,12 +152,15 @@ def compute_tqc_td_target(
     n_drop: int,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
+    executed: Optional[Callable] = None,
+    next_a_expert: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, jax.Array]:
     """``r + gamma (1 - d)(z - alpha log pi(a'|s'))`` for every kept target
-    quantile ``z`` at ``a' ~ pi(.|s')`` (trainer.py:45-53). Returns the
-    held target atoms and the next actions' log-probs."""
+    quantile ``z`` at ``a' ~ pi(.|s')`` (trainer.py:45-53), executed
+    (``executed``, a residual policy's). Returns the held target atoms and
+    the next actions' log-probs."""
     next_actions, log_probs = core.sample_next_actions(
-        actor_state, next_observations, rng, carries
+        actor_state, next_observations, rng, carries, executed, next_a_expert
     )
     next_quantiles = q_values(
         critic_state,
@@ -186,6 +190,7 @@ def update_value_functions(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
+    executed: Optional[Callable] = None,
 ) -> Tuple[TQCState, ValueAuxiliaries, dict]:
     """The quantile critics' step on the truncated target."""
     agent_state, key = agent_state.next_keys()
@@ -203,6 +208,8 @@ def update_value_functions(
         agent_config.top_quantiles_to_drop_per_net * agent_config.num_critics,
         agent_config.reward_scale,
         carries,
+        executed,
+        batch.next_a_expert,
     )
 
     def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
@@ -248,6 +255,7 @@ def update_policy(
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
     actions: Optional[jax.Array] = None,
+    executed: Optional[Callable] = None,
 ) -> Tuple[TQCState, PolicyAuxiliaries, jax.Array, dict]:
     """The actor step on ``alpha log pi(a|s) - mean Z(s, a)``, the mean over
     every critic's quantiles (trainer.py:61); also returns its samples'
@@ -262,6 +270,7 @@ def update_policy(
         q_reduce=jnp.mean,
         a_expert=a_expert,
         actions=actions,
+        executed=executed,
     )
     aux = PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()
@@ -276,6 +285,7 @@ def update_agent(
     agent_config: TQCConfig,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    executed: Optional[Callable] = None,
 ) -> Tuple[TQCState, AuxiliaryLogs]:
     """One update on a replay batch: the critics' step and the target
     update, then the actor's and the temperature's steps.
@@ -302,7 +312,13 @@ def update_agent(
     )
     critics_before = agent_state.critic_state.params
     agent_state, aux_value, value_metrics = update_value_functions(
-        agent_state, batch, agent_config, extension_stack, total_timesteps, carries
+        agent_state,
+        batch,
+        agent_config,
+        extension_stack,
+        total_timesteps,
+        carries,
+        executed,
     )
     agent_state = core.update_target_networks(agent_state, agent_config.tau)
     critic_state = agent_state.critic_state
@@ -315,6 +331,7 @@ def update_agent(
         carries,
         a_expert=batch.a_expert,
         actions=batch.action,
+        executed=executed,
     )
     agent_state = agent_state.replace(critic_state=critic_state)
     agent_state, aux_temperature = core.update_temperature(
@@ -396,7 +413,13 @@ def make_train(
     def update(agent_state: TQCState, _transition: Transition) -> Any:
         # The step just collected is in the buffer: TQC samples it from there.
         return update_agent(
-            agent_state, buffer, recurrent, agent_config, loop.stack, total_timesteps
+            agent_state,
+            buffer,
+            recurrent,
+            agent_config,
+            loop.stack,
+            total_timesteps,
+            executed_fn(env_args),
         )
 
     return loop.off_policy(

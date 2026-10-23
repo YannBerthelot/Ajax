@@ -28,6 +28,7 @@ from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.buffers.dataset import TransitionDataset
+from ajax.controller import executed_fn
 from ajax.environments.utils import critic_action_units
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
@@ -154,15 +155,18 @@ def compute_redq_td_target(
     subset_size: int,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
+    executed: Optional[Callable] = None,
+    next_a_expert: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, jax.Array]:
-    """REDQ bellman target: min over a random subset of target critics.
+    """REDQ bellman target: min over a random subset of target critics, at
+    the next actions executed (``executed``, a residual policy's).
 
     Returns the stop_gradient'd target and the next actions' log-probs.
     """
     rewards = rewards * reward_scale
     sample_key, idx_sample_key = jax.random.split(rng)
     next_actions, log_probs = core.sample_next_actions(
-        actor_state, next_observations, sample_key, carries
+        actor_state, next_observations, sample_key, carries, executed, next_a_expert
     )
     # The ensemble axis stays leading in sequence mode too, so the subset
     # sampling is the same.
@@ -219,6 +223,7 @@ def update_value_functions(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
+    executed: Optional[Callable] = None,
 ) -> Tuple[REDQState, ValueAuxiliaries, dict]:
     """One critic step of the ensemble on the random-subset target."""
     agent_state, key = agent_state.next_keys()
@@ -237,6 +242,8 @@ def update_value_functions(
         agent_config.subset_size,
         agent_config.reward_scale,
         carries,
+        executed,
+        batch.next_a_expert,
     )
 
     def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
@@ -275,6 +282,7 @@ def update_policy(
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
     actions: Optional[jax.Array] = None,
+    executed: Optional[Callable] = None,
 ) -> Tuple[REDQState, PolicyAuxiliaries, jax.Array, dict]:
     """The actor step on ``alpha log pi(a|s) - mean_i Q_i(s, a)``; also
     returns its samples' log-probs (temperature) and the extensions'
@@ -289,6 +297,7 @@ def update_policy(
         q_reduce=jnp.mean,
         a_expert=a_expert,
         actions=actions,
+        executed=executed,
     )
     aux = PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()
@@ -319,6 +328,7 @@ def update_agent(
     agent_config: REDQConfig,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    executed: Optional[Callable] = None,
 ) -> Tuple[REDQState, AuxiliaryLogs]:
     """One update: ``num_critic_updates`` critic and target steps, each on a
     fresh replay batch, then one actor step and one temperature step on the
@@ -350,6 +360,7 @@ def update_agent(
             extension_stack,
             total_timesteps,
             carries,
+            executed,
         )
         agent_state = core.update_target_networks(agent_state, agent_config.tau)
         return agent_state, (aux_value, value_metrics, batch, carries, critics_before)
@@ -372,6 +383,7 @@ def update_agent(
         carries,
         a_expert=batch.a_expert,
         actions=batch.action,
+        executed=executed,
     )
     agent_state = agent_state.replace(critic_state=critic_state, alpha=learned)
     agent_state, aux_temperature = core.update_temperature(
@@ -458,7 +470,13 @@ def make_train(
     def update(agent_state: REDQState, _transition: Transition) -> Any:
         # The step just collected is in the buffer: REDQ samples it from there.
         return update_agent(
-            agent_state, buffer, recurrent, agent_config, loop.stack, total_timesteps
+            agent_state,
+            buffer,
+            recurrent,
+            agent_config,
+            loop.stack,
+            total_timesteps,
+            executed_fn(env_args),
         )
 
     return loop.off_policy(

@@ -23,6 +23,7 @@ from ajax.agents.loop import TrainLoop, actor_step, critic_step
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.controller import executed_fn
 from ajax.environments.interaction import get_pi
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
@@ -148,12 +149,19 @@ def compute_avg_td_target(
     gamma: float,
     alpha: jax.Array,
     reward_scale: float,
+    executed: Optional[Callable] = None,
+    next_a_expert: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, jax.Array]:
-    """AVG bellman target (no target network, uses current critic_params)."""
+    """AVG bellman target (no target network, uses current critic_params),
+    at the next action executed (``executed``, a residual policy's)."""
     rewards = rewards * reward_scale
     sample_key, _ = jax.random.split(rng)
     next_actions, next_log_probs = core.sample_next_actions(
-        actor_state, next_observations, sample_key
+        actor_state,
+        next_observations,
+        sample_key,
+        executed=executed,
+        next_a_expert=next_a_expert,
     )
     q_target = jnp.min(
         q_values(critic_states, critic_params, next_observations, next_actions),
@@ -197,8 +205,11 @@ def policy_loss_function(
     observations: jax.Array,
     raw_actions: jax.Array,
     alpha: jax.Array,
+    executed: Optional[Callable] = None,
+    a_expert: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, PolicyAuxiliaries]:
-    """``alpha log pi(a|s) - Q(s, a)`` at the action taken.
+    """``alpha log pi(a|s) - Q(s, a)`` at the action taken (executed, with a
+    residual policy's ``executed``).
 
     The action is reparameterised with the noise ``eps`` of its stored
     pre-squash sample ``u``: ``a = tanh(mu(s) + sigma(s) eps)``, ``eps = (u
@@ -211,8 +222,11 @@ def policy_loss_function(
     eps = jax.lax.stop_gradient((raw_actions - loc) / scale)
     raw = loc + scale * eps
     log_probs = pi.log_prob_from_raw(raw).sum(-1, keepdims=True)
+    action = jnp.tanh(raw)
+    if executed is not None:
+        action = executed(action, a_expert)
     q_pred = jnp.min(
-        q_values(critic_states, critic_states.params, observations, jnp.tanh(raw)),
+        q_values(critic_states, critic_states.params, observations, action),
         axis=0,
     )
     assert log_probs.shape == q_pred.shape, f"{log_probs.shape} != {q_pred.shape}"
@@ -228,8 +242,11 @@ def update_value_functions(
     agent_config: AVGConfig,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    executed: Optional[Callable] = None,
 ) -> Tuple[AVGState, ValueAuxiliaries, dict]:
-    """The critic step on the scaled TD error of ``transition``."""
+    """The critic step on the scaled TD error of ``transition``, at the
+    action executed (``executed``: the policy's stored one, a residual
+    policy's from the stored expert action)."""
     agent_state, key = agent_state.next_keys()
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     critic_state = agent_state.critic_state
@@ -249,14 +266,19 @@ def update_value_functions(
         agent_config.gamma,
         alpha,
         agent_config.reward_scale,
+        executed,
+        transition.next_a_expert,
     )
+    action = transition.action
+    if executed is not None:
+        action = executed(action, transition.a_expert)
 
     def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
         return value_loss_function(
             params,
             critic_state,
             transition.obs,
-            transition.action,
+            action,
             target_q,
             next_log_probs,
             agent_state.scaling_coef,
@@ -286,6 +308,7 @@ def update_policy(
     total_timesteps: int,
     raw_observations: Optional[jax.Array] = None,
     a_expert: Optional[jax.Array] = None,
+    executed: Optional[Callable] = None,
 ) -> Tuple[AVGState, PolicyAuxiliaries, dict]:
     """The actor step through the action taken; the extensions also read
     the env's own observations, the policy's mean action and ``a_expert``,
@@ -303,6 +326,8 @@ def update_policy(
             observations,
             raw_actions,
             alpha,
+            executed,
+            a_expert,
         )
         # The mean action is the extensions' (unused without them, compiled out).
         pi_mean = get_pi(actor_state, params, observations)[0].mean()
@@ -329,6 +354,7 @@ def update_agent(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     stores_expert_actions: bool = False,
+    executed: Optional[Callable] = None,
 ) -> Tuple[AVGState, AuxiliaryLogs]:
     """One update on the step just taken (its ``a_expert`` reaching the
     actor-loss extensions with ``stores_expert_actions``, an agent with an
@@ -344,7 +370,12 @@ def update_agent(
     paper's runs come from that code.
     """
     critic_updated, aux_value, value_metrics = update_value_functions(
-        agent_state, transition, agent_config, extension_stack, total_timesteps
+        agent_state,
+        transition,
+        agent_config,
+        extension_stack,
+        total_timesteps,
+        executed,
     )
     assert transition.raw_action is not None
     # The actor step reads the networks from before the critic's, its key
@@ -357,6 +388,8 @@ def update_agent(
         total_timesteps,
         raw_observations=transition.raw_obs,
         a_expert=transition.a_expert if stores_expert_actions else None,
+        # A residual policy needs the agent's expert, whose actions it stores.
+        executed=executed,
     )
     agent_state = critic_updated.replace(
         actor_state=policy_updated.actor_state, rng=policy_updated.rng
@@ -434,6 +467,7 @@ def make_train(
             loop.stack,
             total_timesteps,
             stores_expert_actions=expert_policy is not None,
+            executed=executed_fn(env_args),
         )
 
     return loop.off_policy(

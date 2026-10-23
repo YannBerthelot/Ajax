@@ -32,6 +32,7 @@ class AVG(ActorCritic):
         "on_target",
         "critic_loss",
         "actor_loss",
+        "transform_action",
     }
     phase_batch_keys: Mapping[str, frozenset] = {
         "on_target": TARGET_KEYS,

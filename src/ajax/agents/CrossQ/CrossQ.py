@@ -36,7 +36,7 @@ class CrossQ(ActorCritic):
     )
     supported_extension_phases: frozenset = frozenset(
         "pretrain post_update eval_metrics observe on_target critic_loss"
-        " actor_loss".split()
+        " actor_loss transform_action".split()
     )
     phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS
     pretrain_context: frozenset = frozenset("buffer env_args update".split())

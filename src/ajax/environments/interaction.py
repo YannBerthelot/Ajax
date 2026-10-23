@@ -689,17 +689,55 @@ def expert_state_at_step(expert_policy: Any, acting: ActingState, n_envs: int) -
 
 
 def expert_step(
-    expert_policy: Any, acting: ActingState, raw_obs: jax.Array, n_envs: int
+    expert_policy: Any,
+    acting: ActingState,
+    raw_obs: jax.Array,
+    n_envs: int,
+    stop_gradient: bool = True,
 ) -> Tuple[jax.Array, Any]:
     """The expert's action at ``raw_obs`` and its state after the call: a
     stateful expert (with ``init_state``) is called from its state for this
     step (:func:`expert_state_at_step`), a stateless one on the observation
-    alone (its state ``None``). Both held constant."""
+    alone (its state ``None``). Both held constant, unless a differentiable
+    rollout runs through them (``stop_gradient`` False: APG's)."""
+    hold = jax.lax.stop_gradient if stop_gradient else (lambda x: x)
     if hasattr(expert_policy, "init_state"):
         state = expert_state_at_step(expert_policy, acting, n_envs)
         action, new_state = expert_policy(state, raw_obs)
-        return jax.lax.stop_gradient(action), jax.lax.stop_gradient(new_state)
-    return jax.lax.stop_gradient(expert_policy(raw_obs)), None
+        return hold(action), hold(new_state)
+    return hold(expert_policy(raw_obs)), None
+
+
+def act_through_expert(
+    transform: Any,
+    expert_policy: Any,
+    acting: ActingState,
+    raw_obs: jax.Array,
+    action: jax.Array,
+    n_envs: int,
+    stop_gradient: bool = True,
+) -> Tuple[jax.Array, jax.Array, Any]:
+    """``(env_action, a_expert, expert_state)`` for a policy acting without
+    a warm-up (UDRL, APG): its ``action`` through the run's ``transform``
+    (residual RL's ``transform_action``, gain mode's ``actuate``), the
+    tracked expert called once from its state at this step (its state after
+    the actuation under gain mode). APG differentiates through the expert
+    (``stop_gradient`` False): it is part of the loop its return's gradient
+    runs through."""
+    a_expert, new_state = expert_step(
+        expert_policy, acting, raw_obs, n_envs, stop_gradient
+    )
+    if transform is None:
+        return action, a_expert, new_state
+    if "transform_action" in transform.implemented_phases():
+        inputs = TransformInputs(raw_obs=raw_obs, expert_action=a_expert)
+        return transform.transform_action(action, inputs), a_expert, new_state
+    state = None
+    if hasattr(expert_policy, "init_state"):
+        state = expert_state_at_step(expert_policy, acting, n_envs)
+    inputs = TransformInputs(expert_policy, state, raw_obs, a_expert)
+    env_action, new_state = transform.actuate(action, inputs)
+    return env_action, a_expert, new_state
 
 
 def make_next_expert_fn(expert_policy: Any) -> Optional[Callable]:

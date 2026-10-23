@@ -34,7 +34,8 @@ from ajax.extensions.target_mods import CriticBlend, MCVarianceCorrection, Value
 AGENTS = "APG APO ASAC AVG DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL".split()
 #: The agents a residual policy runs on: their critics score its executed
 #: actions, or their update reads the policy's own (PPO, APO, IQL's actor).
-RESIDUAL = {"SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG", "PPO", "APO", "IQL"}
+RESIDUAL = {"SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG"}
+RESIDUAL |= {"PPO", "APO", "IQL", "APG", "UDRL"}
 
 
 @dataclass(frozen=True)

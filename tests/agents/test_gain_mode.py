@@ -11,8 +11,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax import APG, UDRL
 from ajax.extensions.expert import ExpertGains
 from tests.agents.test_agent_contract import CASES
+from tests.environments import paid_action
 
 AGENTS = ("SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG", "PPO", "APO", "IQL")
 
@@ -62,3 +64,36 @@ def test_an_agent_in_gain_mode_acts_and_stores_in_the_gain_space(name):
         assert all(np.isfinite(np.asarray(x)).all() for x in jax.tree.leaves(part))
     # The expert stepped with the chosen gains: its state counts the steps.
     assert float(np.asarray(state.collector_state.expert_state).max()) > 0
+
+
+def test_udrl_and_apg_act_in_the_gain_space():
+    """UDRL's collector and APG's differentiable rollout actuate the gains
+    through the expert: their policies are two-wide."""
+    udrl = UDRL(
+        "Pendulum-v1",
+        n_envs=2,
+        n_steps=8,
+        batch_size=8,
+        n_updates_per_iter=1,
+        buffer_capacity=8,
+        actor_architecture=("16", "relu"),
+        expert_policy=TwoGains(),
+        extensions=(ExpertGains(),),
+    )
+    state, _ = udrl.train(seed=0, n_timesteps=32, num_episode_test=1)
+    assert state.buffer.actions.shape[-1] == 2
+    env, params = paid_action.make()
+    apg = APG(
+        env,
+        env_params=params,
+        n_envs=2,
+        horizon=4,
+        actor_architecture=("8", "tanh"),
+        pid=None,
+        expert_policy=TwoGains(),
+        extensions=(ExpertGains(),),
+    )
+    state, _ = apg.train(seed=0, n_timesteps=32)
+    leaves = jax.tree.leaves(state.actor_state.params)
+    assert all(np.isfinite(np.asarray(x)).all() for x in leaves)
+    assert apg.env_args.policy_action_dim == 2

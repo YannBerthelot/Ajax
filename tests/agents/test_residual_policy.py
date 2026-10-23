@@ -11,8 +11,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax import APG, UDRL
 from ajax.extensions.expert import ResidualPolicy
 from tests.agents.test_agent_contract import CASES
+from tests.environments import paid_action
 
 #: The replay agents a residual policy runs on (AVG keeps no replay).
 REPLAY = ("SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC")
@@ -96,3 +98,53 @@ def test_iql_stores_the_executed_action_and_the_residual_it_fits():
     filled = slice(0, steps // 2)
     np.testing.assert_allclose(np.asarray(rows["action"])[..., filled, 0], 0.5)
     assert not np.allclose(np.asarray(rows["policy_action"])[..., filled, 0], 0.5)
+
+
+def test_udrl_executes_the_residual_and_keeps_its_own_action():
+    """UDRL acts through the residual in its own collector: with scale 0
+    Pendulum receives the expert's torque, its segments keep the policy's
+    actions, which its actor fits."""
+    agent = UDRL(
+        "Pendulum-v1",
+        n_envs=2,
+        n_steps=8,
+        batch_size=8,
+        n_updates_per_iter=1,
+        buffer_capacity=8,
+        actor_architecture=("16", "relu"),
+        expert_policy=_one,
+        extensions=(ResidualPolicy(scale=0.0),),
+    )
+    state, _ = agent.train(seed=0, n_timesteps=32, num_episode_test=1)
+    last_u = np.asarray(state.collector_state.env_state.last_u)
+    np.testing.assert_allclose(last_u, 1.0, rtol=1e-6)
+    assert not np.allclose(np.asarray(state.buffer.actions), 0.5)
+
+
+def test_apg_differentiates_through_the_residual():
+    """APG's rollout runs through the residual: at scale 0 the executed
+    action is the expert's whatever the controller's, so the return has no
+    gradient and the controller stays where it started; at scale 1 it
+    learns."""
+    env, params = paid_action.make()
+
+    def half(obs: jax.Array) -> jax.Array:
+        return jnp.full(obs.shape[:-1] + (1,), 0.5)
+
+    def run(scale: float, n_timesteps: int) -> Any:
+        agent = APG(
+            env,
+            env_params=params,
+            n_envs=2,
+            horizon=4,
+            actor_architecture=("8", "tanh"),
+            pid=None,
+            expert_policy=half,
+            extensions=(ResidualPolicy(scale=scale),),
+        )
+        return agent.train(seed=0, n_timesteps=n_timesteps)[0].actor_state.params
+
+    start = run(0.0, 0)
+    jax.tree.map(np.testing.assert_array_equal, run(0.0, 32), start)
+    moved = jax.tree.map(lambda a, b: bool((a != b).any()), run(1.0, 32), start)
+    assert any(jax.tree.leaves(moved))

@@ -226,7 +226,10 @@ executed action. The policy then learns a correction to the expert
 (residual RL). SAC, TD3, REDQ, TQC, CrossQ, ASAC and AVG run it, their
 critics scoring the executed action; PPO and APO too, their ratio reading
 the policy's own sample; and IQL, whose replay also keeps the residual the
-policy chose (its warm-up draws residuals), which its actor fits.
+policy chose (its warm-up draws residuals), which its actor fits. UDRL
+acts through it in its own collector, keeping the policy's action, and APG
+in its differentiable rollout, whose gradient runs through the residual
+and the expert.
 
 Steps where the expert acted are flagged in the buffer;
 `value/expert_frac_in_buffer` logs their share of each training batch. The
@@ -310,7 +313,7 @@ Ajax" marks a feature with no external reference.
 | Keep the actor near the expert early on | `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger; PPO, APG, UDRL with a stateless expert), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |
 | Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC, TD3, REDQ, ASAC, AVG) | Q-filtered behaviour cloning (Nair et al., 2018) |
 | Let the expert act while the agent is poor | `JSRLCurriculum`, `EDGEExploration`, `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
-| Learn a correction to the expert | `ResidualPolicy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL) | residual RL (Johannink et al., 2019) |
+| Learn a correction to the expert | `ResidualPolicy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL) | residual RL (Johannink et al., 2019) |
 | Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` (SAC) | developed with Ajax |
 | Make the target account for the expert | `IBRL` (SAC, TD3, REDQ, AVG), `LCBGatedBootstrap` (SAC, TD3, REDQ) | IBRL (Hu et al., 2023); the LCB gate developed with Ajax |
 | Measure how the critic rates the expert | `ExpertValueMetrics` (SAC, TD3, REDQ, ASAC) | |
@@ -321,7 +324,7 @@ built:
 | Extension | Needs | Refused |
 | --- | --- | --- |
 | `EDGEExploration`, `JSRLCurriculum`, `ValueBox` | SAC with an `expert_policy` and without gain mode (`ExpertGains`) | when built |
-| `ResidualPolicy` | SAC (without gain mode), TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, with an `expert_policy` | when built |
+| `ResidualPolicy` | SAC (without gain mode), TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL, with an `expert_policy` | when built |
 | `OnlineBC`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox`, `PhiRefresh` | `MCPretrain` in the stack | when built |
 | `OnlineBC` | SAC with an `expert_policy`, whose actions it clones | when built |
 | `IBRL`, `LCBGatedBootstrap` | a discounted agent that keeps the raw next observations they read; `LCBGatedBootstrap` also a critic ensemble | when built |
@@ -389,7 +392,7 @@ With a stateful PID expert that exposes `learnable_fields`, `anchor_gains`
 and `step_with_gains` (TargetGym's `FunctionalExpertPolicy` after
 `register_learnable_gains`), the `ExpertGains` extension
 (`ajax.extensions.expert`) makes an agent schedule the expert's gains
-instead of acting directly: SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO and IQL run it with the expert as their
+instead of acting directly: SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL run it with the expert as their
 `expert_policy` (SAC's `use_pid_policy=True` builds it and warns). The
 actor outputs one number `a` in `[-1, 1]` per learnable gain; the gain
 applied is `anchor · 10^a`, between a tenth and ten times the expert's own.

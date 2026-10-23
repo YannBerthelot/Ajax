@@ -31,12 +31,12 @@ from jax.tree_util import Partial as partial
 from ajax.agents.APG.networks import Controller, PIDHeadConfig
 from ajax.agents.APG.state import APGConfig, APGState
 from ajax.agents.loop import Evaluation, TrainLoop, fresh_state
+from ajax.controller import ActingState, policy_action_dim
 from ajax.environments.differentiable import Rollout, closed_loop_rollout
-from ajax.environments.interaction import init_collector_state
+from ajax.environments.interaction import act_through_expert, init_collector_state
 from ajax.environments.system_class import FixedSystem, SystemClass
 from ajax.environments.utils import (
     agent_action_to_env,
-    get_action_dim,
     get_state_action_shapes,
 )
 from ajax.logging.wandb_logging import LoggingConfig
@@ -82,7 +82,7 @@ def build_controller(
     squash: bool,
     factory: Optional[ControllerFactory] = None,
 ) -> nn.Module:
-    action_dim = get_action_dim(env_args.env, env_args.env_params)
+    action_dim = policy_action_dim(env_args)  # gain mode's gains
     if factory is not None:
         return factory(
             env_args=env_args,
@@ -189,6 +189,28 @@ def make_policy_step(
     return policy_step
 
 
+def through_expert(
+    policy_step: Callable, transform: Any, expert_policy: Any, n: int
+) -> Callable:
+    """``policy_step`` acting through the run's ``transform`` (residual RL,
+    gain mode) and the tracked expert, whose state rides in the carry,
+    ``(actor carry, expert state)``. The return's gradient runs through the
+    expert too: it is part of the loop the controller acts in."""
+
+    def step(carry, obs, resets):
+        actor_carry, expert_state = carry
+        action, actor_carry = policy_step(actor_carry, obs, resets)
+        acting = ActingState(
+            obs=obs, done=resets, timestep=None, expert_state=expert_state
+        )
+        executed, _, expert_state = act_through_expert(
+            transform, expert_policy, acting, obs, action, n, stop_gradient=False
+        )
+        return executed, (actor_carry, expert_state)
+
+    return step
+
+
 def rollout_returns(
     agent_state: APGState,
     params: Any,
@@ -198,12 +220,14 @@ def rollout_returns(
     horizon: int,
     n: int,
     stateful: Optional[bool] = None,
+    expert_policy: Any = None,
 ) -> Tuple[jax.Array, Rollout]:
     """Closed-loop returns ``(n,)`` of the controller on ``n`` fresh systems
     (the env's own system without a ``system_class``), and the rollout.
     The controller acts in ``[-1, 1]``, mapped onto each system's action
     bounds (:func:`agent_action_to_env`, differentiable): ``Rollout.action``
-    is what the env received, ``Rollout.policy_action`` the controller's.
+    is what the env received, ``Rollout.policy_action`` the controller's,
+    through the run's transform and ``expert_policy`` where it has one.
 
     ``stateful`` (a static flag) defaults to whether the actor carries a
     hidden state, which ``init_APG`` sets exactly for a stateful controller.
@@ -218,6 +242,13 @@ def rollout_returns(
         zeros_carry_like(agent_state.actor_state.hidden_state, n) if stateful else None
     )
     policy_step = make_policy_step(agent_state.actor_state, params, stateful)
+    transform = next(iter(env_args.transforms), None)
+    if transform is not None:
+        expert_state = None
+        if hasattr(expert_policy, "init_state"):
+            expert_state = expert_policy.init_state(n)
+        carry = (carry, expert_state)
+        policy_step = through_expert(policy_step, transform, expert_policy, n)
     rollout, _ = closed_loop_rollout(
         policy_step,
         carry,
@@ -237,6 +268,7 @@ def evaluate_apg(
     system_class: Optional[SystemClass],
     horizon: int,
     num_episode_test: int,
+    expert_policy: Any = None,
 ) -> dict:
     returns, _ = rollout_returns(
         agent_state,
@@ -246,6 +278,7 @@ def evaluate_apg(
         system_class,
         horizon,
         num_episode_test,
+        expert_policy=expert_policy,
     )
     return {
         "Eval/episodic mean reward": returns.mean(),
@@ -275,6 +308,7 @@ def training_iteration(
     loop: TrainLoop,
     evaluation: Evaluation,
     index: Any,
+    expert_policy: Any = None,
 ) -> Tuple[APGState, APGAuxiliaries]:
     """One update on a closed-loop rollout through the simulator, then the
     ``post_update`` fold and, every few updates, the evaluation and logs
@@ -296,6 +330,7 @@ def training_iteration(
             system_class,
             horizon,
             env_args.n_envs,
+            expert_policy=expert_policy,
         )
         matching_loss = -returns.mean()
         # Along the rollout: what the controller saw (APG normalises no
@@ -363,6 +398,7 @@ def make_train(
     lr_end_fraction: float = 0.1,
     reset_optimizer_on_resume: bool = True,
     controller_factory: Optional[ControllerFactory] = None,
+    expert_policy: Any = None,
     extensions: Sequence = (),
 ) -> Callable:
     """APG's train function: its own iteration (no collect-then-update: one
@@ -424,6 +460,7 @@ def make_train(
             system_class=system_class,
             horizon=agent_config.horizon,
             num_episode_test=num_episode_test,
+            expert_policy=expert_policy,
         ),
     )
 
@@ -457,6 +494,7 @@ def make_train(
             loop=loop,
             evaluation=evaluation,
             index=index,
+            expert_policy=expert_policy,
         )
 
     return build_resumable_train(

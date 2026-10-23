@@ -186,7 +186,6 @@ def setup_environment(
     if norm_info is not None:
         normaliser = {
             "normalize_obs": norm_info.obs is not None,
-            "apply_obs_normalization": layers.get("apply_obs_normalization", True),
             "train": False,
             "norm_info": repeat_first_entry(norm_info, num_repeats=num_episodes),
         }

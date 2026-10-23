@@ -222,7 +222,6 @@ class ActorCritic:
         encoder_layer_norm: bool = False,
         squash: bool = False,
         episode_length: Optional[int] = None,
-        apply_obs_normalization: bool = True,
         action_repeat: int = 1,
         extensions: Sequence[Extension] = (),
     ) -> None:
@@ -276,7 +275,6 @@ class ActorCritic:
             gamma=reward_normalization_gamma,
             n_envs=n_envs,
             episode_length=episode_length,
-            apply_obs_normalization=apply_obs_normalization,
             action_repeat=action_repeat,
         )
 

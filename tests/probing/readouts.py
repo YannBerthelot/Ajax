@@ -39,14 +39,12 @@ def nets(state: Any, extra: Any = None, stats: Any = None) -> Nets:
     return Nets(state.actor_state, critic, alpha, extra, stats)
 
 
-def env_stats(run: Any, applied: bool = True) -> Any:
-    """The env-side observation normaliser's statistics; None without one
-    or, if ``applied``, when the agent is handed raw observations (PPO)."""
+def env_stats(run: Any) -> Any:
+    """The env-side observation normaliser's statistics; None without one."""
     env = run.agent.env_args.env
-    while env is not None and not hasattr(env, "apply_normalization"):
+    while env is not None and not hasattr(env, "normalize_obs"):
         env = getattr(env, "_env", None)
     on = env is not None and env.normalize_obs
-    on = on and (env.apply_normalization or not applied)
     return run.state.collector_state.env_state.normalization_info.obs if on else None
 
 

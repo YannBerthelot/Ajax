@@ -570,7 +570,7 @@ def _force_reset(
     new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     if saved is not None:
         layers = strip_ajax_wrappers(env_args.env)[1]
-        if layers["normalize_obs"] and layers["apply_obs_normalization"]:
+        if layers["normalize_obs"]:
             fresh = _normalisation_info(new_env_state, mode).obs
             per_normaliser = (
                 _renormalised if mode == "brax" else jax.vmap(_renormalised)

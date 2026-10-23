@@ -539,7 +539,10 @@ def _normalisation_info(env_state: Any, mode: str) -> Any:
 
 
 def _force_reset(
-    agent_state: PPOState, env_args: EnvironmentConfig, mode: str
+    agent_state: PPOState,
+    env_args: EnvironmentConfig,
+    mode: str,
+    expert_policy: Any = None,
 ) -> PPOState:
     """Reset every env on a fresh key (brax's ``num_resets_per_eval``).
 
@@ -550,7 +553,8 @@ def _force_reset(
     saved ones are put back. The cut episodes are abandoned, not finished:
     the next return starts from zero, and they are flagged truncated, so a
     recurrent actor and critic restart their memory on the reset
-    observation, as at any episode start.
+    observation, as at any episode start, and so does a stateful tracked
+    expert (the features of the reset observations read its initial state).
     """
     agent_state, reset_key = agent_state.next_keys()
     saved = _normalisation_info(agent_state.collector_state.env_state, mode)
@@ -565,9 +569,13 @@ def _force_reset(
     collector = agent_state.collector_state
     observer_states = collector.observer_states
     if env_args.observers:
-        # PPO's collector tracks no expert.
         new_obs, observer_states = reset_features(
-            new_obs, new_env_state, env_args, mode, None, collector.train_time_fraction
+            new_obs,
+            new_env_state,
+            env_args,
+            mode,
+            expert_policy,
+            collector.train_time_fraction,
         )
     if env_args.store_normalized_obs:
         new_obs = normalized_obs(
@@ -598,10 +606,11 @@ def update_agent(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     total_n_updates: int,
+    expert_policy: Optional[Callable] = None,
 ) -> tuple[PPOState, AuxiliaryLogs]:
     """One PPO update on the ``(n_steps, n_envs)`` ``rollout`` collected
     from ``start``: ``n_epochs`` passes over its minibatches, then brax's
-    periodic forced reset."""
+    periodic forced reset (the features read the tracked ``expert_policy``)."""
     n_steps, n_envs = rollout.obs.shape[:2]
     geometry = minibatch_geometry(agent_config, n_steps, n_envs, recurrent)
     actions, log_probs = rollout_actions(rollout)
@@ -835,7 +844,7 @@ def update_agent(
         )
         agent_state = jax.lax.cond(
             should_reset,
-            lambda s: _force_reset(s, env_args, mode),
+            lambda s: _force_reset(s, env_args, mode, expert_policy),
             lambda s: s,
             agent_state,
         )
@@ -854,13 +863,16 @@ def make_train(
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
     end_timestep: Optional[int] = None,
+    expert_policy: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """PPO's train function: an ``n_steps`` rollout per env, then one
     update, per iteration."""
     recurrent = network_args.memory is not None
-    if recurrent and extensions:
-        raise NotImplementedError("Recurrent PPO does not support extensions yet.")
+    if recurrent and (extensions or expert_policy is not None):
+        raise NotImplementedError(
+            "Recurrent PPO does not support extensions or an expert_policy yet."
+        )
     loop = TrainLoop.create(
         env_args,
         total_timesteps,
@@ -870,6 +882,7 @@ def make_train(
         extensions,
         start_timestep=start_timestep,
         end_timestep=end_timestep,
+        expert_policy=expert_policy,
     )
 
     def init(key: jax.Array) -> PPOState:
@@ -879,6 +892,7 @@ def make_train(
             actor_optimizer_args,
             critic_optimizer_args,
             network_args,
+            expert_policy,
         )
 
     def update(
@@ -897,6 +911,7 @@ def make_train(
             # brax's reset cadence divides the whole training: the updates
             # of one call over the run, from 0 to its horizon.
             loop.n_rollouts(agent_config.n_steps, total_timesteps),
+            expert_policy,
         )
 
     return loop.on_policy(
@@ -905,5 +920,8 @@ def make_train(
         agent_config.n_steps,
         recurrent=recurrent,
         expose_rollout=agent_config.expose_recent_rollout,
-        eval_kwargs={"value_estimate": ValueEstimate(state_value, agent_config.gamma)},
+        eval_kwargs={
+            "value_estimate": ValueEstimate(state_value, agent_config.gamma),
+            "expert_policy": expert_policy,
+        },
     )

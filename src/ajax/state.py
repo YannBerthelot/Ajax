@@ -64,6 +64,9 @@ class Transition(Replaceable):
     # 1 where an expert acted at the row, for a replay that stores it (a run
     # with an expert): the share SAC logs.
     is_expert: Optional[jnp.ndarray] = None
+    # The action the policy chose where it differs from the executed one
+    # (a residual policy's), for a replay that stores it: IQL's actor fits it.
+    policy_action: Optional[jnp.ndarray] = None
 
     def __len__(self):
         return self.obs.shape[0] if self.obs.ndim > 0 else 1

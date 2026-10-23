@@ -497,7 +497,7 @@ def test_a_value_box_entry_ends_the_agents_episode_whatever_its_bonus(bonus):
     entered = jnp.array([[1.0], [0.0]])
 
     def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
-        policy = step_module._policy_pipeline(
+        policy = step_module.policy_pipeline(
             agent_state,
             acting,
             raw_obs,

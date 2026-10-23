@@ -100,7 +100,7 @@ FORM_GAPS = {
 #: for an agent taking both action kinds) where it is not wired yet.
 GAPS: dict[str, dict[str, str]] = {
     TRANSFORM: {
-        "ResidualPolicy": "APG PPO APO UDRL IQL",
+        "ResidualPolicy": "APG UDRL",
         "ExpertGains": "TD3 REDQ TQC CrossQ ASAC AVG APG PPO APO UDRL IQL",
     },
     ACTION: {
@@ -123,8 +123,8 @@ GAPS: dict[str, dict[str, str]] = {
     },
     EXPERT: {
         "BellmanPretrain": "DQN IQL",
-        "ExpertValueMetrics": "DQN IQL",
-        **dict.fromkeys(FEATURES[:2], "DQN PQN IQL PPO PPO/discrete"),
+        "ExpertValueMetrics": "DQN",
+        **dict.fromkeys(FEATURES[:2], "DQN PQN"),
     },
     FORM: {
         "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"

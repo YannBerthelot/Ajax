@@ -522,7 +522,7 @@ class ActionPipelineResult(NamedTuple):
     box_entry: Optional[jax.Array] = None
 
 
-def _policy_pipeline(
+def policy_pipeline(
     agent_state: BaseAgentState,
     acting: ActingState,
     _raw_obs: jax.Array,
@@ -534,10 +534,15 @@ def _policy_pipeline(
     recurrent: bool,
     n_envs: int,
     transform: Any = None,
+    after_choice: bool = False,
 ) -> ActionPipelineResult:
     """The default action pipeline: the policy's action, through the run's
     residual ``transform`` (its ``transform_action``) where it has one, or a
-    uniform one in [-1, 1] while ``uniform`` (the warm-up)."""
+    uniform one in [-1, 1] while ``uniform`` (the warm-up). The residual
+    acts before the choice, so the warm-up draws executed actions; with
+    ``after_choice`` it acts on the chosen one, so the warm-up draws
+    residuals, and the policy's action stored is the one chosen (an actor
+    fitting its own stored actions: IQL's)."""
     action, log_probs, raw_action, agent_state = get_action_and_log_probs(
         action_key=action_key,
         agent_state=agent_state,
@@ -550,10 +555,15 @@ def _policy_pipeline(
     # A discrete policy's action is stepped and stored as a float, the
     # uniform draw's dtype, which the cond needs both branches to share.
     action = action.astype(uniform_action.dtype)
-    executed = executed_action(transform, action, acting, _raw_obs)
     no_box = jnp.zeros((n_envs, 1), dtype=jnp.float32)
+    if after_choice:
+        action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
+        env_action = executed_action(transform, action, acting, _raw_obs)
+    else:
+        executed = executed_action(transform, action, acting, _raw_obs)
+        env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: executed)
     return ActionPipelineResult(
-        env_action=jax.lax.cond(uniform, lambda: uniform_action, lambda: executed),
+        env_action=env_action,
         policy_action=action,
         log_probs=log_probs,
         is_expert_flag=jnp.zeros_like(action[..., :1], dtype=jnp.float32),
@@ -732,7 +742,7 @@ def expert_collect_kwargs(
     if expert_policy is None:
         return {"action_pipeline": action_pipeline}
     inner = action_pipeline or partial(
-        _policy_pipeline, recurrent=recurrent, n_envs=n_envs, transform=transform
+        policy_pipeline, recurrent=recurrent, n_envs=n_envs, transform=transform
     )
     actuate = None
     if transform is not None and "actuate" in transform.implemented_phases():
@@ -840,7 +850,7 @@ def collect_experience(
     Args:
         action_pipeline: Optional callable that handles agent-specific action
             selection (obs augmentation, expert exploration, residual RL, etc.).
-            When None, the policy's (:func:`_policy_pipeline`): uniform during
+            When None, the policy's (:func:`policy_pipeline`): uniform during
             the warm-up, the policy's action after.
             Signature: (agent_state, acting, raw_obs, rng, uniform, mix_key,
                 action_key) -> :class:`ActionPipelineResult`, ``acting`` the
@@ -891,7 +901,7 @@ def collect_experience(
     # The agent's own pipeline (SAC's expert, EDGE, the value box, ...) or
     # the policy's.
     pipeline = action_pipeline or partial(
-        _policy_pipeline, recurrent=recurrent, n_envs=env_args.n_envs
+        policy_pipeline, recurrent=recurrent, n_envs=env_args.n_envs
     )
     acting = acting_state(agent_state)
     result = pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key)
@@ -1006,6 +1016,7 @@ def collect_experience(
             "return_to_go": jnp.full((env_args.n_envs, 1), -jnp.inf),
             # The next step's action, unknown yet: no TargetBC penalty.
             "next_action": jnp.full(buffer_action.shape, jnp.nan, jnp.float32),
+            "policy_action": action,
         }
         if store_hidden:
             row["actor_carry"] = _pre_actor_carry_flat
@@ -1293,6 +1304,7 @@ def init_collector_state(
     expert_policy: Any = None,
     include_return_to_go: bool = False,
     include_next_action: bool = False,
+    include_policy_action: bool = False,
 ):
     """Initialise the rollout collector: its first observations carry their
     features (``env_args.observers``) at progress 0; the training loop gives
@@ -1351,6 +1363,7 @@ def init_collector_state(
             include_is_expert=include_is_expert,
             include_return_to_go=include_return_to_go,
             include_next_action=include_next_action,
+            include_policy_action=include_policy_action,
         )
         if buffer is not None
         else None

@@ -32,8 +32,9 @@ from ajax.extensions.pretrain import MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import CriticBlend, MCVarianceCorrection, ValueBox
 
 AGENTS = "APG APO ASAC AVG DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL".split()
-#: The agents whose critics score a residual policy's executed actions.
-RESIDUAL = {"SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG"}
+#: The agents a residual policy runs on: their critics score its executed
+#: actions, or their update reads the policy's own (PPO, APO, IQL's actor).
+RESIDUAL = {"SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG", "PPO", "APO", "IQL"}
 
 
 @dataclass(frozen=True)
@@ -310,9 +311,8 @@ def test_an_agent_without_a_residual_transform_refuses_a_residual_policy(name):
     module = importlib.import_module(f"ajax.agents.{name}.{name}")
     agent = getattr(module, name)
     env = "CartPole-v1" if name in ("DQN", "PQN", "UDRL") else "Pendulum-v1"
-    kwargs = {"expert_policy": _expert} if name == "APO" else {}
     with pytest.raises(ValueError, match=r"'residual_policy'"):
-        agent(env, extensions=[ResidualPolicy()], **kwargs)
+        agent(env, extensions=[ResidualPolicy()])
 
 
 def test_online_bc_needs_the_agents_expert_policy():

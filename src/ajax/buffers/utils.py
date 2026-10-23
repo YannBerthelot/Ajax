@@ -68,6 +68,7 @@ def init_buffer(
     include_is_expert: bool = False,
     include_return_to_go: bool = False,
     include_next_action: bool = False,
+    include_policy_action: bool = False,
 ) -> fbx.flat_buffer.TrajectoryBufferState:
     """
     Initialize the flashbax buffer state with correctly shaped dummy transitions.
@@ -84,6 +85,9 @@ def init_buffer(
       end, ``return_to_go`` (a collected row's is -inf: unknown).
     include_next_action: also keep a dataset row's next action, its
       episode's next row's, ``next_action`` (NaN where unknown).
+    include_policy_action: also keep the action the policy chose,
+      ``policy_action``, where it differs from the executed one (a residual
+      policy's, for an actor fitting its own actions: IQL's).
 
     A field is stored only for a reader: a row is about 40% raw
     observation, which a run without an expert never reads.
@@ -126,6 +130,8 @@ def init_buffer(
         schema["return_to_go"] = jnp.zeros((1,), dtype=jnp.float32)
     if include_next_action:
         schema["next_action"] = jnp.zeros(action.shape, dtype=jnp.float32)
+    if include_policy_action:
+        schema["policy_action"] = action
     if actor_carry_dim > 0:
         # R2D2-style stored-state replay: the actor's flattened carry at
         # each step (see ajax.networks.memory.flatten_carry).
@@ -154,6 +160,8 @@ class ReplayBatch(NamedTuple):
     return_to_go: Optional[jax.Array] = None
     # A dataset row's next action (include_next_action).
     next_action: Optional[jax.Array] = None
+    # The action the policy chose (include_policy_action).
+    policy_action: Optional[jax.Array] = None
 
 
 def normalized_rewards(reward: jax.Array, stats: NormalizationInfo) -> jax.Array:
@@ -197,6 +205,7 @@ def get_batch_from_buffer(
         raw_next_obs=first.get("raw_next_obs"),
         return_to_go=first.get("return_to_go"),
         next_action=first.get("next_action"),
+        policy_action=first.get("policy_action"),
     )
 
 

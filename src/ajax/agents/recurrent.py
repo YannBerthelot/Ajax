@@ -274,6 +274,7 @@ def sample_replay(
         return_to_go=b.return_to_go,
         next_action=b.next_action,
         is_expert=b.is_expert,
+        policy_action=b.policy_action,
     )
     return batch, None
 

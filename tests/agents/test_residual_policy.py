@@ -23,7 +23,7 @@ def _one(obs: jax.Array) -> jax.Array:
     return jnp.ones(obs.shape[:-1] + (1,))
 
 
-def _residual_run(name: str, n_timesteps: int) -> tuple:
+def _residual_run(name: str, n_timesteps: int, **extra: Any) -> tuple:
     case = CASES[name]
     cls: Any = case.cls  # each agent's own keywords
     # No expert prefill (SAC's, TQC's): the replay holds collection's rows.
@@ -36,6 +36,7 @@ def _residual_run(name: str, n_timesteps: int) -> tuple:
         extensions=(ResidualPolicy(scale=0.0),),
         **case.kwargs,
         **prefill,
+        **extra,
     )
     return agent.train(seed=0, n_timesteps=n_timesteps)[0], case
 
@@ -69,3 +70,29 @@ def test_td3s_actor_scores_the_executed_action():
         trained.actor_state.params,
         untrained.actor_state.params,
     )
+
+
+@pytest.mark.parametrize("name", ["PPO", "APO"])
+def test_an_on_policy_agent_executes_the_residual_and_keeps_its_own_sample(name):
+    """With scale 0 Pendulum receives the expert's torque (1, its last_u),
+    while the rollout keeps the policy's own samples, which the ratio reads,
+    and the expert's actions beside them."""
+    steps = CASES[name].n_timesteps
+    state, _ = _residual_run(name, steps, expose_recent_rollout=True)
+    last_u = np.asarray(state.collector_state.env_state.last_u)
+    np.testing.assert_allclose(last_u, 1.0, rtol=1e-6)
+    rollout = state.last_rollout
+    np.testing.assert_allclose(np.asarray(rollout.a_expert), 0.5, rtol=1e-6)
+    assert not np.allclose(np.asarray(rollout.action), 0.5)
+
+
+def test_iql_stores_the_executed_action_and_the_residual_it_fits():
+    """IQL's actor fits the actions it chose: its replay keeps them
+    (policy_action, uniform residuals during the warm-up) beside the
+    executed ones the critics score, the expert's at scale 0."""
+    steps = CASES["IQL"].n_timesteps
+    state, _ = _residual_run("IQL", steps)
+    rows = state.collector_state.buffer_state.experience
+    filled = slice(0, steps // 2)
+    np.testing.assert_allclose(np.asarray(rows["action"])[..., filled, 0], 0.5)
+    assert not np.allclose(np.asarray(rows["policy_action"])[..., filled, 0], 0.5)

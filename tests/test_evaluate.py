@@ -14,6 +14,7 @@ from flax import struct
 from ajax.agents.SAC.train_SAC import init_SAC
 from ajax.agents.UDRL.train_UDRL import EvalCommand
 from ajax.buffers.utils import get_buffer
+from ajax.controller import Controller
 from ajax.evaluate import ValueEstimate, evaluate
 from ajax.state import (
     AlphaConfig,
@@ -461,7 +462,7 @@ def test_the_value_bias_reads_a_gain_policy_critic_at_the_gains_action():
         jax.random.PRNGKey(0),
         env.default_params,
         expert_policy=_GainExpertPayingZero(),
-        pid_gain_policy=True,
+        controller=Controller(gains=True),
         value_estimate=ValueEstimate(_ten_times_the_action, gamma=0.9),
     )[3]
     np.testing.assert_allclose(bias, 1.0, rtol=1e-6)

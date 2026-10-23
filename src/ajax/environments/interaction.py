@@ -12,7 +12,12 @@ from gymnax.environments.environment import Environment, EnvParams, EnvState
 from jax.tree_util import Partial as partial
 
 from ajax.buffers.utils import ReplayBatch, init_buffer
-from ajax.controller import ActingState, acting_state
+from ajax.controller import (
+    ActingState,
+    acting_state,
+    augment_obs,
+    flatten_expert_state,
+)
 from ajax.environments.obs_norm import (
     apply_obs_norm,
     init_agent_obs_norm,
@@ -48,32 +53,6 @@ from ajax.wrappers import (
     RAW_OBS_KEY,
     RAW_REWARD_KEY,
 )
-
-
-def flatten_expert_state(expert_state: Any) -> Optional[jax.Array]:
-    """A stateful expert's state as one ``(n_envs, D)`` array
-    (:func:`~ajax.networks.memory.flatten_carry`): the Markov component an
-    observation augmented with it carries (a PID's integrator). None for a
-    stateless expert (no state, or an empty one)."""
-    if expert_state is None or not jax.tree.leaves(expert_state):
-        return None
-    return flatten_carry(expert_state)
-
-
-def augment_obs(
-    obs: jax.Array,
-    expert_state: Optional[jax.Array] = None,
-    expert_action: Optional[jax.Array] = None,
-) -> jax.Array:
-    """The observation of an agent augmented with its expert, in the one
-    layout every site builds (collection, the replay buffer, SAC's update,
-    the pretraining and cloning, the evaluation): the agent's observation
-    (its training-fraction column last when it has one), the expert's
-    flattened state (:func:`flatten_expert_state`), then the expert's
-    action. A part given as None is left out. Appending keeps the agent's
-    own observation leading, as the observation normaliser reads it."""
-    extra = [x for x in (expert_state, expert_action) if x is not None]
-    return jnp.concatenate([obs, *map(jax.lax.stop_gradient, extra)], axis=-1)
 
 
 def augment_from_batch(batch: ReplayBatch) -> Tuple[jax.Array, jax.Array]:

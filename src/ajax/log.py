@@ -5,6 +5,7 @@ import jax.numpy as jnp
 from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
+from ajax.controller import Controller
 from ajax.evaluate import ValueEstimate, evaluate
 from ajax.state import BaseAgentState, EnvironmentConfig
 
@@ -237,11 +238,8 @@ def _make_no_op(extra_eval_metrics=None):
         "expert_policy",
         "eval_expert_policy",
         "sweep",
-        "eval_action_transform",
         "extra_eval_metrics",
-        "pid_gain_policy",
-        "augment_obs_with_expert_action",
-        "augment_obs_with_expert_state",
+        "controller",
         "value_estimate",
     ],
 )
@@ -261,11 +259,8 @@ def evaluate_and_log(
     expert_policy: Optional[Callable] = None,
     eval_expert_policy: Optional[Callable] = None,
     sweep: bool = False,
-    eval_action_transform: Optional[Callable] = None,
     extra_eval_metrics: Optional[Callable] = None,
-    pid_gain_policy: bool = False,
-    augment_obs_with_expert_action: bool = False,
-    augment_obs_with_expert_state: bool = False,
+    controller: Optional[Controller] = None,
     value_estimate: Optional[ValueEstimate] = None,
 ) -> tuple[BaseAgentState, Optional[dict]]:
     """Evaluate and log every ``log_frequency`` collected steps, each
@@ -316,11 +311,8 @@ def evaluate_and_log(
             # The training-fraction column the collector appends (None
             # unless the agent conditions on it).
             train_frac=agent_state.collector_state.train_time_fraction,
-            eval_action_transform=eval_action_transform,
             agent_state=agent_state,
-            pid_gain_policy=pid_gain_policy,
-            augment_obs_with_expert_action=augment_obs_with_expert_action,
-            augment_obs_with_expert_state=augment_obs_with_expert_state,
+            controller=controller,
             value_estimate=value_estimate,
         )
         metrics_to_log = {

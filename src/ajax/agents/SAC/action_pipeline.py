@@ -57,6 +57,7 @@ def check_action_extensions(extension_stack: ExtensionStack, dispatched: bool) -
 def _gain_policy_step(
     *,
     agent_state,
+    acting,
     expert_policy,
     env_args,
     recurrent,
@@ -76,15 +77,13 @@ def _gain_policy_step(
     Extension override (no EDGE / box / JSRL semantics here); it is the
     only path that returns early from ``pipeline``.
     """
-    collector_state = agent_state.collector_state
-    expert_state_in = expert_state_at_step(
-        expert_policy, collector_state, env_args.n_envs
-    )
-    _raw_for_expert = raw_obs if raw_obs is not None else collector_state.last_obs
+    expert_state_in = expert_state_at_step(expert_policy, acting, env_args.n_envs)
+    _raw_for_expert = raw_obs if raw_obs is not None else acting.obs
     action, log_probs, _raw_action, _agent_state = get_action_and_log_probs(
         action_key=action_key,
         agent_state=agent_state,
         recurrent=recurrent,
+        acting=acting,
     )
     uniform_action = jax.random.uniform(
         mix_key, minval=-1.0, maxval=1.0, shape=action.shape
@@ -109,14 +108,14 @@ def _gain_policy_step(
     )
 
 
-def _dispatch_actions(agent_state, extensions_indexed, batch, slot, rng, total_steps):
+def _dispatch_actions(
+    agent_state, acting, extensions_indexed, batch, slot, rng, total_steps
+):
     """Fold the ``(index, extension)`` pairs' ``action`` phase over
     ``batch``, which they read and write: each non-None proposal replaces
     ``batch[slot]``. Stack order, so the last proposal wins (JSRL after
     EDGE)."""
-    ctx = ExtensionContext(
-        step=agent_state.collector_state.timestep, rng=rng, total_steps=total_steps
-    )
+    ctx = ExtensionContext(step=acting.timestep, rng=rng, total_steps=total_steps)
     for idx, ext in extensions_indexed:
         proposed = ext.action(agent_state, agent_state.ext_state[idx], batch, rng, ctx)
         if proposed is not None:
@@ -178,12 +177,11 @@ def make_action_pipeline(
 
     _pre_warmup_exts, _post_warmup_exts = map(_slot, ACTION_SLOTS)
 
-    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
-        collector_state = agent_state.collector_state
-
+    def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
         if gain_policy_mode:
             return _gain_policy_step(
                 agent_state=agent_state,
+                acting=acting,
                 expert_policy=expert_policy,
                 env_args=env_args,
                 recurrent=recurrent,
@@ -197,28 +195,24 @@ def make_action_pipeline(
             )
 
         # --- The expert's call, from its tracked state when stateful ---
-        _raw_for_expert = raw_obs if raw_obs is not None else collector_state.last_obs
+        _raw_for_expert = raw_obs if raw_obs is not None else acting.obs
         expert_action, new_expert_state = expert_step(
-            expert_policy, collector_state, _raw_for_expert, env_args.n_envs
+            expert_policy, acting, _raw_for_expert, env_args.n_envs
         )
 
         # --- Obs augmentation (interaction.augment_obs's layout) ---
         if augment_obs_with_expert_action:
-            _last_obs = agent_state.collector_state.last_obs
-            _augmented_obs = augment_obs(_last_obs, expert_action=expert_action)
-            agent_state_for_actor = agent_state.replace(
-                collector_state=agent_state.collector_state.replace(
-                    last_obs=_augmented_obs
-                )
-            )
+            _augmented_obs = augment_obs(acting.obs, expert_action=expert_action)
+            acting_for_actor = acting._replace(obs=_augmented_obs)
         else:
-            agent_state_for_actor = agent_state
+            acting_for_actor = acting
             _augmented_obs = None
 
         action, log_probs, _raw_action, _agent_state = get_action_and_log_probs(
             action_key=action_key,
-            agent_state=agent_state_for_actor,
+            agent_state=agent_state,
             recurrent=recurrent,
+            acting=acting_for_actor,
         )
 
         uniform_action = jax.random.uniform(
@@ -237,6 +231,7 @@ def make_action_pipeline(
         if _pre_warmup_exts:
             pre = _dispatch_actions(
                 agent_state,
+                acting,
                 _pre_warmup_exts,
                 {
                     "policy_action": action,
@@ -245,9 +240,7 @@ def make_action_pipeline(
                     # The critics' input, augmented when it is, and the
                     # critic the gates score with: phi* once it exists.
                     "observations": (
-                        _augmented_obs
-                        if augment_obs_with_expert_action
-                        else agent_state.collector_state.last_obs
+                        _augmented_obs if augment_obs_with_expert_action else acting.obs
                     ),
                     "critic_params": (
                         agent_state.expert_critic_params
@@ -293,15 +286,14 @@ def make_action_pipeline(
         if _post_warmup_exts:
             post = _dispatch_actions(
                 agent_state,
+                acting,
                 _post_warmup_exts,
                 {
                     "expert_action": expert_action,
                     "env_action": env_action,
                     # The actor's and critics' input, augmented when it is.
                     "observations": (
-                        _augmented_obs
-                        if augment_obs_with_expert_action
-                        else agent_state.collector_state.last_obs
+                        _augmented_obs if augment_obs_with_expert_action else acting.obs
                     ),
                 },
                 "env_action",

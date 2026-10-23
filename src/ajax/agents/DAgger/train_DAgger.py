@@ -87,17 +87,14 @@ def make_action_pipeline(
     ``beta_i``, else the actor's; the expert's action at every state is
     stored (``a_expert``), from its state along the trajectory."""
 
-    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
+    def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
         del uniform, action_key
-        collector = agent_state.collector_state
         actor = agent_state.actor_state
-        own = learner_action(
-            get_pi(actor, actor.params, collector.last_obs)[0], continuous
-        )
-        a_expert, expert_state = expert_step(expert_policy, collector, raw_obs, n_envs)
+        own = learner_action(get_pi(actor, actor.params, acting.obs)[0], continuous)
+        a_expert, expert_state = expert_step(expert_policy, acting, raw_obs, n_envs)
         a_expert = a_expert.reshape(own.shape).astype(own.dtype)
         draw = jax.random.uniform(mix_key, (n_envs, 1))
-        use_expert = draw < beta(collector.timestep, config)
+        use_expert = draw < beta(acting.timestep, config)
         action = jnp.where(use_expert, a_expert, own)
         zeros = jnp.zeros((n_envs, 1))
         return ActionPipelineResult(

@@ -8,6 +8,7 @@ from ajax.agents.loop import LOOP_PHASES, REPLAY_BATCH_KEYS, TARGET_KEYS
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.TD3.state import TD3Config
 from ajax.agents.TD3.train_TD3 import make_train
+from ajax.environments.interaction import with_acting_state
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
@@ -181,5 +182,5 @@ class TD3(ActorCritic):
         self.train_kwargs = {
             "buffer": self.buffer,
             "expert_policy": self.expert_policy,
-            "action_pipeline": action_pipeline,
+            "action_pipeline": with_acting_state(action_pipeline),
         }

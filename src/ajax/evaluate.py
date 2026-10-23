@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 from typing import Any, Callable, NamedTuple, Optional, TypeVar
 
@@ -27,6 +28,7 @@ from ajax.environments.utils import (
     get_env_type,
     get_raw_env,
     maybe_append_train_frac,
+    wrapper_chain,
 )
 from ajax.networks.distributions import latent
 from ajax.networks.memory import tree_where_reset
@@ -111,7 +113,8 @@ def setup_environment(
     on (gymnax).
 
     brax / playground tasks are rebuilt from their id with ``num_episodes``
-    parallel envs. ``episode_length`` (simulator steps) and
+    parallel envs, and the wrappers over the stack the builder returned go
+    back over the rebuilt one. ``episode_length`` (simulator steps) and
     ``action_repeat`` are the training env's; the defaults are ``None`` ->
     the env's native episode length, falling back to 1000, and repeat 1.
     gymnax envs do not support ``action_repeat > 1``.
@@ -128,6 +131,8 @@ def setup_environment(
     continuous = check_if_environment_has_continuous_actions(env, env_params)
 
     if mode == "brax":
+        # The user's wrappers over the built stack come back over the rebuilt one.
+        users = _over_the_built_stack(env)
         ajax_env_id = getattr(env, "_ajax_env_id", None)
         if ajax_env_id is None:
             raw = get_raw_env(env)
@@ -168,6 +173,10 @@ def setup_environment(
                 episode_length=eval_ep_len,
                 action_repeat=action_repeat,
             )
+        for layer in reversed(users):
+            layer = copy.copy(layer)
+            layer.env = env
+            env = layer
     elif action_repeat > 1:
         raise NotImplementedError(
             "action_repeat > 1 is not supported on gymnax envs (see"
@@ -183,6 +192,18 @@ def setup_environment(
             "norm_info": repeat_first_entry(norm_info, num_repeats=num_episodes),
         }
     return add_ajax_wrappers(env, **normaliser), mode, continuous
+
+
+def _over_the_built_stack(env: Any) -> list:
+    """The wrappers over the brax / playground stack an Ajax builder returned
+    (the layer it tagged with ``_ajax_env_id``), outermost first; none when
+    no layer carries the tag (the whole env is rebuilt from its id)."""
+    over: list = []
+    for layer in wrapper_chain(env):
+        if "_ajax_env_id" in getattr(layer, "__dict__", {}):
+            return over
+        over.append(layer)
+    return []
 
 
 def get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous):

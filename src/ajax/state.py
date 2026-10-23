@@ -108,6 +108,12 @@ class EnvironmentConfig(Replaceable):
     # order (ajax.controller.observers_of): the agent sees the env's
     # observation followed by their columns.
     observers: tuple = struct.field(pytree_node=False, default=())
+    # The extension transforming the action (ajax.controller.transforms_of):
+    # residual RL's, or gain mode's, through the agent's expert.
+    transforms: tuple = struct.field(pytree_node=False, default=())
+    # The dimension of the actions the policy chooses where it is not the
+    # env's (gain mode: the expert's learnable gains); None: the env's.
+    policy_action_dim: Optional[int] = struct.field(pytree_node=False, default=None)
 
     @property
     def mode(self) -> str:

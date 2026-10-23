@@ -11,7 +11,7 @@ rollout, so the action pipelines read one state whichever runs them.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
 
 import jax
 import jax.numpy as jnp
@@ -38,6 +38,9 @@ class ActingState(NamedTuple):
     carry: Any = None
     step_in_episode: Optional[jax.Array] = None
     obs_norm: Optional[NormalizationInfo] = None
+    # The tracked expert's action this step, which collection computes once
+    # before the action is chosen (None: no expert, or not computed yet).
+    expert_action: Optional[jax.Array] = None
 
 
 def acting_state(agent_state: Any) -> ActingState:
@@ -52,6 +55,18 @@ def acting_state(agent_state: Any) -> ActingState:
         step_in_episode=collector.step_in_episode,
         obs_norm=collector.obs_norm_info,
     )
+
+
+class TransformInputs(NamedTuple):
+    """What an action transform reads, per env: the agent's tracked expert
+    (agent units), the state its call this step starts from, the env's own
+    observation and the expert's action there. The learner, scoring stored
+    rows, passes the stored action alone."""
+
+    expert: Any = None
+    expert_state: Any = None
+    raw_obs: Optional[jax.Array] = None
+    expert_action: Optional[jax.Array] = None
 
 
 class ObserveInputs(NamedTuple):
@@ -156,6 +171,25 @@ def observe_features(
     return jnp.concatenate([raw_obs, columns], axis=-1), states
 
 
+def transforms_of(stack: Any) -> tuple[Any, ...]:
+    """The extensions of ``stack`` that transform the action (residual RL's
+    ``transform_action``, gain mode's ``actuate``)."""
+    phases = {"transform_action", "actuate"}
+    return tuple(e for e in stack if e.implemented_phases() & phases)
+
+
+def executed_actions(env_args: Any, actions: jax.Array, a_expert: Any) -> jax.Array:
+    """The actions the critics score: the policy's ``actions`` through the
+    run's ``transform_action`` (residual RL), from the expert's actions
+    ``a_expert`` at the same rows; the policy's own without one. Gain mode
+    stores the policy's actions, so its critics score them as they are."""
+    for transform in env_args.transforms:
+        if "transform_action" in transform.implemented_phases():
+            inputs = TransformInputs(expert_action=a_expert)
+            return transform.transform_action(actions, inputs)
+    return actions
+
+
 def reads_progress(env_args: Any) -> bool:
     """Whether a feature of ``env_args.observers`` reads the training
     progress, whose horizon the collector then keeps (``max_timesteps``)."""
@@ -203,21 +237,26 @@ class Controller:
     features (``observers``, :attr:`EnvironmentConfig.observers`), the
     observation normalised (``normalize_obs``: an agent storing its
     observations normalised, which collection stores so already; the leading
-    ``raw_columns`` stay raw), and the executed action made from the actor's:
-    gain mode's (``gains``: the actor's action sets an expert's gains,
-    ``anchor * 10**a``, and the expert acts), or ``transform``'s ``(actions,
-    expert_actions) -> actions`` (residual RL's
-    ``ResidualPolicy.transform_action``, the one collection applies). The
-    default executes the actor's action on its observation. The expert is
-    the caller's, in agent units. Hashable: a static argument."""
+    ``raw_columns`` stay raw), and the executed action made from the actor's
+    by ``transforms`` (:attr:`EnvironmentConfig.transforms`): residual RL's
+    ``transform_action``, or gain mode's ``actuate``, where the actor's action
+    sets the expert's gains and the expert acts. The default executes the
+    actor's action on its observation. The expert is the caller's, in agent
+    units. Hashable: a static argument."""
 
     normalize_obs: bool = False
     raw_columns: int = 0
     # The observation features' extensions (EnvironmentConfig.observers),
     # which evaluation appends to every observation as collection does.
     observers: tuple = ()
-    transform: Optional[Callable] = None
-    gains: bool = False
+    # The action transforms' extensions (EnvironmentConfig.transforms).
+    transforms: tuple = ()
+
+    @property
+    def actuates(self) -> bool:
+        """Whether the actor's action is actuated through the expert (gain
+        mode): the critics score the actor's action, not the executed one."""
+        return any("actuate" in t.implemented_phases() for t in self.transforms)
 
     def observe(self, acting: ActingState) -> jax.Array:
         """The actor's input: ``acting``'s observation, its features
@@ -235,22 +274,26 @@ class Controller:
         expert_obs: Optional[jax.Array],
     ) -> tuple[jax.Array, Any]:
         """The executed action from the actor's ``actions``, and the
-        expert's state after the step: gain mode's expert acting on the
-        gains, the transform's action (the expert called for it, its action
-        0 without one), else the actor's own. The expert is called every
+        expert's state after the step: the transforms' (the expert called
+        for them, its action 0 without one; gain mode's actuation steps the
+        expert itself), else the actor's own. The expert is called every
         step its state is read, as collection calls it: for a transform, or
         for the features; otherwise its state is left as it is."""
-        if self.gains:
-            gains = expert.anchor_gains * jnp.exp(jnp.log(10.0) * actions)
-            return expert.step_with_gains(acting.expert_state, expert_obs, gains)
-        if self.transform is not None:
+        if self.transforms:
             expert_actions: Any = 0.0
             expert_state = acting.expert_state
             if expert is not None:
                 expert_actions, expert_state = call_expert(
                     expert, acting.expert_state, expert_obs
                 )
-            return self.transform(actions, expert_actions), expert_state
+            inputs = TransformInputs(
+                expert, acting.expert_state, expert_obs, expert_actions
+            )
+            for transform in self.transforms:
+                if "actuate" in transform.implemented_phases():
+                    return transform.actuate(actions, inputs)
+                actions = transform.transform_action(actions, inputs)
+            return actions, expert_state
         if self.observers and expert is not None:
             _, expert_state = call_expert(expert, acting.expert_state, expert_obs)
             return actions, expert_state

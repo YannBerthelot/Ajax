@@ -315,7 +315,7 @@ built:
 
 | Extension | Needs | Refused |
 | --- | --- | --- |
-| `EDGEExploration`, `JSRLCurriculum`, `ValueBox`, `ResidualPolicy` | SAC with an `expert_policy` and without `use_pid_policy` | when built |
+| `EDGEExploration`, `JSRLCurriculum`, `ValueBox`, `ResidualPolicy` | SAC with an `expert_policy` and without gain mode (`ExpertGains`) | when built |
 | `OnlineBC`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox`, `PhiRefresh` | `MCPretrain` in the stack | when built |
 | `OnlineBC` | SAC with an `expert_policy`, whose actions it clones | when built |
 | `IBRL`, `LCBGatedBootstrap` | a discounted agent that keeps the raw next observations they read; `LCBGatedBootstrap` also a critic ensemble | when built |
@@ -381,8 +381,9 @@ state, _ = agent.train(seed=0, n_timesteps=2_000)
 
 With a stateful PID expert that exposes `learnable_fields`, `anchor_gains`
 and `step_with_gains` (TargetGym's `FunctionalExpertPolicy` after
-`register_learnable_gains`), `SAC(use_pid_policy=True)` learns to schedule
-the expert's gains instead of acting directly. The actor outputs one number
+`register_learnable_gains`), `SAC(extensions=(ExpertGains(),))`
+(`ajax.extensions.expert`; `use_pid_policy=True` builds it and warns) learns
+to schedule the expert's gains instead of acting directly. The actor outputs one number
 `a` in `[-1, 1]` per learnable gain; the gain applied is `anchor · 10^a`,
 between a tenth and ten times the expert's own. The PID computes the action.
 SAC refuses this mode, when it is built, with the collection extensions

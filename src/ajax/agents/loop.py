@@ -602,7 +602,8 @@ class TrainLoop:
     def collect_kwargs(self, recurrent: bool, **kwargs: Any) -> dict:
         """:func:`collect_experience`'s arguments for this run. With the
         agent's expert, its action pipeline also stores the expert's actions
-        from the expert's tracked state (:func:`expert_collect_kwargs`)."""
+        from the expert's tracked state, and gain mode actuates the chosen
+        action through it (:func:`expert_collect_kwargs`)."""
         common = {"recurrent": recurrent, "mode": self.mode, "env_args": self.env_args}
         args = common | kwargs
         if self.expert_policy is None:
@@ -611,9 +612,19 @@ class TrainLoop:
         n_envs = self.env_args.n_envs
         # The observation features read the expert the collector tracks.
         expert = {"expert": self.expert_policy} if self.env_args.observers else {}
+        actuate = next(
+            (
+                t
+                for t in self.env_args.transforms
+                if "actuate" in t.implemented_phases()
+            ),
+            None,
+        )
         return (
             args
-            | expert_collect_kwargs(self.expert_policy, pipeline, recurrent, n_envs)
+            | expert_collect_kwargs(
+                self.expert_policy, pipeline, recurrent, n_envs, actuate
+            )
             | expert
         )
 
@@ -683,6 +694,10 @@ class TrainLoop:
         if self.env_args.observers:
             controller = dataclasses.replace(
                 controller, observers=self.env_args.observers
+            )
+        if self.env_args.transforms:
+            controller = dataclasses.replace(
+                controller, transforms=self.env_args.transforms
             )
         if controller != Controller():
             kwargs = kwargs | {"controller": controller}

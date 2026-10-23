@@ -10,6 +10,7 @@ from ajax.controller import (
     Controller,
     ObserveInputs,
     acting_state,
+    executed_actions,
     feature_width,
     init_observers,
     observation_layout,
@@ -18,6 +19,7 @@ from ajax.controller import (
 )
 from ajax.environments.obs_norm import init_agent_obs_norm, update_obs_norm
 from ajax.extensions.base import Extension
+from ajax.extensions.expert import ExpertGains, ResidualPolicy
 
 
 def test_a_collecting_agents_acting_state_is_its_collectors_and_actors():
@@ -83,18 +85,42 @@ def test_the_actors_input_is_normalised_when_the_agent_stores_it_so():
     np.testing.assert_allclose(actor_obs, [[7.0, 1.0]], rtol=1e-4)
 
 
+class _Mix(Extension):
+    """A transform executing the actor's action plus the expert's."""
+
+    name = "mix"
+
+    def transform_action(self, actions, inputs):
+        return actions + inputs.expert_action
+
+
 def test_the_executed_action_is_the_actors_the_transforms_or_the_gains():
     obs, expert, actions = jnp.ones((2, 1)), _GainExpert(), jnp.full((2, 1), 0.5)
     acting = _acting(obs)
     own, _ = Controller().act(actions, acting, expert, obs)
     np.testing.assert_array_equal(own, actions)
-    mixed, state = Controller(transform=lambda a, e: a + e).act(
-        actions, acting, expert, obs
-    )
+    mixed, state = Controller(transforms=(_Mix(),)).act(actions, acting, expert, obs)
     np.testing.assert_array_equal(mixed, 0.5 - 2.0)  # the expert called for it
     np.testing.assert_array_equal(state, 1.0)
-    gained, _ = Controller(gains=True).act(actions, acting, expert, obs)
+    gains = Controller(transforms=(ExpertGains(),))
+    gained, _ = gains.act(actions, acting, expert, obs)
     np.testing.assert_allclose(gained, -2.0 * 10**0.5, rtol=1e-6)  # anchor * 10^a
+    assert gains.actuates and not Controller(transforms=(_Mix(),)).actuates
+
+
+def test_the_critics_score_the_residual_transforms_executed_actions():
+    """executed_actions: the run's residual applied to the policy's actions
+    at the stored expert actions; gain mode's critics score the gains."""
+    actions, a_expert = jnp.full((2, 1), 0.5), jnp.full((2, 1), 0.75)
+    residual = SimpleNamespace(transforms=(ResidualPolicy(scale=0.5),))
+    np.testing.assert_allclose(
+        executed_actions(residual, actions, a_expert), 0.75 + 0.25
+    )
+    for transforms in ((), (ExpertGains(),)):
+        env_args = SimpleNamespace(transforms=transforms)
+        np.testing.assert_array_equal(
+            executed_actions(env_args, actions, a_expert), actions
+        )
 
 
 class _Count(Extension):

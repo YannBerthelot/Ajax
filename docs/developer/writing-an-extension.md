@@ -76,15 +76,16 @@ extensions were given.
 | `actor_loss(agent_state, ext_state, batch, ctx)` | a term added to the actor loss, or `(term, metrics)` | summed | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, APG, UDRL |
 | `action(agent_state, ext_state, obs, rng, ctx)` | an action, or `None` to defer | the last non-`None` wins | SAC with an expert policy (below) |
 | `eval_action(agent_state, ext_state, obs, rng, ctx)` | an action, or `None` | the last non-`None` wins | no agent yet |
-| `transform_action(actions, a_expert)` | the executed action, from the policy's and the expert's | the first one acts | SAC with an expert policy, in collection, its losses and evaluation |
+| `transform_action(actions, inputs)` | the executed action, from the policy's and the expert's (`ajax.controller.TransformInputs`): before the action is chosen; the replay stores it and the critics score it | one per agent | SAC with an expert policy, in collection, its losses and evaluation |
+| `actuate(actions, inputs)` | `(env_actions, expert_state)`: the chosen action executed through the expert; the replay stores the chosen one, and `policy_action_dim(env_args, expert)` gives its width where it is not the env's | one per agent | SAC with an expert policy (gain mode), in collection and evaluation |
 | `post_update(agent_state, ext_state, ctx)` | `(agent_state, ext_state)` | in order | every agent, after each update |
 | `eval_metrics(agent_state, ext_state, rng, ctx)` | a dict of metrics | merged | every agent, at each evaluation |
 | `observe(inputs, state)` | `(columns, state)`: the `(n_envs, observation_width(env_args))` columns appended to the observation `inputs` (`ajax.controller.ObserveInputs`) describes | in column order (`observes_normalised` first) | the shared collector and evaluation, whenever an observation arrives |
 
 Each phase the stack folds is one `ExtensionStack` method, `fold_<phase>`
 (`fold_init` runs `init_state` then `pretrain`), and an agent calls it once
-where the phase applies; SAC's action pipeline dispatches `action` and
-`transform_action` itself.
+where the phase applies; the controller dispatches `action`,
+`transform_action` and `actuate` itself.
 Each agent lists the phases it folds in
 `supported_extension_phases`. An extension implementing any other phase is
 rejected when the agent is built, instead of being silently ignored.

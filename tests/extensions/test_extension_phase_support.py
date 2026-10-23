@@ -94,8 +94,11 @@ class EveryPhase(Extension):
     def eval_action(self, agent_state, ext_state, obs, rng, ctx):
         return None
 
-    def transform_action(self, actions, a_expert):
+    def transform_action(self, actions, inputs):
         return actions
+
+    def actuate(self, actions, inputs):
+        return actions, inputs.expert_state
 
     def post_update(self, agent_state, ext_state, ctx):
         return agent_state, ext_state

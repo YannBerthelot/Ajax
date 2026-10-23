@@ -66,6 +66,7 @@ VARIANTS["ImitationLoss(target='replay', alpha=2.5)"] = (
 
 # Why each gap is open, and the work that closes it.
 ACTION = "only SAC folds action and transform_action (batch module-reach)"
+TRANSFORM = "only SAC runs the action transforms yet (controller step 4)"
 MC = "MCPretrain binds only on SAC (batch module-reach)"
 CONTEXT = "the agent binds no context for it yet"
 EXPERT = "the agent takes no expert_policy yet (expert reach)"
@@ -98,12 +99,15 @@ FORM_GAPS = {
 #: The pinned gaps: reason -> module -> the rows (agents, and "/discrete"
 #: for an agent taking both action kinds) where it is not wired yet.
 GAPS: dict[str, dict[str, str]] = {
+    TRANSFORM: dict.fromkeys(
+        ["ResidualPolicy", "ExpertGains"],
+        "TD3 REDQ TQC CrossQ ASAC AVG APG PPO APO UDRL IQL",
+    ),
     ACTION: {
         "EDGEExploration": "TD3 REDQ TQC CrossQ ASAC AVG UDRL UDRL/discrete DAgger"
         " DAgger/discrete DQN PQN IQL",
         "JSRLCurriculum": "TD3 REDQ TQC CrossQ ASAC AVG UDRL UDRL/discrete DAgger"
         " DAgger/discrete DQN PQN IQL",
-        "ResidualPolicy": "TD3 REDQ TQC CrossQ ASAC AVG APG PPO APO UDRL DAgger IQL",
         "ValueBox": "TD3 REDQ TQC CrossQ AVG DQN PQN IQL",
     },
     MC: {
@@ -149,7 +153,7 @@ GAPS: dict[str, dict[str, str]] = {
             "TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask",
         ),
         **dict.fromkeys(
-            "CloningPretrain ImitationLoss ResidualPolicy".split(),
+            "CloningPretrain ImitationLoss".split(),
             "TDMPC2 DreamerV3 TDMPC2MultiTask",
         ),
         **dict.fromkeys(
@@ -181,6 +185,26 @@ def _expert(obs: jnp.ndarray) -> jnp.ndarray:
 
 def _discrete_expert(obs: jnp.ndarray) -> jnp.ndarray:
     return jnp.zeros(obs.shape[:-1], jnp.int32)
+
+
+class _GainExpert:
+    """A stateful expert with one learnable gain, which gain mode
+    (ExpertGains) needs."""
+
+    learnable_fields, anchor_gains = ("kp",), jnp.array([1.0])
+
+    def init_state(self, n_envs: int) -> jnp.ndarray:
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state: jnp.ndarray, obs: jnp.ndarray) -> tuple:
+        return self.step_with_gains(state, obs, self.anchor_gains)
+
+    def step_with_gains(self, state: Any, obs: jnp.ndarray, gains: Any) -> tuple:
+        return -gains[0] * obs[..., :1], state
+
+
+#: The agent's expert a module needs beyond the stateless one.
+MODULE_EXPERTS = {"ExpertGains": _GainExpert()}
 
 
 @cache
@@ -259,6 +283,9 @@ def verdict(agent: str, env: str, column: str) -> tuple[str, str]:
             (MCPretrain(expert_policy=expert),) if "phi_star" in ext.needs() else ()
         )
         kwargs = {"extensions": (*companions, ext)}
+        takes = inspect.signature(agent_class(agent).__init__).parameters
+        if name in MODULE_EXPERTS and env != "CartPole-v1" and "expert_policy" in takes:
+            kwargs["expert_policy"] = MODULE_EXPERTS[name]
     try:
         build(agent, env, **kwargs)
     except MissingCapability as error:

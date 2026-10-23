@@ -15,6 +15,7 @@ from ajax.buffers.utils import init_buffer
 from ajax.controller import (
     ActingState,
     ObserveInputs,
+    TransformInputs,
     acting_state,
     feature_columns,
     feature_width,
@@ -697,14 +698,19 @@ def expert_collect_kwargs(
     action_pipeline: Optional[Callable],
     recurrent: bool,
     n_envs: int,
+    actuate: Any = None,
 ) -> dict:
     """:func:`collect_experience`'s ``action_pipeline`` and ``next_expert_fn``
     for an agent storing its expert's actions (``a_expert`` at s,
-    ``next_a_expert`` at s'), the expert called from its state tracked
-    along each trajectory (:func:`expert_step`). ``action_pipeline`` (None:
-    the policy's) still chooses the action, with the same draws; one that
-    tracks the expert itself (returns its state or action) is left as is.
-    Without an expert, ``action_pipeline`` alone."""
+    ``next_a_expert`` at s'), the expert called once per step from its state
+    tracked along each trajectory (:func:`expert_step`), before the action is
+    chosen: ``action_pipeline`` (None: the policy's) reads its action on the
+    acting state (``expert_action``), with the same draws, and the stored
+    action and the expert's next state are the call's where the pipeline
+    returns none of its own. With an
+    ``actuate`` transform (gain mode) the chosen action is executed through
+    the expert, which that steps, and stored as chosen. Without an expert,
+    ``action_pipeline`` alone."""
     if expert_policy is None:
         return {"action_pipeline": action_pipeline}
     inner = action_pipeline or partial(
@@ -712,11 +718,25 @@ def expert_collect_kwargs(
     )
 
     def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
-        result = inner(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key)
-        if result.new_expert_state is not None or result.a_expert is not None:
-            return result
         a_expert, new_state = expert_step(expert_policy, acting, raw_obs, n_envs)
-        return result._replace(a_expert=a_expert, new_expert_state=new_state)
+        acting = acting._replace(expert_action=a_expert)
+        result = inner(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key)
+        if result.a_expert is None:
+            result = result._replace(a_expert=a_expert)
+        if result.new_expert_state is None:
+            result = result._replace(new_expert_state=new_state)
+        if actuate is None:
+            return result
+        state = None
+        if hasattr(expert_policy, "init_state"):
+            state = expert_state_at_step(expert_policy, acting, n_envs)
+        inputs = TransformInputs(expert_policy, state, raw_obs, a_expert)
+        env_action, new_state = actuate.actuate(result.env_action, inputs)
+        return result._replace(
+            env_action=env_action,
+            buffer_action=result.env_action,
+            new_expert_state=new_state,
+        )
 
     return {
         "action_pipeline": pipeline,

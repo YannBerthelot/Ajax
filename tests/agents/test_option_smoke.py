@@ -161,6 +161,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "EDGEExploration": (exploration.EDGEExploration, "SAC"),
     "JSRLCurriculum": (lambda: expert.JSRLCurriculum(episode_length=8), "SAC"),
     "ResidualPolicy": (expert.ResidualPolicy, "SAC"),
+    "ExpertGains": (expert.ExpertGains, "SAC"),
     "ExpertValueMetrics": (expert.ExpertValueMetrics, "SAC"),
     "BellmanPretrain": (lambda: pre.BellmanPretrain(n_steps=4), "SAC"),
     "PriorData": (prior_data, "SAC TD3 REDQ ASAC"),
@@ -188,7 +189,7 @@ PHI_STAR = (
 NEEDS_EXPERT = "augment_obs_with_expert_action augment_obs_with_expert_state"
 NEEDS_EXPERT += " use_pid_policy expert_buffer_n_steps IBRL LCBGatedBootstrap"
 NEEDS_EXPERT += " ExpertValueMetrics CloningPretrain ResidualPolicy JSRLCurriculum"
-NEEDS_EXPERT += " ExpertActionInput ExpertStateInput"
+NEEDS_EXPERT += " ExpertActionInput ExpertStateInput ExpertGains"
 #: What an option or extension needs on in its row: phi* is MCPretrain's,
 #: BellmanPretrain reads its prefilled replay.
 REQUIRES = {o: {"MCPretrain"} for o in (*PHI_STAR.split(), "BellmanPretrain")}
@@ -210,6 +211,9 @@ EXCLUSIVE = [
     # output (SAC refuses its action in the observation).
     ({"use_pid_policy"}, ACTING | {"augment_obs_with_expert_action"}),
     ({"use_pid_policy"}, {"ExpertActionInput"}),
+    # ExpertGains is gain mode (use_pid_policy builds it): one transform a run.
+    ({"ExpertGains"}, ACTING | {"use_pid_policy", "augment_obs_with_expert_action"}),
+    ({"ExpertGains"}, {"ExpertActionInput"}),
     # A feature and the deprecated keyword making it would widen the
     # observation twice under one name.
     ({"ExpertActionInput"}, {"augment_obs_with_expert_action"}),

@@ -25,8 +25,6 @@ from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import Controller
-from ajax.environments.interaction import augment_obs
-from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -83,12 +81,8 @@ def init_SAC(
     window_size: int = 10,
     stored_state: bool = False,
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
-    max_timesteps: Optional[int] = None,
     num_critics: int = 2,
     expert_buffer_n_steps: int = 20_000,
-    augment_obs_with_expert_action: bool = False,
-    augment_obs_with_expert_state: bool = False,
-    expert_state_aug_dim: int = 0,
     action_dim_override: Optional[int] = None,
     count_episode_steps: bool = False,
     store_raw_next_obs: bool = False,
@@ -96,19 +90,6 @@ def init_SAC(
     store_return_to_go: bool = False,
 ) -> SACState:
     rng, init_key, collector_key, expert_key, eval_rng = jax.random.split(key, 5)
-
-    # When augment_obs_with_expert_action=True, the actor and critic receive
-    # obs augmented with a_expert at runtime (action_dim extra dimensions).
-    # When augment_obs_with_expert_state=True, the obs is also augmented
-    # with the flattened expert internal state (expert_state_aug_dim
-    # extra dimensions). We must initialise the networks with the
-    # matching inflated input size.
-    extra_obs_dim = 0
-    if augment_obs_with_expert_action:
-        _, action_shape = get_state_action_shapes(env_args.env)
-        extra_obs_dim += action_shape[0]
-    if augment_obs_with_expert_state and expert_state_aug_dim > 0:
-        extra_obs_dim += expert_state_aug_dim
 
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
         init_key,
@@ -121,17 +102,9 @@ def init_SAC(
         num_critics=num_critics,
         window_size=window_size,
         stored_state=stored_state,
-        network_extras={
-            "max_timesteps": max_timesteps,
-            "extra_obs_dim": extra_obs_dim,
-            "action_dim_override": action_dim_override,
-        },
+        network_extras={"action_dim_override": action_dim_override},
         collector_extras={
-            "max_timesteps": max_timesteps,
             "action_dim_override": action_dim_override,
-            "expert_state_aug_dim": (
-                expert_state_aug_dim if augment_obs_with_expert_state else 0
-            ),
             "expert_policy": expert_policy,
             "include_raw_next_obs": store_raw_next_obs,
             "include_return_to_go": store_return_to_go,
@@ -153,8 +126,6 @@ def init_SAC(
                 buffer_state=collector_state.buffer_state,
                 rng=expert_key,
                 n_steps=expert_buffer_n_steps,
-                augment_obs_with_expert_state=augment_obs_with_expert_state,
-                with_train_frac=max_timesteps is not None,
             )
         )
 
@@ -278,8 +249,9 @@ def update_policy(
     cited from memory, unverified) and the extensions' metrics."""
     agent_state, key, sample_key = agent_state.next_keys(2)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
-    # The env's observations without train_frac: what the expert reads.
-    raw = raw_observations if raw_observations is not None else observations[..., :-1]
+    # The env's own observations, what the expert reads (a run with an
+    # expert stores them).
+    raw = raw_observations
     transform = None
     if policy_action_transform is not None:
 
@@ -355,7 +327,6 @@ def update_agent(
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
     fixed_alpha: bool = False,
-    augment_obs_with_expert_action: bool = False,
     total_timesteps: int = 1,
     policy_action_transform: Optional[Callable] = None,
     burn_in: int = 8,
@@ -373,28 +344,6 @@ def update_agent(
         jnp.zeros(()) if transition.is_expert is None else transition.is_expert.mean()
     )
 
-    # The env observations without train_frac, which is what expert_policy
-    # expects.
-    _raw = (
-        transition.raw_obs
-        if transition.raw_obs is not None
-        else transition.obs[..., :-1]
-    )
-
-    # --- Obs augmentation (interaction.augment_obs's layout) ---
-    # Must happen before any network call (critic, actor, policy loss).
-    # The expert's actions as collection computed them, on the raw
-    # observations (an expert is defined in the environment's units) and
-    # from the expert's state, which the update does not have: a_expert at
-    # s, next_a_expert at s' (the final observation where an episode ended,
-    # from the expert's post-step state).
-    if augment_obs_with_expert_action and expert_policy is not None:
-        aug_obs = augment_obs(transition.obs, expert_action=transition.a_expert)
-        aug_next_obs = augment_obs(
-            transition.next_obs, expert_action=transition.next_a_expert
-        )
-        transition = transition.replace(obs=aug_obs, next_obs=aug_next_obs)
-
     a_expert_precomputed = None
     # The actor-loss extensions (OnlineBC) take the expert action from
     # here, phi* or not.
@@ -411,7 +360,10 @@ def update_agent(
         if transition.a_expert is not None:
             a_expert_precomputed = jax.lax.stop_gradient(transition.a_expert)
         else:
-            a_expert_precomputed = jax.lax.stop_gradient(expert_policy(_raw))
+            # The env's own observations, which a run with an expert stores.
+            a_expert_precomputed = jax.lax.stop_gradient(
+                expert_policy(transition.raw_obs)
+            )
 
     # See ajax.perf_utils.final_aux_scan: carry-only scan that exposes
     # last-step aux without materialising the full ys axis.
@@ -494,18 +446,11 @@ def make_train(
     num_critics: int = 2,
     expert_buffer_n_steps: int = 20_000,
     num_critic_updates: int = 1,
-    # Expert obs augmentation: changes init_SAC / collect_experience
-    # network input dim.
-    augment_obs_with_expert_action: bool = False,
-    # Train-fraction conditioning: append timestep/total_timesteps to obs
-    use_train_frac: bool = False,
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
     expert_fraction: float = 0.7,
     target_entropy_initial: Optional[float] = None,
     target_entropy_ramp_frac: float = 0.5,
-    augment_obs_with_expert_state: bool = False,
-    expert_state_aug_dim: int = 0,
     store_policy_action: bool = False,
     # PID policy: execute expert action directly (no actor used for env interaction)
     use_pid_policy: bool = False,
@@ -540,17 +485,11 @@ def make_train(
         "buffer": buffer,
         "gamma": agent_config.gamma,
         "reward_scale": agent_config.reward_scale,
-        "use_train_frac": use_train_frac,
-        "augment_obs_with_expert_action": augment_obs_with_expert_action,
-        "expert_state_aug_dim": (
-            expert_state_aug_dim if augment_obs_with_expert_state else 0
-        ),
         "extensions": tuple(extensions),
         "expert_policy": expert_policy,
         "recurrent": recurrent,
         "update_value_fn": update_value_functions,
         "update_target_fn": update_target_networks,
-        "augment_obs_with_expert_state": augment_obs_with_expert_state,
     }
     stack = ExtensionStack(extensions).bind_to_agent(**agent_context)
     if recurrent:
@@ -586,14 +525,10 @@ def make_train(
             alpha_args=alpha_args,
             buffer=buffer,
             expert_policy=expert_policy,
-            max_timesteps=total_timesteps if use_train_frac else None,
             num_critics=num_critics,
             expert_buffer_n_steps=(
                 expert_buffer_n_steps if expert_policy is not None else 0
             ),
-            augment_obs_with_expert_action=augment_obs_with_expert_action,
-            augment_obs_with_expert_state=augment_obs_with_expert_state,
-            expert_state_aug_dim=expert_state_aug_dim,
             action_dim_override=action_dim_override,
             count_episode_steps=any(e.reads_step_in_episode for e in stack),
             # Kept only for an extension that declares it reads it.
@@ -648,7 +583,6 @@ def make_train(
             alpha_update_start=alpha_update_start,
             fixed_alpha=fixed_alpha,
             num_critic_updates=num_critic_updates,
-            augment_obs_with_expert_action=augment_obs_with_expert_action,
             total_timesteps=total_timesteps,
             extension_stack=loop.stack,
             policy_action_transform=policy_action_transform,
@@ -668,7 +602,6 @@ def make_train(
         expert_fraction=expert_fraction,
         residual=residual,
         use_pid_policy=use_pid_policy,
-        augment_obs_with_expert_action=augment_obs_with_expert_action,
         store_policy_action=store_policy_action,
         total_timesteps=total_timesteps,
     )
@@ -685,14 +618,12 @@ def make_train(
         eval_kwargs={
             # Evaluate only in the last 20% of training (HPO phases).
             "sweep": logging_config is not None and logging_config.sweep,
-            # The training expert builds the actor's input (augmentation,
-            # the residual's base, PID gains); eval_expert_policy, when
+            # The training expert feeds the observation features, the
+            # residual's base and the PID gains; eval_expert_policy, when
             # given, only the expert's baseline return.
             "expert_policy": expert_policy,
             "eval_expert_policy": eval_expert_policy,
             "controller": Controller(
-                observe_expert_action=augment_obs_with_expert_action,
-                observe_expert_state=augment_obs_with_expert_state,
                 transform=None if residual is None else residual.transform_action,
                 gains=use_pid_policy,
             ),

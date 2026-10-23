@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 import distrax
 import jax
@@ -7,7 +7,9 @@ import optax
 from flax.training import train_state
 from jax.tree_util import Partial as partial
 
-from ajax.environments.interaction import augment_obs
+from ajax.controller import feature_width, observation_layout
+from ajax.environments.utils import get_state_action_shapes
+from ajax.extensions.observe import TrainingProgressInput
 from ajax.modules.pid_actor import GAIN_NAMES
 from ajax.networks.distributions import Deterministic, Squash, latent
 from ajax.state import Transition, with_batch_stats
@@ -61,8 +63,9 @@ def _reset_actor_heads(cloned: Any, before: Any, reset_actor_head: bool) -> Any:
         "skip_actor",
         "reset_log_std",
         "reset_actor_head",
-        "augment_obs_with_expert_action",
         "raw_columns",
+        "raw_features",
+        "pinned",
     ],
 )
 def pre_train(
@@ -85,19 +88,20 @@ def pre_train(
     # informative features without any sharp policy break (since the
     # actor outputs are random-init scale, no entropy compression).
     reset_actor_head: bool = False,
-    augment_obs_with_expert_action: bool = False,
     bc_min_log_std: float = -1.0,
     bc_action_clip_eps: float = 1e-3,
     raw_columns: int = 0,
-    train_frac_column: Optional[int] = None,
+    raw_features: int = 0,
+    pinned: tuple[int, ...] = (),
 ) -> Tuple[train_state.TrainState, Dict[str, jnp.ndarray], jnp.ndarray, jnp.ndarray]:
-    """Behaviour-clone the actor on a dataset of expert transitions.
+    """Behaviour-clone the actor on a dataset of expert transitions, its
+    observations with the agent's features (``raw_features`` trailing
+    columns of them left raw, as the normaliser leaves them).
 
     Returns the trained actor state, the per-epoch actor losses and the
-    observation mean and standard deviation the actor was trained on (0
-    and 1 on the env's ``raw_columns``, which stay raw, and on the
-    training-fraction column ``train_frac_column``: constant 0 before
-    training, its standard deviation would be 1e-6).
+    observation mean and standard deviation the actor was trained on, over
+    all but the raw features (0 and 1 on the env's ``raw_columns``, which
+    stay raw, and on the ``pinned`` columns: :func:`cloning_columns`).
     """
     obs = dataset.obs
     actions = dataset.action
@@ -109,13 +113,11 @@ def pre_train(
     # standardised inputs; the caller seeds the agent's runtime
     # obs_norm_info with these same stats so get_pi / predict_value
     # apply matching normalisation online.
-    # The statistics cover the observation, not the expert action appended
-    # after it, which stays raw (apply_obs_norm, as at run time).
-    obs_mean, obs_std = bc_statistics(obs, raw_columns, train_frac_column)
-    obs = (obs - obs_mean) / obs_std
-    if augment_obs_with_expert_action:
-        # The dataset's actions are the expert's (it ran the expert).
-        obs = augment_obs(obs, expert_action=actions)
+    # The statistics cover the observation, not its raw features (an
+    # expert's action), which stay raw (apply_obs_norm, as at run time).
+    span = obs.shape[-1] - raw_features
+    obs_mean, obs_std = bc_statistics(obs[..., :span], raw_columns, pinned)
+    obs = jnp.concatenate([(obs[..., :span] - obs_mean) / obs_std, obs[..., span:]], -1)
     metrics = {"actor_loss": jnp.zeros((actor_epochs,))}
 
     bc_actor_state = train_state.TrainState.create(
@@ -197,15 +199,29 @@ def pre_train(
 
 
 def bc_statistics(
-    obs: jnp.ndarray, raw_columns: int = 0, train_frac_column: Optional[int] = None
+    obs: jnp.ndarray, raw_columns: int = 0, pinned: tuple[int, ...] = ()
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """The mean and standard deviation cloning standardises its observations
-    with: 0 and 1 on the env's ``raw_columns`` and on the training-fraction
-    column (constant 0 before training: its std would be 1e-6)."""
+    with: 0 and 1 on the env's ``raw_columns`` and on the ``pinned`` ones."""
     obs_flat = obs.reshape(-1, obs.shape[-1])
     mean = obs_flat.mean(axis=0).at[:raw_columns].set(0.0)
     std = (obs_flat.std(axis=0) + 1e-6).at[:raw_columns].set(1.0)
-    if train_frac_column is not None:
-        mean = mean.at[train_frac_column].set(0.0)
-        std = std.at[train_frac_column].set(1.0)
+    for column in pinned:
+        mean = mean.at[column].set(0.0)
+        std = std.at[column].set(1.0)
     return mean, std
+
+
+def cloning_columns(env_args: Any) -> dict:
+    """:func:`pre_train`'s view of the agent's observation features: how many
+    raw ones end it, and the training progress's columns, whose statistics
+    are pinned (constant 0 before training, its std would be 1e-6)."""
+    env_width = get_state_action_shapes(env_args.env)[0][-1]
+    layout = observation_layout(env_width, env_args.observers, env_args)
+    pinned = tuple(
+        column
+        for observer in env_args.observers
+        if isinstance(observer, TrainingProgressInput)
+        for column in range(*layout.slice(observer.name).indices(layout.width))
+    )
+    return {"raw_features": feature_width(env_args, normalised=False), "pinned": pinned}

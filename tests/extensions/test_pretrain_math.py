@@ -8,6 +8,7 @@ of test_sac_extensions_equivalence.py, test_expert_observations.py,
 test_expert_extensions_raw_units.py and the probing tests.
 """
 
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import flax.linen as nn
@@ -21,6 +22,11 @@ from flax import struct
 from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.base import ExtensionContext
 from ajax.extensions.capabilities import MissingCapability
+from ajax.extensions.observe import (
+    ExpertActionInput,
+    ExpertStateInput,
+    TrainingProgressInput,
+)
 from ajax.extensions.pretrain import (
     BellmanPretrain,
     CloningPretrain,
@@ -142,11 +148,11 @@ def test_bellman_pretrain_binds_the_agent_context():
 
 
 def test_mc_pretrain_binds_the_agents_discount_and_reward_scale():
-    ext = MCPretrain(expert_policy=abs)
-    context = {"env_args": "env", "network_args": "net", "gamma": 0.9}
+    ext, env = MCPretrain(expert_policy=abs), SimpleNamespace(observers=())
+    context = {"env_args": env, "network_args": "net", "gamma": 0.9}
     context |= {"critic_optimizer_args": "opt", "reward_scale": 2.0}
     bound = ext.bind_to_agent(**context, expert_policy=abs)
-    assert (bound.env_args, bound.gamma, bound.reward_scale) == ("env", 0.9, 2.0)
+    assert (bound.env_args, bound.gamma, bound.reward_scale) == (env, 0.9, 2.0)
 
 
 def test_mc_returns_carry_the_reward_scale():
@@ -193,44 +199,38 @@ def test_bellman_pretrain_needs_the_agent_context_and_expert():
 
 
 def test_cloning_pretrain_binds_the_agent_context():
-    """An agent hands CloningPretrain its env, actor optimizer and
-    observation layout; an extension already bound keeps its own, and an
-    agent without an actor optimizer leaves it unbound."""
+    """An agent hands CloningPretrain its env (its observation features
+    with it) and actor optimizer; an extension already bound keeps its own,
+    and an agent without an actor optimizer leaves it unbound."""
     ext = CloningPretrain(expert_policy=abs, n_steps=8)
-    context = {
-        "env_args": "env",
-        "actor_optimizer_args": "adam",
-        "expert_policy": abs,
-        "augment_obs_with_expert_action": True,
-        "use_train_frac": True,
-    }
+    env = SimpleNamespace(observers=(TrainingProgressInput(),))
+    context = {"env_args": env, "actor_optimizer_args": "adam", "expert_policy": abs}
     bound = ext.bind_to_agent(**context)
-    assert (bound.env_args, bound.actor_optimizer_args) == ("env", "adam")
-    assert bound.augment_obs_with_expert_action and bound.use_train_frac
-    assert not bound.augment_obs_with_expert_state
+    assert (bound.env_args, bound.actor_optimizer_args) == (env, "adam")
     assert bound.bind_to_agent(**context | {"env_args": "other"}) is bound
-    assert ext.bind_to_agent(env_args="env") is ext
+    assert ext.bind_to_agent(env_args=env) is ext
 
 
 @pytest.mark.parametrize(
-    "layout", ["augment_obs_with_expert_action", "augment_obs_with_expert_state"]
+    "feature", [ExpertActionInput(), ExpertStateInput(width=1)], ids=["action", "state"]
 )
-def test_cloning_pretrain_clones_the_expert_the_observations_carry(layout):
-    """Observations carrying the agent's expert's action or state would hold
-    another expert's in the cloning dataset: binding raises."""
-    ext = CloningPretrain(expert_policy=abs)
-    context = {"env_args": "env", "actor_optimizer_args": "adam", layout: True}
+def test_cloning_pretrain_clones_the_expert_the_observations_carry(feature):
+    """Observations whose features read the agent's expert would hold another
+    expert's in the cloning dataset: binding raises."""
+    ext, env = CloningPretrain(expert_policy=abs), SimpleNamespace(observers=(feature,))
+    context = {"env_args": env, "actor_optimizer_args": "adam"}
     with pytest.raises(ValueError, match="agent's expert_policy"):
         ext.bind_to_agent(**context, expert_policy=len)
-    assert ext.bind_to_agent(**context, expert_policy=abs).env_args == "env"
+    assert ext.bind_to_agent(**context, expert_policy=abs).env_args is env
 
 
 def test_cloning_pretrain_comes_before_the_other_pretraining():
     """Cloning seeds the statistics the critic reads: a critic pretrained
     before it would be queried on other inputs, so binding raises."""
     ext, other = CloningPretrain(expert_policy=abs), BellmanPretrain()
-    context = {"env_args": "env", "actor_optimizer_args": "adam"}
-    assert ext.bind_to_agent(**context, extensions=(ext, other)).env_args == "env"
+    env = SimpleNamespace(observers=())
+    context = {"env_args": env, "actor_optimizer_args": "adam"}
+    assert ext.bind_to_agent(**context, extensions=(ext, other)).env_args is env
     with pytest.raises(ValueError, match="before the other pretraining"):
         ext.bind_to_agent(**context, extensions=(other, ext))
 

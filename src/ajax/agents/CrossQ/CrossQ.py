@@ -32,10 +32,11 @@ class CrossQ(ActorCritic):
     name: str = "CrossQ"
     capabilities: frozenset = frozenset(
         "actor critic_ensemble discounted obs_networks "
-        "off_policy policy_density q_critic replay".split()
+        "off_policy policy_density q_critic replay reward_learning".split()
     )
     supported_extension_phases: frozenset = frozenset(
-        "pretrain post_update eval_metrics on_target critic_loss actor_loss".split()
+        "pretrain post_update eval_metrics observe on_target critic_loss"
+        " actor_loss".split()
     )
     phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS
     pretrain_context: frozenset = frozenset("buffer env_args update".split())

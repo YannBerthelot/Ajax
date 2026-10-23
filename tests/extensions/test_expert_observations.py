@@ -299,13 +299,13 @@ def test_the_normaliser_leaves_appended_columns_raw():
     np.testing.assert_allclose(out, [[1.0, 2.0, 0.7]], atol=1e-6)
 
 
-def test_cloning_statistics_leave_the_training_fraction_column_raw():
-    """Cloning standardises its dataset but not the training-fraction
+def test_cloning_statistics_leave_the_training_progress_column_raw():
+    """Cloning standardises its dataset but not the training-progress
     column: constant 0 before training, its std would be 1e-6."""
     from ajax.agents.cloning import bc_statistics
 
     obs = jnp.stack([jnp.linspace(-2.0, 2.0, 64), jnp.zeros(64)], axis=-1)
-    mean, std = bc_statistics(obs, train_frac_column=1)
+    mean, std = bc_statistics(obs, pinned=(1,))
     np.testing.assert_allclose(mean, [0.0, 0.0], atol=1e-6)
     np.testing.assert_allclose(std[1], 1.0)
     assert std[0] > 1.0  # the other columns are standardised

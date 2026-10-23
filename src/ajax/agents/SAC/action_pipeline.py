@@ -2,8 +2,7 @@
 
 The pipeline owns SAC's collection bookkeeping (``is_expert_flag``,
 ``buffer_action``, expert-state threading), the gain-policy
-short-circuit, the expert-action obs augmentation and the warmup
-expert/uniform mix. Extensions that declare an ``action_slot`` substitute
+short-circuit and the warmup expert/uniform mix. Extensions that declare an ``action_slot`` substitute
 the action through their :meth:`~ajax.extensions.base.Extension.action`
 phase: ``"pre_warmup"`` ones (EDGEExploration, JSRLCurriculum) before the
 warmup choice, ``"post_warmup"`` ones (ValueBox) after it. They read and
@@ -15,7 +14,6 @@ import jax.numpy as jnp
 
 from ajax.environments.interaction import (
     ActionPipelineResult,
-    augment_obs,
     expert_state_at_step,
     expert_step,
     get_action_and_log_probs,
@@ -132,7 +130,6 @@ def make_action_pipeline(
     # ``transform_action`` makes the post-warmup action residual.
     residual=None,
     use_pid_policy=False,
-    augment_obs_with_expert_action=False,
     # Off-policy correctness ablation: when True, the pipeline returns
     # the policy's sampled action as buffer_action (instead of letting
     # collect_experience fall back to env_action = the executed action).
@@ -200,19 +197,13 @@ def make_action_pipeline(
             expert_policy, acting, _raw_for_expert, env_args.n_envs
         )
 
-        # --- Obs augmentation (interaction.augment_obs's layout) ---
-        if augment_obs_with_expert_action:
-            _augmented_obs = augment_obs(acting.obs, expert_action=expert_action)
-            acting_for_actor = acting._replace(obs=_augmented_obs)
-        else:
-            acting_for_actor = acting
-            _augmented_obs = None
-
+        # The actor reads the observation with its features (an expert's
+        # action among them), as collection stored it.
         action, log_probs, _raw_action, _agent_state = get_action_and_log_probs(
             action_key=action_key,
             agent_state=agent_state,
             recurrent=recurrent,
-            acting=acting_for_actor,
+            acting=acting,
         )
 
         uniform_action = jax.random.uniform(
@@ -237,11 +228,9 @@ def make_action_pipeline(
                     "policy_action": action,
                     "expert_action": expert_action,
                     "post_warmup_action": post_warmup_action,
-                    # The critics' input, augmented when it is, and the
+                    # The critics' input, its features included, and the
                     # critic the gates score with: phi* once it exists.
-                    "observations": (
-                        _augmented_obs if augment_obs_with_expert_action else acting.obs
-                    ),
+                    "observations": acting.obs,
                     "critic_params": (
                         agent_state.expert_critic_params
                         if agent_state.expert_critic_params is not None
@@ -291,10 +280,8 @@ def make_action_pipeline(
                 {
                     "expert_action": expert_action,
                     "env_action": env_action,
-                    # The actor's and critics' input, augmented when it is.
-                    "observations": (
-                        _augmented_obs if augment_obs_with_expert_action else acting.obs
-                    ),
+                    # The actor's and critics' input, its features included.
+                    "observations": acting.obs,
                 },
                 "env_action",
                 rng,

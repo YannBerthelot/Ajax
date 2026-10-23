@@ -39,6 +39,7 @@ ALGORITHM_CAPABILITIES: Mapping[str, str] = {
         "its policy and value networks read the observation, not a world"
         " model's latent state"
     ),
+    "reward_learning": "it learns from the reward, not from an expert's labels alone",
 }
 
 #: The capabilities a run gives, with what gives them.

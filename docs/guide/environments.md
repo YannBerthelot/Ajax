@@ -121,7 +121,7 @@ Ajax ships gymnax wrappers for common changes to a task:
 | `InitialStateWrapper(env, init_state_fn)` | replaces the reset state, for every episode (fixed or narrowed initial conditions) |
 | `ObservationNoiseWrapper(env, sigma, scale=1.0)` | adds sensor noise to the observations (see [below](#sensor-noise)) |
 | `TerminatedTruncatedWrapper(env)` | splits an old-style `done` into `terminated` and `truncated` (see [time limits](#time-limits)) |
-| `PIDTermsWrapper` (`ajax.environments.pid_terms`) | adds a PID's error terms to the observation (see [below](#pid-error-terms)) |
+| `PIDTermsWrapper` (`ajax.environments.pid_terms`) | deprecated: the `PIDTermsInput` observation feature adds a PID's error terms (see [below](#pid-error-terms)) |
 
 ```python
 import gymnax
@@ -239,36 +239,45 @@ Some observation entries must keep their units: a PID's gains only mean
 something on errors in the plant's units. An environment or wrapper declares
 its first `k` columns raw with a `raw_obs_columns = k` attribute. Every
 normaliser, in the environment or in the agent, then leaves those columns
-unchanged and normalises the rest. `PIDTermsWrapper` declares its terms this
-way.
+unchanged and normalises the rest. The deprecated `PIDTermsWrapper` declares
+its terms this way; observation features keep their columns raw by
+declaring it (`observes_normalised = False`) instead.
 
 ## PID error terms
 
 A PID controller acts on the tracking error `e = target - current`, its
-integral `I` and its difference `D`. `PIDTermsWrapper` puts `(e, I, D)` in
-front of a gymnax environment's observation, so any agent can read them:
+integral `I` and its difference `D`. The observation feature `PIDTermsInput`
+appends `(e, I, D)` to the observation, so any agent that takes features can
+read them:
 
 ```python
 # doc: skip (needs the optional plane group: uv sync --group plane)
 from target_gym import FirstOrderSystem
 
 from ajax import SAC
-from ajax.environments.pid_terms import PIDTermsWrapper
+from ajax.extensions.observe import PIDTermsInput
 
 # FirstOrderSystem observes [x, target]: index 0 is controlled, index 1 its set-point.
-env = PIDTermsWrapper(FirstOrderSystem(), current_idx=(0,), target_idx=(1,), dt=1.0)
-agent = SAC(env, n_envs=4, normalize_observations=True, learning_starts=500)
+terms = PIDTermsInput(current_idx=(0,), target_idx=(1,), dt=1.0)
+agent = SAC(
+    FirstOrderSystem(),
+    n_envs=4,
+    normalize_observations=True,
+    learning_starts=500,
+    extensions=(terms,),
+)
 state, _ = agent.train(seed=0, n_timesteps=1_000)
 stats = state.collector_state.obs_norm_info  # SAC normalises observations itself
-print(stats.mean[0, 0], stats.var[0, 0])  # the three terms are pinned at mean 0, variance 1
+print(stats.mean.shape)  # (1, 2): the plant's columns; the terms after them stay raw
 ```
 
-The observation becomes `[e, I, D, raw observation]`, `3 * n_errors`
+The observation becomes `[raw observation, e, I, D]`, `3 * n_errors`
 columns longer. `dt` is the sampling period: the integral sums `dt * e` and
 the difference is divided by `dt`, so gains keep their continuous-time
 units. `integral_limit` clamps the integral (anti-windup). The terms restart
 with every episode, auto-resets included. The [PID policy](networks.md#the-pid-policy)
-reads them.
+reads them. `PIDTermsWrapper(env, current_idx, target_idx, dt, integral_limit)`,
+which put them first in the environment's observation, is deprecated.
 
 ## Actions
 

@@ -263,13 +263,19 @@ the executed action rather than the policy's, it is refused.
 
 ### Observation
 
-Three SAC options change the networks' input, because they change its size:
+Observation features append columns to every observation, which the actor,
+the critics and the replay all read (`ajax.extensions.observe`):
 
-- `augment_obs_with_expert_action=True` appends the expert's action to the
-  observation, so the policy can condition on the expert's suggestion.
-- `augment_obs_with_expert_state=True` appends a stateful expert's internal
+- `ExpertActionInput()` appends the expert's action, so the policy can
+  condition on the expert's suggestion. It stays raw: it is an action.
+- `ExpertStateInput.for_expert(expert)` appends a stateful expert's internal
   state (a PID's integral, say).
-- `use_train_frac=True` appends the fraction of training done.
+- `TrainingProgressInput()` appends the fraction of training done; an
+  evaluation holds the collector's.
+
+They join an observation when it arrives, in collection and evaluation, and
+are stored with it. SAC's `augment_obs_with_expert_action`,
+`augment_obs_with_expert_state` and `use_train_frac` build them, and warn.
 
 ### Evaluation
 
@@ -381,8 +387,8 @@ the expert's gains instead of acting directly. The actor outputs one number
 between a tenth and ten times the expert's own. The PID computes the action.
 SAC refuses this mode, when it is built, with the collection extensions
 (their `action` phase never runs in it), `ResidualPolicy` and
-`augment_obs_with_expert_action` (the expert's action does not exist before
-the actor has chosen the gains).
+`ExpertActionInput` (the expert's action does not exist before the actor has
+chosen the gains).
 
 It is different from the [PID policy](networks.md#the-pid-policy), in which
 the actor itself is a PID whose gains are learned, for any

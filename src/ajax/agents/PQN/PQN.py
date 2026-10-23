@@ -24,7 +24,7 @@ class PQN(ActorCritic):
 
     name: str = "PQN"
     capabilities: frozenset = frozenset(
-        "discounted obs_networks off_policy q_critic".split()
+        "discounted obs_networks off_policy q_critic reward_learning".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
     phase_batch_keys: Mapping[str, frozenset] = {

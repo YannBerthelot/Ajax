@@ -308,9 +308,6 @@ def evaluate_and_log(
             avg_reward_mode=avg_reward_mode,
             expert_policy=expert_policy,
             eval_expert_policy=eval_expert_policy,
-            # The training-fraction column the collector appends (None
-            # unless the agent conditions on it).
-            train_frac=agent_state.collector_state.train_time_fraction,
             agent_state=agent_state,
             controller=controller,
             value_estimate=value_estimate,

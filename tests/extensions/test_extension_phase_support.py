@@ -76,6 +76,9 @@ class EveryPhase(Extension):
     def reward(self, agent_state, ext_state, batch, rewards, ctx):
         return rewards, ext_state, {}
 
+    def observe(self, inputs, state):
+        return jnp.zeros((*inputs.raw_obs.shape[:-1], 0)), state
+
     def on_target(self, agent_state, ext_state, batch, target, ctx):
         return target
 
@@ -238,9 +241,9 @@ def test_an_agent_declares_the_batch_keys_it_passes():
 
 
 def test_agents_accept_only_the_phases_they_fold():
-    """The base accepts none; every agent the loop's, no agent
-    ``eval_action``, only SAC ``action`` (its pipeline's slots) and
-    ``transform_action`` (its residual policy)."""
+    """The base accepts none; every agent the loop's, ``observe`` but where
+    it collects on its own, no agent ``eval_action``, only SAC ``action``
+    (its pipeline's slots) and ``transform_action`` (its residual policy)."""
     assert ActorCritic.supported_extension_phases == frozenset()
     assert EveryPhase().implemented_phases() == frozenset(PHASES)
     # PPO, on policy, lacks what replacing the executed action needs.
@@ -249,7 +252,10 @@ def test_agents_accept_only_the_phases_they_fold():
     for name in AGENTS:
         agent = getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)
         phases = agent.supported_extension_phases
-        assert LOOP_PHASES <= phases and "eval_action" not in phases, name
+        assert LOOP_PHASES - {"observe"} <= phases, name
+        assert "eval_action" not in phases, name
+        own_collector = name in ("APG", "UDRL", "DreamerV3", "TDMPC2")
+        assert ("observe" in phases) != own_collector, name
         assert ("action" in phases) == (name == "SAC"), name
         assert ("transform_action" in phases) == (name == "SAC"), name
 

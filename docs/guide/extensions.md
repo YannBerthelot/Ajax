@@ -10,11 +10,12 @@ Why extensions instead of agent options? An agent's constructor takes its
 paper's hyperparameters plus `extensions=()`. The exceptions are
 `expert_policy` (SAC, TD3, REDQ, ASAC, AVG, APO), whose return each evaluation
 logs, and a few SAC options (its expert's prefill and warm-up mix, the
-observation augmentations, the PID gain mode, `use_train_frac`,
-`store_policy_action`), kept because they change
-the network's input, the collection or the action pipeline, which
-extensions do not reach yet ([SAC](../algorithms/sac.md#expert-options)). A
-feature written into
+PID gain mode, `store_policy_action`), kept because they change the
+collection or the action pipeline, which extensions do not reach yet
+([SAC](../algorithms/sac.md#expert-options)). Observation features (an
+expert's action or state, the training progress) are extensions too:
+`ajax.extensions.observe`, on every agent that collects with the shared
+collector. A feature written into
 an agent grows that agent's file and ties it to one experiment; SAC once had
 about a hundred constructor keywords that way. Kept apart, a feature works
 with every agent that runs the parts of training it touches, and each
@@ -86,6 +87,7 @@ where it may act. Every other phase keeps a default that changes nothing.
 | `transform_action` | at each collection step, in the losses and at evaluation | make the executed action a function of the policy's and the expert's | the first one acts |
 | `post_update` | after each update | change the agent's state (schedules, refreshes) | in list order |
 | `eval_metrics` | at each evaluation | add metrics to the log | merged |
+| `observe` | whenever an observation arrives, in collection and evaluation | append columns to it, stored with it (an observation feature) | in column order: the normalised ones, then the raw ones |
 
 The agent hands its stack (an `ExtensionStack`) to its training step, which
 makes one call per phase: `fold_init` (every initial state, then every
@@ -128,6 +130,7 @@ Each agent says what its algorithm has, in `capabilities`:
 | `target_critic` | a slowly updated copy of its critic, which its bootstrap reads | SAC, TD3, REDQ, TQC, ASAC, DQN, TDMPC2, IQL |
 | `distributional_critic` | its critic predicts quantiles of the return, and regresses on many target values per row | TQC |
 | `obs_networks` | its policy and value networks read the observation, not a world model's latent state (memory needs it) | all but DreamerV3, TDMPC2 |
+| `reward_learning` | it learns from the reward, not from an expert's labels alone (`ExpertActionInput` needs it) | all but DAgger |
 
 A run adds what its configuration gives: `critic` (a Q or V critic),
 `scalar_target` (a critic regressing on one target value per row, not a
@@ -281,6 +284,14 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | `ResidualPolicy` | Executes `clip(a_E + scale · a_π, −1, 1)`: the policy learns a correction on top of the expert. | `transform_action` | SAC with an expert, without `use_pid_policy` |
 | `JSRLCurriculum` | The expert acts for the first `H_t` steps of each episode, the policy afterwards; `H_t` shrinks from `episode_length` to 0 over `decay_frac` of training. Logs `jsrl/horizon` and `jsrl/expert_frac`. | `action`, `eval_metrics` | SAC with an expert |
 | `ExpertValueMetrics` | Logs the critic's value at the expert's actions (`value/q_expert_mean`), its gap to the value of the actions taken (`value/q_gap`) and, with `MCPretrain`, its gap to `φ*` (`value/phi_star_q_gap_ood`), on one replay batch per evaluation. | `eval_metrics` | SAC, TD3, REDQ, ASAC with an expert |
+
+**Observation features** (`ajax.extensions.observe`)
+
+| Extension | What it does | Phases | Works with |
+| --- | --- | --- | --- |
+| `ExpertActionInput` | Appends the expert's action at each observation, from the state the agent tracks it in; raw (an action). | `observe` | agents with an expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, APO), SAC without `use_pid_policy`; not DAgger, which would read the label it learns |
+| `ExpertStateInput` | Appends a stateful expert's internal state before its call at the observation (`ExpertStateInput.for_expert(expert)` sizes it). | `observe` | agents with a stateful expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, APO, DAgger) |
+| `TrainingProgressInput` | Appends the fraction of training done (`ajax.schedule.progress`); an evaluation holds the collector's. | `observe` | every agent but APG, UDRL and the world models, which collect on their own |
 
 **Exploration** (`ajax.extensions.exploration`)
 

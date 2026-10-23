@@ -79,6 +79,7 @@ extensions were given.
 | `transform_action(actions, a_expert)` | the executed action, from the policy's and the expert's | the first one acts | SAC with an expert policy, in collection, its losses and evaluation |
 | `post_update(agent_state, ext_state, ctx)` | `(agent_state, ext_state)` | in order | every agent, after each update |
 | `eval_metrics(agent_state, ext_state, rng, ctx)` | a dict of metrics | merged | every agent, at each evaluation |
+| `observe(inputs, state)` | `(columns, state)`: the `(n_envs, observation_width(env_args))` columns appended to the observation `inputs` (`ajax.controller.ObserveInputs`) describes | in column order (`observes_normalised` first) | the shared collector and evaluation, whenever an observation arrives |
 
 Each phase the stack folds is one `ExtensionStack` method, `fold_<phase>`
 (`fold_init` runs `init_state` then `pretrain`), and an agent calls it once
@@ -418,10 +419,9 @@ Five agents call `bind_to_agent`, when training starts:
 
 - SAC passes `env_args`, `actor_optimizer_args`, `network_args`,
   `critic_optimizer_args`, `num_critics`, `buffer`, `gamma`, `reward_scale`,
-  `use_train_frac`, `augment_obs_with_expert_action`,
-  `augment_obs_with_expert_state`, `expert_state_aug_dim`, `extensions` (the
-  whole stack), `expert_policy`, `recurrent`, `update_value_fn` and
-  `update_target_fn`.
+  `extensions` (the whole stack), `expert_policy`, `recurrent`,
+  `update_value_fn` and `update_target_fn`. Its observation features reach
+  extensions through `env_args.observers`.
 - TD3, REDQ and APO pass `env_args`, `actor_optimizer_args` and
   `expert_policy`, which `CloningPretrain` needs.
 - DreamerV3 passes `env_args`, `agent_config`, `gamma` and

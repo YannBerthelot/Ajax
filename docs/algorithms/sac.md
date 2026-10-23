@@ -95,9 +95,9 @@ expert is written in the environment's units and receives the raw
 | `eval_expert_policy` | `None` | an expert used only for the evaluation's comparison metrics |
 | `expert_buffer_n_steps` | `20_000` | expert steps per env written to the buffer before training |
 | `expert_fraction` | `0.7` | during warm-up, the chance a step takes the expert's action instead of a uniform one |
-| `use_pid_policy` | `False` | the actor outputs the gains of the expert's PID (needs `learnable_fields` on the expert; refuses `augment_obs_with_expert_action`) |
-| `augment_obs_with_expert_action`, `augment_obs_with_expert_state` | `False` | append the expert's action or internal state to the observation |
-| `use_train_frac` | `False` | append the training fraction to the observation |
+| `use_pid_policy` | `False` | the actor outputs the gains of the expert's PID (needs `learnable_fields` on the expert; refuses `ExpertActionInput`) |
+| `augment_obs_with_expert_action`, `augment_obs_with_expert_state` | `False` | deprecated: build `ExpertActionInput()`, `ExpertStateInput.for_expert(expert)` (`ajax.extensions.observe`), which pass instead |
+| `use_train_frac` | `False` | deprecated: builds `TrainingProgressInput()`, which pass instead |
 | `target_entropy_initial_per_dim`, `target_entropy_ramp_frac` | `None`, `0.5` | move the target entropy linearly from this start to `target_entropy_per_dim` over that fraction of training |
 | `normalize_obs_running` | `False` | `normalize_observations` under its old name: warns, and will be removed ([Environments](../guide/environments.md#normalisation)) |
 | `store_policy_action` | `False` | store the policy's sampled action in the replay instead of the executed one (an off-policy-correctness ablation) |

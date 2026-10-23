@@ -1,4 +1,5 @@
-"""PIDTermsWrapper: (e, I, D) in front of the observation, on scripted runs."""
+"""PIDTermsWrapper: (e, I, D) in front of the observation, on scripted runs;
+PIDTermsInput, the feature replacing it, computes the same terms."""
 
 import jax
 import jax.numpy as jnp
@@ -7,6 +8,7 @@ import pytest
 from flax import struct
 from gymnax.environments import environment, spaces
 
+from ajax import SAC
 from ajax.environments.create import add_ajax_wrappers
 from ajax.environments.interaction import reset, step
 from ajax.environments.obs_norm import (
@@ -17,6 +19,11 @@ from ajax.environments.obs_norm import (
 from ajax.environments.pid_terms import PIDTermsWrapper, split_pid_terms
 from ajax.environments.utils import raw_obs_columns
 from ajax.evaluate import setup_environment
+from ajax.extensions.observe import PIDTermsInput
+from tests.modules import setpoint_env
+
+# The wrapper is deprecated: its own tests build it on purpose.
+pytestmark = pytest.mark.filterwarnings("ignore:PIDTermsWrapper:FutureWarning")
 
 
 @struct.dataclass
@@ -132,6 +139,31 @@ def test_get_obs_and_space_match_the_observation():
 def test_bad_configurations_raise(kwargs):
     with pytest.raises(ValueError):
         PIDTermsWrapper(_Integrator(), **kwargs)
+    with pytest.raises(ValueError):
+        PIDTermsInput(**kwargs)
+
+
+def test_the_wrapper_warns_it_is_deprecated():
+    with pytest.warns(FutureWarning, match="PIDTermsInput"):
+        PIDTermsWrapper(_Integrator(), (0,), (1,))
+
+
+def test_the_feature_computes_the_wrappers_terms_through_the_collector():
+    """PIDTermsInput's trailing columns hold the wrapper's leading terms,
+    row by row through two episodes' resets and final observations: both
+    runs act uniformly on the same keys, so the plants follow one path."""
+    task, params = setpoint_env.Setpoint(), setpoint_env.Params()
+    kwargs = {"env_params": params, "n_envs": 2, "learning_starts": 1_000}
+    kwargs |= {"buffer_size": 64, "batch_size": 8}
+    wrapped = PIDTermsWrapper(task, (0,), (1,))
+    old = SAC(wrapped, **kwargs).train(seed=0, n_timesteps=40)[0]
+    feature = PIDTermsInput((0,), (1,))
+    new = SAC(task, extensions=(feature,), **kwargs).train(seed=0, n_timesteps=40)[0]
+    old_rows = old.collector_state.buffer_state.experience
+    new_rows = new.collector_state.buffer_state.experience
+    for key in ("obs", "next_obs"):
+        np.testing.assert_array_equal(new_rows[key][..., :2], old_rows[key][..., 3:])
+        np.testing.assert_array_equal(new_rows[key][..., 2:], old_rows[key][..., :3])
 
 
 def test_ajax_steps_the_wrapper_in_training_and_evaluation():

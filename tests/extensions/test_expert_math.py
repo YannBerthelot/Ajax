@@ -8,7 +8,6 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.environments.interaction import augment_obs
 from ajax.extensions import target_mods
 from ajax.extensions.base import ExtensionContext
 from ajax.extensions.expert import (
@@ -74,22 +73,6 @@ def test_mc_correction_replaces_high_variance_entries(critic_stub):
     )
     # All entries replaced by q_mc_target = 9.0.
     assert jnp.allclose(out, jnp.full_like(target_q, 9.0))
-
-
-# ---------------------------------------------------------------------------
-# Obs augmentation / detachment
-# ---------------------------------------------------------------------------
-
-
-def test_augment_obs_appends_the_expert_state_then_its_action():
-    obs = jnp.array([[1.0, 2.0, 3.0, 0.5]])  # the training fraction last
-    state, action = jnp.array([[7.0]]), jnp.array([[10.0, 20.0]])
-    np.testing.assert_array_equal(augment_obs(obs), obs)
-    np.testing.assert_array_equal(
-        augment_obs(obs, expert_action=action)[0, 4:], [10, 20]
-    )
-    full = augment_obs(obs, state, action)
-    np.testing.assert_array_equal(full, [[1.0, 2.0, 3.0, 0.5, 7.0, 10.0, 20.0]])
 
 
 # ---------------------------------------------------------------------------

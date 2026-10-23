@@ -26,7 +26,7 @@ class AVG(ActorCritic):
     name: str = "AVG"
     capabilities: frozenset = frozenset(
         "actor critic_ensemble discounted obs_networks off_policy"
-        " policy_density q_critic".split()
+        " policy_density q_critic reward_learning".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",

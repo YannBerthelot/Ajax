@@ -7,8 +7,10 @@ from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PPO.train_PPO import _force_reset, _normalisation_info
 from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import collect_experience, reset
+from ajax.extensions.observe import TrainingProgressInput
 from ajax.networks.memory import MEMORY_KINDS, MemoryConfig, zeros_carry_like
 from ajax.networks.networks import get_initialized_actor_critic
+from tests.agents.extension_stubs import RawProgress
 from tests.probing import readouts
 
 
@@ -48,6 +50,28 @@ def test_a_forced_reset_keeps_the_normaliser_statistics(env_id, mode):
     std = np.sqrt(np.asarray(stats.var) + 1e-8)
     want = (raw - np.asarray(stats.mean)) / std
     np.testing.assert_allclose(after.last_obs, want.reshape(raw.shape), atol=1e-4)
+
+
+def test_a_forced_reset_gives_the_reset_observations_their_features():
+    """The reset observations carry their features, the training progress
+    where the run stands among them: normalised with the env's columns, or
+    raw and last."""
+    agent = PPO(
+        env_id="Pendulum-v1",
+        n_envs=2,
+        n_steps=8,
+        n_epochs=1,
+        normalize_observations=True,
+        extensions=(TrainingProgressInput(), RawProgress()),
+    )
+    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=32)[0])
+    after = _force_reset(state, agent.env_args, "gymnax").collector_state
+    assert after.last_obs.shape == (2, 3 + 2)
+    done = float(state.collector_state.train_time_fraction)
+    np.testing.assert_allclose(after.last_obs[:, -1], done)
+    stats = state.collector_state.obs_norm_info
+    normalised = (done - stats.mean[..., -1]) / np.sqrt(stats.var[..., -1] + 1e-8)
+    np.testing.assert_allclose(after.last_obs[:, -2], normalised[0], atol=1e-4)
 
 
 @pytest.mark.parametrize("kind", MEMORY_KINDS)

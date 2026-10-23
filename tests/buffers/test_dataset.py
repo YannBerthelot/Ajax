@@ -7,6 +7,7 @@ which terminates at ``t = 3`` when ``c > 0`` and is truncated at ``t = 5``.
 """
 
 from types import SimpleNamespace
+from typing import Any
 
 import jax
 import numpy as np
@@ -15,6 +16,7 @@ import pytest
 from ajax import TD3
 from ajax.buffers import dataset as ds
 from ajax.buffers.utils import get_buffer, init_buffer
+from ajax.extensions.observe import TrainingProgressInput
 from tests.environments.identity_env import LIMIT, TERMINAL, IdentityEnv
 
 
@@ -73,11 +75,10 @@ def test_save_and_load_round_trip(recorded, tmp_path) -> None:
         ds.load(path)
 
 
-def replay(n_envs: int = 1, size: int = 64, **fields):
+def replay(n_envs: int = 1, size: int = 64, observers: tuple = (), **fields):
     buffer = get_buffer(size, 4, n_envs)
-    return buffer, init_buffer(
-        buffer, TD3(IdentityEnv(), n_envs=n_envs).env_args, **fields
-    )
+    env_args = TD3(IdentityEnv(), n_envs=n_envs).env_args.replace(observers=observers)
+    return buffer, init_buffer(buffer, env_args, **fields)
 
 
 @pytest.mark.parametrize("raw", [True, False])
@@ -116,12 +117,17 @@ def test_export_reads_a_wrapped_replay_oldest_first() -> None:
 def test_fill_refuses_a_replay_it_cannot_fill(recorded) -> None:
     n = len(recorded.reward)
     odd = next(k for k in (2, 3, 4, 5, 7) if n % k)
-    for args, fields, match in (
+    cases: tuple[tuple[dict[str, Any], dict[str, Any], str], ...] = (
         ({}, {"include_expert_fields": True}, "next_a_expert"),
         ({"n_envs": odd}, {}, "do not divide"),
         ({"size": n - 1}, {}, "a replay of"),
-        ({}, {"add_train_frac": True}, r"obs rows \(3,\), dataset \(2,\)"),
-    ):
+        (
+            {"observers": (TrainingProgressInput(),)},
+            {},
+            r"obs rows \(3,\), dataset \(2,\)",
+        ),
+    )
+    for args, fields, match in cases:
         buffer, empty = replay(**args, **fields)
         with pytest.raises(ValueError, match=match):
             ds.fill_replay(buffer, empty, recorded)

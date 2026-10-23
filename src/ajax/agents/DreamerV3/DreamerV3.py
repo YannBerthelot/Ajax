@@ -128,9 +128,11 @@ class DreamerV3(ActorCritic):
 
     name: str = "DreamerV3"
     capabilities: frozenset = frozenset(
-        "actor discounted off_policy policy_density replay v_critic".split()
+        "actor discounted off_policy policy_density replay v_critic "
+        "reward_learning".split()
     )
-    supported_extension_phases: frozenset = LOOP_PHASES
+    # Its own collector and encoder: no observation features yet.
+    supported_extension_phases: frozenset = LOOP_PHASES - {"observe"}
     pretrain_context: frozenset = frozenset("env_args update".split())
     extension_context: frozenset = frozenset(
         "agent_config env_args gamma total_timesteps".split()

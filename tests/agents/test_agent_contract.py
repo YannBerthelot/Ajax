@@ -58,6 +58,7 @@ from ajax.extensions.instrumentation import (
     BiasVoreDecomposition,
     ConditioningMetrics,
 )
+from ajax.extensions.observe import TrainingProgressInput
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import (
     AlphaConfig,
@@ -66,7 +67,7 @@ from ajax.state import (
     OptimizerConfig,
 )
 from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
-from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt
+from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt, RawProgress
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
 from tests.environments import paid_action
 
@@ -298,9 +299,10 @@ class _KeyExt(Extension):
 
 @pytest.fixture(scope="module")
 def extended_run() -> Any:
-    """``extended_run(name)``: the agent's run with every extension the three
-    contracts below read (two counters and a metric, the key recorder, and
-    the instrumentation where it has a critic), on 2 seeds and 2 envs of its
+    """``extended_run(name)``: the agent's run with every extension the
+    contracts below read (two counters and a metric, the key recorder, the
+    instrumentation where it has a critic, and the training progress, as a
+    normalised and a raw feature, where it observes), on 2 seeds and 2 envs of its
     last env, logging every 32 steps, its rollout exposed where it has one.
     Built once per agent: each build traces and compiles a train program,
     and one shared run took half the time of the three it replaced."""
@@ -322,6 +324,8 @@ def _extended_run(case: Case) -> SimpleNamespace:
     kwargs |= case.kwargs | case.extended
     extensions: list[Extension] = [CounterExt("a"), CounterExt("b"), MetricExt()]
     extensions.append(_KeyExt())
+    if "observe" in case.cls.supported_extension_phases:
+        extensions += [TrainingProgressInput(), RawProgress()]
     if case.critic:
         buffer = getattr(case.cls(**kwargs), "buffer", None)
         extensions += [
@@ -374,6 +378,21 @@ def test_a_run_folds_its_extensions_and_keeps_its_rollout(
     obs = state.last_rollout.obs
     assert obs.shape[:3] == (2, case.rollout, 2), obs.shape
     assert jnp.isfinite(obs).all()
+
+
+@AGENTS
+def test_a_run_observes_its_features(name: str, extended_run: Any) -> None:
+    """The collector's last observation ends with the training progress
+    where it arrived, before the step's 2 envs counted: kept raw, last."""
+    run = extended_run(name)
+    if "observe" not in run.case.cls.supported_extension_phases:
+        pytest.skip(f"{name} rolls out on its own")
+    collector = run.state.collector_state
+    arrived = (np.asarray(collector.timestep) - 2) / run.case.n_timesteps
+    last = np.asarray(collector.last_obs)[..., -1]
+    expected = np.broadcast_to(arrived[:, None], last.shape)
+    np.testing.assert_allclose(last, expected, rtol=1e-6)
+    assert (arrived > 0.5).all(), arrived
 
 
 @AGENTS

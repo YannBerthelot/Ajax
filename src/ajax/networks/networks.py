@@ -11,8 +11,10 @@ from flax.core import FrozenDict
 from flax.linen.initializers import constant, lecun_normal, orthogonal
 from flax.serialization import to_state_dict
 
+from ajax.controller import feature_width
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.extensions.observe import pid_terms_at
 from ajax.modules.pid_actor import (
     PID_LOG_STD_INIT,
     PIDActor,
@@ -580,7 +582,6 @@ def get_initialized_actor_critic(
     action_value: bool = False,
     squash: bool = False,
     num_critics: int = 4,
-    max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
     action_dim_override: Optional[int] = None,
     actor: Optional[nn.Module] = None,
@@ -593,8 +594,8 @@ def get_initialized_actor_critic(
     its Categorical).
 
     extra_obs_dim: dimensions the agent appends to obs at run time (UDRL's
-    command; SAC's expert action and expert state when it augments with
-    them), so the network is initialised on the input width it will be fed.
+    command), so the network is initialised on the input width it will be
+    fed; the observation features (``env_config.observers``) join them.
 
     A :class:`PIDPolicy` as ``network_config.actor_architecture`` makes the
     actor a :class:`PIDActor` (see :mod:`ajax.modules.pid_actor`).
@@ -612,11 +613,11 @@ def get_initialized_actor_critic(
     cnn_image_shape = network_config.cnn_image_shape
     critic_cnn_image_shape = None if action_value else cnn_image_shape
     cnn_spec = network_config.cnn_spec
-    # Dims appended to the env's observation at run time: the train
-    # fraction and the agent's augmentation (UDRL's command, an expert's
-    # action). A CNN passes them through after the convolutions, with the
-    # env's own trailing dims, the same way in the actor and the critic.
-    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
+    # Dims appended to the env's observation at run time: UDRL's command
+    # and the observation features. A CNN passes them through after the
+    # convolutions, with the env's own trailing dims, the same way in the
+    # actor and the critic.
+    obs_extra = extra_obs_dim + feature_width(env_config)  # with the features
     cnn_extra_obs_dim = network_config.cnn_extra_obs_dim + obs_extra
 
     if actor is not None:
@@ -627,12 +628,14 @@ def get_initialized_actor_critic(
         # log-std kernel init is for its Dense head and does not apply, and
         # a start that head's layer would draw (None) is the PID actor's own.
         log_std_init = network_config.log_std_init
+        policy = network_config.actor_architecture
         actor = PIDActor(
-            policy=network_config.actor_architecture,
+            policy=policy,
             action_dim=action_dim,
             tanh_mean=network_config.tanh_mean,
             log_std_init=PID_LOG_STD_INIT if log_std_init is None else log_std_init,
             log_std_bounds=network_config.log_std_bounds,
+            terms_at=pid_terms_at(env_config, policy.n_errors),
         )
     else:
         actor = Actor(
@@ -724,7 +727,6 @@ def get_initialized_critic(
     critic_optimizer_config: OptimizerConfig,
     network_config: NetworkConfig,
     num_critics: int = 2,
-    max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
 ) -> LoadedTrainState:
     """Initialize a standalone critic network (no actor). Same architecture as
@@ -742,7 +744,7 @@ def get_initialized_critic(
 
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
-    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
+    obs_extra = extra_obs_dim + feature_width(env_config)  # with the features
     if obs_extra > 0:
         _obs_shape = list(observation_shape)
         _obs_shape[-1] += obs_extra

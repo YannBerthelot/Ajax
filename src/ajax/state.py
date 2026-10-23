@@ -18,6 +18,7 @@ from gymnax import EnvParams
 
 from ajax.environments.utils import get_env_type
 from ajax.networks.memory import MemoryConfig
+from ajax.schedule import progress
 from ajax.types import EnvStateType, EnvType, InitializationFunction, Replaceable
 from ajax.wrappers import NormalizationInfo
 
@@ -156,7 +157,7 @@ class CollectorState(Replaceable):
     def train_time_fraction(self) -> Optional[Union[float, jax.Array]]:
         if self.max_timesteps is None:
             return None
-        return self.timestep / self.max_timesteps
+        return progress(self.timestep, self.max_timesteps)
 
     @property
     def env_state(self) -> EnvStateType:

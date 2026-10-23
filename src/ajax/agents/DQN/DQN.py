@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Callable, Optional, Tuple
 
 from gymnax import EnvParams
@@ -28,6 +28,10 @@ class DQN(ActorCritic):
         "discounted obs_networks off_policy q_critic replay target_critic".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
+    phase_batch_keys: Mapping[str, frozenset] = {
+        "on_target": frozenset("actions dones reward_scale".split()),
+        "critic_loss": frozenset("actions q_state".split()),
+    }
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     replays_transitions: bool = True
     make_train = staticmethod(make_train)

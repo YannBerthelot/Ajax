@@ -182,15 +182,22 @@ Two more limits:
 ## What a phase hands an extension
 
 `on_target`, `critic_loss` and `actor_loss` hand the extension a `batch`
-dictionary of the quantities at that point of the update. The keys an agent
-always passes are listed, per phase, in
-`ajax.extensions.base.PHASE_BATCH_KEYS`:
+dictionary of the quantities at that point of the update. Every agent folding
+a phase passes the keys of the first column; each agent lists the rest in its
+`phase_batch_keys` (`ajax.SAC.phase_batch_keys`, for instance). The replay
+actor-critics (SAC, TD3, REDQ, CrossQ, TQC, ASAC, AVG, IQL) share most of
+theirs:
 
-| Phase | Every agent folding it | Some agents add |
+| Phase | Every agent folding it | The replay actor-critics add |
 | --- | --- | --- |
-| `on_target` | `observations`, `next_observations`, `rewards`, `gamma` | `actions`, `dones`, `reward_scale` (SAC, TD3, REDQ, ASAC, AVG, DQN, PQN); `raw_next_observations`, `next_a_expert` (SAC, TD3, REDQ, ASAC, AVG; None where nothing stores them); `terminated`, `truncated` (PQN, PPO, APO); `gae`, `values` (PPO, APO) |
-| `critic_loss` | `observations`, `targets` | `critic_params`, `critic_state` (SAC, TD3, REDQ, ASAC, AVG, PPO, APO); `actions` (SAC, TD3, REDQ, ASAC, AVG, DQN, PQN); `q_state` (DQN, PQN) |
-| `actor_loss` | `actor_params`, `actor_state`, `observations` | `raw_observations`, `pi_mean` (SAC, TD3, REDQ, ASAC, AVG, PPO, APO, APG, UDRL, DAgger; `pi_mean` None for a discrete policy; UDRL only with extensions); `a_expert` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger; None without an `expert_policy`); `critic_state` (SAC, TD3, REDQ, ASAC, AVG); `actions` (UDRL); `rollout`, `returns` (APG) |
+| `on_target` | `observations`, `next_observations`, `rewards`, `gamma` | `actions`, `dones`, `reward_scale`, `raw_next_observations`, `next_a_expert`, `next_action` (None where nothing stores them) |
+| `critic_loss` | `observations`, `targets` | `actions`, `next_observations`, `critic_params`, `critic_state`, `actor_state`, `return_to_go` |
+| `actor_loss` | `actor_params` | `actor_state`, `observations`, `raw_observations`, `pi_mean`, `agent_loss`, `critic_state`; `actions` and `a_expert` on most (None without an `expert_policy`) |
+
+PPO and APO add `terminated`, `truncated`, `gae` and `values` to `on_target`;
+DQN and PQN add `actions`, `dones`, `reward_scale` and their `q_state`; APG's
+`actor_loss` holds its `rollout` and `returns`. `pi_mean` is None for a
+discrete policy.
 
 `gamma` is `None` for an average-reward agent. `dones` marks where the
 target cut the bootstrap. `targets` is the target, held constant. The critic
@@ -199,8 +206,8 @@ target cut the bootstrap. `targets` is the target, held constant. The critic
 actor's mean action. `raw_observations` are the environment's own
 observations, before any normalisation; a replay agent keeps them only in a
 run with an expert, and passes `None` otherwise, except UDRL, whose segments
-hold them anyway. An agent may add keys of
-its own: read its fold call.
+hold them anyway. An agent's own keys (SAC's `rng_key`, TD3's
+`next_actions`) are in its `phase_batch_keys`.
 
 An extension never falls back to adding nothing, so a misplaced extension
 cannot look like a result. One declaring the keys it reads (`batch_keys`) is

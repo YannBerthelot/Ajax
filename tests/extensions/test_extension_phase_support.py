@@ -3,8 +3,9 @@ fold; an extension needing anything else is refused, naming it."""
 
 import dataclasses
 import importlib
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 import jax.numpy as jnp
 import pytest
@@ -13,7 +14,6 @@ from ajax import PPO, SAC
 from ajax.agents.base import ActorCritic
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import (
-    PHASE_BATCH_KEYS,
     PHASES,
     Extension,
     ExtensionStack,
@@ -23,7 +23,6 @@ from ajax.extensions.capabilities import (
     ALGORITHM_CAPABILITIES,
     MissingCapability,
     NotWired,
-    batch_keys,
     run_capabilities,
 )
 from ajax.extensions.ensemble import KernelRepulsion
@@ -158,6 +157,7 @@ def test_a_module_provides_capabilities_to_its_stack():
         has,
         frozenset(PHASES),
         context=MCPretrain.context,
+        batch_keys=SAC.phase_batch_keys,
     )
 
 
@@ -210,10 +210,31 @@ def test_agents_declare_only_known_capabilities():
         assert agent.capabilities, name
 
 
-def test_batch_keys_read_the_rows_of_every_agent_and_its_own():
-    assert {"a_expert", "pi_mean"} <= batch_keys("SAC", "actor_loss", PHASE_BATCH_KEYS)
-    assert "critic_state" not in batch_keys("APO", "actor_loss", PHASE_BATCH_KEYS)
-    assert batch_keys("SAC", "no_such_phase", PHASE_BATCH_KEYS) == frozenset()
+@dataclass(frozen=True)
+class GapReader(Extension):
+    """Reads ``gap``, which no agent of Ajax passes, and the common ``rewards``."""
+
+    name: str = "gap-reader"
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "on_target": frozenset({"gap", "rewards"})
+    }
+
+    def on_target(self, agent_state, ext_state, batch, target, ctx):
+        return target + batch["gap"]
+
+
+class GapAgent(LatentAgent):
+    supported_extension_phases = LatentAgent.supported_extension_phases | {"on_target"}
+    phase_batch_keys: Mapping[str, frozenset] = {"on_target": frozenset({"gap"})}
+
+
+def test_an_agent_declares_the_batch_keys_it_passes():
+    """An agent written outside Ajax hands its extensions a key of its own
+    by declaring it; the keys every agent passes need no declaration."""
+    GapAgent(extensions=[GapReader()])
+    undeclared = type("Undeclared", (GapAgent,), {"phase_batch_keys": {}})
+    with pytest.raises(NotWired, match=r"puts no \['gap'\] in its on_target batch"):
+        undeclared(extensions=[GapReader()])
 
 
 def test_agents_accept_only_the_phases_they_fold():
@@ -321,6 +342,7 @@ def test_a_reader_of_phi_star_needs_mc_pretrain(name: str) -> None:
     kwargs: dict[str, Any] = {
         "context": SAC.extension_context,
         "buffer_fields": SAC.supported_buffer_fields,
+        "batch_keys": SAC.phase_batch_keys,
         "agent_expert": _expert,
         "takes_expert_policy": True,
     }

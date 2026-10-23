@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Callable, Optional, Tuple, Union
 
 from gymnax import EnvParams
@@ -28,6 +28,13 @@ class APO(ActorCritic):
         "on_target",
         "critic_loss",
         "actor_loss",
+    }
+    phase_batch_keys: Mapping[str, frozenset] = {
+        "on_target": frozenset("terminated truncated gae values".split()),
+        "critic_loss": frozenset("critic_params critic_state".split()),
+        "actor_loss": frozenset(
+            "actor_state observations raw_observations pi_mean a_expert".split()
+        ),
     }
     extension_context: frozenset = frozenset(
         "actor_optimizer_args env_args expert_policy".split()

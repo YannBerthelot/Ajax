@@ -90,6 +90,30 @@ from ajax.utils import online_normalize
 #: update folds (``ActorCritic.supported_extension_phases``).
 LOOP_PHASES = frozenset({"pretrain", "post_update", "eval_metrics"})
 
+#: The keys of the extensions' batches the shared steps below build, which
+#: an agent on them declares (``ActorCritic.phase_batch_keys``), with any it
+#: adds: :func:`fold_on_target`'s, :func:`fold_critic_loss`'s, and those
+#: :func:`actor_step` adds, and with them the rows' entries a replay agent
+#: passes (REPLAY_ACTOR_KEYS: SAC's, TD3's, CrossQ's and SAC's core's).
+TARGET_KEYS = frozenset(
+    "observations actions next_observations rewards dones gamma reward_scale"
+    " raw_next_observations next_a_expert next_action".split()
+)
+CRITIC_LOSS_KEYS = frozenset(
+    "observations actions next_observations targets critic_params critic_state"
+    " actor_state return_to_go".split()
+)
+ACTOR_STEP_KEYS = frozenset("pi_mean actor_params actor_state agent_loss".split())
+REPLAY_ACTOR_KEYS = ACTOR_STEP_KEYS | frozenset(
+    "observations raw_observations actions a_expert critic_state".split()
+)
+#: A replay actor-critic's on the three steps (REDQ, ASAC, CrossQ, TQC).
+REPLAY_BATCH_KEYS: dict[str, frozenset[str]] = {
+    "on_target": TARGET_KEYS,
+    "critic_loss": CRITIC_LOSS_KEYS,
+    "actor_loss": REPLAY_ACTOR_KEYS,
+}
+
 #: ``init(key) -> agent_state``: a fresh agent state. One-shot pretraining
 #: (behaviour cloning) is an extension's, on a key the loop splits off.
 Init = Callable[[jax.Array], Any]

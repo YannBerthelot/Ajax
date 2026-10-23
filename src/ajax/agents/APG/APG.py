@@ -18,7 +18,7 @@ for the task and :func:`~ajax.agents.APG.curriculum.train_curriculum`
 for the paper's staged training.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional, Union
 
 from gymnax import EnvParams
@@ -60,6 +60,11 @@ class APG(ActorCritic):
     name: str = "APG"
     capabilities: frozenset = frozenset("actor obs_networks".split())
     supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
+    phase_batch_keys: Mapping[str, frozenset] = {
+        "actor_loss": frozenset(
+            "actor_state observations raw_observations pi_mean rollout returns".split()
+        ),
+    }
     pretrain_context: frozenset = frozenset()
     # Its rollout traces the env params (a system class's samples).
     supports_batched_env_params: bool = True

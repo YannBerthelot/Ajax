@@ -1,11 +1,11 @@
 import warnings
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional, Union
 
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config
-from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.loop import LOOP_PHASES, REPLAY_BATCH_KEYS, TARGET_KEYS
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.SAC.action_pipeline import check_action_extensions
 from ajax.agents.SAC.state import SACConfig
@@ -54,6 +54,10 @@ class SAC(ActorCritic):
         "actor_loss",
         "action",
         "transform_action",
+    }
+    # Its critic step's target_extras join the shared step's on_target keys.
+    phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS | {
+        "on_target": TARGET_KEYS | {"rng_key", "q_preds", "recurrent"}
     }
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     extension_context: frozenset = frozenset(

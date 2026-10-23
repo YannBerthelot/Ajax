@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Optional
 
 from gymnax import EnvParams
@@ -6,7 +6,7 @@ from gymnax import EnvParams
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.DAgger.state import DAggerConfig
 from ajax.agents.DAgger.train_DAgger import make_train
-from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.loop import ACTOR_STEP_KEYS, LOOP_PHASES
 from ajax.buffers.utils import get_buffer
 from ajax.extensions.base import Extension
 from ajax.types import EnvType
@@ -37,6 +37,10 @@ class DAgger(ActorCritic):
     name: str = "DAgger"
     capabilities: frozenset = frozenset("actor obs_networks off_policy replay".split())
     supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
+    phase_batch_keys: Mapping[str, frozenset] = {
+        "actor_loss": ACTOR_STEP_KEYS
+        | frozenset("observations raw_observations a_expert".split()),
+    }
     extension_context: frozenset = frozenset(
         "actor_optimizer_args buffer env_args expert_policy".split()
     )

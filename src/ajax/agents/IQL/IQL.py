@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Optional
 
 from gymnax import EnvParams
@@ -6,7 +6,7 @@ from gymnax import EnvParams
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.IQL.state import IQLConfig
 from ajax.agents.IQL.train_IQL import make_train
-from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.loop import ACTOR_STEP_KEYS, CRITIC_LOSS_KEYS, LOOP_PHASES, TARGET_KEYS
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
@@ -46,6 +46,12 @@ class IQL(ActorCritic):
         "on_target",
         "critic_loss",
         "actor_loss",
+    }
+    phase_batch_keys: Mapping[str, frozenset] = {
+        "on_target": TARGET_KEYS,
+        "critic_loss": CRITIC_LOSS_KEYS,
+        "actor_loss": ACTOR_STEP_KEYS
+        | frozenset("observations raw_observations actions critic_state".split()),
     }
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     extension_context: frozenset = frozenset(

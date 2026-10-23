@@ -104,18 +104,6 @@ def run_capabilities(
     return caps | {name for name, given in derived.items() if given}
 
 
-def batch_keys(agent_name: str, phase: str, table: Mapping) -> frozenset[str]:
-    """The keys ``agent_name``'s ``phase`` batch holds (the rows of ``table``,
-    ``PHASE_BATCH_KEYS``, for every agent and for this one)."""
-    rows = table.get(phase, {})
-    return frozenset(
-        key
-        for agents, keys in rows.items()
-        if agents == "*" or agent_name in agents.split()
-        for key in keys.split()
-    )
-
-
 def check_capabilities(
     agent_name: str,
     stack: Sequence[Any],
@@ -125,14 +113,14 @@ def check_capabilities(
     context: Iterable[str],
     pretrain_context: Iterable[str],
     buffer_fields: Iterable[str],
-    batch_table: Mapping,
+    batch_keys: Mapping[str, frozenset[str]],
     takes_expert_policy: bool,
 ) -> None:
     """Raise when a module of ``stack`` cannot run on ``agent_name``, whose
     run has the capabilities ``has`` and whose code folds ``phases``, binds
     the ``context`` keys, fills the ``pretrain_context`` fields of its
-    pretraining's ExtensionContext, stores the ``buffer_fields``, passes the batch
-    keys ``batch_table`` lists, and which takes an ``expert_policy`` when
+    pretraining's ExtensionContext, stores the ``buffer_fields``, passes the
+    ``batch_keys`` (per phase), and which takes an ``expert_policy`` when
     ``takes_expert_policy``.
 
     :class:`MissingCapability` names each module and the capabilities it
@@ -161,10 +149,10 @@ def check_capabilities(
             *([f"gives its pretraining no {sorted(unfilled)}"] if unfilled else []),
             *([f"stores no {sorted(unstored)}"] if unstored else []),
             *(
-                f"puts no {sorted(keys - batch_keys(agent_name, p, batch_table))}"
+                f"puts no {sorted(keys - batch_keys.get(p, frozenset()))}"
                 f" in its {p} batch"
                 for p, keys in ext.reads().items()
-                if keys - batch_keys(agent_name, p, batch_table)
+                if keys - batch_keys.get(p, frozenset())
             ),
         ]
         if gaps:

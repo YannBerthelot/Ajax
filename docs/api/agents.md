@@ -17,6 +17,7 @@ notes on using it:
 | REDQ | `ajax.agents.REDQ.REDQ.REDQ` | [REDQ](../algorithms/redq.md#api) |
 | CrossQ | `ajax.agents.CrossQ.CrossQ.CrossQ` | [CrossQ](../algorithms/crossq.md#api) |
 | TD3 | `ajax.agents.TD3.TD3.TD3` | [TD3](../algorithms/td3.md#api) |
+| TQC | `ajax.agents.TQC.TQC.TQC` | [TQC](../algorithms/tqc.md#api) |
 | IQL | `ajax.agents.IQL.IQL.IQL` | [IQL](../algorithms/iql.md#api) |
 | AVG | `ajax.agents.AVG.AVG.AVG` | [AVG](../algorithms/avg.md#api) |
 | DQN | `ajax.agents.DQN.DQN.DQN` | [DQN](../algorithms/dqn.md#api) |

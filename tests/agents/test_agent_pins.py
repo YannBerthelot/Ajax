@@ -1,7 +1,7 @@
 """Behaviour pins for the agents a refactoring step restructures: SAC's
 descendants (ASAC, REDQ, AVG), TD3, recurrent SAC, PPO on each minibatch
 geometry, APO, PQN, DQN, the world models (DreamerV3, TD-MPC2 single- and
-multi-task), UDRL, APG, DAgger and IQL.
+multi-task), UDRL, APG, DAgger, IQL and TQC.
 
 Each case trains a tiny fixed run and compares a fingerprint (the sum of
 squares of each parameter tree, alpha, the ``Nudge`` or ``Drift``
@@ -40,6 +40,7 @@ from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.TDMPC2.dataset import TaskEpisodes, pool_tasks
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.agents.TDMPC2.TDMPC2MultiTask import TDMPC2MultiTask
+from ajax.agents.TQC.TQC import TQC
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
@@ -205,6 +206,12 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         200,
     ),
     "IQL-nudge": (IQL, {**_SMALL, **_REPLAY, "extensions": (Nudge(),)}, 200),
+    "TQC-nudge": (
+        TQC,
+        {**_SMALL, **_REPLAY, "num_critics": 3, "n_quantiles": 5}
+        | {"extensions": (Nudge(),)},
+        200,
+    ),
     "SAC-mcc": (
         SAC,
         {
@@ -1203,6 +1210,17 @@ _GOLDEN |= {
         "actor": 5.666478157043457,
         "critic": 7.248126029968262,
         "nudge": 0.33081668615341187,
+    },
+}
+
+# Recorded on macOS ARM CPU when TQC joined (its actor's target is a
+# never-updated copy: not pinned).
+_GOLDEN |= {
+    "TQC-nudge": {
+        "actor": 17.04564666748047,
+        "critic": 42.50415802001953,
+        "alpha": 0.9729037284851074,
+        "nudge": 0.41105806827545166,
     },
 }
 

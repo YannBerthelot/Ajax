@@ -21,7 +21,7 @@
   <a href="https://yannberthelot.github.io/Ajax/">Documentation</a>
 </p>
 
-Ajax has seventeen agents, each from a published paper. Compared with
+Ajax has eighteen agents, each from a published paper. Compared with
 [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
 [SBX](https://github.com/araffin/sbx), it offers:
 
@@ -79,7 +79,7 @@ agent = PPO("ant", n_envs=8)
 
 ## Agents
 
-- **Off-policy actor-critic**: [SAC](docs/algorithms/sac.md), [TD3](docs/algorithms/td3.md), [REDQ](docs/algorithms/redq.md), [CrossQ](docs/algorithms/crossq.md) (batch-renormalised, no target networks), [AVG](docs/algorithms/avg.md) (no replay), [ASAC](docs/algorithms/asac.md) (average reward), [IQL](docs/algorithms/iql.md) (offline)
+- **Off-policy actor-critic**: [SAC](docs/algorithms/sac.md), [TD3](docs/algorithms/td3.md), [REDQ](docs/algorithms/redq.md), [CrossQ](docs/algorithms/crossq.md) (batch-renormalised, no target networks), [TQC](docs/algorithms/tqc.md) (truncated quantile critics), [AVG](docs/algorithms/avg.md) (no replay), [ASAC](docs/algorithms/asac.md) (average reward), [IQL](docs/algorithms/iql.md) (offline)
 - **On-policy**: [PPO](docs/algorithms/ppo.md), [APO](docs/algorithms/apo.md) (average reward)
 - **Value-based**: [DQN](docs/algorithms/dqn.md), [PQN](docs/algorithms/pqn.md)
 - **World models**: [DreamerV3](docs/algorithms/dreamerv3.md), [TDMPC2](docs/algorithms/tdmpc2.md), [TDMPC2MultiTask](docs/algorithms/tdmpc2.md) (multi-task, offline)

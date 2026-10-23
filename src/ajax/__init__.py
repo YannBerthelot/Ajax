@@ -21,6 +21,7 @@ from ajax.agents.SAC.SAC import SAC  # noqa: E402
 from ajax.agents.TD3.TD3 import TD3  # noqa: E402
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2  # noqa: E402
 from ajax.agents.TDMPC2.TDMPC2MultiTask import TDMPC2MultiTask  # noqa: E402
+from ajax.agents.TQC.TQC import TQC  # noqa: E402
 from ajax.agents.UDRL.UDRL import UDRL  # noqa: E402
 
 __all__ = [
@@ -36,6 +37,7 @@ __all__ = [
     "SAC",
     "TD3",
     "TDMPC2",
+    "TQC",
     "UDRL",
     "CrossQ",
     "DAgger",

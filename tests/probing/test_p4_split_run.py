@@ -117,7 +117,7 @@ EQUIVALENT = {
 }
 # Resumed on the bookkeeping preset, their counters checked: these agents'
 # whole states are not compared with an uninterrupted run yet.
-COUNTED = ("TD3", "REDQ", "ASAC", "APO", "AVG", "CrossQ")
+COUNTED = ("TD3", "REDQ", "ASAC", "APO", "AVG", "CrossQ", "TQC")
 ELSEWHERE = {  # world models whose own tests assert a resume equals one call
     "DreamerV3": "DreamerV3/test_dreamerv3_agent.py::test_resume_continues_the_schedule_and_matches_an_uninterrupted_run",
     "TDMPC2": "TDMPC2/test_TDMPC2.py::test_a_new_agent_resumes_a_checkpoint_as_the_uninterrupted_run",

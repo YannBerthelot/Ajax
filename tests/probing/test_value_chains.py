@@ -35,7 +35,7 @@ from . import readouts as R
 from .verdict import CEILING, STAGE_1, Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "b34d24e00c8a"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "2ff3f029077e"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P0a: max bootstrap and action indexing ---------------------------------
@@ -463,6 +463,14 @@ PILOT_CAL = {  # budget, tolerances in query order
     # NaN gradient, which Ajax keeps (owner, 2026-10-22; UPSTREAM_BUGS.md).
     # Certified 32/32 on 3000-3031.
     "CrossQ-discounting": (20_000, (0.072, 0.063)),
+    # TQC on SAC's preset. The probes' returns are deterministic, so its
+    # critics' quantiles agree and dropping the largest leaves the readings.
+    # Ladder on 1000-1031 + 2000-2031: -value and -backprop qualify at 625,
+    # their first rung (625-2500), -discounting at 10k (5k-20k). Certified
+    # 32/32 on 3000-3031.
+    "TQC-value": (625, (0.02,)),
+    "TQC-backprop": (625, (0.02, 0.02)),
+    "TQC-discounting": (10_000, (0.049, 0.02)),
     "PPO-value": (625, (0.065,)),
     "PPO-backprop": (1250, (0.02, 0.02)),
     "PPO-discounting": (5000, (0.02, 0.02)),

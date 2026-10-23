@@ -1224,6 +1224,20 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU once the on-policy agents normalised their
+# observations in the collector with one shared set of statistics, updated
+# by every copy's observation (2026-10-23), instead of per-copy statistics
+# averaged after each step: AVG (two copies) -0.35% actor, -1.88% critic;
+# PPO-env-split +0.10%, -0.24%. Every other pin holds.
+_GOLDEN |= {
+    "AVG": {
+        "actor": 5.461740970611572,
+        "critic": 16.733787536621094,
+        "alpha": 0.07000000029802322,
+    },
+    "PPO-env-split": {"actor": 6.008933067321777, "critic": 7.032352447509766},
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

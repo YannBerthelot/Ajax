@@ -39,6 +39,7 @@ from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.extensions.exploration import lcb_beta, lcb_score
 from ajax.networks.networks import phi_star_critic_state, predict_value
+from ajax.schedule import progress
 
 
 def blend_modify_target(
@@ -377,7 +378,7 @@ class CriticBlend(Extension):
     def expert_weight(self, timestep: Any, total_steps: int) -> jax.Array:
         """``α``: 1 at the start, falling linearly to 0 at
         ``critic_warmup_frac`` of the run."""
-        train_frac = timestep / max(int(total_steps), 1)
+        train_frac = progress(timestep, total_steps)
         return jnp.maximum(1.0 - train_frac / self.critic_warmup_frac, 0.0)
 
     def eval_metrics(
@@ -508,7 +509,9 @@ class ValueBox(Extension):
         """The box's threshold at ``step``: MCPretrain's ``v_min`` rising
         linearly to its ``v_max`` over the run."""
         return box_compute_threshold(
-            agent_state.expert_v_min, agent_state.expert_v_max, step / total_steps
+            agent_state.expert_v_min,
+            agent_state.expert_v_max,
+            progress(step, total_steps),
         )
 
     def eval_metrics(

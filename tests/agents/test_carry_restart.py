@@ -51,6 +51,7 @@ AGENTS: dict[str, tuple[dict[str, Any], int]] = {
         32,
     ),
     "TD3": (OFF_POLICY, 32),
+    "TQC": (OFF_POLICY | {"num_critics": 3, "n_quantiles": 4}, 32),
 }
 SEEDS = [0, 1, 2, 3]
 
@@ -79,7 +80,7 @@ def _next_action(actor: Any, params: Any, obs: Any, carry: Any) -> Any:
 #: action pipeline with a carry holding flags); the others run in the slow
 #: tier.
 FAST = {("PPO", "gru"), ("SAC", "lstm"), ("ASAC", "mamba"), ("REDQ", "gru")}
-FAST |= {("TD3", "transformer")}
+FAST |= {("TD3", "transformer"), ("TQC", "gru")}
 ROWS = [
     pytest.param(n, k, id=f"{n}-{k}", marks=() if (n, k) in FAST else pytest.mark.slow)
     for n in sorted(AGENTS)

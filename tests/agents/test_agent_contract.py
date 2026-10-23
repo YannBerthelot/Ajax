@@ -45,6 +45,7 @@ from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
+from ajax.agents.TQC.TQC import TQC
 from ajax.agents.UDRL.state import UDRLConfig
 from ajax.agents.UDRL.train_UDRL import EvalCommand
 from ajax.agents.UDRL.UDRL import UDRL
@@ -133,6 +134,13 @@ CASES = {
         buffer=True,
     ),
     "TD3": Case(TD3, OFF_POLICY, CONTINUOUS, buffer=True),
+    "TQC": Case(
+        TQC,
+        {**OFF_POLICY, "num_critics": 3, "n_quantiles": 4},
+        CONTINUOUS,
+        alpha=True,
+        buffer=True,
+    ),
     "CrossQ": Case(
         CrossQ,
         {"actor_width": 16, "critic_width": 16}
@@ -444,7 +452,7 @@ def test_each_evaluation_draws_fresh_keys(name: str, extended_run: Any) -> None:
 #: the 128-row buffer (an unwritten row would read reward 0 for action 0).
 ON_THE_BOX = (
     *("APG", "APO", "ASAC", "AVG", "CrossQ"),
-    *("PPO", "REDQ", "SAC", "TD3", "UDRL"),
+    *("PPO", "REDQ", "SAC", "TD3", "TQC", "UDRL"),
 )
 BOX = (-1.0, 3.0)  # centre 1, half-range 2
 WARM_UP = {"learning_starts": 64, "buffer_size": 128}
@@ -541,7 +549,8 @@ def test_a_world_model_acts_on_the_whole_box(name: str) -> None:
 
 #: Every agent on ActorCritic (TD-MPC2 multi-task, offline, builds no env).
 ACTOR_CRITICS = (
-    "APG APO ASAC AVG CrossQ DAgger DQN DreamerV3 IQL PPO PQN REDQ SAC TD3 TDMPC2 UDRL"
+    "APG APO ASAC AVG CrossQ DAgger DQN DreamerV3 IQL PPO PQN REDQ SAC TD3 TDMPC2 TQC"
+    " UDRL"
 )
 
 
@@ -601,7 +610,8 @@ def test_no_agent_class_lets_its_seeds_update_unequally() -> None:
 #: papers do.
 CLIPS: dict[str, tuple[str, float | None]] = {
     **dict.fromkeys(
-        "AVG CrossQ DAgger DQN IQL REDQ SAC TD3 UDRL".split(), ("max_grad_norm", None)
+        "AVG CrossQ DAgger DQN IQL REDQ SAC TD3 TQC UDRL".split(),
+        ("max_grad_norm", None),
     ),
     # BobMak/asac @4b68862: every hparams/*/asac.yaml sets max_grad_norm 10.
     "ASAC": ("max_grad_norm", 10.0),

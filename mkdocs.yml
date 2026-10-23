@@ -131,6 +131,7 @@ nav:
       - REDQ: algorithms/redq.md
       - CrossQ: algorithms/crossq.md
       - TD3: algorithms/td3.md
+      - TQC: algorithms/tqc.md
       - IQL: algorithms/iql.md
       - AVG: algorithms/avg.md
       - DQN: algorithms/dqn.md

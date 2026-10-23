@@ -23,6 +23,7 @@ from ajax.environments.utils import (
     env_action_to_agent,
 )
 from ajax.evaluate import setup_environment
+from ajax.wrappers import BraxWrapper
 
 # ---------------------------------------------------------------------------
 # Construction rules
@@ -222,6 +223,27 @@ def test_brax_action_repeat_and_eval_rebuild():
     env, _ = build_env_from_id("fast", episode_length=10, action_repeat=2)
     legacy, _, _ = setup_environment(env, None, 2, None, 0.99)
     assert legacy.action_repeat == 1 and legacy.episode_length == 1000
+
+
+class _DoubleReward(BraxWrapper):
+    """A user's wrapper over Ajax's brax stack."""
+
+    def step(self, state, action):
+        state = self.env.step(state, action)
+        return state.replace(reward=2.0 * state.reward)
+
+
+@pytest.mark.parametrize("env_id", ["fast", "CartpoleBalance"])
+def test_the_eval_rebuild_keeps_the_users_wrappers(env_id):
+    """Evaluation rebuilds a brax / playground stack for its own env count;
+    the wrappers a user put over the built stack come back over the new one."""
+    built, _ = build_env_from_id(env_id, n_envs=2, episode_length=10)
+    eval_env, _, _ = setup_environment(_DoubleReward(built), None, 3, None, 0.99)
+    rebuilt, _, _ = setup_environment(built, None, 3, None, 0.99)
+    action = jnp.full((3, 1), 0.3)
+    _, doubled, _ = rollout(eval_env, 4, action)
+    _, plain, _ = rollout(rebuilt, 4, action)
+    np.testing.assert_allclose(doubled, 2.0 * plain, rtol=1e-6)
 
 
 def test_playground_action_repeat_and_eval_rebuild():

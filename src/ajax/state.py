@@ -332,6 +332,9 @@ class NetworkConfig(Replaceable):
     log_std_kernel_init: Optional[Union[str, InitializationFunction]] = None
     # The critic's value (V or Q) layer; Critic (networks.py) documents it.
     value_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # A distributional critic's quantiles per value head (Critic.n_quantiles);
+    # 1: one value.
+    critic_quantiles: int = 1
     tanh_mean: bool = False
     # Opt-in LayerNorm on the shared encoder's output (Encoder in
     # networks.py), for every network built from this config. Off by

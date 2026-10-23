@@ -126,10 +126,13 @@ Each agent says what its algorithm has, in `capabilities`:
 | `off_policy` | its update stays correct on actions its policy did not choose | all but PPO, APO, APG |
 | `critic_ensemble` | two critics or more | SAC, TD3, REDQ, CrossQ, ASAC, TDMPC2, IQL; AVG with `num_critics` of 2 or more |
 | `target_critic` | a slowly updated copy of its critic, which its bootstrap reads | SAC, TD3, REDQ, ASAC, DQN, TDMPC2, IQL |
+| `distributional_critic` | its critic predicts quantiles of the return, and regresses on many target values per row | none yet |
 | `obs_networks` | its policy and value networks read the observation, not a world model's latent state (memory needs it) | all but DreamerV3, TDMPC2 |
 
 A run adds what its configuration gives: `critic` (a Q or V critic),
-`continuous_actions` or `discrete_actions` (the environment), `agent_expert`
+`scalar_target` (a critic regressing on one target value per row, not a
+`distributional_critic`: the extensions that blend, replace or compare that
+value need it), `continuous_actions` or `discrete_actions` (the environment), `agent_expert`
 (the agent has an `expert_policy`), and `phi_star` when an extension of the
 stack fits it (`MCPretrain`).
 

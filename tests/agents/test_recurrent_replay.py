@@ -53,9 +53,13 @@ def _memory(kind: str) -> MemoryConfig:
     return MemoryConfig(kind, hidden_size=8, window=4)
 
 
-def _critic(kind: str) -> Any:
+def _critic(kind: str, n_quantiles: int = 1) -> Any:
     critic = MultiCritic(
-        input_architecture=("16", "relu"), num=2, memory=_memory(kind), query_dim=ACT
+        input_architecture=("16", "relu"),
+        num=2,
+        memory=_memory(kind),
+        query_dim=ACT,
+        n_quantiles=n_quantiles,
     )
     x = jnp.zeros((1, OBS + 2 * ACT))
     return init_network_state(x, critic, _KEYS[4], optax.sgd(0.1), memory=_memory(kind))
@@ -109,6 +113,23 @@ def test_a_queried_action_moves_its_own_rows_value_only(
     rows = np.arange(S) != 1
     np.testing.assert_array_equal(values[:, rows], moved[:, rows])
     assert not np.allclose(values[:, 1], moved[:, 1])
+
+
+@pytest.mark.parametrize("bootstrap", [False, True])
+@pytest.mark.parametrize("kind", MEMORY_KINDS)
+def test_a_quantile_critics_atoms_average_to_its_values_along_a_window(
+    kind: str, bootstrap: bool
+) -> None:
+    """A distributional critic (TQC's) answers every replayed query, a row's
+    or its bootstrap's, with its quantiles, whose mean is the value the
+    scalar query reads."""
+    state = _critic(kind, n_quantiles=3)
+    carries, obs = _carries(state), NEXT_OBS if bootstrap else OBS_SEQ
+    args = (state, state.params, obs, QUERIES, carries)
+    values = q_values(*args, bootstrap=bootstrap)
+    atoms = q_values(*args, bootstrap=bootstrap, quantiles=True)
+    assert atoms.shape == values.shape[:-1] + (3,)
+    np.testing.assert_allclose(values, atoms.mean(-1, keepdims=True), atol=1e-6)
 
 
 @pytest.mark.parametrize("kind", MEMORY_KINDS)

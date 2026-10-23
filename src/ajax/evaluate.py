@@ -7,7 +7,14 @@ import jax.numpy as jnp
 from gymnax.environments.environment import EnvParams
 from jax.tree_util import Partial as partial
 
-from ajax.controller import ActingState, Controller, call_expert
+from ajax.controller import (
+    ActingState,
+    Controller,
+    ObserveInputs,
+    call_expert,
+    init_observers,
+    observe_features,
+)
 from ajax.environments.interaction import (
     get_pi,
     get_raw_obs,
@@ -31,6 +38,7 @@ from ajax.environments.utils import (
 )
 from ajax.networks.distributions import latent
 from ajax.networks.memory import tree_where_reset
+from ajax.schedule import progress
 from ajax.state import EnvironmentConfig
 from ajax.utils import online_normalize
 from ajax.wrappers import NormalizationInfo
@@ -253,10 +261,18 @@ class _EvalCarry(NamedTuple):
     expert_state: Any  # a stateful expert's; a dummy otherwise
     actor_hidden: Any  # the actor's memory; a dummy when feedforward
     command: Any  # a command-conditioned actor's command; a dummy otherwise
+    observer_states: Any = None  # the observation features'; None without
 
 
 def _init_eval_carry(
-    num_episodes: int, key, obs, state, expert_state, actor_hidden=None, command=None
+    num_episodes: int,
+    key,
+    obs,
+    state,
+    expert_state,
+    actor_hidden=None,
+    command=None,
+    observer_states=None,
 ) -> _EvalCarry:
     return _EvalCarry(
         rewards=jnp.zeros(num_episodes),
@@ -271,7 +287,17 @@ def _init_eval_carry(
         expert_state=expert_state,
         actor_hidden=jnp.zeros((1,)) if actor_hidden is None else actor_hidden,
         command=jnp.zeros((1,)) if command is None else command,
+        observer_states=observer_states,
     )
+
+
+def _frozen_progress(agent_state: Any) -> Any:
+    """The training progress an evaluation's features hold: the collector's
+    as it stands (None where it keeps no horizon)."""
+    collector = getattr(agent_state, "collector_state", None)
+    if collector is None or collector.max_timesteps is None:
+        return None
+    return progress(collector.timestep, collector.max_timesteps)
 
 
 def _init_expert_state(expert_policy, num_episodes: int):
@@ -320,6 +346,7 @@ def step_environment(
     """
 
     controller = Controller() if controller is None else controller
+    progress_now = _frozen_progress(agent_state)
     expert_is_stateful = expert_policy is not None and hasattr(
         expert_policy, "init_state"
     )
@@ -397,6 +424,21 @@ def step_environment(
             new_expert_state = tree_where_reset(
                 new_done, expert_policy.init_state(obs.shape[0]), new_expert_state
             )
+        # The observation features, as collection appends them: from fresh
+        # observer states where the episode ended.
+        observer_states = carry.observer_states
+        if controller.observers:
+            fresh = init_observers(controller.observers, obs.shape[0])
+            observer_states = tree_where_reset(new_done, fresh, observer_states)
+            inputs = ObserveInputs(
+                _expert_obs(new_state, env, mode),
+                expert=expert_policy,
+                expert_state=new_expert_state if expert_is_stateful else None,
+                progress=progress_now,
+            )
+            obs, observer_states = observe_features(
+                obs, inputs, controller.observers, observer_states
+            )
 
         return _EvalCarry(
             rewards=carry.rewards + new_rewards * still_running,
@@ -411,6 +453,7 @@ def step_environment(
             expert_state=new_expert_state,
             actor_hidden=new_actor_hidden,
             command=new_command,
+            observer_states=observer_states,
         )
 
     return fn
@@ -605,14 +648,33 @@ def evaluate(
             actor_state.hidden_state,
         )
 
+    first_obs = maybe_append_train_frac(obs, train_frac)
+    expert_state = _init_expert_state(expert_policy, num_episodes)
+    observer_states = None
+    controller = Controller() if controller is None else controller
+    if controller.observers:
+        stateful = expert_policy is not None and hasattr(expert_policy, "init_state")
+        inputs = ObserveInputs(
+            _expert_obs(state, env, mode),
+            expert=expert_policy,
+            expert_state=expert_state if stateful else None,
+            progress=_frozen_progress(agent_state),
+        )
+        first_obs, observer_states = observe_features(
+            first_obs,
+            inputs,
+            controller.observers,
+            init_observers(controller.observers, num_episodes),
+        )
     init_carry_agent = _init_eval_carry(
         num_episodes,
         key,
-        maybe_append_train_frac(obs, train_frac),
+        first_obs,
         state,
-        _init_expert_state(expert_policy, num_episodes),
+        expert_state,
         actor_hidden,
         None if command is None else command.initial(agent_state, num_episodes),
+        observer_states,
     )
 
     step_fn = step_environment(

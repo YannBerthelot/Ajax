@@ -104,6 +104,10 @@ class EnvironmentConfig(Replaceable):
     # and its networks read them as stored (openai/baselines ppo2's
     # VecNormalize).
     store_normalized_obs: bool = struct.field(pytree_node=False, default=False)
+    # The extensions appending features to every observation, in column
+    # order (ajax.controller.observers_of): the agent sees the env's
+    # observation followed by their columns.
+    observers: tuple = struct.field(pytree_node=False, default=())
 
     @property
     def mode(self) -> str:
@@ -149,6 +153,9 @@ class CollectorState(Replaceable):
     # so it's part of agent_state and threads through naturally. None
     # disables normalization.
     obs_norm_info: Optional[NormalizationInfo] = None
+    # The observation features' per-env states (ajax.controller), as the
+    # last observation left them; None without features.
+    observer_states: Optional[Any] = None
     # Fraction of envs an expert drove on the latest collection step
     # (EDGEExploration logs it); NaN until the first step.
     last_expert_frac: Union[float, jax.Array] = jnp.nan

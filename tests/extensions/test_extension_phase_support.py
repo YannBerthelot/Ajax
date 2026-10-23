@@ -76,6 +76,9 @@ class EveryPhase(Extension):
     def reward(self, agent_state, ext_state, batch, rewards, ctx):
         return rewards, ext_state, {}
 
+    def observe(self, inputs, state):
+        return jnp.zeros((*inputs.raw_obs.shape[:-1], 0)), state
+
     def on_target(self, agent_state, ext_state, batch, target, ctx):
         return target
 

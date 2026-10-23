@@ -5,8 +5,19 @@ from types import SimpleNamespace
 import jax.numpy as jnp
 import numpy as np
 
-from ajax.controller import ActingState, Controller, acting_state
+from ajax.controller import (
+    ActingState,
+    Controller,
+    ObserveInputs,
+    acting_state,
+    feature_width,
+    init_observers,
+    observation_layout,
+    observe_features,
+    observers_of,
+)
 from ajax.environments.obs_norm import init_agent_obs_norm, update_obs_norm
+from ajax.extensions.base import Extension
 
 
 def test_a_collecting_agents_acting_state_is_its_collectors_and_actors():
@@ -96,3 +107,55 @@ def test_the_executed_action_is_the_actors_the_transforms_or_the_gains():
     np.testing.assert_array_equal(state, 1.0)
     gained, _ = Controller(gains=True).act(actions, acting, expert, obs, None)
     np.testing.assert_allclose(gained, -2.0 * 10**0.5, rtol=1e-6)  # anchor * 10^a
+
+
+class _Count(Extension):
+    """A feature counting the observations of its episode (normalised)."""
+
+    name = "count"
+
+    def observation_width(self, env_args):
+        return 1
+
+    def init_observer(self, n_envs):
+        return jnp.zeros((n_envs, 1))
+
+    def observe(self, inputs, state):
+        state = state + 1.0
+        return state, state
+
+
+class _Sign(Extension):
+    """A raw feature: the sign of the observation's first entry."""
+
+    name = "sign"
+    observes_normalised = False
+
+    def observation_width(self, env_args):
+        return 1
+
+    def observe(self, inputs, state):
+        return jnp.sign(inputs.raw_obs[..., :1]), state
+
+
+def test_the_raw_features_follow_the_normalised_ones_whatever_the_stack_order():
+    sign, count = _Sign(), _Count()
+    observers = observers_of([sign, Extension(), count])
+    assert observers == (count, sign)
+    layout = observation_layout(3, observers, None)
+    assert (layout.width, layout.normalised_width, layout.feature_width) == (5, 4, 2)
+    assert layout.slice("count") == slice(3, 4) and layout.slice("sign") == slice(4, 5)
+    args = SimpleNamespace(observers=observers)
+    assert (feature_width(args), feature_width(args, normalised=False)) == (2, 1)
+
+
+def test_features_join_the_observation_and_carry_their_state():
+    observers = (_Count(), _Sign())
+    raw = jnp.array([[-2.0, 1.0], [3.0, 1.0]])
+    states = init_observers(observers, 2)
+    obs, states = observe_features(raw, ObserveInputs(raw), observers, states)
+    np.testing.assert_array_equal(obs, [[-2.0, 1.0, 1.0, -1.0], [3.0, 1.0, 1.0, 1.0]])
+    obs, _ = observe_features(raw, ObserveInputs(raw), observers, states)
+    np.testing.assert_array_equal(obs[:, 2], [2.0, 2.0])
+    same, _ = observe_features(raw, ObserveInputs(raw), (), ())
+    assert same is raw  # no features: the observation itself

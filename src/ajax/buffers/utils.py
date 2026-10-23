@@ -6,6 +6,7 @@ import jax.numpy as jnp
 from flashbax.buffers.trajectory_buffer import TrajectoryBufferSample
 from jax.tree_util import Partial as partial
 
+from ajax.controller import feature_width
 from ajax.environments.utils import get_state_action_shapes
 from ajax.state import EnvironmentConfig
 from ajax.types import BufferType, NormalizationInfo
@@ -96,7 +97,8 @@ def init_buffer(
     if action_dim_override is not None:
         action_shape = (action_dim_override,)
     raw_observation_shape = observation_shape
-    extra = add_train_frac + expert_state_aug_dim
+    # The observation features (env_args.observers) are stored with it.
+    extra = add_train_frac + expert_state_aug_dim + feature_width(env_args)
     if extra:
         observation_shape = (*observation_shape[:-1], observation_shape[-1] + extra)
 

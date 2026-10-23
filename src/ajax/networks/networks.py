@@ -11,6 +11,7 @@ from flax.core import FrozenDict
 from flax.linen.initializers import constant, lecun_normal, orthogonal
 from flax.serialization import to_state_dict
 
+from ajax.controller import feature_width
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.modules.pid_actor import (
@@ -617,6 +618,7 @@ def get_initialized_actor_critic(
     # action). A CNN passes them through after the convolutions, with the
     # env's own trailing dims, the same way in the actor and the critic.
     obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
+    obs_extra += feature_width(env_config)  # the observation features
     cnn_extra_obs_dim = network_config.cnn_extra_obs_dim + obs_extra
 
     if actor is not None:
@@ -743,6 +745,7 @@ def get_initialized_critic(
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
     obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
+    obs_extra += feature_width(env_config)  # the observation features
     if obs_extra > 0:
         _obs_shape = list(observation_shape)
         _obs_shape[-1] += obs_extra

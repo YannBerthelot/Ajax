@@ -41,6 +41,8 @@ Phases
                  losses and evaluation
 ``post_update``  hook after the update step (φ-refresh, schedules, …)
 ``eval_metrics`` extra metrics, merged into the eval log
+``observe``      columns appended to every observation (an expert's action,
+                 the training progress), stored with it
 
 ``on_target``, ``critic_loss`` and ``actor_loss`` may return ``(value,
 metrics)`` instead of their value: ``metrics``, a dict of scalars named
@@ -104,6 +106,7 @@ class ExtensionContext:
 PHASES: tuple[str, ...] = (
     "pretrain",
     "reward",
+    "observe",
     "on_target",
     "critic_loss",
     "actor_loss",
@@ -262,6 +265,30 @@ class Extension:
     #: Whether the extension reads each env's step within its episode
     #: (``CollectorState.step_in_episode``), which an agent counts only then.
     reads_step_in_episode: ClassVar[bool] = False
+
+    #: Whether the observation normaliser covers the columns :meth:`observe`
+    #: appends (an expert's action, already in action units, stays raw).
+    observes_normalised: ClassVar[bool] = True
+
+    # -- observe: observation features -------------------------------------
+    def observation_width(self, env_args: Any) -> int:
+        """The columns :meth:`observe` appends to every observation."""
+        del env_args
+        return 0
+
+    def init_observer(self, n_envs: int) -> Any:
+        """Its per-env state at an episode start (``()``: none)."""
+        del n_envs
+        return ()
+
+    def observe(self, inputs: Any, state: Any) -> tuple[jax.Array, Any]:
+        """The ``(n_envs, observation_width)`` columns it appends to the
+        observation ``inputs`` describes (:class:`ajax.controller.ObserveInputs`)
+        and its state after that observation. It runs whenever an
+        observation arrives, in collection and evaluation alike, and its
+        columns are stored with the observation (``ajax.controller``). The
+        default appends none."""
+        return jnp.zeros((*inputs.raw_obs.shape[:-1], 0)), state
 
     # -- lifecycle -------------------------------------------------------
     def init_state(self, agent_state: Any, rng: jax.Array) -> Any:

@@ -14,9 +14,14 @@ from jax.tree_util import Partial as partial
 from ajax.buffers.utils import ReplayBatch, init_buffer
 from ajax.controller import (
     ActingState,
+    ObserveInputs,
     acting_state,
     augment_obs,
+    feature_columns,
+    feature_width,
     flatten_expert_state,
+    init_observers,
+    observe_features,
 )
 from ajax.environments.obs_norm import (
     apply_obs_norm,
@@ -744,6 +749,45 @@ def expert_collect_kwargs(
     }
 
 
+def step_features(
+    env_args: EnvironmentConfig,
+    mode: str,
+    expert: Any,
+    collector: Any,
+    env_state: Any,
+    raw_final_obs: jax.Array,
+    expert_state: Any,
+    ended: jax.Array,
+) -> tuple[jax.Array, jax.Array, Any]:
+    """A step's observation features (``env_args.observers``): those of the
+    next row's observation, the reset one where an episode ended, from fresh
+    observer and expert states; those of the step's final observation (the
+    transition's next) from the continuing ones, the expert's ``expert_state``
+    after this step's call; and the observers' states after the next
+    observation."""
+    observers, n_envs = env_args.observers, env_args.n_envs
+    done = ended.astype(jnp.bool_)
+    continuing = collector.observer_states
+    start = tree_where_reset(done, init_observers(observers, n_envs), continuing)
+    expert_start = expert_state
+    if (
+        expert is not None
+        and hasattr(expert, "init_state")
+        and expert_state is not None
+    ):
+        expert_start = tree_where_reset(done, expert.init_state(n_envs), expert_state)
+    at = {"expert": expert, "timestep": collector.timestep}
+    at["horizon"] = collector.max_timesteps
+    raw_next = get_raw_obs(env_state=env_state, env=env_args.env, mode=mode)
+    next_inputs = ObserveInputs(
+        raw_next.astype(jnp.float32), expert_state=expert_start, **at
+    )
+    final_inputs = ObserveInputs(raw_final_obs, expert_state=expert_state, **at)
+    next_columns, states = feature_columns(next_inputs, observers, start)
+    final_columns, _ = feature_columns(final_inputs, observers, continuing)
+    return next_columns, final_columns, states
+
+
 @partial(
     jax.jit,
     static_argnames=[
@@ -755,6 +799,7 @@ def expert_collect_kwargs(
         "next_expert_fn",
         "store_hidden",
         "store_raw_next_obs",
+        "expert",
     ],
 )
 def collect_experience(
@@ -769,10 +814,13 @@ def collect_experience(
     next_expert_fn: Optional[Callable] = None,
     store_hidden: bool = False,
     store_raw_next_obs: bool = False,
+    expert: Any = None,
 ) -> tuple[BaseAgentState, Transition]:
     """Collect one step of experience. ``store_raw_next_obs`` keeps the
     env's own next observation on the transition (``raw_next_obs``), for
-    an agent updating on it (AVG) whose extensions read it.
+    an agent updating on it (AVG) whose extensions read it. ``expert`` (the
+    agent's, in agent units) is what its observation features read
+    (``env_args.observers``).
 
     Args:
         action_pipeline: Optional callable that handles agent-specific action
@@ -803,8 +851,12 @@ def collect_experience(
         agent_state.collector_state.obs_norm_info is not None
         and not env_args.store_normalized_obs
     ):
+        # The span the statistics cover: the env's columns and the
+        # normalised features (the raw features last).
+        last_obs = agent_state.collector_state.last_obs
+        span = last_obs.shape[-1] - feature_width(env_args, normalised=False)
         _, _new_obs_norm = update_obs_norm(
-            agent_state.collector_state.last_obs,
+            last_obs[..., :span],
             agent_state.collector_state.obs_norm_info,
             raw_obs_columns(env_args.env),
         )
@@ -942,12 +994,31 @@ def collect_experience(
     else:
         new_last_obs = obsv
 
+    observer_states = agent_state.collector_state.observer_states
+    if env_args.observers:
+        next_columns, final_columns, observer_states = step_features(
+            env_args,
+            mode,
+            expert,
+            agent_state.collector_state,
+            env_state,
+            raw_final_obs,
+            new_expert_state,
+            jnp.logical_or(terminated, truncated),
+        )
+        new_last_obs = jnp.concatenate([new_last_obs, next_columns], axis=-1)
+        next_obs_for_buffer = jnp.concatenate(
+            [next_obs_for_buffer, final_columns], axis=-1
+        )
+
     buffer_state = agent_state.collector_state.buffer_state
     if buffer_state is not None and buffer is not None:
         # The final observation as wide as the next row's.
         final_obs = maybe_append_train_frac(final_obs, train_frac=train_frac)
         if augmented:
             final_obs = augment_obs(final_obs, _next_state_aug)
+        if env_args.observers:
+            final_obs = jnp.concatenate([final_obs, final_columns], axis=-1)
         row = {
             "obs": agent_state.collector_state.last_obs,
             "action": buffer_action,
@@ -1029,6 +1100,7 @@ def collect_experience(
         last_expert_frac=jnp.mean(is_expert_flag),
         last_in_box=in_value_box.astype(jnp.float32),
         obs_norm_info=obs_norm_info,
+        observer_states=observer_states,
         **({"expert_state": new_expert_state} if new_expert_state is not None else {}),
         **({"step_in_episode": _new_step_in_ep} if _new_step_in_ep is not None else {}),
     )
@@ -1240,6 +1312,27 @@ def init_collector_state(
         zero_aug = jnp.zeros((last_obs.shape[0], expert_state_aug_dim))
         last_obs = augment_obs(last_obs, zero_aug)
     extra = add_train_frac + expert_state_aug_dim
+    # The observation features (env_args.observers) of the first
+    # observations, from fresh observer and expert states at step 0.
+    observer_states = None
+    if env_args.observers:
+        n_envs = env_args.n_envs
+        stateful = expert_policy is not None and hasattr(expert_policy, "init_state")
+        raw = get_raw_obs(env_state=env_state, env=env_args.env, mode=mode)
+        inputs = ObserveInputs(
+            raw.astype(jnp.float32),
+            expert=expert_policy,
+            expert_state=expert_policy.init_state(n_envs) if stateful else None,
+            timestep=0,
+            horizon=max_timesteps,
+        )
+        last_obs, observer_states = observe_features(
+            last_obs,
+            inputs,
+            env_args.observers,
+            init_observers(env_args.observers, n_envs),
+        )
+        extra += feature_width(env_args)
     if extra:
         obs_shape = (*obs_shape[:-1], obs_shape[-1] + extra)
 
@@ -1285,7 +1378,9 @@ def init_collector_state(
     )
     obs_norm_info = None
     if env_args.normalize_obs_in_agent:
-        obs_norm_info = init_agent_obs_norm(last_obs.shape[-1])
+        # The span the statistics cover: all but the raw features.
+        span = last_obs.shape[-1] - feature_width(env_args, normalised=False)
+        obs_norm_info = init_agent_obs_norm(span)
     if env_args.store_normalized_obs:
         last_obs, obs_norm_info = update_obs_norm(
             last_obs, obs_norm_info, raw_obs_columns(env_args.env)
@@ -1304,6 +1399,7 @@ def init_collector_state(
         max_timesteps=max_timesteps,
         last_in_box=jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32),
         obs_norm_info=obs_norm_info,
+        observer_states=observer_states,
     )
     return with_expert_state(collector_state, expert_policy, env_args.n_envs)
 

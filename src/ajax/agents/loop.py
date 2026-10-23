@@ -593,8 +593,12 @@ class TrainLoop:
             return args
         pipeline = kwargs.get("action_pipeline")
         n_envs = self.env_args.n_envs
-        return args | expert_collect_kwargs(
-            self.expert_policy, pipeline, recurrent, n_envs
+        # The observation features read the expert the collector tracks.
+        expert = {"expert": self.expert_policy} if self.env_args.observers else {}
+        return (
+            args
+            | expert_collect_kwargs(self.expert_policy, pipeline, recurrent, n_envs)
+            | expert
         )
 
     def post_update(self, agent_state: Any) -> Any:
@@ -654,10 +658,18 @@ class TrainLoop:
         logging). An agent storing normalised observations evaluates with
         them normalised by its running statistics, unless its own
         ``controller`` says how it acts."""
+        controller = kwargs.get("controller") or Controller()
         if self.env_args.store_normalized_obs:
             columns = raw_obs_columns(self.env_args.env)
-            normalising = Controller(normalize_obs=True, raw_columns=columns)
-            kwargs = {"controller": normalising} | kwargs
+            controller = dataclasses.replace(
+                controller, normalize_obs=True, raw_columns=columns
+            )
+        if self.env_args.observers:
+            controller = dataclasses.replace(
+                controller, observers=self.env_args.observers
+            )
+        if controller != Controller():
+            kwargs = kwargs | {"controller": controller}
         return evaluate_and_log(
             agent_state,
             aux,

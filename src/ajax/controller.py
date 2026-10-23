@@ -54,6 +54,118 @@ def acting_state(agent_state: Any) -> ActingState:
     )
 
 
+class ObserveInputs(NamedTuple):
+    """What an observation feature reads, per env: the env's own observation
+    the features are for (``raw_obs``, before any normalisation), the agent's
+    tracked expert (in agent units; None without one) and the state its call
+    there starts from, the collector's timestep (None in evaluation, which
+    passes its frozen ``progress``), the run's horizon (None where the
+    collector keeps none) and, in evaluation, the training progress it
+    holds."""
+
+    raw_obs: jax.Array
+    expert: Any = None
+    expert_state: Any = None
+    timestep: Any = None
+    horizon: Any = None
+    progress: Any = None
+
+
+@dataclass(frozen=True)
+class ObservationLayout:
+    """The columns of an observation with features: the env's own
+    (``env_width``), then each feature's in ``columns`` order, ``(name,
+    width, normalised)``: the normalised ones first, then the raw ones, so
+    the normaliser's statistics cover the leading ``normalised_width``."""
+
+    env_width: int
+    columns: tuple[tuple[str, int, bool], ...] = ()
+
+    @property
+    def normalised_width(self) -> int:
+        return self.env_width + sum(w for _, w, norm in self.columns if norm)
+
+    @property
+    def feature_width(self) -> int:
+        return sum(w for _, w, _ in self.columns)
+
+    @property
+    def width(self) -> int:
+        return self.env_width + self.feature_width
+
+    def slice(self, name: str) -> slice:
+        """The columns of the feature ``name``."""
+        start = self.env_width
+        for feature, width, _ in self.columns:
+            if feature == name:
+                return slice(start, start + width)
+            start += width
+        raise KeyError(name)
+
+
+def observers_of(stack: Any) -> tuple[Any, ...]:
+    """The extensions of ``stack`` that append observation features, in
+    column order: those the normaliser covers first, then the raw ones, each
+    in stack order."""
+    found = [e for e in stack if "observe" in e.implemented_phases()]
+    return tuple(e for e in found if e.observes_normalised) + tuple(
+        e for e in found if not e.observes_normalised
+    )
+
+
+def observation_layout(
+    env_width: int, observers: Any, env_args: Any
+) -> ObservationLayout:
+    """The layout of an env's ``env_width`` columns followed by
+    ``observers``' (:func:`observers_of`)."""
+    return ObservationLayout(
+        env_width,
+        tuple(
+            (e.name, e.observation_width(env_args), e.observes_normalised)
+            for e in observers
+        ),
+    )
+
+
+def init_observers(observers: Any, n_envs: int) -> tuple:
+    """Each observer's per-env state at an episode start."""
+    return tuple(e.init_observer(n_envs) for e in observers)
+
+
+def feature_columns(
+    inputs: ObserveInputs, observers: Any, states: tuple
+) -> tuple[jax.Array, tuple]:
+    """``observers``' columns at the observation ``inputs`` describes, in
+    column order, and their states after it."""
+    columns, new_states = [], []
+    for observer, state in zip(observers, states, strict=True):
+        column, state = observer.observe(inputs, state)
+        columns.append(column)
+        new_states.append(state)
+    return jnp.concatenate(columns, axis=-1), tuple(new_states)
+
+
+def observe_features(
+    raw_obs: jax.Array, inputs: ObserveInputs, observers: Any, states: tuple
+) -> tuple[jax.Array, tuple]:
+    """``raw_obs`` with ``observers``' columns appended, and their states
+    after this observation; without observers, ``raw_obs`` itself."""
+    if not observers:
+        return raw_obs, states
+    columns, states = feature_columns(inputs, observers, states)
+    return jnp.concatenate([raw_obs, columns], axis=-1), states
+
+
+def feature_width(env_args: Any, normalised: Optional[bool] = None) -> int:
+    """The columns ``env_args.observers`` append (those the normaliser
+    covers with ``normalised`` True, the raw ones with False)."""
+    return sum(
+        e.observation_width(env_args)
+        for e in env_args.observers
+        if normalised is None or e.observes_normalised == normalised
+    )
+
+
 def flatten_expert_state(expert_state: Any) -> Optional[jax.Array]:
     """A stateful expert's state as one ``(n_envs, D)`` array
     (:func:`~ajax.networks.memory.flatten_carry`): the Markov component an
@@ -107,6 +219,9 @@ class Controller:
 
     normalize_obs: bool = False
     raw_columns: int = 0
+    # The observation features' extensions (EnvironmentConfig.observers),
+    # which evaluation appends to every observation as collection does.
+    observers: tuple = ()
     observe_expert_action: bool = False
     observe_expert_state: bool = False
     transform: Optional[Callable] = None

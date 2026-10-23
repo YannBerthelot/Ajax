@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 from gymnax import EnvParams
 
+from ajax.controller import observers_of
 from ajax.environments.create import prepare_env
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import ExpertInAgentUnits
@@ -358,6 +359,11 @@ class ActorCritic:
         if expert is not None:
             self.expert_policy = self._in_agent_units(expert)
         self.extension_stack = self.extension_stack.with_experts(self._in_agent_units)
+        # The observation features its stack appends (ajax.controller): the
+        # observation every part of the agent sees and stores.
+        observers = observers_of(self.extension_stack)
+        if observers:
+            self.env_args = self.env_args.replace(observers=observers)
 
     def _in_agent_units(self, expert: Any) -> Any:
         """``expert`` read in agent units (:class:`ExpertInAgentUnits`),

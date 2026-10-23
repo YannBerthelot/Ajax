@@ -112,6 +112,7 @@ check.
 | REDQ | watchernyu/REDQ (PyTorch) | `tests/conformance/test_redq_original.py` |
 | AVG | gauthamvasan/avg (PyTorch) | `tests/conformance/test_avg_original.py` |
 | CrossQ | adityab/CrossQ (JAX, its own versions) | `tests/conformance/test_crossq_original.py` |
+| TQC | bayesgroup/tqc_pytorch (PyTorch, from Software Heritage) | `tests/conformance/test_tqc_original.py` |
 
 The originals are vendored under `benchmarks/reference/vendor`. A PyTorch
 original runs in its own environment (`benchmarks/reference/envs/torch`),

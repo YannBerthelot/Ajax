@@ -49,6 +49,7 @@ src/ajax/
 ├── buffers/             replay buffers (flashbax)
 ├── logging/             LoggingConfig; the W&B and TensorBoard worker
 ├── log.py, evaluate.py  when to evaluate and log; the evaluation episodes
+├── controller.py      what a step acts on (ActingState) and how the agent acts beyond its actor (Controller)
 ├── perf_utils.py        build_resumable_train: init or resume, then one jitted scan
 ├── state.py             BaseAgentState, CollectorState and the configuration dataclasses
 ├── checkpoint.py        save_checkpoint, restore_into
@@ -347,7 +348,9 @@ Three modules share the work:
   episodes, one for the extensions' metrics), the same per seed from one run
   to the next and apart from training.
 - [`evaluate.py`](../../src/ajax/evaluate.py) runs **the episodes**:
-  `num_episode_test` episodes with the deterministic action, reporting the
+  `num_episode_test` episodes with the deterministic action, acting as the
+  agent's `Controller` says (SAC's expert in the actor's input, residual RL,
+  gain mode), reporting the
   mean return, the episode length, the policy's entropy and, for the
   discounted agents with a critic (SAC, TD3, REDQ, AVG, DQN, PQN, PPO), the
   value bias (`Eval/mean bias`: the critic's estimate minus the discounted

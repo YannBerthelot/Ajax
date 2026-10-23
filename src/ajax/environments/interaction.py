@@ -1,4 +1,5 @@
 import inspect
+import warnings
 from typing import Any, Callable, NamedTuple, Optional, Tuple
 
 import chex
@@ -11,6 +12,12 @@ from gymnax.environments.environment import Environment, EnvParams, EnvState
 from jax.tree_util import Partial as partial
 
 from ajax.buffers.utils import ReplayBatch, init_buffer
+from ajax.controller import (
+    ActingState,
+    acting_state,
+    augment_obs,
+    flatten_expert_state,
+)
 from ajax.environments.obs_norm import (
     apply_obs_norm,
     init_agent_obs_norm,
@@ -46,32 +53,6 @@ from ajax.wrappers import (
     RAW_OBS_KEY,
     RAW_REWARD_KEY,
 )
-
-
-def flatten_expert_state(expert_state: Any) -> Optional[jax.Array]:
-    """A stateful expert's state as one ``(n_envs, D)`` array
-    (:func:`~ajax.networks.memory.flatten_carry`): the Markov component an
-    observation augmented with it carries (a PID's integrator). None for a
-    stateless expert (no state, or an empty one)."""
-    if expert_state is None or not jax.tree.leaves(expert_state):
-        return None
-    return flatten_carry(expert_state)
-
-
-def augment_obs(
-    obs: jax.Array,
-    expert_state: Optional[jax.Array] = None,
-    expert_action: Optional[jax.Array] = None,
-) -> jax.Array:
-    """The observation of an agent augmented with its expert, in the one
-    layout every site builds (collection, the replay buffer, SAC's update,
-    the pretraining and cloning, the evaluation): the agent's observation
-    (its training-fraction column last when it has one), the expert's
-    flattened state (:func:`flatten_expert_state`), then the expert's
-    action. A part given as None is left out. Appending keeps the agent's
-    own observation leading, as the observation normaliser reads it."""
-    extra = [x for x in (expert_state, expert_action) if x is not None]
-    return jnp.concatenate([obs, *map(jax.lax.stop_gradient, extra)], axis=-1)
 
 
 def augment_from_batch(batch: ReplayBatch) -> Tuple[jax.Array, jax.Array]:
@@ -452,8 +433,10 @@ def get_action_and_log_probs(
     action_key: chex.PRNGKey,
     agent_state: BaseAgentState,
     recurrent: bool,
+    acting: ActingState,
 ) -> Tuple[jax.Array, jax.Array, jax.Array, BaseAgentState]:
-    """Sample an action from the policy.
+    """Sample an action from the policy at ``acting``'s observation, from
+    its carry.
 
     Returns (action, log_probs, raw_action, agent_state). raw_action is
     the pre-tanh sample (PPO/APO recompute log_prob without arctanh).
@@ -462,14 +445,12 @@ def get_action_and_log_probs(
     would freeze the policy's memory at zero for the whole collection
     phase.
     """
+    actor = agent_state.actor_state.replace(hidden_state=acting.carry)
     return get_action_and_new_agent_state(
         action_key,
-        agent_state,
-        agent_state.collector_state.last_obs,
-        jnp.logical_or(
-            agent_state.collector_state.last_terminated,
-            agent_state.collector_state.last_truncated,
-        ),
+        agent_state.replace(actor_state=actor),
+        acting.obs,
+        acting.done,
         recurrent=recurrent,
     )
 
@@ -561,6 +542,7 @@ class ActionPipelineResult(NamedTuple):
 
 def _policy_pipeline(
     agent_state: BaseAgentState,
+    acting: ActingState,
     _raw_obs: jax.Array,
     rng: jax.Array,
     uniform: jax.Array,
@@ -573,7 +555,10 @@ def _policy_pipeline(
     """The default action pipeline: the policy's action, or a uniform one
     in [-1, 1] while ``uniform`` (the warm-up)."""
     action, log_probs, raw_action, agent_state = get_action_and_log_probs(
-        action_key=action_key, agent_state=agent_state, recurrent=recurrent
+        action_key=action_key,
+        agent_state=agent_state,
+        recurrent=recurrent,
+        acting=acting,
     )
     uniform_action = jax.random.uniform(
         mix_key, minval=-1.0, maxval=1.0, shape=action.shape
@@ -618,13 +603,11 @@ def explore_pipeline(
     column. No log-probs, expert or value box.
     """
 
-    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
+    def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
         del raw_obs
-        collector = agent_state.collector_state
-        done = jnp.logical_or(collector.last_terminated, collector.last_truncated)
-        actor = agent_state.actor_state
-        pi, actor = get_pi(actor, actor.params, collector.last_obs, done, recurrent)
-        action = explore(pi, action_key, collector.timestep)
+        actor = agent_state.actor_state.replace(hidden_state=acting.carry)
+        pi, actor = get_pi(actor, actor.params, acting.obs, acting.done, recurrent)
+        action = explore(pi, action_key, acting.timestep)
         action = action.squeeze(0) if recurrent else action
         env_action = action
         if warmup:
@@ -649,6 +632,35 @@ def explore_pipeline(
     return pipeline
 
 
+def with_acting_state(pipeline: Optional[Callable]) -> Optional[Callable]:
+    """``pipeline`` in the protocol :func:`collect_experience` calls, the
+    step's :class:`~ajax.controller.ActingState` second. One written before
+    it, ``(agent_state, raw_obs, rng, uniform, mix_key, action_key)``, which
+    cannot take the seven arguments, is adapted with a warning. A deliberate
+    transitional shim (CLAUDE.md rule 10): remove it once AjaxExperiments'
+    TD3 variants take ``acting``."""
+    if pipeline is None:
+        return pipeline
+    try:
+        inspect.signature(pipeline).bind(*range(7))
+        return pipeline
+    except TypeError:
+        pass
+    warnings.warn(
+        "An action pipeline now takes the step's ActingState second:"
+        " (agent_state, acting, raw_obs, rng, uniform, mix_key, action_key)."
+        " The old signature will stop working.",
+        FutureWarning,
+        stacklevel=3,
+    )
+
+    def adapted(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
+        del acting
+        return pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key)
+
+    return adapted
+
+
 def with_expert_state(collector_state: Any, expert_policy: Any, n_envs: int) -> Any:
     """``collector_state`` holding a stateful expert's initial state (a PID's
     integrator), so the scan carry keeps one shape; unchanged for no expert
@@ -658,31 +670,24 @@ def with_expert_state(collector_state: Any, expert_policy: Any, n_envs: int) -> 
     return collector_state.replace(expert_state=expert_policy.init_state(n_envs))
 
 
-def expert_state_at_step(expert_policy: Any, collector_state: Any, n_envs: int) -> Any:
+def expert_state_at_step(expert_policy: Any, acting: ActingState, n_envs: int) -> Any:
     """A stateful expert's state for this step: the tracked one, reset to
     its initial state where the previous step ended an episode (the
     auto-reset has already advanced the observation)."""
     initial = expert_policy.init_state(n_envs)
-    last_done = collector_state.last_terminated.astype(
-        jnp.bool_
-    ) | collector_state.last_truncated.astype(jnp.bool_)
-    current = (
-        collector_state.expert_state
-        if collector_state.expert_state is not None
-        else initial
-    )
-    return tree_where_reset(last_done, initial, current)
+    current = acting.expert_state if acting.expert_state is not None else initial
+    return tree_where_reset(acting.done.astype(jnp.bool_), initial, current)
 
 
 def expert_step(
-    expert_policy: Any, collector_state: Any, raw_obs: jax.Array, n_envs: int
+    expert_policy: Any, acting: ActingState, raw_obs: jax.Array, n_envs: int
 ) -> Tuple[jax.Array, Any]:
     """The expert's action at ``raw_obs`` and its state after the call: a
     stateful expert (with ``init_state``) is called from its state for this
     step (:func:`expert_state_at_step`), a stateless one on the observation
     alone (its state ``None``). Both held constant."""
     if hasattr(expert_policy, "init_state"):
-        state = expert_state_at_step(expert_policy, collector_state, n_envs)
+        state = expert_state_at_step(expert_policy, acting, n_envs)
         action, new_state = expert_policy(state, raw_obs)
         return jax.lax.stop_gradient(action), jax.lax.stop_gradient(new_state)
     return jax.lax.stop_gradient(expert_policy(raw_obs)), None
@@ -725,13 +730,11 @@ def expert_collect_kwargs(
         _policy_pipeline, recurrent=recurrent, n_envs=n_envs
     )
 
-    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
-        result = inner(agent_state, raw_obs, rng, uniform, mix_key, action_key)
+    def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
+        result = inner(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key)
         if result.new_expert_state is not None or result.a_expert is not None:
             return result
-        a_expert, new_state = expert_step(
-            expert_policy, agent_state.collector_state, raw_obs, n_envs
-        )
+        a_expert, new_state = expert_step(expert_policy, acting, raw_obs, n_envs)
         return result._replace(a_expert=a_expert, new_expert_state=new_state)
 
     return {
@@ -775,8 +778,9 @@ def collect_experience(
             selection (obs augmentation, expert exploration, residual RL, etc.).
             When None, the policy's (:func:`_policy_pipeline`): uniform during
             the warm-up, the policy's action after.
-            Signature: (agent_state, raw_obs, rng, uniform, mix_key, action_key)
-                -> :class:`ActionPipelineResult`.
+            Signature: (agent_state, acting, raw_obs, rng, uniform, mix_key,
+                action_key) -> :class:`ActionPipelineResult`, ``acting`` the
+                step's :class:`~ajax.controller.ActingState`.
     """
     rng, action_key, step_key, mix_key = jax.random.split(agent_state.rng, 4)
 
@@ -822,7 +826,8 @@ def collect_experience(
     pipeline = action_pipeline or partial(
         _policy_pipeline, recurrent=recurrent, n_envs=env_args.n_envs
     )
-    result = pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key)
+    acting = acting_state(agent_state)
+    result = pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key)
     env_action = result.env_action
     action = result.policy_action
     zeros = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)

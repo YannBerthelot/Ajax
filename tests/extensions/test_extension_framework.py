@@ -14,6 +14,7 @@ import pytest
 
 import ajax.extensions
 from ajax.agents.SAC.action_pipeline import _dispatch_actions
+from ajax.controller import ActingState
 from ajax.extensions.base import (
     PHASES,
     Extension,
@@ -221,7 +222,9 @@ def test_sac_action_dispatch_takes_the_last_proposal():
     def dispatched(*extensions):
         batch = {"action": jnp.asarray(0)}
         pairs = list(enumerate(extensions))
-        return int(_dispatch_actions(agent, pairs, batch, "action", key, 10)["action"])
+        acting = ActingState(obs=None, done=None, timestep=jnp.asarray(0))
+        out = _dispatch_actions(agent, acting, pairs, batch, "action", key, 10)
+        return int(out["action"])
 
     assert dispatched(FixedAction(1), Extension(), FixedAction(2)) == 2
     assert dispatched(Extension()) == 0

@@ -24,6 +24,7 @@ from ajax.agents.SAC.core import (
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.dataset import TransitionDataset
+from ajax.controller import Controller
 from ajax.environments.interaction import augment_obs
 from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
@@ -618,11 +619,6 @@ def make_train(
     policy_action_transform = (
         residual.build_policy_transform(expert_policy) if residual else None
     )
-    eval_action_transform = (
-        None
-        if (use_pid_policy or residual is None)
-        else residual.build_eval_transform()
-    )
 
     # A ramp from target_entropy_initial (low: a BC-warmed policy mean rolls
     # out near-deterministically and stays alive on brittle envs) to the
@@ -694,10 +690,12 @@ def make_train(
             # given, only the expert's baseline return.
             "expert_policy": expert_policy,
             "eval_expert_policy": eval_expert_policy,
-            "eval_action_transform": eval_action_transform,
-            "pid_gain_policy": use_pid_policy,
-            "augment_obs_with_expert_action": augment_obs_with_expert_action,
-            "augment_obs_with_expert_state": augment_obs_with_expert_state,
+            "controller": Controller(
+                observe_expert_action=augment_obs_with_expert_action,
+                observe_expert_state=augment_obs_with_expert_state,
+                transform=None if residual is None else residual.transform_action,
+                gains=use_pid_policy,
+            ),
             "value_estimate": ValueEstimate(
                 action_value, agent_config.gamma, agent_config.reward_scale
             ),

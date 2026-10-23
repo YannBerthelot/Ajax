@@ -7,9 +7,8 @@ import jax.numpy as jnp
 from gymnax.environments.environment import EnvParams
 from jax.tree_util import Partial as partial
 
+from ajax.controller import ActingState, Controller, call_expert
 from ajax.environments.interaction import (
-    augment_obs,
-    flatten_expert_state,
     get_pi,
     get_raw_obs,
     reset,
@@ -284,14 +283,6 @@ def _init_expert_state(expert_policy, num_episodes: int):
     return jnp.zeros((1,))
 
 
-def _call_expert(expert_policy, expert_state, expert_obs):
-    """``(action, state)``: a stateful expert called as ``expert_policy(state,
-    obs)``, a stateless one as ``expert_policy(obs)``, its state kept."""
-    if hasattr(expert_policy, "init_state"):
-        return expert_policy(expert_state, expert_obs)
-    return expert_policy(expert_obs), expert_state
-
-
 def step_environment(
     mode,
     env,
@@ -301,32 +292,27 @@ def step_environment(
     continuous,
     expert_policy=None,
     train_frac: Optional[float] = None,
-    eval_action_transform: Optional[Callable] = None,
     agent_state=None,
-    pid_gain_policy: bool = False,
-    augment_obs_with_expert_action: bool = False,
-    augment_obs_with_expert_state: bool = False,
+    controller: Optional[Controller] = None,
     value_estimate: Optional[ValueEstimate] = None,
     command: Optional[Any] = None,
     norm_info: Optional[Any] = None,
 ):
     """Return a pure function stepping the evaluation (an :class:`_EvalCarry`).
 
+    Each step acts as the agent's ``controller`` says, on an
+    :class:`~ajax.controller.ActingState` built from the carry: the actor's
+    input (:meth:`~ajax.controller.Controller.observe`), its deterministic
+    action, then the executed one (:meth:`~ajax.controller.Controller.act`).
     The expert acts in agent units (:class:`ExpertInAgentUnits`), as every
     action here; the executed one is mapped onto the env's bounds
-    (:func:`agent_action_to_env`), as in collection.
-
-    pid_gain_policy: when True, the actor output is interpreted as PID gain
-    modulation: env_action = expert.step_with_gains(state, obs, anchor*exp(ln10*a)).
-
-    augment_obs_with_expert_action: when True, the actor receives
-    [env_obs, expert_action] as input. The expert is queried statefully
-    (matching training) so the policy sees the same augmented obs at eval
-    that it saw during training.
+    (:func:`agent_action_to_env`), as in collection. The expert's state is
+    tracked from the actor's input on, statefully, as collection tracks it,
+    and restarts with each episode.
 
     value_estimate: the critic's estimate at the actor's input and the
     action collection stores, each step: the executed action in agent units,
-    the actor's (the gains') under ``pid_gain_policy``.
+    the actor's (the gains') under gain mode.
 
     command: a command-conditioned actor's (see :func:`evaluate`): the
     actor reads ``command.actor_input(obs, c)``, and each step's reward, in
@@ -334,20 +320,17 @@ def step_environment(
     update ``c``.
     """
 
+    controller = Controller() if controller is None else controller
     expert_is_stateful = expert_policy is not None and hasattr(
         expert_policy, "init_state"
     )
-    if pid_gain_policy:
-        if not (expert_is_stateful and hasattr(expert_policy, "learnable_fields")):
-            raise ValueError(
-                "pid_gain_policy=True requires a stateful expert with learnable_fields."
-            )
-        _anchor_gains = expert_policy.anchor_gains
-        _gain_log_scale = jnp.log(10.0)
+    if controller.gains and not (
+        expert_is_stateful and hasattr(expert_policy, "learnable_fields")
+    ):
+        raise ValueError("Gain mode requires a stateful expert with learnable_fields.")
 
     def fn(carry: _EvalCarry) -> _EvalCarry:
         obs, done, state = carry.obs, carry.done, carry.state
-        expert_state = carry.expert_state
         rng, step_key = jax.random.split(carry.rng)
         step_keys = env_keys(step_key, mode, obs.shape[0])
         # The expert acts on the environment's own observations, as in
@@ -355,37 +338,15 @@ def step_environment(
         expert_obs = (
             _expert_obs(state, env, mode) if expert_policy is not None else None
         )
-
-        # When augmenting obs with the expert action OR with the expert's
-        # internal state, compute the (stateful) expert call BEFORE the
-        # actor sees obs, so (a) the augmented obs matches the training-
-        # time format, and (b) the expert_state carry advances every
-        # step — matching the online action pipeline, which calls the
-        # expert every step regardless of selection. Without this, an
-        # expert_state-only augmentation eval keeps expert_state frozen
-        # at zeros while training saw an evolving integrator, causing a
-        # silent train/eval distribution mismatch.
-        if (
-            augment_obs_with_expert_action or augment_obs_with_expert_state
-        ) and expert_policy is not None:
-            _aug_expert_action, _aug_new_expert_state = _call_expert(
-                expert_policy, expert_state, expert_obs
-            )
-        else:
-            _aug_expert_action, _aug_new_expert_state = None, None
-
-        # The actor's input in the training layout (augment_obs): the
-        # expert's flattened internal state (PID integrator etc.) BEFORE
-        # this step's call, as the collector stores it (its expert_state at
-        # obs t has not yet seen obs t), then the expert's action.
-        obs_for_actor = augment_obs(
-            obs,
-            (
-                flatten_expert_state(expert_state)
-                if augment_obs_with_expert_state and expert_is_stateful
-                else None
-            ),
-            _aug_expert_action if augment_obs_with_expert_action else None,
+        acting = ActingState(
+            obs=obs,
+            done=done,
+            timestep=None,
+            expert_state=carry.expert_state,
+            carry=carry.actor_hidden,
+        )
+        obs_for_actor, observed_state = controller.observe(
+            acting, expert_policy, expert_obs
         )
         if command is not None:
             obs_for_actor = command.actor_input(obs_for_actor, carry.command)
@@ -395,38 +356,16 @@ def step_environment(
                 obs_for_actor, done if recurrent else None, carry.actor_hidden
             )
         )
-
-        if pid_gain_policy:
-            gains = _anchor_gains * jnp.exp(_gain_log_scale * raw_actions)
-            actions, new_expert_state = expert_policy.step_with_gains(
-                expert_state, expert_obs, gains
-            )
-        elif eval_action_transform is not None:
-            if expert_policy is not None:
-                expert_actions, new_expert_state = _call_expert(
-                    expert_policy, expert_state, expert_obs
-                )
-            else:
-                expert_actions = 0.0
-                new_expert_state = expert_state
-            actions = eval_action_transform(
-                raw_actions, expert_actions, obs, agent_state
-            )
-        else:
-            actions = raw_actions
-            # If we already advanced the expert state for obs augmentation,
-            # use that updated state so the next step's augmented obs has
-            # the correct PID integral; otherwise keep the carry as-is.
-            new_expert_state = (
-                expert_state if _aug_new_expert_state is None else _aug_new_expert_state
-            )
+        actions, new_expert_state = controller.act(
+            raw_actions, acting, expert_policy, expert_obs, observed_state
+        )
         value = (
             carry.value
             if value_estimate is None
             else value_estimate.value(
                 agent_state,
                 obs_for_actor,
-                raw_actions if pid_gain_policy else actions,
+                raw_actions if controller.gains else actions,
             )
         )
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
@@ -490,7 +429,7 @@ def step_environment_expert(mode, env, env_params, expert_policy):
         )
 
         expert_obs = _expert_obs(carry.state, env, mode)  # as in step_environment
-        actions, new_expert_state = _call_expert(
+        actions, new_expert_state = call_expert(
             expert_policy, carry.expert_state, expert_obs
         )
         if discrete:
@@ -593,11 +532,8 @@ def _expert_return(
         "env",
         "avg_reward_mode",
         "expert_policy",
-        "eval_action_transform",
         "max_eval_steps",
-        "pid_gain_policy",
-        "augment_obs_with_expert_action",
-        "augment_obs_with_expert_state",
+        "controller",
         "eval_expert_policy",
         "value_estimate",
         "command",
@@ -615,12 +551,9 @@ def evaluate(
     avg_reward_mode: bool = False,
     expert_policy: Optional[Callable] = None,
     train_frac: Optional[float] = None,
-    eval_action_transform: Optional[Callable] = None,
     max_eval_steps: Optional[int] = None,
     agent_state=None,
-    pid_gain_policy: bool = False,
-    augment_obs_with_expert_action: bool = False,
-    augment_obs_with_expert_state: bool = False,
+    controller: Optional[Controller] = None,
     eval_expert_policy: Optional[Callable] = None,
     value_estimate: Optional[ValueEstimate] = None,
     command: Optional[Any] = None,
@@ -686,11 +619,8 @@ def evaluate(
         continuous,
         expert_policy=expert_policy,
         train_frac=train_frac,
-        eval_action_transform=eval_action_transform,
         agent_state=agent_state,
-        pid_gain_policy=pid_gain_policy,
-        augment_obs_with_expert_action=augment_obs_with_expert_action,
-        augment_obs_with_expert_state=augment_obs_with_expert_state,
+        controller=controller,
         value_estimate=None if recurrent else value_estimate,
         command=command,
         norm_info=norm_info,

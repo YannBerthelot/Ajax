@@ -128,7 +128,13 @@ Every agent lists the phases it folds in `supported_extension_phases`: the
 shared loop's `LOOP_PHASES` (`pretrain`, `post_update`, `eval_metrics`, in
 `ajax.agents.loop`) plus those its update folds; the base class's default is
 empty. An extension implementing any other phase is rejected when the agent
-is built instead of being silently ignored.
+is built instead of being silently ignored. It declares in
+`phase_batch_keys` the keys its folds put in the extensions' batches beyond
+the common ones (`COMMON_BATCH_KEYS`): an agent on `critic_step` and
+`actor_step` declares their sets (`REPLAY_BATCH_KEYS`, or `TARGET_KEYS`,
+`CRITIC_LOSS_KEYS` and `ACTOR_STEP_KEYS` with its own rows'), plus any it
+adds. An extension reading an undeclared key is refused when the agent is
+built.
 
 What changes during training lives in `agent_state.ext_state` (one entry per
 extension), never on `self`: extensions are static arguments of the compiled
@@ -249,6 +255,8 @@ class FOO(ActorCritic):
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target", "critic_loss", "actor_loss"
     }
+    # The keys critic_step and actor_step hand its extensions (ajax.agents.loop).
+    phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS
     make_train = staticmethod(make_train)  # ActorCritic.get_make_train binds it
 
     def __init__(

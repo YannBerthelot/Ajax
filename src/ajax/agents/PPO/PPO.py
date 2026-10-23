@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Optional, Tuple, Union
 
 from gymnax import EnvParams
@@ -60,6 +60,14 @@ class PPO(ActorCritic):
         "on_target",
         "critic_loss",
         "actor_loss",
+    }
+    phase_batch_keys: Mapping[str, frozenset] = {
+        "reward": frozenset("observations raw_observations actions".split()),
+        "on_target": frozenset("terminated truncated gae values".split()),
+        "critic_loss": frozenset("critic_params critic_state".split()),
+        "actor_loss": frozenset(
+            "actor_state observations raw_observations pi_mean".split()
+        ),
     }
     supports_memory: bool = True
     make_train = staticmethod(make_train)

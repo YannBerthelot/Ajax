@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional, Union
 
 from gymnax import EnvParams
@@ -6,7 +6,7 @@ from gymnax import EnvParams
 from ajax.agents.ASAC.state import ASACConfig
 from ajax.agents.ASAC.train_ASAC import make_train
 from ajax.agents.base import ActorCritic, run_config
-from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.loop import LOOP_PHASES, REPLAY_BATCH_KEYS
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
@@ -32,6 +32,7 @@ class ASAC(ActorCritic):
         "critic_loss",
         "actor_loss",
     }
+    phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     supports_memory: bool = True
     replays_transitions: bool = True

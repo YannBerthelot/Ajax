@@ -124,37 +124,35 @@ an evaluation (a schedule, a counter kept in the extension's state).
   decisions (a schedule's length) can use it at trace time. On a resumed run
   it is the whole run's horizon, so schedules continue rather than restart.
 
-`batch` is a dictionary. `PHASE_BATCH_KEYS` in
-[`extensions/base.py`](../../src/ajax/extensions/base.py) lists the keys each
-agent puts in it, and `tests/extensions/test_phase_contract.py` checks every
-agent against that list:
+`batch` is a dictionary. Every agent folding a phase puts in it the keys
+`COMMON_BATCH_KEYS` lists, in
+[`extensions/base.py`](../../src/ajax/extensions/base.py); each agent
+declares the others in its `phase_batch_keys` (`ajax.PPO.phase_batch_keys`,
+for instance), and `tests/extensions/test_phase_contract.py` checks every
+agent's batches against its declaration. The replay agents on the shared
+steps (`critic_step`, `actor_step`) pass the sets `ajax.agents.loop` lists:
 
-| Phase | Agents | Keys |
+| Phase | Every agent folding it | The shared replay steps add |
 | --- | --- | --- |
-| `reward` | PPO | `observations`, `raw_observations`, `actions` (the rollout's) |
-| `on_target` | every agent folding it | `observations`, `next_observations`, `rewards`, `gamma` |
-| | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN | `actions`, `dones`, `reward_scale` |
-| | PQN, PPO, APO | `terminated`, `truncated` |
-| | PPO, APO | `gae`, `values` |
-| `critic_loss` | every agent folding it | `observations`, `targets` |
-| | SAC, TD3, REDQ, ASAC, AVG, PPO, APO | `critic_params`, `critic_state` |
-| | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN | `actions` |
-| | DQN, PQN | `q_state` |
-| `actor_loss` | every agent folding it | `actor_params` |
-| | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, UDRL, APG | `actor_state`, `observations`, `raw_observations`, `pi_mean` |
-| | SAC, TD3, REDQ, ASAC, AVG, APO | `a_expert` |
-| | SAC, TD3, REDQ, ASAC, AVG | `critic_state` |
-| | UDRL | `actions` |
-| | APG | `rollout`, `returns` |
+| `on_target` | `observations`, `next_observations`, `rewards`, `gamma` | `actions`, `dones`, `reward_scale`, `raw_next_observations`, `next_a_expert`, `next_action` (`TARGET_KEYS`) |
+| `critic_loss` | `observations`, `targets` | `actions`, `next_observations`, `critic_params`, `critic_state`, `actor_state`, `return_to_go` (`CRITIC_LOSS_KEYS`) |
+| `actor_loss` | `actor_params` | `actor_state`, `pi_mean`, `agent_loss`, and the rows the agent passes: `observations`, `raw_observations`, `actions`, `a_expert`, `critic_state` (`REPLAY_ACTOR_KEYS`) |
+
+The other agents build their own batches: PPO's and APO's `on_target` carry
+`terminated`, `truncated`, `gae` and `values`, DQN's and PQN's
+`critic_loss` their `q_state`, APG's `actor_loss` its `rollout` and
+`returns`, PPO's `reward` the rollout's `observations`, `raw_observations`
+and `actions`.
 
 What the keys mean: `gamma` is `None` for the average-reward agents, ASAC
 and APO. `dones` marks where the target cut the bootstrap. `targets` is the
 target `on_target` returned, held constant. The critic and actor parameters
 (`critic_params`, `q_state`, `actor_params`) are the ones being
 differentiated. `raw_observations` is `None` in a replay agent's run without
-an expert, whose replay does not keep them. An agent may add keys of its own
-(SAC's `on_target` batch carries `rng_key`, the target's own key); read its
-fold call in `train_<AGENT>.py` before relying on one.
+an expert, whose replay does not keep them, and so are the stored fields
+(`next_action`, `return_to_go`, ...) a run does not store. An agent may add
+keys of its own (SAC's `on_target` batch carries `rng_key`, the target's own
+key), and declares them.
 
 ## A worked example
 
@@ -304,7 +302,7 @@ context it binds, its batches and replay fields;
 | `provides` (class attribute) | the capabilities it gives its stack | adds them to the run's: `MCPretrain` provides `phi_star`, which its readers require |
 | `context` (class attribute) | the agent-context keys it cannot work without | refuses it when its `extension_context`, the keys its `make_train` binds, lacks one (`NotWired`) |
 | `pretrain_context` (class attribute) | the `ExtensionContext` fields its `pretrain` reads (`env_args`, `update`, `buffer`) | refuses it when its loop does not fill one: its `pretrain_context` (`NotWired`) |
-| `batch_keys` (class attribute) and `reads()` | per phase, the batch keys it reads beyond those every agent folding the phase passes | refuses it when `PHASE_BATCH_KEYS` lists none of them for the agent (`NotWired`) |
+| `batch_keys` (class attribute) and `reads()` | per phase, the batch keys it reads beyond those every agent folding the phase passes | refuses it when the agent's `phase_batch_keys` lacks one of them (`NotWired`) |
 | `buffer_fields` (class attribute, a frozenset) | replay fields beyond the agent's own that the extension reads, such as `raw_next_obs`, the environment's own next observation | stores them only when an extension declares them; rejects the ones it cannot store (SAC, TD3, REDQ, ASAC and AVG store `raw_next_obs`) |
 | `expert_fields` (class attribute) and `experts()` | the fields holding an expert, written in env units, and the experts the extension calls itself | reads every expert in `expert_fields` in agent units (`ExtensionStack.with_experts`); keeps the raw observations and expert flags in replay for a run with an expert; refuses a stateful expert (one with `init_state`) that `experts()` would call without its state |
 | `reads_agent_expert_actions` (class attribute) | the extension reads the expert actions the agent stored, when its expert is the agent's `expert_policy` | lets a stateful expert through for it, on an agent that stores those actions (`stores_expert_actions`: SAC, TD3, REDQ, ASAC, AVG, APO) |

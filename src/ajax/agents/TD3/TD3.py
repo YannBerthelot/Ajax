@@ -1,10 +1,10 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional, Union
 
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config
-from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.loop import LOOP_PHASES, REPLAY_BATCH_KEYS, TARGET_KEYS
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.TD3.state import TD3Config
 from ajax.agents.TD3.train_TD3 import make_train
@@ -41,6 +41,10 @@ class TD3(ActorCritic):
         "on_target",
         "critic_loss",
         "actor_loss",
+    }
+    # Its smoothed next actions join the shared step's on_target keys.
+    phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS | {
+        "on_target": TARGET_KEYS | {"next_actions"}
     }
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     extension_context: frozenset = frozenset(

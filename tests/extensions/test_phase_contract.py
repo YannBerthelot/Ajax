@@ -2,7 +2,8 @@
 tiny run per agent with a recorder implementing each phase it folds of
 ``on_target``, ``critic_loss``, ``actor_loss`` and ``post_update``:
 
-(a) each batch holds the keys ``PHASE_BATCH_KEYS`` documents;
+(a) each batch holds the keys the agent declares (``phase_batch_keys``)
+    and those every agent passes (``COMMON_BATCH_KEYS``);
 (b) each fold gets a key no other fold gets, and none the agent draws on
     itself (a key it hands ``jax.random``) or carries on;
 (c) ``critic_loss`` gets as its targets what ``on_target`` returned;
@@ -33,7 +34,7 @@ import pytest
 
 import ajax
 from ajax.agents.APG.APG import APG
-from ajax.extensions.base import PHASE_BATCH_KEYS, Extension
+from ajax.extensions.base import COMMON_BATCH_KEYS, Extension
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
@@ -188,11 +189,8 @@ def test_each_batch_holds_the_documented_keys(name: str) -> None:
     run = _run(name)
     assert set(run.batch_keys) == run.phases - {"post_update"}
     for phase, key_sets in run.batch_keys.items():
-        rows = PHASE_BATCH_KEYS[phase].items()
-        ours = [
-            keys for agents, keys in rows if agents == "*" or name in agents.split()
-        ]
-        documented = set(" ".join(ours).split())
+        declared = _setup(name)[0].phase_batch_keys.get(phase, frozenset())
+        documented = COMMON_BATCH_KEYS.get(phase, frozenset()) | declared
         for keys in key_sets:
             assert not documented - keys, (phase, sorted(keys))
 

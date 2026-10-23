@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Callable, Optional
 
 from gymnax import EnvParams
@@ -6,6 +6,7 @@ from gymnax import EnvParams
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.CrossQ.state import CrossQConfig
 from ajax.agents.CrossQ.train_CrossQ import make_train
+from ajax.agents.loop import REPLAY_BATCH_KEYS
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
@@ -36,6 +37,7 @@ class CrossQ(ActorCritic):
     supported_extension_phases: frozenset = frozenset(
         "pretrain post_update eval_metrics on_target critic_loss actor_loss".split()
     )
+    phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     extension_context: frozenset = frozenset(
         "actor_optimizer_args buffer env_args expert_policy".split()

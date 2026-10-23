@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Optional, Tuple
 
 from gymnax import EnvParams
@@ -21,6 +21,11 @@ class UDRL(ActorCritic):
         "actor obs_networks off_policy policy_density replay".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
+    phase_batch_keys: Mapping[str, frozenset] = {
+        "actor_loss": frozenset(
+            "actor_state observations raw_observations pi_mean actions".split()
+        ),
+    }
     # It learns from the segments of up to buffer_capacity past iterations.
     replays_transitions: bool = True
     make_train = staticmethod(make_train)

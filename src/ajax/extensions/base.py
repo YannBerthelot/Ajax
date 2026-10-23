@@ -50,10 +50,11 @@ agent logs its own). Two extensions logging one name raise.
 
 Phase batches
 -------------
-The ``batch`` dict of a phase holds the keys :data:`PHASE_BATCH_KEYS`
-lists on every agent that folds it; an agent may add its own (read its
-fold call), and an extension raises on a key it needs and does not find,
-rather than return a no-op. ``gamma`` is ``None`` for an average-reward
+The ``batch`` dict of a phase holds the keys :data:`COMMON_BATCH_KEYS`
+lists, on every agent that folds it, and those the agent declares in its
+``phase_batch_keys`` (on the shared steps: their sets in
+``ajax.agents.loop``, ``TARGET_KEYS`` and the others). An extension raises
+on a key it needs and does not find, rather than return a no-op. ``gamma`` is ``None`` for an average-reward
 agent, ``dones`` is where the target cut the bootstrap and ``targets`` the
 target, held constant; the critic (DQN's and PQN's ``q_state``) and the
 actor come at the differentiated parameters. The replay agents'
@@ -113,38 +114,13 @@ PHASES: tuple[str, ...] = (
     "eval_metrics",
 )
 
-#: The keys of each phase's ``batch`` ("Phase batches" above): per phase,
-#: the agents passing them ("*": every agent folding it) -> the keys.
-PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
-    "reward": {"PPO": "observations raw_observations actions"},
-    "on_target": {
-        "*": "observations next_observations rewards gamma",
-        "SAC TD3 REDQ ASAC AVG DQN PQN IQL CrossQ TQC": "actions dones reward_scale",
-        "SAC TD3 REDQ ASAC AVG IQL CrossQ TQC": "raw_next_observations next_a_expert",
-        "PQN PPO APO": "terminated truncated",
-        "PPO APO": "gae values",
-        "SAC": "rng_key q_preds recurrent",
-        "TD3 REDQ ASAC AVG IQL CrossQ TQC": "next_action",
-        "TD3": "next_actions",
-    },
-    "critic_loss": {
-        "*": "observations targets",
-        "SAC TD3 REDQ ASAC AVG PPO APO IQL CrossQ TQC": "critic_params critic_state",
-        "SAC TD3 REDQ ASAC AVG DQN PQN IQL CrossQ TQC": "actions",
-        "SAC TD3 REDQ ASAC AVG IQL CrossQ TQC": "next_observations actor_state",
-        "SAC TD3 REDQ IQL CrossQ TQC": "return_to_go",
-        "DQN PQN": "q_state",
-    },
-    "actor_loss": {
-        "*": "actor_params",
-        "SAC TD3 REDQ ASAC AVG PPO APO UDRL APG DAgger IQL CrossQ TQC": "actor_state observations",
-        "SAC TD3 REDQ ASAC AVG PPO APO APG UDRL DAgger IQL CrossQ TQC": "raw_observations pi_mean",
-        "SAC TD3 REDQ ASAC AVG APO DAgger CrossQ TQC": "a_expert",
-        "SAC TD3 REDQ ASAC AVG IQL CrossQ TQC": "critic_state",
-        "SAC TD3 REDQ ASAC AVG IQL DAgger CrossQ TQC": "agent_loss",
-        "SAC TD3 REDQ ASAC UDRL IQL CrossQ TQC": "actions",
-        "APG": "rollout returns",
-    },
+#: The keys of each phase's ``batch`` every agent folding it passes ("Phase
+#: batches" above); an agent declares the others its folds pass in its
+#: ``phase_batch_keys``.
+COMMON_BATCH_KEYS: dict[str, frozenset[str]] = {
+    "on_target": frozenset("observations next_observations rewards gamma".split()),
+    "critic_loss": frozenset("observations targets".split()),
+    "actor_loss": frozenset({"actor_params"}),
 }
 
 
@@ -157,14 +133,16 @@ def check_extensions(
     context: Iterable[str] = (),
     pretrain_context: Iterable[str] = (),
     buffer_fields: Iterable[str] = (),
+    batch_keys: Mapping[str, Iterable[str]] = {},
     agent_expert: Any = None,
     takes_expert_policy: bool = False,
     stores_expert_actions: bool = False,
 ) -> None:
     """Reject the extensions of ``stack`` that cannot run on ``agent_name``,
     whose run has ``capabilities`` and whose code folds ``phases``, binds the
-    ``context`` keys, fills the ``pretrain_context`` fields and stores the
-    ``buffer_fields``
+    ``context`` keys, fills the ``pretrain_context`` fields, stores the
+    ``buffer_fields`` and passes, per phase, the ``batch_keys`` beyond the
+    common ones
     (:func:`~ajax.extensions.capabilities.check_capabilities`), or that call
     a stateful expert without its state (:func:`check_extension_experts`).
 
@@ -181,7 +159,11 @@ def check_extensions(
         context=context,
         pretrain_context=pretrain_context,
         buffer_fields=buffer_fields,
-        batch_table=PHASE_BATCH_KEYS,
+        batch_keys={
+            phase: COMMON_BATCH_KEYS.get(phase, frozenset())
+            | frozenset(batch_keys.get(phase, ()))
+            for phase in PHASES
+        },
         takes_expert_policy=takes_expert_policy,
     )
     check_extension_experts(agent_name, stack, agent_expert, stores_expert_actions)
@@ -269,7 +251,7 @@ class Extension:
     #: ``update``, ``buffer``), which the agent's loop fills.
     pretrain_context: ClassVar[frozenset[str]] = frozenset()
     #: Per phase, the batch keys it reads beyond those every agent folding
-    #: the phase passes (``PHASE_BATCH_KEYS``).
+    #: the phase passes (``COMMON_BATCH_KEYS``).
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {}
     #: Whether the extension reads the agent's stored actions of its expert
     #: when that expert is the agent's (check_extension_experts).

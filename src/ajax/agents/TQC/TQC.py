@@ -1,10 +1,10 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional, Union
 
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config
-from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.loop import LOOP_PHASES, REPLAY_BATCH_KEYS
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.TQC.state import TQCConfig
 from ajax.agents.TQC.train_TQC import make_train
@@ -37,6 +37,7 @@ class TQC(ActorCritic):
         "critic_loss",
         "actor_loss",
     }
+    phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     extension_context: frozenset = frozenset(
         "actor_optimizer_args buffer env_args expert_policy".split()

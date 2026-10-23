@@ -1,6 +1,6 @@
 import dataclasses
 import inspect
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from functools import partial
 from typing import Any, Callable, Optional, Tuple, Union
 
@@ -153,6 +153,11 @@ class ActorCritic:
     # The keys of the agent context its make_train binds its extensions to
     # (Extension.bind_to_agent); an extension needing another is refused.
     extension_context: frozenset = frozenset()
+    # Per phase, the keys its folds put in the extensions' batch beyond those
+    # every agent passes (ajax.extensions.base.COMMON_BATCH_KEYS); an
+    # extension reading another is refused. On the shared steps, their sets
+    # in ajax.agents.loop (TARGET_KEYS, CRITIC_LOSS_KEYS, ...) and its own.
+    phase_batch_keys: Mapping[str, frozenset] = {}
     # The ExtensionContext fields its loop fills for its extensions'
     # pretraining (the shared loop: env_args; off-policy also update, and
     # buffer with a replay).
@@ -394,6 +399,7 @@ class ActorCritic:
             context=self.extension_context,
             pretrain_context=self.pretrain_context,
             buffer_fields=self.supported_buffer_fields,
+            batch_keys=self.phase_batch_keys,
             agent_expert=getattr(self, "expert_policy", None),
             takes_expert_policy="expert_policy"
             in inspect.signature(type(self).__init__).parameters,

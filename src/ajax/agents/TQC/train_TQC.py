@@ -285,9 +285,11 @@ def update_agent(
     critics' optimizer steps (:64-66). It differentiates that loss after
     them; the torch it pins (1.3.0) steps parameters in place through
     ``.data``, which autograd does not track, so that backward pass would
-    read the stepped critics' weights (cited from memory, unverified: the
-    conformance test settles it). Ajax differentiates the loss it computed,
-    at the critics before their step.
+    read the stepped critics' weights (from memory, unverified). Ajax
+    differentiates the loss it computed, at the critics before their step:
+    the order is logged as an upstream bug, which Ajax does not follow
+    (owner, 2026-10-23), and the conformance check runs their update with
+    the actor's backward before the critics' step.
     """
     agent_state, sample_key = agent_state.next_keys()
     batch, carries = sample_replay(

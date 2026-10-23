@@ -75,8 +75,9 @@ Defaults are read from `TQC.__init__`, the authors' `main.py` and `tqc/`.
   critics' loss read the quantiles (`q_values(..., quantiles=True)`).
 - **Update order.** As the authors' code: the critics' step and the target
   update, then the actor's and the temperature's steps. The actor's loss
-  reads the critics from before their step, since the authors' code builds
-  all three losses first.
+  reads the critics from before their step. The authors' code builds it
+  there too, but its torch (1.3.0) backpropagated it after the critics'
+  step, through their new weights; Ajax does not follow that (see Results).
 - **Extensions.** Those that shift the target by a value per row (IBRL,
   LCBGatedBootstrap, TargetBC) shift every quantile alike. Those that read one
   target value (CriticBlend, MCVarianceCorrection, BiasVorePenalty) need a
@@ -94,6 +95,13 @@ The repository records no learning curves for TQC yet. Unit tests
 (`tests/agents/TQC` and the contracts every agent shares) check the
 truncation, the quantile Huber loss and the authors' settings. The probes
 (`tests/probing`) train it briefly on tiny environments with known answers.
+A conformance check (`tests/conformance/test_tqc_original.py`) runs one update
+of Ajax's TQC and of the authors' code from the same state, with the same
+batch and noises, and compares every parameter, Adam moment and the
+temperature. One change is made to their update: their actor's backward pass
+runs after the critics' step, which only their pinned torch (1.3.0) allowed,
+reading the stepped critics' weights; the check runs it before, where Ajax
+reads the critics too.
 
 ## API
 

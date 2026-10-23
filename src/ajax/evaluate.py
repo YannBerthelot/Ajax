@@ -186,7 +186,6 @@ def setup_environment(
     if norm_info is not None:
         normaliser = {
             "normalize_obs": norm_info.obs is not None,
-            "apply_obs_normalization": layers.get("apply_obs_normalization", True),
             "train": False,
             "norm_info": repeat_first_entry(norm_info, num_repeats=num_episodes),
         }
@@ -329,6 +328,11 @@ def step_environment(
     ):
         raise ValueError("Gain mode requires a stateful expert with learnable_fields.")
 
+    # The statistics the agent's controller normalises with, as they stand.
+    obs_norm = (
+        agent_state.collector_state.obs_norm_info if controller.normalize_obs else None
+    )
+
     def fn(carry: _EvalCarry) -> _EvalCarry:
         obs, done, state = carry.obs, carry.done, carry.state
         rng, step_key = jax.random.split(carry.rng)
@@ -344,6 +348,7 @@ def step_environment(
             timestep=None,
             expert_state=carry.expert_state,
             carry=carry.actor_hidden,
+            obs_norm=obs_norm,
         )
         obs_for_actor, observed_state = controller.observe(
             acting, expert_policy, expert_obs

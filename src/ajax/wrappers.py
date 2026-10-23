@@ -295,7 +295,6 @@ class _OnlineNormalization:
         normalize_obs: bool = True,
         normalize_reward: bool = True,
         gamma: Optional[float] = None,
-        apply_normalization: bool = True,
     ):
         super().__init__(env)  # type: ignore[call-arg]
         self.obs_shape, _ = get_state_action_shapes(env)
@@ -305,13 +304,6 @@ class _OnlineNormalization:
         self.normalize_reward = normalize_reward
         self.norm_info = norm_info
         self.gamma = gamma
-        # Brax-faithful mode: track running obs stats at every env step
-        # (so info["normalization_info"] reflects the latest stats) but
-        # do NOT apply the normalisation to ``state.obs`` -- leave obs
-        # raw and let the agent normalise inside its loss with the
-        # freshest stats. Matches brax PPO's normalise-at-forward
-        # pattern (single up-to-date normalizer per training step).
-        self.apply_normalization = apply_normalization
         obs_shape = self._trace_reset().shape
         self.batch_size = obs_shape[0] if len(obs_shape) > 1 else 1
 
@@ -358,8 +350,6 @@ class _OnlineNormalization:
             raw_columns=self.raw_columns,
         )
         stats = NormalizationInfo(count=count, mean=mean, mean_2=mean_2, var=var)
-        if not self.apply_normalization:
-            return raw_obs, stats, {}
         return obs, stats, self._normalized_info(info, stats)
 
     def _normalized_info(self, info: dict, stats: NormalizationInfo) -> dict:
@@ -457,7 +447,7 @@ class NormalizeVecObservationBrax(_OnlineNormalization, BraxWrapper):
 
     def _normalize_obs(self, raw_obs, stats, info):
         obs, stats, extra = super()._normalize_obs(raw_obs, stats, info)
-        if self.normalize_obs and self.apply_normalization:
+        if self.normalize_obs:
             # The state's obs is the normalised one, and an expert reads the
             # env's own units (interaction.get_raw_obs). A gymnax state
             # recomputes its observation from the env instead.

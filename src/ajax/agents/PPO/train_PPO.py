@@ -50,16 +50,17 @@ from ajax.agents.PPO.utils import (
     get_minibatches_preserving_time,
     split_fragments,
 )
-from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     get_pi,
     get_pi_sequence,
     init_collector_state,
     reset,
 )
+from ajax.environments.obs_norm import normalized_obs
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     env_keys,
+    raw_obs_columns,
 )
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
@@ -536,51 +537,35 @@ def _normalisation_info(env_state: Any, mode: str) -> Any:
     return getattr(env_state, "normalization_info", None)
 
 
-def _renormalised(obs: jax.Array, fresh: Any, saved: Any) -> jax.Array:
-    """``obs``, normalised with the statistics ``fresh``, normalised with
-    ``saved`` instead; each read as ``online_normalize`` reads them (the
-    clipped std and the mean averaged over their leading axis)."""
-
-    def moments(info: Any) -> tuple[jax.Array, jax.Array]:
-        std = jnp.clip(jnp.sqrt(info.var + 1e-8), 1e-6, 1e6)
-        return info.mean.mean(axis=0), std.mean(axis=0)
-
-    (fresh_mean, fresh_std), (saved_mean, saved_std) = moments(fresh), moments(saved)
-    return (obs * fresh_std + fresh_mean - saved_mean) / saved_std
-
-
 def _force_reset(
     agent_state: PPOState, env_args: EnvironmentConfig, mode: str
 ) -> PPOState:
     """Reset every env on a fresh key (brax's ``num_resets_per_eval``).
 
-    An observation or reward normaliser in the env stack keeps its running
-    statistics: its reset restarts them from the reset observation, so the
-    saved ones are put back and the reset observation, when the normaliser
-    normalises it, is normalised with them instead. Gymnax keeps one
-    normaliser per env (each restarts from its own observation), brax one
-    for the batch. The cut episodes are abandoned, not finished: the next
-    return starts from zero, and they are flagged truncated, so a recurrent
-    actor and critic restart their memory on the reset observation, as at
-    any episode start.
+    The reset observations are normalised with the agent's running
+    statistics, which they do not count in. A reward normaliser in the env
+    stack keeps its running statistics: its reset restarts them, so the
+    saved ones are put back. The cut episodes are abandoned, not finished:
+    the next return starts from zero, and they are flagged truncated, so a
+    recurrent actor and critic restart their memory on the reset
+    observation, as at any episode start.
     """
     agent_state, reset_key = agent_state.next_keys()
     saved = _normalisation_info(agent_state.collector_state.env_state, mode)
     reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     if saved is not None:
-        layers = strip_ajax_wrappers(env_args.env)[1]
-        if layers["normalize_obs"] and layers["apply_obs_normalization"]:
-            fresh = _normalisation_info(new_env_state, mode).obs
-            per_normaliser = (
-                _renormalised if mode == "brax" else jax.vmap(_renormalised)
-            )
-            new_obs = per_normaliser(new_obs, fresh, saved.obs)
         if mode == "brax":
             info = {**new_env_state.info, "normalization_info": saved}
-            new_env_state = new_env_state.replace(obs=new_obs, info=info)
+            new_env_state = new_env_state.replace(info=info)
         else:
             new_env_state = new_env_state.replace(normalization_info=saved)
+    if env_args.store_normalized_obs:
+        new_obs = normalized_obs(
+            new_obs,
+            agent_state.collector_state.obs_norm_info,
+            raw_obs_columns(env_args.env),
+        )
     returns = agent_state.collector_state.episodic_return_state
     returns = returns.replace(
         cumulative_reward=jnp.zeros_like(returns.cumulative_reward)

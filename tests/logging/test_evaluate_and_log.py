@@ -114,15 +114,15 @@ def _normalising_sac() -> SAC:
 
 
 def test_a_logged_evaluation_is_handed_the_agents_observation_statistics(monkeypatch):
-    """An on-policy agent with normalize_observations normalises in its env:
-    the evaluations a run logs normalise theirs with the training env's
-    statistics (eval_norm_info), not raw."""
+    """An on-policy agent with normalize_observations stores its
+    observations normalised: the evaluations a run logs normalise theirs
+    through its controller with the training statistics, not raw."""
     handed = []
     evaluate = log.evaluate
 
-    def evaluating(*args, norm_info=None, **kwargs):
-        handed.append(norm_info)
-        return evaluate(*args, norm_info=norm_info, **kwargs)
+    def evaluating(*args, controller=None, agent_state=None, **kwargs):
+        handed.append((controller, agent_state.collector_state.obs_norm_info))
+        return evaluate(*args, controller=controller, agent_state=agent_state, **kwargs)
 
     monkeypatch.setattr(log, "evaluate", evaluating)
     logging = LoggingConfig(config={}, log_frequency=16, use_wandb=False)
@@ -136,7 +136,8 @@ def test_a_logged_evaluation_is_handed_the_agents_observation_statistics(monkeyp
         critic_architecture=net,
     )
     agent.train(seed=0, n_timesteps=32, num_episode_test=1, logging_config=logging)
-    assert handed and all(n is not None and n.obs is not None for n in handed)
+    assert handed
+    assert all(c.normalize_obs and stats is not None for c, stats in handed)
 
 
 def test_an_evaluation_keeps_the_actors_own_statistics(monkeypatch):

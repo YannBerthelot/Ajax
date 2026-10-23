@@ -91,12 +91,14 @@ def test_a_replay_agent_keeps_the_envs_own_observations(name: str) -> None:
         np.testing.assert_allclose(got, want, rtol=1e-5, atol=1e-6)
 
 
-def test_an_on_policy_agent_keeps_the_envs_normaliser() -> None:
-    """An agent learning from its current rollout reads observations
-    normalised when collected, by the env, as before."""
+def test_an_on_policy_agent_stores_observations_normalised_when_collected() -> None:
+    """An agent learning from its current rollout keeps the statistics
+    itself and stores each observation normalised with those of its
+    collection; its env normalises none."""
     agent = ajax.PPO(env_id=IdentityEnv(), normalize_observations=True)
-    assert not agent.env_args.normalize_obs_in_agent
-    assert strip_ajax_wrappers(agent.env_args.env)[1]["normalize_obs"]
+    args = agent.env_args
+    assert args.normalize_obs_in_agent and args.store_normalized_obs
+    assert not strip_ajax_wrappers(args.env)[1].get("normalize_obs", False)
 
 
 # UDRL's segments still keep the rewards the env normalised: its commands and

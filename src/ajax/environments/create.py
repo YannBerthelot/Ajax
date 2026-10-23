@@ -367,7 +367,6 @@ def add_ajax_wrappers(
     normalize_obs: bool = False,
     normalize_reward: bool = False,
     gamma: Optional[float] = None,
-    apply_obs_normalization: bool = True,
     train: bool = True,
     norm_info: Optional[EnvNormalizationInfo] = None,
 ) -> EnvType:
@@ -384,7 +383,6 @@ def add_ajax_wrappers(
             normalize_obs=normalize_obs,
             normalize_reward=normalize_reward,
             gamma=gamma if normalize_reward else None,
-            apply_normalization=apply_obs_normalization,
         )
     if check_if_environment_has_continuous_actions(env):
         env = ClipAction(env)
@@ -407,7 +405,6 @@ def strip_ajax_wrappers(env: EnvType) -> tuple[EnvType, dict]:
                 "normalize_obs": layer.normalize_obs,
                 "normalize_reward": layer.normalize_reward,
                 "gamma": layer.gamma,
-                "apply_obs_normalization": layer.apply_normalization,
             }
         elif not isinstance(layer, _CLIPS):
             return layer, layers
@@ -422,7 +419,6 @@ def prepare_env(
     normalize_obs: bool = False,
     normalize_reward: bool = False,
     gamma: Optional[float] = None,  # Discount factor for reward normalization
-    apply_obs_normalization: bool = True,
     action_repeat: int = 1,
 ) -> Tuple[EnvType, Optional[EnvParams], Union[str, EnvType], bool]:
     check_action_repeat(action_repeat)
@@ -469,6 +465,5 @@ def prepare_env(
         normalize_obs=normalize_obs,
         normalize_reward=normalize_reward,
         gamma=gamma,
-        apply_obs_normalization=apply_obs_normalization,
     )
     return env, env_params, env_id, continuous

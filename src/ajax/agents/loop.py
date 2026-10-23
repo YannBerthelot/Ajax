@@ -60,6 +60,7 @@ import optax
 from jax.tree_util import Partial as partial
 
 from ajax.buffers.dataset import TransitionDataset, fill_replay
+from ajax.controller import Controller
 from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     collect_experience,
@@ -179,18 +180,20 @@ def fresh_state(
     ``extension_key`` (:meth:`ExtensionStack.fold_init`; ``context``: the
     pretraining's static context fields)."""
     init_key, extension_key = jax.random.split(key)
-    state = with_obs_norm(init(init_key))
+    state = with_obs_norm(init(init_key), context.get("env_args"))
     return stack.fold_init(state, extension_key, total_steps, **context)
 
 
-def with_obs_norm(agent_state: Any) -> Any:
+def with_obs_norm(agent_state: Any, env_args: Any = None) -> Any:
     """An agent normalising its own observations (the collector's
     ``obs_norm_info``) with those statistics mirrored on its networks, which
     apply them; collection refreshes the mirror at every step, and setting
-    it at init keeps the scan carry's structure fixed."""
+    it at init keeps the scan carry's structure fixed. An agent storing
+    normalised observations (``env_args.store_normalized_obs``) gets no
+    mirror: its networks read them as stored."""
     collector = getattr(agent_state, "collector_state", None)
     stats = None if collector is None else collector.obs_norm_info
-    if stats is None:
+    if stats is None or getattr(env_args, "store_normalized_obs", False):
         return agent_state
     return agent_state.replace(
         actor_state=agent_state.actor_state.replace(obs_norm_info=stats),
@@ -648,7 +651,13 @@ class TrainLoop:
         """Evaluate and log every ``log_frequency`` steps
         (:func:`ajax.log.evaluate_and_log`), the extensions' eval metrics
         included; returns the state and the metrics (``None`` without
-        logging)."""
+        logging). An agent storing normalised observations evaluates with
+        them normalised by its running statistics, unless its own
+        ``controller`` says how it acts."""
+        if self.env_args.store_normalized_obs:
+            columns = raw_obs_columns(self.env_args.env)
+            normalising = Controller(normalize_obs=True, raw_columns=columns)
+            kwargs = {"controller": normalising} | kwargs
         return evaluate_and_log(
             agent_state,
             aux,

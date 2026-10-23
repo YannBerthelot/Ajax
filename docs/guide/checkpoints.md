@@ -136,9 +136,10 @@ the steps the whole run does.
     - a state saved before a field that the new layout leaves empty existed:
       the field is restored empty. A missing field that holds data is a
       mismatch and still raises;
-    - a Brax environment state saved before the observation normaliser kept
-      the raw observation: it is rebuilt from the saved observation and
-      statistics;
+    - an on-policy agent's state saved while its observation statistics
+      lived in the environment's normaliser (before 2026-10-23): they move
+      to the collector, a gymnax run's statistics, one set per copy, merged
+      into one, and a Brax state gets its raw observation back;
     - UDRL's segment buffer saved with `cum_rewards`, a running sum of its
       rewards that nothing read: the field is dropped. A saved field that
       the new layout lacks and does not list as removed is a mismatch and

@@ -16,7 +16,9 @@ from typing import Any, Callable, NamedTuple, Optional
 import jax
 import jax.numpy as jnp
 
+from ajax.environments.obs_norm import normalized_obs
 from ajax.networks.memory import flatten_carry
+from ajax.types import NormalizationInfo
 
 
 class ActingState(NamedTuple):
@@ -24,9 +26,10 @@ class ActingState(NamedTuple):
     (before any normalisation), where the last step ended an episode (the
     carry and the expert restart there), the global timestep, the tracked
     expert's state (None: no stateful expert), the actor's carry (None: a
-    feedforward actor) and each env's step in its episode (None unless an
-    extension reads it). Evaluation acts on neither a timestep nor a step
-    in an episode: None there."""
+    feedforward actor), each env's step in its episode (None unless an
+    extension reads it) and the observation normaliser's statistics (None:
+    none). Evaluation acts on neither a timestep nor a step in an episode:
+    None there."""
 
     obs: jax.Array
     done: jax.Array
@@ -34,6 +37,7 @@ class ActingState(NamedTuple):
     expert_state: Any = None
     carry: Any = None
     step_in_episode: Optional[jax.Array] = None
+    obs_norm: Optional[NormalizationInfo] = None
 
 
 def acting_state(agent_state: Any) -> ActingState:
@@ -46,6 +50,7 @@ def acting_state(agent_state: Any) -> ActingState:
         expert_state=collector.expert_state,
         carry=agent_state.actor_state.hidden_state,
         step_in_episode=collector.step_in_episode,
+        obs_norm=collector.obs_norm_info,
     )
 
 
@@ -87,15 +92,21 @@ def call_expert(expert: Any, state: Any, obs: Optional[jax.Array]) -> tuple[Any,
 @dataclass(frozen=True)
 class Controller:
     """How an agent acts beyond its actor's forward pass, which evaluation
-    runs (collection still runs the agent's pipeline): the expert in the
-    actor's input (SAC's ``observe_expert_action`` and
-    ``observe_expert_state``), and the executed action made from the
-    actor's: gain mode's (``gains``: the actor's action sets an expert's
-    gains, ``anchor * 10**a``, and the expert acts), or ``transform``'s
-    ``(actions, expert_actions) -> actions`` (residual RL's
-    ``ResidualPolicy.transform_action``, the one collection applies). The default executes the actor's action on its observation. The
-    expert is the caller's, in agent units. Hashable: a static argument."""
+    runs (collection still runs the agent's pipeline): the observation
+    normalised (``normalize_obs``: an agent storing its observations
+    normalised, which collection stores so already; the leading
+    ``raw_columns`` stay raw), the expert in the actor's input (SAC's
+    ``observe_expert_action`` and ``observe_expert_state``), and the
+    executed action made from the actor's: gain mode's (``gains``: the
+    actor's action sets an expert's gains, ``anchor * 10**a``, and the
+    expert acts), or ``transform``'s ``(actions, expert_actions) ->
+    actions`` (residual RL's ``ResidualPolicy.transform_action``, the one
+    collection applies). The default executes the actor's action on its
+    observation. The expert is the caller's, in agent units. Hashable: a
+    static argument."""
 
+    normalize_obs: bool = False
+    raw_columns: int = 0
     observe_expert_action: bool = False
     observe_expert_state: bool = False
     transform: Optional[Callable] = None
@@ -116,8 +127,11 @@ class Controller:
                 expert, acting.expert_state, expert_obs
             )
         stateful = expert is not None and hasattr(expert, "init_state")
+        obs = acting.obs
+        if self.normalize_obs:
+            obs = normalized_obs(obs, acting.obs_norm, self.raw_columns)
         actor_obs = augment_obs(
-            acting.obs,
+            obs,
             (
                 flatten_expert_state(acting.expert_state)
                 if self.observe_expert_state and stateful

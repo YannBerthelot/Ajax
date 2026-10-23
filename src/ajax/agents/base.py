@@ -177,12 +177,11 @@ class ActorCritic:
     # differing counts are refused, since a batched count turns the update
     # schedules' lax.cond into a select running both branches.
     per_seed_update_counts: bool = False
-    # Whether the agent replays stored transitions. It then normalises
-    # observations itself (EnvironmentConfig.normalize_obs_in_agent): its
-    # replay keeps the env's own observations, normalised with the current
-    # statistics when read, as SB3's replay buffer does under VecNormalize.
-    # The env's normaliser would leave each row at the statistics of its
-    # collection.
+    # Whether the agent replays stored transitions. Its replay then keeps the
+    # env's own observations, normalised with the current statistics when
+    # read, as SB3's replay buffer does under VecNormalize; an on-policy
+    # agent's rollout keeps them normalised with the statistics of their
+    # collection (EnvironmentConfig.store_normalized_obs).
     replays_transitions: bool = False
     # Set, before this initialiser, by the agents that take an expert.
     expert_policy: Any
@@ -222,7 +221,6 @@ class ActorCritic:
         encoder_layer_norm: bool = False,
         squash: bool = False,
         episode_length: Optional[int] = None,
-        apply_obs_normalization: bool = True,
         action_repeat: int = 1,
         extensions: Sequence[Extension] = (),
     ) -> None:
@@ -271,12 +269,11 @@ class ActorCritic:
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
-            normalize_obs=normalize_observations and not self.replays_transitions,
+            normalize_obs=False,
             normalize_reward=normalize_rewards,
             gamma=reward_normalization_gamma,
             n_envs=n_envs,
             episode_length=episode_length,
-            apply_obs_normalization=apply_obs_normalization,
             action_repeat=action_repeat,
         )
 
@@ -293,7 +290,9 @@ class ActorCritic:
             n_envs=n_envs,
             continuous=continuous,
             action_repeat=action_repeat,
-            normalize_obs_in_agent=normalize_observations and self.replays_transitions,
+            normalize_obs_in_agent=normalize_observations,
+            store_normalized_obs=normalize_observations
+            and not self.replays_transitions,
         )
 
         self.network_args = NetworkConfig(

@@ -754,6 +754,7 @@ class TrainLoop:
         update: Update,
         learning_starts: int = 0,
         *,
+        uniform_steps: Optional[int] = None,
         recurrent: bool = False,
         expose_rollout: bool = False,
         after_collect: Optional[Callable[[Any, Any], Any]] = None,
@@ -766,8 +767,9 @@ class TrainLoop:
     ) -> Callable:
         """Train on one environment step per env per iteration (a tick).
 
-        Each tick collects a step (uniform actions before
-        ``learning_starts``), applies ``after_collect(agent_state,
+        Each tick collects a step (uniform actions before ``uniform_steps``,
+        by default ``learning_starts``; 0: the policy's from the first step,
+        as TQC's authors act), applies ``after_collect(agent_state,
         transition)`` when given, then from ``learning_starts`` runs
         ``update(agent_state, transition)``, then evaluates the actor
         (:meth:`evaluate_and_log`). ``expose_rollout`` keeps the step on
@@ -800,7 +802,8 @@ class TrainLoop:
             if collect is not None:
                 return collect(agent_state, tick)
             timestep = agent_state.collector_state.timestep
-            uniform = should_use_uniform_sampling(timestep, learning_starts)
+            warmup = learning_starts if uniform_steps is None else uniform_steps
+            uniform = should_use_uniform_sampling(timestep, warmup)
             agent_state, transition = collect_experience(
                 agent_state, None, uniform=uniform, **collect_args
             )

@@ -498,18 +498,6 @@ class ResidualPolicy(Extension):
 
         return transform
 
-    def build_eval_transform(self) -> Callable:
-        """The eval-time residual transform, ``(raw, expert, obs,
-        agent_state) -> actions``, as :func:`ajax.evaluate.step_environment`
-        calls it."""
-        scale = self.scale
-
-        def transform(raw_actions, expert_actions, obs, agent_state):
-            del obs, agent_state
-            return residual_action_transform(raw_actions, expert_actions, scale=scale)
-
-        return transform
-
 
 @dataclass(frozen=True)
 class JSRLCurriculum(Extension):

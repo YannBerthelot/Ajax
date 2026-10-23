@@ -357,7 +357,7 @@ def step_environment(
             )
         )
         actions, new_expert_state = controller.act(
-            raw_actions, acting, expert_policy, expert_obs, agent_state, observed_state
+            raw_actions, acting, expert_policy, expert_obs, observed_state
         )
         value = (
             carry.value

@@ -92,8 +92,8 @@ class Controller:
     ``observe_expert_state``), and the executed action made from the
     actor's: gain mode's (``gains``: the actor's action sets an expert's
     gains, ``anchor * 10**a``, and the expert acts), or ``transform``'s
-    ``(actions, expert_actions, obs, agent_state) -> actions`` (residual
-    RL's). The default executes the actor's action on its observation. The
+    ``(actions, expert_actions) -> actions`` (residual RL's
+    ``ResidualPolicy.transform_action``, the one collection applies). The default executes the actor's action on its observation. The
     expert is the caller's, in agent units. Hashable: a static argument."""
 
     observe_expert_action: bool = False
@@ -133,7 +133,6 @@ class Controller:
         acting: ActingState,
         expert: Any,
         expert_obs: Optional[jax.Array],
-        agent_state: Any,
         observed_state: Any,
     ) -> tuple[jax.Array, Any]:
         """The executed action from the actor's ``actions``, and the
@@ -151,10 +150,7 @@ class Controller:
                 expert_actions, expert_state = call_expert(
                     expert, acting.expert_state, expert_obs
                 )
-            return (
-                self.transform(actions, expert_actions, acting.obs, agent_state),
-                expert_state,
-            )
+            return self.transform(actions, expert_actions), expert_state
         return actions, (
             acting.expert_state if observed_state is None else observed_state
         )

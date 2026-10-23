@@ -619,11 +619,6 @@ def make_train(
     policy_action_transform = (
         residual.build_policy_transform(expert_policy) if residual else None
     )
-    eval_action_transform = (
-        None
-        if (use_pid_policy or residual is None)
-        else residual.build_eval_transform()
-    )
 
     # A ramp from target_entropy_initial (low: a BC-warmed policy mean rolls
     # out near-deterministically and stays alive on brittle envs) to the
@@ -698,7 +693,7 @@ def make_train(
             "controller": Controller(
                 observe_expert_action=augment_obs_with_expert_action,
                 observe_expert_state=augment_obs_with_expert_state,
-                transform=eval_action_transform,
+                transform=None if residual is None else residual.transform_action,
                 gains=use_pid_policy,
             ),
             "value_estimate": ValueEstimate(

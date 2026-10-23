@@ -68,12 +68,12 @@ def test_the_actors_input_is_the_observation_then_the_experts_state_and_action()
 def test_the_executed_action_is_the_actors_the_transforms_or_the_gains():
     obs, expert, actions = jnp.ones((2, 1)), _GainExpert(), jnp.full((2, 1), 0.5)
     acting = _acting(obs)
-    own, _ = Controller().act(actions, acting, expert, obs, None, None)
+    own, _ = Controller().act(actions, acting, expert, obs, None)
     np.testing.assert_array_equal(own, actions)
-    mixed, state = Controller(transform=lambda a, e, _obs, _state: a + e).act(
-        actions, acting, expert, obs, None, None
+    mixed, state = Controller(transform=lambda a, e: a + e).act(
+        actions, acting, expert, obs, None
     )
     np.testing.assert_array_equal(mixed, 0.5 - 2.0)  # the expert called for it
     np.testing.assert_array_equal(state, 1.0)
-    gained, _ = Controller(gains=True).act(actions, acting, expert, obs, None, None)
+    gained, _ = Controller(gains=True).act(actions, acting, expert, obs, None)
     np.testing.assert_allclose(gained, -2.0 * 10**0.5, rtol=1e-6)  # anchor * 10^a

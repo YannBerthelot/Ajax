@@ -97,6 +97,42 @@ def test_no_update_before_learning_starts() -> None:
     np.testing.assert_array_equal(metrics.loss, [1.0])
 
 
+@pytest.mark.parametrize(
+    "uniform_steps, uniform", [(None, [True, True, False]), (0, [False] * 3)]
+)
+def test_the_collector_acts_uniformly_until_uniform_steps(uniform_steps, uniform):
+    """Before ``learning_starts`` the collector acts uniformly, unless
+    ``uniform_steps`` sets another warm-up (0: the policy acts from the
+    first step, as TQC's authors' does)."""
+    seen = []
+
+    def collect(agent_state, _, uniform, **kwargs):
+        seen.append(bool(uniform))
+        tick = agent_state.collector_state.timestep + 1
+        return agent_state.replace(collector_state=Collector(tick)), None
+
+    loop = dataclasses.replace(
+        _loop(), env_args=SimpleNamespace(mode="gymnax", n_envs=1)
+    )
+    built = {}
+
+    def train(self, init, iteration, *args, **kwargs):
+        built["iteration"] = iteration
+
+    with (
+        mock.patch.object(loop_module, "collect_experience", collect),
+        mock.patch.object(TrainLoop, "train", train),
+        mock.patch.object(
+            TrainLoop, "evaluate_and_log", lambda self, s, *a, **k: (s, None)
+        ),
+    ):
+        loop.off_policy(None, lambda s, _: _update(s), 2, uniform_steps=uniform_steps)
+        state = _state(0)
+        for tick in range(3):
+            state, _ = built["iteration"](state, 0, tick)
+    assert seen == uniform
+
+
 def test_post_update_draws_a_key_only_with_extensions() -> None:
     """No extension: the state as it was, its key unused. One: folded once,
     on a fresh key split from the state's."""

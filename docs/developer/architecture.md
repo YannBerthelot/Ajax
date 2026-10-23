@@ -225,8 +225,10 @@ agent at once. The probes check it end to end: a planted fault that runs
 | `loop.on_policy(init, update, n_steps, ...)` | PPO, APO, PQN | an `n_steps` rollout per env from the state `start`, then `update(state, rollout, start)` | `budget // (n_envs * n_steps) + 1` rollouts |
 | `loop.off_policy(..., collect=, n_updates=, evaluation=)` | DreamerV3, TDMPC2 | the agent's own `collect(state, tick)`, then `n_updates(tick, state)` updates (a train ratio, a burst), then the agent's own `Evaluation` | `budget // n_envs` ticks, or `num_ticks` |
 
-Before `learning_starts`, the off-policy shape acts uniformly at random and
-logs the update's metrics as NaN, which the logger drops. The on-policy shape
+Before `learning_starts`, the off-policy shape acts uniformly at random
+(until `uniform_steps` instead, when an agent's reference acts with its policy
+from the start, as TQC's does) and logs the update's metrics as NaN, which the
+logger drops. The on-policy shape
 passes `start` to the update so that a recurrent agent can replay its rollout
 from the memory carries it began with.
 

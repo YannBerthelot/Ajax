@@ -364,8 +364,10 @@ def q_values(
     carries: Optional[RecurrentCarries] = None,
     *,
     bootstrap: bool = False,
+    quantiles: bool = False,
 ) -> jax.Array:
-    """Every critic's ``Q(obs, actions)``, the ensemble axis first.
+    """Every critic's ``Q(obs, actions)``, the ensemble axis first
+    (``quantiles``: a distributional critic's quantiles, last axis).
 
     With ``carries``, on a replayed sequence from the online critic's
     burned-in carry, or the target critic's when ``bootstrap`` (``obs``
@@ -376,13 +378,19 @@ def q_values(
     a feedforward query's).
     """
     if carries is None:
-        return predict_value(critic_state, params, action_value_input(obs, actions))
+        x = action_value_input(obs, actions)
+        return predict_value(critic_state, params, x, quantiles=quantiles)
     actions = in_critic_units(critic_state, actions)
     prev_actions = in_critic_units(critic_state, carries.prev_actions)
     if not bootstrap:
         x = action_value_input(obs, actions, prev_actions)
         return predict_value_sequence(
-            critic_state, params, x, carries.resets, carries.critic_hidden
+            critic_state,
+            params,
+            x,
+            carries.resets,
+            carries.critic_hidden,
+            quantiles=quantiles,
         )[0]
     # The rows' queries are unread; after a termination nothing came before.
     rows = action_value_input(carries.obs, actions, prev_actions)
@@ -395,9 +403,15 @@ def q_values(
         carries, rows, action_value_input(obs, actions, taken)
     )
     values = predict_value_sequence(
-        critic_state, params, xs, resets, carries.target_critic_hidden
+        critic_state,
+        params,
+        xs,
+        resets,
+        carries.target_critic_hidden,
+        quantiles=quantiles,
     )[0]
-    # Values are (ensemble, T, B, 1): the ensemble axis goes last meanwhile.
+    # Values are (ensemble, T, B, 1 or quantiles): the ensemble axis goes
+    # last meanwhile.
     steps = _bootstrap_steps(carries, jnp.moveaxis(values, 0, -1))
     return jnp.moveaxis(steps, -1, 0)
 

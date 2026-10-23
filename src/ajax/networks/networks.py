@@ -431,6 +431,9 @@ class Critic(nn.Module):
     # The value layer's kernel init (as Actor's output layers'); None keeps
     # orthogonal(1.0).
     value_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # The head's outputs: one value, or a distributional critic's quantiles
+    # of the return (TQC's), whose mean __call__ returns.
+    n_quantiles: int = 1
 
     def setup(self):
         if self.memory is not None:
@@ -452,9 +455,22 @@ class Critic(nn.Module):
                 kernel_init=self.encoder_kernel_init,
                 layer_norm=self.encoder_layer_norm,
             )
-        self.model = dense(1, self.value_kernel_init, self.bias_init, orthogonal(1.0))
+        self.model = dense(
+            self.n_quantiles, self.value_kernel_init, self.bias_init, orthogonal(1.0)
+        )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
+        """The value: the head's output, or the mean of its quantiles."""
+        out = self.quantiles(x, hidden_state, done)
+        if self.n_quantiles == 1:
+            return out
+        if self.memory is None:
+            return out.mean(-1, keepdims=True)
+        values, hidden_state = out
+        return values.mean(-1, keepdims=True), hidden_state
+
+    def quantiles(self, x: jax.Array, hidden_state=None, done=None):
+        """The head's ``n_quantiles`` outputs (and the carry, with memory)."""
         if self.memory is None:
             return self.model(self.encoder(x))
         if hidden_state is None or done is None:
@@ -490,6 +506,7 @@ class MultiCritic(nn.Module):
     memory: Optional[MemoryConfig] = None
     query_dim: int = 0  # see Critic.query_dim
     value_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    n_quantiles: int = 1  # see Critic.n_quantiles
 
     def setup(self):
         # x (and done) are broadcast across the ensemble; the carry is
@@ -505,7 +522,7 @@ class MultiCritic(nn.Module):
             variable_axes={"params": 0, "batch_stats": 0},
             split_rngs={"params": True},
             axis_size=self.num,
-            methods=("__call__", "apply_encoder"),
+            methods=("__call__", "apply_encoder", "quantiles"),
         )
         self.ensemble = Vmapped(
             input_architecture=self.input_architecture,
@@ -519,6 +536,7 @@ class MultiCritic(nn.Module):
             memory=self.memory,
             query_dim=self.query_dim,
             value_kernel_init=self.value_kernel_init,
+            n_quantiles=self.n_quantiles,
         )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
@@ -527,6 +545,12 @@ class MultiCritic(nn.Module):
             # hidden leaves (num, B, hidden).
             return self.ensemble(x, hidden_state, done)
         return self.ensemble(x)
+
+    def quantiles(self, x: jax.Array, hidden_state=None, done=None):
+        """Every member's quantiles, the ensemble axis first."""
+        if self.memory is not None:
+            return self.ensemble.quantiles(x, hidden_state, done)
+        return self.ensemble.quantiles(x)
 
     def apply_encoder_ensemble(self, x: jax.Array) -> jax.Array:
         """Per-ensemble-member encoder features, shape ``(num, ..., d)``
@@ -647,6 +671,7 @@ def get_initialized_actor_critic(
         memory=memory,
         query_dim=action_dim if action_value and memory is not None else 0,
         value_kernel_init=network_config.value_kernel_init,
+        n_quantiles=network_config.critic_quantiles,
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
@@ -832,8 +857,11 @@ def predict_value_sequence(
     x: jax.Array,
     resets: jax.Array,
     initial_hidden: Carry,
+    *,
+    quantiles: bool = False,
 ) -> Tuple[jax.Array, Carry]:
-    """Run a recurrent critic over a time-major sequence.
+    """Run a recurrent critic over a time-major sequence (``quantiles``: a
+    distributional critic's quantiles, last axis, in place of the values).
 
     Args:
         x: (T, B, features) critic input (obs, or concat(obs, action)).
@@ -852,6 +880,7 @@ def predict_value_sequence(
         x,
         hidden_state=initial_hidden,
         done=resets,
+        method="quantiles" if quantiles else None,
     )
 
 
@@ -869,14 +898,20 @@ def predict_value(
     critic_state: LoadedTrainState,
     critic_params: FrozenDict,
     x: jax.Array,
+    *,
+    quantiles: bool = False,
 ) -> jax.Array:
     """The critic's values at ``x``: obs, or ``concat(obs, action)`` with the
     agent's [-1, 1] action, which a critic with ``action_units`` reads in its
-    units (TD3's, in the env's)."""
+    units (TD3's, in the env's). ``quantiles``: a distributional critic's
+    quantiles (last axis) in place of their mean, the value."""
     x = _apply_critic_action_units(
         critic_state, _apply_critic_obs_norm(critic_state, x)
     )
-    return critic_state.apply_fn(with_batch_stats(critic_state, critic_params), x)
+    variables = with_batch_stats(critic_state, critic_params)
+    if quantiles:
+        return critic_state.apply_fn(variables, x, method="quantiles")
+    return critic_state.apply_fn(variables, x)
 
 
 def predict_value_train(

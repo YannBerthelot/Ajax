@@ -2,6 +2,7 @@ import distrax
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 import pytest
 from brax.envs import create as create_brax_env
 from flax import linen as nn
@@ -17,6 +18,7 @@ from ajax.networks.networks import (
     Squashed,
     get_initialized_actor_critic,
     get_initialized_critic,
+    init_network_state,
     predict_value,
 )
 from ajax.state import (
@@ -72,6 +74,23 @@ def test_multi_critic(sample_input, num_critics):
     x = jnp.hstack([sample_input, jnp.ones((4, 2))])  # an action of size 2
     params = multi_critic.init(jax.random.PRNGKey(0), x)
     assert multi_critic.apply(params, x).shape == (num_critics, 4, 1)
+
+
+@pytest.mark.parametrize("n_quantiles", [1, 5])
+def test_a_critics_value_is_the_mean_of_its_quantiles(sample_input, n_quantiles):
+    """A distributional critic (TQC's) has ``n_quantiles`` outputs per
+    member: what every value query reads is their mean, and
+    ``predict_value(quantiles=True)`` the outputs themselves; with one, the
+    value is the output."""
+    critic = MultiCritic(input_architecture=ARCH, num=3, n_quantiles=n_quantiles)
+    x = jnp.hstack([sample_input, jnp.ones((4, 2))])  # an action of size 2
+    state = init_network_state(x, critic, jax.random.PRNGKey(0), optax.sgd(0.0))
+    atoms = predict_value(state, state.params, x, quantiles=True)
+    values = predict_value(state, state.params, x)
+    assert atoms.shape == (3, 4, n_quantiles) and values.shape == (3, 4, 1)
+    np.testing.assert_allclose(values, atoms.mean(-1, keepdims=True), rtol=1e-6)
+    if n_quantiles == 1:
+        np.testing.assert_array_equal(values, atoms)
 
 
 @pytest.mark.parametrize("multi", [False, True])

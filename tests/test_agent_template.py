@@ -1,4 +1,4 @@
-"""The agent template's calls match the loop's signatures.
+"""The agent template's calls match the loop's and the steps' signatures.
 
 CONTRIBUTING.md and the architecture page show how an agent calls the shared
 loop. When a signature changes and they do not, a newcomer's first agent
@@ -18,16 +18,16 @@ import typing
 
 import pytest
 
-from ajax.agents import loop
+from ajax.agents import loop, steps
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOCS = ("CONTRIBUTING.md", "docs/developer/architecture.md")
 HELPERS = {
     "off_policy": loop.TrainLoop.off_policy,
     "on_policy": loop.TrainLoop.on_policy,
-    "critic_step": loop.critic_step,
-    "actor_step": loop.actor_step,
-    "gradient_step": loop.gradient_step,
+    "critic_step": steps.critic_step,
+    "actor_step": steps.actor_step,
+    "gradient_step": steps.gradient_step,
 }
 METHODS = {"off_policy", "on_policy"}
 CODE = re.compile(r"^```python\n(.*?)^```|`([^`\n]+)`", re.MULTILINE | re.DOTALL)

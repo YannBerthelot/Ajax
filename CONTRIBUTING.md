@@ -19,7 +19,11 @@ These are the pieces every agent shares:
 ```
 src/ajax/
 ├── agents/base.py       ActorCritic: environment and network setup, extensions=, train()
-├── agents/loop.py       TrainLoop, the shared loop; critic_step, actor_step, gradient_step
+├── agents/loop.py       TrainLoop, the shared loop (brax's forced resets included)
+├── agents/steps.py      critic_step, actor_step, gradient_step, joint_step, when, the target update
+├── agents/minibatch.py  the on-policy geometry, minibatches and epochs
+├── agents/critics.py    the Q-critics' regression (continuous and discrete actions)
+├── agents/diagnostics.py  KL, explained variance, policy std
 ├── agents/recurrent.py  replay buffers and R2D2-style sequence replay for memory=
 ├── agents/cloning.py    the behaviour-cloning loss and fit (CloningPretrain's)
 ├── extensions/base.py   Extension, ExtensionStack, ExtensionContext, the phases
@@ -36,8 +40,8 @@ its `make_train` and fills `train_kwargs`, which `get_make_train()` binds);
 `train_<AGENT>.py`, the algorithm and a `make_train` that hands its
 initialisation and update to `TrainLoop`; and `state.py`, `<AGENT>State` and
 `<AGENT>Config`. SAC, PPO and TDMPC2 also have a `core.py`: the maths their
-descendants import instead of copying (ASAC, REDQ and AVG from SAC; APO from
-PPO; TDMPC2MultiTask from it).
+descendants import instead of copying (ASAC, AVG, CrossQ, REDQ and TQC from
+SAC; APO from PPO; TDMPC2MultiTask from it), under the lineage rule below.
 
 ## The shared training loop
 

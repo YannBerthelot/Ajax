@@ -85,7 +85,7 @@ Each update samples one replay batch and runs, in the reference's order:
    Gaussian on a tanh mean, with one learned log-std per action dimension,
    clipped to [−5, 2]. The evaluations act with its mean.
 3. **Critics.** Two Q critics regress on `reward_scale · r + γ (1 −
-   terminated) V(s')`.
+   terminated) V(s')`, their squared errors summed.
 4. **Targets.** The target critics move by Polyak averaging at rate `tau`.
 
 ## Notes
@@ -98,9 +98,6 @@ Each update samples one replay batch and runs, in the reference's order:
   over its range of episode returns, and subtracts 1 from antmaze's. Compute
   the factor from your dataset and pass it as `reward_scale` (or shift the
   dataset's rewards).
-- **Critics' loss.** Their mean squared error over both critics, half the
-  reference's sum. Adam's step is the same but for its eps, whose weight
-  against the gradient doubles.
 - **The value's input.** V reads the raw observation. With
   `normalize_observations=True` only the actor and the critics normalise
   theirs.

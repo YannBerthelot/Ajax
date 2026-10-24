@@ -1,6 +1,6 @@
 """ReBRAC's update, recorded for the conformance check (tests/conformance/test_rebrac_original.py).
 
-usage: python conformance_rebrac.py ENV_ID OUT_DIR   (in envs/rebrac: see its pyproject for the versions)
+usage: python conformance_rebrac.py ENV_ID OUT_DIR   (in envs/jax_offline: see its pyproject for the versions)
 
 Imports nothing from Ajax. The original (vendor/tinkoff_rebrac) learns from a D4RL dataset; here the
 dataset is uniform random actions in [-1, 1]^A on a gymnasium task, in D4RL's format (observations, actions,

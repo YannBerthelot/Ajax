@@ -4,11 +4,11 @@ requires-python = "==3.10.*"
 
 [[package]]
 name = "absl-py"
-version = "2.5.1"
+version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/1f/1d/58e2b5a6e4d703ccb2a029943d665974cb3d5a4fb2b3e3675dd03a9df10e/absl_py-2.5.1.tar.gz", hash = "sha256:286e71c82c1a38e75bbcf185f9b37d0305ad7786535107cb49bf4df9ff2e1f95", size = 118387, upload-time = "2026-10-09T08:38:58.037Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a8/66/2b190f1ad948a0f5a84026eb499c123256d19f48d159b1462a4a98634be3/absl-py-1.3.0.tar.gz", hash = "sha256:463c38a08d2e4cef6c498b76ba5bd4858e4c6ef51da1a5a1f27139a022e20248", size = 110176, upload-time = "2022-10-13T20:32:52.544Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b3/7d/01e62f59e4166af1be6238d9f2b7f3453630c51b8044b412d05b5606532a/absl_py-2.5.1-py3-none-any.whl", hash = "sha256:721200f2f0e9960f2ca9dc3a2a706b201f5f75d812c158f059cbbe29eeafbdb8", size = 137673, upload-time = "2026-10-09T08:38:56.629Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/39/ba081c6f7837366a39c9286fa1bc9dbf217249df80e133f25c62b05d1a53/absl_py-1.3.0-py3-none-any.whl", hash = "sha256:34995df9bd7a09b3b8749e230408f5a2a2dd7a68a0d33c12a3d0cb15a041a507", size = 124586, upload-time = "2022-10-13T20:32:49.687Z" },
 ]
 
 [[package]]
@@ -57,10 +57,11 @@ wheels = [
 ]
 
 [[package]]
-name = "conformance-rebrac"
+name = "conformance-jax-offline"
 version = "0"
 source = { virtual = "." }
 dependencies = [
+    { name = "absl-py" },
     { name = "chex" },
     { name = "distrax" },
     { name = "flax" },
@@ -68,6 +69,7 @@ dependencies = [
     { name = "gymnasium" },
     { name = "jax" },
     { name = "jaxlib" },
+    { name = "ml-collections" },
     { name = "numpy" },
     { name = "optax" },
     { name = "scipy" },
@@ -77,6 +79,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "absl-py", specifier = "==1.3.0" },
     { name = "chex", specifier = "==0.1.7" },
     { name = "distrax", specifier = "==0.1.2" },
     { name = "flax", specifier = "==0.7.4" },
@@ -84,11 +87,21 @@ requires-dist = [
     { name = "gymnasium", specifier = "==0.29.1" },
     { name = "jax", specifier = "==0.4.18" },
     { name = "jaxlib", specifier = "==0.4.18" },
+    { name = "ml-collections", specifier = "==0.1.1" },
     { name = "numpy", specifier = "==1.23.1" },
     { name = "optax", specifier = "==0.1.7" },
     { name = "scipy", specifier = "==1.11.4" },
     { name = "tensorflow-probability", specifier = "==0.21.0" },
     { name = "tqdm", specifier = "==4.64.0" },
+]
+
+[[package]]
+name = "contextlib2"
+version = "21.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/13/37ea7805ae3057992e96ecb1cffa2fa35c2ef4498543b846f90dd2348d8f/contextlib2-21.6.0.tar.gz", hash = "sha256:ab1e2bfe1d01d968e1b7e8d9023bc51ef3509bba217bb730cee3827e1ee82869", size = 43795, upload-time = "2021-06-27T06:54:40.841Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/56/6d6872f79d14c0cb02f1646cbb4592eef935857c0951a105874b7b62a0c3/contextlib2-21.6.0-py2.py3-none-any.whl", hash = "sha256:3fbdb64466afd23abaf6c977627b75b6139a5a3e8ce38405c5b413aed7a0471f", size = 13277, upload-time = "2021-06-27T06:54:20.972Z" },
 ]
 
 [[package]]
@@ -298,6 +311,18 @@ sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec9
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
 ]
+
+[[package]]
+name = "ml-collections"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "absl-py" },
+    { name = "contextlib2" },
+    { name = "pyyaml" },
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/aa/ea/853aa32dfa1006d3eb43384712f35b8f2d6f0a757b8c779d40c29e3e8515/ml_collections-0.1.1.tar.gz", hash = "sha256:3fefcc72ec433aa1e5d32307a3e474bbb67f405be814ea52a2166bfc9dbe68cc", size = 77915, upload-time = "2022-01-27T12:39:20.918Z" }
 
 [[package]]
 name = "ml-dtypes"

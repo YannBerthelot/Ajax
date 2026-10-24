@@ -14,9 +14,9 @@ _new_homes.update(
     {
         "init_CrossQ": "ajax.agents.CrossQ.CrossQ:CrossQ.init",
         "update_agent": "ajax.agents.CrossQ.CrossQ:CrossQ.update",
-        "update_critics": "ajax.agents.CrossQ.CrossQ:CrossQ.critic_update",
+        "update_critics": "ajax.agents.CrossQ.CrossQ:CrossQ.update_critic",
         "update_actor_and_temperature": (
-            "ajax.agents.CrossQ.CrossQ:CrossQ.actor_update"
+            "ajax.agents.CrossQ.CrossQ:CrossQ.update_actor"
         ),
         "make_train": "ajax.agents.families:ReplayAgent.make_train",
     }

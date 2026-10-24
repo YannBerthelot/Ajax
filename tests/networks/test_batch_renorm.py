@@ -10,7 +10,7 @@ import optax
 import pytest
 
 from ajax import SAC
-from ajax.agents.recurrent import actor_dist_train
+from ajax.agents.recurrent import get_policy_in_training
 from ajax.networks.networks import (
     Actor,
     MultiCritic,
@@ -96,7 +96,7 @@ def test_a_critic_keeps_its_statistics_apart_from_its_trained_parameters() -> No
 def test_an_actor_without_running_statistics_trains_as_it_reads() -> None:
     actor = Actor(input_architecture=("8", "relu"), action_dim=2, continuous=True)
     state = init_network_state(X[:1], actor, jax.random.PRNGKey(2), optax.adam(1e-3))
-    pi, batch_stats = actor_dist_train(state, state.params, X)
+    pi, batch_stats = get_policy_in_training(state, state.params, X)
     assert state.batch_stats is None and batch_stats is None
     np.testing.assert_array_equal(pi.mean(), state.apply(state.params, X).mean())
 

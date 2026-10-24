@@ -153,7 +153,7 @@ class TD3(
             self.stored_state,
             burn_target_actor=True,
         )
-        agent_state, value_aux, value_metrics = self.critic_update(
+        agent_state, value_aux, value_metrics = self.update_critic(
             agent_state, batch, carries, context
         )
         # sfujim/TD3 counts the update first (total_it += 1), then steps the
@@ -161,11 +161,11 @@ class TD3(
         # step is the policy_delay-th update, not the first. Skipped, its
         # metrics are zeros.
         do_policy = ((agent_state.n_updates + 1) % self.policy_delay) == 0
-        actor_update = partial(
-            self.actor_update, batch=batch, carries=carries, context=context
+        update_actor_on_batch = partial(
+            self.update_actor, batch=batch, carries=carries, context=context
         )
-        agent_state, (policy_aux, policy_metrics) = steps.when(
-            do_policy, actor_update, agent_state, fill=0.0
+        agent_state, (policy_aux, policy_metrics) = steps.run_if(
+            do_policy, update_actor_on_batch, agent_state, fill=0.0
         )
         agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
         return agent_state, AuxiliaryLogs(
@@ -174,7 +174,7 @@ class TD3(
             extensions=merge_metrics(value_metrics, policy_metrics),
         )
 
-    def critic_update(
+    def update_critic(
         self,
         agent_state: TD3State,
         batch: Transition,
@@ -199,7 +199,7 @@ class TD3(
             context.executed,
             batch.next_a_expert,
         )
-        loss = partial(
+        compute_critic_loss_on_batch = partial(
             critic_loss,
             agent_state.critic_state,
             batch,
@@ -211,7 +211,7 @@ class TD3(
             agent_state,
             batch,
             target_q,
-            loss,
+            compute_critic_loss_on_batch,
             context.extensions,
             critic_key,
             context.total_timesteps,
@@ -226,7 +226,7 @@ class TD3(
         aux = aux.replace(grad_norm=grad_norm)
         return agent_state.replace(critic_state=critic_state), aux, metrics
 
-    def actor_update(
+    def update_actor(
         self,
         agent_state: TD3State,
         batch: Transition,

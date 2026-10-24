@@ -63,7 +63,7 @@ from jax.tree_util import Partial as partial
 from ajax.agents.steps import (
     ACTOR_STEP_KEYS,
     CRITIC_LOSS_KEYS,
-    EXTENSIONS,
+    EXTENSIONS_KEY_TAG,
     REPLAY_ACTOR_KEYS,
     REPLAY_BATCH_KEYS,
     TARGET_KEYS,
@@ -72,12 +72,12 @@ from ajax.agents.steps import (
     apply_on_target,
     apply_post_update,
     critic_step,
-    extension_key,
+    derive_extensions_key,
     fold_critic_loss,
     fold_on_target,
     fold_post_update,
     gradient_step,
-    when,
+    run_if,
 )
 from ajax.buffers.dataset import TransitionDataset, fill_replay
 from ajax.controller import Controller, reads_progress
@@ -427,7 +427,7 @@ class TrainLoop:
             return self.post_update(agent_state), aux
 
         ready = agent_state.collector_state.timestep >= learning_starts
-        return when(ready, do_update, agent_state)
+        return run_if(ready, do_update, agent_state)
 
     def repeat_update(
         self, agent_state: Any, n: Any, update: Callable[[Any], tuple[Any, Any]]
@@ -847,7 +847,7 @@ class TrainLoop:
 __all__ = [
     "ACTOR_STEP_KEYS",
     "CRITIC_LOSS_KEYS",
-    "EXTENSIONS",
+    "EXTENSIONS_KEY_TAG",
     "LOOP_PHASES",
     "REPLAY_ACTOR_KEYS",
     "REPLAY_BATCH_KEYS",
@@ -859,12 +859,12 @@ __all__ = [
     "apply_on_target",
     "apply_post_update",
     "critic_step",
-    "extension_key",
+    "derive_extensions_key",
     "fold_critic_loss",
     "fold_on_target",
     "fold_post_update",
     "fresh_state",
     "gradient_step",
+    "run_if",
     "seed_replay",
-    "when",
 ]

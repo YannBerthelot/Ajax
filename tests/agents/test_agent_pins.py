@@ -1243,7 +1243,7 @@ _GOLDEN.update(
 
 # Re-recorded on macOS ARM CPU once each step took its key from the state
 # (BaseAgentState.next_keys) and critic_step, actor_step and soft_actor_step
-# derived the extensions' keys from it (loop.extension_key): TD3's and AVG's
+# derived the extensions' keys from it (steps.derive_extensions_key): TD3's and AVG's
 # actor steps now draw a key of their own, ASAC's and REDQ's actor key is
 # split first, and DQN with extensions no longer splits a key for them.
 # Relative shifts (actor, critic): TD3 +4.8e-4, +1.4e-4; TD3-mcc +3.9e-4,
@@ -1314,7 +1314,7 @@ _GOLDEN.update(
     }
 )
 # Re-recorded on macOS ARM CPU on 2026-10-22 once PPO, APO and PQN derived
-# their extensions' keys from keys their steps hold (loop.extension_key)
+# their extensions' keys from keys their steps hold (steps.derive_extensions_key)
 # instead of splitting them off the state's rng: with extensions, the agent's
 # own stream is now the one it draws without. Relative shifts: PPO-discrete-
 # nudge actor +0.88%, critic -2.3e-5, nudge -6.2%; APO-nudge actor -0.27%,

@@ -372,12 +372,12 @@ class DeclaredAgent(ActorCritic):
         """The critic's estimate of the return each evaluation compares, on
         the agent's discount and reward scale; none without a discounted
         critic."""
-        caps = self.capabilities
-        if "discounted" not in caps:
+        capabilities = self.capabilities
+        if "discounted" not in capabilities:
             return None
-        if "q_critic" in caps:
+        if "q_critic" in capabilities:
             value = action_value
-        elif "v_critic" in caps:
+        elif "v_critic" in capabilities:
             value = state_value
         else:
             return None

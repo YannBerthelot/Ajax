@@ -2,7 +2,7 @@
 (compute_gradients), gradient steps with the extensions' loss terms added
 (critic_step, actor_step, apply_gradients_clipped_together for two networks
 clipped together), the extensions' target and post-update phases, the gates
-(when) and keys (extension_key) around them, which ajax.agents.loop
+(run_if) and keys (derive_extensions_key) around them, which ajax.agents.loop
 re-exports, and the target critics' Polyak update SAC, ASAC, REDQ and TQC
 share (update_target_networks).
 """
@@ -82,43 +82,50 @@ def apply_post_update(
     )
 
 
-def when(pred: Any, fn: Callable[[Any], Any], state: Any, fill: Any = None) -> Any:
-    """fn(state) where pred holds, else state unchanged: a policy
-    delay, a target refresh, a warm-up.
+def run_if(
+    condition: Any, update: Callable[[Any], Any], state: Any, fill: Any = None
+) -> Any:
+    """update(state) where condition holds, else state unchanged: a policy
+    delay, a target refresh, a warm-up. state is any tree: an agent's
+    state, or one network's (DQN's target refresh).
 
-    fn returns the new state, or the new state and its metrics. Skipped,
-    the metrics have fn's structure, read from its trace (with the names
-    the extensions log), filled with fill: by default NaN, -1 in integer
-    leaves (ajax.log.unevaluated), which the logger drops. Under the
-    seed vmap a pred read from per-seed state runs fn every time
-    and selects; one from unbatched counters runs it only where it holds.
+    update returns the new state, or the new state and its metrics.
+    Skipped, the metrics have update's structure, read from its trace (with
+    the names the extensions log), filled with fill: by default NaN, -1 in
+    integer leaves (ajax.log.unevaluated), which the logger drops. Under
+    the seed vmap a condition read from per-seed state runs update every
+    time and selects; one from unbatched counters runs it only where it
+    holds.
     """
     # The branches close over state rather than take it as an operand:
-    # with state an operand, SAC's warm-ups (an fn returning a state
+    # with state an operand, SAC's warm-ups (an update returning a state
     # computed outside) compiled to other float rounding than the
     # lax.cond they replaced.
-    out = jax.eval_shape(fn, state)
+    output_shape = jax.eval_shape(update, state)
     # PyTreeDef compares by structure; its stub does not declare __eq__.
-    if jax.tree.structure(out) == jax.tree.structure(state):  # type: ignore[operator]
-        return jax.lax.cond(pred, lambda: fn(state), lambda: state)
+    if jax.tree.structure(output_shape) == jax.tree.structure(state):  # type: ignore[operator]
+        return jax.lax.cond(condition, lambda: update(state), lambda: state)
     metrics = (
-        unevaluated(out[1])
+        unevaluated(output_shape[1])
         if fill is None
-        else jax.tree.map(lambda leaf: jnp.full(leaf.shape, fill, leaf.dtype), out[1])
+        else jax.tree.map(
+            lambda leaf: jnp.full(leaf.shape, fill, leaf.dtype), output_shape[1]
+        )
     )
-    return jax.lax.cond(pred, lambda: fn(state), lambda: (state, metrics))
+    return jax.lax.cond(condition, lambda: update(state), lambda: (state, metrics))
 
 
-#: What a step's key is folded with into its extensions' key. fold_in(k, i)
-#: is split(k, n)[i] under JAX's partitionable threefry, so the tag lies far
-#: past any split's length: no key a step splits off its own is theirs.
-EXTENSIONS = 0x45585453  # "EXTS"
+#: The tag a step's key is folded with to derive its extensions' key. Under
+#: JAX's partitionable threefry, folding a key with a number gives the key
+#: that splitting it gives at that index, so the tag lies far past any
+#: split's length: no key a step splits off its own reaches the extensions.
+EXTENSIONS_KEY_TAG = 0x45585453  # "EXTS"
 
 
-def extension_key(key: jax.Array) -> jax.Array:
+def derive_extensions_key(key: jax.Array) -> jax.Array:
     """The extensions' key of a step on key, which the step's own draws
     (on key and the keys it splits off it) never get."""
-    return jax.random.fold_in(key, EXTENSIONS)
+    return jax.random.fold_in(key, EXTENSIONS_KEY_TAG)
 
 
 def compute_gradients(
@@ -171,7 +178,7 @@ def apply_on_target(
     bootstrap is cut), gamma (None for an average-reward agent) and
     reward_scale are what the target used; target_extras join the
     extensions' batch (TD3's smoothed next actions). The phase draws on a key
-    derived from key, the step's (extension_key).
+    derived from key, the step's (derive_extensions_key).
     """
     target_batch = {
         "observations": batch.obs,
@@ -189,10 +196,10 @@ def apply_on_target(
         "next_action": batch.next_action,
     }
     target_batch.update(target_extras or {})
-    target_key, _ = jax.random.split(extension_key(key))
-    step = agent_state.collector_state.timestep
+    target_key, _ = jax.random.split(derive_extensions_key(key))
+    timestep = agent_state.collector_state.timestep
     target_q, metrics = extensions.apply_on_target(
-        agent_state, target_batch, target_q, step, target_key, total_timesteps
+        agent_state, target_batch, target_q, timestep, target_key, total_timesteps
     )
     return jax.lax.stop_gradient(target_q), metrics
 
@@ -221,10 +228,10 @@ def apply_critic_loss(
         "actor_state": agent_state.actor_state,
         "return_to_go": batch.return_to_go,
     }
-    _, loss_key = jax.random.split(extension_key(key))
-    step = agent_state.collector_state.timestep
+    _, loss_key = jax.random.split(derive_extensions_key(key))
+    timestep = agent_state.collector_state.timestep
     return extensions.apply_critic_loss(
-        agent_state, loss_batch, step, loss_key, total_timesteps
+        agent_state, loss_batch, timestep, loss_key, total_timesteps
     )
 
 
@@ -285,7 +292,7 @@ def actor_step(
     Steps the actor down policy_loss(params) -> (loss, aux, pi_mean)
     (pi_mean: the policy's mean action at the rows, None for a discrete
     policy) plus the extensions' actor_loss terms, on a key
-    derived from key, the step's (extension_key). Their batch is
+    derived from key, the step's (derive_extensions_key). Their batch is
     batch, the rows' entries the agent passes (observations,
     raw_observations, actions, a_expert, critic_state), with
     the differentiated actor_params, the actor_state, pi_mean and
@@ -306,9 +313,13 @@ def actor_step(
                 "agent_loss": loss,
             }
         )
-        step = agent_state.collector_state.timestep
+        timestep = agent_state.collector_state.timestep
         extra, metrics = extensions.apply_actor_loss(
-            agent_state, actor_batch, step, extension_key(key), total_timesteps
+            agent_state,
+            actor_batch,
+            timestep,
+            derive_extensions_key(key),
+            total_timesteps,
         )
         return loss + extra, (aux, metrics)
 

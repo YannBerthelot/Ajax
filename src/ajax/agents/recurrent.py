@@ -1,5 +1,5 @@
 """Shared machinery for recurrent updates: off-policy (R2D2-style), and an
-on-policy rollout's sequence values (rollout_sequence_values).
+on-policy rollout's sequence values (compute_rollout_sequence_values).
 
 Every off-policy agent with a Q-critic (SAC, ASAC, REDQ, TD3) trains its
 memory the same way:
@@ -287,25 +287,31 @@ def sample_replay(
 
 
 def _bootstrap_stream(
-    carries: RecurrentCarries, rows: jax.Array, boots: jax.Array
+    carries: RecurrentCarries, rows: jax.Array, bootstrap_inputs: jax.Array
 ) -> Tuple[jax.Array, jax.Array]:
     """The sequence a bootstrap runs over and its reset flags: the rows,
-    each followed by the step its target bootstraps on, boots. That is
-    the next row's own step, except where only a time limit ended the
-    episode: there its final observation is a step of its own, which the
-    next row's reset then forgets. Twice the rows long, the tail fresh.
+    each followed by the step its target bootstraps on, bootstrap_inputs.
+    That is the next row's own step, except where only a time limit ended
+    the episode: there its final observation is a step of its own, which
+    the next row's reset then forgets. Twice the rows long, the tail fresh.
     """
-    at, boot = _onehot(carries.positions), _onehot(carries.positions + 1)
+    row_onehot = _make_position_onehot(carries.positions)
+    bootstrap_onehot = _make_position_onehot(carries.positions + 1)
     # A bootstrap step and the next row's own step are one (its query wins).
-    row = at * (1 - boot.sum(axis=1, keepdims=True))
-    stream_inputs = _select(row, rows) + _select(boot, boots)
-    empty = 1 - row.sum(axis=1) - boot.sum(axis=1)
-    flags = _select(row, carries.resets) + _select(boot, carries.next_resets)
-    return stream_inputs, flags + empty > 0
+    row_mask = row_onehot * (1 - bootstrap_onehot.sum(axis=1, keepdims=True))
+    stream_inputs = _select(row_mask, rows) + _select(
+        bootstrap_onehot, bootstrap_inputs
+    )
+    empty_slots = 1 - row_mask.sum(axis=1) - bootstrap_onehot.sum(axis=1)
+    reset_flags = _select(row_mask, carries.resets) + _select(
+        bootstrap_onehot, carries.next_resets
+    )
+    return stream_inputs, reset_flags + empty_slots > 0
 
 
-def _onehot(positions: jax.Array) -> jax.Array:
-    """(2S, S, B): stream position p holds row t's entry."""
+def _make_position_onehot(positions: jax.Array) -> jax.Array:
+    """(2 * n_rows, n_rows, batch): 1 where a stream position holds a
+    row's entry, from each row's position (n_rows, batch)."""
     stream = jnp.arange(2 * positions.shape[0])[:, None, None]
     return (stream == positions[None]).astype(jnp.float32)
 
@@ -318,12 +324,16 @@ def _select(onehot: jax.Array, values: jax.Array) -> jax.Array:
     return jnp.sum(picks * values[None], axis=1)
 
 
-def _bootstrap_steps(carries: RecurrentCarries, out: jax.Array) -> jax.Array:
-    """The bootstrap steps of a stream's time-major out (2S, B, ...):
-    row t's, after it (the bootstrap stream above)."""
-    boot = _onehot(carries.positions + 1)
-    picks = boot.reshape(boot.shape + (1,) * (out.ndim - 2))
-    return jnp.sum(picks * out[:, None], axis=0)
+def _select_bootstrap_steps(
+    carries: RecurrentCarries, stream_outputs: jax.Array
+) -> jax.Array:
+    """The bootstrap steps of a stream's time-major outputs (2 * n_rows,
+    batch, ...): each row's, after it (the bootstrap stream above)."""
+    bootstrap_onehot = _make_position_onehot(carries.positions + 1)
+    picks = bootstrap_onehot.reshape(
+        bootstrap_onehot.shape + (1,) * (stream_outputs.ndim - 2)
+    )
+    return jnp.sum(picks * stream_outputs[:, None], axis=0)
 
 
 def actor_dist(
@@ -353,10 +363,10 @@ def actor_dist(
         0
     ]
     # A distribution is a pytree of its parameters, time-major.
-    return jax.tree.map(lambda leaf: _bootstrap_steps(carries, leaf), policy)
+    return jax.tree.map(lambda leaf: _select_bootstrap_steps(carries, leaf), policy)
 
 
-def actor_dist_train(
+def get_policy_in_training(
     actor_state: LoadedTrainState, params: Any, obs: jax.Array
 ) -> Tuple[Any, Optional[Any]]:
     """actor_dist in training, feedforward: the actor's distribution
@@ -391,9 +401,13 @@ def q_values(
         critic_input = action_value_input(obs, actions)
         return predict_value(critic_state, params, critic_input, quantiles=quantiles)
     actions = in_critic_units(critic_state, actions)
-    prev_actions = in_critic_units(critic_state, carries.prev_actions)
+    previous_actions_in_critic_units = in_critic_units(
+        critic_state, carries.prev_actions
+    )
     if not bootstrap:
-        critic_input = action_value_input(obs, actions, prev_actions)
+        critic_input = action_value_input(
+            obs, actions, previous_actions_in_critic_units
+        )
         return predict_value_sequence(
             critic_state,
             params,
@@ -403,7 +417,7 @@ def q_values(
             quantiles=quantiles,
         )[0]
     # The rows' queries are unread; after a termination nothing came before.
-    rows = action_value_input(carries.obs, actions, prev_actions)
+    rows = action_value_input(carries.obs, actions, previous_actions_in_critic_units)
     taken = jnp.where(
         carries.next_resets[..., None],
         0.0,
@@ -422,11 +436,11 @@ def q_values(
     )[0]
     # Values are (ensemble, T, B, 1 or quantiles): the ensemble axis goes
     # last meanwhile.
-    steps = _bootstrap_steps(carries, jnp.moveaxis(values, 0, -1))
-    return jnp.moveaxis(steps, -1, 0)
+    bootstrap_q_values = _select_bootstrap_steps(carries, jnp.moveaxis(values, 0, -1))
+    return jnp.moveaxis(bootstrap_q_values, -1, 0)
 
 
-def rollout_sequence_values(
+def compute_rollout_sequence_values(
     agent_state: Any,
     rollout: Transition,
     agent_state_at_rollout_start: Any,
@@ -469,7 +483,7 @@ def rollout_sequence_values(
     next_obs_sequences = rollout.next_obs.reshape(obs_sequences.shape)
     reset_sequences = resets.reshape(n_sequences, length, n_envs)
     critic, actor = agent_state.critic_state, agent_state.actor_state
-    going_on = jnp.zeros((1, n_envs), bool)
+    no_resets = jnp.zeros((1, n_envs), bool)
 
     def step_critic(carry: Any, step: tuple) -> tuple[Any, tuple]:
         obs, next_obs, step_resets = step
@@ -477,7 +491,7 @@ def rollout_sequence_values(
             critic, critic.params, obs[None], step_resets[None], carry
         )
         next_value, _ = predict_value_sequence(
-            critic, critic.params, next_obs[None], going_on, carry
+            critic, critic.params, next_obs[None], no_resets, carry
         )
         # (num = 1, T = 1, B, 1) -> (B, 1)
         return carry, (value.squeeze((0, 1)), next_value.squeeze((0, 1)))

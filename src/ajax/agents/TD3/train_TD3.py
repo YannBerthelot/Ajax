@@ -24,8 +24,8 @@ _new_homes.update(
         "update_target_networks": "ajax.agents.TD3.TD3:update_targets",
         "init_TD3": "ajax.agents.TD3.TD3:TD3.init",
         "update_agent": "ajax.agents.TD3.TD3:TD3.update",
-        "update_value_functions": "ajax.agents.TD3.TD3:TD3.critic_update",
-        "update_policy": "ajax.agents.TD3.TD3:TD3.actor_update",
+        "update_value_functions": "ajax.agents.TD3.TD3:TD3.update_critic",
+        "update_policy": "ajax.agents.TD3.TD3:TD3.update_actor",
         "make_train": "ajax.agents.families:ReplayAgent.make_train",
     }
 )

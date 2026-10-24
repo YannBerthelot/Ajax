@@ -277,10 +277,10 @@ pass calls them inside its loss.
 SAC, TD3, AVG, DAgger and IQL use `actor_step`; ASAC and REDQ use
 `soft_actor_step` in `SAC/core.py`, on the same `soft_policy_loss` as SAC.
 
-Two more keep control flow out of the updates. `when(pred, fn, state)` runs
-`fn` where `pred` holds and leaves the state as it is elsewhere, its metrics
-then NaN (or `fill`): TD3's policy delay, DQN's target refresh, SAC's
-warm-ups and the loop's own `learning_starts` gate. A `Schedule`
+Two more keep control flow out of the updates. `run_if(condition, update,
+state)` runs `update` where `condition` holds and leaves the state as it is
+elsewhere, its metrics then NaN (or `fill`): TD3's policy delay, DQN's target
+refresh, SAC's warm-ups and the loop's own `learning_starts` gate. A `Schedule`
 (`ajax.schedule`) is a hyperparameter given as a constant or a function of the
 timestep, read with `at(schedule, timestep)`; `linear(start, end, steps)` is a
 ramp. TD3's exploration noise and PPO's and APO's clip range take one, and

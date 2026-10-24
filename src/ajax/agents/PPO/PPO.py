@@ -55,11 +55,11 @@ from ajax.agents.minibatch import (
     get_actions_and_log_probs,
     run_epochs,
 )
-from ajax.agents.recurrent import rollout_sequence_values
+from ajax.agents.recurrent import compute_rollout_sequence_values
 from ajax.agents.steps import (
     apply_gradients_clipped_together,
     compute_gradients,
-    extension_key,
+    derive_extensions_key,
 )
 from ajax.environments.interaction import get_pi, get_pi_sequence
 from ajax.environments.utils import check_if_environment_has_continuous_actions
@@ -229,7 +229,7 @@ class PPO(
         # The update's key: it shuffles the rollout, and the extensions' reward
         # and on_target draw on keys derived from it.
         shuffle_key, agent_state = agent_state.get_keys_and_new_state()
-        reward_key, target_key = jax.random.split(extension_key(shuffle_key))
+        reward_key, target_key = jax.random.split(derive_extensions_key(shuffle_key))
         rewards = rollout.reward
         reward_metrics: dict[str, Any] = {}
         if "reward" in extensions.implemented_phases():
@@ -275,7 +275,7 @@ class PPO(
             # GAE once, on the rollout, with the critic that collected it.
             if context.recurrent:
                 agent_state, values, next_values, resets, carries = (
-                    rollout_sequence_values(
+                    compute_rollout_sequence_values(
                         agent_state, rollout, agent_state_at_rollout_start, split.length
                     )
                 )
@@ -303,13 +303,17 @@ class PPO(
             )
             batch.update({"targets": value_targets, "gae": gae})
 
-        def minibatches(key: jax.Array) -> dict:
+        def cut_rollout_into_minibatches(epoch_key: jax.Array) -> dict:
             """One epoch's partition of the rollout."""
-            return split.minibatches(batch, key, carries)
+            return split.cut_into_minibatches(batch, epoch_key, carries)
 
-        step = partial(self.minibatch_step, split=split, context=context)
+        step_on_minibatch = partial(self.minibatch_step, split=split, context=context)
         agent_state, aux = run_epochs(
-            agent_state, shuffle_key, minibatches, step, self.n_epochs
+            agent_state,
+            shuffle_key,
+            cut_rollout_into_minibatches,
+            step_on_minibatch,
+            self.n_epochs,
         )
         # on_target ran once, over the rollout, unless the advantages are per minibatch.
         aux = aux.replace(
@@ -386,12 +390,12 @@ class PPO(
         extensions, total_timesteps = context.extensions, context.total_timesteps
         # The extensions' target and loss terms, each on a key of its own.
         target_key, critic_key, actor_key = jax.random.split(
-            extension_key(entropy_key), 3
+            derive_extensions_key(entropy_key), 3
         )
-        critic_extra = _extensions_critic_loss(
+        compute_extensions_critic_loss = _make_extensions_critic_loss(
             extensions, agent_state, critic_key, total_timesteps
         )
-        actor_extra = _extensions_actor_loss(
+        compute_extensions_actor_loss = _make_extensions_actor_loss(
             extensions, agent_state, actor_key, total_timesteps, minibatch["raw_obs"]
         )
 
@@ -424,7 +428,7 @@ class PPO(
                 value_targets,
                 context.recurrent,
                 vf_coef=self.vf_coef,
-                extra_loss_fn=critic_extra,
+                extra_loss_fn=compute_extensions_critic_loss,
                 resets=resets,
                 initial_hidden=critic_hidden,
             )
@@ -441,7 +445,7 @@ class PPO(
                 clip_coef=at(self.clip_range, agent_state.collector_state.timestep),
                 ent_coef=self.ent_coef,
                 advantage_normalization=self.normalize_advantage,
-                extra_loss_fn=actor_extra,
+                extra_loss_fn=compute_extensions_actor_loss,
                 raw_actions=minibatch["raw_actions"],
                 entropy_rng=entropy_key,
                 resets=resets,
@@ -526,10 +530,10 @@ def _compute_gae(
         reward, value, next_value, terminated, truncated = transition
 
         next_state_is_non_terminal = 1.0 - terminated
-        done = 1 - jnp.logical_or(terminated, truncated)
+        episode_continues = 1 - jnp.logical_or(terminated, truncated)
 
         delta = reward + gamma * next_value * next_state_is_non_terminal - value
-        gae = delta + gamma * gae_lambda * done * gae
+        gae = delta + gamma * gae_lambda * episode_continues * gae
 
         return gae, gae
 
@@ -669,7 +673,7 @@ def clipped_surrogate(
 
 
 # -- The extensions' loss terms, as the losses' extra_loss_fn ----------------
-def _extensions_critic_loss(
+def _make_extensions_critic_loss(
     extensions: ExtensionStack,
     agent_state: PPOState,
     key: jax.Array,
@@ -684,7 +688,9 @@ def _extensions_critic_loss(
     if not extensions:
         return None
 
-    def critic_loss(critic_params, critic_states, observations, value_targets):
+    def compute_extensions_critic_loss(
+        critic_params, critic_states, observations, value_targets
+    ):
         critic_batch = {
             "observations": observations,
             "targets": value_targets,
@@ -699,10 +705,10 @@ def _extensions_critic_loss(
             total_timesteps,
         )
 
-    return critic_loss
+    return compute_extensions_critic_loss
 
 
-def _extensions_actor_loss(
+def _make_extensions_actor_loss(
     extensions: ExtensionStack,
     agent_state: PPOState,
     key: jax.Array,
@@ -716,7 +722,7 @@ def _extensions_actor_loss(
     if not extensions:
         return None
 
-    def actor_loss(actor_params, actor_state, observations, pi_mean):
+    def compute_extensions_actor_loss(actor_params, actor_state, observations, pi_mean):
         actor_batch = {
             "observations": observations,
             "raw_observations": raw_observations,
@@ -732,7 +738,7 @@ def _extensions_actor_loss(
             total_timesteps,
         )
 
-    return actor_loss
+    return compute_extensions_actor_loss
 
 
 # -- State, logged metrics and the legacy view --------------------------------

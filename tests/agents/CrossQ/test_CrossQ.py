@@ -58,7 +58,7 @@ def test_the_critics_normalise_the_rows_and_their_next_states_together() -> None
     obs = jax.random.normal(jax.random.PRNGKey(1), (8, 3))
     column = jnp.ones((8, 1))
     batch = Transition(obs, 0.5 * column, column, 0 * column, 0 * column, obs + 4.0)
-    state, _, _ = agent.critic_update(state, batch, context)
+    state, _, _ = agent.update_critic(state, batch, context)
     both = jnp.concatenate([obs, obs + 4.0]).mean(0)
     np.testing.assert_allclose(
         input_means(state.critic_state.batch_stats)[:, :3],

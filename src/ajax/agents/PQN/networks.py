@@ -3,7 +3,7 @@
 LayerNorm after every hidden Dense layer is the stabilising ingredient
 that lets PQN (Gallici et al., 2024, "Simplifying Deep Temporal
 Difference Learning") regress TD targets without a replay buffer or a
-target network. The network reuses DQN's :class:`GreedyQPolicy` wrapper
+target network. The network reuses DQN's GreedyQPolicy wrapper
 so the shared evaluation loop and the epsilon-greedy action pipeline work
 unchanged.
 """
@@ -25,12 +25,12 @@ class PQNNetwork(nn.Module):
     """MLP Q-network with LayerNorm after each hidden Dense layer.
 
     The architecture tuple is parsed like Ajax's other networks: numeric
-    entries become ``Dense`` layers, string entries become activations.
-    Each ``Dense`` is immediately followed by ``LayerNorm`` (so the order
+    entries become Dense layers, string entries become activations.
+    Each Dense is immediately followed by LayerNorm (so the order
     is Dense -> LayerNorm -> activation), which is PQN's defining trait.
 
-    Returns a :class:`GreedyQPolicy` so it is a drop-in for DQN's
-    ``QNetwork`` -- same constructor signature, same return type.
+    Returns a GreedyQPolicy so it is a drop-in for DQN's
+    QNetwork -- same constructor signature, same return type.
     """
 
     input_architecture: Sequence[Union[str, ActivationFunction]]
@@ -39,8 +39,8 @@ class PQNNetwork(nn.Module):
     # passes them); PQN always applies LayerNorm, so these flags are unused.
     penultimate_normalization: bool = False
     encoder_layer_norm: bool = False
-    # Optional CNN front-end for image obs (see `NetworkConfig.cnn_image_shape`).
-    # When set, a `CNNEncoder` maps the flat image obs to the head's
+    # Optional CNN front-end for image obs (see NetworkConfig.cnn_image_shape).
+    # When set, a CNNEncoder maps the flat image obs to the head's
     # features, in place of the LayerNorm-MLP stack, as purejaxql's image
     # networks do (pqn_minatar.py:67-68, pqn_atari.py:87-88) and DQN's.
     cnn_image_shape: Optional[Tuple[int, int, int]] = None
@@ -54,23 +54,27 @@ class PQNNetwork(nn.Module):
     @nn.compact
     def __call__(self, obs: jax.Array) -> GreedyQPolicy:
         if self.cnn_image_shape is not None:
-            x = CNNEncoder(self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec)(
-                obs
-            )
+            features = CNNEncoder(
+                self.cnn_image_shape, self.cnn_extra_obs_dim, self.cnn_spec
+            )(obs)
         else:
-            x = obs
+            features = obs
             # Every Dense starts as in PQN's reference code, flax's Dense
             # default: mttga/purejaxql @47af6d7 (purejaxql/pqn_gymnax.py:52,
             # :56) sets no initializer, so kernels are lecun_normal, biases 0.
             for layer in self.input_architecture:
                 if str(layer).isnumeric():
-                    x = dense(int(layer), self.kernel_init, None, lecun_normal())(x)
-                    x = nn.LayerNorm()(x)
+                    features = dense(
+                        int(layer), self.kernel_init, None, lecun_normal()
+                    )(features)
+                    features = nn.LayerNorm()(features)
                 else:
-                    x = parse_activation(layer)(x)
+                    features = parse_activation(layer)(features)
         # Penultimate (post-activation) features, exposed for
-        # plasticity/conditioning probes. `sow` is a no-op unless the
+        # plasticity/conditioning probes. sow is a no-op unless the
         # caller marks "intermediates" mutable -- zero training cost.
-        self.sow("intermediates", "encoder_features", x)
-        q_values = dense(self.n_actions, self.head_kernel_init, None, lecun_normal())(x)
+        self.sow("intermediates", "encoder_features", features)
+        q_values = dense(self.n_actions, self.head_kernel_init, None, lecun_normal())(
+            features
+        )
         return GreedyQPolicy(q_values)

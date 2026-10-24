@@ -6,11 +6,11 @@ One update on a replay batch, in the order of the reference
 below or one of SAC's equations (core, ajax.agents.SAC.core)::
 
     a' ~ pi(. | s'), log pi(a' | s')                     core.sample_next_actions
-    Q(s, a), Q(s', a') in one training pass over both               critic_update
+    Q(s, a), Q(s', a') in one training pass over both               update_critic
     y = sg(scale r + gamma (1 - d) (min_i Q_i(s', a') - alpha log pi(a' | s')))
                                                          core.soft_bellman_target
     Q <- argmin E[(Q(s, a) - y)^2], its running statistics kept
-    every policy_delay-th update, on the same batch:                 actor_update
+    every policy_delay-th update, on the same batch:                 update_actor
       actor <- argmin E[alpha log pi(a | s) - min_i Q_i(s, a)]
                                                        core.soft_policy_objective
       alpha <- argmin alpha sg(-log pi(a | s) - H_target)
@@ -45,7 +45,7 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
-from ajax.agents.recurrent import actor_dist_train, sample_replay
+from ajax.agents.recurrent import get_policy_in_training, sample_replay
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.agents.SAC.state import SoftACState
@@ -166,13 +166,13 @@ class CrossQ(
         sbx/sac/sac.py:201)."""
         sample_key, agent_state = agent_state.get_keys_and_new_state()
         batch, _ = sample_replay(agent_state, context.buffer, sample_key)
-        agent_state, value_aux, value_metrics = self.critic_update(
+        agent_state, value_aux, value_metrics = self.update_critic(
             agent_state, batch, context
         )
         due = (agent_state.n_updates + 1) % self.policy_delay == 0
-        actor_update = partial(self.actor_update, batch=batch, context=context)
-        agent_state, (policy_aux, temperature, policy_metrics) = steps.when(
-            due, actor_update, agent_state
+        update_actor_on_batch = partial(self.update_actor, batch=batch, context=context)
+        agent_state, (policy_aux, temperature, policy_metrics) = steps.run_if(
+            due, update_actor_on_batch, agent_state
         )
         agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
         return agent_state, AuxiliaryLogs(
@@ -182,7 +182,7 @@ class CrossQ(
             extensions=merge_metrics(value_metrics, policy_metrics),
         )
 
-    def critic_update(
+    def update_critic(
         self, agent_state: CrossQState, batch: Transition, context: TrainContext
     ) -> tuple[CrossQState, CoreCriticAux, dict]:
         """One critic step on one training pass over (s, a) and (s',
@@ -248,7 +248,7 @@ class CrossQ(
         critic_state = critic_state.replace(batch_stats=batch_stats)
         return agent_state.replace(critic_state=critic_state), aux, metrics
 
-    def actor_update(
+    def update_actor(
         self, agent_state: CrossQState, batch: Transition, context: TrainContext
     ) -> tuple[CrossQState, tuple]:
         """The actor step in training, the critics read with their running
@@ -262,7 +262,7 @@ class CrossQ(
             transform = partial(scored_action, context.executed, batch.a_expert)
 
         def policy_loss(params: Any) -> tuple[jax.Array, Any, jax.Array]:
-            policy, batch_stats = actor_dist_train(actor_state, params, batch.obs)
+            policy, batch_stats = get_policy_in_training(actor_state, params, batch.obs)
             loss, (log_probs, q_values, policy) = core.soft_policy_objective(
                 policy,
                 critic_state,

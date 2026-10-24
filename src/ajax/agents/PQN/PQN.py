@@ -42,7 +42,7 @@ from ajax.agents.families import (
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.minibatch import get_minibatches_from_batch
 from ajax.agents.PQN.networks import PQNNetwork
-from ajax.agents.steps import extension_key
+from ajax.agents.steps import derive_extensions_key
 from ajax.environments.interaction import epsilon_greedy, explore_pipeline
 from ajax.environments.utils import get_action_dim
 from ajax.evaluate import ValueEstimate
@@ -134,7 +134,9 @@ class PQN(
         # action (the family's choice for a q_critic).
         return ValueEstimate(q_network_value, self.gamma, self.reward_scale)
 
-    def epsilon_schedule(self, context: TrainContext) -> Callable[[Any], jax.Array]:
+    def make_epsilon_schedule(
+        self, context: TrainContext
+    ) -> Callable[[Any], jax.Array]:
         """The exploration rate at a timestep: linear over the first
         epsilon_decay_frac of the horizon, then flat."""
         return linear(
@@ -147,17 +149,20 @@ class PQN(
         """Epsilon-greedy collection on the greedy Q-network."""
         env_args = context.env_args
         n_actions = get_action_dim(env_args.env, env_args.env_params)
-        epsilon_schedule = self.epsilon_schedule(context)
+        epsilon_schedule = self.make_epsilon_schedule(context)
         # purejaxql reads epsilon once per update, at its update count
         # (pqn_gymnax.py:189): here at the first step of the rollout, update
         # count x rollout size.
         rollout_size = self.n_steps * env_args.n_envs
 
-        def rollout_epsilon(timestep: jax.Array) -> jax.Array:
+        def epsilon_at_rollout_start(timestep: jax.Array) -> jax.Array:
             return epsilon_schedule(timestep - timestep % rollout_size)
 
         return explore_pipeline(
-            epsilon_greedy(rollout_epsilon, n_actions), False, n_actions, warmup=False
+            epsilon_greedy(epsilon_at_rollout_start, n_actions),
+            False,
+            n_actions,
+            warmup=False,
         )
 
     def init(self, key: jax.Array, context: TrainContext) -> PQNState:
@@ -192,7 +197,7 @@ class PQN(
         """One PQN update on an (n_steps, n_envs) rollout: Q(lambda)
         targets bootstrapped on the current network (no target network), then
         n_epochs epochs of TD steps, the rollout reshuffled each epoch;
-        also logs the epsilon its rollout read (epsilon_schedule once per
+        also logs the epsilon its rollout read (the schedule read once per
         update, as purejaxql reads it)."""
         del agent_state_at_rollout_start  # a feedforward network replays nothing
         extensions, total_timesteps = context.extensions, context.total_timesteps
@@ -238,7 +243,7 @@ class PQN(
                 target_batch,
                 targets,
                 agent_state.collector_state.timestep,
-                extension_key(update_key),
+                derive_extensions_key(update_key),
                 total_timesteps,
             )
         targets = jax.lax.stop_gradient(targets)
@@ -252,7 +257,9 @@ class PQN(
             minibatches = get_minibatches_from_batch(
                 batch, epoch_key, self.num_minibatches
             )
-            loss_keys = jax.random.split(extension_key(epoch_key), self.num_minibatches)
+            loss_keys = jax.random.split(
+                derive_extensions_key(epoch_key), self.num_minibatches
+            )
 
             def step_on_minibatch(
                 agent_state: PQNState, minibatch_and_key: tuple
@@ -280,10 +287,10 @@ class PQN(
         )
         # (n_epochs, num_minibatches, ...) -> one (1,) value per metric.
         value_aux, loss_metrics = jax.tree.map(
-            lambda x: x.mean().reshape((1,)), (value_aux, loss_metrics)
+            lambda metric: metric.mean().reshape((1,)), (value_aux, loss_metrics)
         )
         rollout_size = rollout.reward.shape[0] * rollout.reward.shape[1]
-        epsilon_schedule = self.epsilon_schedule(context)
+        epsilon_schedule = self.make_epsilon_schedule(context)
         epsilon = epsilon_schedule(agent_state.n_updates * rollout_size).reshape((1,))
         agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
         return agent_state, AuxiliaryLogs(

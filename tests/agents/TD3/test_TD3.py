@@ -149,7 +149,7 @@ def test_the_target_noise_clip_reaches_the_update():
     context = make_context(agent)
     state = agent.init(KEY, context)
     batch = jax.tree.map(lambda x: jnp.tile(x, (16, 1)), _batch(agent))
-    _, aux, _ = agent.critic_update(state, batch, None, context)
+    _, aux, _ = agent.update_critic(state, batch, None, context)
     noise = jax.random.normal(state.get_keys_and_new_state()[0], batch.action.shape)
     assert float(aux.target_noise_clip_frac) == float((jnp.abs(noise) > 0.2).mean())
     assert float(aux.target_noise_clip_frac) != float((jnp.abs(noise) > 0.5).mean())

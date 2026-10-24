@@ -44,14 +44,18 @@ class RolloutSplit:
         critic (brax's fragments), rather than once on the rollout."""
         return self.kind == "time"
 
-    def minibatches(self, batch: dict, key: jax.Array, carries: Any = None) -> dict:
+    def cut_into_minibatches(
+        self, batch: dict, key: jax.Array, carries: Any = None
+    ) -> dict:
         """One epoch's partition of the rollout batch on key; a
         recurrent split's sequences take their start carries along."""
         num_minibatches, length = self.num_minibatches, self.length
         if self.kind == "time":
             return get_minibatches_preserving_time(batch, key, num_minibatches, length)
         if self.kind == "recurrent":
-            return sequence_minibatches(batch, carries, key, num_minibatches, length)
+            return get_sequence_minibatches(
+                batch, carries, key, num_minibatches, length
+            )
         return get_minibatches_from_batch(batch, key, num_minibatches)
 
 
@@ -114,44 +118,49 @@ def choose_rollout_split(
                 " (docs/guide/memory.md)."
             )
         return RolloutSplit("recurrent", num_minibatches, length)
-    unroll = agent_config.unroll_length
+    unroll_length = agent_config.unroll_length
     if (
-        unroll is not None
+        unroll_length is not None
         and num_minibatches > 1
-        and n_steps % unroll == 0
-        and n_steps // unroll * n_envs % num_minibatches == 0
+        and n_steps % unroll_length == 0
+        and n_steps // unroll_length * n_envs % num_minibatches == 0
     ):
-        return RolloutSplit("time", num_minibatches, unroll)
+        return RolloutSplit("time", num_minibatches, unroll_length)
     return RolloutSplit("flat", num_minibatches, n_steps)
 
 
-def check_rollout_split(config: Any, n_envs: int, recurrent: bool) -> None:
+def check_rollout_split(agent_config: Any, n_envs: int, recurrent: bool) -> None:
     """Refuse a bptt_length without memory or not dividing n_steps,
     an unroll_length the update could not use (it would fall back to
     the flat shuffle), and a recurrent rollout whose sequences do not split
     into the minibatches (choose_rollout_split raises)."""
-    bptt, n_steps = config.bptt_length, config.n_steps
-    if bptt is not None:
+    bptt_length, n_steps = agent_config.bptt_length, agent_config.n_steps
+    if bptt_length is not None:
         if not recurrent:
             raise ValueError(
                 "bptt_length requires a memory config (recurrent PPO);"
                 " for feedforward fragment minibatching use unroll_length."
             )
-        if n_steps % bptt != 0:
-            raise ValueError(f"bptt_length ({bptt}) must divide n_steps ({n_steps}).")
-    unroll = config.unroll_length
-    if unroll is not None and recurrent:
+        if n_steps % bptt_length != 0:
+            raise ValueError(
+                f"bptt_length ({bptt_length}) must divide n_steps ({n_steps})."
+            )
+    unroll_length = agent_config.unroll_length
+    if unroll_length is not None and recurrent:
         raise ValueError(
             "unroll_length is the feedforward fragment length; a recurrent"
             " PPO splits its rollout with bptt_length."
         )
-    split = choose_rollout_split(config, n_steps, n_envs, recurrent)
-    if unroll is not None and (split.kind, split.length) != ("time", unroll):
+    split = choose_rollout_split(agent_config, n_steps, n_envs, recurrent)
+    if unroll_length is not None and (split.kind, split.length) != (
+        "time",
+        unroll_length,
+    ):
         raise ValueError(
-            f"unroll_length ({unroll}) must divide n_steps ({n_steps})"
+            f"unroll_length ({unroll_length}) must divide n_steps ({n_steps})"
             " into fragments (n_steps // unroll_length * n_envs of them) that"
             " split evenly into num_minibatches"
-            f" ({resolve_num_minibatches(config)}) > 1 minibatches."
+            f" ({resolve_num_minibatches(agent_config)}) > 1 minibatches."
         )
 
 
@@ -253,7 +262,7 @@ def _split_carries(
     return carries.reshape(num_minibatches, -1, *carries.shape[1:])
 
 
-def sequence_minibatches(
+def get_sequence_minibatches(
     batch: dict,
     carries: tuple,
     shuffle_key: jax.Array,
@@ -301,11 +310,11 @@ def run_epochs(
     iterate_mb_idxs(..., shuffle=True) once per epoch.
     """
 
-    def epoch(agent_state: Any, epoch_key: jax.Array) -> tuple[Any, Any]:
+    def run_epoch(agent_state: Any, epoch_key: jax.Array) -> tuple[Any, Any]:
         return jax.lax.scan(step, agent_state, minibatches(epoch_key))
 
     epoch_keys = jax.random.split(key, n_epochs)
-    agent_state, aux = jax.lax.scan(epoch, agent_state, epoch_keys)
+    agent_state, aux = jax.lax.scan(run_epoch, agent_state, epoch_keys)
     return agent_state, jax.tree.map(jnp.mean, aux)
 
 

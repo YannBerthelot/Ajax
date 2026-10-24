@@ -1,12 +1,12 @@
 """The keys an agent's steps draw on: BaseAgentState.get_keys_and_new_state
-and the extensions' key a step derives (ajax.agents.loop.extension_key)."""
+and the extensions' key a step derives (ajax.agents.steps.derive_extensions_key)."""
 
 from typing import Any
 
 import jax
 import numpy as np
 
-from ajax.agents.loop import extension_key
+from ajax.agents.steps import derive_extensions_key
 from ajax.state import BaseAgentState
 
 
@@ -36,4 +36,4 @@ def test_the_extensions_key_is_no_key_a_split_hands_out() -> None:
     key = jax.random.PRNGKey(3)
     splits = np.asarray(jax.random.split(key, 64))
     np.testing.assert_array_equal(jax.random.fold_in(key, 5), splits[5])
-    assert not (splits == np.asarray(extension_key(key))).all(axis=1).any()
+    assert not (splits == np.asarray(derive_extensions_key(key))).all(axis=1).any()

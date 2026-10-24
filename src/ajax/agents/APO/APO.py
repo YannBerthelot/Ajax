@@ -52,7 +52,7 @@ from ajax.agents.PPO.PPO import _compute_gae, clipped_surrogate
 from ajax.agents.steps import (
     apply_gradients_clipped_together,
     compute_gradients,
-    extension_key,
+    derive_extensions_key,
 )
 from ajax.environments.interaction import get_pi
 from ajax.environments.utils import check_if_environment_has_continuous_actions
@@ -281,7 +281,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 target_batch,
                 value_targets,
                 agent_state.collector_state.timestep,
-                extension_key(shuffle_key),
+                derive_extensions_key(shuffle_key),
                 total_timesteps,
             )
 
@@ -309,18 +309,26 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         # APO always cuts the rollout one way: shuffled single steps, as xtma/apo does.
         num_minibatches = resolve_num_minibatches(self)
 
-        def minibatches(key: jax.Array) -> dict:
+        def cut_rollout_into_minibatches(epoch_key: jax.Array) -> dict:
             """One epoch's partition of the rollout, each minibatch with a key
             for its entropy sample, derived from the epoch's key so the agent's
             own key stream is drawn as before."""
-            parts = get_minibatches_from_batch(batch, key, num_minibatches)
-            keys = jax.random.split(jax.random.fold_in(key, 1), num_minibatches)
-            parts.update({"entropy_key": keys})
-            return parts
+            minibatches = get_minibatches_from_batch(batch, epoch_key, num_minibatches)
+            entropy_keys = jax.random.split(
+                jax.random.fold_in(epoch_key, 1), num_minibatches
+            )
+            minibatches.update({"entropy_key": entropy_keys})
+            return minibatches
 
-        step = partial(self.minibatch_step, value_bias=value_bias, context=context)
+        step_on_minibatch = partial(
+            self.minibatch_step, value_bias=value_bias, context=context
+        )
         agent_state, aux = run_epochs(
-            agent_state, shuffle_key, minibatches, step, self.n_epochs
+            agent_state,
+            shuffle_key,
+            cut_rollout_into_minibatches,
+            step_on_minibatch,
+            self.n_epochs,
         )
         aux = aux.replace(extensions=merge_metrics(target_metrics, aux.extensions))
         return agent_state.replace(n_updates=agent_state.n_updates + 1), aux
@@ -347,7 +355,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         """
         actor_state, critic_state = agent_state.actor_state, agent_state.critic_state
         critic_key, actor_key = jax.random.split(
-            extension_key(minibatch["entropy_key"])
+            derive_extensions_key(minibatch["entropy_key"])
         )
         timestep = agent_state.collector_state.timestep
         extensions, total_timesteps = context.extensions, context.total_timesteps

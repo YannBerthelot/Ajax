@@ -5,13 +5,15 @@ One update on a replay batch, in the order of the reference
 (ikostrikov/implicit_q_learning@09d7002, learner.py's _update_jit), each
 line one function below::
 
-    q = min_i Q_target_i(s, a)                                     min_target_q
-    V <- argmin E[|expectile - 1(q - V(s) < 0)| (q - V(s))^2]         value_loss
-    actor <- argmax E[min(exp(temperature (q - V(s))), 100) log pi(a | s)]
-                                         awr_weight, awr_loss (on the new V)
-    Q_i <- argmin sum_i E[(Q_i(s, a) - scale r - gamma (1 - d) V(s'))^2]
-                                                      bellman_target, q_loss
+    q = min_i Q_target_i(s, a)                              compute_min_target_q
+    V <- argmin E[|expectile - 1(q - V(s) < 0)| (q - V(s))^2]  compute_value_loss
+    actor <- argmax E[w log pi(a | s)]          compute_weighted_regression_loss
+        w = min(exp(temperature (q - V(s))), 100)      compute_advantage_weights
+    Q_i <- argmin sum_i E[(Q_i(s, a) - y)^2]          compute_summed_critic_loss
+        y = scale r + gamma (1 - d) V(s')                 compute_bellman_target
     Q_target <- tau Q + (1 - tau) Q_target
+
+The actor's weights w and the critics' target y read V after its step.
 """
 
 from __future__ import annotations
@@ -153,20 +155,34 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         )
         batch, _ = sample_replay(agent_state, context.buffer, sample_key)
         critic = agent_state.critic_state
-        min_q_values = min_target_q(critic, batch)
-        fit_value = partial(
-            value_loss, agent_state.value_state, batch.obs, min_q_values, self.expectile
+        min_q_values = compute_min_target_q(critic, batch)
+        compute_value_loss_on_batch = partial(
+            compute_value_loss,
+            agent_state.value_state,
+            batch.obs,
+            min_q_values,
+            self.expectile,
         )
-        value_state, _, _ = steps.gradient_step(agent_state.value_state, fit_value)
-        fitted_value_loss = fit_value(value_state.params)[0]
+        value_state, _, _ = steps.gradient_step(
+            agent_state.value_state, compute_value_loss_on_batch
+        )
+        value_loss_after_step = compute_value_loss_on_batch(value_state.params)[0]
         state_values = predict_value(value_state, value_state.params, batch.obs)[0]
-        weight = awr_weight(min_q_values, state_values, self.temperature)
+        advantage_weights = compute_advantage_weights(
+            min_q_values, state_values, self.temperature
+        )
         # The actor fits the actions it chose: a residual policy's residuals,
         # which the replay keeps apart from the executed actions.
         chosen = batch.action if batch.policy_action is None else batch.policy_action
         actor_state, actor_loss, _, actor_metrics = steps.actor_step(
             agent_state,
-            partial(awr_loss, agent_state.actor_state, batch.obs, chosen, weight),
+            partial(
+                compute_weighted_regression_loss,
+                agent_state.actor_state,
+                batch.obs,
+                chosen,
+                advantage_weights,
+            ),
             context.extensions,
             actor_key,
             context.total_timesteps,
@@ -175,12 +191,14 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             actions=batch.action,
             critic_state=critic,
         )
-        target = bellman_target(value_state, batch, self.gamma, self.reward_scale)
+        target = compute_bellman_target(
+            value_state, batch, self.gamma, self.reward_scale
+        )
         critic_state, critic_loss, _, critic_metrics = steps.critic_step(
             agent_state,
             batch,
             target,
-            partial(q_loss, critic, batch),
+            partial(compute_summed_critic_loss, critic, batch),
             context.extensions,
             critic_key,
             context.total_timesteps,
@@ -197,11 +215,11 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         )
         return agent_state, AuxiliaryLogs(
             value=Auxiliaries(
-                value_loss=fitted_value_loss,
+                value_loss=value_loss_after_step,
                 actor_loss=actor_loss,
                 critic_loss=critic_loss,
                 advantage=jnp.mean(min_q_values - state_values),
-                weight=jnp.mean(weight),
+                weight=jnp.mean(advantage_weights),
             ),
             extensions=merge_metrics(critic_metrics, actor_metrics),
         )
@@ -234,7 +252,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
 
 
 # -- IQL's equations, in the order update calls them -------------------------
-def min_target_q(critic: LoadedTrainState, batch: Transition) -> jax.Array:
+def compute_min_target_q(critic: LoadedTrainState, batch: Transition) -> jax.Array:
     """min_i Q_target_i(s, a) at the rows' actions."""
     per_critic_q_values = q_values(
         critic, critic.target_params, batch.obs, batch.action
@@ -248,7 +266,7 @@ def expectile_loss(diff: jax.Array, expectile: float) -> jax.Array:
     return weight * diff**2
 
 
-def value_loss(
+def compute_value_loss(
     value_state: LoadedTrainState,
     obs: jax.Array,
     q_values: jax.Array,
@@ -260,14 +278,14 @@ def value_loss(
     return jnp.mean(expectile_loss(q_values - state_values, expectile)), None
 
 
-def awr_weight(
+def compute_advantage_weights(
     q_values: jax.Array, state_values: jax.Array, temperature: float
 ) -> jax.Array:
     """min(exp(temperature (q - V(s))), 100) (actor.py)."""
     return jnp.minimum(jnp.exp(temperature * (q_values - state_values)), 100.0)
 
 
-def awr_loss(
+def compute_weighted_regression_loss(
     actor_state: LoadedTrainState,
     obs: jax.Array,
     actions: jax.Array,
@@ -282,7 +300,7 @@ def awr_loss(
     return loss, loss, policy.mean()
 
 
-def bellman_target(
+def compute_bellman_target(
     value_state: LoadedTrainState, batch: Transition, gamma: float, scale: float
 ) -> jax.Array:
     """scale r + gamma (1 - d) V(s') (learner.py), on the new V."""
@@ -292,7 +310,7 @@ def bellman_target(
     return scale * batch.reward + gamma * (1.0 - batch.terminated) * next_state_values
 
 
-def q_loss(
+def compute_summed_critic_loss(
     critic: LoadedTrainState, batch: Transition, params: Any, target: jax.Array
 ) -> tuple[jax.Array, jax.Array]:
     """The critics' squared errors to the target, summed over the critics as

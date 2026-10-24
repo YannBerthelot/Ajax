@@ -19,6 +19,7 @@ from ajax.agents.APO.APO import APO
 from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
 from ajax.agents.PPO import train_PPO
 from ajax.agents.PPO.PPO import PPO
+from ajax.agents.PPO.state import PPOState
 from ajax.agents.PPO.utils import _compute_gae
 from ajax.environments.interaction import get_pi
 from ajax.environments.utils import get_state_action_shapes
@@ -115,7 +116,7 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
     if state.last_rollout.obs.ndim == 4:  # a leading seed axis
         state = jax.tree.map(lambda x: x[0], state)
     rollout, config = state.last_rollout, agent.agent_config
-    assert rollout is not None
+    assert rollout is not None and isinstance(state, PPOState)
     _, aux = train_PPO.update_agent(
         state,
         rollout,

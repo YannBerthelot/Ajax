@@ -37,7 +37,7 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed
 
 ## Key hyperparameters
 
-Defaults are read from `CrossQ.__init__`, the authors' `train.py -algo crossq`.
+Defaults are read from CrossQ's fields, the authors' `train.py -algo crossq`.
 
 | Argument | Default | What it does |
 | --- | --- | --- |

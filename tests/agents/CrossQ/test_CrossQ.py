@@ -1,6 +1,7 @@
 """CrossQ's own parts: the authors' settings, the critics' one training pass
 over the rows and their next states, and the policy delay."""
 
+from functools import partial
 from typing import Any
 
 import jax
@@ -9,8 +10,8 @@ import numpy as np
 
 from ajax import CrossQ
 from ajax.agents.CrossQ.CrossQ import batch_renorm_mlp
-from ajax.agents.CrossQ.train_CrossQ import init_CrossQ, update_critics
-from ajax.extensions.base import ExtensionStack
+from ajax.agents.families import TrainContext
+from ajax.agents.loop import TrainLoop
 from ajax.state import Transition
 
 
@@ -22,9 +23,8 @@ def test_the_defaults_are_the_authors() -> None:
     for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
         assert (args.learning_rate, args.beta_1, args.eps) == (1e-3, 0.5, 1e-8)
     assert agent.alpha_args.learning_rate == 1e-3
-    config = agent.agent_config
-    assert (config.learning_starts, config.policy_delay) == (5000, 3)
-    assert config.target_entropy == -1.0 and agent.train_kwargs["num_critics"] == 2
+    assert (agent.learning_starts, agent.policy_delay) == (5000, 3)
+    assert agent.target_entropy == -1.0 and agent.num_critics == 2
 
 
 def test_the_temperature_takes_the_learning_rate_unless_given_its_own() -> None:
@@ -42,23 +42,23 @@ def test_the_critics_normalise_the_rows_and_their_next_states_together() -> None
     """One critic step moves the input's running mean by 1 - 0.99 times the
     mean over the rows and their next states, not over the rows alone."""
     agent = CrossQ("Pendulum-v1", actor_width=8, critic_width=8)
-    state = init_CrossQ(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.alpha_args,
-        agent.buffer,
-        num_critics=2,
+    loop = TrainLoop.create(agent.env_args, 1, 1)
+    ctx = TrainContext(  # what init and the update read: no extension
+        env_args=agent.env_args,
+        network_args=agent.network_args,
+        actor_optimizer_args=agent.actor_optimizer_args,
+        critic_optimizer_args=agent.critic_optimizer_args,
+        stack=agent.extension_stack,
+        total_timesteps=1,
+        collector=partial(agent.collector, loop=loop, network_args=agent.network_args),
+        buffer=agent.buffer,
     )
+    state = agent.init(jax.random.PRNGKey(0), ctx)
     assert state.critic_state.target_params is None
     obs = jax.random.normal(jax.random.PRNGKey(1), (8, 3))
     column = jnp.ones((8, 1))
     batch = Transition(obs, 0.5 * column, column, 0 * column, 0 * column, obs + 4.0)
-    state, _, _ = update_critics(
-        state, batch, agent.agent_config, ExtensionStack(()), 1
-    )
+    state, _, _ = agent.critic_update(state, batch, ctx)
     both = jnp.concatenate([obs, obs + 4.0]).mean(0)
     np.testing.assert_allclose(
         input_means(state.critic_state.batch_stats)[:, :3],

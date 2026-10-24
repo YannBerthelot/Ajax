@@ -26,7 +26,7 @@ from ajax.agents.APG.APG import APG
 from ajax.agents.APG.networks import PIDHeadConfig
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.PQN.PQN import PQN
-from ajax.agents.TD3.train_TD3 import make_default_action_pipeline
+from ajax.agents.TD3.TD3 import make_default_action_pipeline
 from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions import (
     adversarial,

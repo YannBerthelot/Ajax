@@ -4,6 +4,8 @@ those takes Adam steps of another size on its action inputs."""
 
 from __future__ import annotations
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -11,12 +13,24 @@ import numpy as np
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC.SAC import SAC
-from ajax.agents.TD3 import train_TD3
 from ajax.agents.TD3.TD3 import TD3
 from ajax.environments.utils import critic_action_units
 from ajax.extensions.expert import td3bc_lambda
+from ajax.networks.deterministic import get_initialized_td3_actor_critic
 from ajax.networks.networks import predict_value
 from tests.agents.TD3.test_td3_metrics import KEY, NET, _batch
+
+
+def _critic(agent: TD3, units: tuple) -> Any:
+    """TD3's critic, reading actions in the units ``(offsets, scales)``."""
+    _, critic = get_initialized_td3_actor_critic(
+        KEY,
+        agent.env_args,
+        agent.actor_optimizer_args,
+        agent.critic_optimizer_args,
+        agent.network_args,
+    )
+    return critic.replace(action_units=units)
 
 
 def test_the_units_are_the_env_map_without_its_clip_or_none():
@@ -30,16 +44,7 @@ def test_the_units_are_the_env_map_without_its_clip_or_none():
 
 def test_the_critic_reads_the_mapped_actions():
     agent = TD3("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    state = train_TD3.init_TD3(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.buffer,
-        critic_action_units=((0.5,), (2.0,)),
-    )
-    critic, batch = state.critic_state, _batch(agent)
+    critic, batch = _critic(agent, units=((0.5,), (2.0,))), _batch(agent)
     plain = critic.replace(action_units=None)
     np.testing.assert_allclose(
         q_values(critic, critic.params, batch.obs, batch.action),
@@ -73,16 +78,7 @@ def test_every_query_of_the_critic_reads_the_mapped_actions():
     ``concat(obs, action)``, maps the action slice too: TD3+BC's lambda is
     one such query."""
     agent = TD3("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    state = train_TD3.init_TD3(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.buffer,
-        critic_action_units=((0.5,), (2.0,)),
-    )
-    critic, batch = state.critic_state, _batch(agent)
+    critic, batch = _critic(agent, units=((0.5,), (2.0,))), _batch(agent)
     plain = critic.replace(action_units=None)
     x = jnp.concatenate([batch.obs, batch.action], axis=-1)
     mapped = jnp.concatenate([batch.obs, 0.5 + 2.0 * batch.action], axis=-1)

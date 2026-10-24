@@ -1,145 +1,304 @@
-from collections.abc import Mapping, Sequence
-from typing import Callable, Optional
+"""Implicit Q-Learning (Kostrikov, Nair and Levine, ICLR 2022): offline RL
+that never queries the critic at actions outside the data.
 
-from gymnax import EnvParams
+One update on a replay batch, in the order of the reference
+(ikostrikov/implicit_q_learning@09d7002, learner.py ``_update_jit``), each
+line one function below::
 
-from ajax.agents.base import ActorCritic, run_config
-from ajax.agents.IQL.state import IQLConfig
-from ajax.agents.IQL.train_IQL import make_train
-from ajax.agents.loop import ACTOR_STEP_KEYS, CRITIC_LOSS_KEYS, LOOP_PHASES, TARGET_KEYS
-from ajax.buffers.utils import get_buffer
-from ajax.environments.utils import check_if_environment_has_continuous_actions
-from ajax.extensions.base import Extension
-from ajax.state import OptimizerConfig
-from ajax.types import EnvType, FloatOrCallable
+    q = min_i Q_target_i(s, a)                                     min_target_q
+    V <- argmin E[|expectile - 1(q - V(s) < 0)| (q - V(s))^2]         value_loss
+    actor <- argmax E[min(exp(temperature (q - V(s))), 100) log pi(a | s)]
+                                         awr_weight, awr_loss (on the new V)
+    Q <- argmin E[(Q(s, a) - scale r - gamma (1 - d) V(s'))^2]
+                                                      bellman_target, q_loss
+    Q_target <- tau Q + (1 - tau) Q_target
+
+Deviation: the critics' loss is their mean squared error, half the
+reference's sum over the two (Adam's step is the same).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from functools import partial
+from typing import Any, Callable, Optional
+
+import jax
+import jax.numpy as jnp
+from flax import struct
+
+from ajax.agents import steps
+from ajax.agents.critics import critic_loss_fn
+from ajax.agents.families import (
+    ExpertGuided,
+    GradientClipping,
+    ObservationNormalization,
+    ReplayAgent,
+    TrainContext,
+)
+from ajax.agents.recurrent import q_values, sample_replay
+from ajax.environments.interaction import get_pi, policy_pipeline
+from ajax.extensions.base import merge_metrics
+from ajax.networks.networks import predict_value
+from ajax.state import BaseAgentState, LoadedTrainState, Transition
+from ajax.types import Architecture, FloatOrCallable
 
 #: The reference's initialisation (common.py ``default_init``).
 ORTHOGONAL_SQRT2 = "orthogonal(np.sqrt(2))"
 
 
-class IQL(ActorCritic):
-    """Implicit Q-Learning (Kostrikov, Nair and Levine, ICLR 2022): offline
-    RL with a state value fitted as an expectile of the critic over the
-    data's actions, and an actor fitted by advantage-weighted regression
-    (:mod:`ajax.agents.IQL.train_IQL`). Train it on a dataset with
-    ``train_offline``, then fine-tune online with ``train``.
+@dataclass(kw_only=True, eq=False, repr=False)
+class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent):
+    """Implicit Q-Learning: a state value fitted as an expectile of the
+    critic over the data's actions, and an actor fitted by
+    advantage-weighted regression (the module's equations). Train it on a
+    dataset with ``train_offline`` (the paper's setting), then fine-tune
+    online with ``train``: the same update, the offline rows kept in its
+    replay (Sec. 5.3).
 
-    Defaults are the reference code's (ikostrikov/implicit_q_learning
-    @09d7002, ``configs/mujoco_config.py``, ``learner.py``, ``policy.py``):
-    expectile 0.7 and temperature 3 (locomotion; antmaze takes 0.9 and 10);
-    256-256 ReLU networks, orthogonal(sqrt 2) initialisation; Adam at 3e-4
-    with optax's eps 1e-8 for the actor, the critics and the value; the
-    actor a Gaussian on a tanh mean with one learned log-std per action
-    dimension, clipped to [-5, 2]; batch 256, gamma 0.99, tau 0.005. The
-    reference decays the actor's offline learning rate to 0 by a cosine
-    over its updates: pass ``actor_learning_rate=optax.cosine_decay_schedule(
-    3e-4, n_updates)`` for that. Its locomotion rewards are scaled by 1000
-    over the dataset's range of returns: ``reward_scale``.
+    Defaults are the reference code's (``configs/mujoco_config.py``,
+    ``learner.py``, ``policy.py``): expectile 0.7 and temperature 3
+    (locomotion; antmaze takes 0.9 and 10); 256-256 ReLU networks,
+    orthogonal(sqrt 2) initialisation; Adam at 3e-4 with optax's eps 1e-8
+    for the actor, the critics and the value; the actor a Gaussian on a
+    tanh mean with one learned log-std per action dimension, clipped to
+    [-5, 2]; batch 256, gamma 0.99, tau 0.005. The reference decays the
+    actor's offline learning rate to 0 by a cosine over its updates: pass
+    ``actor_learning_rate=optax.cosine_decay_schedule(3e-4, n_updates)``
+    for that. Its locomotion rewards are scaled by 1000 over the dataset's
+    range of returns: ``reward_scale``.
     """
 
-    name: str = "IQL"
-    capabilities: frozenset = frozenset(
-        "actor critic_ensemble discounted obs_networks off_policy "
-        "policy_density q_critic replay target_critic v_critic reward_learning".split()
-    )
-    supported_extension_phases: frozenset = LOOP_PHASES | {
-        "on_target",
-        "critic_loss",
-        "actor_loss",
-        "transform_action",
-        "actuate",
-    }
-    phase_batch_keys: Mapping[str, frozenset] = {
-        "on_target": TARGET_KEYS,
-        "critic_loss": CRITIC_LOSS_KEYS,
-        "actor_loss": ACTOR_STEP_KEYS
-        | frozenset("observations raw_observations actions critic_state".split()),
-    }
-    pretrain_context: frozenset = frozenset("buffer env_args update".split())
-    extension_context: frozenset = frozenset(
-        "actor_optimizer_args buffer env_args expert_policy".split()
-    )
-    replays_transitions: bool = True
-    supported_buffer_fields: frozenset = frozenset({"raw_next_obs", "return_to_go"})
-    make_train = staticmethod(make_train)
+    actor_learning_rate: FloatOrCallable = 3e-4
+    critic_learning_rate: FloatOrCallable = 3e-4
+    value_learning_rate: FloatOrCallable = 3e-4
+    actor_architecture: Architecture = ("256", "relu", "256", "relu")
+    critic_architecture: Architecture = ("256", "relu", "256", "relu")
+    expectile: float = 0.7
+    temperature: float = 3.0
+    gamma: float = 0.99
+    tau: float = 0.005
+    reward_scale: float = 1.0
+    buffer_size: int = int(1e6)
+    batch_size: int = 256
+    learning_starts: int = 0
 
-    def __init__(
-        self,
-        env_id: str | EnvType,
-        n_envs: int = 1,
-        actor_learning_rate: FloatOrCallable = 3e-4,
-        critic_learning_rate: FloatOrCallable = 3e-4,
-        value_learning_rate: FloatOrCallable = 3e-4,
-        actor_architecture=("256", "relu", "256", "relu"),
-        critic_architecture=("256", "relu", "256", "relu"),
-        expectile: float = 0.7,
-        temperature: float = 3.0,
-        gamma: float = 0.99,
-        tau: float = 0.005,
-        reward_scale: float = 1.0,
-        buffer_size: int = int(1e6),
-        batch_size: int = 256,
-        learning_starts: int = 0,
-        env_params: Optional[EnvParams] = None,
-        max_grad_norm: Optional[float] = None,
-        weight_decay: float = 0.0,
-        normalize_observations: bool = False,
-        # An expert the collector tracks (online): its actions, from its
-        # state along each trajectory, feed the observation features and a
-        # residual policy, and each evaluation logs its return.
-        expert_policy: Optional[Callable] = None,
-        extensions: Sequence[Extension] = (),
-        # Simulator steps per episode and per agent step on brax / playground
-        # envs (ActorCritic).
-        episode_length: Optional[int] = None,
-        action_repeat: int = 1,
-    ) -> None:
-        self.config = run_config(locals(), self.name)
-        if not 0.0 < expectile < 1.0:
-            raise ValueError(f"IQL's expectile is in (0, 1), got {expectile}.")
-        # Read by the extension check in the base initialiser.
-        self.expert_policy = expert_policy
-        super().__init__(
-            env_id=env_id,
-            n_envs=n_envs,
-            actor_learning_rate=actor_learning_rate,
-            critic_learning_rate=critic_learning_rate,
-            actor_architecture=actor_architecture,
-            critic_architecture=critic_architecture,
-            env_params=env_params,
-            max_grad_norm=max_grad_norm,
-            weight_decay=weight_decay,
-            normalize_observations=normalize_observations,
-            encoder_kernel_init=ORTHOGONAL_SQRT2,
-            mean_kernel_init=ORTHOGONAL_SQRT2,
-            value_kernel_init=ORTHOGONAL_SQRT2,
-            log_std_state_independent=True,
-            log_std_init=0.0,
-            log_std_bounds=(-5.0, 2.0),
-            tanh_mean=True,
-            episode_length=episode_length,
-            action_repeat=action_repeat,
-            extensions=extensions,
-        )
-        if not check_if_environment_has_continuous_actions(self.env_args.env):
-            raise ValueError("IQL only supports continuous action spaces.")
-        # optax's Adam eps, the reference's (Ajax's shared default is 1e-5).
-        self.actor_optimizer_args = self.actor_optimizer_args.replace(eps=1e-8)
-        self.critic_optimizer_args = self.critic_optimizer_args.replace(eps=1e-8)
-        value_optimizer_args: OptimizerConfig = self.critic_optimizer_args.replace(
-            learning_rate=value_learning_rate
-        )
-        self.agent_config: IQLConfig = IQLConfig(
-            expectile=expectile,
-            temperature=temperature,
-            gamma=gamma,
-            tau=tau,
-            learning_starts=learning_starts,
-            reward_scale=reward_scale,
-        )
-        self.buffer = get_buffer(buffer_size, batch_size, n_envs)
-        self.train_kwargs = {
-            "buffer": self.buffer,
-            "value_optimizer_args": value_optimizer_args,
-            "expert_policy": self.expert_policy,
+    def check(self) -> None:
+        if not 0.0 < self.expectile < 1.0:
+            raise ValueError(f"IQL's expectile is in (0, 1), got {self.expectile}.")
+
+    def actor_critic_args(self) -> dict[str, Any]:
+        return {
+            "encoder_kernel_init": ORTHOGONAL_SQRT2,
+            "mean_kernel_init": ORTHOGONAL_SQRT2,
+            "value_kernel_init": ORTHOGONAL_SQRT2,
+            "log_std_state_independent": True,
+            "log_std_init": 0.0,
+            "log_std_bounds": (-5.0, 2.0),
+            "tanh_mean": True,
         }
+
+    def optimizer_settings(self) -> dict[str, Any]:
+        return {"eps": 1e-8}  # optax.adam's default eps, the reference's Adam
+
+    def build(self) -> None:
+        # V's Adam: the critics', at its own learning rate.
+        self.value_optimizer_args = self.critic_optimizer_args.replace(
+            learning_rate=self.value_learning_rate
+        )
+
+    def behaviour(self, ctx: TrainContext) -> Optional[Callable]:
+        # A residual policy acts on the chosen action, so the warm-up draws
+        # residuals (and the replay keeps the one the actor fits, init).
+        if ctx.executed is None:
+            return None
+        return partial(
+            policy_pipeline,
+            recurrent=False,
+            n_envs=ctx.env_args.n_envs,
+            transform=ctx.env_args.transforms[0],
+            after_choice=True,
+        )
+
+    def init(self, key: jax.Array, ctx: TrainContext) -> IQLState:
+        """A Gaussian actor, two Q critics with their targets, and V(s)."""
+        rng, init_key, value_key, collector_key, eval_rng = jax.random.split(key, 5)
+        actor_state, critic_state = ctx.actor_critic(
+            init_key, continuous=True, action_value=True, num_critics=2
+        )
+        _, value_state = ctx.actor_critic(
+            value_key,
+            critic_optimizer_args=self.value_optimizer_args,
+            continuous=True,
+            num_critics=1,
+        )
+        return IQLState(
+            rng=rng,
+            eval_rng=eval_rng,
+            actor_state=actor_state,
+            critic_state=critic_state,
+            value_state=value_state,
+            collector_state=ctx.collector(
+                collector_key, include_policy_action=ctx.executed is not None
+            ),
+        )
+
+    def update(
+        self, state: IQLState, ctx: TrainContext
+    ) -> tuple[IQLState, AuxiliaryLogs]:
+        """One IQL update (the module docstring)."""
+        state, sample_key, critic_key, actor_key = state.next_keys(3)
+        batch, _ = sample_replay(state, ctx.buffer, sample_key)
+        critic = state.critic_state
+        q = min_target_q(critic, batch)
+        fit_v = partial(value_loss, state.value_state, batch.obs, q, self.expectile)
+        value_state, _, _ = steps.gradient_step(state.value_state, fit_v)
+        v_loss = fit_v(value_state.params)[0]
+        v = predict_value(value_state, value_state.params, batch.obs)[0]
+        weight = awr_weight(q, v, self.temperature)
+        # The actor fits the actions it chose: a residual policy's residuals,
+        # which the replay keeps apart from the executed actions.
+        chosen = batch.action if batch.policy_action is None else batch.policy_action
+        actor_state, a_loss, _, actor_metrics = steps.actor_step(
+            state,
+            partial(awr_loss, state.actor_state, batch.obs, chosen, weight),
+            ctx.stack,
+            actor_key,
+            ctx.total_timesteps,
+            observations=batch.obs,
+            raw_observations=batch.raw_obs,
+            actions=batch.action,
+            critic_state=critic,
+        )
+        target = bellman_target(value_state, batch, self.gamma, self.reward_scale)
+        critic_state, c_loss, _, critic_metrics = steps.critic_step(
+            state,
+            batch,
+            target,
+            partial(q_loss, critic, batch),
+            ctx.stack,
+            critic_key,
+            ctx.total_timesteps,
+            rewards=batch.reward,
+            dones=batch.terminated,
+            gamma=self.gamma,
+            reward_scale=self.reward_scale,
+        )
+        state = state.replace(
+            actor_state=actor_state,
+            critic_state=critic_state.soft_update(tau=self.tau),
+            value_state=value_state,
+            n_updates=state.n_updates + 1,
+        )
+        return state, AuxiliaryLogs(
+            value=Auxiliaries(
+                value_loss=v_loss,
+                actor_loss=a_loss,
+                critic_loss=c_loss,
+                advantage=jnp.mean(q - v),
+                weight=jnp.mean(weight),
+            ),
+            extensions=merge_metrics(critic_metrics, actor_metrics),
+        )
+
+    # -- What extensions may rely on (ajax.extensions.capabilities) ----------
+    name = "IQL"
+    capabilities = frozenset(
+        "actor critic_ensemble discounted obs_networks off_policy policy_density"
+        " q_critic replay target_critic v_critic reward_learning".split()
+    )
+    phase_batch_keys = steps.REPLAY_BATCH_KEYS | {
+        "actor_loss": steps.ACTOR_STEP_KEYS
+        | frozenset("observations raw_observations actions critic_state".split())
+    }
+    supported_buffer_fields = frozenset({"raw_next_obs", "return_to_go"})
+
+
+# -- IQL's equations, in the order update calls them -------------------------
+def min_target_q(critic: LoadedTrainState, batch: Transition) -> jax.Array:
+    """``min_i Q_target_i(s, a)`` at the rows' actions."""
+    q = q_values(critic, critic.target_params, batch.obs, batch.action)
+    return jnp.min(q, axis=0)
+
+
+def expectile_loss(diff: jax.Array, expectile: float) -> jax.Array:
+    """``|expectile - 1(diff < 0)| diff^2`` (critic.py ``loss``)."""
+    weight = jnp.where(diff > 0, expectile, 1.0 - expectile)
+    return weight * diff**2
+
+
+def value_loss(
+    value_state: LoadedTrainState,
+    obs: jax.Array,
+    q: jax.Array,
+    expectile: float,
+    params: Any,
+) -> tuple[jax.Array, None]:
+    """V's expectile regression on ``q`` (critic.py ``update_v``)."""
+    v = predict_value(value_state, params, obs)[0]
+    return jnp.mean(expectile_loss(q - v, expectile)), None
+
+
+def awr_weight(q: jax.Array, v: jax.Array, temperature: float) -> jax.Array:
+    """``min(exp(temperature (q - V(s))), 100)`` (actor.py)."""
+    return jnp.minimum(jnp.exp(temperature * (q - v)), 100.0)
+
+
+def awr_loss(
+    actor_state: LoadedTrainState,
+    obs: jax.Array,
+    actions: jax.Array,
+    weight: jax.Array,
+    params: Any,
+) -> tuple[jax.Array, jax.Array, jax.Array]:
+    """``-E[weight log pi(a | s)]`` (actor.py), and pi's mean for the
+    extensions."""
+    pi, _ = get_pi(actor_state, params, obs)
+    log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
+    loss = -jnp.mean(weight * log_probs)
+    return loss, loss, pi.mean()
+
+
+def bellman_target(
+    value_state: LoadedTrainState, batch: Transition, gamma: float, scale: float
+) -> jax.Array:
+    """``scale r + gamma (1 - d) V(s')`` (learner.py), on the new V."""
+    next_v = predict_value(value_state, value_state.params, batch.next_obs)[0]
+    return scale * batch.reward + gamma * (1.0 - batch.terminated) * next_v
+
+
+def q_loss(
+    critic: LoadedTrainState, batch: Transition, params: Any, target: jax.Array
+) -> tuple[jax.Array, jax.Array]:
+    """The critics' mean squared error to ``target`` (the deviation above)."""
+    loss, _ = critic_loss_fn(params, critic, batch.obs, batch.action, target)
+    return loss, loss
+
+
+# -- State, logged metrics and the legacy view --------------------------------
+@struct.dataclass(kw_only=True)
+class IQLState(BaseAgentState):
+    """IQL's actor, twin Q critic (with its target), and state-value network."""
+
+    value_state: LoadedTrainState
+
+
+@struct.dataclass
+class Auxiliaries:
+    value_loss: jax.Array
+    actor_loss: jax.Array
+    critic_loss: jax.Array
+    advantage: jax.Array  # mean q - V(s) on the batch
+    weight: jax.Array  # mean advantage weight
+
+
+@struct.dataclass
+class AuxiliaryLogs:
+    value: Auxiliaries
+    extensions: dict  # the extensions' training metrics
+
+
+#: ``agent.agent_config``'s class: a view of the fields until 0.5.0.
+IQLConfig = IQL.declare_config(
+    "expectile temperature gamma tau learning_starts reward_scale"
+)

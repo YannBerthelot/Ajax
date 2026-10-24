@@ -24,11 +24,14 @@ import numpy as np
 from optax.tree_utils import tree_norm
 
 from ajax import APO, ASAC, AVG, DQN, IQL, PPO, PQN, REDQ, SAC, TD3, TQC, CrossQ, DAgger
+from ajax.agents.TD3.TD3 import make_default_action_pipeline
 from ajax.extensions.base import Extension
-from ajax.extensions.expert import ImitationLoss, ResidualPolicy
+from ajax.extensions.expert import ExpertGains, ImitationLoss, ResidualPolicy
+from ajax.extensions.observe import ExpertActionInput, TrainingProgressInput
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import MemoryConfig
+from tests.agents.test_offline import episodes
 from tests.modules import setpoint_env
 
 SEEDS = [0, 1]
@@ -117,10 +120,39 @@ NORM = {"normalize_observations": True}
 GRU = {"learning_starts": 60, "memory": MemoryConfig(kind="gru", hidden_size=8)}
 DAGGER = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_architecture": ("32", "relu")}
 DAGGER |= {"buffer_size": 1000, "batch_size": 16, "expert_policy": push}
+CROSSQ = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_width": 32, "critic_width": 64}
+CROSSQ |= {**R, "learning_starts": 40}
+# The paths a replay agent's options take: a residual policy (its executed
+# and chosen actions), an expert's stored actions and imitation, gain mode,
+# observation features (one reading the progress), the normalisers.
+RESIDUAL = {"expert_policy": push, "extensions": (ResidualPolicy(), Keyed())}
+BC = {"expert_policy": push, "extensions": (ImitationLoss(push, coef=1.0),)}
+GAIN = {"expert_policy": GainExpert(), "extensions": (ExpertGains(),)}
+OBSERVE: dict[str, Any] = {"expert_policy": push}
+OBSERVE |= {"extensions": (ExpertActionInput(), TrainingProgressInput())}
+REWARD_NORM = {"normalize_rewards": True, "reward_normalization_gamma": 0.99}
+OFFLINE_KW = {**S, **R, "learning_starts": 0, "batch_size": 8}
+#: Trained offline for their steps (updates on a dataset's rows), then
+#: online for ONLINE steps from that state (train_offline, then train).
+OFFLINE = {"IQL-offline", "TD3-offline"}
+ONLINE = 40
 CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "TD3": (TD3, {**S, **R}, 200),
     "TD3-keyed": (TD3, {**S, **R, "extensions": (Keyed(),)}, 200),
     "TD3-gru": (TD3, {**S, **R, **GRU}, 160),
+    "TD3-gru-stored": (TD3, {**S, **R, **GRU, "stored_state": True}, 160),
+    "TD3-expert-bc": (TD3, {**S, **R, **BC}, 200),
+    "TD3-residual": (TD3, {**S, **R, **RESIDUAL}, 200),
+    "TD3-gain": (TD3, {**S, **R, **GAIN}, 200),
+    "TD3-observe": (TD3, {**S, **R, **OBSERVE}, 200),
+    "TD3-norm": (TD3, {**S, **R, **NORM}, 200),
+    "TD3-norm-rewards": (TD3, {**S, **R, **REWARD_NORM}, 200),
+    "TD3-pipeline": (
+        TD3,
+        {**S, **R, "action_pipeline": make_default_action_pipeline(False, 0.3)},
+        200,
+    ),
+    "TD3-offline": (TD3, OFFLINE_KW, 80),
     "AVG": (AVG, {**S, "learning_starts": 20}, 200),
     "AVG-keyed": (AVG, {**S, "learning_starts": 20, "extensions": (Keyed(),)}, 200),
     "DAgger-keyed": (DAgger, {**DAGGER, "extensions": (ActorKeyed(),)}, 200),
@@ -130,7 +162,12 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         | {"expert_policy": choose_one},
         200,
     ),
+    "IQL": (IQL, {**S, **R}, 200),
     "IQL-keyed": (IQL, {**S, **R, "extensions": (Keyed(),)}, 200),
+    "IQL-residual": (IQL, {**S, **R, **RESIDUAL}, 200),
+    "IQL-gain": (IQL, {**S, **R, **GAIN}, 200),
+    "IQL-observe-norm": (IQL, {**S, **R, **OBSERVE, **NORM}, 200),
+    "IQL-offline": (IQL, OFFLINE_KW, 80),
     "DQN": (DQN, {**CART, "target_update_interval": 10}, 240),
     "DQN-keyed": (
         DQN,
@@ -194,12 +231,13 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "REDQ": (REDQ, {**S, **R}, 120),
     "ASAC": (ASAC, {**S, **R}, 160),
-    "CrossQ": (
-        CrossQ,
-        {"env_id": "Pendulum-v1", "n_envs": 2, "actor_width": 32, "critic_width": 64}
-        | {**R, "learning_starts": 40},
-        160,
-    ),
+    "CrossQ": (CrossQ, CROSSQ, 160),
+    "CrossQ-keyed": (CrossQ, {**CROSSQ, "extensions": (Keyed(),)}, 160),
+    "CrossQ-residual": (CrossQ, {**CROSSQ, **RESIDUAL}, 160),
+    "CrossQ-expert-bc": (CrossQ, {**CROSSQ, **BC}, 160),
+    "CrossQ-gain": (CrossQ, {**CROSSQ, **GAIN}, 160),
+    "CrossQ-observe": (CrossQ, {**CROSSQ, **OBSERVE}, 160),
+    "CrossQ-norm": (CrossQ, {**CROSSQ, **NORM, **REWARD_NORM}, 160),
     "PPO-keyed": (PPO, {**ON, "extensions": (Keyed(),)}, 128),
     "PPO-norm": (PPO, {**ON, **NORM}, 128),
     "PPO-norm-brax": (PPO, {**ON, **NORM, "env_id": "fast"}, 128),
@@ -226,19 +264,41 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
 }
 
 
-def leaves(name: str) -> dict[str, np.ndarray]:
+def run(name: str, agent: Any, logging: Any = None) -> tuple[Any, Any]:
+    """The case's training: ``train`` for its steps or, OFFLINE,
+    ``train_offline`` for as many updates on test_offline's dataset."""
+    steps = CASES[name][2]
+    if name in OFFLINE:
+        data = episodes(3, discrete=False)  # Pendulum's observations
+        return agent.train_offline(data, steps, seed=SEEDS, logging_config=logging)
+    return agent.train(SEEDS, n_timesteps=steps, logging_config=logging)
+
+
+def record(state: Any, evals: Any, tag: str = "") -> dict[str, np.ndarray]:
     """Every final-state leaf (keys as their data) and logged evaluation."""
-    cls, kwargs, steps = CASES[name]
-    logging = LoggingConfig(config={}, log_frequency=40, use_wandb=False)
-    state, evals = cls(**kwargs).train(SEEDS, n_timesteps=steps, logging_config=logging)
     out = {}
     for path, leaf in jax.tree_util.tree_flatten_with_path(state)[0]:
         if isinstance(leaf, jax.Array) and jnp.issubdtype(
             leaf.dtype, jax.dtypes.prng_key
         ):
             leaf = jax.random.key_data(leaf)
-        out["state" + jax.tree_util.keystr(path)] = np.asarray(leaf)
-    return out | {"eval/" + k: np.asarray(v) for k, v in (evals or {}).items()}
+        out[f"{tag}state" + jax.tree_util.keystr(path)] = np.asarray(leaf)
+    return out | {f"{tag}eval/" + k: np.asarray(v) for k, v in (evals or {}).items()}
+
+
+def leaves(name: str) -> dict[str, np.ndarray]:
+    """The case's :func:`record`, then an OFFLINE case's online one."""
+    cls, kwargs, _ = CASES[name]
+    logging = LoggingConfig(config={}, log_frequency=40, use_wandb=False)
+    agent = cls(**kwargs)
+    state, evals = run(name, agent, logging)
+    out = record(state, evals)
+    if name in OFFLINE:
+        state, evals = agent.train(
+            SEEDS, n_timesteps=ONLINE, initial_state=state, logging_config=logging
+        )
+        out |= record(state, evals, tag="online/")
+    return out
 
 
 class _Built(Exception):
@@ -248,7 +308,7 @@ class _Built(Exception):
 def program(name: str) -> str:
     """The text of the case's training program: the jaxpr of the function
     ``train`` vmaps over the seeds (logging off: its run ids vary)."""
-    cls, kwargs, steps = CASES[name]
+    cls, kwargs, _ = CASES[name]
     agent, built = cls(**kwargs), []
     make_train = agent.get_make_train
 
@@ -261,7 +321,7 @@ def program(name: str) -> str:
 
     agent.get_make_train = spy  # type: ignore[method-assign]
     try:
-        agent.train(SEEDS, n_timesteps=steps)
+        run(name, agent)
     except _Built:
         pass
     keys = jax.vmap(jax.random.PRNGKey)(jnp.array(SEEDS))

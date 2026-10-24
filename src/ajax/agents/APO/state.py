@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import ClassVar, Optional
 
 from flax import struct
 
@@ -10,6 +10,21 @@ from ajax.state import BaseAgentConfig, BaseAgentState
 class APOState(BaseAgentState):
     average_reward: float
     b: float
+
+    #: Its networks' gradients are clipped together (steps.joint_step): a
+    #: checkpoint from when each clipped its own restores (ajax.checkpoint).
+    joint_gradient_clip: ClassVar[bool] = True
+    #: How to restore a checkpoint of APO's former default network, added to
+    #: a shape mismatch's error (ajax.checkpoint). Expand-then-contract
+    #: (CLAUDE.md, refactoring rule 10): delete it once no such checkpoint
+    #: remains.
+    restore_hint: ClassVar[str] = (
+        '. APO\'s default hidden layers were ("128", "tanh", "128", "tanh")'
+        " before they became its reference code's two of 64 units: an APO"
+        ' checkpoint saved then restores into APO(..., actor_architecture=("128",'
+        ' "tanh", "128", "tanh"), critic_architecture=("128", "tanh", "128",'
+        ' "tanh")), its other settings unchanged.'
+    )
 
 
 @struct.dataclass

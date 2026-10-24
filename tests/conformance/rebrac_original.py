@@ -19,7 +19,7 @@ import jax.numpy as jnp
 import numpy as np
 
 import ajax
-import ajax.agents.TD3.train_TD3 as train_TD3
+import ajax.agents.TD3.TD3 as td3_module
 from ajax.extensions.expert import ImitationLoss
 from ajax.extensions.offline import TargetBC
 from tests.conformance import kit
@@ -107,7 +107,7 @@ def run(records: pathlib.Path, precision: str, beta: float = 1.0) -> dict[str, d
     """Ajax's state after one update from each record, in ReBRAC's names, by record name."""
     dtype = np.float64 if precision == "f64" else np.float32
     given: dict = {}
-    sample = train_TD3.sample_replay
+    sample = td3_module.sample_replay
 
     def injected(
         agent_state: Any, buffer: Any, key: Any, *args: Any, **kwargs: Any
@@ -134,12 +134,12 @@ def run(records: pathlib.Path, precision: str, beta: float = 1.0) -> dict[str, d
 
     tasks = sorted({p.name.rsplit("_", 1)[0] for p in records.glob("*.npz")})
     out: dict = {}
-    train_TD3.sample_replay = injected
+    td3_module.sample_replay = injected
     try:
         for task in tasks:
             out |= _task_updates(records, task, dtype, beta, given)
     finally:
-        train_TD3.sample_replay = sample
+        td3_module.sample_replay = sample
     return out
 
 

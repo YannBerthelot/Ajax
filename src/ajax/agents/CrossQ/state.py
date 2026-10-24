@@ -1,20 +1,9 @@
-from flax import struct
+"""CrossQ's state and config, now in :mod:`ajax.agents.CrossQ.CrossQ`; their
+old path imports them with a FutureWarning until 0.5.0."""
 
-from ajax.agents.SAC.state import SoftACState
-from ajax.state import BaseAgentConfig
+from ajax.deprecation import moved_names
 
-
-@struct.dataclass(kw_only=True)
-class CrossQState(SoftACState):
-    """CrossQ's state: a soft actor-critic's, its critics without targets."""
-
-
-@struct.dataclass(kw_only=True)
-class CrossQConfig(BaseAgentConfig):
-    """CrossQ's hyperparameters (the wrapper sets every one)."""
-
-    gamma: float
-    target_entropy: float
-    learning_starts: int
-    reward_scale: float
-    policy_delay: int
+__getattr__ = moved_names(
+    __name__,
+    dict.fromkeys(("CrossQConfig", "CrossQState"), "ajax.agents.CrossQ.CrossQ"),
+)

@@ -21,7 +21,7 @@ import jax.numpy as jnp
 import numpy as np
 
 import ajax
-import ajax.agents.CrossQ.train_CrossQ as train_CrossQ
+import ajax.agents.CrossQ.CrossQ as crossq
 from tests.conformance import kit
 
 #: The recorder's model in Ajax's names: train.py -algo crossq, 256 wide.
@@ -104,7 +104,7 @@ def run(records: Any, precision: str, fault: str | None = None) -> dict[str, dic
     """Ajax's state after one update from each record, in the authors' names, by record name."""
     dtype = np.float64 if precision == "f64" else np.float32
     given: dict = {}
-    sample = train_CrossQ.sample_replay
+    sample = crossq.sample_replay
 
     def injected(
         agent_state: Any, buffer: Any, key: Any, *args: Any, **kwargs: Any
@@ -125,12 +125,12 @@ def run(records: Any, precision: str, fault: str | None = None) -> dict[str, dic
 
     envs = sorted({p.name.rsplit("_", 1)[0] for p in records.glob("*.npz")})
     out: dict = {}
-    train_CrossQ.sample_replay = injected
+    crossq.sample_replay = injected
     try:
         for env_id in envs:
             out |= _env_updates(records, env_id, dtype, fault, given)
     finally:
-        train_CrossQ.sample_replay = sample
+        crossq.sample_replay = sample
     return out
 
 

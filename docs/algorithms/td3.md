@@ -41,7 +41,7 @@ This budget only shows the call; Pendulum needs more steps to be solved.
 
 ## Key hyperparameters
 
-Defaults are read from `TD3.__init__`. They are the authors' code as
+Defaults are read from TD3's fields. They are the authors' code as
 updated in 2019, not the paper's: see [Notes](#notes).
 
 | Argument | Default | What it does |

@@ -6,6 +6,41 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **IQL, CrossQ and TD3 are declared agents.** Each is one file,
+  `agents/<AGENT>/<AGENT>.py`, on the replay family of the new
+  `ajax.agents.families`: its hyperparameters are dataclass fields, declared
+  once with the paper's defaults. What changes for a caller:
+  - the constructor is keyword-only after `env_id`;
+  - an agent's fields and `agent_config` are fixed once built
+    (`dataclasses.replace(agent, gamma=0.9)` builds another), and
+    `agent_config` is a view of the fields;
+  - `TD3Config`'s `learning_starts` default (100) gives way to TD3's
+    (25 000), which TD3 always used;
+  - `IQLConfig`, `CrossQConfig` and `TD3Config` are views that subclass
+    `BaseAgentConfig` only (`TD3Config` is no longer a
+    `RecurrentReplayConfig`), and are untyped (`Any`) to mypy until 0.5.0;
+  - `train_kwargs` is empty: read the agent's fields and attributes
+    (`agent.buffer`, TD3's `agent.pipeline`, CrossQ's read-only
+    `agent.alpha_args`); `make_train` takes only the keywords every agent's
+    takes (no `buffer`, `expert_policy` or `action_pipeline`);
+  - `expert_policy` holds the expert as passed, which the run config logs;
+    `agent.expert` is the one read in agent units;
+  - the old modules (`train_IQL`, `IQL.state`, `train_CrossQ`,
+    `CrossQ.state`, `train_TD3`, `TD3.state`) still import their names, with
+    a FutureWarning, until 0.5.0 (`train_TD3.update_target_networks` is
+    `TD3.update_targets`). Their functions that became methods (the update
+    functions, `init_<AGENT>`, `make_train`) take other arguments: calling
+    one raises TypeError with the method's call form.
+
+  Training is unchanged: every final state is bitwise the same, and so is
+  the compiled program.
+- Writing a name on a module it moved out of (`monkeypatch.setattr` on an
+  old path) raises AttributeError naming its new home, where it is read:
+  the write would have changed nothing.
+- `checkpoint.py` reads PPO's and APO's restore rules off their state
+  classes (`joint_gradient_clip`, `restore_hint`); `PPOState` is a class of
+  its own, no longer an alias of `BaseAgentState`.
+
 - **ASAC** now does what the authors' code does (`darer/ASAC.py`): a
   termination drops the next value in the critic's target (it bootstrapped
   through it); the termination penalty follows their rule, `p_0` times the

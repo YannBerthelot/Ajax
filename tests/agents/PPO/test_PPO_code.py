@@ -35,7 +35,7 @@ _CFG = {
     "n_envs": 4,
     "n_steps": 8,  # rollout per iter = 4 * 8 = 32 transitions
     "batch_size": 32,  # ignored when num_minibatches > 0
-    "num_minibatches": 4,  # → mb_size = 32 / 4 = 8
+    "num_minibatches": 4,  # → minibatch size = 32 / 4 = 8
     "n_epochs": 2,
     "actor_architecture": ("16", "tanh", "16", "tanh"),
     "critic_architecture": ("16", "tanh", "16", "tanh"),
@@ -69,7 +69,7 @@ def test_apply_gradients_runs_once_per_epoch_and_minibatch(extra, num_minibatche
 
     This is the **wire-test that would have caught the May 2026 bug**
     where ``do_update.body_fn`` passed the whole (num_minibatches,
-    mb_size, feat) tensor to the loss as one batch, performing only
+    minibatch_size, feat) tensor to the loss as one batch, performing only
     ``n_epochs`` updates per iteration instead of
     ``n_epochs * num_minibatches``; the 8-minibatch and 4-epoch rows catch
     a knob honoured for the reshape but not for the scan length.

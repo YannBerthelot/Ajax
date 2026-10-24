@@ -14,9 +14,9 @@ import optax
 import pytest
 
 import ajax.agents.APO.APO as apo_module
-from ajax.agents import minibatch
 from ajax.agents.APO.APO import APO
 from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
+from ajax.agents.minibatch import choose_rollout_split, rollout_actions
 from ajax.agents.PPO.PPO import (
     PPO,
     PPOState,
@@ -126,7 +126,7 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
         gamma=config.gamma,
         gae_lambda=config.gae_lambda,
     )
-    actions, log_probs = minibatch.rollout_actions(rollout)
+    actions, log_probs = rollout_actions(rollout)
 
     def value_loss(p):
         return value_loss_function(
@@ -287,8 +287,8 @@ def test_the_entropy_bonus_lowers_the_policy_loss() -> None:
     (with_bonus, entropy), (without, _) = loss(0.1), loss(0.0)
     np.testing.assert_allclose(with_bonus - without, -0.1 * entropy, rtol=1e-5)
     # The update's minibatch step logs the loss with the agent's bonus.
-    mb: dict[str, Any] = {"obs": obs, "actions": actions, "log_probs": log_probs}
-    mb |= {"gae": gae, "targets": targets, "raw_actions": None, "raw_obs": None}
-    split = minibatch.choose_rollout_split(agent, agent.n_steps, agent.n_envs, False)
-    _, aux = agent.minibatch_step(state, mb, split, ctx)
+    minibatch: dict[str, Any] = {"obs": obs, "actions": actions, "log_probs": log_probs}
+    minibatch |= {"gae": gae, "targets": targets, "raw_actions": None, "raw_obs": None}
+    split = choose_rollout_split(agent, agent.n_steps, agent.n_envs, False)
+    _, aux = agent.minibatch_step(state, minibatch, split, ctx)
     np.testing.assert_allclose(aux.policy.policy_loss, with_bonus, rtol=1e-5)

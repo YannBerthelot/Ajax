@@ -245,7 +245,7 @@ class PQN(
             )
             loss_keys = jax.random.split(extension_key(epoch_key), self.num_minibatches)
 
-            def mb_body(state: PQNState, xs: tuple) -> Tuple[Any, Any]:
+            def minibatch_body(state: PQNState, xs: tuple) -> Tuple[Any, Any]:
                 (observations, actions, targets), loss_key = xs
                 q_state, value_aux, loss_metrics = q_gradient_step(
                     state,
@@ -260,7 +260,7 @@ class PQN(
                 state = state.replace(actor_state=q_state)
                 return state, (value_aux, loss_metrics)
 
-            return jax.lax.scan(mb_body, state, (minibatches, loss_keys))
+            return jax.lax.scan(minibatch_body, state, (minibatches, loss_keys))
 
         state, (value_aux, loss_metrics) = jax.lax.scan(epoch_body, state, epoch_keys)
         # (n_epochs, num_minibatches, ...) -> one (1,) value per metric.

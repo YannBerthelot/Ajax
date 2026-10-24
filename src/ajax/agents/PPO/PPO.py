@@ -222,7 +222,8 @@ class PPO(
         # draw on keys derived from it.
         state, shuffle_key = state.next_keys()
         reward_key, target_key = jax.random.split(extension_key(shuffle_key))
-        rewards, reward_metrics = rollout.reward, dict[str, Any]()
+        rewards = rollout.reward
+        reward_metrics: dict[str, Any] = {}
         if "reward" in stack.implemented_phases():
             # The extensions' rewards replace the env's (GAIL's discriminator).
             state, rewards, reward_metrics = stack.fold_reward(
@@ -342,7 +343,7 @@ class PPO(
         return gae, value_targets, metrics
 
     def minibatch_step(
-        self, state: PPOState, mb: dict, split: RolloutSplit, ctx: TrainContext
+        self, state: PPOState, minibatch: dict, split: RolloutSplit, ctx: TrainContext
     ) -> tuple[PPOState, AuxiliaryLogs]:
         """A critic and an actor step, both from the state before either."""
         state, ent_rng = state.next_keys()
@@ -353,7 +354,7 @@ class PPO(
         target_key, critic_key, actor_key = jax.random.split(extension_key(ent_rng), 3)
         critic_extra = _stack_critic_loss(stack, state, critic_key, total_timesteps)
         actor_extra = _stack_actor_loss(
-            stack, state, actor_key, total_timesteps, mb["raw_obs"]
+            stack, state, actor_key, total_timesteps, minibatch["raw_obs"]
         )
 
         if split.advantages_per_minibatch:
@@ -361,54 +362,55 @@ class PPO(
             # constant (no gradient reaches the critic through it).
             values = jax.lax.stop_gradient(
                 predict_value(
-                    critic_state=critic, critic_params=critic.params, x=mb["obs"]
+                    critic_state=critic, critic_params=critic.params, x=minibatch["obs"]
                 ).squeeze(0)
             )
             next_values = jax.lax.stop_gradient(
                 predict_value(
                     critic_state=critic,
                     critic_params=critic.params,
-                    x=mb["next_obs"],
+                    x=minibatch["next_obs"],
                 ).squeeze(0)
             )
             gae, value_targets, target_metrics = self.advantages(
-                state, mb, values, next_values, target_key, ctx, hold=True
+                state, minibatch, values, next_values, target_key, ctx, hold=True
             )
         else:
-            gae, value_targets = mb["gae"], mb["targets"]
+            gae, value_targets = minibatch["gae"], minibatch["targets"]
 
-        resets = mb.get("resets")
+        # Only a recurrent split's minibatches carry resets and start memories.
+        resets = minibatch["resets"] if ctx.recurrent else None
         (_, (v_aux, v_metrics)), v_grads = jax.value_and_grad(
             value_loss_function, has_aux=True
         )(
             critic.params,
             critic,
-            mb["obs"],
+            minibatch["obs"],
             value_targets,
             ctx.recurrent,
             vf_coef=self.vf_coef,
             extra_loss_fn=critic_extra,
             resets=resets,
-            initial_hidden=mb.get("critic_hidden"),
+            initial_hidden=minibatch["critic_hidden"] if ctx.recurrent else None,
         )
         (_, (p_aux, p_metrics)), p_grads = jax.value_and_grad(
             policy_loss_function, has_aux=True
         )(
             actor.params,
             actor,
-            mb["obs"],
-            mb["actions"],
-            mb["log_probs"],
+            minibatch["obs"],
+            minibatch["actions"],
+            minibatch["log_probs"],
             gae,
             ctx.recurrent,
             at(self.clip_range, state.collector_state.timestep),
             self.ent_coef,
             self.normalize_advantage,
             extra_loss_fn=actor_extra,
-            raw_actions=mb["raw_actions"],
+            raw_actions=minibatch["raw_actions"],
             entropy_rng=ent_rng,
             resets=resets,
-            initial_hidden=mb.get("actor_hidden"),
+            initial_hidden=minibatch["actor_hidden"] if ctx.recurrent else None,
         )
         actor, critic = joint_step(actor, critic, p_grads, v_grads, self.max_grad_norm)
         state = state.replace(critic_state=critic, actor_state=actor)
@@ -678,6 +680,7 @@ class PPOState(BaseAgentState):
 
     #: Its networks' gradients are clipped together (steps.joint_step): a
     #: checkpoint from when each clipped its own restores (ajax.checkpoint).
+    #: A ClassVar: a flag on the class, shared by every PPO state, not stored in its arrays.
     joint_gradient_clip: ClassVar[bool] = True
 
 

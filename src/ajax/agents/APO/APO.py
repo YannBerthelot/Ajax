@@ -314,9 +314,9 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         return state.replace(n_updates=state.n_updates + 1), aux
 
     def minibatch_step(
-        self, state: APOState, mb: dict, b: jax.Array, ctx: TrainContext
+        self, state: APOState, minibatch: dict, b: jax.Array, ctx: TrainContext
     ) -> tuple[APOState, AuxiliaryLogs]:
-        """One step of both networks on the minibatch ``mb``, as APO's
+        """One step of both networks on the minibatch ``minibatch``, as APO's
         official code takes it (``xtma/apo``, ``apo/algos/apg/``): one Adam
         over the whole model (``base.py:28``) down the clipped surrogate plus
         ``vf_coef`` times the value loss minus ``ent_coef`` times the entropy
@@ -330,7 +330,9 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         (None without an expert).
         """
         actor_state, critic_state = state.actor_state, state.critic_state
-        critic_key, actor_key = jax.random.split(extension_key(mb["entropy_key"]))
+        critic_key, actor_key = jax.random.split(
+            extension_key(minibatch["entropy_key"])
+        )
         timestep = state.collector_state.timestep
         stack, total_timesteps = ctx.stack, ctx.total_timesteps
 
@@ -339,39 +341,39 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             policy_loss, (policy_aux, pi_mean) = policy_loss_function(
                 actor_params,
                 actor_state,
-                observations=mb["obs"],
-                actions=mb["actions"],
-                log_probs=mb["log_probs"],
-                gae=mb["gae"],
+                observations=minibatch["obs"],
+                actions=minibatch["actions"],
+                log_probs=minibatch["log_probs"],
+                gae=minibatch["gae"],
                 clip_coef=at(self.clip_range, timestep),
                 ent_coef=self.ent_coef,
-                raw_actions=mb["raw_actions"],
-                entropy_key=mb["entropy_key"],
-                valid=mb.get("valid"),
+                raw_actions=minibatch["raw_actions"],
+                entropy_key=minibatch["entropy_key"],
+                valid=minibatch.get("valid"),
             )
             value_loss, value_aux = value_loss_function(
                 critic_params,
                 critic_state,
-                mb["obs"],
-                mb["targets"],
+                minibatch["obs"],
+                minibatch["targets"],
                 self.nu,
                 b,
                 self.vf_coef,
-                mb.get("valid"),
+                minibatch.get("valid"),
             )
             critic_batch = {
-                "observations": mb["obs"],
-                "targets": mb["targets"],
+                "observations": minibatch["obs"],
+                "targets": minibatch["targets"],
                 "critic_params": critic_params,
                 "critic_state": critic_state,
             }
             actor_batch = {
-                "observations": mb["obs"],
-                "raw_observations": mb["raw_obs"],
+                "observations": minibatch["obs"],
+                "raw_observations": minibatch["raw_obs"],
                 "pi_mean": pi_mean,
                 "actor_params": actor_params,
                 "actor_state": actor_state,
-                "a_expert": mb["a_expert"],
+                "a_expert": minibatch["a_expert"],
             }
             critic_extra, critic_metrics = stack.fold_critic_loss(
                 state, critic_batch, timestep, critic_key, total_timesteps
@@ -526,6 +528,7 @@ class APOState(BaseAgentState):
 
     #: Its networks' gradients are clipped together (steps.joint_step): a
     #: checkpoint from when each clipped its own restores (ajax.checkpoint).
+    #: A ClassVar: a flag on the class, shared by every APO state, not stored in its arrays.
     joint_gradient_clip: ClassVar[bool] = True
     #: How to restore a checkpoint of APO's former default network, added to
     #: a shape mismatch's error (ajax.checkpoint). Expand-then-contract

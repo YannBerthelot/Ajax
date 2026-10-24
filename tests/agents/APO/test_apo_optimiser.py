@@ -16,10 +16,10 @@ import numpy as np
 import optax
 import pytest
 
+from ajax.agents import steps
 from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.APO.state import APOConfig
-from ajax.agents.PPO import train_PPO
 from ajax.agents.PPO.core import recompute_log_prob
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
@@ -98,7 +98,7 @@ def test_APO_clips_with_torchs_clip_grad_norm() -> None:
     ``max_norm / (norm + 1e-6)`` when that is below 1: at norm 2e-6 and
     max_norm 1e-6, by a third (``tf.clip_by_global_norm``, PPO's, by a
     half)."""
-    clip = train_PPO.clip_global_norm
+    clip = steps.clip_global_norm
     grads = ({"a": jnp.array([1.2e-6, 0.0])}, {"b": jnp.array([1.6e-6])})
     clipped = clip(grads, 1e-6, train_APO.TORCH_CLIP_EPS)
     np.testing.assert_allclose(clipped[0]["a"], [0.4e-6, 0.0], rtol=1e-5)

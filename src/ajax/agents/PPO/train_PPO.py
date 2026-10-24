@@ -40,6 +40,7 @@ from ajax.agents.PPO.core import (
 from ajax.agents.PPO.state import PPOConfig, PPOState
 from ajax.agents.PPO.utils import _compute_gae
 from ajax.agents.recurrent import rollout_sequence_values
+from ajax.agents.steps import joint_step
 from ajax.deprecation import moved_names
 from ajax.environments.interaction import (
     get_pi,
@@ -289,41 +290,6 @@ def _stack_actor_loss(
         )
 
     return actor_loss
-
-
-def clip_global_norm(grads: Any, max_norm: Optional[float], eps: float = 0.0) -> Any:
-    """``grads`` (any tree) times ``min(1, max_norm / (norm + eps))``, their
-    global ``norm`` taken over every leaf at once; ``None`` leaves them.
-
-    With ``eps`` 0 it is ``tf.clip_by_global_norm``, ppo2's (baselines
-    ea25b9e ppo2/model.py:105-107); torch's ``clip_grad_norm_``, which APO's
-    reference code calls, adds 1e-6 to the norm (torch 1.5.1,
-    ``torch/nn/utils/clip_grad.py:33-37``)."""
-    if max_norm is None:
-        return grads
-    coef = jnp.minimum(1.0, max_norm / (optax.global_norm(grads) + eps))
-    return jax.tree.map(lambda g: g * coef, grads)
-
-
-def joint_step(
-    actor: Any,
-    critic: Any,
-    actor_grads: Any,
-    critic_grads: Any,
-    max_grad_norm: Optional[float],
-    norm_eps: float = 0.0,
-) -> tuple[Any, Any]:
-    """Both networks' Adam steps on their gradients clipped together
-    (:func:`clip_global_norm`), as ppo2's one optimiser, and APO's
-    reference code's, clip every parameter's gradient at once. Adam is per
-    coordinate, so the two Adams are one over the whole model."""
-    actor_grads, critic_grads = clip_global_norm(
-        (actor_grads, critic_grads), max_grad_norm, norm_eps
-    )
-    return (
-        actor.apply_gradients(grads=actor_grads),
-        critic.apply_gradients(grads=critic_grads),
-    )
 
 
 def _normalisation_info(env_state: Any, mode: str) -> Any:
@@ -725,5 +691,6 @@ def make_train(
 
 __getattr__ = moved_names(
     __name__,
-    dict.fromkeys(("Geometry", "default_bptt_length"), "ajax.agents.minibatch"),
+    dict.fromkeys(("Geometry", "default_bptt_length"), "ajax.agents.minibatch")
+    | {"clip_global_norm": "ajax.agents.steps"},
 )

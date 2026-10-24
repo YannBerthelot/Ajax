@@ -12,6 +12,7 @@ import jax
 import numpy as np
 import optax
 
+from ajax.agents import steps
 from ajax.agents.PPO import train_PPO
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PPO.state import PPOConfig
@@ -53,7 +54,7 @@ def test_joint_step_is_one_clipped_adam_over_both_networks() -> None:
         norms.append(float(optax.global_norm(grads)))
         updates, opt_state = tx.update(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
-        actor, critic = train_PPO.joint_step(actor, critic, *grads, max_grad_norm=0.5)
+        actor, critic = steps.joint_step(actor, critic, *grads, max_grad_norm=0.5)
     assert min(norms) < 0.5 < max(norms), norms
     got = (actor.params, critic.params)
     moved = jax.tree.map(lambda p, s: p - s, got, start)

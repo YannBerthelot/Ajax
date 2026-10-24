@@ -228,7 +228,7 @@ class PPO(ActorCritic):
 
         # ppo2's optimiser (baselines ea25b9e ppo2/model.py:100-107): Adam
         # with eps 1e-5, its gradient clipped once over both networks (the
-        # config's max_grad_norm, train_PPO.joint_step), so neither
+        # config's max_grad_norm, steps.joint_step), so neither
         # network's own optimiser clips.
         joint = {"eps": adam_eps, "max_grad_norm": None}
         self.actor_optimizer_args = self.actor_optimizer_args.replace(**joint)

@@ -24,7 +24,7 @@ import pytest
 
 from ajax import PPO
 from ajax.agents.minibatch import MinibatchPlan, minibatch_plan
-from ajax.agents.PPO.state import PPOConfig
+from ajax.agents.PPO.PPO import PPOConfig
 from ajax.networks.memory import MemoryConfig
 
 # Small CartPole config sized so one training iteration's rollout

@@ -110,3 +110,29 @@ def test_the_declared_agents_old_names_resolve_or_give_the_new_call(
             assert home.__name__ == f"ajax.agents.{agent}.{agent}"
         with pytest.raises(AttributeError, match=f"{path}.{name} moved to"):
             setattr(module, name, found)
+
+
+def test_ppos_old_names_resolve_or_give_the_new_call() -> None:
+    """PPO's old modules serve every name the surface record holds for them
+    (and _compute_gae, which downstream reads) from PPO.py or a shared
+    module; its init, update and make_train became methods. core keeps one
+    legacy definition, resolve_clip_coef."""
+    olds = tuple(
+        f"ajax.agents.PPO.{m}" for m in ("train_PPO", "state", "core", "utils")
+    )
+    recorded = json.loads(SURFACE.read_text())
+    lines = [line.split(":") for line in recorded if line.startswith(olds)]
+    lines += [["ajax.agents.PPO.utils", "_compute_gae"]]
+    assert len(lines) > 20
+    for path, name in lines:
+        module = importlib.import_module(path)
+        if name == "resolve_clip_coef":
+            assert inspect.getmodule(module.resolve_clip_coef) is module
+            continue
+        with pytest.warns(FutureWarning, match=f"{path}.{name} moved to"):
+            found = getattr(module, name)
+        if name in {"init_PPO", "update_agent", "make_train"}:
+            with pytest.raises(TypeError, match=f"{path}.{name} became .*self"):
+                found()
+        with pytest.raises(AttributeError, match=f"{path}.{name} moved to"):
+            setattr(module, name, found)

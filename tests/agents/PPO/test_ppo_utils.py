@@ -8,7 +8,7 @@ from ajax.agents.minibatch import (
     get_minibatches_from_batch,
     get_minibatches_preserving_time,
 )
-from ajax.agents.PPO.utils import _compute_gae
+from ajax.agents.PPO.PPO import _compute_gae
 from ajax.networks.distributions import Squash, policy_entropy
 
 G, L = 0.99, 0.95

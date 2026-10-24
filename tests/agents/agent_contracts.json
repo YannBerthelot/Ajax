@@ -549,7 +549,7 @@
    "v_critic"
   ],
   "extension_context": [],
-  "make_train": "ajax.agents.PPO.train_PPO:make_train",
+  "make_train": "ajax.agents.families:OnPolicyAgent.make_train",
   "name": "PPO",
   "per_seed_update_counts": false,
   "phase_batch_keys": {

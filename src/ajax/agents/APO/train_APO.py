@@ -27,20 +27,20 @@ from ajax.agents.minibatch import (
     rollout_actions,
     run_epochs,
 )
-from ajax.agents.PPO.core import (
+from ajax.agents.PPO.PPO import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
+    _compute_gae,
     clipped_surrogate,
 )
-from ajax.agents.PPO.core import ValueAuxiliaries as PPOValueAuxiliaries
-from ajax.agents.PPO.train_PPO import init_PPO
-from ajax.agents.PPO.utils import _compute_gae
+from ajax.agents.PPO.PPO import ValueAuxiliaries as PPOValueAuxiliaries
 from ajax.agents.steps import joint_step
-from ajax.environments.interaction import get_pi
+from ajax.environments.interaction import get_pi, init_collector_state
+from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import policy_entropy, recompute_log_prob
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import get_initialized_actor_critic, predict_value
 from ajax.schedule import at
 from ajax.state import (
     EnvironmentConfig,
@@ -118,17 +118,39 @@ def init_APO(
     network_args: NetworkConfig,
     expert_policy: Optional[Callable] = None,
 ) -> APOState:
-    """PPO's initial state (APO's networks: :class:`ajax.agents.APO.APO`)
-    with ``expert_policy``'s, and the reward rate and the value bias at 0."""
-    state = init_PPO(
-        key,
-        env_args,
-        actor_optimizer_args,
-        critic_optimizer_args,
-        network_args,
-        expert_policy=expert_policy,
+    """PPO's initial state on PPO's key layout (APO's networks:
+    :class:`ajax.agents.APO.APO`) with ``expert_policy``'s, and the reward
+    rate and the value bias at 0."""
+    rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
+
+    continuous = check_if_environment_has_continuous_actions(
+        env_args.env, env_params=env_args.env_params
     )
-    return APOState(**vars(state), average_reward=0.0, b=0.0)
+    actor_state, critic_state = get_initialized_actor_critic(
+        key=init_key,
+        env_config=env_args,
+        actor_optimizer_config=actor_optimizer_args,
+        critic_optimizer_config=critic_optimizer_args,
+        network_config=network_args,
+        continuous=continuous,
+        action_value=False,
+        squash=network_args.squash,
+        num_critics=1,
+    )
+    mode = env_args.mode
+    collector_state = init_collector_state(
+        collector_key, env_args=env_args, mode=mode, expert_policy=expert_policy
+    )
+    return APOState(
+        rng=rng,
+        eval_rng=eval_rng,
+        actor_state=actor_state,
+        critic_state=critic_state,
+        collector_state=collector_state,
+        n_updates=0,
+        average_reward=0.0,
+        b=0.0,
+    )
 
 
 def value_loss_function(

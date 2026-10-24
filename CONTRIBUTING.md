@@ -35,7 +35,7 @@ src/ajax/
 └── checkpoint.py        save_checkpoint, restore_into
 ```
 
-**Agent anatomy.** A declared agent (IQL, CrossQ, TD3) is one file,
+**Agent anatomy.** A declared agent (IQL, CrossQ, TD3, PPO) is one file,
 `src/ajax/agents/<AGENT>/<AGENT>.py`: its hyperparameters as dataclass
 fields, its `init` and `update`, its equations, its state and metrics (and,
 until 0.5.0, the `<AGENT>Config` view it had before), on a family of
@@ -176,8 +176,8 @@ optimiser step) from `agents/steps.py` rather than writing your own.
 A replay agent `FOO` declares itself on a family of `agents/families.py`, as
 IQL, CrossQ and TD3 do (read `agents/IQL/IQL.py` first). The other agents
 keep the older three-file form (`state.py`, `train_<AGENT>.py` with a
-`make_train`, `<AGENT>.py`) until their batch moves them; the on-policy family
-comes with PPO's.
+`make_train`, `<AGENT>.py`) until their batch moves them. An on-policy agent
+declares itself on `OnPolicyAgent`, as PPO does (`agents/PPO/PPO.py`).
 
 **1. `FOO/FOO.py`, the one file.** Its hyperparameters are the fields of a
 dataclass, declared once with the paper's defaults: the family generates the
@@ -249,7 +249,7 @@ class FOOState(BaseAgentState):
 
 A new agent declares no `<AGENT>Config`: its fields are its configuration,
 and `agent.agent_config` is a plain `BaseAgentConfig`. Only the agents that
-had a Config before their fields were declared (IQL, CrossQ, TD3) keep one, a
+had a Config before their fields were declared (IQL, CrossQ, TD3, PPO) keep one, a
 view of the fields (`declare_config`), until 0.5.0.
 
 `init` splits the run's key on the agent's own layout, which its pins hold.

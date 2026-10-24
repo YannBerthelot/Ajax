@@ -352,16 +352,9 @@ def _redq_nets():
 
 def _ppo_nets():
     from ajax.agents.PPO.PPO import PPO
-    from ajax.agents.PPO.train_PPO import init_PPO
 
     def build(a, key):
-        state = init_PPO(
-            key,
-            a.env_args,
-            a.actor_optimizer_args,
-            a.critic_optimizer_args,
-            a.network_args,
-        )
+        state = a.init(key, a.context(1)[1])
         return state.actor_state.params, state.critic_state.params
 
     return PPO("Pendulum-v1"), build

@@ -16,12 +16,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import ajax.agents.PPO.PPO as ppo_module
 from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.APO.state import APOConfig
-from ajax.agents.PPO import train_PPO
 from ajax.agents.PPO.PPO import PPO
-from ajax.agents.PPO.state import PPOConfig
 from ajax.extensions.base import ExtensionStack
 from ajax.networks.memory import MemoryConfig
 from ajax.state import Transition
@@ -86,34 +85,20 @@ def test_ppo_reshuffles_every_epoch(
     geometry: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     agent = PPO(**{**SMALL, **geometry})
-    config = cast(PPOConfig, agent.agent_config)
     n_envs = agent.env_args.n_envs
     seen: list[np.ndarray] = []
-    value_loss = train_PPO.value_loss_function
+    value_loss = ppo_module.value_loss_function
 
     def spy(params: Any, critic: Any, obs: jax.Array, *args: Any, **kw: Any) -> Any:
         _record(seen, obs)
         return value_loss(params, critic, obs, *args, **kw)
 
-    monkeypatch.setattr(train_PPO, "value_loss_function", spy)
-    state = train_PPO.init_PPO(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
-    train_PPO.update_agent(
-        state,
-        _rollout(n_envs),
-        state,
-        config,
-        agent.network_args.memory is not None,
-        ExtensionStack(()),
-        total_timesteps=1_000,
-    )
+    monkeypatch.setattr(ppo_module, "value_loss_function", spy)
+    _, ctx = agent.context(1_000)
+    state = agent.init(jax.random.PRNGKey(0), ctx)
+    agent.update(state, _rollout(n_envs), state, ctx)
     jax.effects_barrier()
-    _assert_fresh_partitions(seen, n_envs, config.num_minibatches)
+    _assert_fresh_partitions(seen, n_envs, agent.num_minibatches)
 
 
 def test_apo_reshuffles_every_epoch(monkeypatch: pytest.MonkeyPatch) -> None:

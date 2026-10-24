@@ -19,13 +19,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import ajax.agents.PPO.PPO as ppo_module
 from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC import train_ASAC
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG import train_AVG
 from ajax.agents.AVG.AVG import AVG
-from ajax.agents.PPO import train_PPO
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.REDQ import train_REDQ
 from ajax.agents.REDQ.REDQ import REDQ
@@ -441,19 +441,13 @@ def _ppo_update(stack: ExtensionStack) -> Any:
     agent = PPO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
-    state = train_PPO.init_PPO(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
+    state = agent.init(KEY, agent.context(1)[1])
     state = _ext_state(state, stack)
     obs, actor = _obs(agent), state.actor_state
-    extra = train_PPO._stack_actor_loss(stack, state, KEY, 1, raw_observations=obs)
+    extra = ppo_module._stack_actor_loss(stack, state, KEY, 1, raw_observations=obs)
 
     def loss(params: Any) -> Any:
-        return train_PPO.policy_loss_function(
+        return ppo_module.policy_loss_function(
             params,
             actor,
             obs,

@@ -23,7 +23,11 @@ import jax.numpy as jnp
 import pytest
 
 from ajax import PPO
-from ajax.agents.minibatch import RolloutSplit, choose_rollout_split
+from ajax.agents.minibatch import (
+    RolloutSplit,
+    choose_rollout_split,
+    get_actions_and_log_probs,
+)
 from ajax.agents.PPO.PPO import PPOConfig
 from ajax.networks.memory import MemoryConfig
 
@@ -130,6 +134,16 @@ def test_the_geometry_names_resolve_to_the_rollout_split() -> None:
         assert train_PPO.Geometry is RolloutSplit
     with pytest.warns(FutureWarning, match="train_PPO.minibatch_geometry moved"):
         assert train_PPO.minibatch_geometry is choose_rollout_split
+
+
+def test_rollout_actions_resolves_to_get_actions_and_log_probs() -> None:
+    from ajax.agents import minibatch
+    from ajax.agents.PPO import core
+
+    with pytest.warns(FutureWarning, match="minibatch.rollout_actions moved to"):
+        assert minibatch.rollout_actions is get_actions_and_log_probs
+    with pytest.warns(FutureWarning, match="core.rollout_actions moved to"):
+        assert core.rollout_actions is get_actions_and_log_probs
 
 
 @pytest.mark.parametrize(

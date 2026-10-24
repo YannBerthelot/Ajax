@@ -300,7 +300,7 @@ gains a leading axis), and makes a checkpoint a matter of saving that pytree.
 
 | Field | What it holds |
 | --- | --- |
-| `rng` | the training key; every random draw splits it (`next_keys(n)` returns the state and `n` keys) |
+| `rng` | the training key; every random draw splits it (`draw_keys(n)` returns the state and `n` keys) |
 | `actor_state`, `critic_state` | flax `TrainState`s with target parameters, memory carries and the observation normaliser's statistics |
 | `collector_state` | the environment state, last observation and episode flags, the replay buffer, `timestep`, the rolling episodic return, a stateful expert's internal state |
 | `eval_rng` | the evaluations' key, split apart from `rng` and never advanced: evaluation `n` draws from `fold_in(eval_rng, n)` |

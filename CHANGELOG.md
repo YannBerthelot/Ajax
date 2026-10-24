@@ -77,6 +77,9 @@ PyPI as `ajax-rl`.
   `fold_post_update` (also in `ajax.agents.steps`): same arguments. The
   old names stay as aliases until 0.5.0. `TrainContext.stack` is
   `TrainContext.extensions`.
+- `ajax.agents.minibatch.rollout_actions` (`ajax.agents.PPO.core`'s
+  before) is `get_actions_and_log_probs`; the old names import with a
+  FutureWarning until 0.5.0.
 - Writing a name on a module it moved out of (`monkeypatch.setattr` on an
   old path) raises AttributeError naming its new home, where it is read:
   the write would have changed nothing.

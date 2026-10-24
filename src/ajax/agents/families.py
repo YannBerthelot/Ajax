@@ -218,7 +218,7 @@ class DeclaredAgent(ActorCritic):
             (OptimizerConfig).
         episode_length: Simulator steps per episode (brax / playground).
         action_repeat: Simulator steps per agent step (brax / playground).
-        extensions: The extensions folded into the training loop.
+        extensions: The extensions applied in the training loop.
     """
 
     env_id: Union[str, EnvType]
@@ -278,7 +278,7 @@ class DeclaredAgent(ActorCritic):
         self.actor_optimizer_args = self.actor_optimizer_args.replace(**settings)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(**settings)
         self._build_family()
-        self.build()
+        self.setup()
         values = {name: getattr(self, name) for name in self.agent_config_fields}
         self.agent_config = self.config_class(**values)
         object.__setattr__(self, "_built", True)
@@ -308,7 +308,7 @@ class DeclaredAgent(ActorCritic):
 
     def _build_family(self) -> None:
         """What the family builds from the fields, before the agent's
-        :meth:`build` (:class:`ReplayAgent`: the replay)."""
+        :meth:`setup` (:class:`ReplayAgent`: the replay)."""
 
     # -- What an agent may add (each a no-op here; none needs super()) -------
     def check(self) -> None:
@@ -327,9 +327,10 @@ class DeclaredAgent(ActorCritic):
         reference's Adam: its eps, its betas)."""
         return {}
 
-    def build(self) -> None:
-        """What the agent builds from its fields once its family has (IQL's
-        value optimiser)."""
+    def setup(self) -> None:
+        """What the agent derives or checks once its env, networks and family
+        are built: IQL's value optimiser, PPO's checks of its rollout split
+        (they need n_envs)."""
 
     @property
     def expert(self) -> Any:

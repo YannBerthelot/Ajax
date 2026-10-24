@@ -217,7 +217,7 @@ class FOO(GradientClipping, ExpertGuided, ReplayAgent):
         )
 
     def update(self, state, ctx):
-        state, sample_key, critic_key, actor_key = state.next_keys(3)
+        state, sample_key, critic_key, actor_key = state.draw_keys(3)
         batch, _ = sample_replay(state, ctx.buffer, sample_key)
         target = foo_target(state, batch, self.gamma, self.reward_scale)
         critic_state, critic_aux, _, critic_metrics = steps.critic_step(
@@ -280,8 +280,9 @@ calls `super()`:
 - `optimizer_settings()` returns the `OptimizerConfig` settings of the
   reference's optimiser (its Adam's `eps`, its betas): the family sets none,
   so an agent states its reference's;
-- `build()` builds what the fields derive (IQL's value optimiser), after the
-  family has built the replay;
+- `setup()` derives or checks what needs the built env and networks (IQL's
+  value optimiser, PPO's rollout split checks), after the family has built
+  the replay;
 - `behaviour(ctx)` replaces collection's action pipeline.
 
 The family reads some fields by name. `ReplayAgent` requires `buffer_size`,

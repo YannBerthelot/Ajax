@@ -101,7 +101,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
     def optimizer_settings(self) -> dict[str, Any]:
         return {"eps": 1e-8}  # optax.adam's default eps, the reference's Adam
 
-    def build(self) -> None:
+    def setup(self) -> None:
         # V's Adam: the critics', at its own learning rate.
         self.value_optimizer_args = self.critic_optimizer_args.replace(
             learning_rate=self.value_learning_rate
@@ -147,7 +147,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         self, state: IQLState, ctx: TrainContext
     ) -> tuple[IQLState, AuxiliaryLogs]:
         """One IQL update (the module docstring)."""
-        state, sample_key, critic_key, actor_key = state.next_keys(3)
+        state, sample_key, critic_key, actor_key = state.draw_keys(3)
         batch, _ = sample_replay(state, ctx.buffer, sample_key)
         critic = state.critic_state
         q = min_target_q(critic, batch)

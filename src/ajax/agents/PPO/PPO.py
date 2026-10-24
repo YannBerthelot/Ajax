@@ -53,7 +53,7 @@ from ajax.agents.minibatch import (
     RolloutSplit,
     check_rollout_split,
     choose_rollout_split,
-    rollout_actions,
+    get_actions_and_log_probs,
     run_epochs,
 )
 from ajax.agents.recurrent import rollout_sequence_values
@@ -174,7 +174,8 @@ class PPO(
         # network's own optimiser clips.
         return {"eps": self.adam_eps, "max_grad_norm": None}
 
-    def build(self) -> None:
+    def setup(self) -> None:
+        # Checked here, not in check(): n_envs and the memory are known once built.
         check_rollout_split(
             self, self.env_args.n_envs, self.network_args.memory is not None
         )
@@ -216,11 +217,11 @@ class PPO(
         # - pieces of bptt_length consecutive steps (a recurrent policy), each replayed
         #   from the memory it started with: advantages computed once.
         split = choose_rollout_split(self, n_steps, n_envs, ctx.recurrent)
-        actions, log_probs = rollout_actions(rollout)
+        actions, log_probs = get_actions_and_log_probs(rollout)
         extensions, total_timesteps = ctx.extensions, ctx.total_timesteps
-        # The update's key: it shuffles the rollout, and the rollout's folds
-        # draw on keys derived from it.
-        state, shuffle_key = state.next_keys()
+        # The update's key: it shuffles the rollout, and the extensions' reward
+        # and on_target draw on keys derived from it.
+        state, shuffle_key = state.draw_keys()
         reward_key, target_key = jax.random.split(extension_key(shuffle_key))
         rewards = rollout.reward
         reward_metrics: dict[str, Any] = {}
@@ -290,7 +291,7 @@ class PPO(
 
         step = partial(self.minibatch_step, split=split, ctx=ctx)
         state, aux = run_epochs(state, shuffle_key, minibatches, step, self.n_epochs)
-        # The flat and recurrent updates fold on_target once, over the rollout.
+        # on_target ran once, over the rollout, unless the advantages are per minibatch.
         aux = aux.replace(
             extensions=merge_metrics(reward_metrics, rollout_metrics, aux.extensions)
         )
@@ -346,7 +347,7 @@ class PPO(
         self, state: PPOState, minibatch: dict, split: RolloutSplit, ctx: TrainContext
     ) -> tuple[PPOState, AuxiliaryLogs]:
         """A critic and an actor step, both from the state before either."""
-        state, ent_rng = state.next_keys()
+        state, ent_rng = state.draw_keys()
         target_metrics: dict = {}
         critic, actor = state.critic_state, state.actor_state
         extensions, total_timesteps = ctx.extensions, ctx.total_timesteps

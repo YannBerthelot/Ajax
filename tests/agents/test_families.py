@@ -66,7 +66,7 @@ class Toy(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
     def optimizer_settings(self) -> dict[str, Any]:
         return {"beta_1": 0.5}
 
-    def build(self) -> None:
+    def setup(self) -> None:
         self.doubled = 2 * self.batch_size
 
     @property

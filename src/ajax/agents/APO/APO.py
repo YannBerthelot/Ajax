@@ -44,9 +44,9 @@ from ajax.agents.families import (
 )
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.minibatch import (
+    get_actions_and_log_probs,
     get_minibatches_from_batch,
     resolve_num_minibatches,
-    rollout_actions,
     run_epochs,
 )
 from ajax.agents.PPO.PPO import _compute_gae, clipped_surrogate
@@ -251,9 +251,9 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             gae_lambda=self.gae_lambda,
         )
 
-        # The update's key: it shuffles the rollout, and on_target folds on a
+        # The update's key: it shuffles the rollout, and on_target draws on a
         # key derived from it.
-        state, shuffle_key = state.next_keys()
+        state, shuffle_key = state.draw_keys()
         target_metrics: dict = {}
         if extensions:
             target_batch = {
@@ -284,7 +284,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             std = jnp.sqrt(((gae - mean) ** 2 * valid).sum() / (n - 1))
             gae = (gae - mean) / jnp.maximum(std, 1e-6)
 
-        actions, log_probs = rollout_actions(rollout)
+        actions, log_probs = get_actions_and_log_probs(rollout)
         batch = {
             "obs": rollout.obs,
             "actions": actions,

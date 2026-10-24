@@ -16,7 +16,7 @@ import pytest
 import ajax.agents.APO.APO as apo_module
 from ajax.agents.APO.APO import APO
 from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
-from ajax.agents.minibatch import choose_rollout_split, rollout_actions
+from ajax.agents.minibatch import choose_rollout_split, get_actions_and_log_probs
 from ajax.agents.PPO.PPO import (
     PPO,
     PPOState,
@@ -126,7 +126,7 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
         gamma=config.gamma,
         gae_lambda=config.gae_lambda,
     )
-    actions, log_probs = rollout_actions(rollout)
+    actions, log_probs = get_actions_and_log_probs(rollout)
 
     def value_loss(p):
         return value_loss_function(

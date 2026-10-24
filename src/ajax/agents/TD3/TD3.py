@@ -102,7 +102,7 @@ class TD3(
     def optimizer_settings(self) -> dict[str, Any]:
         return {"eps": 1e-8}  # torch.optim.Adam's default eps (sfujim/TD3)
 
-    def build(self) -> None:
+    def setup(self) -> None:
         # A pipeline written before the acting state is adapted, with a
         # warning (a transitional shim, interaction.with_acting_state).
         self.pipeline = with_acting_state(self.action_pipeline)
@@ -139,7 +139,7 @@ class TD3(
     ) -> tuple[TD3State, AuxiliaryLogs]:
         """A critic step on a replay batch and, every ``policy_delay``
         updates, an actor step and the targets' Polyak update."""
-        state, sample_key = state.next_keys()
+        state, sample_key = state.draw_keys()
         # Sequence replay burns the TARGET actor's carry in as well: TD3's
         # bootstrap action comes from it.
         batch, carries = sample_replay(
@@ -172,7 +172,7 @@ class TD3(
         self, state: TD3State, batch: Transition, carries: Any, ctx: TrainContext
     ) -> tuple[TD3State, ValueAuxiliaries, dict]:
         """The critics' step on the smoothed, clipped double-Q target."""
-        state, key = state.next_keys()
+        state, key = state.draw_keys()
         # A truncated row bootstraps on its final observation (bootstrap_obs).
         target_q, clip_frac, next_actions = compute_td3_td_target(
             state.actor_state,
@@ -216,7 +216,7 @@ class TD3(
     ) -> tuple[TD3State, tuple[PolicyAuxiliaries, dict]]:
         """The deterministic policy-gradient step on ``-Q1(s, mu(s))``, then
         both targets' Polyak update."""
-        state, key = state.next_keys()
+        state, key = state.draw_keys()
 
         def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
             loss, (aux, pi_mean) = policy_loss_function(

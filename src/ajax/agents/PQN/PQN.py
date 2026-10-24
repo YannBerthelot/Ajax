@@ -120,7 +120,7 @@ class PQN(
         # pqn_atari.py:194-197, MAX_GRAD_NORM 10 in every PQN config).
         return {"optimizer": "radam", "eps": 1e-8}
 
-    def build(self) -> None:
+    def setup(self) -> None:
         if self.n_steps * self.env_args.n_envs % self.num_minibatches != 0:
             raise ValueError(
                 f"the rollout's n_steps * n_envs ({self.n_steps} *"

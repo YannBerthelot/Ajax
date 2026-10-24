@@ -296,7 +296,7 @@ def run_epochs(
     return agent_state, jax.tree.map(jnp.mean, aux)
 
 
-def rollout_actions(rollout: Transition) -> tuple[jax.Array, jax.Array]:
+def get_actions_and_log_probs(rollout: Transition) -> tuple[jax.Array, jax.Array]:
     """The rollout's actions and their log-probabilities, each with a
     trailing axis: a discrete action gains one, a continuous action's
     per-dimension log-probabilities are summed."""
@@ -316,5 +316,6 @@ __getattr__ = moved_names(
     {
         "Geometry": "ajax.agents.minibatch:RolloutSplit",
         "minibatch_geometry": "ajax.agents.minibatch:choose_rollout_split",
+        "rollout_actions": "ajax.agents.minibatch:get_actions_and_log_probs",
     },
 )

@@ -46,7 +46,7 @@ PAY = (lambda a: 2.5 * a, lambda a: -2.5 * a, lambda a: -((2.5 * a - 1.5) ** 2))
 CENTRE, REACH = "centre (a_up + a_down) / 2", "reach (a_up - a_down) / 2"
 INSIDE, CLAMP = "a_inside", "actions clamped to env [-1, 1]"
 ALPHA = {"none": None, "auto": oracles.shared_temperature(PAY, -1.0), "AVG": 0.07}
-ALPHA.update({"ASAC": 0.2})  # ASAC fixes its temperature by default
+ALPHA |= {"ASAC": 0.2}  # ASAC fixes its temperature by default
 
 
 def _queries(alpha: float | None) -> tuple[Query, ...]:
@@ -55,7 +55,7 @@ def _queries(alpha: float | None) -> tuple[Query, ...]:
         return 0.5 + 2.5 * a
 
     wrong = {"env units read as agent units (a critic fed mapped actions)": 0.04}
-    wrong.update({"agent units read as env units (unmapped, or the critic's)": 1.0})
+    wrong |= {"agent units read as env units (unmapped, or the critic's)": 1.0}
     pay = (lambda a: -((6.25 * a - 0.25) ** 2), lambda a: -((a - 2.0) ** 2))
     wrong = {k: env(r, b) for (k, b), r in zip(wrong.items(), pay, strict=True)}
     return (

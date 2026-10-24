@@ -146,8 +146,8 @@ class SpecEnv(environment.Environment):
                 old = getattr(state, name)
                 rec[name] = old.at[i].set(jnp.where(keep, x, old[i]))
         if last:
-            rec.update({"last_a": state.last_a.at[c % last].set(a)})
-            rec.update({"last_u": state.last_u.at[c % last].set(u)})
+            rec |= {"last_a": state.last_a.at[c % last].set(a)}
+            rec |= {"last_u": state.last_u.at[c % last].set(u)}
         return out[0], out[1].replace(**rec), *out[2:]
 
 

@@ -75,7 +75,7 @@ def _three_q(n: R.Nets) -> dict:
     q0, q1 = R.q_values(n, 0.0), R.q_values(n, 1.0)
     out = {f"Q(s{s}, a={a})": q[a] for s, q in ((0, q0), (1, q1)) for a in range(3)}
     greedy = R.pi(n, 1.0).mode().reshape(()).astype(jnp.float32)
-    return {**out, "max_a Q(s0, a)": q0.max(), GREEDY.name: greedy}
+    return out | {"max_a Q(s0, a)": q0.max(), GREEDY.name: greedy}
 
 
 def _three_ppo(n: R.Nets) -> dict:
@@ -195,7 +195,7 @@ def _apg_read(run: runs.Run) -> dict:
     out: dict[str, Any] = {}
     for x0 in (1.0, -1.0):
         a, j = jax.vmap(lambda s, x0=x0: per_start(s, x0))(run.state)
-        out.update({f"a({x0:+.0f})": a, f"J({x0:+.0f})": j})
+        out |= {f"a({x0:+.0f})": a, f"J({x0:+.0f})": j}
     return out
 
 
@@ -284,8 +284,8 @@ def forward_view(c: float, gamma: float, lam: float) -> np.ndarray:
 
 def q9_common(**rule: Any) -> dict[str, float]:
     kw: dict[str, dict] = {"gamma and lambda swapped": {"gamma": L9, "lam": G9}}
-    kw.update({"TD(0)": {"lam": 0.0}})
-    kw.update({"Monte Carlo": {"lam": 1.0}, "harness gamma 0.62": {"gamma": 0.62}})
+    kw |= {"TD(0)": {"lam": 0.0}}
+    kw |= {"Monte Carlo": {"lam": 1.0}, "harness gamma 0.62": {"gamma": 0.62}}
     return {k: alias_value(16, **v, **rule) for k, v in kw.items()}
 
 
@@ -314,7 +314,7 @@ Q9_CELLS: dict[
     str, tuple[str, int, float, dict]
 ] = {  # n_envs 1 runs PPO's flat path, _TIME9 brax's time geometry
     "PPO": ("PPO", 625, 0.02, _PPO9),
-    "PPO-minibatch": ("PPO", 1250, 0.023, {**_PPO9, **_TIME9}),
+    "PPO-minibatch": ("PPO", 1250, 0.023, _PPO9 | _TIME9),
     "PQN": ("PQN", 5000, 0.02, {"q_lambda": L9}),  # RAdam: 1250 and 2500 do not qualify
 }
 
@@ -322,8 +322,7 @@ Q9_CELLS: dict[
 def _q9_read(run: runs.Run) -> dict:
     agent, keys = type(run.agent).__name__, ("reward", "terminated", "truncated")
     out = R.per_seed(lambda n: {"V": R.value(agent, n, 1.0)}, R.nets(run.state))
-    out.update({k: v[..., 0] for k, v in R.rollout_rows(run.state, keys).items()})
-    return out
+    return out | {k: v[..., 0] for k, v in R.rollout_rows(run.state, keys).items()}
 
 
 def _q9_agent(agent: str, kw: dict) -> Callable:
@@ -336,7 +335,7 @@ def _q9_agent(agent: str, kw: dict) -> Callable:
 for cell, (agent, budget, tol, kw) in Q9_CELLS.items():
     rule = PJ if agent == "PQN" else {}
     truth, common = alias_value(16, **rule), q9_common(**rule)
-    query = Query("V", truth, {**common, **Q9_WRONG[agent]})
+    query = Query("V", truth, common | Q9_WRONG[agent])
     reads = runs.readings(_q9_agent(agent, kw), _q9_read)
     CASES[f"q9-{cell}"] = Case(f"q9-{cell}", (query,), reads, budget, (tol,))
 
@@ -422,13 +421,13 @@ def _pilot(pkg: Any) -> Probes:
 PILOT = {"continuous": _pilot(continuous), "discrete": _pilot(pe)}
 PILOT["continuous"]["advantage"] = (
     envs.symmetric(continuous.AdvantagePolicyLossPolicyUpdateEnv),
-    (Query("a(1)", 1.0, {**NONE, "policy gradient reversed": -1.0}, True),),
+    (Query("a(1)", 1.0, NONE | {"policy gradient reversed": -1.0}, True),),
 )
 PILOT["continuous"]["coupling"] = (
     envs.SignedActionEnv,
     (
-        Query("a(+1)", 1.0, {**NONE, _FLIP: -1.0}, True),
-        Query("a(-1)", -1.0, {**NONE, _FLIP: 1.0}, True),
+        Query("a(+1)", 1.0, NONE | {_FLIP: -1.0}, True),
+        Query("a(-1)", -1.0, NONE | {_FLIP: 1.0}, True),
         Query("V(+1)", 1.0, _V, True),
         Query("V(-1)", 1.0, _V, True),
     ),
@@ -437,7 +436,7 @@ PILOT["discrete"]["advantage"] = (
     pe.AdvantagePolicyLossPolicyUpdateEnv,
     (
         Query("Q(1, a=0)", 1.0, {"actions swapped": 0.0}),
-        Query("Q(1, a=0) - Q(1, a=1)", 1.0, {**NONE, "actions swapped": -1.0}, True),
+        Query("Q(1, a=0) - Q(1, a=1)", 1.0, NONE | {"actions swapped": -1.0}, True),
     ),
 )
 PILOT["discrete"]["coupling"] = (
@@ -571,15 +570,15 @@ _ON = {"normalize_observations": True}
 P1_CELLS: dict[str, tuple[str, str, int, dict]] = {  # agent, chain, budget, overrides
     "DQN": ("DQN", "discrete", 5000, _ON),
     # q_lambda 0, a one-step bootstrap: at 0.65 fault (a)'s gap shrinks to 0.17.
-    "PQN": ("PQN", "discrete", 10_240, {**_ON, "q_lambda": 0.0}),  # RAdam: 5120 fails
+    "PQN": ("PQN", "discrete", 10_240, _ON | {"q_lambda": 0.0}),  # RAdam: 5120 fails
     "PPO-continuous": ("PPO", "continuous", 16_384, _ON),
     "PPO-discrete": ("PPO", "discrete", 4096, _ON),
-    "APO-discrete": ("APO", "discrete", 4096, {**_ON, "n_steps": 64, "batch_size": 64}),
+    "APO-discrete": ("APO", "discrete", 4096, _ON | {"n_steps": 64, "batch_size": 64}),
     "AVG": ("AVG", "continuous", 10_000, {"gamma": G, "n_envs": 1}),  # its defaults
     "SAC": ("SAC", "continuous", 5000, _ON),
     "TD3": ("TD3", "continuous", 2500, _ON),
-    "REDQ": ("REDQ", "continuous", 2500, {**_ON, "num_critic_updates": 2}),
-    "ASAC": ("ASAC", "continuous", 5000, {**_ON, "p_0": 0.0}),
+    "REDQ": ("REDQ", "continuous", 2500, _ON | {"num_critic_updates": 2}),
+    "ASAC": ("ASAC", "continuous", 5000, _ON | {"p_0": 0.0}),
     "SAC-running": ("SAC", "continuous", 5000, {"normalize_obs_running": True}),
 }
 
@@ -596,18 +595,18 @@ def _p1_read(model: Any, cell: str, n: R.Nets) -> dict:
         seen = R.inp(n, x) if info is None else apply_obs_norm(R.inp(n, x), info)
         out[label] = seen.reshape(())
     if name in ("DQN", "PQN"):
-        return {**out, "Q(s0,0)": R.q_values(n, S0)[0], "Q(s1,2)": R.q_values(n, S1)[2]}
+        return out | {"Q(s0,0)": R.q_values(n, S0)[0], "Q(s1,2)": R.q_values(n, S1)[2]}
     if name == "APO":
         return out
     if name == "PPO" and chain == "discrete":
         a = jnp.arange(3)
         oracle = pi0.probs.reshape(-1) @ r(0, a) + G * (pi1.probs.reshape(-1) @ r(1, a))
-        return {**out, "V(s0) - oracle": R.critic(n, S0) - oracle}
+        return out | {"V(s0) - oracle": R.critic(n, S0) - oracle}
     if name == "PPO":
         a0 = pi0.sample(seed=k0, sample_shape=(4096,)).reshape(-1)
         a1 = pi1.sample(seed=k1, sample_shape=(4096,)).reshape(-1)
         oracle = jnp.mean(r(0, a0)) + G * jnp.mean(r(1, a1))
-        return {**out, "V(s0) - oracle": R.critic(n, S0) - oracle}
+        return out | {"V(s0) - oracle": R.critic(n, S0) - oracle}
     if name == "ASAC":
         # ASAC charges a learned penalty p at a termination, drops the next
         # value there and does not discount: Q(s1, .) = r1 - p - c, Q(s0, .) =
@@ -617,7 +616,7 @@ def _p1_read(model: Any, cell: str, n: R.Nets) -> dict:
         w1 = R.soft_value(pi1, alpha, lambda a: r(1, a), k1)
         oracle = r(0, -0.5) - 2 * r(1, 0.5) + w1 + p
         gap = R.critic(n, S0, -0.5) - 2 * R.critic(n, S1, 0.5)
-        return {**out, "Q(s0,-0.5) - 2 Q(s1,0.5) - oracle": gap - oracle}
+        return out | {"Q(s0,-0.5) - 2 Q(s1,0.5) - oracle": gap - oracle}
     if name == "TD3":
         c = model.agent_config
         noise = c.target_policy_noise * jax.random.normal(R.KEY, (4096,))
@@ -626,7 +625,7 @@ def _p1_read(model: Any, cell: str, n: R.Nets) -> dict:
     else:
         boot = R.soft_value(pi1, R.alpha(n), lambda a: r(1, a), R.KEY)
     q = R.critic(n, S0, -0.5)
-    return {**out, "Q(s0,-0.5) - oracle": q - (r(0, -0.5) + G * boot)}
+    return out | {"Q(s0,-0.5) - oracle": q - (r(0, -0.5) + G * boot)}
 
 
 @functools.cache
@@ -643,7 +642,7 @@ def p1_readings(cell: str, seeds: tuple, budget: int) -> dict[str, np.ndarray]:
     penalty = getattr(s, "episode_termination_penalty", None)
     n = R.nets(s, (raw, s.collector_state.last_obs, penalty), R.env_stats(run))
     out = R.per_seed(functools.partial(_p1_read, model, cell), n)
-    return {**out, "eval": run.logged("Eval/episodic mean reward")}
+    return out | {"eval": run.logged("Eval/episodic mean reward")}
 
 
 CLIP = "(c) training clip sends action 2 as 1"
@@ -656,7 +655,7 @@ _TWICE = "(b) normalised twice / (d) raw, at the optimum: at most"
 EVAL_D = Query("eval", 2.0, {CLIP: 1.3, _ALONE: 1.0, _D: 1.3})
 EVAL_C = Query("eval", 2.0, {_TWICE: 1.0, "untrained (actions near 0)": 1.5})
 _GREEDY = {RAW: 1 / (1 - G), "(c) training clip: V(s1) = 0.3": 1 + G * 0.3}
-Q_GREEDY = Query("Q(s0,0)", 1 + G, {**_GREEDY, "untrained": 0.0})
+Q_GREEDY = Query("Q(s0,0)", 1 + G, _GREEDY | {"untrained": 0.0})
 Q_A2 = Query("Q(s1,2)", 1.0, {CLIP: 0.0})
 # Under (a), gamma^2 w / (1 - gamma) above the oracle, w ~ 0.95 a soft value
 # at the optimum; discrete PPO's oracle today is 1.186 (it avoids action 2).
@@ -789,13 +788,13 @@ _LR0 = {"alpha_learning_rate": 0.0, "alpha_init": 1.0}
 _SMOOTH = {"target_policy_noise": 2.0, "target_noise_clip": 0.8}
 P8_AGENTS: dict[str, dict[str, Any]] = {  # a 50,000-row buffer but for AVG
     "SAC": {"fixed_alpha": True, "alpha_init": 1.0},
-    "REDQ": {**_LR0, "num_critic_updates": 5},
+    "REDQ": _LR0 | {"num_critic_updates": 5},
     "AVG": {
         "alpha_init": 1.0,
         "actor_learning_rate": 3e-4,
         "critic_learning_rate": 3e-4,
     },
-    "TD3": {**_SMOOTH, "exploration_noise": 0.4},
+    "TD3": _SMOOTH | {"exploration_noise": 0.4},
 }
 
 
@@ -821,21 +820,18 @@ def _p8_read(name: str, n: R.Nets) -> dict:
         return {"Q(s0)": q0, "action std at s1": spread(0, True)}
     sigma, mean = p.distribution.scale.reshape(-1), p.mean().reshape(-1)
     out = {f"sigma_u{i + 1}(s0)": sigma[i] for i in range(2)}
-    out.update({f"tanh mu{i + 1}(s0)": mean[i] for i in range(2)})
+    out |= {f"tanh mu{i + 1}(s0)": mean[i] for i in range(2)}
     out["log_alpha"] = n.alpha.params["log_alpha"]
     if name == "AVG":  # its online critic misses Q(s0) by up to 0.2: unread
         return out
     a = p.sample(seed=R.KEY, sample_shape=(512,)).reshape(512, 2)
     out["Q(s0, a) - r(s0, a)"] = (q(a) - _soft_reward(0, a)).mean()
-    out.update({f"action std {i + 1} at s0": spread(i, False) for i in range(2)})
-    return out
+    return out | {f"action std {i + 1} at s0": spread(i, False) for i in range(2)}
 
 
 def _p8_readings(name: str) -> Callable:
     def build() -> Any:
-        kw = dict(P8_AGENTS[name])
-        if name != "AVG":
-            kw.update({"buffer_size": 50_000})
+        kw = P8_AGENTS[name] | ({} if name == "AVG" else {"buffer_size": 50_000})
         return agents.make(name, *(SOFT_T if name == "TD3" else SOFT_M).make(), **kw)
 
     def read(run: runs.Run) -> dict:
@@ -920,9 +916,9 @@ BANDITS = {
 
 
 def _q6_agent(agent: str, bandit: str, c: float, lr: float, **kw: Any) -> Any:
-    kw.update({"gae_lambda": 0.0} if agent == "APO" else {})
-    kw.update({"normalize_advantage": False, "max_grad_norm": None, "ent_coef": c})
-    kw.update({"n_envs": 8, "actor_learning_rate": lr, "critic_learning_rate": lr})
+    kw |= {"gae_lambda": 0.0} if agent == "APO" else {}
+    kw |= {"normalize_advantage": False, "max_grad_norm": None, "ent_coef": c}
+    kw |= {"n_envs": 8, "actor_learning_rate": lr, "critic_learning_rate": lr}
     return agents.make(agent, *BANDITS[bandit].make(), **kw)
 
 
@@ -978,7 +974,7 @@ Q6_QUERIES = {  # a dropped bonus keeps PPO-a climbing to 1 (0.959-0.997)
         Query("mu", 0.5, {"untrained": 0.0}),
     ),
     "PPO-b2": tuple(
-        Query(f"sigma_{i}", 1.0, {**_AVERAGED, "untrained": WIDE}) for i in (1, 2)
+        Query(f"sigma_{i}", 1.0, _AVERAGED | {"untrained": WIDE}) for i in (1, 2)
     ),
     "PPO-c": (Query("sigma_u", SIGMA_C, _PPO_C),),
     "APO-b": (Query("sigma", 1.0, _APO_B), Query("mu", 0.5, {"untrained": 0.0})),

@@ -190,8 +190,8 @@ def contract_readings(run: Run) -> dict[str, np.ndarray]:
         "events": run.timesteps(),
         "checksums": readouts.checksums(s.actor_state.params, len(run.seeds)),
     }
-    out.update({k: run.values(k) for k in TRAIN_KEYS})
-    out.update({f"steps {k}": v for k, v in readouts.optimizer_steps(s).items()})
+    out |= {k: run.values(k) for k in TRAIN_KEYS}
+    out |= {f"steps {k}": v for k, v in readouts.optimizer_steps(s).items()}
     for f in ("first_a", "first_u", "last_a", "last_u"):
         with contextlib.suppress(AttributeError):
             out[f] = readouts.record(s, f)

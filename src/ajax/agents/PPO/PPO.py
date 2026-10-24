@@ -16,7 +16,7 @@ function below::
         one Adam step of each network down its own loss, the two
         gradients clipped together to max_grad_norm         PPO.minibatch_step
 
-How the rollout is cut into minibatches (``minibatch_plan``): ppo2 shuffles
+How the rollout is cut into minibatches (``choose_rollout_split``): ppo2 shuffles
 single steps and computes GAE once, on the rollout; with ``unroll_length``
 (brax's PPO) the minibatches are shuffled fragments of that many steps, each
 in time order, and GAE is computed again in each minibatch from the current
@@ -50,9 +50,9 @@ from ajax.agents.families import (
 )
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.minibatch import (
-    MinibatchPlan,
-    check_minibatch_plan,
-    minibatch_plan,
+    RolloutSplit,
+    check_rollout_split,
+    choose_rollout_split,
     rollout_actions,
     run_epochs,
 )
@@ -175,7 +175,7 @@ class PPO(
         return {"eps": self.adam_eps, "max_grad_norm": None}
 
     def build(self) -> None:
-        check_minibatch_plan(
+        check_rollout_split(
             self, self.env_args.n_envs, self.network_args.memory is not None
         )
 
@@ -209,15 +209,13 @@ class PPO(
         """One PPO update on the ``(n_steps, n_envs)`` ``rollout`` collected
         from ``start``: ``n_epochs`` passes over its minibatches."""
         n_steps, n_envs = rollout.obs.shape[:2]
-        # How the rollout is cut into minibatches, and so where the
-        # advantages are computed, set by the hyperparameters: ppo2's single
-        # steps shuffled, GAE once on the rollout; brax's fragments of
-        # unroll_length steps, each in time order, shuffled, GAE recomputed
-        # in each minibatch from the current critic; or a recurrent policy's
-        # sequences of bptt_length steps in time order, each replayed from
-        # the memory it started with, GAE once. plan.num_minibatches
-        # minibatches of pieces of plan.length steps.
-        plan = minibatch_plan(self, n_steps, n_envs, ctx.recurrent)
+        # Cut the rollout into minibatches, in one of three ways the hyperparameters choose:
+        # - shuffled single steps (ppo2): advantages computed once, on the whole rollout;
+        # - shuffled pieces of unroll_length consecutive steps (brax): advantages
+        #   recomputed in each minibatch, with the current critic;
+        # - pieces of bptt_length consecutive steps (a recurrent policy), each replayed
+        #   from the memory it started with: advantages computed once.
+        split = choose_rollout_split(self, n_steps, n_envs, ctx.recurrent)
         actions, log_probs = rollout_actions(rollout)
         stack, total_timesteps = ctx.stack, ctx.total_timesteps
         # The update's key: it shuffles the rollout, and the rollout's folds
@@ -257,16 +255,16 @@ class PPO(
             "rewards": rewards,
         }
         rollout_metrics: dict = {}  # the extensions' on the rollout's targets
-        carries = None  # a recurrent plan's sequences' start memories
+        carries = None  # a recurrent split's sequences' start memories
 
-        if plan.gae_per_minibatch:
+        if split.advantages_per_minibatch:
             # GAE in each minibatch, with the critic of that step.
             batch |= outcomes
         else:
             # GAE once, on the rollout, with the critic that collected it.
             if ctx.recurrent:
                 state, values, next_values, resets, carries = rollout_sequence_values(
-                    state, rollout, start, plan.length
+                    state, rollout, start, split.length
                 )
                 batch["resets"] = resets
             else:
@@ -287,9 +285,9 @@ class PPO(
 
         def minibatches(key: jax.Array) -> dict:
             """One epoch's partition of the rollout."""
-            return plan.minibatches(batch, key, carries)
+            return split.minibatches(batch, key, carries)
 
-        step = partial(self.minibatch_step, plan=plan, ctx=ctx)
+        step = partial(self.minibatch_step, split=split, ctx=ctx)
         state, aux = run_epochs(state, shuffle_key, minibatches, step, self.n_epochs)
         # The flat and recurrent updates fold on_target once, over the rollout.
         aux = aux.replace(
@@ -344,7 +342,7 @@ class PPO(
         return gae, value_targets, metrics
 
     def minibatch_step(
-        self, state: PPOState, mb: dict, plan: MinibatchPlan, ctx: TrainContext
+        self, state: PPOState, mb: dict, split: RolloutSplit, ctx: TrainContext
     ) -> tuple[PPOState, AuxiliaryLogs]:
         """A critic and an actor step, both from the state before either."""
         state, ent_rng = state.next_keys()
@@ -358,7 +356,7 @@ class PPO(
             stack, state, actor_key, total_timesteps, mb["raw_obs"]
         )
 
-        if plan.gae_per_minibatch:
+        if split.advantages_per_minibatch:
             # brax's compute_ppo_loss: GAE from the current critic, held
             # constant (no gradient reaches the critic through it).
             values = jax.lax.stop_gradient(

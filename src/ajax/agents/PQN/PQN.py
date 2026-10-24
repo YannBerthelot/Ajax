@@ -236,11 +236,7 @@ class PQN(
         batch = (rollout.obs, rollout.action, targets)
         td_loss_fn = half_mse_td_loss if self.td_loss_fn is None else self.td_loss_fn
 
-        # How the rollout is cut into minibatches: each epoch shuffles its
-        # n_steps * n_envs single steps into num_minibatches minibatches of
-        # equal size (minibatch.MinibatchPlan's "flat" plan, ppo2's); the
-        # targets were computed once above, on the whole rollout, by the
-        # network that collected it, and stay fixed for every epoch.
+        # PQN always cuts the rollout one way: shuffled single steps, targets fixed above.
         epoch_keys = jax.random.split(key, self.n_epochs)
 
         def epoch_body(state: PQNState, epoch_key: jax.Array) -> Tuple[Any, Any]:

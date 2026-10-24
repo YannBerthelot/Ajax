@@ -102,8 +102,8 @@ Defaults are those of the constructor.
   whole fragments, and its advantages are recomputed with the current critic.
   `unroll_length=n_steps` keeps each environment's whole rollout as one
   fragment. PPO refuses at construction a length that does not split the
-  rollout evenly into the minibatches. The choice is the update's minibatch
-  plan (`ajax.agents.minibatch.MinibatchPlan`, its `kind` `"flat"`,
+  rollout evenly into the minibatches. The choice is the update's rollout
+  split (`ajax.agents.minibatch.RolloutSplit`, its `kind` `"flat"`,
   `"time"` or, with memory, `"recurrent"`).
 - **Actions.** A continuous PPO samples an unbounded Gaussian by default;
   Ajax clips the sample to `[-1, 1]` and maps that range onto the

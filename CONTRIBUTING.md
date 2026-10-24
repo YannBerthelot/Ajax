@@ -22,7 +22,7 @@ src/ajax/
 ├── agents/families.py   declared agents: fields as hyperparameters, the replay and on-policy families
 ├── agents/loop.py       TrainLoop, the shared loop (brax's forced resets included)
 ├── agents/steps.py      critic_step, actor_step, gradient_step, joint_step, when, the target update
-├── agents/minibatch.py  the on-policy minibatch plan, minibatches and epochs
+├── agents/minibatch.py  the on-policy rollout split, minibatches and epochs
 ├── agents/critics.py    the Q-critics' regression (continuous and discrete actions)
 ├── agents/diagnostics.py  KL, explained variance, policy std
 ├── agents/recurrent.py  replay buffers and R2D2-style sequence replay for memory=
@@ -305,7 +305,7 @@ memories). The family requires `n_steps`, `n_epochs` and
 `num_minibatches`, reads brax's `num_resets_per_eval` and `num_evals` where
 an agent declares them, and adds the `evaluation_options()` hook (APO's
 `avg_reward_mode`). `agents/minibatch.py` runs the passes (`run_epochs`);
-PPO's `minibatch_plan` returns the `MinibatchPlan` that says how its
+PPO's `choose_rollout_split` returns the `RolloutSplit` that says how its
 rollout is cut and where the advantages are computed, while APO and PQN
 shuffle single steps. `ImageObservations` adds the CNN encoder's fields;
 `train_offline` refuses an on-policy agent.

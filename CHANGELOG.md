@@ -62,13 +62,13 @@ PyPI as `ajax-rl`.
 
   Training is unchanged: every final state is bitwise the same, and so is
   the compiled program.
-- **`MinibatchPlan`.** `ajax.agents.minibatch.Geometry`, the plan for
-  cutting an on-policy rollout into minibatches, is now `MinibatchPlan`,
-  and `minibatch_geometry` is `minibatch_plan`: same arguments and fields,
-  `kind` still `"flat"`, `"time"` or `"recurrent"`. The plan also says
-  where the advantages are computed (`gae_per_minibatch`) and cuts the
-  rollout (`minibatches`). The old names, also on `train_PPO`, import with
-  a FutureWarning until 0.5.0.
+- **`RolloutSplit`.** `ajax.agents.minibatch.Geometry`, how an on-policy
+  rollout is cut into minibatches, is now `RolloutSplit`, and
+  `minibatch_geometry` is `choose_rollout_split`: same arguments and fields,
+  `kind` still `"flat"`, `"time"` or `"recurrent"`. The split also says
+  where the advantages are computed (`advantages_per_minibatch`) and cuts
+  the rollout (`minibatches`). The old names, also on `train_PPO`, import
+  with a FutureWarning until 0.5.0.
 - Writing a name on a module it moved out of (`monkeypatch.setattr` on an
   old path) raises AttributeError naming its new home, where it is read:
   the write would have changed nothing.

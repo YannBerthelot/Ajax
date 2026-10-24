@@ -289,6 +289,6 @@ def test_the_entropy_bonus_lowers_the_policy_loss() -> None:
     # The update's minibatch step logs the loss with the agent's bonus.
     mb: dict[str, Any] = {"obs": obs, "actions": actions, "log_probs": log_probs}
     mb |= {"gae": gae, "targets": targets, "raw_actions": None, "raw_obs": None}
-    plan = minibatch.minibatch_plan(agent, agent.n_steps, agent.n_envs, False)
-    _, aux = agent.minibatch_step(state, mb, plan, ctx)
+    split = minibatch.choose_rollout_split(agent, agent.n_steps, agent.n_envs, False)
+    _, aux = agent.minibatch_step(state, mb, split, ctx)
     np.testing.assert_allclose(aux.policy.policy_loss, with_bonus, rtol=1e-5)

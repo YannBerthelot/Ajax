@@ -34,7 +34,7 @@ src/ajax/
 │   ├── families.py      declared agents (fields as hyperparameters); the replay and on-policy families' train functions
 │   ├── loop.py          TrainLoop, the shared loop (brax's forced resets included)
 │   ├── steps.py         critic_step, actor_step, gradient_step, joint_step, when, the target update
-│   ├── minibatch.py     the on-policy minibatch plan (MinibatchPlan), minibatches and epochs
+│   ├── minibatch.py     the on-policy rollout split (RolloutSplit), minibatches and epochs
 │   ├── critics.py       the Q-critics' regression (continuous and discrete actions)
 │   ├── diagnostics.py   KL, explained variance, policy std
 │   ├── recurrent.py     replay buffers and R2D2-style sequence replay for memory=
@@ -250,7 +250,7 @@ from the start, as TQC's does) and logs the update's metrics as NaN, which the
 logger drops. The on-policy shape
 passes `start` to the update so that a recurrent agent can replay its rollout
 from the memory carries it began with. PPO's update cuts its rollout by a
-`MinibatchPlan` (`agents/minibatch.py`), which also says where the
+`RolloutSplit` (`agents/minibatch.py`), which also says where the
 advantages are computed.
 
 Three agents use the loop's parts without one of these shapes. UDRL runs its

@@ -297,10 +297,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             # None leaves the minibatches as they were without an expert.
             "a_expert": rollout.a_expert if self.expert is not None else None,
         }
-        # APO cuts the rollout one way, ppo2's: each epoch shuffles its
-        # n_steps * n_envs single steps into num_minibatches minibatches,
-        # their advantages computed once, above, from the critic that
-        # collected it.
+        # APO always cuts the rollout one way: shuffled single steps, as xtma/apo does.
         num_minibatches = resolve_num_minibatches(self)
 
         def minibatches(key: jax.Array) -> dict:

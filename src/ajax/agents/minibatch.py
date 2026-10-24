@@ -1,8 +1,8 @@
 """How an on-policy update cuts its rollout into minibatches and runs its
 epochs over them: shared by PPO, APO and PQN.
 
-A rollout's :class:`MinibatchPlan` decides how it is cut into minibatches,
-and so where its agent computes the advantages (GAE):
+A rollout's :class:`RolloutSplit` says how it is cut into minibatches, and
+so where its agent computes the advantages (GAE):
 
 * ``flat`` (feedforward default): GAE once on the whole rollout, then its
   ``n_steps * n_envs`` single steps shuffled into the minibatches (PPO's
@@ -28,9 +28,9 @@ from ajax.state import Transition
 
 
 @dataclasses.dataclass(frozen=True)
-class MinibatchPlan:
-    """The plan for cutting one rollout into minibatches, decided once per
-    update from the hyperparameters: how many minibatches each epoch has
+class RolloutSplit:
+    """How one rollout is cut into minibatches, chosen once per update from
+    the hyperparameters: how many minibatches each epoch has
     (``num_minibatches``), how many steps each piece holds (``length``) and
     whether the pieces keep time order (``kind``, the module docstring)."""
 
@@ -39,14 +39,14 @@ class MinibatchPlan:
     length: int  # steps per fragment ("time") or sequence ("recurrent")
 
     @property
-    def gae_per_minibatch(self) -> bool:
+    def advantages_per_minibatch(self) -> bool:
         """Whether GAE is computed again in each minibatch, from the current
         critic (brax's fragments), rather than once on the rollout."""
         return self.kind == "time"
 
     def minibatches(self, batch: dict, key: jax.Array, carries: Any = None) -> dict:
         """One epoch's partition of the rollout ``batch`` on ``key``; a
-        recurrent plan's sequences take their start ``carries`` along."""
+        recurrent split's sequences take their start ``carries`` along."""
         k, length = self.num_minibatches, self.length
         if self.kind == "time":
             return get_minibatches_preserving_time(batch, key, k, length)
@@ -83,10 +83,10 @@ def default_bptt_length(n_steps: int, n_envs: int, num_minibatches: int) -> int:
     return n_steps // pieces
 
 
-def minibatch_plan(
+def choose_rollout_split(
     agent_config: Any, n_steps: int, n_envs: int, recurrent: bool
-) -> MinibatchPlan:
-    """The rollout's :class:`MinibatchPlan`.
+) -> RolloutSplit:
+    """The rollout's :class:`RolloutSplit`.
 
     ``time`` only when ``unroll_length`` asks for it (``n_steps`` gives
     whole rollouts per env): with as many minibatches as envs, each
@@ -113,7 +113,7 @@ def minibatch_plan(
                 f" {longest}, the longest length that does; None picks it"
                 " (docs/guide/memory.md)."
             )
-        return MinibatchPlan("recurrent", num_minibatches, length)
+        return RolloutSplit("recurrent", num_minibatches, length)
     unroll = agent_config.unroll_length
     if (
         unroll is not None
@@ -121,15 +121,15 @@ def minibatch_plan(
         and n_steps % unroll == 0
         and n_steps // unroll * n_envs % num_minibatches == 0
     ):
-        return MinibatchPlan("time", num_minibatches, unroll)
-    return MinibatchPlan("flat", num_minibatches, n_steps)
+        return RolloutSplit("time", num_minibatches, unroll)
+    return RolloutSplit("flat", num_minibatches, n_steps)
 
 
-def check_minibatch_plan(config: Any, n_envs: int, recurrent: bool) -> None:
+def check_rollout_split(config: Any, n_envs: int, recurrent: bool) -> None:
     """Refuse a ``bptt_length`` without memory or not dividing ``n_steps``,
     an ``unroll_length`` the update could not use (it would fall back to
     the flat shuffle), and a recurrent rollout whose sequences do not split
-    into the minibatches (:func:`minibatch_plan` raises)."""
+    into the minibatches (:func:`choose_rollout_split` raises)."""
     bptt, n_steps = config.bptt_length, config.n_steps
     if bptt is not None:
         if not recurrent:
@@ -145,8 +145,8 @@ def check_minibatch_plan(config: Any, n_envs: int, recurrent: bool) -> None:
             "unroll_length is the feedforward fragment length; a recurrent"
             " PPO splits its rollout with bptt_length."
         )
-    plan = minibatch_plan(config, n_steps, n_envs, recurrent)
-    if unroll is not None and (plan.kind, plan.length) != ("time", unroll):
+    split = choose_rollout_split(config, n_steps, n_envs, recurrent)
+    if unroll is not None and (split.kind, split.length) != ("time", unroll):
         raise ValueError(
             f"unroll_length ({unroll}) must divide n_steps ({n_steps})"
             " into fragments (n_steps // unroll_length * n_envs of them) that"
@@ -314,7 +314,7 @@ def rollout_actions(rollout: Transition) -> tuple[jax.Array, jax.Array]:
 __getattr__ = moved_names(
     __name__,
     {
-        "Geometry": "ajax.agents.minibatch:MinibatchPlan",
-        "minibatch_geometry": "ajax.agents.minibatch:minibatch_plan",
+        "Geometry": "ajax.agents.minibatch:RolloutSplit",
+        "minibatch_geometry": "ajax.agents.minibatch:choose_rollout_split",
     },
 )

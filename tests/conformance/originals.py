@@ -22,6 +22,9 @@ KEPT = os.environ.get("AJAX_CONFORMANCE_RECORDS")
 TORCH_ENV = "benchmarks/reference/envs/torch"  # CPU-only PyTorch, gymnax, jax
 CROSSQ_ENV = "benchmarks/reference/envs/crossq"  # the authors' own jax, flax and SB3
 ASAC_ENV = "benchmarks/reference/envs/asac"  # BobMak/asac's pins: stable-baselines3 2.4, gymnasium 1.0
+JAX_OFFLINE_ENV = (
+    "benchmarks/reference/envs/jax_offline"  # ReBRAC's and Cal-QL's jax, flax
+)
 
 
 def recorded(

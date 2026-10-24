@@ -4,8 +4,9 @@ usage: python conformance_rebrac.py ENV_ID OUT_DIR   (in envs/jax_offline: see i
 
 Imports nothing from Ajax. The original (vendor/tinkoff_rebrac) learns from a D4RL dataset; here the
 dataset is uniform random actions in [-1, 1]^A on a gymnasium task, in D4RL's format (observations, actions,
-rewards, terminals, timeouts), turned into rows by the original's qlearning_dataset. PendulumEnds is
-Pendulum terminating every ENDS_EVERY-th step, so that rows end episodes. The networks, states and
+rewards, terminals, timeouts), turned into rows by the original's qlearning_dataset. MountainCarEnds is
+MountainCarContinuous terminating every ENDS_EVERY-th step, so that rows end episodes. Both tasks' action
+box is [-1, 1]: ReBRAC compares its tanh actions with the dataset's directly, as D4RL's boxes allow. The networks, states and
 hyperparameters are main()'s (rebrac.py:226-269, Config's defaults), and the training is main()'s loop
 body (td3_loop_update_step: update_td3 at even updates, update_td3_no_targets at odd ones). Before the
 updates in RECORDS, the update is run eagerly on the same state and batch, the critic's target-noise
@@ -50,8 +51,8 @@ METRICS += [
 
 def dataset(env_id: str) -> dict:
     """D4RL-format episodes of uniform random actions on ``env_id``."""
-    ends = env_id == "PendulumEnds"
-    env = gym.make("Pendulum-v1" if ends else env_id)
+    ends = env_id == "MountainCarEnds"
+    env = gym.make("MountainCarContinuous-v0" if ends else env_id)
     rng = np.random.default_rng(SEED)
     data: dict = {
         k: [] for k in ("observations", "actions", "rewards", "terminals", "timeouts")

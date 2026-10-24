@@ -264,7 +264,9 @@ class PPO(
         carries = None  # a recurrent split's sequences' start memories
 
         if split.advantages_per_minibatch:
-            # GAE in each minibatch, with the critic of that step.
+            # brax's PPO computes GAE inside its loss, on each minibatch, with the
+            # critic as it is at that step (brax/training/agents/ppo/losses.py,
+            # compute_ppo_loss), so each minibatch carries what GAE reads.
             batch.update(outcomes)
         else:
             # GAE once, on the rollout, with the critic that collected it.
@@ -312,12 +314,15 @@ class PPO(
         next_values: jax.Array,
         key: jax.Array,
         context: TrainContext,
-        hold: bool = False,
     ) -> tuple[jax.Array, jax.Array, dict]:
-        """GAE and the value targets A + V on steps (the rollout's or
-        a minibatch's obs, next_obs, rewards, terminated and truncated),
-        held constant with hold (brax's); the extensions' on_target
-        reshapes the targets on key. Returns them and its metrics."""
+        """GAE and the value targets A + V on steps (the rollout's, or a
+        minibatch's: obs, next_obs, rewards, terminated and truncated); the
+        extensions' on_target reshapes the targets, drawing on key. Returns
+        the advantages, the targets and the extensions' metrics.
+
+        They enter the losses as inputs, computed before the losses are
+        differentiated, so no gradient flows back through them (brax computes
+        GAE inside its loss and stops the gradient there instead)."""
         gae, value_targets = _compute_gae(
             values=values,
             next_values=next_values,
@@ -327,9 +332,6 @@ class PPO(
             gamma=self.gamma,
             gae_lambda=self.gae_lambda,
         )
-        if hold:
-            gae = jax.lax.stop_gradient(gae)
-            value_targets = jax.lax.stop_gradient(value_targets)
         if not context.extensions:
             return gae, value_targets, {}
         target_batch = {
@@ -356,7 +358,9 @@ class PPO(
         split: RolloutSplit,
         context: TrainContext,
     ) -> tuple[PPOState, AuxiliaryLogs]:
-        """A critic and an actor step, both from the state before either."""
+        """One gradient step on the critic and one on the actor. Both
+        gradients are taken at the parameters this minibatch starts from, then
+        clipped together and applied, as ppo2's single optimiser does."""
         state, ent_rng = state.draw_keys()
         target_metrics: dict = {}
         critic, actor = state.critic_state, state.actor_state
@@ -371,22 +375,17 @@ class PPO(
         )
 
         if split.advantages_per_minibatch:
-            # brax's compute_ppo_loss: GAE from the current critic, held
-            # constant (no gradient reaches the critic through it).
-            values = jax.lax.stop_gradient(
-                predict_value(
-                    critic_state=critic, critic_params=critic.params, x=minibatch["obs"]
-                ).squeeze(0)
-            )
-            next_values = jax.lax.stop_gradient(
-                predict_value(
-                    critic_state=critic,
-                    critic_params=critic.params,
-                    x=minibatch["next_obs"],
-                ).squeeze(0)
-            )
+            # brax's PPO: GAE again, on this minibatch, with the current critic.
+            values = predict_value(
+                critic_state=critic, critic_params=critic.params, x=minibatch["obs"]
+            ).squeeze(0)
+            next_values = predict_value(
+                critic_state=critic,
+                critic_params=critic.params,
+                x=minibatch["next_obs"],
+            ).squeeze(0)
             gae, value_targets, target_metrics = self.advantages(
-                state, minibatch, values, next_values, target_key, context, hold=True
+                state, minibatch, values, next_values, target_key, context
             )
         else:
             gae, value_targets = minibatch["gae"], minibatch["targets"]

@@ -1,7 +1,7 @@
-"""The Q-critics' regression to a held target, and its logs: shared by every
-Q-critic agent (SAC and its descendants, TD3, IQL, CrossQ); and its
-discrete-action counterpart, the Q-network's regression at the taken action,
-shared by the value agents (DQN, PQN)."""
+"""The Q-critics' regression to a target no gradient flows back through,
+and its logs: shared by every Q-critic agent (SAC and its descendants,
+TD3, IQL, CrossQ); and its discrete-action counterpart, the Q-network's
+regression at the taken action, shared by the value agents (DQN, PQN)."""
 
 from typing import Any, Callable, Optional, Tuple
 
@@ -63,8 +63,9 @@ def critic_loss_fn(
 def q_regression_loss(
     q_preds: jax.Array, target_q: jax.Array
 ) -> Tuple[jax.Array, CoreCriticAux]:
-    """The critics' mean squared error to the held target_q and its
-    logs, from their predictions q_preds (the ensemble axis first),
+    """The critics' mean squared error to target_q, which no gradient
+    flows back through (the callers stop it), and its logs, from their
+    predictions q_preds (the ensemble axis first),
     however the agent computed them: critic_loss_fn's pass or
     CrossQ's joint one."""
     prediction_variance = q_preds.var(axis=0, keepdims=True)

@@ -7,8 +7,8 @@ memory the same way:
 1. Sample contiguous per-env sequences of length
    burn_in + sequence_length + 1 from a trajectory buffer.
 2. Warm up ("burn in") the actor / online-critic / target-critic carries
-   from zero over the first burn_in steps with the CURRENT params,
-   under stop_gradient — the carries are constants inside the losses.
+   from zero over the first burn_in steps with the CURRENT params; no
+   gradient flows back into these burned-in memories.
 3. Train on the next sequence_length steps with BPTT; the final step
    is not read (each row stores the observation its target bootstraps on,
    interaction.bootstrap_obs).
@@ -72,9 +72,8 @@ class RecurrentCarries:
     """Per-update recurrent context for replayed sequences (R2D2-style).
 
     All carries are burned in from zero on the sequence prefix with the
-    CURRENT params and treated as constants inside the losses (they are
-    stop-gradiented); only the training segment backpropagates through
-    time. The carries hold for the training segment's first row; its rows
+    CURRENT params, and no gradient flows back into them; only the
+    training segment backpropagates through time. The carries hold for the training segment's first row; its rows
     (obs, the actions taken, resets their episode starts) are
     the history a bootstrap runs over (the bootstrap stream below).
     """
@@ -134,7 +133,7 @@ def sample_and_burnin_sequences(
 
     Returns a time-major Transition over the training segment
     (leaves shaped (sequence_length, batch, ...)) and the matching
-    stop-gradiented RecurrentCarries.
+    RecurrentCarries, which no gradient flows back into.
     """
     window = get_sequence_batch_from_buffer(
         buffer,

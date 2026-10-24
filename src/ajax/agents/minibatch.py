@@ -245,8 +245,9 @@ def get_minibatches_from_batch(batch: Any, rng: jax.Array, num_minibatches: int)
 def _split_carries(
     carries: jax.Array, permutation: jax.Array, num_minibatches: int
 ) -> jax.Array:
-    """(S, B, ...) start carries to (k, S * B // k, ...), sequence
-    s * B + b in the order of perm (as split_fragments)."""
+    """(n_sequences, n_envs, ...) start carries to (num_minibatches,
+    n_sequences * n_envs // num_minibatches, ...), in the order of
+    permutation (as split_fragments)."""
     carries = carries.reshape(-1, *carries.shape[2:])
     carries = jnp.take(carries, permutation, axis=0)
     return carries.reshape(num_minibatches, -1, *carries.shape[1:])

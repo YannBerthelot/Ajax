@@ -19,8 +19,9 @@ below or one of SAC's equations (core, ajax.agents.SAC.core)::
 Batch Renormalization in the actor and the critics, and one training pass of
 the critics over the rows (s, a) and their next states (s', a')
 together, so that both share the batch statistics: the bootstrap reads that
-pass's second half, held constant. a' comes from the actor reading its
-running statistics, and so does every critic read outside the critic loss.
+pass's second half, the next states', and no gradient flows back through
+it. a' comes from the actor reading its running statistics, and so does
+every critic read outside the critic loss.
 """
 
 from __future__ import annotations

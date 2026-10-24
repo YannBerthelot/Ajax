@@ -320,10 +320,10 @@ sequence replay. Once built, an agent's fields and `agent_config` are fixed:
 `dataclasses.replace(agent, gamma=0.9)` builds another.
 
 **The on-policy family.** `OnPolicyAgent.make_train` runs `loop.on_policy`:
-each iteration collects `n_steps` per env, then calls `update(state,
-rollout, start, context)` on the `(n_steps, n_envs)` rollout and the state it
-was collected from (a recurrent agent replays the rollout from its
-memories). The family requires `n_steps`, `n_epochs` and
+each iteration collects `n_steps` per env, then calls `update(agent_state,
+rollout, agent_state_at_rollout_start, context)` on the `(n_steps, n_envs)`
+rollout and the agent state it was collected from (a recurrent agent
+replays the rollout from its memories). The family requires `n_steps`, `n_epochs` and
 `num_minibatches`, reads brax's `num_resets_per_eval` and `num_evals` where
 an agent declares them, and adds the `evaluation_options()` hook (APO's
 `avg_reward_mode`). `agents/minibatch.py` runs the passes (`run_epochs`);

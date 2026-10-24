@@ -9,7 +9,8 @@ line after that is a function below::
 
     V_t = max_a Q(s_{t+1}, a), on the network that collected      PQN.update
     G_t = r_t + gamma ((1 - lambda) V_t + lambda G_{t+1})
-          (r_t at an episode's end), held constant      compute_q_lambda_targets
+          (r_t at an episode's end)                    compute_q_lambda_targets
+          no gradient flows back through the targets G_t
     for each of n_epochs, for each minibatch of shuffled single steps:
         one RAdam step of Q down (Q(s_t, a_t) - G_t)^2 / 2     half_mse_td_loss
                                                 (critics.q_gradient_step)
@@ -209,6 +210,9 @@ class PQN(
             self.gamma,
             self.q_lambda,
         )
+        # The carried key first, as purejaxql splits it (rng, _rng =
+        # jax.random.split(rng), pqn_gymnax.py:318): the reverse of
+        # get_keys_and_new_state's order, kept so PQN draws its reference's keys.
         training_key, update_key = jax.random.split(agent_state.rng)
         agent_state = agent_state.replace(rng=training_key)
         # The extensions reshape the targets before the gradient is stopped

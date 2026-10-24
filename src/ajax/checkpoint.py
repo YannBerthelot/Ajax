@@ -26,9 +26,6 @@ import jax
 import numpy as np
 from flax import serialization
 
-from ajax.agents.APO.state import APOState
-from ajax.state import BaseAgentState
-
 
 def _to_host_numpy(state: Any) -> Any:
     return jax.tree.map(
@@ -119,27 +116,9 @@ def _check_leaf_shapes(skeleton: Any, restored: Any) -> None:
             "The checkpoint does not fit this agent's state: "
             + "; ".join(bad[:5])
             + (f"; and {len(bad) - 5} more" if len(bad) > 5 else "")
-            + _apo_widths_hint(skeleton)
+            # A state class's ClassVar: how to restore its former layouts.
+            + getattr(skeleton, "restore_hint", "")
         )
-
-
-def _apo_widths_hint(skeleton: Any) -> str:
-    """For an APO, how to restore a checkpoint of its former default
-    network: its hidden layers were two of 128 units before they became its
-    reference code's two of 64.
-
-    Expand-then-contract (CLAUDE.md, refactoring rule 10): delete the hint
-    once no such checkpoint remains.
-    """
-    if not isinstance(skeleton, APOState):
-        return ""
-    wide = '("128", "tanh", "128", "tanh")'
-    return (
-        f". APO's default hidden layers were {wide} before they became its"
-        " reference code's two of 64 units: an APO checkpoint saved then"
-        f" restores into APO(..., actor_architecture={wide},"
-        f" critic_architecture={wide}), its other settings unchanged."
-    )
 
 
 #: Next-observation fields a replay buffer gained, by the field each is
@@ -238,14 +217,12 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
 
 
 def _took_a_joint_clip(skeleton: Any) -> bool:
-    """Whether ``skeleton`` is a PPO's or an APO's state, the two agents
-    whose networks each clipped their own gradient until one clip over both
-    took its place (``steps.joint_step``). PPO's state is
-    ``BaseAgentState`` itself (``PPOState`` is an alias of it), so the base
-    class names it without importing an agent; every other agent has its own
-    state class. Another agent's optimiser saved behind a clip is refused,
-    as flax refuses any other optimiser layout."""
-    return type(skeleton) is BaseAgentState or isinstance(skeleton, APOState)
+    """Whether ``skeleton``'s class declares ``joint_gradient_clip`` (a
+    ``ClassVar[bool]``): PPO's and APO's networks each clipped their own
+    gradient until one clip over both took its place (``steps.joint_step``).
+    Another agent's optimiser saved behind a clip is refused, as flax
+    refuses any other optimiser layout."""
+    return getattr(skeleton, "joint_gradient_clip", False)
 
 
 def _without_removed_fields(skeleton: Any, saved: Any) -> Any:

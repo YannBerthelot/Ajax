@@ -12,11 +12,11 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from ajax.agents.TD3.networks import Deterministic
 from ajax.agents.TD3.train_TD3 import compute_td3_td_target, init_TD3
 from ajax.buffers.utils import get_buffer
 from ajax.environments.interaction import get_pi
 from ajax.environments.utils import get_state_action_shapes
+from ajax.networks.distributions import Deterministic
 from ajax.state import NetworkConfig, OptimizerConfig
 
 

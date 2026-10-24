@@ -31,7 +31,6 @@ from ajax.agents.AVG.AVG import AVG
 from ajax.agents.CrossQ.CrossQ import CrossQ
 from ajax.agents.DAgger.DAgger import DAgger
 from ajax.agents.DQN.DQN import DQN
-from ajax.agents.DQN.networks import DuelingQNetwork
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.IQL.IQL import IQL
 from ajax.agents.PPO.PPO import PPO
@@ -46,6 +45,7 @@ from ajax.agents.TQC.TQC import TQC
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
+from ajax.networks.q_networks import DuelingQNetwork
 
 
 @dataclass(frozen=True)

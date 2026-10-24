@@ -9,10 +9,6 @@ import numpy as np
 import pytest
 
 from ajax.agents.SAC.SAC import SAC
-from ajax.agents.TD3.networks import (
-    DeterministicPIDActor,
-    get_initialized_td3_actor_critic,
-)
 from ajax.evaluate import evaluate
 from ajax.extensions.observe import PIDTermsInput, pid_terms_at
 from ajax.modules.pid_actor import (
@@ -21,6 +17,10 @@ from ajax.modules.pid_actor import (
     PIDLaw,
     PIDPolicy,
     pid_gains,
+)
+from ajax.networks.deterministic import (
+    DeterministicPIDActor,
+    get_initialized_td3_actor_critic,
 )
 from ajax.networks.distributions import Squash
 from ajax.networks.memory import MemoryConfig

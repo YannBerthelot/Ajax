@@ -7,7 +7,6 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from ajax.agents.DQN.networks import get_initialized_q_network
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.environments.create import build_env_from_id
 from ajax.extensions.observe import TrainingProgressInput
@@ -16,6 +15,7 @@ from ajax.networks.networks import (
     CNNSpec,
     get_initialized_actor_critic,
 )
+from ajax.networks.q_networks import get_initialized_q_network
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 
 ARCH = ("8", "relu")

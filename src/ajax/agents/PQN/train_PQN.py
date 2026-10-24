@@ -21,7 +21,6 @@ from typing import Any, Callable, Optional, Tuple
 import jax
 import jax.numpy as jnp
 
-from ajax.agents.DQN.networks import predict_q, q_network_value
 from ajax.agents.DQN.train_DQN import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
@@ -39,6 +38,7 @@ from ajax.environments.utils import get_action_dim
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.q_networks import predict_q, q_network_value
 from ajax.schedule import linear
 from ajax.state import (
     EnvironmentConfig,

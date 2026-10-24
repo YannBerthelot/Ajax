@@ -33,7 +33,6 @@ from flax import struct
 
 from ajax.agents.DAgger.state import DAggerConfig, DAggerState
 from ajax.agents.loop import TrainLoop, actor_step
-from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     ActionPipelineResult,
@@ -43,6 +42,7 @@ from ajax.environments.interaction import (
 )
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.deterministic import get_initialized_td3_actor_critic
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import BufferType

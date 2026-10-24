@@ -31,7 +31,6 @@ from ajax.agents.REDQ import train_REDQ
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC import train_SAC
 from ajax.agents.SAC.SAC import SAC
-from ajax.agents.TD3 import train_TD3
 from ajax.agents.TD3.TD3 import TD3
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import get_pi
@@ -39,7 +38,9 @@ from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionContext, ExtensionStack
 from ajax.extensions.expert import ImitationLoss, ResidualPolicy, q_filter_weight
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.state import Transition
 from ajax.types import NormalizationInfo
+from tests.agents.TD3.test_td3_metrics import context
 
 NET = ("8", "relu")
 BATCH = 4
@@ -332,17 +333,20 @@ def _obs(agent: Any) -> jax.Array:
 
 def _td3_update(stack: ExtensionStack) -> Any:
     agent = TD3("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    state = train_TD3.init_TD3(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.buffer,
+    ctx = context(agent, stack)
+    state = _ext_state(agent.init(KEY, ctx), stack)
+    obs, zeros = _obs(agent), jnp.zeros((BATCH, 1))
+    # The actor step reads the rows' observations, raw too (the expert's input).
+    batch = Transition(
+        obs=obs,
+        action=zeros,
+        reward=zeros,
+        terminated=zeros,
+        truncated=zeros,
+        next_obs=obs,
+        raw_obs=obs,
     )
-    state = _ext_state(state, stack)
-    obs = _obs(agent)
-    state, *_ = train_TD3.update_policy(state, obs, obs, stack, total_timesteps=1)
+    state, _ = agent.actor_update(state, batch, None, ctx)
     return state.actor_state.params
 
 

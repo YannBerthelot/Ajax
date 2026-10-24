@@ -8,14 +8,16 @@ TD3 differs from DDPG by:
 This file pins those properties at the function-level boundary.
 """
 
+from types import SimpleNamespace
+
 import jax
 import jax.numpy as jnp
 import pytest
 
-from ajax.agents.TD3.train_TD3 import compute_td3_td_target, init_TD3
-from ajax.buffers.utils import get_buffer
+from ajax.agents.TD3.TD3 import compute_td3_td_target
 from ajax.environments.interaction import get_pi
 from ajax.environments.utils import get_state_action_shapes
+from ajax.networks.deterministic import get_initialized_td3_actor_critic
 from ajax.networks.distributions import Deterministic
 from ajax.state import NetworkConfig, OptimizerConfig
 
@@ -29,15 +31,15 @@ def td3_state(gymnax_env_config):
         critic_architecture=["32", "relu"],
         squash=True,
     )
-    return init_TD3(
-        key=key,
-        env_args=gymnax_env_config,
-        actor_optimizer_args=optimizer_args,
-        critic_optimizer_args=optimizer_args,
-        network_args=network_args,
-        buffer=get_buffer(buffer_size=256, batch_size=16, n_envs=1),
+    actor_state, critic_state = get_initialized_td3_actor_critic(
+        key,
+        gymnax_env_config,
+        optimizer_args,
+        optimizer_args,
+        network_args,
         num_critics=2,
     )
+    return SimpleNamespace(actor_state=actor_state, critic_state=critic_state)
 
 
 def _call_target(

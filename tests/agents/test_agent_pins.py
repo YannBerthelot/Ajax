@@ -1286,6 +1286,20 @@ _GOLDEN |= {
     },
 }
 
+# Re-recorded on macOS ARM CPU once IQL summed its two critics' squared
+# errors, as the reference does (it averaged them): critic +0.062%, actor
+# +0.0001%, value +0.00002%, the nudge unchanged. Adam's step ignores the
+# gradient's scale but for eps, so the shift stays inside the tolerance.
+_GOLDEN |= {
+    "IQL-nudge": {
+        "actor": 7.997811794281006,
+        "critic": 19.86161994934082,
+        "value": 7.89579963684082,
+        "n_updates": 91.0,
+        "nudge": 0.34812238812446594,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

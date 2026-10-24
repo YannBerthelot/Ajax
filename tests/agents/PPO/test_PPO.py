@@ -4,9 +4,13 @@ import numpy as np
 import pytest
 
 from ajax.agents.PPO.PPO import PPO
-from ajax.agents.PPO.train_PPO import _force_reset, _normalisation_info
 from ajax.environments.create import strip_ajax_wrappers
-from ajax.environments.interaction import collect_experience, reset
+from ajax.environments.interaction import (
+    collect_experience,
+    force_reset,
+    normalisation_info,
+    reset,
+)
 from ajax.extensions.observe import TrainingProgressInput
 from ajax.networks.memory import MEMORY_KINDS, MemoryConfig, zeros_carry_like
 from ajax.networks.networks import get_initialized_actor_critic
@@ -36,9 +40,9 @@ def test_a_forced_reset_keeps_the_normaliser_statistics(env_id, mode):
         normalize_rewards=True,
     )
     state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=32)[0])
-    saved = _normalisation_info(state.collector_state.env_state, mode)
-    after = _force_reset(state, agent.env_args, mode).collector_state
-    kept = _normalisation_info(after.env_state, mode)
+    saved = normalisation_info(state.collector_state.env_state, mode)
+    after = force_reset(state, agent.env_args, mode).collector_state
+    kept = normalisation_info(after.env_state, mode)
     jax.tree.map(np.testing.assert_array_equal, kept, saved)
     stats = state.collector_state.obs_norm_info
     jax.tree.map(np.testing.assert_array_equal, after.obs_norm_info, stats)
@@ -65,7 +69,7 @@ def test_a_forced_reset_gives_the_reset_observations_their_features():
         extensions=(TrainingProgressInput(), RawProgress()),
     )
     state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=32)[0])
-    after = _force_reset(state, agent.env_args, "gymnax").collector_state
+    after = force_reset(state, agent.env_args, "gymnax").collector_state
     assert after.last_obs.shape == (2, 3 + 2)
     done = float(state.collector_state.train_time_fraction)
     np.testing.assert_allclose(after.last_obs[:, -1], done)

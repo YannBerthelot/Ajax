@@ -46,14 +46,9 @@ from ajax.environments.interaction import (
     get_pi,
     get_pi_sequence,
     init_collector_state,
-    reset,
-    reset_features,
 )
-from ajax.environments.obs_norm import normalized_obs
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
-    env_keys,
-    raw_obs_columns,
 )
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
@@ -292,87 +287,17 @@ def _stack_actor_loss(
     return actor_loss
 
 
-def _normalisation_info(env_state: Any, mode: str) -> Any:
-    """The running statistics an env normaliser keeps in ``env_state``
-    (``None`` without one)."""
-    if mode == "brax":
-        return (env_state.info or {}).get("normalization_info")
-    return getattr(env_state, "normalization_info", None)
-
-
-def _force_reset(
-    agent_state: PPOState,
-    env_args: EnvironmentConfig,
-    mode: str,
-    expert_policy: Any = None,
-) -> PPOState:
-    """Reset every env on a fresh key (brax's ``num_resets_per_eval``).
-
-    The reset observations get their features (from fresh observer states)
-    and are normalised with the agent's running statistics, which they do
-    not count in. A reward normaliser in the env
-    stack keeps its running statistics: its reset restarts them, so the
-    saved ones are put back. The cut episodes are abandoned, not finished:
-    the next return starts from zero, and they are flagged truncated, so a
-    recurrent actor and critic restart their memory on the reset
-    observation, as at any episode start, and so does a stateful tracked
-    expert (the features of the reset observations read its initial state).
-    """
-    agent_state, reset_key = agent_state.next_keys()
-    saved = _normalisation_info(agent_state.collector_state.env_state, mode)
-    reset_keys = env_keys(reset_key, mode, env_args.n_envs)
-    new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
-    if saved is not None:
-        if mode == "brax":
-            info = {**new_env_state.info, "normalization_info": saved}
-            new_env_state = new_env_state.replace(info=info)
-        else:
-            new_env_state = new_env_state.replace(normalization_info=saved)
-    collector = agent_state.collector_state
-    observer_states = collector.observer_states
-    if env_args.observers:
-        new_obs, observer_states = reset_features(
-            new_obs,
-            new_env_state,
-            env_args,
-            mode,
-            expert_policy,
-            collector.train_time_fraction,
-        )
-    if env_args.store_normalized_obs:
-        new_obs = normalized_obs(
-            new_obs, collector.obs_norm_info, raw_obs_columns(env_args.env)
-        )
-    returns = agent_state.collector_state.episodic_return_state
-    returns = returns.replace(
-        cumulative_reward=jnp.zeros_like(returns.cumulative_reward)
-    )
-    new_collector = collector.replace(
-        _env_state=new_env_state,
-        last_obs=new_obs,
-        observer_states=observer_states,
-        episodic_return_state=returns,
-        last_truncated=jnp.ones_like(collector.last_truncated),
-    )
-    return agent_state.replace(collector_state=new_collector)
-
-
 def update_agent(
     agent_state: PPOState,
     rollout: Transition,
     start: PPOState,
     agent_config: PPOConfig,
-    env_args: EnvironmentConfig,
-    mode: str,
     recurrent: bool,
     extension_stack: ExtensionStack,
     total_timesteps: int,
-    total_n_updates: int,
-    expert_policy: Optional[Callable] = None,
 ) -> tuple[PPOState, AuxiliaryLogs]:
     """One PPO update on the ``(n_steps, n_envs)`` ``rollout`` collected
-    from ``start``: ``n_epochs`` passes over its minibatches, then brax's
-    periodic forced reset (the features read the tracked ``expert_policy``)."""
+    from ``start``: ``n_epochs`` passes over its minibatches."""
     n_steps, n_envs = rollout.obs.shape[:2]
     geometry = minibatch_geometry(agent_config, n_steps, n_envs, recurrent)
     actions, log_probs = rollout_actions(rollout)
@@ -587,29 +512,6 @@ def update_agent(
     )
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
 
-    # brax's num_resets_per_eval: every env reset every reset_every updates.
-    # Playground envs draw a fresh initial state at every episode end by
-    # default (build_env_from_id(fresh_reset=True)); with fresh_reset=False
-    # their auto-reset replays the first reset state, and without these
-    # resets a run sees only n_envs initial conditions.
-    if agent_config.num_resets_per_eval > 0:
-        num_evals_after_init = max(int(agent_config.num_evals) - 1, 1)
-        reset_every = jnp.maximum(
-            1,
-            jnp.ceil(
-                total_n_updates
-                / (num_evals_after_init * agent_config.num_resets_per_eval)
-            ).astype(jnp.int32),
-        )
-        should_reset = (agent_state.n_updates % reset_every == 0) & (
-            agent_state.n_updates > 0
-        )
-        agent_state = jax.lax.cond(
-            should_reset,
-            lambda s: _force_reset(s, env_args, mode, expert_policy),
-            lambda s: s,
-            agent_state,
-        )
     return agent_state, aux
 
 
@@ -665,15 +567,9 @@ def make_train(
             rollout,
             start,
             agent_config,
-            env_args,
-            loop.mode,
             recurrent,
             loop.stack,
             total_timesteps,
-            # brax's reset cadence divides the whole training: the updates
-            # of one call over the run, from 0 to its horizon.
-            loop.n_rollouts(agent_config.n_steps, total_timesteps),
-            expert_policy,
         )
 
     return loop.on_policy(
@@ -682,6 +578,7 @@ def make_train(
         agent_config.n_steps,
         recurrent=recurrent,
         expose_rollout=agent_config.expose_recent_rollout,
+        forced_resets=(agent_config.num_resets_per_eval, agent_config.num_evals),
         eval_kwargs={
             "value_estimate": ValueEstimate(state_value, agent_config.gamma),
             "expert_policy": expert_policy,

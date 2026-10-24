@@ -24,10 +24,10 @@ from ajax.agents.SAC.core import (
     soft_policy_loss,
     soft_policy_objective,
     temperature_loss_fn,
-    update_target_networks,
     update_temperature,
 )
 from ajax.agents.SAC.train_SAC import init_SAC
+from ajax.agents.steps import update_target_networks
 from ajax.buffers.utils import get_buffer
 from ajax.state import (
     AlphaConfig,

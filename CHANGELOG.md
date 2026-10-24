@@ -83,6 +83,9 @@ PyPI as `ajax-rl`.
 - `ajax.agents.minibatch.rollout_actions` (`ajax.agents.PPO.core`'s
   before) is `get_actions_and_log_probs`; the old names import with a
   FutureWarning until 0.5.0.
+- `ajax.agents.SAC.SAC.augmentation_features` lives in
+  `ajax.agents.SAC.deprecated_keywords`, with SAC's other deprecated
+  keywords; the old path imports with a FutureWarning until 0.5.0.
 - The extension phases' `ExtensionContext` parameter is named `context`
   (was `ctx`). The stack passes it positionally, so an extension that
   still names it `ctx` keeps working.

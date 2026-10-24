@@ -1434,3 +1434,68 @@ def init_collector_state(
 def should_use_uniform_sampling(timestep: jax.Array, learning_starts: int) -> jax.Array:
     """Whether the collector acts uniformly: before ``learning_starts``."""
     return timestep < learning_starts
+
+
+def normalisation_info(env_state: Any, mode: str) -> Any:
+    """The running statistics an env normaliser keeps in ``env_state``
+    (``None`` without one)."""
+    if mode == "brax":
+        return (env_state.info or {}).get("normalization_info")
+    return getattr(env_state, "normalization_info", None)
+
+
+def force_reset(
+    agent_state: Any,
+    env_args: EnvironmentConfig,
+    mode: str,
+    expert_policy: Any = None,
+) -> Any:
+    """Reset every env on a fresh key (brax's ``num_resets_per_eval``).
+
+    The reset observations get their features (from fresh observer states)
+    and are normalised with the agent's running statistics, which they do
+    not count in. A reward normaliser in the env
+    stack keeps its running statistics: its reset restarts them, so the
+    saved ones are put back. The cut episodes are abandoned, not finished:
+    the next return starts from zero, and they are flagged truncated, so a
+    recurrent actor and critic restart their memory on the reset
+    observation, as at any episode start, and so does a stateful tracked
+    expert (the features of the reset observations read its initial state).
+    """
+    agent_state, reset_key = agent_state.next_keys()
+    saved = normalisation_info(agent_state.collector_state.env_state, mode)
+    reset_keys = env_keys(reset_key, mode, env_args.n_envs)
+    new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
+    if saved is not None:
+        if mode == "brax":
+            info = {**new_env_state.info, "normalization_info": saved}
+            new_env_state = new_env_state.replace(info=info)
+        else:
+            new_env_state = new_env_state.replace(normalization_info=saved)
+    collector = agent_state.collector_state
+    observer_states = collector.observer_states
+    if env_args.observers:
+        new_obs, observer_states = reset_features(
+            new_obs,
+            new_env_state,
+            env_args,
+            mode,
+            expert_policy,
+            collector.train_time_fraction,
+        )
+    if env_args.store_normalized_obs:
+        new_obs = normalized_obs(
+            new_obs, collector.obs_norm_info, raw_obs_columns(env_args.env)
+        )
+    returns = agent_state.collector_state.episodic_return_state
+    returns = returns.replace(
+        cumulative_reward=jnp.zeros_like(returns.cumulative_reward)
+    )
+    new_collector = collector.replace(
+        _env_state=new_env_state,
+        last_obs=new_obs,
+        observer_states=observer_states,
+        episodic_return_state=returns,
+        last_truncated=jnp.ones_like(collector.last_truncated),
+    )
+    return agent_state.replace(collector_state=new_collector)

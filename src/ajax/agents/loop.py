@@ -82,6 +82,7 @@ from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     collect_experience,
     expert_collect_kwargs,
+    force_reset,
     preallocate_last_rollout,
     reward_statistics,
     should_use_uniform_sampling,
@@ -723,6 +724,39 @@ class TrainLoop:
 
         return self.train(seeded, iteration, self.budget, update=update, buffer=buffer)
 
+    def forced_reset(
+        self, agent_state: Any, n_steps: int, resets_per_eval: int, num_evals: int
+    ) -> Any:
+        """brax's ``num_resets_per_eval``: every env reset
+        (:func:`ajax.environments.interaction.force_reset`) every
+        ``reset_every`` updates, ``resets_per_eval`` times per evaluation
+        after the first of ``num_evals``.
+
+        Playground envs draw a fresh initial state at every episode end by
+        default (build_env_from_id(fresh_reset=True)); with fresh_reset=False
+        their auto-reset replays the first reset state, and without these
+        resets a run sees only n_envs initial conditions.
+        """
+        # The cadence divides the whole training: the updates of one call
+        # over the run, from 0 to its horizon.
+        total_n_updates = self.n_rollouts(n_steps, self.total_timesteps)
+        num_evals_after_init = max(int(num_evals) - 1, 1)
+        reset_every = jnp.maximum(
+            1,
+            jnp.ceil(total_n_updates / (num_evals_after_init * resets_per_eval)).astype(
+                jnp.int32
+            ),
+        )
+        should_reset = (agent_state.n_updates % reset_every == 0) & (
+            agent_state.n_updates > 0
+        )
+        return jax.lax.cond(
+            should_reset,
+            lambda s: force_reset(s, self.env_args, self.mode, self.expert_policy),
+            lambda s: s,
+            agent_state,
+        )
+
     def on_policy(
         self,
         init: Init,
@@ -731,6 +765,7 @@ class TrainLoop:
         *,
         recurrent: bool = False,
         expose_rollout: bool = False,
+        forced_resets: tuple[int, int] = (0, 1),
         collect_kwargs: Optional[dict] = None,
         eval_kwargs: Optional[dict] = None,
     ) -> Callable:
@@ -738,7 +773,9 @@ class TrainLoop:
 
         Each iteration collects the rollout from the state ``start``
         (:func:`collect_experience` with ``collect_kwargs``), then runs
-        ``update(agent_state, rollout, start)`` and folds ``post_update``;
+        ``update(agent_state, rollout, start)``, resets every env on brax's
+        cadence when ``forced_resets``, ``(resets_per_eval, num_evals)``,
+        asks for any (:meth:`forced_reset`), and folds ``post_update``;
         ``expose_rollout`` keeps the rollout on ``agent_state.last_rollout``.
         The budget is :meth:`n_rollouts`; the last one may reach past the
         call's end, and evaluates there when the horizon is further.
@@ -756,6 +793,8 @@ class TrainLoop:
             if expose_rollout:
                 agent_state = agent_state.replace(last_rollout=rollout)
             agent_state, aux = update(agent_state, rollout, start)
+            if forced_resets[0] > 0:
+                agent_state = self.forced_reset(agent_state, n_steps, *forced_resets)
             agent_state = self.post_update(agent_state)
             return self.evaluate_and_log(
                 agent_state, aux, index, recurrent, **(eval_kwargs or {})

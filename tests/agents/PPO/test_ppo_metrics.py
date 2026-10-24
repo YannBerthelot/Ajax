@@ -125,12 +125,9 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
         rollout,
         state,
         config,
-        agent.env_args,
-        agent.env_args.mode,
         False,
         ExtensionStack(()),
         8,
-        2,
     )
 
     actor, critic = state.actor_state, state.critic_state

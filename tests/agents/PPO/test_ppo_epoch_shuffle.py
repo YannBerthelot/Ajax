@@ -108,12 +108,9 @@ def test_ppo_reshuffles_every_epoch(
         _rollout(n_envs),
         state,
         config,
-        agent.env_args,
-        "gymnax",
         agent.network_args.memory is not None,
         ExtensionStack(()),
         total_timesteps=1_000,
-        total_n_updates=10,
     )
     jax.effects_barrier()
     _assert_fresh_partitions(seen, n_envs, config.num_minibatches)

@@ -85,7 +85,6 @@ BORROWED = {
         (agent, "SAC", "TemperatureAuxiliaries"): _SAC_METRICS
         for agent in ("ASAC", "AVG", "CrossQ", "REDQ", "TQC")
     },
-    ("checkpoint.py", "APO", "APOState"): "B2 (ClassVar flags on the state)",
     ("checkpoint.py", "UDRL", "SegmentBuffer"): "2026-11-17 (the shim's removal)",
     ("extensions/instrumentation.py", "SAC", "sample_next_actions"): (
         "B4 (the agent supplies its TD target)"

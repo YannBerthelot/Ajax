@@ -1,11 +1,18 @@
-from typing import Optional
+from typing import ClassVar, Optional
 
 from flax import struct
 
 from ajax.schedule import Schedule
 from ajax.state import BaseAgentConfig, BaseAgentState
 
-PPOState = BaseAgentState
+
+@struct.dataclass
+class PPOState(BaseAgentState):
+    """PPO's state: the base state's fields."""
+
+    #: Its networks' gradients are clipped together (steps.joint_step): a
+    #: checkpoint from when each clipped its own restores (ajax.checkpoint).
+    joint_gradient_clip: ClassVar[bool] = True
 
 
 @struct.dataclass

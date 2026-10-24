@@ -16,7 +16,7 @@ function below::
         one Adam step of each network down its own loss, the two
         gradients clipped together to max_grad_norm         PPO.minibatch_step
 
-How the rollout is cut into minibatches (``minibatch_plan``): ppo2 shuffles
+How the rollout is cut into minibatches (``choose_rollout_split``): ppo2 shuffles
 single steps and computes GAE once, on the rollout; with ``unroll_length``
 (brax's PPO) the minibatches are shuffled fragments of that many steps, each
 in time order, and GAE is computed again in each minibatch from the current
@@ -50,10 +50,10 @@ from ajax.agents.families import (
 )
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.minibatch import (
-    MinibatchPlan,
-    check_minibatch_plan,
-    minibatch_plan,
-    rollout_actions,
+    RolloutSplit,
+    check_rollout_split,
+    choose_rollout_split,
+    get_actions_and_log_probs,
     run_epochs,
 )
 from ajax.agents.recurrent import rollout_sequence_values
@@ -174,24 +174,25 @@ class PPO(
         # network's own optimiser clips.
         return {"eps": self.adam_eps, "max_grad_norm": None}
 
-    def build(self) -> None:
-        check_minibatch_plan(
+    def setup(self) -> None:
+        # Checked here, not in check(): n_envs and the memory are known once built.
+        check_rollout_split(
             self, self.env_args.n_envs, self.network_args.memory is not None
         )
 
-    def init(self, key: jax.Array, ctx: TrainContext) -> PPOState:
+    def init(self, key: jax.Array, context: TrainContext) -> PPOState:
         """The initial actor, critic and collector (holding a stateful
         expert's initial state)."""
         rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
-        env_args = ctx.env_args
+        env_args = context.env_args
         continuous = check_if_environment_has_continuous_actions(
             env_args.env, env_params=env_args.env_params
         )
-        actor_state, critic_state = ctx.actor_critic(
+        actor_state, critic_state = context.actor_critic(
             init_key,
             continuous=continuous,
             action_value=False,
-            squash=ctx.network_args.squash,
+            squash=context.network_args.squash,
             num_critics=1,
         )
         return PPOState(
@@ -199,35 +200,38 @@ class PPO(
             eval_rng=eval_rng,
             actor_state=actor_state,
             critic_state=critic_state,
-            collector_state=ctx.collector(collector_key),
+            collector_state=context.collector(collector_key),
             n_updates=0,
         )
 
     def update(
-        self, state: PPOState, rollout: Transition, start: PPOState, ctx: TrainContext
+        self,
+        state: PPOState,
+        rollout: Transition,
+        start: PPOState,
+        context: TrainContext,
     ) -> tuple[PPOState, AuxiliaryLogs]:
         """One PPO update on the ``(n_steps, n_envs)`` ``rollout`` collected
         from ``start``: ``n_epochs`` passes over its minibatches."""
         n_steps, n_envs = rollout.obs.shape[:2]
-        # How the rollout is cut into minibatches, and so where the
-        # advantages are computed, set by the hyperparameters: ppo2's single
-        # steps shuffled, GAE once on the rollout; brax's fragments of
-        # unroll_length steps, each in time order, shuffled, GAE recomputed
-        # in each minibatch from the current critic; or a recurrent policy's
-        # sequences of bptt_length steps in time order, each replayed from
-        # the memory it started with, GAE once. plan.num_minibatches
-        # minibatches of pieces of plan.length steps.
-        plan = minibatch_plan(self, n_steps, n_envs, ctx.recurrent)
-        actions, log_probs = rollout_actions(rollout)
-        stack, total_timesteps = ctx.stack, ctx.total_timesteps
-        # The update's key: it shuffles the rollout, and the rollout's folds
-        # draw on keys derived from it.
-        state, shuffle_key = state.next_keys()
+        # Cut the rollout into minibatches, in one of three ways the hyperparameters choose:
+        # - shuffled single steps (ppo2): advantages computed once, on the whole rollout;
+        # - shuffled pieces of unroll_length consecutive steps (brax): advantages
+        #   recomputed in each minibatch, with the current critic;
+        # - pieces of bptt_length consecutive steps (a recurrent policy), each replayed
+        #   from the memory it started with: advantages computed once.
+        split = choose_rollout_split(self, n_steps, n_envs, context.recurrent)
+        actions, log_probs = get_actions_and_log_probs(rollout)
+        extensions, total_timesteps = context.extensions, context.total_timesteps
+        # The update's key: it shuffles the rollout, and the extensions' reward
+        # and on_target draw on keys derived from it.
+        state, shuffle_key = state.draw_keys()
         reward_key, target_key = jax.random.split(extension_key(shuffle_key))
-        rewards, reward_metrics = rollout.reward, dict[str, Any]()
-        if "reward" in stack.implemented_phases():
+        rewards = rollout.reward
+        reward_metrics: dict[str, Any] = {}
+        if "reward" in extensions.implemented_phases():
             # The extensions' rewards replace the env's (GAIL's discriminator).
-            state, rewards, reward_metrics = stack.fold_reward(
+            state, rewards, reward_metrics = extensions.apply_reward(
                 state,
                 {
                     "observations": rollout.obs,
@@ -257,16 +261,16 @@ class PPO(
             "rewards": rewards,
         }
         rollout_metrics: dict = {}  # the extensions' on the rollout's targets
-        carries = None  # a recurrent plan's sequences' start memories
+        carries = None  # a recurrent split's sequences' start memories
 
-        if plan.gae_per_minibatch:
+        if split.advantages_per_minibatch:
             # GAE in each minibatch, with the critic of that step.
             batch |= outcomes
         else:
             # GAE once, on the rollout, with the critic that collected it.
-            if ctx.recurrent:
+            if context.recurrent:
                 state, values, next_values, resets, carries = rollout_sequence_values(
-                    state, rollout, start, plan.length
+                    state, rollout, start, split.length
                 )
                 batch["resets"] = resets
             else:
@@ -281,17 +285,17 @@ class PPO(
                     x=rollout.next_obs,
                 ).squeeze(0)
             gae, value_targets, rollout_metrics = self.advantages(
-                state, batch | outcomes, values, next_values, target_key, ctx
+                state, batch | outcomes, values, next_values, target_key, context
             )
             batch |= {"targets": value_targets, "gae": gae}
 
         def minibatches(key: jax.Array) -> dict:
             """One epoch's partition of the rollout."""
-            return plan.minibatches(batch, key, carries)
+            return split.minibatches(batch, key, carries)
 
-        step = partial(self.minibatch_step, plan=plan, ctx=ctx)
+        step = partial(self.minibatch_step, split=split, context=context)
         state, aux = run_epochs(state, shuffle_key, minibatches, step, self.n_epochs)
-        # The flat and recurrent updates fold on_target once, over the rollout.
+        # on_target ran once, over the rollout, unless the advantages are per minibatch.
         aux = aux.replace(
             extensions=merge_metrics(reward_metrics, rollout_metrics, aux.extensions)
         )
@@ -305,7 +309,7 @@ class PPO(
         values: jax.Array,
         next_values: jax.Array,
         key: jax.Array,
-        ctx: TrainContext,
+        context: TrainContext,
         hold: bool = False,
     ) -> tuple[jax.Array, jax.Array, dict]:
         """GAE and the value targets ``A + V`` on ``steps`` (the rollout's or
@@ -324,7 +328,7 @@ class PPO(
         if hold:
             gae = jax.lax.stop_gradient(gae)
             value_targets = jax.lax.stop_gradient(value_targets)
-        if not ctx.stack:
+        if not context.extensions:
             return gae, value_targets, {}
         target_batch = {
             "observations": steps["obs"],
@@ -337,80 +341,87 @@ class PPO(
             "next_values": next_values,
             "gamma": self.gamma,
         }
-        timestep, horizon = state.collector_state.timestep, ctx.total_timesteps
-        value_targets, metrics = ctx.stack.fold_on_target(
+        timestep, horizon = state.collector_state.timestep, context.total_timesteps
+        value_targets, metrics = context.extensions.apply_on_target(
             state, target_batch, value_targets, timestep, key, horizon
         )
         return gae, value_targets, metrics
 
     def minibatch_step(
-        self, state: PPOState, mb: dict, plan: MinibatchPlan, ctx: TrainContext
+        self,
+        state: PPOState,
+        minibatch: dict,
+        split: RolloutSplit,
+        context: TrainContext,
     ) -> tuple[PPOState, AuxiliaryLogs]:
         """A critic and an actor step, both from the state before either."""
-        state, ent_rng = state.next_keys()
+        state, ent_rng = state.draw_keys()
         target_metrics: dict = {}
         critic, actor = state.critic_state, state.actor_state
-        stack, total_timesteps = ctx.stack, ctx.total_timesteps
+        extensions, total_timesteps = context.extensions, context.total_timesteps
         # The extensions' target and loss terms, each on a key of its own.
         target_key, critic_key, actor_key = jax.random.split(extension_key(ent_rng), 3)
-        critic_extra = _stack_critic_loss(stack, state, critic_key, total_timesteps)
+        critic_extra = _stack_critic_loss(
+            extensions, state, critic_key, total_timesteps
+        )
         actor_extra = _stack_actor_loss(
-            stack, state, actor_key, total_timesteps, mb["raw_obs"]
+            extensions, state, actor_key, total_timesteps, minibatch["raw_obs"]
         )
 
-        if plan.gae_per_minibatch:
+        if split.advantages_per_minibatch:
             # brax's compute_ppo_loss: GAE from the current critic, held
             # constant (no gradient reaches the critic through it).
             values = jax.lax.stop_gradient(
                 predict_value(
-                    critic_state=critic, critic_params=critic.params, x=mb["obs"]
+                    critic_state=critic, critic_params=critic.params, x=minibatch["obs"]
                 ).squeeze(0)
             )
             next_values = jax.lax.stop_gradient(
                 predict_value(
                     critic_state=critic,
                     critic_params=critic.params,
-                    x=mb["next_obs"],
+                    x=minibatch["next_obs"],
                 ).squeeze(0)
             )
             gae, value_targets, target_metrics = self.advantages(
-                state, mb, values, next_values, target_key, ctx, hold=True
+                state, minibatch, values, next_values, target_key, context, hold=True
             )
         else:
-            gae, value_targets = mb["gae"], mb["targets"]
+            gae, value_targets = minibatch["gae"], minibatch["targets"]
 
-        resets = mb.get("resets")
+        # Only a recurrent split's minibatches carry resets and start memories.
+        resets = minibatch["resets"] if context.recurrent else None
         (_, (v_aux, v_metrics)), v_grads = jax.value_and_grad(
             value_loss_function, has_aux=True
         )(
             critic.params,
             critic,
-            mb["obs"],
+            minibatch["obs"],
             value_targets,
-            ctx.recurrent,
+            context.recurrent,
             vf_coef=self.vf_coef,
             extra_loss_fn=critic_extra,
             resets=resets,
-            initial_hidden=mb.get("critic_hidden"),
+            initial_hidden=minibatch["critic_hidden"] if context.recurrent else None,
         )
         (_, (p_aux, p_metrics)), p_grads = jax.value_and_grad(
             policy_loss_function, has_aux=True
         )(
             actor.params,
             actor,
-            mb["obs"],
-            mb["actions"],
-            mb["log_probs"],
+            minibatch["obs"],
+            minibatch["actions"],
+            minibatch["log_probs"],
             gae,
-            ctx.recurrent,
+            context.recurrent,
             at(self.clip_range, state.collector_state.timestep),
             self.ent_coef,
             self.normalize_advantage,
             extra_loss_fn=actor_extra,
-            raw_actions=mb["raw_actions"],
+            raw_actions=minibatch["raw_actions"],
             entropy_rng=ent_rng,
             resets=resets,
-            initial_hidden=mb.get("actor_hidden"),
+            initial_hidden=minibatch["actor_hidden"] if context.recurrent else None,
         )
         actor, critic = joint_step(actor, critic, p_grads, v_grads, self.max_grad_norm)
         state = state.replace(critic_state=critic, actor_state=actor)
@@ -613,10 +624,10 @@ def _stack_critic_loss(
     key: jax.Array,
     total_timesteps: int,
 ) -> Optional[Callable]:
-    """The stack's additive critic-loss term on ``key`` as a
+    """The extensions' additive critic-loss term on ``key`` as a
     ``value_loss_function`` ``extra_loss_fn``: ``(critic_params,
     critic_states, observations, value_targets) -> (term, metrics)``;
-    ``None`` for an empty stack. The extensions read their state from
+    ``None`` without extensions. The extensions read their state from
     ``agent_state``.
     """
     if not extension_stack:
@@ -629,7 +640,7 @@ def _stack_critic_loss(
             "critic_params": critic_params,
             "critic_state": critic_states,
         }
-        return extension_stack.fold_critic_loss(
+        return extension_stack.apply_critic_loss(
             agent_state,
             _batch,
             agent_state.collector_state.timestep,
@@ -647,10 +658,10 @@ def _stack_actor_loss(
     total_timesteps: int,
     raw_observations: Optional[jax.Array] = None,
 ) -> Optional[Callable]:
-    """The stack's additive actor-loss term on ``key`` as a
+    """The extensions' additive actor-loss term on ``key`` as a
     ``policy_loss_function`` ``extra_loss_fn``: ``(actor_params,
     actor_state, observations, pi_mean) -> (term, metrics)``, the minibatch's
-    ``raw_observations`` beside them; ``None`` for an empty stack."""
+    ``raw_observations`` beside them; ``None`` without extensions."""
     if not extension_stack:
         return None
 
@@ -662,7 +673,7 @@ def _stack_actor_loss(
             "actor_params": actor_params,
             "actor_state": actor_state,
         }
-        return extension_stack.fold_actor_loss(
+        return extension_stack.apply_actor_loss(
             agent_state,
             _batch,
             agent_state.collector_state.timestep,
@@ -680,6 +691,7 @@ class PPOState(BaseAgentState):
 
     #: Its networks' gradients are clipped together (steps.joint_step): a
     #: checkpoint from when each clipped its own restores (ajax.checkpoint).
+    #: A ClassVar: a flag on the class, shared by every PPO state, not stored in its arrays.
     joint_gradient_clip: ClassVar[bool] = True
 
 

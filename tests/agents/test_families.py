@@ -66,7 +66,7 @@ class Toy(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
     def optimizer_settings(self) -> dict[str, Any]:
         return {"beta_1": 0.5}
 
-    def build(self) -> None:
+    def setup(self) -> None:
         self.doubled = 2 * self.batch_size
 
     @property
@@ -118,9 +118,9 @@ class OnToy(ImageObservations, OnPolicyAgent):
     n_epochs: int = 1
     num_minibatches: int = 1
 
-    def init(self, key: jax.Array, ctx: TrainContext) -> BaseAgentState:
+    def init(self, key: jax.Array, context: TrainContext) -> BaseAgentState:
         rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
-        actor, critic = ctx.actor_critic(
+        actor, critic = context.actor_critic(
             init_key, continuous=False, action_value=False, num_critics=1
         )
         return BaseAgentState(
@@ -128,10 +128,12 @@ class OnToy(ImageObservations, OnPolicyAgent):
             eval_rng=eval_rng,
             actor_state=actor,
             critic_state=critic,
-            collector_state=ctx.collector(collector_key),
+            collector_state=context.collector(collector_key),
         )
 
-    def update(self, state: Any, rollout: Any, start: Any, ctx: TrainContext) -> Any:
+    def update(
+        self, state: Any, rollout: Any, start: Any, context: TrainContext
+    ) -> Any:
         assert rollout.obs.shape[:2] == (self.n_steps, self.n_envs)
         return state.replace(n_updates=state.n_updates + 1), {"r": rollout.reward}
 
@@ -311,9 +313,13 @@ def test_an_on_policy_agent_runs_its_update_on_each_rollout() -> None:
     agent = OnToy("CartPole-v1", cnn_extra_obs_dim=0)
     assert agent.network_args.cnn_image_shape is None  # ImageObservations'
     # The context runs init alone, as the run's first state.
-    loop, ctx = agent.context(8)
-    assert ctx.stack is loop.stack and not ctx.recurrent and ctx.buffer is None
-    assert agent.init(jax.random.PRNGKey(0), ctx).collector_state.timestep == 0
+    loop, context = agent.context(8)
+    assert (
+        context.extensions is loop.stack
+        and not context.recurrent
+        and context.buffer is None
+    )
+    assert agent.init(jax.random.PRNGKey(0), context).collector_state.timestep == 0
     state, _ = agent.train(seed=0, n_timesteps=4)  # 4 // 4 + 1 rollouts
     assert np.asarray(state.n_updates).tolist() == [2]  # one seed
     with pytest.raises(ValueError, match="trains on its fields"):

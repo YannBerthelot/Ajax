@@ -191,9 +191,9 @@ def test_mc_returns_carry_the_reward_scale():
 def test_bellman_pretrain_needs_the_agent_context_and_expert():
     """Unbound, its pretrain phase raises; on an agent without an expert (so
     no expert prefill to pre-train on), SAC refuses it when built."""
-    ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
+    context = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
     with pytest.raises(ValueError, match="did not bind"):
-        BellmanPretrain().pretrain(None, (), ctx)
+        BellmanPretrain().pretrain(None, (), context)
     with pytest.raises(MissingCapability, match="give the agent an expert_policy"):
         SAC("Pendulum-v1", extensions=(BellmanPretrain(n_steps=1),))
 
@@ -236,14 +236,14 @@ def test_cloning_pretrain_comes_before_the_other_pretraining():
 
 
 def test_cloning_pretrain_needs_the_agent_context():
-    ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
+    context = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
     with pytest.raises(ValueError, match="did not bind"):
-        CloningPretrain(expert_policy=abs).pretrain(None, (), ctx)
+        CloningPretrain(expert_policy=abs).pretrain(None, (), context)
 
 
 def test_phi_refresh_needs_the_agent_context():
     """Unbound (no agent handed it its buffer), its post_update raises
     rather than never refreshing phi*."""
-    ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
+    context = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
     with pytest.raises(ValueError, match="did not bind"):
-        PhiRefresh(expert_policy=abs).post_update(None, (), ctx)
+        PhiRefresh(expert_policy=abs).post_update(None, (), context)

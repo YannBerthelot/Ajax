@@ -83,14 +83,14 @@ def _q10_values(agent: Any, wm: Any, target_q: Any, pi: Any, key: Any) -> dict:
     pi_apply = make_policy_prior(config, tasks.action_dim).apply
     obs, ends = envs.one_hot(0, tasks.obs_dim), jnp.array([[1.0], [-1.0]])
     for task in range(tasks.num_tasks):
-        ctx = tasks.context(task)
-        params = core.renorm_task_embedding(wm, ctx.ids)
-        emb = core.task_embedding(params, ctx)
+        context = tasks.context(task)
+        params = core.renorm_task_embedding(wm, context.ids)
+        emb = core.task_embedding(params, context)
         z = apply({"params": params}, obs, emb, method="encode")
         z2, zs = (jnp.broadcast_to(z, (n, z.shape[-1])) for n in (2, 256))  # type: ignore[arg-type, union-attr]
         q = decode(core.q_logits(apply, params, z2, ends, task_emb=emb)).mean(0)
         eps = jax.random.normal(jax.random.fold_in(key, task), (256, 1))
-        a = core.policy_sample(pi_apply, pi, zs, eps, config, emb, ctx.mask).action
+        a = core.policy_sample(pi_apply, pi, zs, eps, config, emb, context.mask).action
         kw = {"q_params": target_q, "task_emb": emb}
         v = decode(core.q_logits(apply, params, zs, a, **kw))
         out.append((q[0], q[1], v.min(0).mean(), (SIGNS[task] * a[:, 0]).mean()))

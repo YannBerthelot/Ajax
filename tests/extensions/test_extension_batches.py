@@ -43,7 +43,7 @@ _PQN: dict[str, Any] = {
 class RecordDones(Extension):
     name: str = "record_dones"
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         _record(batch["dones"], batch["terminated"])
         return target
 
@@ -63,7 +63,7 @@ RAW: list = []  # the actor-loss batch's raw_observations, at trace time
 class RawObservationsSeen(Extension):
     name: str = "raw_observations_seen"
 
-    def actor_loss(self, agent_state, ext_state, batch, ctx):
+    def actor_loss(self, agent_state, ext_state, batch, context):
         RAW.append(batch["raw_observations"])
         return 0.0
 

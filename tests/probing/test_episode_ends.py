@@ -336,7 +336,7 @@ class IdentityTarget(Extension):
 
     name = "identity_target"
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         return target
 
 
@@ -398,7 +398,7 @@ class RecordTargetBatch(Extension):
     label: str
     name = "record_target_batch"
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         SEEN.setdefault(self.label, []).append(
             (frozenset(batch), batch.get("reward_scale"))
         )
@@ -452,7 +452,7 @@ class Trace(Extension):
         values = jnp.zeros((len(self.fields), self.length), jnp.float32)
         return {"values": values, "count": jnp.zeros((), jnp.int32)}
 
-    def post_update(self, agent_state, ext_state, ctx):
+    def post_update(self, agent_state, ext_state, context):
         now = [jnp.asarray(TRACED[f](agent_state), jnp.float32) for f in self.fields]
         slot = ext_state["count"] % self.length
         values = (

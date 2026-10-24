@@ -92,8 +92,8 @@ where it may act. Every other phase keeps a default that changes nothing.
 
 The agent hands its stack (an `ExtensionStack`) to its training step, which
 makes one call per phase: `fold_init` (every initial state, then every
-`pretrain`), `fold_on_target`, `fold_critic_loss`, `fold_actor_loss`,
-`fold_post_update` and `fold_eval_metrics`. Each call gets a random key of
+`pretrain`), `apply_on_target`, `apply_critic_loss`, `apply_actor_loss`,
+`apply_post_update` and `fold_eval_metrics`. Each call gets a random key of
 its own, on which the agent draws nothing else (`init_state` and
 `eval_metrics` split it, one sub-key per extension). On an empty stack a
 fold returns its input untouched and draws nothing. The `action`,

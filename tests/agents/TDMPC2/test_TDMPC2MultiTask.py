@@ -87,16 +87,16 @@ class CounterExt(Extension):
             "last_step": jnp.asarray(-1, jnp.int32),
         }
 
-    def pretrain(self, agent_state, ext_state, ctx: ExtensionContext):
+    def pretrain(self, agent_state, ext_state, context: ExtensionContext):
         return agent_state, {**ext_state, "pretrain": ext_state["pretrain"] + 1}
 
-    def post_update(self, agent_state, ext_state, ctx: ExtensionContext):
+    def post_update(self, agent_state, ext_state, context: ExtensionContext):
         first = ext_state["updates"] == 0
         return agent_state, {
             **ext_state,
             "updates": ext_state["updates"] + 1,
-            "first_step": jnp.where(first, ctx.step, ext_state["first_step"]),
-            "last_step": jnp.asarray(ctx.step, jnp.int32),
+            "first_step": jnp.where(first, context.step, ext_state["first_step"]),
+            "last_step": jnp.asarray(context.step, jnp.int32),
         }
 
 
@@ -104,8 +104,8 @@ class CounterExt(Extension):
 class MetricExt(Extension):
     name: str = "metric"
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx: ExtensionContext):
-        return {"ext_smoke/updates": jnp.asarray(ctx.step, jnp.float32)}
+    def eval_metrics(self, agent_state, ext_state, rng, context: ExtensionContext):
+        return {"ext_smoke/updates": jnp.asarray(context.step, jnp.float32)}
 
 
 @pytest.fixture(scope="module")
@@ -546,14 +546,14 @@ class HorizonExt(Extension):
     def init_state(self, agent_state, rng):
         return {phase: jnp.asarray(-1, jnp.int32) for phase in ("pretrain", "update")}
 
-    def pretrain(self, agent_state, ext_state, ctx: ExtensionContext):
-        return agent_state, {**ext_state, "pretrain": jnp.asarray(ctx.total_steps)}
+    def pretrain(self, agent_state, ext_state, context: ExtensionContext):
+        return agent_state, {**ext_state, "pretrain": jnp.asarray(context.total_steps)}
 
-    def post_update(self, agent_state, ext_state, ctx: ExtensionContext):
-        return agent_state, {**ext_state, "update": jnp.asarray(ctx.total_steps)}
+    def post_update(self, agent_state, ext_state, context: ExtensionContext):
+        return agent_state, {**ext_state, "update": jnp.asarray(context.total_steps)}
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx: ExtensionContext):
-        return {"horizon/total_steps": jnp.asarray(ctx.total_steps)}
+    def eval_metrics(self, agent_state, ext_state, rng, context: ExtensionContext):
+        return {"horizon/total_steps": jnp.asarray(context.total_steps)}
 
 
 def test_the_extensions_run_to_the_horizon_a_call_is_told(monkeypatch):

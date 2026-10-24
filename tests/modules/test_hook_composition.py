@@ -17,7 +17,7 @@ import pytest
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.TD3.TD3 import TD3
-from tests.agents.TD3.test_td3_metrics import context
+from tests.agents.TD3.test_td3_metrics import make_context
 
 AGENT_HOOKS = {
     TD3: ("action_pipeline",),
@@ -104,4 +104,4 @@ def test_get_make_train_forwards_hooks(agent_cls):
         assert h in keywords, f"{agent_cls.__name__} should forward {h}"
         assert keywords[h] is fn
     if isinstance(agent, TD3):
-        assert agent.behaviour(context(agent)) is _identity_hook
+        assert agent.behaviour(make_context(agent)) is _identity_hook

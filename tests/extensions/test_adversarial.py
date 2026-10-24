@@ -37,9 +37,9 @@ def rollout() -> dict:
 def test_the_rewards_are_minus_log_one_minus_d_before_the_discriminator_steps() -> None:
     gail = AdversarialReward(demos(), n_updates=3)
     state = gail.init_state(None, KEY)
-    batch, ctx = rollout(), ExtensionContext(step=jnp.asarray(0), rng=KEY)
+    batch, context = rollout(), ExtensionContext(step=jnp.asarray(0), rng=KEY)
     rewards, stepped, metrics = gail.reward(
-        None, state, batch, jnp.zeros((4, 2, 1)), ctx
+        None, state, batch, jnp.zeros((4, 2, 1)), context
     )
     x = jnp.concatenate([batch["raw_observations"], batch["actions"]], -1)
     want = -jax.nn.log_sigmoid(-state.apply_fn(state.params, x))
@@ -51,13 +51,13 @@ def test_the_discriminator_reads_the_executed_action() -> None:
     """A sample beyond [-1, 1] runs as the bound, and is scored as it; a
     demonstration's action too."""
     gail = AdversarialReward(demos())
-    ctx = ExtensionContext(step=jnp.asarray(0), rng=KEY)
+    context = ExtensionContext(step=jnp.asarray(0), rng=KEY)
     state = gail.init_state(None, KEY)
     beyond, bound = (rollout() | {"actions": jnp.full((4, 2, 1), a)} for a in (3, 1))
     zeros = jnp.zeros((4, 2, 1))
     np.testing.assert_array_equal(
-        gail.reward(None, state, beyond, zeros, ctx)[0],
-        gail.reward(None, state, bound, zeros, ctx)[0],
+        gail.reward(None, state, beyond, zeros, context)[0],
+        gail.reward(None, state, bound, zeros, context)[0],
     )
     wide = demos()
     wide.action[:] = -2.0
@@ -69,8 +69,10 @@ def test_the_discriminator_learns_to_tell_the_rollout_from_the_demonstrations() 
     state, batch = gail.init_state(None, KEY), rollout()
     losses = []
     for i in range(4):
-        ctx = ExtensionContext(step=jnp.asarray(i), rng=jax.random.fold_in(KEY, i))
-        _, state, metrics = gail.reward(None, state, batch, jnp.zeros((4, 2, 1)), ctx)
+        context = ExtensionContext(step=jnp.asarray(i), rng=jax.random.fold_in(KEY, i))
+        _, state, metrics = gail.reward(
+            None, state, batch, jnp.zeros((4, 2, 1)), context
+        )
         losses.append(float(metrics["gail/disc_loss"]))
     assert losses[-1] < losses[0]
     assert float(metrics["gail/expert_acc"]) == float(metrics["gail/policy_acc"]) == 1.0
@@ -88,7 +90,7 @@ def test_the_fold_threads_the_discriminators_state() -> None:
             new.ext_state = ext_state
             return new
 
-    state, rewards, _ = stack.fold_reward(
+    state, rewards, _ = stack.apply_reward(
         State(), rollout(), jnp.zeros((4, 2, 1)), 0, KEY, 8
     )
     assert int(state.ext_state[0].step) == gail.n_updates and rewards.shape == (4, 2, 1)

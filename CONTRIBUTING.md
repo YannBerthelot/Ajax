@@ -22,7 +22,7 @@ src/ajax/
 ├── agents/families.py   declared agents: fields as hyperparameters, the replay and on-policy families
 ├── agents/loop.py       TrainLoop, the shared loop (brax's forced resets included)
 ├── agents/steps.py      critic_step, actor_step, gradient_step, joint_step, when, the target update
-├── agents/minibatch.py  the on-policy minibatch plan, minibatches and epochs
+├── agents/minibatch.py  the on-policy rollout split, minibatches and epochs
 ├── agents/critics.py    the Q-critics' regression (continuous and discrete actions)
 ├── agents/diagnostics.py  KL, explained variance, policy std
 ├── agents/recurrent.py  replay buffers and R2D2-style sequence replay for memory=
@@ -113,25 +113,26 @@ ships.
 
 An extension is a frozen dataclass subclassing `Extension`. It holds its own
 settings and overrides only the *phases* it touches; the other phases keep
-their defaults, which change nothing. An agent folds its `ExtensionStack`
-through a phase in list order, mostly with a `stack.fold_<phase>(...)` helper
-(`fold_init`, `fold_on_target`, `fold_critic_loss`, `fold_actor_loss`,
-`fold_post_update`, `fold_eval_metrics`) that builds the `ExtensionContext`
-(`step`, `rng`, `total_steps`) and threads the extensions' state. On an empty
-stack a helper changes nothing (a loss term is `0.0`), so an agent without
-extensions traces nothing extra and never guards a fold.
+their defaults, which change nothing. An agent applies a phase of its
+`ExtensionStack` in list order with one helper per phase (`apply_reward`,
+`apply_on_target`, `apply_critic_loss`, `apply_actor_loss`,
+`apply_post_update`; the loop calls `fold_init` and `fold_eval_metrics`)
+that builds the `ExtensionContext` (`step`, `rng`, `total_steps`) and
+threads the extensions' state. On an empty stack a helper changes nothing
+(a loss term is `0.0`), so an agent without extensions traces nothing extra
+and never guards a call.
 
 | Phase | What it does | Folded today by |
 | --- | --- | --- |
 | `init_state(agent_state, rng)` | returns the extension's state (`()`: none) | every agent, fresh runs only |
-| `pretrain(agent_state, ext_state, ctx)` | one-shot step before training | every agent, fresh runs only |
-| `on_target(agent_state, ext_state, batch, target, ctx)` | transforms the TD or value target | SAC, REDQ, ASAC, AVG, TD3, DQN, PQN, PPO, APO |
-| `critic_loss(agent_state, ext_state, batch, ctx)` | adds a term to the critic loss | SAC, REDQ, ASAC, AVG, TD3, DQN, PQN, PPO, APO |
-| `actor_loss(agent_state, ext_state, batch, ctx)` | adds a term to the actor loss | SAC, REDQ, ASAC, AVG, TD3, PPO, APO, APG, UDRL |
-| `action(agent_state, ext_state, obs, rng, ctx)` | overrides the collection action (`None` defers) | SAC with an `expert_policy`, for extensions with an `action_slot` |
-| `eval_action(agent_state, ext_state, obs, rng, ctx)` | overrides the evaluation action | no agent yet |
-| `post_update(agent_state, ext_state, ctx)` | runs after each update | every agent |
-| `eval_metrics(agent_state, ext_state, rng, ctx)` | adds metrics to each evaluation | every agent |
+| `pretrain(agent_state, ext_state, context)` | one-shot step before training | every agent, fresh runs only |
+| `on_target(agent_state, ext_state, batch, target, context)` | transforms the TD or value target | SAC, REDQ, ASAC, AVG, TD3, DQN, PQN, PPO, APO |
+| `critic_loss(agent_state, ext_state, batch, context)` | adds a term to the critic loss | SAC, REDQ, ASAC, AVG, TD3, DQN, PQN, PPO, APO |
+| `actor_loss(agent_state, ext_state, batch, context)` | adds a term to the actor loss | SAC, REDQ, ASAC, AVG, TD3, PPO, APO, APG, UDRL |
+| `action(agent_state, ext_state, obs, rng, context)` | overrides the collection action (`None` defers) | SAC with an `expert_policy`, for extensions with an `action_slot` |
+| `eval_action(agent_state, ext_state, obs, rng, context)` | overrides the evaluation action | no agent yet |
+| `post_update(agent_state, ext_state, context)` | runs after each update | every agent |
+| `eval_metrics(agent_state, ext_state, rng, context)` | adds metrics to each evaluation | every agent |
 
 `tests/probing/test_extensions.py` checks the phases on the agents with
 test-only extensions of known effect, and that an extension implementing a
@@ -205,29 +206,29 @@ class FOO(GradientClipping, ExpertGuided, ReplayAgent):
     batch_size: int = 256
     learning_starts: int = int(1e4)
 
-    def init(self, key, ctx):
+    def init(self, key, context):
         rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
-        actor_state, critic_state = ctx.actor_critic(
+        actor_state, critic_state = context.actor_critic(
             init_key, continuous=True, action_value=True, num_critics=2
         )
         return FOOState(
             rng=rng, eval_rng=eval_rng, actor_state=actor_state,
-            critic_state=critic_state, collector_state=ctx.collector(collector_key),
+            critic_state=critic_state, collector_state=context.collector(collector_key),
         )
 
-    def update(self, state, ctx):
-        state, sample_key, critic_key, actor_key = state.next_keys(3)
-        batch, _ = sample_replay(state, ctx.buffer, sample_key)
+    def update(self, state, context):
+        state, sample_key, critic_key, actor_key = state.draw_keys(3)
+        batch, _ = sample_replay(state, context.buffer, sample_key)
         target = foo_target(state, batch, self.gamma, self.reward_scale)
         critic_state, critic_aux, _, critic_metrics = steps.critic_step(
             state, batch, target, partial(foo_value_loss, state.critic_state, batch),
-            ctx.stack, critic_key, ctx.total_timesteps,
+            context.extensions, critic_key, context.total_timesteps,
             rewards=batch.reward, dones=batch.terminated,
             gamma=self.gamma, reward_scale=self.reward_scale,
         )
         actor_state, actor_aux, _, actor_metrics = steps.actor_step(
-            state, partial(foo_policy_loss, state), ctx.stack, actor_key,
-            ctx.total_timesteps, observations=batch.obs, actions=batch.action,
+            state, partial(foo_policy_loss, state), context.extensions, actor_key,
+            context.total_timesteps, observations=batch.obs, actions=batch.action,
         )
         state = state.replace(
             actor_state=actor_state,
@@ -259,15 +260,25 @@ had a Config before their fields were declared (IQL, CrossQ, TD3, PPO, APO, PQN)
 view of the fields (`declare_config`), until 0.5.0.
 
 `init` splits the run's key on the agent's own layout, which its pins hold.
-`steps.critic_step` folds `on_target` and `critic_loss`; its keywords are what
-the target used (`dones`: where it cut the bootstrap). `steps.actor_step`
-folds `actor_loss`; its keywords are the rows the extensions read. Both derive
+`steps.critic_step` applies `on_target` and `critic_loss`; its keywords are
+what the target used (`dones`: where it cut the bootstrap). `steps.actor_step`
+applies `actor_loss`; its keywords are the rows the extensions read. Both derive
 the extensions' keys from the step's
 ([Randomness](docs/developer/writing-an-extension.md#randomness)), so the
 agent's own random stream is the same with or without extensions.
 
-An agent writes `init(key, ctx)` and `update(state, ctx)` (an on-policy
-agent's `update(state, rollout, start, ctx)`), and may add these hooks; each
+**The train context.** `init` and `update` take a `TrainContext`
+(`agents/families.py`) as `context`: what one `train()` call gives the agent
+beyond its fields, which are fixed once it is built. It holds the env and the
+network and optimiser configs, the extensions bound to the run, the replay
+buffer, how to build the collector, the horizon, whether the run is recurrent
+and the residual-action hook. Other libraries keep these as attributes of the
+agent (SB3) or in closures (PureJaxRL); here they are passed explicitly, so one
+agent trains any number of runs and a test calls `init` or `update` alone on
+`agent.context(n)`.
+
+An agent writes `init(key, context)` and `update(state, context)` (an on-policy
+agent's `update(state, rollout, start, context)`), and may add these hooks; each
 is a no-op on the family, which does its own part outside them, so none
 calls `super()`:
 
@@ -279,9 +290,10 @@ calls `super()`:
 - `optimizer_settings()` returns the `OptimizerConfig` settings of the
   reference's optimiser (its Adam's `eps`, its betas): the family sets none,
   so an agent states its reference's;
-- `build()` builds what the fields derive (IQL's value optimiser), after the
-  family has built the replay;
-- `behaviour(ctx)` replaces collection's action pipeline.
+- `setup()` derives or checks what needs the built env and networks (IQL's
+  value optimiser, PPO's rollout split checks), after the family has built
+  the replay;
+- `behaviour(context)` replaces collection's action pipeline.
 
 The family reads some fields by name. `ReplayAgent` requires `buffer_size`,
 `batch_size` and `learning_starts`; an agent claiming the `discounted`
@@ -299,13 +311,13 @@ sequence replay. Once built, an agent's fields and `agent_config` are fixed:
 
 **The on-policy family.** `OnPolicyAgent.make_train` runs `loop.on_policy`:
 each iteration collects `n_steps` per env, then calls `update(state,
-rollout, start, ctx)` on the `(n_steps, n_envs)` rollout and the state it
+rollout, start, context)` on the `(n_steps, n_envs)` rollout and the state it
 was collected from (a recurrent agent replays the rollout from its
 memories). The family requires `n_steps`, `n_epochs` and
 `num_minibatches`, reads brax's `num_resets_per_eval` and `num_evals` where
 an agent declares them, and adds the `evaluation_options()` hook (APO's
 `avg_reward_mode`). `agents/minibatch.py` runs the passes (`run_epochs`);
-PPO's `minibatch_plan` returns the `MinibatchPlan` that says how its
+PPO's `choose_rollout_split` returns the `RolloutSplit` that says how its
 rollout is cut and where the advantages are computed, while APO and PQN
 shuffle single steps. `ImageObservations` adds the CNN encoder's fields;
 `train_offline` refuses an on-policy agent.
@@ -354,10 +366,10 @@ class UpdateCounter(Extension):
     def init_state(self, agent_state, rng):
         return jnp.asarray(0)
 
-    def post_update(self, agent_state, ext_state, ctx):
+    def post_update(self, agent_state, ext_state, context):
         return agent_state, ext_state + 1
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         # A float: the steps that do not evaluate log NaN in its place.
         return {"Counter/updates": ext_state.astype(jnp.float32)}
 

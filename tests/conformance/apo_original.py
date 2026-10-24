@@ -154,10 +154,10 @@ def run(records: Any, precision: str, fault: str | None = None) -> dict[str, dic
 def _env_updates(records: Any, env_id: str, dtype: Any, fault: str | None) -> dict:
     agent = ajax.APO(env_id, **(SETTINGS | FAULTS.get(fault or "", {})))
     template = kit.capture_step(agent, 8 * T * B).fresh(jax.random.PRNGKey(0))
-    _, ctx = agent.context(8 * T * B)
+    _, context = agent.context(8 * T * B)
 
     def update(state: Any, roll: Transition) -> Any:
-        return agent.update(state, roll, state, ctx)[0]
+        return agent.update(state, roll, state, context)[0]
 
     arrays = {p.stem: dict(np.load(p)) for p in sorted(records.glob(f"{env_id}_*.npz"))}
     keys: dict = {}

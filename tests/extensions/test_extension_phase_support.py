@@ -42,10 +42,10 @@ RESIDUAL |= {"PPO", "APO", "IQL", "APG", "UDRL"}
 class TargetTweak(Extension):
     name: str = "target-tweak"
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         return target
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {}
 
 
@@ -53,7 +53,7 @@ class TargetTweak(Extension):
 class ActorNudge(Extension):
     name: str = "actor-nudge"
 
-    def actor_loss(self, agent_state, ext_state, batch, ctx):
+    def actor_loss(self, agent_state, ext_state, batch, context):
         return 0.0
 
 
@@ -61,10 +61,10 @@ class ActorNudge(Extension):
 class Instrument(Extension):
     name: str = "instrument"
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {}
 
-    def post_update(self, agent_state, ext_state, ctx):
+    def post_update(self, agent_state, ext_state, context):
         return agent_state, ext_state
 
 
@@ -74,28 +74,28 @@ class EveryPhase(Extension):
 
     name: str = "every-phase"
 
-    def pretrain(self, agent_state, ext_state, ctx):
+    def pretrain(self, agent_state, ext_state, context):
         return agent_state, ext_state
 
-    def reward(self, agent_state, ext_state, batch, rewards, ctx):
+    def reward(self, agent_state, ext_state, batch, rewards, context):
         return rewards, ext_state, {}
 
     def observe(self, inputs, state):
         return jnp.zeros((*inputs.raw_obs.shape[:-1], 0)), state
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         return target
 
-    def critic_loss(self, agent_state, ext_state, batch, ctx):
+    def critic_loss(self, agent_state, ext_state, batch, context):
         return 0.0
 
-    def actor_loss(self, agent_state, ext_state, batch, ctx):
+    def actor_loss(self, agent_state, ext_state, batch, context):
         return 0.0
 
-    def action(self, agent_state, ext_state, obs, rng, ctx):
+    def action(self, agent_state, ext_state, obs, rng, context):
         return None
 
-    def eval_action(self, agent_state, ext_state, obs, rng, ctx):
+    def eval_action(self, agent_state, ext_state, obs, rng, context):
         return None
 
     def transform_action(self, actions, inputs):
@@ -104,10 +104,10 @@ class EveryPhase(Extension):
     def actuate(self, actions, inputs):
         return actions, inputs.expert_state
 
-    def post_update(self, agent_state, ext_state, ctx):
+    def post_update(self, agent_state, ext_state, context):
         return agent_state, ext_state
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {}
 
 
@@ -229,7 +229,7 @@ class GapReader(Extension):
         "on_target": frozenset({"gap", "rewards"})
     }
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         return target + batch["gap"]
 
 
@@ -272,7 +272,7 @@ def test_agents_accept_only_the_phases_they_fold():
 class Unslotted(Extension):
     name: str = "unslotted"
 
-    def action(self, agent_state, ext_state, obs, rng, ctx):
+    def action(self, agent_state, ext_state, obs, rng, context):
         return None
 
 
@@ -388,11 +388,13 @@ class ContextSpy(Extension):
     def bind_to_agent(self, **agent_context):
         return dataclasses.replace(self, bound=frozenset(agent_context))
 
-    def pretrain(self, agent_state, ext_state, ctx):
+    def pretrain(self, agent_state, ext_state, context):
         fields = ("env_args", "update", "buffer")
-        raise _Reached(self.bound, {f for f in fields if getattr(ctx, f) is not None})
+        raise _Reached(
+            self.bound, {f for f in fields if getattr(context, f) is not None}
+        )
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {}
 
 

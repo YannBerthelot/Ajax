@@ -26,9 +26,9 @@ from ajax.agents.APO.APO import APO
 from ajax.agents.loop import (
     TrainLoop,
     actor_step,
+    apply_critic_loss,
+    apply_on_target,
     critic_step,
-    fold_critic_loss,
-    fold_on_target,
     gradient_step,
     when,
 )
@@ -154,8 +154,8 @@ def test_a_resumed_call_trains_its_budget_toward_the_run_horizon() -> None:
     class Total(Extension):
         name: str = "total"
 
-        def post_update(self, agent_state, ext_state, ctx):
-            seen.append(ctx.total_steps)
+        def post_update(self, agent_state, ext_state, context):
+            seen.append(context.total_steps)
             return agent_state, ext_state
 
     resumed = dataclasses.replace(
@@ -180,8 +180,8 @@ def test_a_call_told_a_later_horizon_trains_to_its_own_end() -> None:
     class Total(Extension):
         name: str = "total"
 
-        def post_update(self, agent_state, ext_state, ctx):
-            seen.append(ctx.total_steps)
+        def post_update(self, agent_state, ext_state, context):
+            seen.append(context.total_steps)
             return agent_state, ext_state
 
     first = dataclasses.replace(
@@ -204,7 +204,7 @@ def test_the_post_update_runs_after_the_update() -> None:
     class Record(Extension):
         name: str = "record"
 
-        def post_update(self, agent_state, ext_state, ctx):
+        def post_update(self, agent_state, ext_state, context):
             return agent_state, agent_state.value  # the value it saw
 
     state = _state(5, (jnp.asarray(0.0),))
@@ -297,7 +297,7 @@ _ENDS = Transition(
 class AddDones(Extension):
     name: str = "add_dones"
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         return target + batch["dones"]
 
 
@@ -340,7 +340,7 @@ class PullTerm(Extension):
 
     name: str = "pull"
 
-    def critic_loss(self, agent_state, ext_state, batch, ctx):
+    def critic_loss(self, agent_state, ext_state, batch, context):
         mean = batch["targets"].mean()
         return batch["critic_params"]["w"] * mean, {"targets": mean}
 
@@ -375,11 +375,11 @@ def test_the_critic_steps_halves_compose_to_the_step() -> None:
     )
 
     def loss_fn(params):
-        target_q, target_metrics = fold_on_target(
+        target_q, target_metrics = apply_on_target(
             stack, state, _ENDS, jnp.ones((4, 1)), key, 100, **target_args
         )
         loss, _ = value_loss(params, target_q)
-        extra, loss_metrics = fold_critic_loss(
+        extra, loss_metrics = apply_critic_loss(
             stack, state, _ENDS, params, target_q, key, 100
         )
         return loss + extra, merge_metrics(target_metrics, loss_metrics)
@@ -396,7 +396,7 @@ class SquareTerm(Extension):
     name: str = "square"
     seen: dict = dataclasses.field(default_factory=dict, hash=False, compare=False)
 
-    def actor_loss(self, agent_state, ext_state, batch, ctx):
+    def actor_loss(self, agent_state, ext_state, batch, context):
         self.seen.update(dict.fromkeys(batch))
         return batch["actor_params"]["w"] ** 2, {"agent_loss": batch["agent_loss"]}
 
@@ -477,7 +477,7 @@ def test_the_logging_worker_starts_only_for_a_backend() -> None:
 class Counted(CounterExt):
     """``CounterExt`` reporting its (integer) count at every evaluation."""
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {"count": ext_state}
 
 

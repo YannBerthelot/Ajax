@@ -23,7 +23,11 @@ import jax.numpy as jnp
 import pytest
 
 from ajax import PPO
-from ajax.agents.minibatch import MinibatchPlan, minibatch_plan
+from ajax.agents.minibatch import (
+    RolloutSplit,
+    choose_rollout_split,
+    get_actions_and_log_probs,
+)
 from ajax.agents.PPO.PPO import PPOConfig
 from ajax.networks.memory import MemoryConfig
 
@@ -35,7 +39,7 @@ _CFG = {
     "n_envs": 4,
     "n_steps": 8,  # rollout per iter = 4 * 8 = 32 transitions
     "batch_size": 32,  # ignored when num_minibatches > 0
-    "num_minibatches": 4,  # → mb_size = 32 / 4 = 8
+    "num_minibatches": 4,  # → minibatch size = 32 / 4 = 8
     "n_epochs": 2,
     "actor_architecture": ("16", "tanh", "16", "tanh"),
     "critic_architecture": ("16", "tanh", "16", "tanh"),
@@ -69,7 +73,7 @@ def test_apply_gradients_runs_once_per_epoch_and_minibatch(extra, num_minibatche
 
     This is the **wire-test that would have caught the May 2026 bug**
     where ``do_update.body_fn`` passed the whole (num_minibatches,
-    mb_size, feat) tensor to the loss as one batch, performing only
+    minibatch_size, feat) tensor to the loss as one batch, performing only
     ``n_epochs`` updates per iteration instead of
     ``n_epochs * num_minibatches``; the 8-minibatch and 4-epoch rows catch
     a knob honoured for the reshape but not for the scan length.
@@ -92,7 +96,7 @@ def test_apply_gradients_runs_once_per_epoch_and_minibatch(extra, num_minibatche
 
 
 @pytest.mark.parametrize(
-    "config, n_envs, recurrent, plan",
+    "config, n_envs, recurrent, split",
     [
         # brax's fragments, opted into; unroll_length = n_steps: whole rollouts
         ({"num_minibatches": 4, "unroll_length": 8}, 2, False, ("time", 4, 8)),
@@ -112,19 +116,34 @@ def test_apply_gradients_runs_once_per_epoch_and_minibatch(extra, num_minibatche
         ({"num_minibatches": 1}, 3, True, ("recurrent", 1, 32)),
     ],
 )
-def test_the_rollout_minibatch_plan(config, n_envs, recurrent, plan):
+def test_the_rollout_split(config, n_envs, recurrent, split):
     agent_config = PPOConfig(n_steps=32, **config)
-    got = minibatch_plan(agent_config, 32, n_envs, recurrent)
-    assert got == MinibatchPlan(*plan)
+    got = choose_rollout_split(agent_config, 32, n_envs, recurrent)
+    assert got == RolloutSplit(*split)
 
 
-def test_the_geometry_names_resolve_to_the_plan() -> None:
+def test_the_geometry_names_resolve_to_the_rollout_split() -> None:
     from ajax.agents import minibatch
+    from ajax.agents.PPO import train_PPO
 
     with pytest.warns(FutureWarning, match="minibatch.Geometry moved to"):
-        assert minibatch.Geometry is MinibatchPlan
+        assert minibatch.Geometry is RolloutSplit
     with pytest.warns(FutureWarning, match="minibatch.minibatch_geometry moved"):
-        assert minibatch.minibatch_geometry is minibatch_plan
+        assert minibatch.minibatch_geometry is choose_rollout_split
+    with pytest.warns(FutureWarning, match="train_PPO.Geometry moved to"):
+        assert train_PPO.Geometry is RolloutSplit
+    with pytest.warns(FutureWarning, match="train_PPO.minibatch_geometry moved"):
+        assert train_PPO.minibatch_geometry is choose_rollout_split
+
+
+def test_rollout_actions_resolves_to_get_actions_and_log_probs() -> None:
+    from ajax.agents import minibatch
+    from ajax.agents.PPO import core
+
+    with pytest.warns(FutureWarning, match="minibatch.rollout_actions moved to"):
+        assert minibatch.rollout_actions is get_actions_and_log_probs
+    with pytest.warns(FutureWarning, match="core.rollout_actions moved to"):
+        assert core.rollout_actions is get_actions_and_log_probs
 
 
 @pytest.mark.parametrize(
@@ -175,10 +194,10 @@ def test_bptt_length_is_the_longest_that_splits_and_explicit_ones_divide_it():
             want = max(splits, default=None) if length is None else length
             if want is None or want not in splits:
                 with pytest.raises(ValueError):
-                    minibatch_plan(config, n_steps, n_envs, True)
+                    choose_rollout_split(config, n_steps, n_envs, True)
             else:
-                got = minibatch_plan(config, n_steps, n_envs, True)
-                assert got == MinibatchPlan("recurrent", k, want), (n_steps, n_envs, k)
+                got = choose_rollout_split(config, n_steps, n_envs, True)
+                assert got == RolloutSplit("recurrent", k, want), (n_steps, n_envs, k)
 
 
 def test_vf_coef_zero_leaves_the_critic_untrained():

@@ -793,7 +793,9 @@ class ZeroActorLoss(Extension):
 
     name: str = "zero_actor_loss"
 
-    def actor_loss(self, agent_state: Any, ext_state: Any, batch: Any, ctx: Any) -> Any:
+    def actor_loss(
+        self, agent_state: Any, ext_state: Any, batch: Any, context: Any
+    ) -> Any:
         return 0.0
 
 

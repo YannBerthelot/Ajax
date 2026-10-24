@@ -134,18 +134,18 @@ class CrossQ(
         mode's gains)."""
         return self.target_entropy_per_dim * policy_action_dim(self.env_args)
 
-    def init(self, key: jax.Array, ctx: TrainContext) -> CrossQState:
+    def init(self, key: jax.Array, context: TrainContext) -> CrossQState:
         """A squashed Gaussian actor, ``num_critics`` Q critics without
         targets, and the temperature."""
         rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
-        actor_state, critic_state = ctx.actor_critic(
+        actor_state, critic_state = context.actor_critic(
             init_key,
             continuous=True,
             action_value=True,
             squash=True,
             num_critics=self.num_critics,
         )
-        collector_state = ctx.collector(collector_key)
+        collector_state = context.collector(collector_key)
         return CrossQState(
             rng=rng,
             eval_rng=eval_rng,
@@ -157,17 +157,17 @@ class CrossQ(
         )
 
     def update(
-        self, state: CrossQState, ctx: TrainContext
+        self, state: CrossQState, context: TrainContext
     ) -> tuple[CrossQState, AuxiliaryLogs]:
         """A critic step on a fresh replay batch, then, on the
         ``policy_delay``-th, an actor and a temperature step on the same
         batch (the authors' ``(n_updates + i + 1) % policy_delay``,
         ``sbx/sac/sac.py:201``)."""
-        state, sample_key = state.next_keys()
-        batch, _ = sample_replay(state, ctx.buffer, sample_key)
-        state, value, value_metrics = self.critic_update(state, batch, ctx)
+        state, sample_key = state.draw_keys()
+        batch, _ = sample_replay(state, context.buffer, sample_key)
+        state, value, value_metrics = self.critic_update(state, batch, context)
         due = (state.n_updates + 1) % self.policy_delay == 0
-        actor_update = partial(self.actor_update, batch=batch, ctx=ctx)
+        actor_update = partial(self.actor_update, batch=batch, context=context)
         state, (policy, temperature, policy_metrics) = steps.when(
             due, actor_update, state
         )
@@ -180,18 +180,18 @@ class CrossQ(
         )
 
     def critic_update(
-        self, state: CrossQState, batch: Transition, ctx: TrainContext
+        self, state: CrossQState, batch: Transition, context: TrainContext
     ) -> tuple[CrossQState, CoreCriticAux, dict]:
         """One critic step on one training pass over ``(s, a)`` and ``(s',
         a')``, its running statistics kept (``sbx/sac/sac.py:251-342``);
         ``a'`` is executed (a residual policy's)."""
-        state, key, next_key = state.next_keys(2)
+        state, key, next_key = state.draw_keys(2)
         alpha = jnp.exp(state.alpha.params["log_alpha"])
         next_actions, next_log_probs = core.sample_next_actions(
             state.actor_state,
             batch.next_obs,
             next_key,
-            executed=ctx.executed,
+            executed=context.executed,
             next_a_expert=batch.next_a_expert,
         )
         critic_state = state.critic_state
@@ -214,21 +214,27 @@ class CrossQ(
                 alpha,
                 self.reward_scale,
             )
-            target, target_metrics = steps.fold_on_target(
-                ctx.stack,
+            target, target_metrics = steps.apply_on_target(
+                context.extensions,
                 state,
                 batch,
                 target,
                 key,
-                ctx.total_timesteps,
+                context.total_timesteps,
                 rewards=batch.reward,
                 dones=batch.terminated,
                 gamma=self.gamma,
                 reward_scale=self.reward_scale,
             )
             loss, aux = q_regression_loss(q_now, target)
-            extra, loss_metrics = steps.fold_critic_loss(
-                ctx.stack, state, batch, params, target, key, ctx.total_timesteps
+            extra, loss_metrics = steps.apply_critic_loss(
+                context.extensions,
+                state,
+                batch,
+                params,
+                target,
+                key,
+                context.total_timesteps,
             )
             metrics = merge_metrics(target_metrics, loss_metrics)
             return loss + extra, (aux, batch_stats, metrics)
@@ -240,17 +246,17 @@ class CrossQ(
         return state.replace(critic_state=critic_state), aux, metrics
 
     def actor_update(
-        self, state: CrossQState, batch: Transition, ctx: TrainContext
+        self, state: CrossQState, batch: Transition, context: TrainContext
     ) -> tuple[CrossQState, tuple]:
         """The actor step in training, the critics read with their running
         statistics (at the executed actions, a residual policy's), then the
         temperature's on the same samples (``sbx/sac/sac.py:355-400``)."""
-        state, key = state.next_keys()
+        state, key = state.draw_keys()
         alpha = jnp.exp(state.alpha.params["log_alpha"])
         actor_state, critic_state = state.actor_state, state.critic_state
         transform = None
-        if ctx.executed is not None:
-            transform = partial(scored_action, ctx.executed, batch.a_expert)
+        if context.executed is not None:
+            transform = partial(scored_action, context.executed, batch.a_expert)
 
         def policy_loss(params: Any) -> tuple[jax.Array, Any, jax.Array]:
             pi, batch_stats = actor_dist_train(actor_state, params, batch.obs)
@@ -265,9 +271,9 @@ class CrossQ(
         actor_state, (aux, log_probs, batch_stats), _, metrics = steps.actor_step(
             state,
             policy_loss,
-            ctx.stack,
+            context.extensions,
             key,
-            ctx.total_timesteps,
+            context.total_timesteps,
             observations=batch.obs,
             raw_observations=batch.raw_obs,
             a_expert=batch.a_expert,

@@ -24,7 +24,7 @@ class CounterExt(Extension):
     def init_state(self, agent_state, rng):
         return jnp.asarray(0, dtype=jnp.int32)
 
-    def post_update(self, agent_state, ext_state, ctx):
+    def post_update(self, agent_state, ext_state, context):
         return agent_state, ext_state + 1
 
 
@@ -34,7 +34,7 @@ class MetricExt(Extension):
 
     name: str = "metric"
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {METRIC: jnp.asarray(1.0)}
 
 
@@ -45,7 +45,7 @@ class TargetTweak(Extension):
 
     name: str = "target-tweak"
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         return target
 
 

@@ -14,9 +14,9 @@ import optax
 import pytest
 
 import ajax.agents.APO.APO as apo_module
-from ajax.agents import minibatch
 from ajax.agents.APO.APO import APO
 from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
+from ajax.agents.minibatch import choose_rollout_split, get_actions_and_log_probs
 from ajax.agents.PPO.PPO import (
     PPO,
     PPOState,
@@ -126,7 +126,7 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
         gamma=config.gamma,
         gae_lambda=config.gae_lambda,
     )
-    actions, log_probs = minibatch.rollout_actions(rollout)
+    actions, log_probs = get_actions_and_log_probs(rollout)
 
     def value_loss(p):
         return value_loss_function(
@@ -162,8 +162,8 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
     agent = APO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
-    _, ctx = agent.context(1)
-    state = agent.init(KEY, ctx).replace(average_reward=jnp.asarray(0.3))
+    _, context = agent.context(1)
+    state = agent.init(KEY, context).replace(average_reward=jnp.asarray(0.3))
     obs, actions, log_probs, gae, targets = _batch(agent)
     b = jnp.asarray(0.7)
     minibatch = {
@@ -177,7 +177,7 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
         "a_expert": None,
         "entropy_key": KEY,
     }
-    _, aux = agent.minibatch_step(state, minibatch, b, ctx)
+    _, aux = agent.minibatch_step(state, minibatch, b, context)
     v_aux, p_aux = cast(apo_module.ValueAuxiliaries, aux.value), aux.policy
 
     critic = state.critic_state
@@ -217,7 +217,9 @@ class _ZeroActorLoss(Extension):
 
     name: str = "zero_actor_loss"
 
-    def actor_loss(self, agent_state: Any, ext_state: Any, batch: Any, ctx: Any) -> Any:
+    def actor_loss(
+        self, agent_state: Any, ext_state: Any, batch: Any, context: Any
+    ) -> Any:
         return 0.0
 
 
@@ -274,8 +276,8 @@ def test_the_entropy_bonus_lowers_the_policy_loss() -> None:
         critic_architecture=NET,
     )
     assert agent.agent_config.ent_coef == 0.1
-    _, ctx = agent.context(1)
-    state = agent.init(KEY, ctx)
+    _, context = agent.context(1)
+    state = agent.init(KEY, context)
     actor = state.actor_state
     obs, actions, log_probs, gae, targets = _batch(agent)
 
@@ -287,8 +289,8 @@ def test_the_entropy_bonus_lowers_the_policy_loss() -> None:
     (with_bonus, entropy), (without, _) = loss(0.1), loss(0.0)
     np.testing.assert_allclose(with_bonus - without, -0.1 * entropy, rtol=1e-5)
     # The update's minibatch step logs the loss with the agent's bonus.
-    mb: dict[str, Any] = {"obs": obs, "actions": actions, "log_probs": log_probs}
-    mb |= {"gae": gae, "targets": targets, "raw_actions": None, "raw_obs": None}
-    plan = minibatch.minibatch_plan(agent, agent.n_steps, agent.n_envs, False)
-    _, aux = agent.minibatch_step(state, mb, plan, ctx)
+    minibatch: dict[str, Any] = {"obs": obs, "actions": actions, "log_probs": log_probs}
+    minibatch |= {"gae": gae, "targets": targets, "raw_actions": None, "raw_obs": None}
+    split = choose_rollout_split(agent, agent.n_steps, agent.n_envs, False)
+    _, aux = agent.minibatch_step(state, minibatch, split, context)
     np.testing.assert_allclose(aux.policy.policy_loss, with_bonus, rtol=1e-5)

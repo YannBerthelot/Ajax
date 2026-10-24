@@ -62,13 +62,27 @@ PyPI as `ajax-rl`.
 
   Training is unchanged: every final state is bitwise the same, and so is
   the compiled program.
-- **`MinibatchPlan`.** `ajax.agents.minibatch.Geometry`, the plan for
-  cutting an on-policy rollout into minibatches, is now `MinibatchPlan`,
-  and `minibatch_geometry` is `minibatch_plan`: same arguments and fields,
-  `kind` still `"flat"`, `"time"` or `"recurrent"`. The plan also says
-  where the advantages are computed (`gae_per_minibatch`) and cuts the
-  rollout (`minibatches`). The old names, also on `train_PPO`, import with
-  a FutureWarning until 0.5.0.
+- **`RolloutSplit`.** `ajax.agents.minibatch.Geometry`, how an on-policy
+  rollout is cut into minibatches, is now `RolloutSplit`, and
+  `minibatch_geometry` is `choose_rollout_split`: same arguments and fields,
+  `kind` still `"flat"`, `"time"` or `"recurrent"`. The split also says
+  where the advantages are computed (`advantages_per_minibatch`) and cuts
+  the rollout (`minibatches`). The old names, also on `train_PPO`, import
+  with a FutureWarning until 0.5.0.
+- **Extension phases are applied.** `ExtensionStack.fold_reward`,
+  `fold_on_target`, `fold_critic_loss`, `fold_actor_loss` and
+  `fold_post_update` are now `apply_reward`, `apply_on_target`,
+  `apply_critic_loss`, `apply_actor_loss` and `apply_post_update`, as
+  are `ajax.agents.loop`'s `fold_on_target`, `fold_critic_loss` and
+  `fold_post_update` (also in `ajax.agents.steps`): same arguments. The
+  old names stay as aliases until 0.5.0. `TrainContext.stack` is
+  `TrainContext.extensions`.
+- `ajax.agents.minibatch.rollout_actions` (`ajax.agents.PPO.core`'s
+  before) is `get_actions_and_log_probs`; the old names import with a
+  FutureWarning until 0.5.0.
+- The extension phases' `ExtensionContext` parameter is named `context`
+  (was `ctx`). The stack passes it positionally, so an extension that
+  still names it `ctx` keeps working.
 - Writing a name on a module it moved out of (`monkeypatch.setattr` on an
   old path) raises AttributeError naming its new home, where it is read:
   the write would have changed nothing.

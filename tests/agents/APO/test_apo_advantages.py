@@ -61,8 +61,8 @@ def test_differential_gae_stops_at_episode_ends(
         actor_architecture=("8", "tanh"),
         critic_architecture=("8", "tanh"),
     )
-    _, ctx = agent.context(1_000)
-    state = agent.init(jax.random.PRNGKey(0), ctx)
+    _, context = agent.context(1_000)
+    state = agent.init(jax.random.PRNGKey(0), context)
     seen: dict[str, Any] = {}
     compute_gae = apo_module._compute_gae
 
@@ -72,7 +72,7 @@ def test_differential_gae_stops_at_episode_ends(
 
     monkeypatch.setattr(apo_module, "_compute_gae", spy)
     rollout = _rollout()
-    new_state, _ = agent.update(state, rollout, state, ctx)
+    new_state, _ = agent.update(state, rollout, state, context)
 
     critic = state.critic_state
     v = np.asarray(predict_value(critic, critic.params, rollout.obs))[0, ..., 0]
@@ -105,15 +105,15 @@ def test_the_rate_and_the_bias_start_at_the_first_rollouts_means() -> None:
         actor_architecture=("8", "tanh"),
         critic_architecture=("8", "tanh"),
     )
-    _, ctx = agent.context(1_000)
-    state = agent.init(jax.random.PRNGKey(0), ctx)
+    _, context = agent.context(1_000)
+    state = agent.init(jax.random.PRNGKey(0), context)
     rollout = _rollout()
     means = []
     for batch in (rollout, rollout.replace(reward=rollout.reward + 1.0)):
         critic = state.critic_state
         v = predict_value(critic, critic.params, batch.obs)
         means.append((float(jnp.mean(batch.reward)), float(jnp.mean(v))))
-        state, _ = agent.update(state, batch, state, ctx)
+        state, _ = agent.update(state, batch, state, context)
         if len(means) == 1:
             np.testing.assert_allclose(state.average_reward, means[0][0], rtol=1e-6)
             np.testing.assert_allclose(state.b, means[0][1], rtol=1e-5)
@@ -139,8 +139,8 @@ def test_a_time_limited_step_leaves_the_loss(monkeypatch: pytest.MonkeyPatch) ->
         critic_architecture=("8", "tanh"),
         actor_architecture=("8", "tanh"),
     )
-    _, ctx = agent.context(1_000)
-    state = agent.init(jax.random.PRNGKey(0), ctx)
+    _, context = agent.context(1_000)
+    state = agent.init(jax.random.PRNGKey(0), context)
     critic, obs = state.critic_state, jax.random.normal(jax.random.PRNGKey(2), (3, 3))
     valid = jnp.array([[1.0], [1.0], [0.0]])
 
@@ -163,7 +163,7 @@ def test_a_time_limited_step_leaves_the_loss(monkeypatch: pytest.MonkeyPatch) ->
     both = rollout.replace(terminated=rollout.terminated.at[TRUNCATED].set(1.0))
     for roll, dropped in ((rollout, 1), (both, 0)):
         seen.clear()
-        agent.update(state, roll, state, ctx)
+        agent.update(state, roll, state, context)
         assert len(seen) == 2  # one minibatch, two epochs
         for v in seen:
             assert (v == 0).sum() == dropped and (v == 1).sum() == T * N_ENVS - dropped

@@ -91,9 +91,9 @@ def test_ppo_reshuffles_every_epoch(
         return value_loss(params, critic, obs, *args, **kw)
 
     monkeypatch.setattr(ppo_module, "value_loss_function", spy)
-    _, ctx = agent.context(1_000)
-    state = agent.init(jax.random.PRNGKey(0), ctx)
-    agent.update(state, _rollout(n_envs), state, ctx)
+    _, context = agent.context(1_000)
+    state = agent.init(jax.random.PRNGKey(0), context)
+    agent.update(state, _rollout(n_envs), state, context)
     jax.effects_barrier()
     _assert_fresh_partitions(seen, n_envs, agent.num_minibatches)
 
@@ -108,8 +108,8 @@ def test_apo_reshuffles_every_epoch(monkeypatch: pytest.MonkeyPatch) -> None:
         return minibatch_step(agent_state, minibatch, *args, **kw)
 
     monkeypatch.setattr(agent, "minibatch_step", spy)
-    _, ctx = agent.context(1_000)
-    state = agent.init(jax.random.PRNGKey(0), ctx)
-    agent.update(state, _rollout(SMALL["n_envs"]), state, ctx)
+    _, context = agent.context(1_000)
+    state = agent.init(jax.random.PRNGKey(0), context)
+    agent.update(state, _rollout(SMALL["n_envs"]), state, context)
     jax.effects_barrier()
     _assert_fresh_partitions(seen, SMALL["n_envs"], SMALL["num_minibatches"])

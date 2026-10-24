@@ -34,7 +34,7 @@ src/ajax/
 │   ├── families.py      declared agents (fields as hyperparameters); the replay and on-policy families' train functions
 │   ├── loop.py          TrainLoop, the shared loop (brax's forced resets included)
 │   ├── steps.py         critic_step, actor_step, gradient_step, joint_step, when, the target update
-│   ├── minibatch.py     the on-policy minibatch plan (MinibatchPlan), minibatches and epochs
+│   ├── minibatch.py     the on-policy rollout split (RolloutSplit), minibatches and epochs
 │   ├── critics.py       the Q-critics' regression (continuous and discrete actions)
 │   ├── diagnostics.py   KL, explained variance, policy std
 │   ├── recurrent.py     replay buffers and R2D2-style sequence replay for memory=
@@ -250,7 +250,7 @@ from the start, as TQC's does) and logs the update's metrics as NaN, which the
 logger drops. The on-policy shape
 passes `start` to the update so that a recurrent agent can replay its rollout
 from the memory carries it began with. PPO's update cuts its rollout by a
-`MinibatchPlan` (`agents/minibatch.py`), which also says where the
+`RolloutSplit` (`agents/minibatch.py`), which also says where the
 advantages are computed.
 
 Three agents use the loop's parts without one of these shapes. UDRL runs its
@@ -265,8 +265,8 @@ one optimiser step; `actor_step(...)`, an actor step that folds the
 extensions' `actor_loss` phase; and `critic_step(...)`, a replay critic step that folds
 the extensions' `on_target` and `critic_loss` phases. All three return the
 gradients' global norm, before the optimiser clips them. SAC, TD3, REDQ, ASAC,
-AVG and IQL use `critic_step`. Its two folds are public too: `fold_on_target`
-and `fold_critic_loss`. An agent whose target comes out of its own critic
+AVG and IQL use `critic_step`. Its two halves are public too: `apply_on_target`
+and `apply_critic_loss`. An agent whose target comes out of its own critic
 pass calls them inside its loss.
 SAC, TD3, AVG, DAgger and IQL use `actor_step`; ASAC and REDQ use
 `soft_actor_step` in `SAC/core.py`, on the same `soft_policy_loss` as SAC.
@@ -300,7 +300,7 @@ gains a leading axis), and makes a checkpoint a matter of saving that pytree.
 
 | Field | What it holds |
 | --- | --- |
-| `rng` | the training key; every random draw splits it (`next_keys(n)` returns the state and `n` keys) |
+| `rng` | the training key; every random draw splits it (`draw_keys(n)` returns the state and `n` keys) |
 | `actor_state`, `critic_state` | flax `TrainState`s with target parameters, memory carries and the observation normaliser's statistics |
 | `collector_state` | the environment state, last observation and episode flags, the replay buffer, `timestep`, the rolling episodic return, a stateful expert's internal state |
 | `eval_rng` | the evaluations' key, split apart from `rng` and never advanced: evaluation `n` draws from `fold_in(eval_rng, n)` |
@@ -335,15 +335,15 @@ agent without extensions traces nothing extra and never guards a fold.
 | Call | Where it is made |
 | --- | --- |
 | `fold_init` (each `init_state`, then each `pretrain`) | `fresh_state`, fresh runs only (a resumed state already carries both) |
-| `fold_post_update` | after every update: the loop's `maybe_update`, `repeat_update` and `on_policy`; APG, UDRL and `TDMPC2MultiTask` in their own iterations |
+| `apply_post_update` | after every update: the loop's `maybe_update`, `repeat_update` and `on_policy`; APG, UDRL and `TDMPC2MultiTask` in their own iterations |
 | `fold_eval_metrics` | at every evaluation, merged into the logged metrics (`compose_eval_metrics` in `log.py`) |
-| `fold_on_target`, `fold_critic_loss` | in the agent's critic step; `critic_step` for SAC, TD3, REDQ, ASAC, AVG and IQL |
-| `fold_actor_loss` | in the agent's actor step; `actor_step` for SAC, TD3, AVG, DAgger and IQL |
+| `apply_on_target`, `apply_critic_loss` | in the agent's critic step; `critic_step` for SAC, TD3, REDQ, ASAC, AVG and IQL |
+| `apply_actor_loss` | in the agent's actor step; `actor_step` for SAC, TD3, AVG, DAgger and IQL |
 | the `action` phase | SAC's action pipeline only, with an expert policy |
 | `transform_action`, `actuate` | the controller (`env_args.transforms`): the action pipeline before the choice, the shared collector after it (`expert_collect_kwargs`), evaluation, and `executed_actions` where the critics score executed actions |
 | the `observe` phase | the observers the agent lifts out of its stack (`env_args.observers`): the shared collector, at reset and after each step, PPO's forced reset, the expert prefill and evaluation |
 
-`fold_on_target`, `fold_critic_loss` and `fold_actor_loss` return their
+`apply_on_target`, `apply_critic_loss` and `apply_actor_loss` return their
 value and the metrics the phases returned beside theirs; the agent carries
 them out of its loss as an aux and logs them, in its `AuxiliaryLogs`'
 `extensions` field, under their own names.

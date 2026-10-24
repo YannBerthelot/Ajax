@@ -43,7 +43,7 @@ def _batch(agent) -> Transition:
     )
 
 
-def context(agent: TD3, stack: ExtensionStack = EMPTY) -> TrainContext:
+def make_context(agent: TD3, stack: ExtensionStack = EMPTY) -> TrainContext:
     """What TD3's init and update read, outside a training run."""
     env_args = agent.env_args
     return TrainContext(
@@ -51,7 +51,7 @@ def context(agent: TD3, stack: ExtensionStack = EMPTY) -> TrainContext:
         network_args=agent.network_args,
         actor_optimizer_args=agent.actor_optimizer_args,
         critic_optimizer_args=agent.critic_optimizer_args,
-        stack=stack,
+        extensions=stack,
         total_timesteps=1,
         collector=partial(
             init_collector_state,
@@ -65,10 +65,10 @@ def context(agent: TD3, stack: ExtensionStack = EMPTY) -> TrainContext:
 
 def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
     agent = TD3("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    ctx = context(agent)
-    state = agent.init(KEY, ctx)
+    context = make_context(agent)
+    state = agent.init(KEY, context)
     batch, config = _batch(agent), agent.agent_config
-    _, v_aux, _ = agent.critic_update(state, batch, None, ctx)
+    _, v_aux, _ = agent.critic_update(state, batch, None, context)
 
     critic = state.critic_state
     q = q_values(critic, critic.params, batch.obs, batch.action)
@@ -95,7 +95,7 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 
-    _, (p_aux, _) = agent.actor_update(state, batch, None, ctx)
+    _, (p_aux, _) = agent.actor_update(state, batch, None, context)
     actor = state.actor_state
     p_grads = jax.grad(lambda p: policy_loss_function(p, actor, critic, batch.obs)[0])(
         actor.params
@@ -105,7 +105,7 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
 
 def test_the_clip_share_counts_the_noise_samples_the_clip_changes() -> None:
     agent = TD3("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    state = agent.init(KEY, context(agent))
+    state = agent.init(KEY, make_context(agent))
     batch = _batch(agent)
 
     def clip_frac(sigma: float, c: float) -> float:
@@ -161,7 +161,7 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 
     _, p_aux, *_ = train_SAC.update_policy(state, batch.obs, None, EMPTY)
-    policy_key = state.next_keys(2)[1]  # the step's policy key
+    policy_key = state.draw_keys(2)[1]  # the step's policy key
     p_grads = jax.grad(
         lambda p: sac_core.soft_policy_loss(
             p, actor, critic, batch.obs, alpha, policy_key

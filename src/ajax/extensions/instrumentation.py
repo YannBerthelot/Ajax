@@ -287,9 +287,9 @@ class ConditioningMetrics(Extension):
         agent_state: Any,
         ext_state: Any,
         rng: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> dict:
-        del ext_state, ctx
+        del ext_state, context
         try:
             obs, act, *_ = _sample_transitions(
                 agent_state, rng, self.buffer, self.on_policy_batch
@@ -411,9 +411,9 @@ class BiasVoreDecomposition(Extension):
         agent_state: Any,
         ext_state: Any,
         rng: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> dict:
-        del ext_state, ctx
+        del ext_state, context
         tkey, skey = jax.random.split(rng)
         try:
             transitions = _sample_transitions(
@@ -488,9 +488,9 @@ class BiasVorePenalty(Extension):
         agent_state: Any,
         ext_state: Any,
         batch: dict,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> Any:
-        del agent_state, ext_state, ctx
+        del agent_state, ext_state, context
         coeff = self._coeff()
         if coeff == 0.0:
             return jnp.asarray(0.0)

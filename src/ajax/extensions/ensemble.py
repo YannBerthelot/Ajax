@@ -65,9 +65,9 @@ class KernelRepulsion(Extension):
     }
 
     def critic_loss(
-        self, agent_state: Any, ext_state: Any, batch: Any, ctx: ExtensionContext
+        self, agent_state: Any, ext_state: Any, batch: Any, context: ExtensionContext
     ) -> Any:
-        del agent_state, ext_state, ctx
+        del agent_state, ext_state, context
         x = jnp.concatenate((batch["observations"], batch["actions"]), axis=-1)
         q_preds = predict_value(batch["critic_state"], batch["critic_params"], x)
         kernel, bandwidth = _kernel_and_bandwidth(q_preds)

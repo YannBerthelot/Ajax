@@ -59,9 +59,11 @@ def _dispatch_actions(
     ``batch``, which they read and write: each non-None proposal replaces
     ``batch[slot]``. Stack order, so the last proposal wins (JSRL after
     EDGE)."""
-    ctx = ExtensionContext(step=acting.timestep, rng=rng, total_steps=total_steps)
+    context = ExtensionContext(step=acting.timestep, rng=rng, total_steps=total_steps)
     for idx, ext in extensions_indexed:
-        proposed = ext.action(agent_state, agent_state.ext_state[idx], batch, rng, ctx)
+        proposed = ext.action(
+            agent_state, agent_state.ext_state[idx], batch, rng, context
+        )
         if proposed is not None:
             batch[slot] = proposed
     return batch

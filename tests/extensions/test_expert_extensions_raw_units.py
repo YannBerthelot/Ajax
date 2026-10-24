@@ -25,7 +25,7 @@ class _NextObservationReader(Extension):
     name: str = "next-observation-reader"
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
 
-    def post_update(self, agent_state, ext_state, ctx):
+    def post_update(self, agent_state, ext_state, context):
         return agent_state, ext_state
 
 

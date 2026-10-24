@@ -44,9 +44,9 @@ from ajax.agents.families import (
 )
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.minibatch import (
+    get_actions_and_log_probs,
     get_minibatches_from_batch,
     resolve_num_minibatches,
-    rollout_actions,
     run_epochs,
 )
 from ajax.agents.PPO.PPO import _compute_gae, clipped_surrogate
@@ -178,19 +178,19 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
     def evaluation_options(self) -> dict[str, Any]:
         return {"avg_reward_mode": True}  # each evaluation measures rho too
 
-    def init(self, key: jax.Array, ctx: TrainContext) -> APOState:
+    def init(self, key: jax.Array, context: TrainContext) -> APOState:
         """PPO's initial actor, critic and collector, on PPO's key layout,
         and the reward rate and the value bias at 0."""
         rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
-        env_args = ctx.env_args
+        env_args = context.env_args
         continuous = check_if_environment_has_continuous_actions(
             env_args.env, env_params=env_args.env_params
         )
-        actor_state, critic_state = ctx.actor_critic(
+        actor_state, critic_state = context.actor_critic(
             init_key,
             continuous=continuous,
             action_value=False,
-            squash=ctx.network_args.squash,
+            squash=context.network_args.squash,
             num_critics=1,
         )
         return APOState(
@@ -198,14 +198,18 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             eval_rng=eval_rng,
             actor_state=actor_state,
             critic_state=critic_state,
-            collector_state=ctx.collector(collector_key),
+            collector_state=context.collector(collector_key),
             n_updates=0,
             average_reward=0.0,
             b=0.0,
         )
 
     def update(
-        self, state: APOState, rollout: Transition, start: APOState, ctx: TrainContext
+        self,
+        state: APOState,
+        rollout: Transition,
+        start: APOState,
+        context: TrainContext,
     ) -> tuple[APOState, AuxiliaryLogs]:
         """One APO update (the module docstring); with an expert, the
         rollout's ``a_expert`` reaches the actor-loss extensions.
@@ -220,7 +224,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         ``base.py:73-77``).
         """
         del start  # a feedforward policy: nothing to replay from it
-        stack, total_timesteps = ctx.stack, ctx.total_timesteps
+        extensions, total_timesteps = context.extensions, context.total_timesteps
         critic = state.critic_state
         values = predict_value(critic, critic.params, rollout.obs).squeeze(0)
         next_values = predict_value(critic, critic.params, rollout.next_obs).squeeze(0)
@@ -251,11 +255,11 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             gae_lambda=self.gae_lambda,
         )
 
-        # The update's key: it shuffles the rollout, and on_target folds on a
+        # The update's key: it shuffles the rollout, and on_target draws on a
         # key derived from it.
-        state, shuffle_key = state.next_keys()
+        state, shuffle_key = state.draw_keys()
         target_metrics: dict = {}
-        if stack:
+        if extensions:
             target_batch = {
                 "observations": rollout.obs,
                 "next_observations": rollout.next_obs,
@@ -267,7 +271,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 "average_reward": average_reward,
                 "gamma": None,  # APO is average-reward (differential V)
             }
-            value_targets, target_metrics = stack.fold_on_target(
+            value_targets, target_metrics = extensions.apply_on_target(
                 state,
                 target_batch,
                 value_targets,
@@ -284,7 +288,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             std = jnp.sqrt(((gae - mean) ** 2 * valid).sum() / (n - 1))
             gae = (gae - mean) / jnp.maximum(std, 1e-6)
 
-        actions, log_probs = rollout_actions(rollout)
+        actions, log_probs = get_actions_and_log_probs(rollout)
         batch = {
             "obs": rollout.obs,
             "actions": actions,
@@ -297,10 +301,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             # None leaves the minibatches as they were without an expert.
             "a_expert": rollout.a_expert if self.expert is not None else None,
         }
-        # APO cuts the rollout one way, ppo2's: each epoch shuffles its
-        # n_steps * n_envs single steps into num_minibatches minibatches,
-        # their advantages computed once, above, from the critic that
-        # collected it.
+        # APO always cuts the rollout one way: shuffled single steps, as xtma/apo does.
         num_minibatches = resolve_num_minibatches(self)
 
         def minibatches(key: jax.Array) -> dict:
@@ -311,15 +312,15 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             keys = jax.random.split(jax.random.fold_in(key, 1), num_minibatches)
             return parts | {"entropy_key": keys}
 
-        step = partial(self.minibatch_step, b=b, ctx=ctx)
+        step = partial(self.minibatch_step, b=b, context=context)
         state, aux = run_epochs(state, shuffle_key, minibatches, step, self.n_epochs)
         aux = aux.replace(extensions=merge_metrics(target_metrics, aux.extensions))
         return state.replace(n_updates=state.n_updates + 1), aux
 
     def minibatch_step(
-        self, state: APOState, mb: dict, b: jax.Array, ctx: TrainContext
+        self, state: APOState, minibatch: dict, b: jax.Array, context: TrainContext
     ) -> tuple[APOState, AuxiliaryLogs]:
-        """One step of both networks on the minibatch ``mb``, as APO's
+        """One step of both networks on the minibatch ``minibatch``, as APO's
         official code takes it (``xtma/apo``, ``apo/algos/apg/``): one Adam
         over the whole model (``base.py:28``) down the clipped surrogate plus
         ``vf_coef`` times the value loss minus ``ent_coef`` times the entropy
@@ -333,53 +334,55 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         (None without an expert).
         """
         actor_state, critic_state = state.actor_state, state.critic_state
-        critic_key, actor_key = jax.random.split(extension_key(mb["entropy_key"]))
+        critic_key, actor_key = jax.random.split(
+            extension_key(minibatch["entropy_key"])
+        )
         timestep = state.collector_state.timestep
-        stack, total_timesteps = ctx.stack, ctx.total_timesteps
+        extensions, total_timesteps = context.extensions, context.total_timesteps
 
         def loss_fn(params: tuple) -> Tuple[jax.Array, AuxiliaryLogs]:
             actor_params, critic_params = params
             policy_loss, (policy_aux, pi_mean) = policy_loss_function(
                 actor_params,
                 actor_state,
-                observations=mb["obs"],
-                actions=mb["actions"],
-                log_probs=mb["log_probs"],
-                gae=mb["gae"],
+                observations=minibatch["obs"],
+                actions=minibatch["actions"],
+                log_probs=minibatch["log_probs"],
+                gae=minibatch["gae"],
                 clip_coef=at(self.clip_range, timestep),
                 ent_coef=self.ent_coef,
-                raw_actions=mb["raw_actions"],
-                entropy_key=mb["entropy_key"],
-                valid=mb.get("valid"),
+                raw_actions=minibatch["raw_actions"],
+                entropy_key=minibatch["entropy_key"],
+                valid=minibatch.get("valid"),
             )
             value_loss, value_aux = value_loss_function(
                 critic_params,
                 critic_state,
-                mb["obs"],
-                mb["targets"],
+                minibatch["obs"],
+                minibatch["targets"],
                 self.nu,
                 b,
                 self.vf_coef,
-                mb.get("valid"),
+                minibatch.get("valid"),
             )
             critic_batch = {
-                "observations": mb["obs"],
-                "targets": mb["targets"],
+                "observations": minibatch["obs"],
+                "targets": minibatch["targets"],
                 "critic_params": critic_params,
                 "critic_state": critic_state,
             }
             actor_batch = {
-                "observations": mb["obs"],
-                "raw_observations": mb["raw_obs"],
+                "observations": minibatch["obs"],
+                "raw_observations": minibatch["raw_obs"],
                 "pi_mean": pi_mean,
                 "actor_params": actor_params,
                 "actor_state": actor_state,
-                "a_expert": mb["a_expert"],
+                "a_expert": minibatch["a_expert"],
             }
-            critic_extra, critic_metrics = stack.fold_critic_loss(
+            critic_extra, critic_metrics = extensions.apply_critic_loss(
                 state, critic_batch, timestep, critic_key, total_timesteps
             )
-            actor_extra, actor_metrics = stack.fold_actor_loss(
+            actor_extra, actor_metrics = extensions.apply_actor_loss(
                 state, actor_batch, timestep, actor_key, total_timesteps
             )
             loss = policy_loss + value_loss + critic_extra + actor_extra
@@ -529,6 +532,7 @@ class APOState(BaseAgentState):
 
     #: Its networks' gradients are clipped together (steps.joint_step): a
     #: checkpoint from when each clipped its own restores (ajax.checkpoint).
+    #: A ClassVar: a flag on the class, shared by every APO state, not stored in its arrays.
     joint_gradient_clip: ClassVar[bool] = True
     #: How to restore a checkpoint of APO's former default network, added to
     #: a shape mismatch's error (ajax.checkpoint). Expand-then-contract

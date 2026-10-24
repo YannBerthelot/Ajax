@@ -120,7 +120,7 @@ class PQN(
         # pqn_atari.py:194-197, MAX_GRAD_NORM 10 in every PQN config).
         return {"optimizer": "radam", "eps": 1e-8}
 
-    def build(self) -> None:
+    def setup(self) -> None:
         if self.n_steps * self.env_args.n_envs % self.num_minibatches != 0:
             raise ValueError(
                 f"the rollout's n_steps * n_envs ({self.n_steps} *"
@@ -133,20 +133,20 @@ class PQN(
         # action (the family's choice for a q_critic).
         return ValueEstimate(q_network_value, self.gamma, self.reward_scale)
 
-    def epsilon_schedule(self, ctx: TrainContext) -> Callable[[Any], jax.Array]:
+    def epsilon_schedule(self, context: TrainContext) -> Callable[[Any], jax.Array]:
         """The exploration rate at a timestep: linear over the first
         epsilon_decay_frac of the horizon, then flat."""
         return linear(
             self.epsilon_start,
             self.epsilon_end,
-            self.epsilon_decay_frac * ctx.total_timesteps,
+            self.epsilon_decay_frac * context.total_timesteps,
         )
 
-    def behaviour(self, ctx: TrainContext) -> Callable:
+    def behaviour(self, context: TrainContext) -> Callable:
         """Epsilon-greedy collection on the greedy Q-network."""
-        env_args = ctx.env_args
+        env_args = context.env_args
         n_actions = get_action_dim(env_args.env, env_args.env_params)
-        epsilon_schedule = self.epsilon_schedule(ctx)
+        epsilon_schedule = self.epsilon_schedule(context)
         # purejaxql reads epsilon once per update, at its update count
         # (pqn_gymnax.py:189): here at the first step of the rollout, update
         # count x rollout size.
@@ -159,15 +159,15 @@ class PQN(
             epsilon_greedy(rollout_epsilon, n_actions), False, n_actions, warmup=False
         )
 
-    def init(self, key: jax.Array, ctx: TrainContext) -> PQNState:
+    def init(self, key: jax.Array, context: TrainContext) -> PQNState:
         """The Q-network and the collector."""
         rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
-        env_args = ctx.env_args
+        env_args = context.env_args
         q_state = get_initialized_q_network(
             key=init_key,
             env_config=env_args,
-            optimizer_config=ctx.critic_optimizer_args,
-            network_config=ctx.network_args,
+            optimizer_config=context.critic_optimizer_args,
+            network_config=context.network_args,
             n_actions=get_action_dim(env_args.env, env_args.env_params),
             q_network_cls=PQNNetwork,
         )
@@ -178,11 +178,15 @@ class PQN(
             eval_rng=eval_rng,
             actor_state=q_state,
             critic_state=q_state,
-            collector_state=ctx.collector(collector_key),
+            collector_state=context.collector(collector_key),
         )
 
     def update(
-        self, state: PQNState, rollout: Transition, start: PQNState, ctx: TrainContext
+        self,
+        state: PQNState,
+        rollout: Transition,
+        start: PQNState,
+        context: TrainContext,
     ) -> Tuple[PQNState, AuxiliaryLogs]:
         """One PQN update on an ``(n_steps, n_envs)`` rollout: Q(lambda)
         targets bootstrapped on the current network (no target network), then
@@ -190,7 +194,7 @@ class PQN(
         also logs the epsilon its rollout read (``epsilon_schedule`` once per
         update, as purejaxql reads it)."""
         del start  # a feedforward network replays nothing
-        stack, total_timesteps = ctx.stack, ctx.total_timesteps
+        extensions, total_timesteps = context.extensions, context.total_timesteps
         next_q = predict_q(
             state.actor_state,
             state.actor_state.params,
@@ -211,7 +215,7 @@ class PQN(
         # key derived from the update's, then add their loss terms, on keys
         # derived from each epoch's: one per minibatch.
         target_metrics: dict = {}
-        if stack:
+        if extensions:
             target_batch = {
                 "observations": rollout.obs,
                 "actions": rollout.action,
@@ -224,7 +228,7 @@ class PQN(
                 "gamma": self.gamma,
                 "reward_scale": self.reward_scale,
             }
-            targets, target_metrics = stack.fold_on_target(
+            targets, target_metrics = extensions.apply_on_target(
                 state,
                 target_batch,
                 targets,
@@ -236,11 +240,7 @@ class PQN(
         batch = (rollout.obs, rollout.action, targets)
         td_loss_fn = half_mse_td_loss if self.td_loss_fn is None else self.td_loss_fn
 
-        # How the rollout is cut into minibatches: each epoch shuffles its
-        # n_steps * n_envs single steps into num_minibatches minibatches of
-        # equal size (minibatch.MinibatchPlan's "flat" plan, ppo2's); the
-        # targets were computed once above, on the whole rollout, by the
-        # network that collected it, and stay fixed for every epoch.
+        # PQN always cuts the rollout one way: shuffled single steps, targets fixed above.
         epoch_keys = jax.random.split(key, self.n_epochs)
 
         def epoch_body(state: PQNState, epoch_key: jax.Array) -> Tuple[Any, Any]:
@@ -249,7 +249,7 @@ class PQN(
             )
             loss_keys = jax.random.split(extension_key(epoch_key), self.num_minibatches)
 
-            def mb_body(state: PQNState, xs: tuple) -> Tuple[Any, Any]:
+            def minibatch_body(state: PQNState, xs: tuple) -> Tuple[Any, Any]:
                 (observations, actions, targets), loss_key = xs
                 q_state, value_aux, loss_metrics = q_gradient_step(
                     state,
@@ -257,14 +257,14 @@ class PQN(
                     actions,
                     targets,
                     td_loss_fn,
-                    stack,
+                    extensions,
                     loss_key,
                     total_timesteps,
                 )
                 state = state.replace(actor_state=q_state)
                 return state, (value_aux, loss_metrics)
 
-            return jax.lax.scan(mb_body, state, (minibatches, loss_keys))
+            return jax.lax.scan(minibatch_body, state, (minibatches, loss_keys))
 
         state, (value_aux, loss_metrics) = jax.lax.scan(epoch_body, state, epoch_keys)
         # (n_epochs, num_minibatches, ...) -> one (1,) value per metric.
@@ -272,7 +272,7 @@ class PQN(
             lambda x: x.mean().reshape((1,)), (value_aux, loss_metrics)
         )
         rollout_size = rollout.reward.shape[0] * rollout.reward.shape[1]
-        epsilon_schedule = self.epsilon_schedule(ctx)
+        epsilon_schedule = self.epsilon_schedule(context)
         epsilon = epsilon_schedule(state.n_updates * rollout_size).reshape((1,))
         state = state.replace(n_updates=state.n_updates + 1)
         return state, AuxiliaryLogs(

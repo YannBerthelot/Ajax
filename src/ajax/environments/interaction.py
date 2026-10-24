@@ -1479,7 +1479,7 @@ def force_reset(
     observation, as at any episode start, and so does a stateful tracked
     expert (the features of the reset observations read its initial state).
     """
-    agent_state, reset_key = agent_state.next_keys()
+    agent_state, reset_key = agent_state.draw_keys()
     saved = normalisation_info(agent_state.collector_state.env_state, mode)
     reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)

@@ -36,8 +36,8 @@ def _metrics(ext: Any, t: int = 25, bounds: dict | None = None) -> dict:
         last_in_box=jnp.array([[1.0], [0.0]]),
     )
     agent_state = SimpleNamespace(collector_state=collector, **(bounds or {}))
-    ctx = ExtensionContext(step=jnp.asarray(t), rng=KEY, total_steps=100)
-    out = ext.eval_metrics(agent_state, ext.init_state(agent_state, KEY), KEY, ctx)
+    context = ExtensionContext(step=jnp.asarray(t), rng=KEY, total_steps=100)
+    out = ext.eval_metrics(agent_state, ext.init_state(agent_state, KEY), KEY, context)
     return {k: float(v) for k, v in out.items()}
 
 

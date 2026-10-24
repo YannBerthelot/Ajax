@@ -34,7 +34,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "12771096b552"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "0b8635816bde"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -48,7 +48,7 @@ ANSWER_DIGEST = "12771096b552"  # verdict.digest(CASES): every answer, pinned
 class TargetShift(Extension):
     name: str = "p3_target_shift"
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         return target + 0.5
 
 
@@ -59,7 +59,7 @@ class TerminalSafeShift(Extension):
 
     name: str = "p3_terminal_safe_shift"
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         done = batch["terminated"] if "terminated" in batch else batch["dones"]
         if jnp.size(done) != target.size:
             raise RuntimeError(f"done flags {jnp.shape(done)}, target {target.shape}")
@@ -75,7 +75,7 @@ class CriticPull(Extension):
 
     name: str = "p3_critic_pull"
 
-    def critic_loss(self, agent_state, ext_state, batch, ctx):
+    def critic_loss(self, agent_state, ext_state, batch, context):
         obs = batch["observations"]
         if "critic_params" in batch:
             if "actions" in batch:
@@ -101,13 +101,13 @@ class ActorPull(Extension):
     probe_obs: tuple[float, ...] = (0.0,)
     name: str = "p3_actor_pull"
 
-    def actor_loss(self, agent_state, ext_state, batch, ctx):
+    def actor_loss(self, agent_state, ext_state, batch, context):
         obs = batch.get("observations")
         obs = jnp.asarray([self.probe_obs], jnp.float32) if obs is None else obs
         a = batch["actor_state"].apply_fn(batch["actor_params"], obs).mean()
         term = 100.0 * jnp.mean((a - A0) ** 2)
         if self.gated:
-            term = jnp.where(ctx.step >= ctx.total_steps // 2, term, 0.0)
+            term = jnp.where(context.step >= context.total_steps // 2, term, 0.0)
         return term
 
 
@@ -115,7 +115,7 @@ class ActorPull(Extension):
 class ActionOverride(Extension):
     name: str = "p3_action_override"
 
-    def action(self, agent_state, ext_state, obs, rng, ctx):
+    def action(self, agent_state, ext_state, obs, rng, context):
         return jnp.zeros(obs.shape[:-1] + (1,))
 
 
@@ -123,7 +123,7 @@ class ActionOverride(Extension):
 class EvalActionOverride(Extension):
     name: str = "p3_eval_action_override"
 
-    def eval_action(self, agent_state, ext_state, obs, rng, ctx):
+    def eval_action(self, agent_state, ext_state, obs, rng, context):
         return jnp.zeros(obs.shape[:-1] + (1,))
 
 
@@ -143,10 +143,10 @@ class MarkThenCount(Extension):
     def init_state(self, agent_state, rng):
         return {"count": jnp.int32(0), "steps_seen": jnp.int32(-1)}
 
-    def pretrain(self, agent_state, ext_state, ctx):
+    def pretrain(self, agent_state, ext_state, context):
         return agent_state, {**ext_state, "count": ext_state["count"] + 1000}
 
-    def post_update(self, agent_state, ext_state, ctx):
+    def post_update(self, agent_state, ext_state, context):
         seen = _steps(agent_state)
         return agent_state, {"count": ext_state["count"] + 1, "steps_seen": seen}
 
@@ -155,7 +155,7 @@ class MarkThenCount(Extension):
 class KnownMetric(Extension):
     name: str = "p3_known_metric"
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {"P3/known metric": jnp.asarray(7.0, jnp.float32)}
 
 
@@ -260,7 +260,7 @@ def p3_queries(test: str, agent: str) -> tuple[Query, ...]:
     single = {
         "E2": Query("V(1)", w / (w + 100.0), {"term not folded or no gradient": 1.0}),
         "E3": Query("a(0)", -0.5, {"no pull (max-entropy or initial mean)": 0.0} | loc),
-        "E3-gated": Query("a(1)", -0.5, {"gate never opens (ctx.step 0)": 0.0}),
+        "E3-gated": Query("a(1)", -0.5, {"gate never opens (context.step 0)": 0.0}),
         "E7": Query("phi*(1, a_E)", 1.0, {"MCPretrain unbound or untrained": 0.0}),
     }
     return (single[test],)

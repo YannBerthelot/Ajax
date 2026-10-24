@@ -293,7 +293,7 @@ class _KeyExt(Extension):
 
     name: str = "key"
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         jax.debug.callback(_record("extensions"), rng)
         return {}
 

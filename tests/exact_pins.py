@@ -42,41 +42,45 @@ SEEDS = [0, 1]
 
 @dataclass(frozen=True)
 class Keyed(Extension):
-    """Draws on ``ctx.rng`` in every phase: a moved key moves the numbers."""
+    """Draws on ``context.rng`` in every phase: a moved key moves the numbers."""
 
     name: str = "keyed"
 
     def init_state(self, agent_state, rng):
         return jax.random.normal(rng)
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
-        return target + 0.01 * jax.random.normal(ctx.rng)
+    def on_target(self, agent_state, ext_state, batch, target, context):
+        return target + 0.01 * jax.random.normal(context.rng)
 
-    def critic_loss(self, agent_state, ext_state, batch, ctx):
+    def critic_loss(self, agent_state, ext_state, batch, context):
         params = batch.get("critic_params", batch.get("q_state"))
         if params is None:
             return 0.0
         params = getattr(params, "params", params)
-        return 1e-3 * (1 + jax.random.normal(ctx.rng)) * tree_norm(params, squared=True)
+        return (
+            1e-3
+            * (1 + jax.random.normal(context.rng))
+            * tree_norm(params, squared=True)
+        )
 
-    def actor_loss(self, agent_state, ext_state, batch, ctx):
-        draw = jax.random.normal(ctx.rng)
+    def actor_loss(self, agent_state, ext_state, batch, context):
+        draw = jax.random.normal(context.rng)
         loss = 1e-3 * (1 + draw) * tree_norm(batch["actor_params"], squared=True)
         return loss, {"keyed/draw": draw}
 
-    def post_update(self, agent_state, ext_state, ctx):
-        return agent_state, ext_state + 0.01 * jax.random.normal(ctx.rng)
+    def post_update(self, agent_state, ext_state, context):
+        return agent_state, ext_state + 0.01 * jax.random.normal(context.rng)
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {"keyed": ext_state}
 
 
 @dataclass(frozen=True)
 class RewardKeyed(Keyed):
-    """Keyed, and a rollout's rewards noised on ``ctx.rng`` (the reward fold)."""
+    """Keyed, and a rollout's rewards noised on ``context.rng`` (the reward fold)."""
 
-    def reward(self, agent_state, ext_state, batch, rewards, ctx):
-        noise = 0.01 * jax.random.normal(ctx.rng, rewards.shape)
+    def reward(self, agent_state, ext_state, batch, rewards, context):
+        noise = 0.01 * jax.random.normal(context.rng, rewards.shape)
         return rewards + noise, ext_state, {}
 
 

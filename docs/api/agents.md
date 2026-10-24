@@ -44,12 +44,12 @@ built: `dataclasses.replace(agent, gamma=0.9)` builds another.
 
 ::: ajax.agents.families
 
-PPO's update cuts its rollout into minibatches by a plan, which also says
-where the advantages are computed: `"flat"`, ppo2's shuffled single steps,
+PPO's update cuts its rollout into minibatches in one of three ways (a
+rollout split), which also says where the advantages are computed: `"flat"`, ppo2's shuffled single steps,
 GAE once on the rollout; `"time"`, brax's shuffled fragments of
 `unroll_length` steps, GAE in each minibatch from the current critic;
 `"recurrent"`, sequences of `bptt_length` steps, GAE once.
 
-::: ajax.agents.minibatch.MinibatchPlan
+::: ajax.agents.minibatch.RolloutSplit
 
-::: ajax.agents.minibatch.minibatch_plan
+::: ajax.agents.minibatch.choose_rollout_split

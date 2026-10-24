@@ -138,25 +138,25 @@ def test_APO_steps_its_whole_model_with_one_clipped_adam(options: dict) -> None:
     joint norm, down the summed loss computed by hand. Clipping each
     network on its own, or dropping ``vf_coef``, moves the parameters."""
     agent = APO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8, **options)
-    _, ctx = agent.context(1)
-    state = agent.init(jax.random.PRNGKey(0), ctx)
+    _, context = agent.context(1)
+    state = agent.init(jax.random.PRNGKey(0), context)
     actor, critic = state.actor_state, state.critic_state
     clip = cast(float, agent.max_grad_norm)
 
-    def loss(params: tuple, mb: dict) -> jax.Array:
+    def loss(params: tuple, minibatch: dict) -> jax.Array:
         policy, _ = policy_loss_function(
             params[0],
             actor,
-            mb["obs"],
-            mb["actions"],
-            mb["log_probs"],
-            mb["gae"],
+            minibatch["obs"],
+            minibatch["actions"],
+            minibatch["log_probs"],
+            minibatch["gae"],
             clip_coef=at(agent.clip_range, 0),
             ent_coef=agent.ent_coef,
-            entropy_key=mb["entropy_key"],
+            entropy_key=minibatch["entropy_key"],
         )
-        v = predict_value(critic, params[1], mb["obs"]).squeeze(0)
-        target = mb["targets"] - agent.nu * VALUE_BIAS
+        v = predict_value(critic, params[1], minibatch["obs"]).squeeze(0)
+        target = minibatch["targets"] - agent.nu * VALUE_BIAS
         return policy + agent.vf_coef * 0.5 * jnp.mean((v - target) ** 2)
 
     tx = optax.chain(
@@ -165,12 +165,14 @@ def test_APO_steps_its_whole_model_with_one_clipped_adam(options: dict) -> None:
     )
     params = start = (actor.params, critic.params)
     opt_state, norms = tx.init(params), []
-    for mb in _minibatches(state):
-        grads = jax.grad(loss)(params, mb)
+    for minibatch in _minibatches(state):
+        grads = jax.grad(loss)(params, minibatch)
         norms.append(float(optax.global_norm(grads)))
         updates, opt_state = tx.update(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
-        state, _ = agent.minibatch_step(state, mb, jnp.float32(VALUE_BIAS), ctx)
+        state, _ = agent.minibatch_step(
+            state, minibatch, jnp.float32(VALUE_BIAS), context
+        )
     assert min(norms) < clip < max(norms), norms  # the clip binds on some steps
     got = (state.actor_state.params, state.critic_state.params)
     moved = jax.tree.map(lambda p, s: p - s, got, start)

@@ -76,11 +76,11 @@ def _setup() -> tuple[Any, dict, jax.Array]:
 
 def _on_target(ext: Any, step: int = 0) -> tuple[jax.Array, jax.Array, dict]:
     state, batch, target = _setup()
-    ctx = ExtensionContext(step=jnp.asarray(step), rng=KEY, total_steps=100)
+    context = ExtensionContext(step=jnp.asarray(step), rng=KEY, total_steps=100)
     state = state.replace(
         collector_state=state.collector_state.replace(timestep=jnp.asarray(step))
     )
-    new, metrics = ext.on_target(state, (), batch, target, ctx)
+    new, metrics = ext.on_target(state, (), batch, target, context)
     return target, new, metrics
 
 
@@ -129,8 +129,10 @@ def test_online_bc_logs_its_term_and_schedule(critic_stub: Any) -> None:
         "a_expert": jnp.ones((3, 2)),
         "observations": jnp.zeros((3, 4)),
     }
-    ctx = ExtensionContext(step=jnp.asarray(25), rng=KEY, total_steps=100)
-    term, metrics = OnlineBC(critic_warmup_frac=0.5).actor_loss(state, (), batch, ctx)
+    context = ExtensionContext(step=jnp.asarray(25), rng=KEY, total_steps=100)
+    term, metrics = OnlineBC(critic_warmup_frac=0.5).actor_loss(
+        state, (), batch, context
+    )
     assert metrics["online_bc/term"] is term and float(term) > 0.0
     np.testing.assert_allclose(metrics["online_bc/weight"], 0.5, rtol=1e-6)
     assert float(online_bc_weight(jnp.asarray(0.6), 0.5)) == 0.0

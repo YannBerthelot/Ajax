@@ -86,14 +86,16 @@ BECAME_METHODS = {
 }
 
 
-@pytest.mark.parametrize("agent", ["IQL", "CrossQ", "TD3"])
+@pytest.mark.parametrize("agent", ["IQL", "CrossQ", "TD3", "PQN"])
 def test_the_declared_agents_old_names_resolve_or_give_the_new_call(
     agent: str,
 ) -> None:
     """Every name the surface record holds for the old modules of a declared
     agent resolves to its home in the agent's file, or, become a method,
     raises TypeError naming the method; none can be written there."""
-    olds = (f"ajax.agents.{agent}.train_{agent}", f"ajax.agents.{agent}.state")
+    olds = tuple(
+        f"ajax.agents.{agent}.{m}" for m in (f"train_{agent}", "state", "utils")
+    )
     recorded = json.loads(SURFACE.read_text())
     lines = [line.split(":") for line in recorded if line.startswith(olds)]
     assert lines

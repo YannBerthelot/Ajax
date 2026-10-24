@@ -1,27 +1,8 @@
-from flax import struct
+"""PQN's old state module: its names moved to :mod:`ajax.agents.PQN.PQN`,
+from which they resolve until 0.5.0."""
 
-from ajax.state import BaseAgentConfig, BaseAgentState
+from ajax.deprecation import moved_names
 
-
-@struct.dataclass(kw_only=True)
-class PQNState(BaseAgentState):
-    """PQN carries a single Q-network -- no replay buffer, no target network.
-
-    The Q-network train state is stored in ``actor_state`` so the shared
-    evaluation loop (hard-wired to ``agent_state.actor_state``) works
-    unchanged; ``critic_state`` mirrors it at init and is left inert.
-    """
-
-
-@struct.dataclass
-class PQNConfig(BaseAgentConfig):
-    """Static PQN hyperparameters carried through the compiled train loop."""
-
-    gamma: float = 0.99
-    # Q(lambda) trace-decay coefficient (0 -> 1-step TD, 1 -> Monte-Carlo).
-    q_lambda: float = 0.65
-    n_steps: int = 128
-    n_epochs: int = 4
-    # Minibatches per epoch; must divide the rollout's n_steps * n_envs rows.
-    num_minibatches: int = 4
-    reward_scale: float = 1.0
+__getattr__ = moved_names(
+    __name__, dict.fromkeys(("PQNConfig", "PQNState"), "ajax.agents.PQN.PQN")
+)

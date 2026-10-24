@@ -445,9 +445,9 @@ class DeclaredAgent(ActorCritic):
         """``agent_config``'s class, ``<name>Config``: the ``names`` it holds,
         typed and defaulted as the fields (a property, as CrossQ's target
         entropy, is a required entry). Only the agents that had a Config
-        before their fields were declared (IQL, CrossQ, TD3, PPO) keep this view,
-        until 0.5.0; the update reads the fields. Built at run time, it is
-        Any to a type checker."""
+        before their fields were declared (IQL, CrossQ, TD3, PPO, PQN) keep
+        this view, until 0.5.0; the update reads the fields. Built at run
+        time, it is Any to a type checker."""
         declared = {f.name: f for f in dataclasses.fields(cls)}  # type: ignore[arg-type]
         spec: dict[str, Any] = {"__annotations__": {}, "__module__": cls.__module__}
         for name in names.split():

@@ -82,10 +82,8 @@ def init_DQN(
     n_actions: int,
     buffer: Optional[BufferType] = None,
     q_network_cls: Optional[type] = None,
-    state_cls: type = DQNState,
-) -> Any:
-    """The Q-network and the collector (writing to ``buffer``, if any) in a
-    ``state_cls``: DQN's, or a descendant's (PQN: no buffer)."""
+) -> DQNState:
+    """The Q-network and the collector (writing to ``buffer``, if any)."""
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
 
     q_state = get_initialized_q_network(
@@ -105,7 +103,7 @@ def init_DQN(
     )
     # The single Q-network lives in actor_state (so the shared eval loop
     # works); critic_state mirrors it at init and is never updated.
-    return state_cls(
+    return DQNState(
         rng=rng,
         eval_rng=eval_rng,
         actor_state=q_state,

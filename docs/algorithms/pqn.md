@@ -94,9 +94,11 @@ evenly into `num_minibatches`; PQN raises otherwise.
   layer `he_normal` and followed by a LayerNorm. The image features go
   straight to the Q head; `architecture` is not used. Their Atari network
   also divides pixels by 255; Ajax leaves that scaling to the environment.
-- **Shared code.** PQN reuses DQN's Q-network wrapper, loss and
-  epsilon-greedy collection, and PPO's minibatch shuffler; its own code is
-  the LayerNorm network, the Q(lambda) returns and the on-policy loop.
+- **Shared code.** PQN shares the value agents' Q-network wrapper, TD
+  loss step and epsilon-greedy collection, and the on-policy family's loop
+  and minibatch shuffler; it imports nothing from DQN. Its own code
+  (`agents/PQN/PQN.py`) is its update and the Q(lambda) returns, beside the
+  LayerNorm network (`agents/PQN/networks.py`).
 
 ## Results
 

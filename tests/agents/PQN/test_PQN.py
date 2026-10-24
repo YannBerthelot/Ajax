@@ -5,8 +5,7 @@ import pytest
 
 from ajax.agents.critics import make_huber_td_loss
 from ajax.agents.PQN.networks import PQNNetwork
-from ajax.agents.PQN.PQN import PQN
-from ajax.agents.PQN.train_PQN import half_mse_td_loss
+from ajax.agents.PQN.PQN import PQN, half_mse_td_loss
 from ajax.networks.networks import MINATAR_CNN, MNIH_CNN
 
 

@@ -23,7 +23,7 @@ from probing_environments.gymnax_envs import continuous_actions as continuous
 
 from ajax.agents.APG.train_APG import evaluate_apg
 from ajax.agents.PPO.PPO import _compute_gae
-from ajax.agents.PQN.utils import compute_q_lambda_targets
+from ajax.agents.PQN.PQN import compute_q_lambda_targets
 from ajax.environments.differentiable import with_transition_gradients
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import _action_bounds

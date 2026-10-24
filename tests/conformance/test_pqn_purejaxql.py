@@ -23,7 +23,7 @@ import refcmp_jax
 from refcmp_specs import COMPARISONS
 
 import ajax
-from ajax.agents.PQN.utils import compute_q_lambda_targets
+from ajax.agents.PQN.PQN import compute_q_lambda_targets
 from ajax.networks.q_networks import predict_q
 from tests.conformance import kit, submaps
 

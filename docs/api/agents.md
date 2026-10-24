@@ -33,4 +33,12 @@ notes on using it:
 
 Every agent is also exported from `ajax` itself (`from ajax import SAC`).
 
+IQL, CrossQ and TD3 are declared agents: their hyperparameters are the fields
+of a dataclass on a family of `ajax.agents.families`, which builds their
+constructor (keyword-only after `env_id`), run config, `agent_config` view,
+replay and train function. Their fields and `agent_config` are fixed once
+built: `dataclasses.replace(agent, tau=0.01)` builds another.
+
 ::: ajax.agents.base.ActorCritic
+
+::: ajax.agents.families

@@ -17,7 +17,7 @@ import pytest
 
 from ajax import PPO, PQN
 from ajax.agents.PPO.PPO import _compute_gae
-from ajax.agents.PQN.utils import compute_q_lambda_targets
+from ajax.agents.PQN.PQN import compute_q_lambda_targets
 from ajax.extensions.base import Extension
 from ajax.networks.networks import predict_value
 from ajax.networks.q_networks import predict_q

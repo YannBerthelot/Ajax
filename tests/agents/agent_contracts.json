@@ -606,7 +606,7 @@
    "reward_learning"
   ],
   "extension_context": [],
-  "make_train": "ajax.agents.PQN.train_PQN:make_train",
+  "make_train": "ajax.agents.families:OnPolicyAgent.make_train",
   "name": "PQN",
   "per_seed_update_counts": false,
   "phase_batch_keys": {

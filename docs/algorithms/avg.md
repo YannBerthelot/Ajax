@@ -23,7 +23,7 @@ Algorithm 1 and the authors' code (`gauthamvasan/avg`).
 | Vectorised environments (`n_envs`) | Yes |
 | Recurrent memory (`memory=`) | No |
 | PID policy (`actor_architecture=PIDPolicy(...)`) | Yes |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `on_target`, `critic_loss`, `actor_loss` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate` |
 
 AVG has no memory option: with one-transition updates, backpropagation
 through time has length 1, so a memory block could not learn anything

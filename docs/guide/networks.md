@@ -302,5 +302,5 @@ memory is the integral and the difference in the observation.
 
 Two other PID features are separate from this one. APG's in-context
 controller ends with a learnable PID layer on its network's output: see
-[APG](../algorithms/apg.md). SAC's `use_pid_policy` lets SAC tune the gains of
-an expert controller: see [Expert guidance](expert-guidance.md).
+[APG](../algorithms/apg.md). Gain mode (`ExpertGains`) lets SAC tune the gains
+of an expert controller: see [Expert guidance](expert-guidance.md).

@@ -37,8 +37,11 @@ from ajax.agents.UDRL.buffer import (
 )
 from ajax.agents.UDRL.state import UDRLConfig, UDRLState
 from ajax.agents.UDRL.utils import compute_returns_to_go_horizons, update_command
+from ajax.controller import ActingState, Controller, policy_action_dim
 from ajax.environments.interaction import (
+    act_through_expert,
     get_pi,
+    get_raw_obs,
     init_collector_state,
     step,
     update_episodic_return,
@@ -89,6 +92,7 @@ def init_UDRL(
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
     agent_config: UDRLConfig,
+    expert_policy: Any = None,
 ) -> UDRLState:
     rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
 
@@ -110,7 +114,10 @@ def init_UDRL(
     # Under normalize_observations the collector's statistics cover the
     # env's columns: the command appended to them stays raw, then scaled.
     collector_state = init_collector_state(
-        collector_key, env_args=env_args, mode=env_args.mode
+        collector_key,
+        env_args=env_args,
+        mode=env_args.mode,
+        expert_policy=expert_policy,
     )
 
     n_envs = env_args.n_envs
@@ -127,10 +134,8 @@ def init_UDRL(
     obs_dim = collector_state.last_obs.shape[-1]
     # The buffer stores actions with a trailing dim (1 for discrete, action_dim
     # for continuous).
-    from ajax.environments.utils import get_action_dim
-
     if continuous:
-        action_dim = get_action_dim(env_args.env, env_args.env_params)
+        action_dim = policy_action_dim(env_args)  # gain mode's gains
         action_dtype = jnp.float32
     else:
         action_dim = 1
@@ -169,12 +174,15 @@ def _udrl_collect_step(
     env_args: EnvironmentConfig,
     mode: str,
     agent_config: UDRLConfig,
+    expert_policy: Any = None,
 ):
     """One env step. Reads (d_r, d_h) from the trailing 2 dims of last_obs,
     forwards the actor on the augmented obs, steps the env, then writes the
     next augmented obs (raw_next_obs ++ updated_command) back into
-    collector_state.last_obs.
-    """
+    collector_state.last_obs. With an ``expert_policy`` the action is
+    executed through the run's transform (residual RL, gain mode) and the
+    tracked expert; the segment keeps the policy's own action, which the
+    actor fits."""
     cs = agent_state.collector_state
     rng, action_key, step_key = jax.random.split(agent_state.rng, 3)
     rng_step = env_keys(step_key, mode, env_args.n_envs)
@@ -199,13 +207,26 @@ def _udrl_collect_step(
         obs=last_obs_for_actor,
     )
     action, log_probs = pi.sample_and_log_prob(seed=action_key)
+    env_action, expert_state = action, cs.expert_state
+    if expert_policy is not None:
+        acting = ActingState(
+            obs=last_obs,
+            done=jnp.logical_or(cs.last_terminated, cs.last_truncated),
+            timestep=jnp.asarray(cs.timestep),
+            expert_state=cs.expert_state,
+        )
+        raw = get_raw_obs(env_state=cs.env_state, env=env_args.env, mode=mode)
+        transform = next(iter(env_args.transforms), None)
+        env_action, _, expert_state = act_through_expert(
+            transform, expert_policy, acting, raw, action, env_args.n_envs
+        )
 
     new_env_obs, new_env_state, reward, terminated, truncated, info = (
         jax.lax.stop_gradient(
             step(
                 rng_step,
                 cs.env_state,
-                agent_action_to_env(action, env_args.env, env_args.env_params),
+                agent_action_to_env(env_action, env_args.env, env_args.env_params),
                 env_args.env,
                 mode,
                 env_args.env_params,
@@ -268,6 +289,7 @@ def _udrl_collect_step(
         last_truncated=truncated,
         episodic_return_state=episodic_return_state,
         episodic_mean_return=episodic_mean_return,
+        **({"expert_state": expert_state} if expert_state is not None else {}),
     )
     return (
         agent_state.replace(
@@ -321,10 +343,15 @@ def training_iteration(
     agent_config: UDRLConfig,
     extension_stack: ExtensionStack,
     total_timesteps: int = 1,
+    expert_policy: Any = None,
 ) -> Tuple[UDRLState, UDRLAuxiliaries]:
     # 1. Collect one rollout segment (Algorithm 4).
     collect_fn = partial(
-        _udrl_collect_step, env_args=env_args, mode=mode, agent_config=agent_config
+        _udrl_collect_step,
+        env_args=env_args,
+        mode=mode,
+        agent_config=agent_config,
+        expert_policy=expert_policy,
     )
     agent_state, rollout = jax.lax.scan(
         collect_fn, agent_state, xs=None, length=agent_config.n_steps
@@ -481,12 +508,14 @@ def evaluate_UDRL(
     env_args: EnvironmentConfig,
     agent_config: UDRLConfig,
     num_episode_test: int,
+    expert_policy: Any = None,
 ) -> dict:
     """The deterministic policy's return, entropy and length on
     ``num_episode_test`` episodes of the shared evaluation, commanded by
-    :class:`EvalCommand`, and the return and horizon each episode is
+    :class:`EvalCommand` (acting through the run's transform and
+    ``expert_policy``), and the return and horizon each episode is
     commanded with at its start."""
-    returns, entropy, _, _, length, _ = evaluate(
+    returns, entropy, _, _, length, expert_returns = evaluate(
         env_args.env,
         agent_state.actor_state,
         num_episode_test,
@@ -495,11 +524,15 @@ def evaluate_UDRL(
         norm_info=eval_norm_info(agent_state, env_args.mode),
         agent_state=agent_state,
         command=EvalCommand(agent_config.command_scale_r, agent_config.command_scale_h),
+        expert_policy=expert_policy,
+        controller=Controller(transforms=env_args.transforms),
     )
     return {
         "Eval/episodic mean reward": returns,
         "Eval/episodic entropy": entropy,
         "Eval/mean episodic length": length,
+        "Eval/episodic mean expert reward": expert_returns.mean(),
+        "Eval/expert bias": jnp.mean(returns) - expert_returns.mean(),
         "Eval/commanded return": agent_state.command_target_return,
         "Eval/commanded horizon": agent_state.command_target_horizon,
     }
@@ -531,6 +564,7 @@ def make_train(
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
     end_timestep: Optional[int] = None,
+    expert_policy: Any = None,
     extensions: Sequence = (),
 ):
     """UDRL's train function: its own iteration (a segment, the replay of
@@ -563,6 +597,7 @@ def make_train(
             env_args=env_args,
             agent_config=agent_config,
             num_episode_test=num_episode_test,
+            expert_policy=expert_policy,
         ),
     )
 
@@ -574,6 +609,7 @@ def make_train(
             critic_optimizer_args=critic_optimizer_args,
             network_args=network_args,
             agent_config=agent_config,
+            expert_policy=expert_policy,
         )
 
     def iteration(agent_state: UDRLState, index: Any, tick: Any) -> tuple:
@@ -585,6 +621,7 @@ def make_train(
             agent_config=agent_config,
             extension_stack=loop.stack,
             total_timesteps=total_timesteps,
+            expert_policy=expert_policy,
         )
         return loop.evaluate_every(agent_state, aux, index, tick, evaluation)
 

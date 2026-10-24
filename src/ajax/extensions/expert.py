@@ -3,6 +3,7 @@
 * :class:`OnlineBC`              — value-weighted decaying BC loss term.
 * :class:`ImitationLoss`         — plain BC loss term towards the expert.
 * :class:`ResidualPolicy`        — execute ``clip(a_expert + scale·a_pi)``.
+* :class:`ExpertGains`           — the action sets the expert's gains (gain mode).
 * :class:`JSRLCurriculum`        — per-episode expert→learner handoff.
 * :class:`ExpertValueMetrics`    — the critic at the expert's actions, logged.
 
@@ -25,6 +26,7 @@ import jax.numpy as jnp
 
 from ajax.environments.utils import critic_action_units
 from ajax.extensions.base import Extension, ExtensionContext
+from ajax.extensions.observe import ExpertActionInput
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.schedule import progress
 
@@ -454,43 +456,67 @@ class ImitationLoss(Extension):
 class ResidualPolicy(Extension):
     """Residual RL (Johannink et al. 2019).
 
-    The executed action is ``clip(a_expert + scale·a_pi, -1, 1)``: SAC's
-    action pipeline applies :meth:`transform_action` at collection (its
-    warmup samples uniformly), and the actor's policy gradient, the
-    TD-target bootstrap and evaluation flow through the same transform.
-    Its presence alone turns residual RL on, with SAC's expert policy;
-    ``transform_action`` is a phase only SAC runs, so the other agents
-    refuse it.
+    The executed action is ``clip(a_expert + scale·a_pi, -1, 1)``, from the
+    agent's tracked expert. Collection applies it before the action is
+    chosen (the warm-up draws executed actions), the replay stores the
+    executed action, the critics score it (the TD-target bootstrap at
+    ``next_a_expert`` and the actor's policy gradient flow through the same
+    transform, :func:`ajax.controller.executed_actions`), and evaluation
+    acts through it. Its presence alone turns residual RL on, with the
+    agent's expert policy.
     """
 
     scale: float = 1.0
     name: str = "residual_policy"
-    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert"})
+    # Its base is the agent's expert, which an agent learning from that
+    # expert's labels alone (DAgger) would learn to cancel, and which an
+    # imagined latent state cannot be handed (obs_networks).
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"agent_expert", "obs_networks", "reward_learning"}
+    )
 
-    def transform_action(self, actions: jax.Array, a_expert: jax.Array) -> jax.Array:
+    def transform_action(self, actions: jax.Array, inputs: Any) -> jax.Array:
         """``clip(a_expert + scale·a_pi, -1, 1)`` — the residual mix."""
-        return residual_action_transform(actions, a_expert, scale=self.scale)
+        return residual_action_transform(
+            actions, inputs.expert_action, scale=self.scale
+        )
 
-    def build_policy_transform(
-        self, expert_policy: Optional[Callable]
-    ) -> Optional[Callable]:
-        """The actor-loss / TD-target residual transform, ``(actions,
-        raw_obs, a_expert_precomputed) -> actions``; ``None`` (no residual
-        transform) without an ``expert_policy``."""
-        if expert_policy is None:
-            return None
 
-        scale = self.scale
+@dataclass(frozen=True)
+class ExpertGains(Extension):
+    """Gain mode: the policy's action sets the agent's expert's learnable
+    gains, ``anchor_gains · 10**a`` per gain, and the expert acts with them
+    (its ``step_with_gains``, which advances its state). The replay and the
+    critics hold the policy's action, the gains: the agent acts in a space
+    as wide as the expert's learnable gains, and the warm-up draws uniform
+    gains. The expert needs ``learnable_fields`` and ``anchor_gains``
+    (``register_learnable_gains``).
+    """
 
-        def transform(actions, raw_obs, a_expert_precomputed):
-            a_exp = (
-                a_expert_precomputed
-                if a_expert_precomputed is not None
-                else jax.lax.stop_gradient(expert_policy(raw_obs))
+    name: str = "expert_gains"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"agent_expert", "obs_networks", "reward_learning"}
+    )
+
+    def policy_action_dim(self, env_args: Any, expert: Any) -> int:
+        if not (hasattr(expert, "learnable_fields") and hasattr(expert, "init_state")):
+            raise ValueError(
+                "ExpertGains needs a stateful expert with learnable_fields"
+                " (registered via register_learnable_gains)."
             )
-            return residual_action_transform(actions, a_exp, scale=scale)
+        if any(isinstance(e, ExpertActionInput) for e in env_args.observers):
+            raise ValueError(
+                "Gain mode cannot take the expert's action as an observation"
+                " feature (ExpertActionInput): the actor's output sets the"
+                " gains the expert acts with, so the expert's action does not"
+                " exist before the actor reads its observation."
+            )
+        return len(expert.learnable_fields)
 
-        return transform
+    def actuate(self, actions: jax.Array, inputs: Any) -> tuple[jax.Array, Any]:
+        expert = inputs.expert
+        gains = expert.anchor_gains * jnp.exp(jnp.log(10.0) * actions)
+        return expert.step_with_gains(inputs.expert_state, inputs.raw_obs, gains)
 
 
 @dataclass(frozen=True)
@@ -564,6 +590,7 @@ class JSRLCurriculum(Extension):
 
 
 __all__ = [
+    "ExpertGains",
     "ImitationLoss",
     "JSRLCurriculum",
     "OnlineBC",

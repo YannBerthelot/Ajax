@@ -42,6 +42,8 @@ class TD3(ActorCritic):
         "on_target",
         "critic_loss",
         "actor_loss",
+        "transform_action",
+        "actuate",
     }
     # Its smoothed next actions join the shared step's on_target keys.
     phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS | {

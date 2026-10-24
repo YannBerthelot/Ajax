@@ -14,6 +14,7 @@ from gymnax.environments.environment import EnvState as GymnaxEnvState
 import ajax.environments.interaction as step_module
 from ajax.agents.SAC.SAC import SAC
 from ajax.buffers.utils import get_buffer
+from ajax.controller import ActingState
 from ajax.environments.interaction import (
     collect_experience,
     get_action_and_new_agent_state,
@@ -23,6 +24,7 @@ from ajax.environments.interaction import (
     reset,
     step,
 )
+from ajax.extensions.expert import ExpertGains
 from ajax.networks.distributions import Squash
 from ajax.state import (
     BaseAgentState,
@@ -495,7 +497,7 @@ def test_a_value_box_entry_ends_the_agents_episode_whatever_its_bonus(bonus):
     entered = jnp.array([[1.0], [0.0]])
 
     def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
-        policy = step_module._policy_pipeline(
+        policy = step_module.policy_pipeline(
             agent_state,
             acting,
             raw_obs,
@@ -571,3 +573,53 @@ def test_an_explore_policy_acts_after_the_warm_up_and_uniform_during_it(env_id):
     warm, transition = collect(state, None, uniform=True)
     np.testing.assert_array_equal(transition.action, [[chosen], [chosen]])
     assert (stored(warm) != chosen).any() and (np.abs(stored(warm)) <= 1).all()
+
+
+class _Pipelines:
+    """A gain expert (one learnable gain; its own call adds 10 to its state,
+    a call with gains 1) and a pipeline choosing a fixed action, for the
+    expert collection wrapper."""
+
+    learnable_fields, anchor_gains = ("kp",), jnp.array([1.0])
+
+    def init_state(self, n_envs):
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state, obs):
+        return self.anchor_gains[0] * obs[..., :1], state + 10.0
+
+    def step_with_gains(self, state, obs, gains):
+        return gains[0] * obs[..., :1], state + 1.0
+
+    @staticmethod
+    def chosen(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
+        """Reads the expert's action off the acting state, as SAC's does."""
+        assert acting.expert_action is not None
+        action = jnp.full((2, 1), 0.5)
+        return step_module.ActionPipelineResult(env_action=action, policy_action=action)
+
+
+def test_the_collector_calls_the_expert_once_and_actuates_the_chosen_action():
+    """The expert is called before the pipeline (its action and next state
+    stored); gain mode's actuate executes the chosen action through it,
+    stores the chosen one and keeps the state the actuation leaves."""
+    expert, obs = _Pipelines(), jnp.full((2, 1), 2.0)
+    acting = ActingState(
+        obs=obs, done=jnp.zeros(2), timestep=0, expert_state=jnp.zeros((2, 1))
+    )
+    args = (None, acting, obs, jax.random.PRNGKey(0), False, None, None)
+    for actuate in (None, ExpertGains()):
+        kwargs = step_module.expert_collect_kwargs(
+            expert, _Pipelines.chosen, False, 2, actuate
+        )
+        result = kwargs["action_pipeline"](*args)
+        np.testing.assert_array_equal(result.a_expert, 2.0)  # the expert's own
+        if actuate is None:
+            np.testing.assert_array_equal(result.new_expert_state, 10.0)
+            np.testing.assert_array_equal(result.env_action, 0.5)
+            assert result.buffer_action is None  # the executed action is stored
+        else:
+            # gains anchor * 10**0.5 on obs 2.0; the replay keeps the gains' action.
+            np.testing.assert_array_equal(result.new_expert_state, 1.0)
+            np.testing.assert_allclose(result.env_action, 2.0 * 10**0.5, rtol=1e-6)
+            np.testing.assert_array_equal(result.buffer_action, 0.5)

@@ -348,10 +348,6 @@ def step_environment(
     expert_is_stateful = expert_policy is not None and hasattr(
         expert_policy, "init_state"
     )
-    if controller.gains and not (
-        expert_is_stateful and hasattr(expert_policy, "learnable_fields")
-    ):
-        raise ValueError("Gain mode requires a stateful expert with learnable_fields.")
 
     # The statistics the agent's controller normalises with, as they stand.
     obs_norm = (
@@ -393,7 +389,8 @@ def step_environment(
             else value_estimate.value(
                 agent_state,
                 obs_for_actor,
-                raw_actions if controller.gains else actions,
+                # What the critics score: the gains under gain mode.
+                raw_actions if controller.actuates else actions,
             )
         )
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(

@@ -1,5 +1,5 @@
 from collections.abc import Mapping, Sequence
-from typing import Optional
+from typing import Callable, Optional
 
 from gymnax import EnvParams
 
@@ -46,6 +46,8 @@ class IQL(ActorCritic):
         "on_target",
         "critic_loss",
         "actor_loss",
+        "transform_action",
+        "actuate",
     }
     phase_batch_keys: Mapping[str, frozenset] = {
         "on_target": TARGET_KEYS,
@@ -55,7 +57,7 @@ class IQL(ActorCritic):
     }
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     extension_context: frozenset = frozenset(
-        "actor_optimizer_args buffer env_args".split()
+        "actor_optimizer_args buffer env_args expert_policy".split()
     )
     replays_transitions: bool = True
     supported_buffer_fields: frozenset = frozenset({"raw_next_obs", "return_to_go"})
@@ -82,6 +84,10 @@ class IQL(ActorCritic):
         max_grad_norm: Optional[float] = None,
         weight_decay: float = 0.0,
         normalize_observations: bool = False,
+        # An expert the collector tracks (online): its actions, from its
+        # state along each trajectory, feed the observation features and a
+        # residual policy, and each evaluation logs its return.
+        expert_policy: Optional[Callable] = None,
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground
         # envs (ActorCritic).
@@ -91,6 +97,8 @@ class IQL(ActorCritic):
         self.config = run_config(locals(), self.name)
         if not 0.0 < expectile < 1.0:
             raise ValueError(f"IQL's expectile is in (0, 1), got {expectile}.")
+        # Read by the extension check in the base initialiser.
+        self.expert_policy = expert_policy
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -133,4 +141,5 @@ class IQL(ActorCritic):
         self.train_kwargs = {
             "buffer": self.buffer,
             "value_optimizer_args": value_optimizer_args,
+            "expert_policy": self.expert_policy,
         }

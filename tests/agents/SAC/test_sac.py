@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from ajax.agents.SAC.SAC import SAC
-from ajax.extensions.expert import JSRLCurriculum
+from ajax.extensions.expert import ExpertGains, JSRLCurriculum
 from ajax.extensions.observe import (
     ExpertActionInput,
     ExpertStateInput,
@@ -32,6 +32,23 @@ def test_the_gain_policy_refuses_the_experts_action_in_the_observation():
     SAC(env_id="Pendulum-v1", augment_obs_with_expert_state=True, **kw)
     with pytest.raises(ValueError, match="ExpertActionInput"):
         SAC(env_id="Pendulum-v1", augment_obs_with_expert_action=True, **kw)
+
+
+def test_use_pid_policy_builds_gain_mode_and_warns():
+    """use_pid_policy stands for ExpertGains: the agent acts in the expert's
+    gain space; gain mode takes no part in the learner's folds and refuses
+    an expert without learnable gains."""
+    with pytest.warns(FutureWarning, match="ExpertGains"):
+        old = SAC(env_id="Pendulum-v1", expert_policy=Expert(), use_pid_policy=True)
+    new = SAC(env_id="Pendulum-v1", expert_policy=Expert(), extensions=(ExpertGains(),))
+    assert old.env_args.transforms == new.env_args.transforms == (ExpertGains(),)
+    assert new.env_args.policy_action_dim == 1 and not new.extension_stack
+    with pytest.raises(ValueError, match="learnable_fields"):
+        SAC(
+            env_id="Pendulum-v1",
+            expert_policy=stateless_expert,
+            extensions=(ExpertGains(),),
+        )
 
 
 def test_sac_trains_with_rlpd_layernorm_critics():

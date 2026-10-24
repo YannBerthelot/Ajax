@@ -60,6 +60,7 @@ PHASE_NEEDS: Mapping[str, frozenset[str]] = {
     # The executed action becomes one the policy did not choose.
     "action": frozenset({"off_policy"}),
     "transform_action": frozenset({"continuous_actions"}),
+    "actuate": frozenset({"continuous_actions"}),
 }
 
 

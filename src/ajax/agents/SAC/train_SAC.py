@@ -24,7 +24,7 @@ from ajax.agents.SAC.core import (
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.dataset import TransitionDataset
-from ajax.controller import Controller
+from ajax.controller import executed_actions
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -83,7 +83,6 @@ def init_SAC(
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
     num_critics: int = 2,
     expert_buffer_n_steps: int = 20_000,
-    action_dim_override: Optional[int] = None,
     count_episode_steps: bool = False,
     store_raw_next_obs: bool = False,
     store_expert_data: bool = False,
@@ -102,9 +101,7 @@ def init_SAC(
         num_critics=num_critics,
         window_size=window_size,
         stored_state=stored_state,
-        network_extras={"action_dim_override": action_dim_override},
         collector_extras={
-            "action_dim_override": action_dim_override,
             "expert_policy": expert_policy,
             "include_raw_next_obs": store_raw_next_obs,
             "include_return_to_go": store_return_to_go,
@@ -452,10 +449,6 @@ def make_train(
     target_entropy_initial: Optional[float] = None,
     target_entropy_ramp_frac: float = 0.5,
     store_policy_action: bool = False,
-    # PID policy: execute expert action directly (no actor used for env interaction)
-    use_pid_policy: bool = False,
-    # Gain-policy mode: actor output dim = len(expert.learnable_fields)
-    action_dim_override: Optional[int] = None,
     offline_data: Optional[TransitionDataset] = None,
     extensions: Sequence = (),
 ):
@@ -529,7 +522,6 @@ def make_train(
             expert_buffer_n_steps=(
                 expert_buffer_n_steps if expert_policy is not None else 0
             ),
-            action_dim_override=action_dim_override,
             count_episode_steps=any(e.reads_step_in_episode for e in stack),
             # Kept only for an extension that declares it reads it.
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),
@@ -537,23 +529,25 @@ def make_train(
             store_return_to_go="return_to_go" in stack.buffer_fields(),
         )
 
-    # An extension implementing ``transform_action`` (ResidualPolicy) makes
-    # the executed action residual: in collection (the action pipeline),
-    # the actor loss and TD target ``(actions, raw_obs, a_expert) ->
-    # actions``, and evaluation; ``None`` ⇒ pure SAC. Gain mode
-    # (``use_pid_policy``, which rejects a residual policy) handles its own
-    # eval transform in ``step_environment``.
+    # A residual policy (``transform_action``) makes the executed action
+    # residual: in collection (the action pipeline), the actor loss and TD
+    # target (the critics score executed actions) and evaluation (the loop's
+    # controller). Gain mode (``actuate``) acts through the default
+    # pipeline, which the shared collector actuates.
     residual: Any = next(
         (
-            e
-            for e in loop.stack.extensions
-            if "transform_action" in e.implemented_phases()
+            t
+            for t in env_args.transforms
+            if "transform_action" in t.implemented_phases()
         ),
         None,
     )
-    policy_action_transform = (
-        residual.build_policy_transform(expert_policy) if residual else None
-    )
+    policy_action_transform = None
+    if residual is not None:
+
+        def policy_action_transform(actions, raw_obs, a_expert):
+            del raw_obs
+            return executed_actions(env_args, actions, a_expert)
 
     # A ramp from target_entropy_initial (low: a BC-warmed policy mean rolls
     # out near-deterministically and stays alive on brittle envs) to the
@@ -594,14 +588,14 @@ def make_train(
     # ``is_expert_flag``, ``buffer_action``, expert-state threading) and
     # the gain-policy short-circuit; the EDGE / ValueBox / JSRL gates run
     # through the extension stack.
+    gain_mode = env_args.policy_action_dim is not None
     action_pipeline = make_action_pipeline(
-        expert_policy=expert_policy,
+        expert_policy=None if gain_mode else expert_policy,
         recurrent=recurrent,
         env_args=env_args,
         extension_stack=loop.stack,
         expert_fraction=expert_fraction,
         residual=residual,
-        use_pid_policy=use_pid_policy,
         store_policy_action=store_policy_action,
         total_timesteps=total_timesteps,
     )
@@ -623,10 +617,6 @@ def make_train(
             # given, only the expert's baseline return.
             "expert_policy": expert_policy,
             "eval_expert_policy": eval_expert_policy,
-            "controller": Controller(
-                transform=None if residual is None else residual.transform_action,
-                gains=use_pid_policy,
-            ),
             "value_estimate": ValueEstimate(
                 action_value, agent_config.gamma, agent_config.reward_scale
             ),

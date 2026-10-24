@@ -27,10 +27,10 @@ Algorithms and Applications*, 2018.
 | Vectorised environments (`n_envs`) | Yes |
 | Recurrent memory (`memory=`) | Yes, without extensions or `expert_policy` |
 | PID policy (`actor_architecture=PIDPolicy(...)`) | Yes |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `on_target`, `critic_loss`, `actor_loss`, `action` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `action`, `transform_action`, `actuate` |
 
-The `action` phase runs only when the agent has an `expert_policy` and
-`use_pid_policy` is off; SAC raises at construction otherwise. See
+The `action` phase runs only when the agent has an `expert_policy` and no
+gain mode (`ExpertGains`); SAC raises at construction otherwise. See
 [Extensions](../guide/extensions.md) for what each phase does.
 
 ## Example
@@ -95,7 +95,7 @@ expert is written in the environment's units and receives the raw
 | `eval_expert_policy` | `None` | an expert used only for the evaluation's comparison metrics |
 | `expert_buffer_n_steps` | `20_000` | expert steps per env written to the buffer before training |
 | `expert_fraction` | `0.7` | during warm-up, the chance a step takes the expert's action instead of a uniform one |
-| `use_pid_policy` | `False` | the actor outputs the gains of the expert's PID (needs `learnable_fields` on the expert; refuses `ExpertActionInput`) |
+| `use_pid_policy` | `False` | deprecated: builds `ExpertGains()` (`ajax.extensions.expert`, gain mode: the actor outputs the gains of the expert's PID), which pass instead |
 | `augment_obs_with_expert_action`, `augment_obs_with_expert_state` | `False` | deprecated: build `ExpertActionInput()`, `ExpertStateInput.for_expert(expert)` (`ajax.extensions.observe`), which pass instead |
 | `use_train_frac` | `False` | deprecated: builds `TrainingProgressInput()`, which pass instead |
 | `target_entropy_initial_per_dim`, `target_entropy_ramp_frac` | `None`, `0.5` | move the target entropy linearly from this start to `target_entropy_per_dim` over that fraction of training |

@@ -60,7 +60,11 @@ class APG(ActorCritic):
     name: str = "APG"
     capabilities: frozenset = frozenset("actor obs_networks reward_learning".split())
     # Its differentiable rollout is its own: no observation features yet.
-    supported_extension_phases: frozenset = (LOOP_PHASES - {"observe"}) | {"actor_loss"}
+    supported_extension_phases: frozenset = (LOOP_PHASES - {"observe"}) | {
+        "actor_loss",
+        "transform_action",
+        "actuate",
+    }
     phase_batch_keys: Mapping[str, frozenset] = {
         "actor_loss": frozenset(
             "actor_state observations raw_observations pi_mean rollout returns".split()
@@ -93,6 +97,9 @@ class APG(ActorCritic):
         env_params: Optional[EnvParams] = None,
         episode_length: Optional[int] = None,
         controller_factory: Optional[Callable[..., Any]] = None,
+        # An expert the rollout runs alongside the controller: a residual
+        # policy or gain mode acts through it, its gradient included.
+        expert_policy: Optional[Callable] = None,
         extensions: Sequence[Extension] = (),
         # Simulator steps per agent step on brax / playground envs
         # (ActorCritic).
@@ -150,6 +157,8 @@ class APG(ActorCritic):
         memory = with_default_init(parse_memory_config(memory), APG_MEMORY_INITS)
         self.config = run_config(locals(), self.name)
 
+        # Read by the extension check in the base initialiser.
+        self.expert_policy = expert_policy
         # No critic; the actor's optimizer is built below.
         super().__init__(
             env_id=env_id,
@@ -190,6 +199,7 @@ class APG(ActorCritic):
             "warmup_steps": warmup_steps,
             "lr_end_fraction": lr_end_fraction,
             "controller_factory": controller_factory,
+            "expert_policy": self.expert_policy,
         }
 
     @classmethod

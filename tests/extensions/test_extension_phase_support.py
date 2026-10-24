@@ -32,6 +32,10 @@ from ajax.extensions.pretrain import MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import CriticBlend, MCVarianceCorrection, ValueBox
 
 AGENTS = "APG APO ASAC AVG DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL".split()
+#: The agents a residual policy runs on: their critics score its executed
+#: actions, or their update reads the policy's own (PPO, APO, IQL's actor).
+RESIDUAL = {"SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG"}
+RESIDUAL |= {"PPO", "APO", "IQL", "APG", "UDRL"}
 
 
 @dataclass(frozen=True)
@@ -94,8 +98,11 @@ class EveryPhase(Extension):
     def eval_action(self, agent_state, ext_state, obs, rng, ctx):
         return None
 
-    def transform_action(self, actions, a_expert):
+    def transform_action(self, actions, inputs):
         return actions
+
+    def actuate(self, actions, inputs):
+        return actions, inputs.expert_state
 
     def post_update(self, agent_state, ext_state, ctx):
         return agent_state, ext_state
@@ -243,7 +250,8 @@ def test_an_agent_declares_the_batch_keys_it_passes():
 def test_agents_accept_only_the_phases_they_fold():
     """The base accepts none; every agent the loop's, ``observe`` but where
     it collects on its own, no agent ``eval_action``, only SAC ``action``
-    (its pipeline's slots) and ``transform_action`` (its residual policy)."""
+    (its pipeline's slots), and ``transform_action`` (a residual policy) the
+    agents whose critics score executed actions."""
     assert ActorCritic.supported_extension_phases == frozenset()
     assert EveryPhase().implemented_phases() == frozenset(PHASES)
     # PPO, on policy, lacks what replacing the executed action needs.
@@ -257,7 +265,7 @@ def test_agents_accept_only_the_phases_they_fold():
         own_collector = name in ("APG", "UDRL", "DreamerV3", "TDMPC2")
         assert ("observe" in phases) != own_collector, name
         assert ("action" in phases) == (name == "SAC"), name
-        assert ("transform_action" in phases) == (name == "SAC"), name
+        assert ("transform_action" in phases) == (name in RESIDUAL), name
 
 
 @dataclass(frozen=True)
@@ -294,17 +302,18 @@ def test_sac_applies_a_residual_policy_only_through_its_pipeline():
     SAC("Pendulum-v1", expert_policy=_expert, extensions=[residual])
 
 
-@pytest.mark.parametrize("name", sorted(set(AGENTS) - {"SAC", "DreamerV3", "TDMPC2"}))
+@pytest.mark.parametrize(
+    "name", sorted(set(AGENTS) - RESIDUAL - {"DreamerV3", "TDMPC2"})
+)
 def test_an_agent_without_a_residual_transform_refuses_a_residual_policy(name):
-    """Only SAC runs ``transform_action``: any other agent would train a
+    """An agent whose update does not score executed actions would train a
     plain policy and report it as residual, so it refuses one, as lacking
-    continuous actions (discrete-action agents) or not wired."""
+    continuous actions (discrete-action agents), an expert, or not wired."""
     module = importlib.import_module(f"ajax.agents.{name}.{name}")
     agent = getattr(module, name)
     env = "CartPole-v1" if name in ("DQN", "PQN", "UDRL") else "Pendulum-v1"
-    kwargs = {"expert_policy": _expert} if name in ("TD3", "REDQ", "APO") else {}
     with pytest.raises(ValueError, match=r"'residual_policy'"):
-        agent(env, extensions=[ResidualPolicy()], **kwargs)
+        agent(env, extensions=[ResidualPolicy()])
 
 
 def test_online_bc_needs_the_agents_expert_policy():

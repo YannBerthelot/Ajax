@@ -81,12 +81,11 @@ def init_soft_actor_critic(
     num_critics: int,
     window_size: int = 10,
     stored_state: bool = False,
-    network_extras: Optional[dict] = None,
     collector_extras: Optional[dict] = None,
 ) -> Tuple[Any, Any, Any]:
     """A soft actor-critic's squashed-Gaussian actor, ``num_critics``
     Q-critics and collector (writing to ``buffer`` when given); the
-    ``*_extras`` reach the network and collector builders."""
+    ``collector_extras`` reach the collector's builder."""
     actor_state, critic_state = get_initialized_actor_critic(
         key=init_key,
         env_config=env_args,
@@ -97,7 +96,6 @@ def init_soft_actor_critic(
         action_value=True,
         squash=True,
         num_critics=num_critics,
-        **(network_extras or {}),
     )
     collector_state = init_collector_state(
         collector_key,
@@ -116,13 +114,18 @@ def sample_next_actions(
     next_observations: jax.Array,
     key: jax.Array,
     carries: Optional[RecurrentCarries] = None,
+    executed: Optional[Callable[[jax.Array, Any], jax.Array]] = None,
+    next_a_expert: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, jax.Array]:
     """The bootstrap actions ``a' ~ pi(.|s')`` and their log-probabilities,
-    summed over the action dimensions."""
+    summed over the action dimensions; with a residual policy, the executed
+    ones the critics score, ``executed(a', next_a_expert)``."""
     next_pi = actor_dist(
         actor_state, actor_state.params, next_observations, carries, bootstrap=True
     )
     next_actions, log_probs = next_pi.sample_and_log_prob(seed=key)
+    if executed is not None:
+        next_actions = executed(next_actions, next_a_expert)
     return next_actions, log_probs.sum(-1, keepdims=True)
 
 
@@ -303,16 +306,24 @@ def soft_actor_step(
     q_reduce: Callable[..., jax.Array] = jnp.min,
     a_expert: Optional[jax.Array] = None,
     actions: Optional[jax.Array] = None,
+    executed: Optional[Callable[[jax.Array, Any], jax.Array]] = None,
 ) -> Tuple[S, Tuple[jax.Array, jax.Array, jax.Array], dict]:
     """One actor step on :func:`soft_policy_loss` plus the extensions'
     actor-loss terms, which also read ``a_expert``, the expert's stored
     actions at the rows (None without an expert), and ``actions``, the
-    rows' own. Returns the state,
+    rows' own. With a residual policy the critics score ``executed(a,
+    a_expert)`` (:func:`ajax.controller.executed_actions`). Returns the state,
     ``(loss, log_probs, q)``, the SAC loss before the extensions' terms,
     and the extensions' metrics."""
     agent_state, policy_key = agent_state.next_keys()
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     actor_state = agent_state.actor_state
+    transform = None
+    if executed is not None:
+        score = executed
+
+        def transform(actions: jax.Array) -> jax.Array:
+            return score(actions, a_expert)
 
     def loss_fn(params: FrozenDict) -> Tuple[jax.Array, Any]:
         loss, (log_probs, q, pi) = soft_policy_loss(
@@ -324,6 +335,7 @@ def soft_actor_step(
             policy_key,
             carries,
             q_reduce,
+            transform,
         )
         actor_batch = {
             "observations": observations,

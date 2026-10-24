@@ -8,9 +8,9 @@ listed in the [catalogue](#catalogue) below.
 
 Why extensions instead of agent options? An agent's constructor takes its
 paper's hyperparameters plus `extensions=()`. The exceptions are
-`expert_policy` (SAC, TD3, REDQ, ASAC, AVG, APO), whose return each evaluation
-logs, and a few SAC options (its expert's prefill and warm-up mix, the
-PID gain mode, `store_policy_action`), kept because they change the
+`expert_policy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, DAgger), whose return each evaluation
+logs, and a few SAC options (its expert's prefill and warm-up mix,
+`store_policy_action`), kept because they change the
 collection or the action pipeline, which extensions do not reach yet
 ([SAC](../algorithms/sac.md#expert-options)). Observation features (an
 expert's action or state, the training progress) are extensions too:
@@ -84,7 +84,8 @@ where it may act. Every other phase keeps a default that changes nothing.
 | `actor_loss` | at each actor update | add a term to the actor loss, and log metrics | summed |
 | `action` | at each collection step | replace the action the agent would take | the last proposal wins |
 | `eval_action` | at evaluation | replace the evaluation action | no agent runs it yet |
-| `transform_action` | at each collection step, in the losses and at evaluation | make the executed action a function of the policy's and the expert's | the first one acts |
+| `transform_action` | at each collection step, before the action is chosen, in the losses and at evaluation | make the executed action a function of the policy's and the expert's; the replay stores the executed one, which the critics score | one per agent |
+| `actuate` | at each collection step, after the action is chosen, and at evaluation | execute the chosen action through the expert (gain mode); the replay stores the chosen one | one per agent |
 | `post_update` | after each update | change the agent's state (schedules, refreshes) | in list order |
 | `eval_metrics` | at each evaluation | add metrics to the log | merged |
 | `observe` | whenever an observation arrives, in collection and evaluation | append columns to it, stored with it (an observation feature) | in column order: the normalised ones, then the raw ones |
@@ -95,8 +96,9 @@ makes one call per phase: `fold_init` (every initial state, then every
 `fold_post_update` and `fold_eval_metrics`. Each call gets a random key of
 its own, on which the agent draws nothing else (`init_state` and
 `eval_metrics` split it, one sub-key per extension). On an empty stack a
-fold returns its input untouched and draws nothing. The `action` and
-`transform_action` phases are the exceptions: SAC's action pipeline calls
+fold returns its input untouched and draws nothing. The `action`,
+`transform_action` and `actuate` phases are the exceptions: the agent's
+controller (its action pipeline, the shared collector and evaluation) calls
 them directly (see [below](#which-agent-runs-which-phase)).
 
 ## Which agent runs which phase
@@ -173,8 +175,13 @@ runs, which the algorithm cannot run, and which is not wired yet.
 
 Two more limits:
 
-- **`action` and `transform_action` are SAC's alone**, and only with an
-  `expert_policy` and without `use_pid_policy`. SAC's collection step offers two places for an
+- **`action` is SAC's alone**, and only with an `expert_policy` and
+  without gain mode (`ExpertGains`). `transform_action` runs on SAC, TD3,
+  REDQ, TQC, CrossQ, ASAC and AVG, whose critics score the executed action,
+  and on PPO, APO and IQL, whose updates read the policy's own action
+  (IQL's replay keeps it beside the executed one), and on APG and UDRL,
+  in their own rollouts. `actuate` runs on
+  SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL, with an expert. SAC's collection step offers two places for an
   extension to act, before and after its warm-up choice, and an extension
   says which one in its `action_slot` (`"pre_warmup"` or `"post_warmup"`).
   [Expert guidance](expert-guidance.md) explains them.
@@ -262,7 +269,7 @@ offending extension) if an extension:
   extension reads those actions;
 - (SAC) acts in collection without an `action_slot`, or acts in collection
   or makes the policy residual in a run without an `expert_policy` or with
-  `use_pid_policy`.
+  gain mode.
 
 When training starts, `CloningPretrain` raises when placed after another
 pre-training extension, and `PriorData` on a replay whose rows it cannot
@@ -281,7 +288,8 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | --- | --- | --- | --- |
 | `OnlineBC` | Pulls the actor's mean action towards the expert's, weighted by `φ*`'s value at each state, fading to zero over the first `critic_warmup_frac` of training. Logs `online_bc/term` and its weight `online_bc/weight`. | `actor_loss` | SAC with an expert and `MCPretrain` |
 | `ImitationLoss` | Adds `coef · mean((μ(s) − a_E(s))²) / 4`, the behaviour-cloning term of TD3+BC, towards a fixed expert it holds. When that expert is the agent's `expert_policy`, it reads the actions the agent stored, so the expert may be stateful. With `anneal_frac`, its weight falls linearly to 0 at that fraction of training (kickstarting). With `q_filter=True` a row counts only where the critic rates the expert's action above the policy's (Q-filtered BC), and evaluations log the share of a replay batch it keeps (`imitation/q_filter_frac`; not on AVG, which keeps no replay). With `target="replay"` it clones the replayed rows' own actions, so logged data needs no expert, and with `alpha` the actor loss becomes TD3+BC's: `λ` times the agent's own loss plus `coef · mean((μ(s) − a)²)` with no `/ 4`, `λ = alpha / mean|Q_1(s, μ(s))|`, the actions compared in the environment's units (see [TD3+BC](../algorithms/td3.md#td3bc-offline)). Logs `imitation/term` and the squared distance before the filter and the schedule, `imitation/mse`. | `actor_loss`, `eval_metrics` | SAC, TD3, REDQ, ASAC, AVG, APO, DAgger, and PPO, APG and UDRL with a stateless expert (they take none); a discrete policy has no mean action and raises (no cross-entropy form yet). `q_filter=True`: SAC, TD3, REDQ, ASAC and AVG, without `ResidualPolicy`; refused where the critic rates states, not actions (PPO, APO), or there is none (APG, UDRL) |
-| `ResidualPolicy` | Executes `clip(a_E + scale · a_π, −1, 1)`: the policy learns a correction on top of the expert. | `transform_action` | SAC with an expert, without `use_pid_policy` |
+| `ResidualPolicy` | Executes `clip(a_E + scale · a_π, −1, 1)`: the policy learns a correction on top of the expert. The replay stores the executed action and the critics score it. | `transform_action` | SAC (without gain mode), TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with an expert |
+| `ExpertGains` | Gain mode: the policy's action `a` sets each of the expert's learnable gains to `anchor · 10^a`, and the expert acts with them; the replay and the critics hold the gains. Needs a stateful expert with `learnable_fields` (`register_learnable_gains`). | `actuate` | SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with such an expert, without `ExpertActionInput` |
 | `JSRLCurriculum` | The expert acts for the first `H_t` steps of each episode, the policy afterwards; `H_t` shrinks from `episode_length` to 0 over `decay_frac` of training. Logs `jsrl/horizon` and `jsrl/expert_frac`. | `action`, `eval_metrics` | SAC with an expert |
 | `ExpertValueMetrics` | Logs the critic's value at the expert's actions (`value/q_expert_mean`), its gap to the value of the actions taken (`value/q_gap`) and, with `MCPretrain`, its gap to `φ*` (`value/phi_star_q_gap_ood`), on one replay batch per evaluation. | `eval_metrics` | SAC, TD3, REDQ, ASAC with an expert |
 

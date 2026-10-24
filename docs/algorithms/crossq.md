@@ -20,7 +20,7 @@ code (`adityab/CrossQ` at `a318a26`) is more specific, Ajax follows the code.
 | Learning | Off-policy, replay buffer |
 | Vectorised environments (`n_envs`) | Yes |
 | Recurrent memory (`memory=`) | No: the paper defines no recurrent batch normalisation |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `on_target`, `critic_loss`, `actor_loss` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate` |
 
 ## Example
 

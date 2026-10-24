@@ -38,7 +38,9 @@ Phases
 ``eval_action``  override the evaluation-time action (same rule)
 ``transform_action`` make the executed action a function of the policy's
                  and the expert's (residual RL), in collection, the
-                 losses and evaluation
+                 losses and evaluation; the replay stores the executed one
+``actuate``      execute the chosen action through the expert (gain mode:
+                 it sets the expert's gains); the replay stores the chosen
 ``post_update``  hook after the update step (φ-refresh, schedules, …)
 ``eval_metrics`` extra metrics, merged into the eval log
 ``observe``      columns appended to every observation (an expert's action,
@@ -113,6 +115,7 @@ PHASES: tuple[str, ...] = (
     "action",
     "eval_action",
     "transform_action",
+    "actuate",
     "post_update",
     "eval_metrics",
 )
@@ -366,11 +369,27 @@ class Extension:
         del agent_state, ext_state, obs, rng, ctx
         return None
 
-    def transform_action(self, actions: jax.Array, a_expert: jax.Array) -> jax.Array:
+    def transform_action(self, actions: jax.Array, inputs: Any) -> jax.Array:
         """The executed action from the policy's ``actions`` and the
-        expert's ``a_expert``; the policy's by default."""
-        del a_expert
+        expert's (:class:`ajax.controller.TransformInputs`), before the action
+        is chosen: the warm-up and the acting modes act on executed actions,
+        and the critics score them; the policy's by default."""
+        del inputs
         return actions
+
+    def actuate(self, actions: jax.Array, inputs: Any) -> tuple[jax.Array, Any]:
+        """The env's action from the chosen ``actions`` (warm-up draws
+        included), executed through the expert of ``inputs``
+        (:class:`ajax.controller.TransformInputs`), and the expert's state
+        after it. The replay stores the chosen actions; the default executes
+        them as they are."""
+        return actions, inputs.expert_state
+
+    def policy_action_dim(self, env_args: Any, expert: Any) -> Optional[int]:
+        """The dimension of the actions the policy chooses, where it is not
+        the env's (gain mode: the expert's learnable gains); None: the env's."""
+        del env_args, expert
+        return None
 
     def reward(
         self,

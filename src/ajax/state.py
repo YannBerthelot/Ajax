@@ -64,6 +64,9 @@ class Transition(Replaceable):
     # 1 where an expert acted at the row, for a replay that stores it (a run
     # with an expert): the share SAC logs.
     is_expert: Optional[jnp.ndarray] = None
+    # The action the policy chose where it differs from the executed one
+    # (a residual policy's), for a replay that stores it: IQL's actor fits it.
+    policy_action: Optional[jnp.ndarray] = None
 
     def __len__(self):
         return self.obs.shape[0] if self.obs.ndim > 0 else 1
@@ -108,6 +111,12 @@ class EnvironmentConfig(Replaceable):
     # order (ajax.controller.observers_of): the agent sees the env's
     # observation followed by their columns.
     observers: tuple = struct.field(pytree_node=False, default=())
+    # The extension transforming the action (ajax.controller.transforms_of):
+    # residual RL's, or gain mode's, through the agent's expert.
+    transforms: tuple = struct.field(pytree_node=False, default=())
+    # The dimension of the actions the policy chooses where it is not the
+    # env's (gain mode: the expert's learnable gains); None: the env's.
+    policy_action_dim: Optional[int] = struct.field(pytree_node=False, default=None)
 
     @property
     def mode(self) -> str:

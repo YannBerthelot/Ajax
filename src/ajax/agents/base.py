@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 from gymnax import EnvParams
 
-from ajax.controller import observers_of
+from ajax.controller import observers_of, transforms_of
 from ajax.environments.create import prepare_env
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import ExpertInAgentUnits
@@ -359,19 +359,35 @@ class ActorCritic:
         if expert is not None:
             self.expert_policy = self._in_agent_units(expert)
         self.extension_stack = self.extension_stack.with_experts(self._in_agent_units)
-        # The observation features its stack appends (ajax.controller): the
-        # observation every part of the agent sees and stores.
+        # The observation features its stack appends and its action transform
+        # (residual RL, gain mode): the controller's (ajax.controller), which
+        # collection and evaluation run.
         observers = observers_of(self.extension_stack)
-        if observers:
-            self.env_args = self.env_args.replace(observers=observers)
-            # A feature that only observes belongs to the controller: it takes
-            # no part in the learner's folds (no state, no key of its own).
+        transforms = transforms_of(self.extension_stack)
+        if len(transforms) > 1:
+            raise ValueError(
+                "An agent takes one action transform, got"
+                f" {[e.name for e in transforms]}."
+            )
+        dim = None
+        if transforms:
+            expert = getattr(self, "expert_policy", None)
+            with_features = self.env_args.replace(observers=observers)
+            dim = transforms[0].policy_action_dim(with_features, expert)
+        self.env_args = self.env_args.replace(
+            observers=observers, transforms=transforms, policy_action_dim=dim
+        )
+
+        # An extension acting only in the controller (a feature, gain mode)
+        # takes no part in the learner's folds: no state, no key of its own.
+        # A residual policy stays: the learner scores its executed actions.
+        def controller_only(extension: Any) -> bool:
+            phases = extension.implemented_phases()
+            return bool(phases) and phases <= {"observe", "actuate"}
+
+        if any(controller_only(e) for e in self.extension_stack):
             self.extension_stack = ExtensionStack(
-                [
-                    e
-                    for e in self.extension_stack
-                    if e.implemented_phases() != frozenset({"observe"})
-                ]
+                [e for e in self.extension_stack if not controller_only(e)]
             )
 
     def _in_agent_units(self, expert: Any) -> Any:

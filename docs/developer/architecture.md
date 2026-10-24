@@ -320,6 +320,7 @@ agent without extensions traces nothing extra and never guards a fold.
 | `fold_on_target`, `fold_critic_loss` | in the agent's critic step; `critic_step` for SAC, TD3, REDQ, ASAC, AVG and IQL |
 | `fold_actor_loss` | in the agent's actor step; `actor_step` for SAC, TD3, AVG, DAgger and IQL |
 | the `action` phase | SAC's action pipeline only, with an expert policy |
+| `transform_action`, `actuate` | the controller (`env_args.transforms`): the action pipeline before the choice, the shared collector after it (`expert_collect_kwargs`), evaluation, and `executed_actions` where the critics score executed actions |
 | the `observe` phase | the observers the agent lifts out of its stack (`env_args.observers`): the shared collector, at reset and after each step, PPO's forced reset, the expert prefill and evaluation |
 
 `fold_on_target`, `fold_critic_loss` and `fold_actor_loss` return their

@@ -1,5 +1,5 @@
 from collections.abc import Mapping, Sequence
-from typing import Optional, Tuple, Union
+from typing import Callable, Optional, Tuple, Union
 
 from gymnax import EnvParams
 
@@ -60,6 +60,8 @@ class PPO(ActorCritic):
         "on_target",
         "critic_loss",
         "actor_loss",
+        "transform_action",
+        "actuate",
     }
     phase_batch_keys: Mapping[str, frozenset] = {
         "reward": frozenset("observations raw_observations actions".split()),
@@ -131,6 +133,11 @@ class PPO(ActorCritic):
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
         cnn_extra_obs_dim: int = 0,
         cnn_spec: Optional[CNNSpec] = None,
+        # An expert the collector tracks: its actions, from its state along
+        # each trajectory, feed the observation features and a residual
+        # policy (the ratio reads the policy's own sample), and each
+        # evaluation logs its return.
+        expert_policy: Optional[Callable] = None,
         extensions: Sequence[Extension] = (),
         # Expose the most recent ``(T, n_envs, ...)``
         # rollout transition on ``agent_state.last_rollout`` so
@@ -147,6 +154,8 @@ class PPO(ActorCritic):
             encoder_kernel_init = PPO_HIDDEN_INIT
         self.config = run_config(locals(), self.name)
 
+        # Read by the extension check in the base initialiser.
+        self.expert_policy = expert_policy
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -201,6 +210,7 @@ class PPO(ActorCritic):
             expose_recent_rollout=expose_recent_rollout,
         )
         self.agent_config: PPOConfig = config
+        self.train_kwargs = {"expert_policy": self.expert_policy}
 
         if bptt_length is not None:
             if self.network_args.memory is None:

@@ -225,8 +225,19 @@ class DeclaredAgent(ActorCritic):
             )
         self.check()
         shared = {name: getattr(self, name) for name in ACTOR_CRITIC_ARGS & names}
+        derived = self.actor_critic_args()
+        # A derived argument may resolve a field the caller left None (PPO's
+        # reference initialisation), never replace a value the caller gave.
+        given = sorted(
+            n for n in derived.keys() & shared.keys() if shared[n] is not None
+        )
+        if given:
+            raise TypeError(
+                f"{self.name}.actor_critic_args() may only fill a field left None;"
+                f" it would replace {', '.join(given)}."
+            )
         expert = getattr(self, "expert_policy", None)
-        ActorCritic.__init__(self, **shared, **self.actor_critic_args())
+        ActorCritic.__init__(self, **(shared | derived))
         # ActorCritic writes the expert in agent units over the field: the
         # wrapper moves to ``expert``, and the field keeps the caller's, which
         # dataclasses.replace passes to the next agent (on its own env).
@@ -282,7 +293,9 @@ class DeclaredAgent(ActorCritic):
 
     def actor_critic_args(self) -> dict[str, Any]:
         """ActorCritic arguments the paper fixes (initialisations, heads) or
-        derives from the fields (CrossQ's learning rates and widths)."""
+        derives from the fields (CrossQ's learning rates and widths). One
+        named like a field only resolves it where the caller left it None
+        (TypeError otherwise)."""
         return {}
 
     def optimizer_settings(self) -> dict[str, Any]:

@@ -137,6 +137,19 @@ def test_the_run_config_is_the_call_and_the_knobs_reach_the_actor_critic() -> No
     assert agent.buffer is not None and agent.doubled == 16  # family's, then own
 
 
+def test_actor_critic_args_only_fill_a_field_left_none() -> None:
+    @dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+    class Filling(Toy):
+        encoder_kernel_init: str | None = None
+
+        def actor_critic_args(self) -> dict[str, Any]:
+            return {"tanh_mean": True, "encoder_kernel_init": "lecun_uniform"}
+
+    assert Filling("Pendulum-v1").network_args.encoder_kernel_init == "lecun_uniform"
+    with pytest.raises(TypeError, match="fill a field left None.*encoder_kernel"):
+        Filling("Pendulum-v1", encoder_kernel_init="he_normal")
+
+
 def test_agent_config_is_a_view_of_the_fields_declared_once() -> None:
     view = Toy("Pendulum-v1", lam=0.25).agent_config
     assert (view.gamma, view.lam, view.scaled) == (0.9, 0.25, 0.5)

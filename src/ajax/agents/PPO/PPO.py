@@ -5,7 +5,7 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
-from ajax.agents.minibatch import minibatch_geometry, resolve_num_minibatches
+from ajax.agents.minibatch import check_minibatch_plan
 from ajax.agents.PPO.state import PPOConfig
 from ajax.agents.PPO.train_PPO import make_train
 from ajax.extensions.base import Extension
@@ -13,27 +13,6 @@ from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import CNNSpec
 from ajax.schedule import Schedule
 from ajax.types import EnvType, InitializationFunction
-
-
-def _check_minibatch_geometry(config: PPOConfig, n_envs: int, recurrent: bool) -> None:
-    """Refuse an ``unroll_length`` the update could not use (it would fall
-    back to the flat shuffle), and a recurrent rollout whose sequences do
-    not split into the minibatches (``minibatch_geometry`` raises)."""
-    unroll = config.unroll_length
-    if unroll is not None and recurrent:
-        raise ValueError(
-            "unroll_length is the feedforward fragment length; a recurrent"
-            " PPO splits its rollout with bptt_length."
-        )
-    geometry = minibatch_geometry(config, config.n_steps, n_envs, recurrent)
-    if unroll is not None and (geometry.kind, geometry.length) != ("time", unroll):
-        raise ValueError(
-            f"unroll_length ({unroll}) must divide n_steps ({config.n_steps})"
-            " into fragments (n_steps // unroll_length * n_envs of them) that"
-            " split evenly into num_minibatches"
-            f" ({resolve_num_minibatches(config)}) > 1 minibatches."
-        )
-
 
 #: The hidden layers of PPO's reference code: OpenAI Baselines' ppo2 @ea25b9e
 #: builds its MLP with ortho_init(sqrt(2)) layers (baselines/common/models.py:96),
@@ -212,17 +191,7 @@ class PPO(ActorCritic):
         self.agent_config: PPOConfig = config
         self.train_kwargs = {"expert_policy": self.expert_policy}
 
-        if bptt_length is not None:
-            if self.network_args.memory is None:
-                raise ValueError(
-                    "bptt_length requires a memory config (recurrent PPO);"
-                    " for feedforward fragment minibatching use unroll_length."
-                )
-            if n_steps % bptt_length != 0:
-                raise ValueError(
-                    f"bptt_length ({bptt_length}) must divide n_steps ({n_steps})."
-                )
-        _check_minibatch_geometry(
+        check_minibatch_plan(
             config, self.env_args.n_envs, self.network_args.memory is not None
         )
 

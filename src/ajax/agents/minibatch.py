@@ -1,18 +1,18 @@
 """How an on-policy update cuts its rollout into minibatches and runs its
 epochs over them: shared by PPO, APO and PQN.
 
-A rollout's :class:`Geometry` decides how it is minibatched, and where its
-agent computes GAE:
+A rollout's :class:`MinibatchPlan` decides how it is cut into minibatches,
+and so where its agent computes the advantages (GAE):
 
-* ``flat`` (feedforward default): GAE once on the whole rollout, then a flat
-  shuffle of its ``n_steps * n_envs`` samples (PPO's Algorithm 1, OpenAI
-  Baselines' ppo2);
-* ``time`` (with ``unroll_length``): fragments of ``unroll_length`` steps
-  shuffled into minibatches, GAE recomputed in every minibatch with the
-  current critic (brax's ``compute_ppo_loss``);
-* ``recurrent``: GAE once on the whole rollout, then a shuffle of whole
-  sequences of ``length`` steps, each replayed from the carry it started
-  from.
+* ``flat`` (feedforward default): GAE once on the whole rollout, then its
+  ``n_steps * n_envs`` single steps shuffled into the minibatches (PPO's
+  Algorithm 1, OpenAI Baselines' ppo2);
+* ``time`` (with ``unroll_length``): fragments of ``unroll_length`` steps,
+  each in time order, shuffled into the minibatches, GAE recomputed in
+  every minibatch from the current critic (brax's ``compute_ppo_loss``);
+* ``recurrent``: GAE once on the whole rollout, then whole sequences of
+  ``length`` steps in time order shuffled into the minibatches, each
+  replayed from the memory it started with.
 """
 
 import dataclasses
@@ -23,16 +23,36 @@ import jax
 import jax.numpy as jnp
 from jax.tree_util import Partial as partial
 
+from ajax.deprecation import moved_names
 from ajax.state import Transition
 
 
 @dataclasses.dataclass(frozen=True)
-class Geometry:
-    """How an update minibatches its rollout (the module docstring)."""
+class MinibatchPlan:
+    """The plan for cutting one rollout into minibatches, decided once per
+    update from the hyperparameters: how many minibatches each epoch has
+    (``num_minibatches``), how many steps each piece holds (``length``) and
+    whether the pieces keep time order (``kind``, the module docstring)."""
 
-    kind: str  # "time", "flat" or "recurrent"
+    kind: str  # "flat", "time" or "recurrent"
     num_minibatches: int
     length: int  # steps per fragment ("time") or sequence ("recurrent")
+
+    @property
+    def gae_per_minibatch(self) -> bool:
+        """Whether GAE is computed again in each minibatch, from the current
+        critic (brax's fragments), rather than once on the rollout."""
+        return self.kind == "time"
+
+    def minibatches(self, batch: dict, key: jax.Array, carries: Any = None) -> dict:
+        """One epoch's partition of the rollout ``batch`` on ``key``; a
+        recurrent plan's sequences take their start ``carries`` along."""
+        k, length = self.num_minibatches, self.length
+        if self.kind == "time":
+            return get_minibatches_preserving_time(batch, key, k, length)
+        if self.kind == "recurrent":
+            return sequence_minibatches(batch, carries, key, k, length)
+        return get_minibatches_from_batch(batch, key, k)
 
 
 def default_bptt_length(n_steps: int, n_envs: int, num_minibatches: int) -> int:
@@ -63,10 +83,10 @@ def default_bptt_length(n_steps: int, n_envs: int, num_minibatches: int) -> int:
     return n_steps // pieces
 
 
-def minibatch_geometry(
+def minibatch_plan(
     agent_config: Any, n_steps: int, n_envs: int, recurrent: bool
-) -> Geometry:
-    """The rollout's :class:`Geometry`.
+) -> MinibatchPlan:
+    """The rollout's :class:`MinibatchPlan`.
 
     ``time`` only when ``unroll_length`` asks for it (``n_steps`` gives
     whole rollouts per env): with as many minibatches as envs, each
@@ -93,7 +113,7 @@ def minibatch_geometry(
                 f" {longest}, the longest length that does; None picks it"
                 " (docs/guide/memory.md)."
             )
-        return Geometry("recurrent", num_minibatches, length)
+        return MinibatchPlan("recurrent", num_minibatches, length)
     unroll = agent_config.unroll_length
     if (
         unroll is not None
@@ -101,8 +121,38 @@ def minibatch_geometry(
         and n_steps % unroll == 0
         and n_steps // unroll * n_envs % num_minibatches == 0
     ):
-        return Geometry("time", num_minibatches, unroll)
-    return Geometry("flat", num_minibatches, n_steps)
+        return MinibatchPlan("time", num_minibatches, unroll)
+    return MinibatchPlan("flat", num_minibatches, n_steps)
+
+
+def check_minibatch_plan(config: Any, n_envs: int, recurrent: bool) -> None:
+    """Refuse a ``bptt_length`` without memory or not dividing ``n_steps``,
+    an ``unroll_length`` the update could not use (it would fall back to
+    the flat shuffle), and a recurrent rollout whose sequences do not split
+    into the minibatches (:func:`minibatch_plan` raises)."""
+    bptt, n_steps = config.bptt_length, config.n_steps
+    if bptt is not None:
+        if not recurrent:
+            raise ValueError(
+                "bptt_length requires a memory config (recurrent PPO);"
+                " for feedforward fragment minibatching use unroll_length."
+            )
+        if n_steps % bptt != 0:
+            raise ValueError(f"bptt_length ({bptt}) must divide n_steps ({n_steps}).")
+    unroll = config.unroll_length
+    if unroll is not None and recurrent:
+        raise ValueError(
+            "unroll_length is the feedforward fragment length; a recurrent"
+            " PPO splits its rollout with bptt_length."
+        )
+    plan = minibatch_plan(config, n_steps, n_envs, recurrent)
+    if unroll is not None and (plan.kind, plan.length) != ("time", unroll):
+        raise ValueError(
+            f"unroll_length ({unroll}) must divide n_steps ({n_steps})"
+            " into fragments (n_steps // unroll_length * n_envs of them) that"
+            " split evenly into num_minibatches"
+            f" ({resolve_num_minibatches(config)}) > 1 minibatches."
+        )
 
 
 def resolve_num_minibatches(agent_config: Any) -> int:
@@ -259,3 +309,12 @@ def rollout_actions(rollout: Transition) -> tuple[jax.Array, jax.Array]:
         else log_prob.sum(-1, keepdims=True)
     )
     return actions, log_probs
+
+
+__getattr__ = moved_names(
+    __name__,
+    {
+        "Geometry": "ajax.agents.minibatch:MinibatchPlan",
+        "minibatch_geometry": "ajax.agents.minibatch:minibatch_plan",
+    },
+)

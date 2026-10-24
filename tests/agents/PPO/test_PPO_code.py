@@ -23,7 +23,7 @@ import jax.numpy as jnp
 import pytest
 
 from ajax import PPO
-from ajax.agents.minibatch import Geometry, minibatch_geometry
+from ajax.agents.minibatch import MinibatchPlan, minibatch_plan
 from ajax.agents.PPO.state import PPOConfig
 from ajax.networks.memory import MemoryConfig
 
@@ -92,7 +92,7 @@ def test_apply_gradients_runs_once_per_epoch_and_minibatch(extra, num_minibatche
 
 
 @pytest.mark.parametrize(
-    "config, n_envs, recurrent, geometry",
+    "config, n_envs, recurrent, plan",
     [
         # brax's fragments, opted into; unroll_length = n_steps: whole rollouts
         ({"num_minibatches": 4, "unroll_length": 8}, 2, False, ("time", 4, 8)),
@@ -112,10 +112,19 @@ def test_apply_gradients_runs_once_per_epoch_and_minibatch(extra, num_minibatche
         ({"num_minibatches": 1}, 3, True, ("recurrent", 1, 32)),
     ],
 )
-def test_the_rollout_geometry(config, n_envs, recurrent, geometry):
+def test_the_rollout_minibatch_plan(config, n_envs, recurrent, plan):
     agent_config = PPOConfig(n_steps=32, **config)
-    got = minibatch_geometry(agent_config, 32, n_envs, recurrent)
-    assert got == Geometry(*geometry)
+    got = minibatch_plan(agent_config, 32, n_envs, recurrent)
+    assert got == MinibatchPlan(*plan)
+
+
+def test_the_geometry_names_resolve_to_the_plan() -> None:
+    from ajax.agents import minibatch
+
+    with pytest.warns(FutureWarning, match="minibatch.Geometry moved to"):
+        assert minibatch.Geometry is MinibatchPlan
+    with pytest.warns(FutureWarning, match="minibatch.minibatch_geometry moved"):
+        assert minibatch.minibatch_geometry is minibatch_plan
 
 
 @pytest.mark.parametrize(
@@ -166,10 +175,10 @@ def test_bptt_length_is_the_longest_that_splits_and_explicit_ones_divide_it():
             want = max(splits, default=None) if length is None else length
             if want is None or want not in splits:
                 with pytest.raises(ValueError):
-                    minibatch_geometry(config, n_steps, n_envs, True)
+                    minibatch_plan(config, n_steps, n_envs, True)
             else:
-                got = minibatch_geometry(config, n_steps, n_envs, True)
-                assert got == Geometry("recurrent", k, want), (n_steps, n_envs, k)
+                got = minibatch_plan(config, n_steps, n_envs, True)
+                assert got == MinibatchPlan("recurrent", k, want), (n_steps, n_envs, k)
 
 
 def test_vf_coef_zero_leaves_the_critic_untrained():

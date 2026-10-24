@@ -1,10 +1,10 @@
-"""PPO (Schulman et al., 2017), with brax's minibatch geometry as an option.
+"""PPO (Schulman et al., 2017), with brax's minibatches as an option.
 
 Each iteration collects an ``(n_steps, n_envs)`` rollout, then runs
 ``n_epochs`` passes of a critic and an actor step on every minibatch of it
 (the clipped surrogate: :mod:`ajax.agents.PPO.core`). The rollout's
-geometry (:class:`ajax.agents.minibatch.Geometry`) decides how it is
-minibatched and where GAE is computed.
+minibatch plan (:class:`ajax.agents.minibatch.MinibatchPlan`) decides how
+it is cut into minibatches and where GAE is computed.
 """
 
 from collections.abc import Sequence
@@ -18,14 +18,7 @@ from flax.core import FrozenDict
 
 from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
 from ajax.agents.loop import TrainLoop, extension_key
-from ajax.agents.minibatch import (
-    get_minibatches_from_batch,
-    get_minibatches_preserving_time,
-    minibatch_geometry,
-    rollout_actions,
-    run_epochs,
-    sequence_minibatches,
-)
+from ajax.agents.minibatch import minibatch_plan, rollout_actions, run_epochs
 from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
@@ -296,7 +289,14 @@ def update_agent(
     """One PPO update on the ``(n_steps, n_envs)`` ``rollout`` collected
     from ``start``: ``n_epochs`` passes over its minibatches."""
     n_steps, n_envs = rollout.obs.shape[:2]
-    geometry = minibatch_geometry(agent_config, n_steps, n_envs, recurrent)
+    # How the rollout is cut into minibatches, and so where the advantages
+    # are computed, set by the hyperparameters: ppo2's single steps shuffled,
+    # GAE once on the rollout; brax's fragments of unroll_length steps, each
+    # in time order, shuffled, GAE recomputed in each minibatch from the
+    # current critic; or a recurrent policy's sequences of bptt_length steps
+    # in time order, each replayed from the memory it started with, GAE
+    # once. plan.num_minibatches minibatches of pieces of plan.length steps.
+    plan = minibatch_plan(agent_config, n_steps, n_envs, recurrent)
     actions, log_probs = rollout_actions(rollout)
     # The update's key: it shuffles the rollout, and the rollout's folds draw
     # on keys derived from it.
@@ -327,8 +327,9 @@ def update_agent(
         # The environment's own observations, which an expert reads.
         batch["raw_obs"] = rollout.raw_obs
     rollout_metrics: dict = {}  # the extensions' on the rollout's targets
+    carries = None  # a recurrent plan's sequences' start memories
 
-    if geometry.kind == "time":
+    if plan.gae_per_minibatch:
         # GAE in each minibatch, with the critic of that step.
         batch |= {
             "next_obs": rollout.next_obs,
@@ -339,7 +340,7 @@ def update_agent(
     else:
         if recurrent:
             agent_state, values, next_values, resets, carries = rollout_sequence_values(
-                agent_state, rollout, start, geometry.length
+                agent_state, rollout, start, plan.length
             )
             batch["resets"] = resets
         else:
@@ -384,15 +385,9 @@ def update_agent(
             )
         batch |= {"targets": value_targets, "gae": gae}
 
-    k, length = geometry.num_minibatches, geometry.length
-
     def minibatches(key: jax.Array) -> dict:
         """One epoch's partition of the rollout."""
-        if geometry.kind == "time":
-            return get_minibatches_preserving_time(batch, key, k, length)
-        if geometry.kind == "recurrent":
-            return sequence_minibatches(batch, carries, key, k, length)
-        return get_minibatches_from_batch(batch, key, k)
+        return plan.minibatches(batch, key, carries)
 
     def minibatch_step(agent_state: PPOState, mb: dict) -> tuple[PPOState, Any]:
         """A critic and an actor step, both from the state before either."""
@@ -408,7 +403,7 @@ def update_agent(
             extension_stack, agent_state, actor_key, total_timesteps, mb.get("raw_obs")
         )
 
-        if geometry.kind == "time":
+        if plan.gae_per_minibatch:
             # brax's compute_ppo_loss: GAE from the current critic, held
             # constant (no gradient reaches the critic through it).
             values = jax.lax.stop_gradient(
@@ -585,6 +580,10 @@ def make_train(
 
 __getattr__ = moved_names(
     __name__,
-    dict.fromkeys(("Geometry", "default_bptt_length"), "ajax.agents.minibatch")
-    | {"clip_global_norm": "ajax.agents.steps"},
+    {
+        "Geometry": "ajax.agents.minibatch:MinibatchPlan",
+        "minibatch_geometry": "ajax.agents.minibatch:minibatch_plan",
+        "default_bptt_length": "ajax.agents.minibatch",
+        "clip_global_norm": "ajax.agents.steps",
+    },
 )

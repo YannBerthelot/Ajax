@@ -1,7 +1,8 @@
 """Behaviour pins for the agents a refactoring step restructures: SAC's
-descendants (ASAC, REDQ, AVG), TD3, recurrent SAC, PPO on each minibatch
+descendants (ASAC, REDQ, AVG, TQC, CrossQ), SAC itself (plain, with an
+expert's prefill and warm-up mix, recurrent), TD3, PPO on each minibatch
 geometry, APO, PQN, DQN, the world models (DreamerV3, TD-MPC2 single- and
-multi-task), UDRL, APG, DAgger, IQL and TQC.
+multi-task), UDRL, APG, DAgger and IQL.
 
 Each case trains a tiny fixed run and compares a fingerprint (the sum of
 squares of each parameter tree, alpha, the ``Nudge`` or ``Drift``
@@ -27,6 +28,7 @@ from ajax.agents.APG.networks import PIDHeadConfig
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
+from ajax.agents.CrossQ.CrossQ import CrossQ
 from ajax.agents.DAgger.DAgger import DAgger
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.DQN.networks import DuelingQNetwork
@@ -210,6 +212,26 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         TQC,
         {**_SMALL, **_REPLAY, "num_critics": 3, "n_quantiles": 5}
         | {"extensions": (Nudge(),)},
+        200,
+    ),
+    "TQC": (TQC, {**_SMALL, **_REPLAY, "num_critics": 3, "n_quantiles": 5}, 200),
+    "CrossQ": (
+        CrossQ,
+        {"env_id": "Pendulum-v1", "n_envs": 2, "actor_width": 32, "critic_width": 32}
+        | _REPLAY,
+        200,
+    ),
+    "SAC": (
+        SAC,
+        {**_SMALL, **_REPLAY, "policy_update_start": 40, "alpha_update_start": 40},
+        200,
+    ),
+    # Expert prefill (40 expert steps written to replay) and the warm-up mix
+    # (the expert acts 70% of the warm-up's steps).
+    "SAC-expert": (
+        SAC,
+        {**_SMALL, **_REPLAY, "policy_update_start": 40, "alpha_update_start": 40}
+        | {"expert_policy": _push, "expert_buffer_n_steps": 40},
         200,
     ),
     "SAC-mcc": (
@@ -1236,6 +1258,32 @@ _GOLDEN |= {
         "alpha": 0.07000000029802322,
     },
     "PPO-env-split": {"actor": 6.008933067321777, "critic": 7.032352447509766},
+}
+
+
+# Recorded on macOS ARM CPU on 2026-10-24, before the agent files are
+# restructured (the actors' targets are never-updated copies: not pinned).
+_GOLDEN |= {
+    "TQC": {
+        "actor": 17.27611541748047,
+        "critic": 45.251319885253906,
+        "alpha": 0.9727481007575989,
+    },
+    "CrossQ": {
+        "actor": 132.80531311035156,
+        "critic": 271.5867919921875,
+        "alpha": 0.981685996055603,
+    },
+    "SAC": {
+        "actor": 10.55981731414795,
+        "critic": 17.899744033813477,
+        "alpha": 0.9750370979309082,
+    },
+    "SAC-expert": {
+        "actor": 10.559991836547852,
+        "critic": 17.84046173095703,
+        "alpha": 0.9768109321594238,
+    },
 }
 
 

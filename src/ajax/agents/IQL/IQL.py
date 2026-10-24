@@ -5,11 +5,12 @@ One update on a replay batch, in the order of the reference
 (ikostrikov/implicit_q_learning@09d7002, learner.py ``_update_jit``), each
 line one function below::
 
-    q = min_i Q_target_i(s, a)                                      behaviour_q
+    q = min_i Q_target_i(s, a)                                     min_target_q
     V <- argmin E[|expectile - 1(q - V(s) < 0)| (q - V(s))^2]         value_loss
     actor <- argmax E[min(exp(temperature (q - V(s))), 100) log pi(a | s)]
                                          awr_weight, awr_loss (on the new V)
-    Q <- argmin E[(Q(s, a) - r - gamma (1 - d) V(s'))^2]        q_target, q_loss
+    Q <- argmin E[(Q(s, a) - scale r - gamma (1 - d) V(s'))^2]
+                                                      bellman_target, q_loss
     Q_target <- tau Q + (1 - tau) Q_target
 
 Deviation: the critics' loss is their mean squared error, half the
@@ -86,7 +87,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         if not 0.0 < self.expectile < 1.0:
             raise ValueError(f"IQL's expectile is in (0, 1), got {self.expectile}.")
 
-    def networks(self) -> dict[str, Any]:
+    def actor_critic_args(self) -> dict[str, Any]:
         return {
             "encoder_kernel_init": ORTHOGONAL_SQRT2,
             "mean_kernel_init": ORTHOGONAL_SQRT2,
@@ -97,8 +98,10 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             "tanh_mean": True,
         }
 
+    def optimizer_settings(self) -> dict[str, Any]:
+        return {"eps": 1e-8}  # optax.adam's default eps, the reference's Adam
+
     def build(self) -> None:
-        super().build()
         # V's Adam: the critics', at its own learning rate.
         self.value_optimizer_args = self.critic_optimizer_args.replace(
             learning_rate=self.value_learning_rate
@@ -147,7 +150,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         state, sample_key, critic_key, actor_key = state.next_keys(3)
         batch, _ = sample_replay(state, ctx.buffer, sample_key)
         critic = state.critic_state
-        q = behaviour_q(critic, batch)
+        q = min_target_q(critic, batch)
         fit_v = partial(value_loss, state.value_state, batch.obs, q, self.expectile)
         value_state, _, _ = steps.gradient_step(state.value_state, fit_v)
         v_loss = fit_v(value_state.params)[0]
@@ -167,7 +170,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             actions=batch.action,
             critic_state=critic,
         )
-        target = q_target(value_state, batch, self.gamma, self.reward_scale)
+        target = bellman_target(value_state, batch, self.gamma, self.reward_scale)
         critic_state, c_loss, _, critic_metrics = steps.critic_step(
             state,
             batch,
@@ -212,7 +215,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
 
 
 # -- IQL's equations, in the order update calls them -------------------------
-def behaviour_q(critic: LoadedTrainState, batch: Transition) -> jax.Array:
+def min_target_q(critic: LoadedTrainState, batch: Transition) -> jax.Array:
     """``min_i Q_target_i(s, a)`` at the rows' actions."""
     q = q_values(critic, critic.target_params, batch.obs, batch.action)
     return jnp.min(q, axis=0)
@@ -256,10 +259,10 @@ def awr_loss(
     return loss, loss, pi.mean()
 
 
-def q_target(
+def bellman_target(
     value_state: LoadedTrainState, batch: Transition, gamma: float, scale: float
 ) -> jax.Array:
-    """``r + gamma (1 - d) V(s')`` (learner.py), on the new V."""
+    """``scale r + gamma (1 - d) V(s')`` (learner.py), on the new V."""
     next_v = predict_value(value_state, value_state.params, batch.next_obs)[0]
     return scale * batch.reward + gamma * (1.0 - batch.terminated) * next_v
 

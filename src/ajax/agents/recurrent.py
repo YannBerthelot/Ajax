@@ -512,21 +512,23 @@ def stored_actor_carry_dim(memory: Optional[MemoryConfig], stored_state: bool) -
 
 
 def make_replay_buffer(
-    agent_config: Any,
+    agent: Any,
     n_envs: int,
     memory: Optional[MemoryConfig],
     buffer_size: int,
     batch_size: int,
 ) -> BufferType:
-    """The replay buffer of an off-policy agent configured by ``agent_config``
-    (a :class:`RecurrentReplayConfig` with ``learning_starts``): transitions,
-    or per-env trajectories sampled as windows when ``memory`` is set."""
-    burn_in, sequence_length = agent_config.burn_in, agent_config.sequence_length
-    if agent_config.stored_state and memory is None:
+    """The replay buffer of an off-policy agent: transitions, or per-env
+    trajectories sampled as windows when ``memory`` is set. ``agent`` holds
+    ``burn_in``, ``sequence_length``, ``stored_state`` and
+    ``learning_starts``: a declared agent (its fields), or an older agent's
+    :class:`RecurrentReplayConfig`."""
+    burn_in, sequence_length = agent.burn_in, agent.sequence_length
+    if agent.stored_state and memory is None:
         raise ValueError(
             "stored_state=True requires a memory config (recurrent networks)."
         )
-    learning_starts = agent_config.learning_starts
+    learning_starts = agent.learning_starts
     if (
         memory is not None
         and learning_starts // n_envs <= burn_in + sequence_length + 1

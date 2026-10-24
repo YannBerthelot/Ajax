@@ -65,7 +65,13 @@ src/ajax/
 └── _compile_cache.py    the persistent JAX compile cache
 ```
 
-Each agent package `src/ajax/agents/<AGENT>/` holds:
+A declared agent (IQL, CrossQ, TD3) is one file, `<AGENT>/<AGENT>.py`: its
+hyperparameters as dataclass fields, its `init`, `update` and equations, its
+state and metrics, on a family of `agents/families.py` that builds its
+constructor, run config, replay and train function
+([Contributing](contributing.md#adding-an-agent)); its old `train_<AGENT>.py`
+and `state.py` serve their names until 0.5.0. Every other agent package
+`src/ajax/agents/<AGENT>/` holds:
 
 | File | What it holds |
 | --- | --- |
@@ -158,7 +164,7 @@ agent = PPO("CartPole-v1", n_envs=2, n_steps=64)
 state, out = agent.train(seed=[0, 1], n_timesteps=512)
 
 print(out)                                # None: no logging config, no evaluation
-print(type(state).__name__)               # BaseAgentState: the whole run, one pytree
+print(type(state).__name__)               # PPOState: the whole run, one pytree
 print(state.collector_state.timestep)     # [640 640]: env steps, every env counted
 print(jax.tree.leaves(state.actor_state.params)[0].shape[0])  # 2: the seed axis
 print(agent.config["algo_name"], agent.config["n_steps"])     # PPO 64: the run config
@@ -169,8 +175,11 @@ rollout more than the budget holds (see [the loop shapes](#three-iteration-shape
 
 ### The run config
 
-Every agent builds its run config the same way, as the first line of its
-constructor: `self.config = run_config(locals(), self.name)`.
+Every agent but the declared ones builds its run config the same way, as
+the first line of its constructor: `self.config = run_config(locals(),
+self.name)`. A declared agent (IQL, CrossQ, TD3) builds it from its fields,
+first thing in `DeclaredAgent.__post_init__`: each field as passed, and
+`algo_name`.
 [`run_config`](../../src/ajax/agents/base.py) keeps the constructor's
 arguments, drops `self`, `__class__` and any names passed in `exclude`
 (`TDMPC2MultiTask` leaves out its dataset and evaluation envs), and adds

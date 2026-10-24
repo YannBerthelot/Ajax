@@ -10,9 +10,11 @@ import inspect
 import textwrap
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 import pytest
 
+from ajax import TD3
 from ajax.agents import families
 from ajax.agents.families import (
     DeclaredAgent,
@@ -23,8 +25,10 @@ from ajax.agents.families import (
     ReplayAgent,
 )
 from ajax.evaluate import ValueEstimate
+from ajax.extensions.expert import ImitationLoss
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import action_value
+from ajax.state import OptimizerConfig
 from ajax.types import Architecture
 from tests.agents.test_agent_surface import CONTRACT
 from tests.test_exports import library_agents
@@ -41,17 +45,25 @@ class Toy(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
     actor_architecture: Architecture = NET
     critic_architecture: Architecture = NET
     gamma: float = 0.9
+    reward_scale: float = 2.0
     learning_starts: int = 3
     buffer_size: int = 64
     batch_size: int = 8
     lam: float = 0.5
 
+    # The hooks, none chaining super(): the family's part is its own.
     def check(self) -> None:
         if self.lam < 0:
             raise ValueError("Toy's lam is at least 0.")
 
-    def networks(self) -> dict[str, Any]:
+    def actor_critic_args(self) -> dict[str, Any]:
         return {"tanh_mean": True}
+
+    def optimizer_settings(self) -> dict[str, Any]:
+        return {"beta_1": 0.5}
+
+    def build(self) -> None:
+        self.doubled = 2 * self.batch_size
 
     @property
     def scaled(self) -> float:  # derived, as CrossQ's target entropy
@@ -65,10 +77,20 @@ ToyConfig = Toy.declare_config("gamma lam scaled")
 
 
 @dataclasses.dataclass(kw_only=True, eq=False, repr=False)
-class Unsized(ReplayAgent):  # no buffer_size, and no discount
+class Unsized(ReplayAgent):  # no buffer_size nor learning_starts, no discount
     batch_size: int = 8
 
     name = "Unsized"
+    capabilities = frozenset({"discounted", "q_critic"})
+
+
+@dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+class Undiscounted(ReplayAgent):  # discounted, without gamma nor reward_scale
+    buffer_size: int = 64
+    batch_size: int = 8
+    learning_starts: int = 0
+
+    name = "Undiscounted"
     capabilities = frozenset({"discounted", "q_critic"})
 
 
@@ -101,14 +123,18 @@ def test_the_run_config_is_the_call_and_the_knobs_reach_the_actor_critic() -> No
     )
     assert set(agent.config) == Toy.field_names() | {"algo_name"}
     assert agent.config["algo_name"] == "Toy" and agent.config["n_envs"] == 2
-    # Recorded before ActorCritic reads the expert in agent units.
-    assert agent.config["expert_policy"] is push is not agent.expert_policy
+    # The field and the run config keep the caller's expert; the agent reads
+    # it in agent units.
+    assert agent.config["expert_policy"] is push is agent.expert_policy
+    assert agent.expert is not push
     assert agent.env_args.n_envs == 2 and agent.env_args.normalize_obs_in_agent
     for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
-        assert (args.max_grad_norm, args.weight_decay, args.eps) == (1.0, 0.1, 1e-8)
+        settings = (args.max_grad_norm, args.weight_decay, args.beta_1, args.eps)
+        # optimizer_settings(), on OptimizerConfig's eps: the family sets none.
+        assert settings == (1.0, 0.1, 0.5, OptimizerConfig(1.0).eps)
     assert agent.network_args.actor_architecture == NET  # a shared argument
-    assert agent.network_args.tanh_mean  # networks()
-    assert agent.buffer is not None  # the family's build
+    assert agent.network_args.tanh_mean  # actor_critic_args()
+    assert agent.buffer is not None and agent.doubled == 16  # family's, then own
 
 
 def test_agent_config_is_a_view_of_the_fields_declared_once() -> None:
@@ -128,7 +154,7 @@ def test_the_fields_are_fixed_once_built_and_replace_builds_another() -> None:
     agent = Toy("Pendulum-v1", lam=0.25)
     with pytest.raises(AttributeError, match=r"lam is fixed.*dataclasses.replace"):
         agent.lam = 1.0
-    with pytest.raises(AttributeError, match="agent_config is fixed"):
+    with pytest.raises(AttributeError, match=r"views its fields.*replace\(agent, g"):
         agent.agent_config = agent.agent_config.replace(lam=1.0)
     agent.network_args = agent.network_args  # not a field: writable
     other = dataclasses.replace(agent, lam=1.0)
@@ -150,18 +176,73 @@ def test_the_fields_are_fixed_once_built_and_replace_builds_another() -> None:
         )
 
 
+class HalfUnit:
+    """A stateful expert (SAC's convention): half a unit of action."""
+
+    def init_state(self, n_envs: int) -> jax.Array:
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+        return jnp.full(obs.shape[:-1] + (1,), 0.5), state
+
+
+def test_replace_passes_the_callers_expert_to_an_agent_on_its_own_env() -> None:
+    """dataclasses.replace reads the expert_policy field back: the caller's
+    expert, which the new agent shares with its extensions and reads on its
+    own env's bounds, as a fresh agent does."""
+    expert = HalfUnit()
+    agent = TD3(
+        "Pendulum-v1",
+        expert_policy=expert,
+        extensions=(ImitationLoss(expert, coef=1.0),),
+    )
+    other = dataclasses.replace(agent, gamma=0.9)
+    (imitation,) = other.extension_stack.extensions
+    assert isinstance(imitation, ImitationLoss)
+    assert other.expert_policy is expert and other.config["expert_policy"] is expert
+    assert imitation.expert_policy is other.expert is not agent.expert
+    obs = jnp.zeros((1, 2))
+    moved = dataclasses.replace(
+        TD3("Pendulum-v1", expert_policy=push), env_id="MountainCarContinuous-v0"
+    )
+    fresh = TD3("MountainCarContinuous-v0", expert_policy=push)
+    # 0.5 on MountainCar's [-1, 1], not 0.25 as on Pendulum's [-2, 2].
+    assert float(moved.expert(obs)[0, 0]) == float(fresh.expert(obs)[0, 0]) == 0.5
+
+
 def test_checks_required_fields_and_action_spaces_refuse_at_construction() -> None:
     with pytest.raises(ValueError, match="lam"):
         Toy("Pendulum-v1", lam=-1.0)
-    with pytest.raises(TypeError, match="buffer_size"):
+    with pytest.raises(TypeError, match="buffer_size' and 'learning_starts'"):
         Unsized("Pendulum-v1")  # type: ignore[call-arg]
     with pytest.raises(ValueError, match="Toy only supports continuous action"):
         Toy("CartPole-v1")
 
 
-def test_the_value_estimate_reads_a_declared_discount() -> None:
-    assert Toy("Pendulum-v1").value_estimate() == ValueEstimate(action_value, 0.9)
-    assert Unsized("Pendulum-v1", buffer_size=64).value_estimate() is None
+def test_the_value_estimate_reads_the_declared_discount_and_reward_scale() -> None:
+    estimate = ValueEstimate(action_value, 0.9, 2.0)
+    assert Toy("Pendulum-v1").value_estimate() == estimate
+    with pytest.raises(TypeError, match="declares the fields.*gamma and reward_s"):
+        Undiscounted("Pendulum-v1")
+    assert RecurrentToy("Pendulum-v1").value_estimate() is None  # not discounted
+
+
+def test_make_train_refuses_an_extension_context_it_cannot_give() -> None:
+    @dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+    class Asking(Toy):
+        extension_context = Toy.extension_context | {"gamma"}
+
+    agent = Asking("Pendulum-v1")
+    with pytest.raises(ValueError, match="extension_context names gamma, which"):
+        agent.get_make_train()(
+            agent.env_args,
+            agent.actor_optimizer_args,
+            agent.critic_optimizer_args,
+            agent.network_args,
+            agent.agent_config,
+            total_timesteps=8,
+            num_episode_test=1,
+        )
 
 
 def test_a_recurrent_replay_agent_replays_windows_with_stored_carries() -> None:
@@ -169,7 +250,7 @@ def test_a_recurrent_replay_agent_replays_windows_with_stored_carries() -> None:
         RecurrentToy("Pendulum-v1", stored_state=True)
     gru = MemoryConfig(kind="gru", hidden_size=4)
     agent = RecurrentToy("Pendulum-v1", memory=gru, stored_state=True, burn_in=2)
-    assert agent.network_args.memory == gru and agent.keeps_carries()
+    assert agent.network_args.memory == gru and agent.stores_state()
 
 
 def declared_classes() -> list[type]:

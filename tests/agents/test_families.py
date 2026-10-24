@@ -315,7 +315,7 @@ def test_an_on_policy_agent_runs_its_update_on_each_rollout() -> None:
     # The context runs init alone, as the run's first state.
     loop, context = agent.context(8)
     assert (
-        context.extensions is loop.stack
+        context.extensions is loop.extensions
         and not context.recurrent
         and context.buffer is None
     )

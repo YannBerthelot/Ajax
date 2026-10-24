@@ -344,7 +344,7 @@ def training_iteration(
             "raw_observations": rollout.obs,
             "pi_mean": rollout.policy_action,
         }
-        extra, metrics = loop.stack.fold_actor_loss(
+        extra, metrics = loop.extensions.fold_actor_loss(
             agent_state,
             actor_batch,
             timestep,
@@ -477,7 +477,7 @@ def make_train(
 
     def init_fn(key, index):
         del index
-        return fresh_state(init, loop.stack, total_timesteps, key)
+        return fresh_state(init, loop.extensions, total_timesteps, key)
 
     def resume_transform(agent_state, key):
         del key

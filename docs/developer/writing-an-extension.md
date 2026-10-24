@@ -83,7 +83,7 @@ extensions were given.
 | `observe(inputs, state)` | `(columns, state)`: the `(n_envs, observation_width(env_args))` columns appended to the observation `inputs` (`ajax.controller.ObserveInputs`) describes | in column order (`observes_normalised` first) | the shared collector and evaluation, whenever an observation arrives |
 
 Each phase the stack folds is one `ExtensionStack` method, `fold_<phase>`
-(`fold_init` runs `init_state` then `pretrain`), and an agent calls it once
+(`apply_init` runs `init_state` then `pretrain`), and an agent calls it once
 where the phase applies; the controller dispatches `action`,
 `transform_action` and `actuate` itself.
 Each agent lists the phases it folds in

@@ -219,7 +219,7 @@ everything that is the same for every agent. An agent supplies two functions:
 The loop does the rest, in this order on every iteration:
 
 ```text
-fresh run:  state = init(key), then fold_init: each extension's initial state, then its pretrain
+fresh run:  state = init(key), then apply_init: each extension's initial state, then its pretrain
 resumed:    state = the state passed in
 iterate:    collect one step per env (off-policy) or a rollout (on-policy)
             if timestep >= learning_starts (on-policy: always):
@@ -334,9 +334,9 @@ agent without extensions traces nothing extra and never guards a fold.
 
 | Call | Where it is made |
 | --- | --- |
-| `fold_init` (each `init_state`, then each `pretrain`) | `fresh_state`, fresh runs only (a resumed state already carries both) |
+| `apply_init` (each `init_state`, then each `pretrain`) | `fresh_state`, fresh runs only (a resumed state already carries both) |
 | `apply_post_update` | after every update: the loop's `maybe_update`, `repeat_update` and `on_policy`; APG, UDRL and `TDMPC2MultiTask` in their own iterations |
-| `fold_eval_metrics` | at every evaluation, merged into the logged metrics (`compose_eval_metrics` in `log.py`) |
+| `apply_eval_metrics` | at every evaluation, merged into the logged metrics (`compose_eval_metrics` in `log.py`) |
 | `apply_on_target`, `apply_critic_loss` | in the agent's critic step; `critic_step` for SAC, TD3, REDQ, ASAC, AVG and IQL |
 | `apply_actor_loss` | in the agent's actor step; `actor_step` for SAC, TD3, AVG, DAgger and IQL |
 | the `action` phase | SAC's action pipeline only, with an expert policy |

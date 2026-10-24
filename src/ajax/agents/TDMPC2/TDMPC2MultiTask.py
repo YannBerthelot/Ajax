@@ -435,7 +435,7 @@ class TDMPC2MultiTask:
 
             def extra(s: TDMPC2MultiTaskState) -> dict:
                 key = evaluation_keys(s)[1]
-                return stack.fold_eval_metrics(s, s.n_updates, key, total)
+                return stack.apply_eval_metrics(s, s.n_updates, key, total)
 
             self._extra_eval_fns[total] = jax.jit(jax.vmap(extra))
         return self._extra_eval_fns[total]

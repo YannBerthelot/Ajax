@@ -474,9 +474,9 @@ def make_train(
             alpha_args,
             buffer,
             stored_state=agent_config.stored_state,
-            store_expert_data=holds_expert(expert_policy, loop.stack),
+            store_expert_data=holds_expert(expert_policy, loop.extensions),
             expert_policy=expert_policy,
-            store_raw_next_obs="raw_next_obs" in loop.stack.buffer_fields(),
+            store_raw_next_obs="raw_next_obs" in loop.extensions.buffer_fields(),
         )
 
     def update(agent_state: ASACState, _transition: Transition) -> Any:
@@ -486,7 +486,7 @@ def make_train(
             buffer,
             recurrent,
             agent_config,
-            loop.stack,
+            loop.extensions,
             total_timesteps,
             fixed_alpha,
             executed_fn(env_args),

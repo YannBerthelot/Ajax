@@ -80,7 +80,7 @@ and picks one of two iterations:
   `post_update`. A recurrent agent replays the rollout from `start`'s memory.
 
 The loop does the rest: `init` and the extensions' initial state and
-pre-training (`ExtensionStack.fold_init`) on a fresh run, the given state on a
+pre-training (`ExtensionStack.apply_init`) on a fresh run, the given state on a
 resumed one, then the iterations in `build_resumable_train`'s jitted scan,
 evaluating and logging every `log_frequency` steps (with `eval_metrics`).
 
@@ -116,7 +116,7 @@ settings and overrides only the *phases* it touches; the other phases keep
 their defaults, which change nothing. An agent applies a phase of its
 `ExtensionStack` in list order with one helper per phase (`apply_reward`,
 `apply_on_target`, `apply_critic_loss`, `apply_actor_loss`,
-`apply_post_update`; the loop calls `fold_init` and `fold_eval_metrics`)
+`apply_post_update`; the loop calls `apply_init` and `apply_eval_metrics`)
 that builds the `ExtensionContext` (`step`, `rng`, `total_steps`) and
 threads the extensions' state. On an empty stack a helper changes nothing
 (a loss term is `0.0`), so an agent without extensions traces nothing extra

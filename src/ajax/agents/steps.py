@@ -216,7 +216,7 @@ def critic_step(
     batch: Any,
     target_q: jax.Array,
     value_loss: Callable[[Any, jax.Array], tuple[jax.Array, Any]],
-    extension_stack: ExtensionStack,
+    extensions: ExtensionStack,
     key: jax.Array,
     total_timesteps: int,
     **target_args: Any,
@@ -233,7 +233,7 @@ def critic_step(
     phases' metrics.
     """
     target_q, target_metrics = apply_on_target(
-        extension_stack,
+        extensions,
         agent_state,
         batch,
         target_q,
@@ -245,7 +245,7 @@ def critic_step(
     def loss_fn(params: Any) -> tuple[jax.Array, Any]:
         loss, aux = value_loss(params, target_q)
         extra, loss_metrics = apply_critic_loss(
-            extension_stack, agent_state, batch, params, target_q, key, total_timesteps
+            extensions, agent_state, batch, params, target_q, key, total_timesteps
         )
         return loss + extra, (aux, loss_metrics)
 
@@ -258,7 +258,7 @@ def critic_step(
 def actor_step(
     agent_state: Any,
     policy_loss: Callable[[Any], tuple[jax.Array, Any, Optional[jax.Array]]],
-    extension_stack: ExtensionStack,
+    extensions: ExtensionStack,
     key: jax.Array,
     total_timesteps: int,
     **batch: Any,
@@ -290,7 +290,7 @@ def actor_step(
             }
         )
         step = agent_state.collector_state.timestep
-        extra, metrics = extension_stack.apply_actor_loss(
+        extra, metrics = extensions.apply_actor_loss(
             agent_state, actor_batch, step, extension_key(key), total_timesteps
         )
         return loss + extra, (aux, metrics)

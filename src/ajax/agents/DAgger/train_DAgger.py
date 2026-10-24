@@ -264,7 +264,12 @@ def make_train(
 
     def update(agent_state: DAggerState, _transition: Any) -> Any:
         return update_agent(
-            agent_state, buffer, agent_config, continuous, loop.stack, total_timesteps
+            agent_state,
+            buffer,
+            agent_config,
+            continuous,
+            loop.extensions,
+            total_timesteps,
         )
 
     pipeline = make_action_pipeline(

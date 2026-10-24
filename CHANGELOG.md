@@ -72,11 +72,14 @@ PyPI as `ajax-rl`.
 - **Extension phases are applied.** `ExtensionStack.fold_reward`,
   `fold_on_target`, `fold_critic_loss`, `fold_actor_loss` and
   `fold_post_update` are now `apply_reward`, `apply_on_target`,
-  `apply_critic_loss`, `apply_actor_loss` and `apply_post_update`, as
+  `apply_critic_loss`, `apply_actor_loss` and `apply_post_update`, and
+  `fold_init`, `fold_init_states`, `fold_pretrain` and `fold_eval_metrics`
+  are `apply_init`, `apply_init_states`, `apply_pretrain` and
+  `apply_eval_metrics`, as
   are `ajax.agents.loop`'s `fold_on_target`, `fold_critic_loss` and
   `fold_post_update` (also in `ajax.agents.steps`): same arguments. The
   old names stay as aliases until 0.5.0. `TrainContext.stack` is
-  `TrainContext.extensions`.
+  `TrainContext.extensions`, and so is `TrainLoop.stack`.
 - `ajax.agents.minibatch.rollout_actions` (`ajax.agents.PPO.core`'s
   before) is `get_actions_and_log_probs`; the old names import with a
   FutureWarning until 0.5.0.

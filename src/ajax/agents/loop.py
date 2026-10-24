@@ -10,7 +10,7 @@ update it. The loop owns everything else, the same for every agent::
     iterate:    collect one step per env (off-policy) or a rollout (on-policy)
                 if timestep >= learning_starts (on-policy: always):
                     state, aux = update(state, experience)
-                    fold the extensions' post_update
+                    apply the extensions' post_update
                 else:
                     aux = the update's metrics, filled with NaN
                 evaluate and log every log_frequency steps
@@ -23,7 +23,7 @@ runs them in the same order (:meth:`TrainLoop.off_policy`)::
     iterate:    state, experience = collect(state, tick)
                 repeat n_updates(tick, state) times:
                     state, _ = update(state, experience)
-                    fold the extensions' post_update
+                    apply the extensions' post_update
                 evaluate and log every evaluation.every ticks
 
 A replay agent given a dataset trains offline instead
@@ -31,7 +31,7 @@ A replay agent given a dataset trains offline instead
 
     fresh run:  the replay and the normalisers start from the dataset
     iterate:    state, aux = update(state, None)   # no environment step
-                fold the extensions' post_update
+                apply the extensions' post_update
                 evaluate and log every log_frequency updates
 
 The result is :func:`ajax.perf_utils.build_resumable_train`'s jitted
@@ -106,11 +106,11 @@ from ajax.state import EnvironmentConfig
 from ajax.types import NormalizationInfo
 from ajax.utils import online_normalize
 
-#: The extension phases the loop folds for every agent: a fresh run's
+#: The extension phases the loop applies for every agent: a fresh run's
 #: one-shot ``pretrain``, ``post_update`` after each update,
 #: ``eval_metrics`` at each evaluation and ``observe`` wherever the shared
 #: collector and evaluation meet an observation (an agent rolling out on
-#: its own removes it). An agent adds the phases its own update folds
+#: its own removes it). An agent adds the phases its own update applies
 #: (``ActorCritic.supported_extension_phases``).
 LOOP_PHASES = frozenset({"pretrain", "post_update", "eval_metrics", "observe"})
 
@@ -173,17 +173,21 @@ def record(rows: dict, count: jax.Array, metrics: dict) -> tuple[dict, jax.Array
 
 
 def fresh_state(
-    init: Init, stack: ExtensionStack, total_steps: int, key: Any, **context: Any
+    init: Init,
+    extensions: ExtensionStack,
+    total_steps: int,
+    key: Any,
+    **context: Any,
 ) -> Any:
     """A fresh run's state: ``init(init_key)`` on ``split(key)``, then the
     extensions' initial states and one-shot pretraining on
-    ``extension_key`` (:meth:`ExtensionStack.fold_init`; ``context``: the
+    ``extension_key`` (:meth:`ExtensionStack.apply_init`; ``context``: the
     pretraining's static context fields)."""
     init_key, extension_key = jax.random.split(key)
     env_args = context.get("env_args")
     state = with_obs_norm(init(init_key), env_args)
     state = with_horizon(state, env_args, total_steps)
-    return stack.fold_init(state, extension_key, total_steps, **context)
+    return extensions.apply_init(state, extension_key, total_steps, **context)
 
 
 def with_horizon(agent_state: Any, env_args: Any, total_steps: int) -> Any:
@@ -272,7 +276,7 @@ class TrainLoop:
     env_args: EnvironmentConfig
     total_timesteps: int
     num_episode_test: int
-    stack: ExtensionStack
+    extensions: ExtensionStack
     log: bool
     log_fn: Callable
     log_frequency: Optional[int]
@@ -308,7 +312,7 @@ class TrainLoop:
             env_args=env_args,
             total_timesteps=total_timesteps,
             num_episode_test=num_episode_test,
-            stack=ExtensionStack(extensions),
+            extensions=ExtensionStack(extensions),
             log=logging_config is not None,
             log_fn=partial(vmap_log, run_ids=run_ids),
             log_frequency=log_frequency,
@@ -399,7 +403,7 @@ class TrainLoop:
     def post_update(self, agent_state: Any) -> Any:
         """:func:`apply_post_update` at the collector's timestep."""
         return apply_post_update(
-            self.stack,
+            self.extensions,
             agent_state,
             agent_state.collector_state.timestep,
             self.total_timesteps,
@@ -411,7 +415,7 @@ class TrainLoop:
         learning_starts: int,
         update: Callable[[Any], tuple[Any, Any]],
     ) -> tuple[Any, Any]:
-        """``update`` and fold ``post_update`` once ``learning_starts`` steps
+        """``update`` and apply ``post_update`` once ``learning_starts`` steps
         are collected; before, the metrics have the update's structure,
         filled with NaN (which the logger drops)."""
 
@@ -481,7 +485,9 @@ class TrainLoop:
             self.log_fn,
             self.log_frequency,
             self.total_timesteps,
-            extra_eval_metrics=compose_eval_metrics(self.stack, self.total_timesteps),
+            extra_eval_metrics=compose_eval_metrics(
+                self.extensions, self.total_timesteps
+            ),
             **kwargs,
         )
 
@@ -500,7 +506,9 @@ class TrainLoop:
             tick,
             metrics_fn=evaluation.metrics,
             evaluate_fn=evaluation.evaluate or (lambda *_: {}),
-            extra_eval_metrics=compose_eval_metrics(self.stack, self.total_timesteps),
+            extra_eval_metrics=compose_eval_metrics(
+                self.extensions, self.total_timesteps
+            ),
             log=self.log,
             log_fn=self.log_fn,
             every=evaluation.every,
@@ -541,7 +549,7 @@ class TrainLoop:
         def init_fn(key: jax.Array, index: Any) -> Any:
             del index
             agent_state = fresh_state(
-                init, self.stack, self.total_timesteps, key, **context
+                init, self.extensions, self.total_timesteps, key, **context
             )
             if last_rollout is not None:
                 length, collect_kwargs = last_rollout
@@ -699,7 +707,7 @@ class TrainLoop:
 
         A fresh run's replay and normalisers start from the dataset's rows
         (:func:`seed_replay`). Each tick runs ``update(agent_state, None)``
-        on that replay, folds ``post_update`` and counts the update in the
+        on that replay, applies ``post_update`` and counts the update in the
         collector's timestep: the schedules run over the updates, and the
         evaluations (:meth:`evaluate_and_log`) come every ``log_frequency``
         updates and log the updates done as their timestep. The budget is
@@ -779,7 +787,7 @@ class TrainLoop:
         (:func:`collect_experience` with ``collect_kwargs``), then runs
         ``update(agent_state, rollout, start)``, resets every env on brax's
         cadence when ``forced_resets``, ``(resets_per_eval, num_evals)``,
-        asks for any (:meth:`forced_reset`), and folds ``post_update``;
+        asks for any (:meth:`forced_reset`), and applies ``post_update``;
         ``expose_rollout`` keeps the rollout on ``agent_state.last_rollout``.
         The budget is :meth:`n_rollouts`; the last one may reach past the
         call's end, and evaluates there when the horizon is further.

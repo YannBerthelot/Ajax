@@ -91,9 +91,9 @@ where it may act. Every other phase keeps a default that changes nothing.
 | `observe` | whenever an observation arrives, in collection and evaluation | append columns to it, stored with it (an observation feature) | in column order: the normalised ones, then the raw ones |
 
 The agent hands its stack (an `ExtensionStack`) to its training step, which
-makes one call per phase: `fold_init` (every initial state, then every
+makes one call per phase: `apply_init` (every initial state, then every
 `pretrain`), `apply_on_target`, `apply_critic_loss`, `apply_actor_loss`,
-`apply_post_update` and `fold_eval_metrics`. Each call gets a random key of
+`apply_post_update` and `apply_eval_metrics`. Each call gets a random key of
 its own, on which the agent draws nothing else (`init_state` and
 `eval_metrics` split it, one sub-key per extension). On an empty stack a
 fold returns its input untouched and draws nothing. The `action`,

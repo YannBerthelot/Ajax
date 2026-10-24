@@ -65,7 +65,7 @@ def _loop(*extensions: Extension) -> TrainLoop:
         env_args=None,  # type: ignore[arg-type]
         total_timesteps=100,
         num_episode_test=1,
-        stack=ExtensionStack(extensions),
+        extensions=ExtensionStack(extensions),
         log=False,
         log_fn=print,
         log_frequency=None,

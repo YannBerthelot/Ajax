@@ -619,7 +619,7 @@ def make_train(
             env_args=env_args,
             mode=mode,
             agent_config=agent_config,
-            extension_stack=loop.stack,
+            extension_stack=loop.extensions,
             total_timesteps=total_timesteps,
             expert_policy=expert_policy,
         )

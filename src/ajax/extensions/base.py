@@ -529,32 +529,31 @@ class ExtensionStack:
         return frozenset().union(*(e.buffer_fields for e in self.extensions))
 
     def _keys(self, rng: jax.Array) -> tuple[jax.Array, ...]:
-        """One sub-key per extension (a fold never splits for an empty stack)."""
+        """One sub-key per extension (an empty stack splits nothing)."""
         return tuple(jax.random.split(rng, len(self.extensions)))
 
-    # ``apply_<phase>`` (and the loop's ``fold_init``, ``fold_pretrain``,
-    # ``fold_eval_metrics``): each builds the phase's ExtensionContext and
+    # Each ``apply_<phase>`` builds the phase's ExtensionContext and
     # reads (and, for state-threading phases, writes)
     # ``agent_state.ext_state``, in list order. On an empty stack it returns
     # its input unchanged without building a context, so an agent without
     # extensions traces nothing extra and never needs to guard a call.
 
-    def fold_init(
+    def apply_init(
         self, agent_state: Any, rng: jax.Array, total_steps: int, **run_fields: Any
     ) -> Any:
         """A fresh run's extension setup: every extension's initial state,
         then its one-shot ``pretrain`` at step 0 (``rng`` split between the
-        two; ``run_fields``: :meth:`fold_pretrain`'s). Skipped on resume, where
+        two; ``run_fields``: :meth:`apply_pretrain`'s). Skipped on resume, where
         the state already carries both."""
         if not self.extensions:
             return agent_state
         init_key, pretrain_key = jax.random.split(rng)
-        agent_state = self.fold_init_states(agent_state, init_key)
-        return self.fold_pretrain(
+        agent_state = self.apply_init_states(agent_state, init_key)
+        return self.apply_pretrain(
             agent_state, jnp.asarray(0), pretrain_key, total_steps, **run_fields
         )
 
-    def fold_init_states(self, agent_state: Any, rng: jax.Array) -> Any:
+    def apply_init_states(self, agent_state: Any, rng: jax.Array) -> Any:
         """``agent_state`` with every extension's initial state (one key
         each) in its ``ext_state``."""
         if not self.extensions:
@@ -567,7 +566,7 @@ class ExtensionStack:
             )
         )
 
-    def fold_pretrain(
+    def apply_pretrain(
         self,
         agent_state: Any,
         step: Any,
@@ -575,7 +574,7 @@ class ExtensionStack:
         total_steps: int,
         **run_fields: Any,
     ) -> Any:
-        """One-shot pretrain fold; returns the updated ``agent_state``.
+        """The one-shot pretrain; returns the updated ``agent_state``.
         ``run_fields``: the run's static :class:`ExtensionContext` fields
         (``env_args``, ``update``, ``buffer``)."""
         if not self.extensions:
@@ -707,22 +706,14 @@ class ExtensionStack:
             metrics = merge_metrics(metrics, ext_metrics)
         return total, metrics
 
-    # The former names, which the agents not yet declared on a family call;
-    # 0.5.0 removes them.
-    fold_post_update = apply_post_update
-    fold_reward = apply_reward
-    fold_on_target = apply_on_target
-    fold_critic_loss = apply_critic_loss
-    fold_actor_loss = apply_actor_loss
-
-    def fold_eval_metrics(
+    def apply_eval_metrics(
         self,
         agent_state: Any,
         step: Any,
         rng: jax.Array,
         total_steps: int,
     ) -> dict:
-        """Eval-metrics fold; returns the extensions' merged metrics (each
+        """The extensions' evaluation metrics, merged (each
         extension gets its own key; the context carries ``rng``)."""
         if not self.extensions:
             return {}
@@ -732,6 +723,18 @@ class ExtensionStack:
         for i, ext in enumerate(self.extensions):
             out.update(ext.eval_metrics(agent_state, ext_states[i], keys[i], context))
         return out
+
+    # The former names, which the agents not yet declared on a family call;
+    # 0.5.0 removes them.
+    fold_post_update = apply_post_update
+    fold_reward = apply_reward
+    fold_on_target = apply_on_target
+    fold_critic_loss = apply_critic_loss
+    fold_actor_loss = apply_actor_loss
+    fold_init = apply_init
+    fold_init_states = apply_init_states
+    fold_pretrain = apply_pretrain
+    fold_eval_metrics = apply_eval_metrics
 
     def bind_to_agent(self, **agent_context: Any) -> "ExtensionStack":
         """Return a new stack with every extension bound to ``agent_context``

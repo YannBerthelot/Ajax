@@ -324,7 +324,7 @@ def make_train(
             reward_scale=agent_config.reward_scale,
             td_target_fn=td_target_fn,
             td_loss_fn=td_loss_fn,
-            extension_stack=loop.stack,
+            extension_stack=loop.extensions,
             total_timesteps=total_timesteps,
             epsilon_schedule=epsilon_schedule,
         )

@@ -14,18 +14,18 @@ if TYPE_CHECKING:
 
 
 def compose_eval_metrics(
-    extension_stack: "ExtensionStack", total_timesteps: int
+    extensions: "ExtensionStack", total_timesteps: int
 ) -> Optional[Callable]:
     """``(agent_state, rng) -> dict``: the stack's
-    :meth:`ExtensionStack.fold_eval_metrics` at the collector's timestep, the
+    :meth:`ExtensionStack.apply_eval_metrics` at the collector's timestep, the
     ``extra_eval_metrics`` of :func:`evaluate_and_log` and
     :func:`maybe_eval_and_log`; ``None`` without extensions, so that their
     zero-overhead branch stays."""
-    if not extension_stack:
+    if not extensions:
         return None
 
     def eval_metrics(agent_state, rng):
-        return extension_stack.fold_eval_metrics(
+        return extensions.apply_eval_metrics(
             agent_state, agent_state.collector_state.timestep, rng, total_timesteps
         )
 

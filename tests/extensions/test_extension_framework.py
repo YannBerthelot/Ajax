@@ -173,7 +173,7 @@ def test_eval_metrics_merge_with_a_key_per_extension():
             return {self.key: rng, f"{self.key}/context": context.rng}
 
     stack, rng = ExtensionStack([Metric("a/x"), Metric("b/y")]), jax.random.PRNGKey(0)
-    out = stack.fold_eval_metrics(_FakeAgentState(ext_state=((), ())), 0, rng, 100)
+    out = stack.apply_eval_metrics(_FakeAgentState(ext_state=((), ())), 0, rng, 100)
     assert set(out) == {"a/x", "b/y", "a/x/context", "b/y/context"}
     for key, want in zip(("a/x", "b/y"), jax.random.split(rng, 2), strict=True):
         np.testing.assert_array_equal(out[key], want)
@@ -196,7 +196,7 @@ def test_state_folds_thread_the_agent_state_in_list_order():
 
     stack, rng = ExtensionStack([Digit(1), Digit(2)]), jax.random.PRNGKey(0)
     agent = _FakeAgentState(ext_state=(0, 5))
-    pretrained = stack.fold_pretrain(agent, 0, rng, 100)
+    pretrained = stack.apply_pretrain(agent, 0, rng, 100)
     assert (pretrained.value, pretrained.ext_state) == (12, (-1, -1))
     updated = stack.apply_post_update(agent, 0, rng, 100)
     assert (updated.value, updated.ext_state) == (12, (1, 6))
@@ -235,7 +235,7 @@ def test_sac_action_dispatch_takes_the_last_proposal():
 # --------------------------------------------------------------------------
 def test_stateful_extension_through_scan():
     stack, rng = ExtensionStack([Counter()]), jax.random.PRNGKey(0)
-    ext_states = stack.fold_init_states(_FakeAgentState(), rng).ext_state
+    ext_states = stack.apply_init_states(_FakeAgentState(), rng).ext_state
     assert int(ext_states[0]) == 0
 
     def body(carry, _):
@@ -271,12 +271,12 @@ def test_extension_context_is_pytree():
 
 
 # --------------------------------------------------------------------------
-# fold_<phase> helpers — context-built, ext_state-replaced.
+# apply_<phase> helpers — context-built, ext_state-replaced.
 # Critical invariant: empty stack returns the input unchanged WITHOUT
 # constructing an ExtensionContext (zero JIT-trace cost).
 # --------------------------------------------------------------------------
-def test_fold_helpers_empty_stack_zero_cost():
-    """Empty stack: every fold returns the input unchanged, no context built."""
+def test_apply_helpers_empty_stack_zero_cost():
+    """Empty stack: every apply_<phase> returns the input unchanged, no context built."""
 
     stack = ExtensionStack()
     agent = _FakeAgentState()
@@ -287,18 +287,18 @@ def test_fold_helpers_empty_stack_zero_cost():
 
     assert len(stack) == 0 and not stack
     # All fold helpers must short-circuit before any context construction:
-    assert stack.fold_init(agent, rng, 100) is agent
-    assert stack.fold_init_states(agent, rng) is agent
-    assert stack.fold_pretrain(agent, step, rng, 100) is agent
+    assert stack.apply_init(agent, rng, 100) is agent
+    assert stack.apply_init_states(agent, rng) is agent
+    assert stack.apply_pretrain(agent, step, rng, 100) is agent
     assert stack.apply_post_update(agent, step, rng, 100) is agent
     folded, metrics = stack.apply_on_target(agent, batch, target, step, rng, 100)
     assert folded is target and metrics == {}
     assert stack.apply_critic_loss(agent, batch, step, rng, 100) == (0.0, {})
     assert stack.apply_actor_loss(agent, batch, step, rng, 100) == (0.0, {})
-    assert stack.fold_eval_metrics(agent, step, rng, 100) == {}
+    assert stack.apply_eval_metrics(agent, step, rng, 100) == {}
 
 
-def test_fold_helpers_route_through_phase():
+def test_apply_helpers_route_through_phase():
     """Non-empty stack: fold helpers thread agent_state.ext_state correctly."""
 
     class ConstActorLoss(Extension):
@@ -318,7 +318,7 @@ def test_fold_helpers_route_through_phase():
     # post_update threads through the agent_state.replace and returns
     # the updated agent_state with the new ext_state attached.
     stack2 = ExtensionStack([Counter()])
-    agent2 = stack2.fold_init_states(_FakeAgentState(), jax.random.PRNGKey(0))
+    agent2 = stack2.apply_init_states(_FakeAgentState(), jax.random.PRNGKey(0))
     new_agent = stack2.apply_post_update(agent2, step, rng, 100)
     assert int(new_agent.ext_state[0]) == 1
 
@@ -332,7 +332,7 @@ def test_fold_helpers_route_through_phase():
 
 
 def test_fold_init_builds_the_states_then_pretrains_at_step_zero():
-    """``fold_init`` = ``fold_init_states`` then ``fold_pretrain`` at step 0,
+    """``apply_init`` = ``apply_init_states`` then ``apply_pretrain`` at step 0,
     on the two halves of its key; the pretrain sees the fresh state."""
 
     @dataclass(frozen=True)
@@ -344,10 +344,10 @@ def test_fold_init_builds_the_states_then_pretrains_at_step_zero():
             return agent_state, {**ext_state, "seen": context.step, "pre": context.rng}
 
     stack, rng = ExtensionStack([Seeded()]), jax.random.PRNGKey(3)
-    out = stack.fold_init(_FakeAgentState(), rng, 100)
+    out = stack.apply_init(_FakeAgentState(), rng, 100)
     init_key, pretrain_key = jax.random.split(rng)
-    want = stack.fold_pretrain(
-        stack.fold_init_states(_FakeAgentState(), init_key), 0, pretrain_key, 100
+    want = stack.apply_pretrain(
+        stack.apply_init_states(_FakeAgentState(), init_key), 0, pretrain_key, 100
     )
     assert int(out.ext_state[0]["seen"]) == 0
     np.testing.assert_array_equal(out.ext_state[0]["key"], want.ext_state[0]["key"])
@@ -361,7 +361,7 @@ def test_fold_init_states_writes_ext_state():
 
     stack = ExtensionStack([Stateful()])
     agent = _FakeAgentState()
-    out = stack.fold_init_states(agent, jax.random.PRNGKey(0))
+    out = stack.apply_init_states(agent, jax.random.PRNGKey(0))
     assert int(out.ext_state[0]) == 42
 
 
@@ -494,7 +494,9 @@ def test_the_former_fold_names_still_apply_the_phases():
     aliases of apply_<phase> until 0.5.0, on the stack, steps and loop."""
     from ajax.agents import loop, steps
 
-    for phase in ("reward", "on_target", "critic_loss", "actor_loss", "post_update"):
+    stack_phases = "reward on_target critic_loss actor_loss post_update".split()
+    stack_phases.extend(["init", "init_states", "pretrain", "eval_metrics"])
+    for phase in stack_phases:
         apply = getattr(ExtensionStack, f"apply_{phase}")
         assert getattr(ExtensionStack, f"fold_{phase}") is apply
     for phase in ("on_target", "critic_loss", "post_update"):
@@ -543,14 +545,14 @@ class _NamedCtx(Extension):
 
 def test_a_phase_naming_its_context_ctx_still_runs():
     stack, rng, step = ExtensionStack([_NamedCtx()]), jax.random.PRNGKey(0), 2.0
-    agent = stack.fold_init(_FakeAgentState(), rng, 100)
+    agent = stack.apply_init(_FakeAgentState(), rng, 100)
     assert float(agent.ext_state[0]) == 100.0  # pretrain read ctx.total_steps
     _, rewards, _ = stack.apply_reward(agent, None, jnp.zeros(3), step, rng, 100)
     target, _ = stack.apply_on_target(agent, None, jnp.asarray(1.0), step, rng, 100)
     critic, _ = stack.apply_critic_loss(agent, None, step, rng, 100)
     actor, _ = stack.apply_actor_loss(agent, None, step, rng, 100)
     after = stack.apply_post_update(agent, step, rng, 100)
-    metrics = stack.fold_eval_metrics(agent, step, rng, 100)
+    metrics = stack.apply_eval_metrics(agent, step, rng, 100)
     assert (rewards == 2.0).all() and float(target) == 3.0
     assert (float(critic), float(actor)) == (4.0, 6.0)
     assert float(after.ext_state[0]) == 102.0

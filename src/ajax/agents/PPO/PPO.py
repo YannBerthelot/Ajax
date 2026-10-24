@@ -363,10 +363,10 @@ class PPO(
         extensions, total_timesteps = context.extensions, context.total_timesteps
         # The extensions' target and loss terms, each on a key of its own.
         target_key, critic_key, actor_key = jax.random.split(extension_key(ent_rng), 3)
-        critic_extra = _stack_critic_loss(
+        critic_extra = _extensions_critic_loss(
             extensions, state, critic_key, total_timesteps
         )
-        actor_extra = _stack_actor_loss(
+        actor_extra = _extensions_actor_loss(
             extensions, state, actor_key, total_timesteps, minibatch["raw_obs"]
         )
 
@@ -634,8 +634,8 @@ def clipped_surrogate(
 
 
 # -- The extensions' loss terms, as the losses' extra_loss_fn ----------------
-def _stack_critic_loss(
-    extension_stack: ExtensionStack,
+def _extensions_critic_loss(
+    extensions: ExtensionStack,
     agent_state: PPOState,
     key: jax.Array,
     total_timesteps: int,
@@ -646,7 +646,7 @@ def _stack_critic_loss(
     None without extensions. The extensions read their state from
     agent_state.
     """
-    if not extension_stack:
+    if not extensions:
         return None
 
     def critic_loss(critic_params, critic_states, observations, value_targets):
@@ -656,7 +656,7 @@ def _stack_critic_loss(
             "critic_params": critic_params,
             "critic_state": critic_states,
         }
-        return extension_stack.apply_critic_loss(
+        return extensions.apply_critic_loss(
             agent_state,
             _batch,
             agent_state.collector_state.timestep,
@@ -667,8 +667,8 @@ def _stack_critic_loss(
     return critic_loss
 
 
-def _stack_actor_loss(
-    extension_stack: ExtensionStack,
+def _extensions_actor_loss(
+    extensions: ExtensionStack,
     agent_state: PPOState,
     key: jax.Array,
     total_timesteps: int,
@@ -678,7 +678,7 @@ def _stack_actor_loss(
     policy_loss_function extra_loss_fn: ``(actor_params,
     actor_state, observations, pi_mean) -> (term, metrics)``, the minibatch's
     raw_observations beside them; None without extensions."""
-    if not extension_stack:
+    if not extensions:
         return None
 
     def actor_loss(actor_params, actor_state, observations, pi_mean):
@@ -689,7 +689,7 @@ def _stack_actor_loss(
             "actor_params": actor_params,
             "actor_state": actor_state,
         }
-        return extension_stack.apply_actor_loss(
+        return extensions.apply_actor_loss(
             agent_state,
             _batch,
             agent_state.collector_state.timestep,

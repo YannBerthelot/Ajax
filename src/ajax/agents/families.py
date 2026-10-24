@@ -452,7 +452,7 @@ class DeclaredAgent(ActorCritic):
         )
         context = TrainContext(
             **configs,
-            extensions=loop.stack,
+            extensions=loop.extensions,
             total_timesteps=total_timesteps,
             collector=partial(self.collector, loop=loop, network_args=network_args),
             buffer=buffer,
@@ -556,8 +556,10 @@ class ReplayAgent(DeclaredAgent):
         """The collector state, its replay storing what the run reads: the
         expert's data where it is held, the fields the extensions ask for,
         and options (init_collector_state's), an agent's own."""
-        fields = loop.stack.buffer_fields()
-        stored = self.stores_expert_actions and holds_expert(self.expert, loop.stack)
+        fields = loop.extensions.buffer_fields()
+        stored = self.stores_expert_actions and holds_expert(
+            self.expert, loop.extensions
+        )
         return init_collector_state(
             key,
             env_args=loop.env_args,

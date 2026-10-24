@@ -436,7 +436,9 @@ def _ppo_update(stack: ExtensionStack) -> Any:
     state = agent.init(KEY, agent.context(1)[1])
     state = _ext_state(state, stack)
     obs, actor = _obs(agent), state.actor_state
-    extra = ppo_module._stack_actor_loss(stack, state, KEY, 1, raw_observations=obs)
+    extra = ppo_module._extensions_actor_loss(
+        stack, state, KEY, 1, raw_observations=obs
+    )
 
     def loss(params: Any) -> Any:
         return ppo_module.policy_loss_function(

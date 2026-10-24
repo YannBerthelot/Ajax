@@ -21,14 +21,14 @@ import ajax
 import ajax.agents.TQC.train_TQC as train_TQC
 from tests.conformance import kit
 
-WIDTH = 64  # the recorder's (benchmarks/reference/conformance_tqc.py)
+WIDTH = 16  # the recorder's (benchmarks/reference/conformance_tqc.py)
 #: main.py's and trainer.py's settings, in Ajax's names.
 SETTINGS: dict[str, Any] = {
     "actor_architecture": (str(WIDTH), "relu") * 2,
     "critic_architecture": (str(WIDTH), "relu") * 3,
     "gamma": 0.99,
     "tau": 0.005,
-    "batch_size": 256,
+    "batch_size": 64,
     "num_critics": 5,
     "n_quantiles": 25,
     "top_quantiles_to_drop_per_net": 2,

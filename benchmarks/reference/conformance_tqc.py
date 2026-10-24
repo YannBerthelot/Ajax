@@ -1,22 +1,23 @@
 """bayesgroup/tqc_pytorch's update, recorded for the conformance check (tests/conformance/test_tqc_original.py).
 
-usage: python conformance_tqc.py ENV_ID OUT_DIR   (in envs/torch: CPU-only PyTorch, gymnax, jax)
+usage: python conformance_tqc.py ENV_ID OUT_DIR   (in envs/torch14: torch 1.4 on x86 Python 3.8)
 
 Imports nothing from Ajax. The authors' repository is no longer on GitHub: vendor/bayesgroup_tqc_pytorch
 is Software Heritage's archive of it (SOURCE below), unmodified. Their Actor, Critic and Trainer train
-on a gymnax task by main.py's loop, written out below: actions in [-1, 1] mapped onto the env's box
+on a gymnasium task by main.py's loop, written out below: actions in [-1, 1] mapped onto the env's box
 (their RescaleAction), the policy's sampled action from the first step, done at a termination only (a
 time limit resets without one), one train() per step from t >= batch_size. Before the train() calls in
 CALLS (counted from the first), the call runs on a copy with its draws recorded (the batch indices, and
 every noise of the policy's rsample: the next actions', then the actor's), and again in float64 with
 the same draws. One .npz per call: ``in.*``, ``batch.*``, ``noise``, ``f32.*`` and ``f64.*``.
 
-Two recorded changes. The networks are WIDTH units wide (theirs: critics 3 x 512, actor 2 x 256), their
-own Mlp class built narrower: the maths does not depend on the width, and the full widths would make a
-record hundreds of megabytes. And their Trainer.train backpropagates the actor's loss after the
-critics' optimizer step: their torch (1.3.0) stepped parameters through ``.data``, so that backward pass
-read the stepped critics' weights, which modern torch refuses. ``Recorded.train`` is theirs with the
-actor's backward moved before the critics' step (owner, 2026-10-23; logged as an upstream bug).
+Their Trainer.train runs unchanged. It backpropagates the actor's loss after the critics' optimizer
+step; their torch (1.3.0) stepped parameters through ``.data``, which autograd does not track, so that
+backward pass reads the stepped critics' weights, and torch >= 1.5 refuses it. torch 1.4 steps the same
+way and is the oldest with a wheel for a Python uv installs, so this runs there; CI cannot (no arm64
+wheels), and the records are committed (tests/conformance/records). One recorded change: the networks
+are WIDTH units wide (theirs: critics 3 x 512, actor 2 x 256), their own Mlp class built narrower, as
+the maths does not depend on the width and the records are kept small.
 """
 
 import copy
@@ -36,13 +37,12 @@ sys.modules.setdefault("gym.spaces", gym.spaces)
 sys.path.insert(
     0, str(pathlib.Path(__file__).parent / "vendor" / "bayesgroup_tqc_pytorch")
 )
-from conformance_torch import OldGym, write_versions  # noqa: E402
+from conformance_old_torch import OldGym, write_versions  # noqa: E402
 from tqc import structures  # noqa: E402
-from tqc.functions import quantile_huber_loss_f  # noqa: E402
 from tqc.trainer import Trainer  # noqa: E402
 
 CALLS = (1, 25)
-SEED, WIDTH, BATCH = 0, 64, 256
+SEED, WIDTH, BATCH = 0, 16, 64
 N_QUANTILES, N_NETS, TOP_DROP_PER_NET = 25, 5, 2  # main.py's defaults
 SOURCE = "swh:1:rev:65114eba5d868e9f0355e33b96acab7530191f16"
 
@@ -68,47 +68,6 @@ class Actor(structures.Actor):
         self.net = structures.Mlp(state_dim, [WIDTH] * 2, 2 * action_dim)
 
 
-class Recorded(Trainer):
-    def train(self, replay_buffer, batch_size=256):
-        """tqc/trainer.py:39-75, the actor's backward moved before the critics' step."""
-        state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
-        alpha = torch.exp(self.log_alpha)
-        with torch.no_grad():
-            new_next_action, next_log_pi = self.actor(next_state)
-            next_z = self.critic_target(next_state, new_next_action)
-            sorted_z, _ = torch.sort(next_z.reshape(batch_size, -1))
-            sorted_z_part = sorted_z[
-                :, : self.quantiles_total - self.top_quantiles_to_drop
-            ]
-            target = reward + not_done * self.discount * (
-                sorted_z_part - alpha * next_log_pi
-            )
-        cur_z = self.critic(state, action)
-        critic_loss = quantile_huber_loss_f(cur_z, target)
-        new_action, log_pi = self.actor(state)
-        alpha_loss = -self.log_alpha * (log_pi + self.target_entropy).detach().mean()
-        actor_loss = (
-            alpha * log_pi
-            - self.critic(state, new_action).mean(2).mean(1, keepdim=True)
-        ).mean()
-        self.actor_optimizer.zero_grad()
-        actor_loss.backward()  # moved: theirs runs after the critics' step
-        self.critic_optimizer.zero_grad()
-        critic_loss.backward()
-        self.critic_optimizer.step()
-        for param, target_param in zip(
-            self.critic.parameters(), self.critic_target.parameters(), strict=True
-        ):
-            target_param.data.copy_(
-                self.tau * param.data + (1 - self.tau) * target_param.data
-            )
-        self.actor_optimizer.step()
-        self.alpha_optimizer.zero_grad()
-        alpha_loss.backward()
-        self.alpha_optimizer.step()
-        self.total_it += 1
-
-
 def named(trainer) -> dict:
     """Every trained tensor by name: the actor's last layer split into its mean and log-std rows."""
     a = trainer.actor.action_dim
@@ -121,7 +80,9 @@ def named(trainer) -> dict:
         else:
             out[f"actor.{name}"] = (p, slice(None))
     for prefix, net in (("critic", trainer.critic), ("target", trainer.critic_target)):
-        out |= {f"{prefix}.{n}": (p, slice(None)) for n, p in net.named_parameters()}
+        out.update(
+            {f"{prefix}.{n}": (p, slice(None)) for n, p in net.named_parameters()}
+        )
     out["log_alpha"] = (trainer.log_alpha, slice(None))
     return out
 
@@ -143,7 +104,9 @@ def state(trainer) -> dict:
             value = st[moment].detach().numpy() if st else zeros
             out[f"opt.{name}.{moment}"] = value[rows].copy()
         out[f"opt.{name}.step"] = (
-            st["step"].detach().numpy().copy() if st else np.zeros((), np.float32)
+            np.asarray(float(st["step"]), np.float32)  # an int on torch 1.4
+            if st
+            else np.zeros((), np.float32)
         )
     return out
 
@@ -202,7 +165,7 @@ def record(env_id: str, out: pathlib.Path) -> None:
     rb = structures.ReplayBuffer(state_dim, action_dim)
     actor = Actor(state_dim, action_dim)
     critic = Critic(state_dim, action_dim, N_QUANTILES, N_NETS)
-    trainer = Recorded(
+    trainer = Trainer(
         actor=actor,
         critic=critic,
         critic_target=copy.deepcopy(critic),
@@ -231,17 +194,20 @@ def record(env_id: str, out: pathlib.Path) -> None:
                 f64 = one_call(trainer, rb, draws, double=True)
                 [idxs] = draws["idxs"]
                 arrays = {f"in.{k}": v for k, v in state(trainer).items()}
-                arrays |= {
-                    "batch.obs": rb.state[idxs],
-                    "batch.action": rb.action[idxs],
-                    "batch.next_obs": rb.next_state[idxs],
-                    "batch.reward": rb.reward[idxs],
-                    "batch.not_done": rb.not_done[idxs],
-                    "noise": np.stack(draws["noise"]),
-                }
-                arrays |= {f"f32.{k}": v for k, v in f32.items()}
-                arrays |= {f"f64.{k}": v for k, v in f64.items()}
-                np.savez(out / f"{env_id}_{calls}.npz", **arrays)
+                arrays.update(
+                    {
+                        "batch.obs": rb.state[idxs],
+                        "batch.action": rb.action[idxs],
+                        "batch.next_obs": rb.next_state[idxs],
+                        "batch.reward": rb.reward[idxs],
+                        "batch.not_done": rb.not_done[idxs],
+                        "noise": np.stack(draws["noise"]),
+                    }
+                )
+                arrays.update({f"f32.{k}": v for k, v in f32.items()})
+                arrays.update({f"f64.{k}": v for k, v in f64.items()})
+                # Committed records: compressed (a fifth smaller here).
+                np.savez_compressed(out / f"{env_id}_{calls}.npz", **arrays)
             if calls >= max(CALLS):
                 break
             trainer.train(rb, BATCH)

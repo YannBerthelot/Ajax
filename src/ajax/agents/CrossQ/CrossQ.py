@@ -2,8 +2,8 @@
 continuous actions.
 
 One update on a replay batch, in the order of the reference
-(adityab/CrossQ@a318a26, ``sbx/sac/sac.py:195-400``), each line one method
-below or one of SAC's equations (core, :mod:`ajax.agents.SAC.core`)::
+(adityab/CrossQ@a318a26, sbx/sac/sac.py:195-400), each line one method
+below or one of SAC's equations (core, ajax.agents.SAC.core)::
 
     a' ~ pi(. | s'), log pi(a' | s')                     core.sample_next_actions
     Q(s, a), Q(s', a') in one training pass over both               critic_update
@@ -17,9 +17,9 @@ below or one of SAC's equations (core, :mod:`ajax.agents.SAC.core`)::
                                                    core.alpha_temperature_loss_fn
 
 Batch Renormalization in the actor and the critics, and one training pass of
-the critics over the rows ``(s, a)`` and their next states ``(s', a')``
+the critics over the rows (s, a) and their next states (s', a')
 together, so that both share the batch statistics: the bootstrap reads that
-pass's second half, held constant. ``a'`` comes from the actor reading its
+pass's second half, held constant. a' comes from the actor reading its
 running statistics, and so does every critic read outside the critic loss.
 """
 
@@ -69,8 +69,8 @@ class CrossQ(
     batch-renormalised, its critics trained on one pass over the rows and
     their next states (the module's equations).
 
-    Defaults are the authors' ``train.py -algo crossq``
-    (adityab/CrossQ@a318a26, ``train.py:126-136``, ``:171-200``): Batch
+    Defaults are the authors' train.py -algo crossq
+    (adityab/CrossQ@a318a26, train.py:126-136, :171-200): Batch
     Renorm MLPs, the actor 256 wide and the critics 2048; a squashed
     Gaussian actor whose log-std head starts at 0; Adam at 1e-3 with beta1
     0.5 and optax's eps 1e-8; the actor and the temperature stepping every
@@ -161,8 +161,8 @@ class CrossQ(
     ) -> tuple[CrossQState, AuxiliaryLogs]:
         """A critic step on a fresh replay batch, then, on the
         policy_delay-th, an actor and a temperature step on the same
-        batch (the authors' ``(n_updates + i + 1) % policy_delay``,
-        ``sbx/sac/sac.py:201``)."""
+        batch (the authors' (n_updates + i + 1) % policy_delay,
+        sbx/sac/sac.py:201)."""
         state, sample_key = state.draw_keys()
         batch, _ = sample_replay(state, context.buffer, sample_key)
         state, value, value_metrics = self.critic_update(state, batch, context)
@@ -182,9 +182,9 @@ class CrossQ(
     def critic_update(
         self, state: CrossQState, batch: Transition, context: TrainContext
     ) -> tuple[CrossQState, CoreCriticAux, dict]:
-        """One critic step on one training pass over ``(s, a)`` and ``(s',
-        a')``, its running statistics kept (``sbx/sac/sac.py:251-342``);
-        ``a'`` is executed (a residual policy's)."""
+        """One critic step on one training pass over (s, a) and (s',
+        a'), its running statistics kept (sbx/sac/sac.py:251-342);
+        a' is executed (a residual policy's)."""
         state, key, next_key = state.draw_keys(2)
         alpha = jnp.exp(state.alpha.params["log_alpha"])
         next_actions, next_log_probs = core.sample_next_actions(
@@ -250,7 +250,7 @@ class CrossQ(
     ) -> tuple[CrossQState, tuple]:
         """The actor step in training, the critics read with their running
         statistics (at the executed actions, a residual policy's), then the
-        temperature's on the same samples (``sbx/sac/sac.py:355-400``)."""
+        temperature's on the same samples (sbx/sac/sac.py:355-400)."""
         state, key = state.draw_keys()
         alpha = jnp.exp(state.alpha.params["log_alpha"])
         actor_state, critic_state = state.actor_state, state.critic_state
@@ -313,7 +313,7 @@ class CrossQ(
 # -- CrossQ's own helpers; its equations are SAC.core's ----------------------
 def batch_renorm_mlp(width: int) -> tuple[str, ...]:
     """The authors' MLP: Batch Renorm on the input and after each of two
-    ReLU layers of ``width`` units (``sbx/sac/policies.py:199-231``)."""
+    ReLU layers of width units (sbx/sac/policies.py:199-231)."""
     layer = (str(width), "relu", "batchrenorm")
     return ("batchrenorm", *layer, *layer)
 

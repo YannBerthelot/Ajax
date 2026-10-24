@@ -13,7 +13,7 @@ One update on a replay batch, in the order of the reference
         Q_target, mu_target <- tau (Q, mu) + (1 - tau) (Q_target, mu_target)
                                                                     update_targets
 
-The actor is deterministic (:mod:`ajax.networks.deterministic`: tanh(mu));
+The actor is deterministic (ajax.networks.deterministic: tanh(mu));
 collection explores around it (gaussian_exploration), with uniform
 actions during the warm-up.
 """
@@ -220,7 +220,7 @@ class TD3(
     def actor_update(
         self, state: TD3State, batch: Transition, carries: Any, context: TrainContext
     ) -> tuple[TD3State, tuple[PolicyAuxiliaries, dict]]:
-        """The deterministic policy-gradient step on ``-Q1(s, mu(s))``, then
+        """The deterministic policy-gradient step on -Q1(s, mu(s)), then
         both targets' Polyak update."""
         state, key = state.draw_keys()
 
@@ -292,10 +292,10 @@ def compute_td3_td_target(
     executed: Optional[Callable] = None,
     next_a_expert: Optional[jax.Array] = None,
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
-    """``y = scale r + gamma (1 - d) min_i Q_target_i(s', a')`` with ``a' =
-    clip(mu_target(s') + clip(N(0, sigma), -c, c), -1, 1)``, the share of the
-    noise samples the clip to ``[-c, c]`` changed, and those smoothed next
-    actions, executed (``executed``, a residual policy's, from the expert's
+    """y = scale r + gamma (1 - d) min_i Q_target_i(s', a') with a' =
+    clip(mu_target(s') + clip(N(0, sigma), -c, c), -1, 1), the share of the
+    noise samples the clip to [-c, c] changed, and those smoothed next
+    actions, executed (executed, a residual policy's, from the expert's
     stored next actions)."""
     rewards = rewards * reward_scale
     next_action = actor_dist(
@@ -359,8 +359,8 @@ def policy_loss_function(
     executed: Optional[Callable] = None,
     a_expert: Optional[jax.Array] = None,
 ) -> tuple[jax.Array, tuple[PolicyAuxiliaries, jax.Array]]:
-    """TD3 actor loss ``-Q1(s, mu(s))``, at the executed action with a
-    residual policy (``executed``); also returns ``mu(s)`` for extensions."""
+    """TD3 actor loss -Q1(s, mu(s)), at the executed action with a
+    residual policy (executed); also returns mu(s) for extensions."""
     actions = actor_dist(actor_state, actor_params, observations, carries).mean()
     scored = actions if executed is None else executed(actions, a_expert)
     q_first = q_values(
@@ -381,7 +381,7 @@ def update_targets(agent_state: TD3State, tau: float) -> TD3State:
 
 # -- TD3's exploration, which collection runs ---------------------------------
 def gaussian_exploration(exploration_noise: Schedule) -> Explore:
-    """TD3's behaviour policy: ``clip(mu(s) + N(0, exploration_noise), -1, 1)``,
+    """TD3's behaviour policy: clip(mu(s) + N(0, exploration_noise), -1, 1),
     the noise's scale a schedule of the timestep."""
 
     def explore(pi: Any, key: jax.Array, step: jax.Array) -> jax.Array:
@@ -396,7 +396,7 @@ def gaussian_exploration(exploration_noise: Schedule) -> Explore:
 def make_default_action_pipeline(
     recurrent: bool, exploration_noise: Schedule, transform: Any = None
 ) -> Callable:
-    """TD3's action pipeline: :func:`gaussian_exploration`, through the run's
+    """TD3's action pipeline: gaussian_exploration, through the run's
     residual transform where it has one, uniform actions during the
     warm-up."""
     return explore_pipeline(

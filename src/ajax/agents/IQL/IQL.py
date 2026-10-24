@@ -2,7 +2,7 @@
 that never queries the critic at actions outside the data.
 
 One update on a replay batch, in the order of the reference
-(ikostrikov/implicit_q_learning@09d7002, learner.py ``_update_jit``), each
+(ikostrikov/implicit_q_learning@09d7002, learner.py's _update_jit), each
 line one function below::
 
     q = min_i Q_target_i(s, a)                                     min_target_q
@@ -53,10 +53,10 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
     critic over the data's actions, and an actor fitted by
     advantage-weighted regression (the module's equations). Train it on a
     dataset with train_offline (the paper's setting), then fine-tune
-    online with ``train``: the same update, the offline rows kept in its
+    online with train: the same update, the offline rows kept in its
     replay (Sec. 5.3).
 
-    Defaults are the reference code's (``configs/mujoco_config.py``,
+    Defaults are the reference code's (configs/mujoco_config.py,
     learner.py, policy.py): expectile 0.7 and temperature 3
     (locomotion; antmaze takes 0.9 and 10); 256-256 ReLU networks,
     orthogonal(sqrt 2) initialisation; Adam at 3e-4 with optax's eps 1e-8
@@ -64,7 +64,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
     tanh mean with one learned log-std per action dimension, clipped to
     [-5, 2]; batch 256, gamma 0.99, tau 0.005. The reference decays the
     actor's offline learning rate to 0 by a cosine over its updates: pass
-    ``actor_learning_rate=optax.cosine_decay_schedule(3e-4, n_updates)``
+    actor_learning_rate=optax.cosine_decay_schedule(3e-4, n_updates)
     for that. Its locomotion rewards are scaled by 1000 over the dataset's
     range of returns: reward_scale.
     """
@@ -229,13 +229,13 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
 
 # -- IQL's equations, in the order update calls them -------------------------
 def min_target_q(critic: LoadedTrainState, batch: Transition) -> jax.Array:
-    """``min_i Q_target_i(s, a)`` at the rows' actions."""
+    """min_i Q_target_i(s, a) at the rows' actions."""
     q = q_values(critic, critic.target_params, batch.obs, batch.action)
     return jnp.min(q, axis=0)
 
 
 def expectile_loss(diff: jax.Array, expectile: float) -> jax.Array:
-    """``|expectile - 1(diff < 0)| diff^2`` (critic.py loss)."""
+    """|expectile - 1(diff < 0)| diff^2 (critic.py loss)."""
     weight = jnp.where(diff > 0, expectile, 1.0 - expectile)
     return weight * diff**2
 
@@ -253,7 +253,7 @@ def value_loss(
 
 
 def awr_weight(q: jax.Array, v: jax.Array, temperature: float) -> jax.Array:
-    """``min(exp(temperature (q - V(s))), 100)`` (actor.py)."""
+    """min(exp(temperature (q - V(s))), 100) (actor.py)."""
     return jnp.minimum(jnp.exp(temperature * (q - v)), 100.0)
 
 
@@ -264,7 +264,7 @@ def awr_loss(
     weight: jax.Array,
     params: Any,
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
-    """``-E[weight log pi(a | s)]`` (actor.py), and pi's mean for the
+    """-E[weight log pi(a | s)] (actor.py), and pi's mean for the
     extensions."""
     pi, _ = get_pi(actor_state, params, obs)
     log_probs = pi.log_prob(actions).sum(-1, keepdims=True)
@@ -275,7 +275,7 @@ def awr_loss(
 def bellman_target(
     value_state: LoadedTrainState, batch: Transition, gamma: float, scale: float
 ) -> jax.Array:
-    """``scale r + gamma (1 - d) V(s')`` (learner.py), on the new V."""
+    """scale r + gamma (1 - d) V(s') (learner.py), on the new V."""
     next_v = predict_value(value_state, value_state.params, batch.next_obs)[0]
     return scale * batch.reward + gamma * (1.0 - batch.terminated) * next_v
 

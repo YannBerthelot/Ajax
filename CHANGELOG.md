@@ -111,6 +111,14 @@ PyPI as `ajax-rl`.
   returns each network's gradient norm before the clip. `joint_step` (also
   `train_PPO.joint_step`) returns the two networks alone, as before, until
   0.5.0.
+- The declared agents (PPO, APO, PQN, TD3, IQL, CrossQ) and the shared
+  modules they use name their parameters and locals in full words: an
+  agent's `state` parameter is `agent_state`; the on-policy `update`'s
+  `start` (and `rollout_sequence_values`') is
+  `agent_state_at_rollout_start`; APO's `minibatch_step` takes
+  `value_bias` (was `b`); `sequence_minibatches` takes `shuffle_key` (was
+  `rng`); PPO's `advantages` method is `compute_advantages`. A caller
+  passing them by position, as the loop does, sees no change.
 
 - **ASAC** now does what the authors' code does (`darer/ASAC.py`): a
   termination drops the next value in the critic's target (it bootstrapped

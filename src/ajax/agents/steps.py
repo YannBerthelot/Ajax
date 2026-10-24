@@ -76,9 +76,9 @@ def apply_post_update(
     from agent_state.rng (no key is drawn without extensions)."""
     if not extensions:
         return agent_state
-    key, rng = jax.random.split(agent_state.rng)
+    post_update_key, training_key = jax.random.split(agent_state.rng)
     return extensions.apply_post_update(
-        agent_state.replace(rng=rng), step, key, total_steps
+        agent_state.replace(rng=training_key), step, post_update_key, total_steps
     )
 
 
@@ -104,7 +104,7 @@ def when(pred: Any, fn: Callable[[Any], Any], state: Any, fill: Any = None) -> A
     metrics = (
         unevaluated(out[1])
         if fill is None
-        else jax.tree.map(lambda s: jnp.full(s.shape, fill, s.dtype), out[1])
+        else jax.tree.map(lambda leaf: jnp.full(leaf.shape, fill, leaf.dtype), out[1])
     )
     return jax.lax.cond(pred, lambda: fn(state), lambda: (state, metrics))
 
@@ -161,8 +161,9 @@ def apply_on_target(
     reward_scale: float,
     target_extras: Optional[dict] = None,
 ) -> tuple[jax.Array, dict]:
-    """target_q with the extensions' on_target applied, held
-    constant, and their metrics: critic_step's first half, which an
+    """target_q with the extensions' on_target applied, no gradient
+    flowing back through it (stop_gradient), and their metrics:
+    critic_step's first half, which an
     agent whose target comes out of its own critic pass (CrossQ) calls
     inside its loss.
 
@@ -206,7 +207,8 @@ def apply_critic_loss(
     total_timesteps: int,
 ) -> tuple[jax.Array | float, dict]:
     """The extensions' critic_loss terms at the critic's params (the
-    differentiated ones) on batch against the held target_q, and
+    differentiated ones) on batch against target_q (no gradient flows
+    back through it), and
     their metrics: critic_step's second half, on a key derived from
     key, the step's."""
     loss_batch = {
@@ -238,8 +240,8 @@ def critic_step(
 ) -> tuple[Any, Any, jax.Array, dict]:
     """A replay agent's critic step on batch (a Transition).
 
-    Applies the extensions' on_target to target_q, held constant
-    (apply_on_target, which target_args reach: what the target
+    Applies the extensions' on_target to target_q, no gradient flowing
+    back through it (apply_on_target, which target_args reach: what the target
     used), then steps the critic down value_loss(params, target_q) ->
     (loss, aux) plus their critic_loss terms
     (apply_critic_loss). The phases draw on keys derived from key,
@@ -257,7 +259,7 @@ def critic_step(
         **target_args,
     )
 
-    def loss_fn(params: Any) -> tuple[jax.Array, Any]:
+    def total_critic_loss(params: Any) -> tuple[jax.Array, Any]:
         loss, aux = value_loss(params, target_q)
         extra, loss_metrics = apply_critic_loss(
             extensions, agent_state, batch, params, target_q, key, total_timesteps
@@ -265,7 +267,7 @@ def critic_step(
         return loss + extra, (aux, loss_metrics)
 
     critic_state, (aux, loss_metrics), grad_norm = gradient_step(
-        agent_state.critic_state, loss_fn
+        agent_state.critic_state, total_critic_loss
     )
     return critic_state, aux, grad_norm, merge_metrics(target_metrics, loss_metrics)
 
@@ -293,7 +295,7 @@ def actor_step(
     """
     actor_state = agent_state.actor_state
 
-    def loss_fn(params: Any) -> tuple[jax.Array, Any]:
+    def total_actor_loss(params: Any) -> tuple[jax.Array, Any]:
         loss, aux, pi_mean = policy_loss(params)
         actor_batch = dict(batch)
         actor_batch.update(
@@ -310,7 +312,9 @@ def actor_step(
         )
         return loss + extra, (aux, metrics)
 
-    actor_state, (aux, metrics), grad_norm = gradient_step(actor_state, loss_fn)
+    actor_state, (aux, metrics), grad_norm = gradient_step(
+        actor_state, total_actor_loss
+    )
     return actor_state, aux, grad_norm, metrics
 
 
@@ -324,8 +328,8 @@ def clip_global_norm(grads: Any, max_norm: Optional[float], eps: float = 0.0) ->
     torch/nn/utils/clip_grad.py:33-37)."""
     if max_norm is None:
         return grads
-    coef = jnp.minimum(1.0, max_norm / (optax.global_norm(grads) + eps))
-    return jax.tree.map(lambda g: g * coef, grads)
+    scale = jnp.minimum(1.0, max_norm / (optax.global_norm(grads) + eps))
+    return jax.tree.map(lambda gradient: gradient * scale, grads)
 
 
 def apply_gradients_clipped_together(

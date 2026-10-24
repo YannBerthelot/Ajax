@@ -12,7 +12,7 @@ the training loop's shape and the evaluation's value estimate::
         ...
 
         def init(self, key, context): ...
-        def update(self, state, context): ...
+        def update(self, agent_state, context): ...
 
 An agent learning from a replay of transitions is a ReplayAgent,
 one learning from each rollout of its current policy an
@@ -260,7 +260,9 @@ class DeclaredAgent(ActorCritic):
     def __post_init__(self) -> None:
         # The run config the loggers record: the call, before any check.
         self.config = {
-            f.name: getattr(self, f.name) for f in dataclasses.fields(self) if f.init
+            field.name: getattr(self, field.name)
+            for field in dataclasses.fields(self)
+            if field.init
         }
         self.config.update({"algo_name": self.name})
         names = self.field_names()
@@ -277,7 +279,9 @@ class DeclaredAgent(ActorCritic):
         # A derived argument may resolve a field the caller left None (PPO's
         # reference initialisation), never replace a value the caller gave.
         given = sorted(
-            n for n in set(derived).intersection(shared) if shared[n] is not None
+            name
+            for name in set(derived).intersection(shared)
+            if shared[name] is not None
         )
         if given:
             raise TypeError(
@@ -330,7 +334,7 @@ class DeclaredAgent(ActorCritic):
 
     @classmethod
     def field_names(cls) -> frozenset[str]:
-        return frozenset(f.name for f in dataclasses.fields(cls))  # type: ignore[arg-type]
+        return frozenset(field.name for field in dataclasses.fields(cls))  # type: ignore[arg-type]
 
     def _build_family(self) -> None:
         """What the family builds from the fields, before the agent's
@@ -417,7 +421,10 @@ class DeclaredAgent(ActorCritic):
             "critic_optimizer_args": critic_optimizer_args,
             "network_args": network_args,
         }
-        configs = {k: getattr(self, k) if v is None else v for k, v in configs.items()}
+        configs = {
+            name: getattr(self, name) if config is None else config
+            for name, config in configs.items()
+        }
         env_args, network_args = configs["env_args"], configs["network_args"]
         if extensions is None:
             extensions = tuple(self.extension_stack.extensions)
@@ -476,13 +483,13 @@ class DeclaredAgent(ActorCritic):
         before their fields were declared (IQL, CrossQ, TD3, PPO, APO, PQN) keep
         this view, until 0.5.0; the update reads the fields. Built at run
         time, it is Any to a type checker."""
-        declared = {f.name: f for f in dataclasses.fields(cls)}  # type: ignore[arg-type]
+        declared = {field.name: field for field in dataclasses.fields(cls)}  # type: ignore[arg-type]
         spec: dict[str, Any] = {"__annotations__": {}, "__module__": cls.__module__}
         for name in names.split():
-            f = declared.get(name)
-            spec["__annotations__"][name] = Any if f is None else f.type
-            if f is not None and f.default is not dataclasses.MISSING:
-                spec[name] = f.default
+            field = declared.get(name)
+            spec["__annotations__"][name] = Any if field is None else field.type
+            if field is not None and field.default is not dataclasses.MISSING:
+                spec[name] = field.default
         title = f"{cls.name}Config"
         spec.update({"__qualname__": title})
         view = type(title, (BaseAgentConfig,), spec)
@@ -529,8 +536,8 @@ class ReplayAgent(DeclaredAgent):
         """A fresh agent state, on the agent's own key layout."""
         raise NotImplementedError
 
-    def update(self, state: Any, context: TrainContext) -> tuple[Any, Any]:
-        """One update: (state, logged metrics)."""
+    def update(self, agent_state: Any, context: TrainContext) -> tuple[Any, Any]:
+        """One update: (agent_state, logged metrics)."""
         raise NotImplementedError
 
     def behaviour(self, context: TrainContext) -> Optional[Callable]:
@@ -613,7 +620,7 @@ class ReplayAgent(DeclaredAgent):
         recurrent = context.recurrent
         return loop.off_policy(
             partial(self.init, context=context),
-            lambda state, _transition: self.update(state, context),
+            lambda agent_state, _transition: self.update(agent_state, context),
             self.learning_starts,
             recurrent=recurrent,
             collect_kwargs={
@@ -701,11 +708,15 @@ class OnPolicyAgent(DeclaredAgent):
         raise NotImplementedError
 
     def update(
-        self, state: Any, rollout: Transition, start: Any, context: TrainContext
+        self,
+        agent_state: Any,
+        rollout: Transition,
+        agent_state_at_rollout_start: Any,
+        context: TrainContext,
     ) -> tuple[Any, Any]:
         """One update on the (n_steps, n_envs) rollout collected from
-        start (a recurrent agent replays it from start's memories):
-        (state, logged metrics)."""
+        agent_state_at_rollout_start (a recurrent agent replays the rollout
+        from that state's memories): (agent_state, logged metrics)."""
         raise NotImplementedError
 
     def behaviour(self, context: TrainContext) -> Optional[Callable]:

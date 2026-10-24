@@ -75,9 +75,10 @@ and picks one of two iterations:
   `learning_starts` the actions are uniform and the metrics have the
   update's structure, filled with NaN, which the logger drops.
 - **`loop.on_policy(init, update, n_steps, ...)`** (PPO, APO, PQN): each
-  iteration collects an `n_steps` rollout per environment from the state
-  `start`, then runs `update(agent_state, rollout, start)` and folds
-  `post_update`. A recurrent agent replays the rollout from `start`'s memory.
+  iteration collects an `n_steps` rollout per environment from the agent
+  state `agent_state_at_rollout_start`, then runs `update(agent_state,
+  rollout, agent_state_at_rollout_start)` and folds `post_update`. A
+  recurrent agent replays the rollout from that state's memory.
 
 The loop does the rest: `init` and the extensions' initial state and
 pre-training (`ExtensionStack.apply_init`) on a fresh run, the given state on a
@@ -209,46 +210,52 @@ class FOO(GradientClipping, ExpertGuided, ReplayAgent):
     learning_starts: int = int(1e4)
 
     def init(self, key, context):
-        rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
+        training_key, init_key, collector_key, evaluation_key = jax.random.split(key, 4)
         actor_state, critic_state = context.actor_critic(
             init_key, continuous=True, action_value=True, num_critics=2
         )
         return FOOState(
-            rng=rng, eval_rng=eval_rng, actor_state=actor_state,
+            rng=training_key, eval_rng=evaluation_key, actor_state=actor_state,
             critic_state=critic_state, collector_state=context.collector(collector_key),
         )
 
-    def update(self, state, context):
-        sample_key, critic_key, actor_key, state = state.get_keys_and_new_state(3)
-        batch, _ = sample_replay(state, context.buffer, sample_key)
-        target = foo_target(state, batch, self.gamma, self.reward_scale)
+    def update(self, agent_state, context):
+        sample_key, critic_key, actor_key, agent_state = (
+            agent_state.get_keys_and_new_state(3)
+        )
+        batch, _ = sample_replay(agent_state, context.buffer, sample_key)
+        target = foo_target(agent_state, batch, self.gamma, self.reward_scale)
         critic_state, critic_aux, _, critic_metrics = steps.critic_step(
-            state, batch, target, partial(foo_value_loss, state.critic_state, batch),
+            agent_state, batch, target,
+            partial(foo_value_loss, agent_state.critic_state, batch),
             context.extensions, critic_key, context.total_timesteps,
             rewards=batch.reward, dones=batch.terminated,
             gamma=self.gamma, reward_scale=self.reward_scale,
         )
         actor_state, actor_aux, _, actor_metrics = steps.actor_step(
-            state, partial(foo_policy_loss, state), context.extensions, actor_key,
-            context.total_timesteps, observations=batch.obs, actions=batch.action,
+            agent_state, partial(foo_policy_loss, agent_state), context.extensions,
+            actor_key, context.total_timesteps, observations=batch.obs,
+            actions=batch.action,
         )
-        state = state.replace(
+        agent_state = agent_state.replace(
             actor_state=actor_state,
             critic_state=critic_state.soft_update(tau=self.tau),
-            n_updates=state.n_updates + 1,
+            n_updates=agent_state.n_updates + 1,
         )
         metrics = merge_metrics(critic_metrics, actor_metrics)
-        return state, AuxiliaryLogs(value=critic_aux, policy=actor_aux, extensions=metrics)
+        return agent_state, AuxiliaryLogs(
+            value=critic_aux, policy=actor_aux, extensions=metrics
+        )
 
     # The contract, unannotated (an annotation would make it a field).
     name = "FOO"
-    capabilities = frozenset("actor discounted off_policy q_critic replay".split())
+    capabilities = frozenset({"actor", "discounted", "off_policy", "q_critic", "replay"})
 
 
 # FOO's equations, in the order update calls them.
-def foo_target(state, batch, gamma, reward_scale): ...       # the paper's target
+def foo_target(agent_state, batch, gamma, reward_scale): ... # the paper's target
 def foo_value_loss(critic, batch, params, target): ...       # -> (loss, aux)
-def foo_policy_loss(state, params): ...                      # -> (loss, aux, pi_mean)
+def foo_policy_loss(agent_state, params): ...                # -> (loss, aux, pi_mean)
 
 
 @struct.dataclass(kw_only=True)
@@ -279,8 +286,9 @@ agent (SB3) or in closures (PureJaxRL); here they are passed explicitly, so one
 agent trains any number of runs and a test calls `init` or `update` alone on
 `agent.context(n)`.
 
-An agent writes `init(key, context)` and `update(state, context)` (an on-policy
-agent's `update(state, rollout, start, context)`), and may add these hooks; each
+An agent writes `init(key, context)` and `update(agent_state, context)` (an
+on-policy agent's `update(agent_state, rollout, agent_state_at_rollout_start,
+context)`), and may add these hooks; each
 is a no-op on the family, which does its own part outside them, so none
 calls `super()`:
 

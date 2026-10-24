@@ -121,9 +121,10 @@ Init = Callable[[jax.Array], Any]
 #: ``update(agent_state, experience) -> (agent_state, aux)``: one update on
 #: the experience just collected (a replay agent samples its buffer instead).
 Update = Callable[[Any, Any], tuple[Any, Any]]
-#: ``update(agent_state, rollout, start) -> (agent_state, aux)``: one update
-#: on the rollout just collected from the state ``start`` (a recurrent agent
-#: replays the rollout from the carries it started with).
+#: update(agent_state, rollout, agent_state_at_rollout_start) -> (agent_state,
+#: aux): one update on the rollout just collected from the agent state
+#: agent_state_at_rollout_start (a recurrent agent replays the rollout from
+#: the memories it started with).
 RolloutUpdate = Callable[[Any, Any, Any], tuple[Any, Any]]
 #: ``collect(agent_state, tick) -> (agent_state, experience)``: an agent's
 #: own acting and storing of one step per env on the absolute tick ``tick``;
@@ -796,30 +797,35 @@ class TrainLoop:
         collect_kwargs: Optional[dict] = None,
         eval_kwargs: Optional[dict] = None,
     ) -> Callable:
-        """Train on an ``n_steps`` rollout per env per iteration.
+        """Train on an n_steps rollout per env per iteration.
 
-        Each iteration collects the rollout from the state ``start``
-        (:func:`collect_experience` with ``collect_kwargs``), then runs
-        ``update(agent_state, rollout, start)``, resets every env on brax's
-        cadence when ``forced_resets``, ``(resets_per_eval, num_evals)``,
-        asks for any (:meth:`forced_reset`), and applies ``post_update``;
-        ``expose_rollout`` keeps the rollout on ``agent_state.last_rollout``.
-        The budget is :meth:`n_rollouts`; the last one may reach past the
+        Each iteration collects the rollout from the agent state
+        agent_state_at_rollout_start (collect_experience with
+        collect_kwargs), then runs update(agent_state, rollout,
+        agent_state_at_rollout_start), resets every env on brax's
+        cadence when forced_resets, (resets_per_eval, num_evals),
+        asks for any (forced_reset), and applies post_update;
+        expose_rollout keeps the rollout on agent_state.last_rollout.
+        The budget is n_rollouts; the last one may reach past the
         call's end, and evaluates there when the horizon is further.
         """
         collect = self.collect_kwargs(recurrent, **(collect_kwargs or {}))
 
-        def iteration(start: Any, index: Any, tick: Any) -> tuple[Any, Optional[dict]]:
+        def iteration(
+            agent_state_at_rollout_start: Any, index: Any, tick: Any
+        ) -> tuple[Any, Optional[dict]]:
             del tick
             agent_state, rollout = jax.lax.scan(
                 partial(collect_experience, **collect),
-                start,
+                agent_state_at_rollout_start,
                 xs=None,
                 length=n_steps,
             )
             if expose_rollout:
                 agent_state = agent_state.replace(last_rollout=rollout)
-            agent_state, aux = update(agent_state, rollout, start)
+            agent_state, aux = update(
+                agent_state, rollout, agent_state_at_rollout_start
+            )
             if forced_resets[0] > 0:
                 agent_state = self.forced_reset(agent_state, n_steps, *forced_resets)
             agent_state = self.post_update(agent_state)

@@ -64,7 +64,7 @@ BORROWED = {
     ("PQN", "DQN", "PolicyAuxiliaries"): "B3 (PQN's own metrics)",
     **{
         (agent, "SAC", "SoftACState"): "B2 (the replay family's state)"
-        for agent in ("ASAC", "AVG", "CrossQ", "REDQ", "TQC")
+        for agent in ("ASAC", "AVG", "REDQ", "TQC")
     },
     **{
         (agent, "SAC", "SACConfig"): "B4 (declared hyperparameters)"
@@ -72,7 +72,7 @@ BORROWED = {
     },
     **{
         (agent, "SAC", name): _SAC_FAMILY_INIT
-        for agent in ("ASAC", "AVG", "CrossQ", "REDQ", "TQC")
+        for agent in ("ASAC", "AVG", "REDQ", "TQC")
         for name in ("init_soft_actor_critic", "create_alpha_train_state")
     },
     **{
@@ -80,7 +80,13 @@ BORROWED = {
         for agent in ("ASAC", "REDQ", "TQC")
         for name in ("soft_actor_step", "update_temperature")
     },
-    ("CrossQ", "SAC", "update_temperature"): "B2 (steps.gradient_step)",
+    # CrossQ, declared in B2, keeps SAC's temperature until B4 moves it to a
+    # shared module: steps.gradient_step would add optax.global_norm to its
+    # program, so B2 has no behaviour-neutral switch.
+    **{
+        ("CrossQ", "SAC", name): "B4 (the temperature and its state, shared)"
+        for name in ("SoftACState", "create_alpha_train_state", "update_temperature")
+    },
     **{
         (agent, "SAC", "TemperatureAuxiliaries"): _SAC_METRICS
         for agent in ("ASAC", "AVG", "CrossQ", "REDQ", "TQC")

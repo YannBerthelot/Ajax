@@ -104,6 +104,13 @@ PyPI as `ajax-rl`.
   `shuffle_key, agent_state = agent_state.get_keys_and_new_state()`.
   `next_keys` returns the same, the state first, until the agents still
   calling it are converted.
+- `ajax.agents.steps.compute_gradients(loss, params)` returns the gradients
+  of a loss of the parameters alone, and its aux; `gradient_step` and PPO's
+  and APO's minibatch steps take their gradients with it.
+- `steps.joint_step` is now `apply_gradients_clipped_together`, which also
+  returns each network's gradient norm before the clip. `joint_step` (also
+  `train_PPO.joint_step`) returns the two networks alone, as before, until
+  0.5.0.
 
 - **ASAC** now does what the authors' code does (`darer/ASAC.py`): a
   termination drops the next value in the critic's target (it bootstrapped

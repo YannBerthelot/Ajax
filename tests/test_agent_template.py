@@ -28,6 +28,8 @@ HELPERS = {
     "critic_step": steps.critic_step,
     "actor_step": steps.actor_step,
     "gradient_step": steps.gradient_step,
+    "compute_gradients": steps.compute_gradients,
+    "apply_gradients_clipped_together": steps.apply_gradients_clipped_together,
 }
 METHODS = {"off_policy", "on_policy"}
 CODE = re.compile(r"^```python\n(.*?)^```|`([^`\n]+)`", re.MULTILINE | re.DOTALL)

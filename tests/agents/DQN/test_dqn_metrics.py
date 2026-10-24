@@ -9,13 +9,9 @@ import numpy as np
 import optax
 import pytest
 
+from ajax.agents.critics import mse_td_loss, q_gradient_step, q_loss_fn
 from ajax.agents.DQN.DQN import DQN
-from ajax.agents.DQN.train_DQN import (
-    init_DQN,
-    mse_td_loss,
-    q_gradient_step,
-    q_loss_fn,
-)
+from ajax.agents.DQN.train_DQN import init_DQN
 from ajax.agents.PQN.PQN import PQN
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionStack

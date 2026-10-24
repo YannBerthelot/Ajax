@@ -41,6 +41,7 @@ from ajax.environments.utils import (
 )
 from ajax.networks.distributions import sample_with_raw
 from ajax.networks.memory import flatten_carry, tree_where_reset
+from ajax.schedule import Schedule, at
 from ajax.state import (
     BaseAgentState,
     CollectorState,
@@ -639,6 +640,22 @@ def explore_pipeline(
         )
 
     return pipeline
+
+
+def epsilon_greedy(epsilon: Schedule, n_actions: int) -> Explore:
+    """DQN's behaviour policy: with probability ``epsilon`` (a schedule of
+    the timestep) a uniform action, else the greedy one."""
+
+    def explore(pi: Any, key: jax.Array, step: jax.Array) -> jax.Array:
+        greedy_action = pi.mode()  # argmax_a Q(s, a)
+        explore_key, random_key = jax.random.split(key)
+        random_action = jax.random.randint(
+            random_key, shape=greedy_action.shape, minval=0, maxval=n_actions
+        ).astype(jnp.int32)
+        explore = jax.random.uniform(explore_key, shape=greedy_action.shape)
+        return jnp.where(explore < at(epsilon, step), random_action, greedy_action)
+
+    return explore
 
 
 def with_acting_state(pipeline: Optional[Callable]) -> Optional[Callable]:

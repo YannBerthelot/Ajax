@@ -15,7 +15,7 @@ import optax
 from refcmp_worker import main
 
 import ajax
-from ajax.agents.DQN.train_DQN import make_huber_td_loss
+from ajax.agents.critics import make_huber_td_loss
 from ajax.logging.wandb_logging import LoggingConfig
 
 

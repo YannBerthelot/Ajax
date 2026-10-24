@@ -8,11 +8,11 @@ A simplified deep Q-learning algorithm for vectorised environments:
   * Q(lambda) returns as the regression target (``max_a Q`` bootstrap).
   * epsilon-greedy exploration, multi-epoch minibatched TD updates.
 
-PQN reuses the value-based machinery from DQN (``GreedyQPolicy``,
-``predict_q``, the epsilon-greedy action pipeline, the gathered-Q TD
-loss and its aux dataclasses) and the minibatch shuffler from PPO. Its
-own code is the LayerNorm network, the Q(lambda) target, and this
-on-policy training loop.
+PQN shares DQN's value-based machinery (``GreedyQPolicy``, ``predict_q``,
+the epsilon-greedy action pipeline, the gathered-Q TD loss), DQN's init
+and aux dataclasses, and PPO's minibatch shuffler. Its own code is the
+LayerNorm network, the Q(lambda) target, and this on-policy training
+loop.
 """
 
 from collections.abc import Sequence
@@ -21,19 +21,14 @@ from typing import Any, Callable, Optional, Tuple
 import jax
 import jax.numpy as jnp
 
-from ajax.agents.DQN.train_DQN import (
-    AuxiliaryLogs,
-    PolicyAuxiliaries,
-    epsilon_greedy,
-    init_DQN,
-    q_gradient_step,
-)
+from ajax.agents.critics import q_gradient_step
+from ajax.agents.DQN.train_DQN import AuxiliaryLogs, PolicyAuxiliaries, init_DQN
 from ajax.agents.loop import TrainLoop, extension_key
 from ajax.agents.minibatch import get_minibatches_from_batch
 from ajax.agents.PQN.networks import PQNNetwork
 from ajax.agents.PQN.state import PQNConfig, PQNState
 from ajax.agents.PQN.utils import compute_q_lambda_targets
-from ajax.environments.interaction import explore_pipeline
+from ajax.environments.interaction import epsilon_greedy, explore_pipeline
 from ajax.environments.utils import get_action_dim
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics

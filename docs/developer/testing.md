@@ -111,14 +111,26 @@ check.
 | TD3+BC | sfujim/TD3_BC (PyTorch) | `tests/conformance/test_td3bc_sfujim.py` |
 | REDQ | watchernyu/REDQ (PyTorch) | `tests/conformance/test_redq_original.py` |
 | AVG | gauthamvasan/avg (PyTorch) | `tests/conformance/test_avg_original.py` |
+| ASAC | BobMak/asac (PyTorch, stable-baselines3) | `tests/conformance/test_asac_original.py` |
+| APO | xtma/apo on xtma/rlpyt (PyTorch) | `tests/conformance/test_apo_original.py` |
 | CrossQ | adityab/CrossQ (JAX, its own versions) | `tests/conformance/test_crossq_original.py` |
 | TQC | bayesgroup/tqc_pytorch (PyTorch, from Software Heritage) | `tests/conformance/test_tqc_original.py` |
 
+The world models were checked against their originals before this kit
+existed, by parity tests that run with the other tests: TD-MPC2 against the
+code behind its paper (nicklashansen/tdmpc2@5f6fade: four updates, five
+planning decisions and the multi-task update, `tests/agents/TDMPC2/*_parity.py`)
+and DreamerV3 against danijar/dreamerv3@29eb964 (the world model and three
+training steps, `tests/agents/DreamerV3/*_parity.py`). Their records are
+committed fixtures, written by the scripts in `docs/world_models/parity`, and
+their tolerances are fixed per quantity rather than taken from rounding.
+
 The originals are vendored under `benchmarks/reference/vendor`. A PyTorch
 original runs in its own environment (`benchmarks/reference/envs/torch`),
-as does CrossQ's, on the jax, flax and Stable-Baselines3 versions its
-authors pinned (`benchmarks/reference/envs/crossq`). Each records its
-states to disk; CI keeps those records between runs while
+as do ASAC's and CrossQ's, on the versions their authors pinned
+(`benchmarks/reference/envs/asac`: stable-baselines3 2.4 and gymnasium
+1.0; `benchmarks/reference/envs/crossq`: jax, flax and Stable-Baselines3).
+Each records its states to disk; CI keeps those records between runs while
 the original, its recorder and that environment's lock stay the same
 (`AJAX_CONFORMANCE_RECORDS`). `tests/conformance/kit.py` holds the seams
 that make one step comparable without changing the code under test: a tape

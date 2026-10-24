@@ -167,6 +167,8 @@ jaxppo/wandb/*
 csv_data
 tmp
 models
+# A vendored original's own package may be called models (rlpyt's is).
+!benchmarks/reference/vendor/**/models/
 
 *.mp4
 

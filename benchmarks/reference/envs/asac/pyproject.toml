@@ -1,0 +1,27 @@
+# The ASAC original's conformance check (tests/conformance), with CPU-only torch wheels and the
+# versions BobMak/asac@4b68862 pins (requirements.txt: torch 2.8.0, stable-baselines3 2.4.0, gymnasium
+# 1.0.0, numpy 1.26.4). Its data come from gymnasium's own Pendulum and MountainCarContinuous, as the
+# authors' runs use gymnasium envs: gymnax needs gymnasium >= 1.1, which stable-baselines3 2.4 excludes.
+[project]
+name = "conformance-asac"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "torch==2.8.0",
+    "stable-baselines3==2.4.0",
+    "gymnasium==1.0.0",
+    "numpy==1.26.4",
+    "typeguard",
+    "pyyaml",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

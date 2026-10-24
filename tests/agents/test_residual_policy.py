@@ -12,6 +12,10 @@ import numpy as np
 import pytest
 
 from ajax import APG, UDRL
+from ajax.agents.recurrent import q_values
+from ajax.agents.SAC import core
+from ajax.agents.TD3.train_TD3 import compute_td3_td_target
+from ajax.extensions.base import ExtensionStack
 from ajax.extensions.expert import ResidualPolicy
 from tests.agents.test_agent_contract import CASES
 from tests.environments import paid_action
@@ -148,3 +152,53 @@ def test_apg_differentiates_through_the_residual():
     jax.tree.map(np.testing.assert_array_equal, run(0.0, 32), start)
     moved = jax.tree.map(lambda a, b: bool((a != b).any()), run(1.0, 32), start)
     assert any(jax.tree.leaves(moved))
+
+
+def _initial(name: str) -> Any:
+    """The agent's untrained state on Pendulum, its seed axis dropped."""
+    case = CASES[name]
+    agent = case.cls(env_id="Pendulum-v1", n_envs=2, **case.kwargs)
+    return jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+
+
+def _put(a: jax.Array, a_expert: Any) -> jax.Array:
+    """An executed-action function ignoring the policy: a_expert alone."""
+    return jnp.zeros_like(a) + a_expert
+
+
+def test_the_soft_core_scores_executed_actions():
+    """The SAC core (REDQ, TQC, ASAC, CrossQ, AVG read it): its bootstrap's
+    next actions and its actor's objective are the executed ones."""
+    state = _initial("REDQ")
+    obs, key = jnp.ones((4, 3)), jax.random.PRNGKey(0)
+    a_expert = jnp.full((4, 1), 0.25)
+    next_actions, _ = core.sample_next_actions(
+        state.actor_state, obs, key, executed=_put, next_a_expert=a_expert
+    )
+    np.testing.assert_array_equal(next_actions, 0.25)
+    _, (_, _, q), _ = core.soft_actor_step(
+        state, obs, None, ExtensionStack(()), 1, a_expert=a_expert, executed=_put
+    )
+    critic = state.critic_state
+    at_expert = jnp.min(q_values(critic, critic.params, obs, a_expert), axis=0)
+    np.testing.assert_allclose(q, at_expert, rtol=1e-6)
+
+
+def test_td3s_target_scores_the_executed_next_action():
+    state = _initial("TD3")
+    obs, zeros = jnp.ones((4, 3)), jnp.zeros((4, 1))
+    _, _, next_actions = compute_td3_td_target(
+        state.actor_state,
+        state.critic_state,
+        jax.random.PRNGKey(0),
+        obs,
+        zeros,
+        zeros,
+        0.99,
+        0.2,
+        0.5,
+        1.0,
+        executed=_put,
+        next_a_expert=jnp.full((4, 1), 0.25),
+    )
+    np.testing.assert_array_equal(next_actions, 0.25)

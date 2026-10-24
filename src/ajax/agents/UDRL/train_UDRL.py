@@ -515,7 +515,7 @@ def evaluate_UDRL(
     :class:`EvalCommand` (acting through the run's transform and
     ``expert_policy``), and the return and horizon each episode is
     commanded with at its start."""
-    returns, entropy, _, _, length, _ = evaluate(
+    returns, entropy, _, _, length, expert_returns = evaluate(
         env_args.env,
         agent_state.actor_state,
         num_episode_test,
@@ -531,6 +531,8 @@ def evaluate_UDRL(
         "Eval/episodic mean reward": returns,
         "Eval/episodic entropy": entropy,
         "Eval/mean episodic length": length,
+        "Eval/episodic mean expert reward": expert_returns.mean(),
+        "Eval/expert bias": jnp.mean(returns) - expert_returns.mean(),
         "Eval/commanded return": agent_state.command_target_return,
         "Eval/commanded horizon": agent_state.command_target_horizon,
     }

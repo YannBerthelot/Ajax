@@ -5,8 +5,9 @@ gives its expert and does with its answers, on the identity task
 only as ``expert(state, obs)``:
 
 * every call gets the raw observation [t, c] (t an integer step, c in
-  [-1, 1], no extra column); collection and the cloning collector also
-  give it its state, its t calls since the episode's start (the
+  [-1, 1], no extra column); collection, which tracks every agent's
+  expert, and the cloning collector also give it its state, its t calls
+  since the episode's start (the
   evaluation's expert rollout does not reset it after the first episode,
   the only one whose return counts);
 * the cloning dataset holds its actions in agent units;
@@ -31,10 +32,12 @@ from tests.environments.identity_env import LIMIT, TERMINAL, IdentityEnv
 N_ENVS, N_EVAL = 2, 3  # the calls' batch sizes tell training's from evaluation's
 #: Every agent Ajax ships (test_exports: ajax.__all__ names them all) that
 #: takes an expert; one without a row in CASES fails.
+#: APG's expert acts inside its differentiable rollout, on an env with
+#: transition gradients (tests/agents/test_residual_policy.py).
 EXPERT_AGENTS = sorted(
     n
     for n in ajax.__all__
-    if "expert_policy" in inspect.signature(getattr(ajax, n)).parameters
+    if "expert_policy" in inspect.signature(getattr(ajax, n)).parameters and n != "APG"
 )
 #: The agents binding CloningPretrain's context (their train_*.py).
 CLONING_AGENTS = {"APO", "ASAC", "AVG", "CrossQ", "DAgger", "REDQ", "SAC", "TD3", "TQC"}
@@ -95,9 +98,7 @@ def test_an_agent_gives_its_expert_raw_observations_and_its_state(name, monkeypa
         logging_config=logging,
     )
     jax.effects_barrier()
-    assert {len(obs) for obs, _ in expert.calls} == (
-        {N_ENVS, N_EVAL} if clones else {N_EVAL}
-    )
+    assert {len(obs) for obs, _ in expert.calls} == {N_ENVS, N_EVAL}
     for obs, state in expert.calls:
         t, c = obs[..., 0], obs[..., 1]
         assert obs.shape[-1] == 2 and (np.abs(c) <= 1).all(), obs

@@ -261,7 +261,9 @@ class RecordingValueBox(target_mods.ValueBox):
 
     sink: Any = None  # a function: hashed by identity, so each is traced afresh
 
-    def action(self, agent_state: Any, ext: Any, obs: Any, rng: Any, ctx: Any) -> Any:
+    def action(
+        self, agent_state: Any, ext: Any, obs: Any, rng: Any, context: Any
+    ) -> Any:
         compute = target_mods.box_compute_threshold
         stored = (agent_state.expert_v_min, agent_state.expert_v_max)
 
@@ -271,7 +273,7 @@ class RecordingValueBox(target_mods.ValueBox):
             return compute(v_min, v_max, frac)
 
         with mock.patch.object(target_mods, "box_compute_threshold", recorded):
-            return super().action(agent_state, ext, obs, rng, ctx)
+            return super().action(agent_state, ext, obs, rng, context)
 
 
 def value_box_agent(records: list) -> Any:

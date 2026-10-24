@@ -34,6 +34,58 @@ PyPI as `ajax-rl`.
 
   Training is unchanged: every final state is bitwise the same, and so is
   the compiled program.
+- **PPO, APO and PQN are declared agents**, on the on-policy family
+  (`OnPolicyAgent` in `ajax.agents.families`): each is one file,
+  `agents/<AGENT>/<AGENT>.py`. What changes for a caller, as for IQL,
+  CrossQ and TD3:
+  - the constructor is keyword-only after `env_id`;
+  - an agent's fields and `agent_config` are fixed once built, and
+    `agent_config` is a view of the fields;
+  - `PPOConfig`, `APOConfig` and `PQNConfig` are views that subclass
+    `BaseAgentConfig` only, and are untyped (`Any`) to mypy until 0.5.0;
+  - `train_kwargs` is empty: PQN's `epsilon_start`, `epsilon_end`,
+    `epsilon_decay_frac` and `td_loss_fn` are its fields; `make_train`
+    takes only the keywords every agent's takes;
+  - PPO's and APO's `expert_policy` holds the expert as passed, which the
+    run config logs; `agent.expert` is the one read in agent units;
+  - PPO's `encoder_kernel_init` defaults to `"orthogonal(np.sqrt(2))"`,
+    which None still means: `PPO(encoder_kernel_init=None)` trains as
+    before but logs None in the run config;
+  - the old modules (`train_PPO`, `PPO.state`, `PPO.utils`, `PPO.core`,
+    `train_APO`, `APO.state`, `train_PQN`, `PQN.state`, `PQN.utils`) still
+    import their names, with a FutureWarning, until 0.5.0.
+    `policy_loss_function` and `value_loss_function` keep their
+    parameters. The functions that became methods (`init_PPO`,
+    `init_APO`, the `update_agent`s, APO's `update_networks`, `make_train`)
+    take other arguments: calling one raises TypeError with the method's
+    call form.
+
+  Training is unchanged: every final state is bitwise the same, and so is
+  the compiled program.
+- **`RolloutSplit`.** `ajax.agents.minibatch.Geometry`, how an on-policy
+  rollout is cut into minibatches, is now `RolloutSplit`, and
+  `minibatch_geometry` is `choose_rollout_split`: same arguments and fields,
+  `kind` still `"flat"`, `"time"` or `"recurrent"`. The split also says
+  where the advantages are computed (`advantages_per_minibatch`) and cuts
+  the rollout (`minibatches`). The old names, also on `train_PPO`, import
+  with a FutureWarning until 0.5.0.
+- **Extension phases are applied.** `ExtensionStack.fold_reward`,
+  `fold_on_target`, `fold_critic_loss`, `fold_actor_loss` and
+  `fold_post_update` are now `apply_reward`, `apply_on_target`,
+  `apply_critic_loss`, `apply_actor_loss` and `apply_post_update`, and
+  `fold_init`, `fold_init_states`, `fold_pretrain` and `fold_eval_metrics`
+  are `apply_init`, `apply_init_states`, `apply_pretrain` and
+  `apply_eval_metrics`, as
+  are `ajax.agents.loop`'s `fold_on_target`, `fold_critic_loss` and
+  `fold_post_update` (also in `ajax.agents.steps`): same arguments. The
+  old names stay as aliases until 0.5.0. `TrainContext.stack` is
+  `TrainContext.extensions`, and so is `TrainLoop.stack`.
+- `ajax.agents.minibatch.rollout_actions` (`ajax.agents.PPO.core`'s
+  before) is `get_actions_and_log_probs`; the old names import with a
+  FutureWarning until 0.5.0.
+- The extension phases' `ExtensionContext` parameter is named `context`
+  (was `ctx`). The stack passes it positionally, so an extension that
+  still names it `ctx` keeps working.
 - Writing a name on a module it moved out of (`monkeypatch.setattr` on an
   old path) raises AttributeError naming its new home, where it is read:
   the write would have changed nothing.

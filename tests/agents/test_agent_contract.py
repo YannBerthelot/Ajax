@@ -119,8 +119,13 @@ DAGGER_REQUIRED = {"expert_policy": zero_expert}
 CASES = {
     "DAgger": Case(
         DAgger,
-        {"actor_architecture": NET, "batch_size": 8, "buffer_size": 128}
-        | {"iteration_steps": 16, **DAGGER_REQUIRED},
+        {
+            "actor_architecture": NET,
+            "batch_size": 8,
+            "buffer_size": 128,
+            "iteration_steps": 16,
+            **DAGGER_REQUIRED,
+        },
         CONTINUOUS + DISCRETE,
         buffer=True,
         critic=False,
@@ -145,8 +150,14 @@ CASES = {
     ),
     "CrossQ": Case(
         CrossQ,
-        {"actor_width": 16, "critic_width": 16}
-        | {k: OFF_POLICY[k] for k in ("learning_starts", "batch_size", "buffer_size")},
+        {
+            "actor_width": 16,
+            "critic_width": 16,
+            **{
+                k: OFF_POLICY[k]
+                for k in ("learning_starts", "batch_size", "buffer_size")
+            },
+        },
         CONTINUOUS,
         alpha=True,
         buffer=True,
@@ -245,7 +256,7 @@ def test_an_agent_builds_its_configs(name: str, env_id: str) -> None:
     # The run config holds the constructor's arguments and the agent's name.
     assert agent.config["env_id"] == env_id
     assert agent.config["algo_name"] == agent.name == name
-    assert not {"self", "__class__"} & set(agent.config)
+    assert not {"self", "__class__"}.intersection(agent.config)
 
 
 def test_the_run_config_drops_the_instance_and_the_excluded() -> None:
@@ -293,7 +304,7 @@ class _KeyExt(Extension):
 
     name: str = "key"
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         jax.debug.callback(_record("extensions"), rng)
         return {}
 
@@ -322,7 +333,8 @@ def _extended_run(case: Case) -> SimpleNamespace:
         {} if case.rollout is None else {"expose_recent_rollout": True}
     )
     kwargs = {"env_id": case.envs[-1], "n_envs": 2, **exposed}
-    kwargs |= case.kwargs | case.extended
+    kwargs.update(case.kwargs)
+    kwargs.update(case.extended)
     extensions: list[Extension] = [CounterExt("a"), CounterExt("b"), MetricExt()]
     extensions.append(_KeyExt())
     if "observe" in case.cls.supported_extension_phases:
@@ -514,7 +526,9 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
         return
     case = CASES[name]
     exposed = {"expose_recent_rollout": True} if case.rollout is not None else {}
-    kwargs = case.kwargs | exposed | (WARM_UP if case.buffer else {})
+    kwargs = {**case.kwargs, **exposed}
+    if case.buffer:
+        kwargs.update(WARM_UP)
     if name == "REDQ":  # 2 critic updates a step would take 130 over the 65
         kwargs["num_critic_updates"] = 1  # after the warm-up: a fast test's 128
     agent = case.cls(env_id=env, env_params=params, n_envs=1, **kwargs)

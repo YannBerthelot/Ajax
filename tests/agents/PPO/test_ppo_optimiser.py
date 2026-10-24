@@ -13,9 +13,7 @@ import numpy as np
 import optax
 
 from ajax.agents import steps
-from ajax.agents.PPO import train_PPO
-from ajax.agents.PPO.PPO import PPO
-from ajax.agents.PPO.state import PPOConfig
+from ajax.agents.PPO.PPO import PPO, PPOConfig
 
 
 def test_PPO_defaults_to_ppo2s_optimiser() -> None:
@@ -34,10 +32,7 @@ def test_joint_step_is_one_clipped_adam_over_both_networks() -> None:
     norms differ, so clipping each network on its own would move them
     differently."""
     agent = PPO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
-    args = (agent.actor_optimizer_args, agent.critic_optimizer_args)
-    state = train_PPO.init_PPO(
-        jax.random.PRNGKey(0), agent.env_args, *args, agent.network_args
-    )
+    state = agent.init(jax.random.PRNGKey(0), agent.context(8)[1])
     actor, critic = state.actor_state, state.critic_state
     tx = optax.chain(optax.clip_by_global_norm(0.5), optax.adam(3e-4, eps=1e-5))
     params = start = (actor.params, critic.params)

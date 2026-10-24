@@ -464,7 +464,7 @@ def make_train(
             agent_state,
             transition,
             agent_config,
-            loop.stack,
+            loop.extensions,
             total_timesteps,
             stores_expert_actions=expert_policy is not None,
             executed=executed_fn(env_args),
@@ -477,7 +477,7 @@ def make_train(
         expose_rollout=agent_config.expose_recent_rollout,
         after_collect=after_collect,
         collect_kwargs={
-            "store_raw_next_obs": "raw_next_obs" in loop.stack.buffer_fields()
+            "store_raw_next_obs": "raw_next_obs" in loop.extensions.buffer_fields()
         },
         eval_kwargs={
             "expert_policy": expert_policy,

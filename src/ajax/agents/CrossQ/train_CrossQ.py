@@ -7,10 +7,11 @@ the method's call form."""
 
 from ajax.deprecation import moved_names
 
-__getattr__ = moved_names(
-    __name__,
-    dict.fromkeys(("AuxiliaryLogs", "PolicyAuxiliaries"), "ajax.agents.CrossQ.CrossQ")
-    | {
+_new_homes = dict.fromkeys(
+    ("AuxiliaryLogs", "PolicyAuxiliaries"), "ajax.agents.CrossQ.CrossQ"
+)
+_new_homes.update(
+    {
         "init_CrossQ": "ajax.agents.CrossQ.CrossQ:CrossQ.init",
         "update_agent": "ajax.agents.CrossQ.CrossQ:CrossQ.update",
         "update_critics": "ajax.agents.CrossQ.CrossQ:CrossQ.critic_update",
@@ -18,5 +19,6 @@ __getattr__ = moved_names(
             "ajax.agents.CrossQ.CrossQ:CrossQ.actor_update"
         ),
         "make_train": "ajax.agents.families:ReplayAgent.make_train",
-    },
+    }
 )
+__getattr__ = moved_names(__name__, _new_homes)

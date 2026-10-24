@@ -88,7 +88,7 @@ def test_an_agent_gives_its_expert_raw_observations_and_its_state(name, monkeypa
         n_envs=N_ENVS,
         extensions=cloning if clones else (),
         **options,
-        **(case.kwargs | {"expert_policy": expert}),
+        **{**case.kwargs, "expert_policy": expert},
     )
     logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
     _, out = agent.train(

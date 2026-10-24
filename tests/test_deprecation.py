@@ -23,8 +23,11 @@ def old_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     monkeypatch.setitem(sys.modules, "old_home", module)  # as while it runs
     module.__getattr__ = moved_names(  # type: ignore[method-assign]
         "old_home",
-        {"warn_inert": "ajax.deprecation", "gone": "ajax.deprecation:moved_names"}
-        | {"train_agent": "ajax.agents.base:ActorCritic.train"},
+        {
+            "warn_inert": "ajax.deprecation",
+            "gone": "ajax.deprecation:moved_names",
+            "train_agent": "ajax.agents.base:ActorCritic.train",
+        },
     )
     return module
 
@@ -86,14 +89,16 @@ BECAME_METHODS = {
 }
 
 
-@pytest.mark.parametrize("agent", ["IQL", "CrossQ", "TD3"])
+@pytest.mark.parametrize("agent", ["IQL", "CrossQ", "TD3", "PQN"])
 def test_the_declared_agents_old_names_resolve_or_give_the_new_call(
     agent: str,
 ) -> None:
     """Every name the surface record holds for the old modules of a declared
     agent resolves to its home in the agent's file, or, become a method,
     raises TypeError naming the method; none can be written there."""
-    olds = (f"ajax.agents.{agent}.train_{agent}", f"ajax.agents.{agent}.state")
+    olds = tuple(
+        f"ajax.agents.{agent}.{m}" for m in (f"train_{agent}", "state", "utils")
+    )
     recorded = json.loads(SURFACE.read_text())
     lines = [line.split(":") for line in recorded if line.startswith(olds)]
     assert lines
@@ -108,5 +113,54 @@ def test_the_declared_agents_old_names_resolve_or_give_the_new_call(
             home = inspect.getmodule(found)
             assert home is not None
             assert home.__name__ == f"ajax.agents.{agent}.{agent}"
+        with pytest.raises(AttributeError, match=f"{path}.{name} moved to"):
+            setattr(module, name, found)
+
+
+def test_ppos_old_names_resolve_or_give_the_new_call() -> None:
+    """PPO's old modules serve every name the surface record holds for them
+    (and _compute_gae, which downstream reads) from PPO.py or a shared
+    module; its init, update and make_train became methods. core keeps one
+    legacy definition, resolve_clip_coef."""
+    olds = tuple(
+        f"ajax.agents.PPO.{m}" for m in ("train_PPO", "state", "core", "utils")
+    )
+    recorded = json.loads(SURFACE.read_text())
+    lines = [line.split(":") for line in recorded if line.startswith(olds)]
+    lines += [["ajax.agents.PPO.utils", "_compute_gae"]]
+    assert len(lines) > 20
+    for path, name in lines:
+        module = importlib.import_module(path)
+        if name == "resolve_clip_coef":
+            assert inspect.getmodule(module.resolve_clip_coef) is module
+            continue
+        with pytest.warns(FutureWarning, match=f"{path}.{name} moved to"):
+            found = getattr(module, name)
+        if name in {"init_PPO", "update_agent", "make_train"}:
+            with pytest.raises(TypeError, match=f"{path}.{name} became .*self"):
+                found()
+        with pytest.raises(AttributeError, match=f"{path}.{name} moved to"):
+            setattr(module, name, found)
+
+
+def test_apos_old_names_resolve_or_give_the_new_call() -> None:
+    """APO's old modules serve every name the surface record holds for them
+    from APO.py, the same object; its init, update, minibatch step and
+    make_train became methods."""
+    olds = ("ajax.agents.APO.train_APO", "ajax.agents.APO.state")
+    recorded = json.loads(SURFACE.read_text())
+    lines = [line.split(":") for line in recorded if line.startswith(olds)]
+    assert len(lines) == 11
+    home = importlib.import_module("ajax.agents.APO.APO")
+    methods = {"init_APO", "update_agent", "update_networks", "make_train"}
+    for path, name in lines:
+        module = importlib.import_module(path)
+        with pytest.warns(FutureWarning, match=f"{path}.{name} moved to"):
+            found = getattr(module, name)
+        if name in methods:
+            with pytest.raises(TypeError, match=f"{path}.{name} became .*self"):
+                found()
+        else:
+            assert found is getattr(home, name)
         with pytest.raises(AttributeError, match=f"{path}.{name} moved to"):
             setattr(module, name, found)

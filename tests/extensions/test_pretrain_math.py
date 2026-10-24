@@ -143,14 +143,14 @@ def test_bellman_pretrain_binds_the_agent_context():
     bound = ext.bind_to_agent(**context)
     assert (bound.buffer, bound.gamma, bound.reward_scale) == ("buffer", 0.9, 2.0)
     assert (bound.update_value_fn, bound.update_target_fn) == (len, abs)
-    assert bound.bind_to_agent(**context | {"gamma": 0.5}) is bound
+    assert bound.bind_to_agent(**{**context, "gamma": 0.5}) is bound
     assert ext.bind_to_agent(env_args=None) is ext
 
 
 def test_mc_pretrain_binds_the_agents_discount_and_reward_scale():
     ext, env = MCPretrain(expert_policy=abs), SimpleNamespace(observers=())
     context = {"env_args": env, "network_args": "net", "gamma": 0.9}
-    context |= {"critic_optimizer_args": "opt", "reward_scale": 2.0}
+    context.update({"critic_optimizer_args": "opt", "reward_scale": 2.0})
     bound = ext.bind_to_agent(**context, expert_policy=abs)
     assert (bound.env_args, bound.gamma, bound.reward_scale) == (env, 0.9, 2.0)
 
@@ -191,9 +191,9 @@ def test_mc_returns_carry_the_reward_scale():
 def test_bellman_pretrain_needs_the_agent_context_and_expert():
     """Unbound, its pretrain phase raises; on an agent without an expert (so
     no expert prefill to pre-train on), SAC refuses it when built."""
-    ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
+    context = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
     with pytest.raises(ValueError, match="did not bind"):
-        BellmanPretrain().pretrain(None, (), ctx)
+        BellmanPretrain().pretrain(None, (), context)
     with pytest.raises(MissingCapability, match="give the agent an expert_policy"):
         SAC("Pendulum-v1", extensions=(BellmanPretrain(n_steps=1),))
 
@@ -207,7 +207,7 @@ def test_cloning_pretrain_binds_the_agent_context():
     context = {"env_args": env, "actor_optimizer_args": "adam", "expert_policy": abs}
     bound = ext.bind_to_agent(**context)
     assert (bound.env_args, bound.actor_optimizer_args) == (env, "adam")
-    assert bound.bind_to_agent(**context | {"env_args": "other"}) is bound
+    assert bound.bind_to_agent(**{**context, "env_args": "other"}) is bound
     assert ext.bind_to_agent(env_args=env) is ext
 
 
@@ -236,14 +236,14 @@ def test_cloning_pretrain_comes_before_the_other_pretraining():
 
 
 def test_cloning_pretrain_needs_the_agent_context():
-    ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
+    context = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
     with pytest.raises(ValueError, match="did not bind"):
-        CloningPretrain(expert_policy=abs).pretrain(None, (), ctx)
+        CloningPretrain(expert_policy=abs).pretrain(None, (), context)
 
 
 def test_phi_refresh_needs_the_agent_context():
     """Unbound (no agent handed it its buffer), its post_update raises
     rather than never refreshing phi*."""
-    ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
+    context = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
     with pytest.raises(ValueError, match="did not bind"):
-        PhiRefresh(expert_policy=abs).post_update(None, (), ctx)
+        PhiRefresh(expert_policy=abs).post_update(None, (), context)

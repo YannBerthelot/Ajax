@@ -19,13 +19,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.APO import train_APO
+import ajax.agents.PPO.PPO as ppo_module
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC import train_ASAC
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG import train_AVG
 from ajax.agents.AVG.AVG import AVG
-from ajax.agents.PPO import train_PPO
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.REDQ import train_REDQ
 from ajax.agents.REDQ.REDQ import REDQ
@@ -40,7 +39,7 @@ from ajax.extensions.expert import ImitationLoss, ResidualPolicy, q_filter_weigh
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import Transition
 from ajax.types import NormalizationInfo
-from tests.agents.TD3.test_td3_metrics import context
+from tests.agents.TD3.test_td3_metrics import make_context
 
 NET = ("8", "relu")
 BATCH = 4
@@ -97,8 +96,8 @@ def test_the_annealed_term_reaches_zero_at_its_fraction_of_training() -> None:
     term = ImitationLoss(expert_policy=EXPERT, anneal_frac=0.5)
 
     def at(step: int) -> float:
-        ctx = ExtensionContext(step=jnp.asarray(step), rng=KEY, total_steps=1_000)
-        return float(term.actor_loss(None, (), batch, ctx)[0])
+        context = ExtensionContext(step=jnp.asarray(step), rng=KEY, total_steps=1_000)
+        return float(term.actor_loss(None, (), batch, context)[0])
 
     np.testing.assert_allclose(at(0), full, rtol=1e-6)
     np.testing.assert_allclose(at(250), full / 2, rtol=1e-6)
@@ -142,7 +141,7 @@ def test_the_q_filter_weight_is_zero_wherever_the_critic_prefers_the_policy() ->
     ext = ImitationLoss(expert_policy=EXPERT, coef=2.0, q_filter=True)
     with pytest.raises(ValueError, match="critic_state"):
         ext.actor_loss(None, (), batch, CTX)
-    term, _ = ext.actor_loss(None, (), batch | {"critic_state": _critic()}, CTX)
+    term, _ = ext.actor_loss(None, (), {**batch, "critic_state": _critic()}, CTX)
     want = 2.0 * np.mean(np.array(KEPT) * (np.asarray(PI)[:, 0] - 0.9) ** 2) / 4.0
     np.testing.assert_allclose(float(term), want, rtol=1e-6)
 
@@ -291,7 +290,7 @@ def test_sac_logs_the_filtered_fraction_on_a_replay_batch() -> None:
 _REPLAY = {"n_envs": 2, "learning_starts": 16, "batch_size": 8}
 Q_AGENTS = {
     "TD3": (TD3, _REPLAY),
-    "REDQ": (REDQ, _REPLAY | {"num_critic_updates": 1}),
+    "REDQ": (REDQ, {**_REPLAY, "num_critic_updates": 1}),
     "ASAC": (ASAC, _REPLAY),
     "AVG": (AVG, {}),
 }
@@ -333,8 +332,8 @@ def _obs(agent: Any) -> jax.Array:
 
 def _td3_update(stack: ExtensionStack) -> Any:
     agent = TD3("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    ctx = context(agent, stack)
-    state = _ext_state(agent.init(KEY, ctx), stack)
+    context = make_context(agent, stack)
+    state = _ext_state(agent.init(KEY, context), stack)
     obs, zeros = _obs(agent), jnp.zeros((BATCH, 1))
     # The actor step reads the rows' observations, raw too (the expert's input).
     batch = Transition(
@@ -346,7 +345,7 @@ def _td3_update(stack: ExtensionStack) -> Any:
         next_obs=obs,
         raw_obs=obs,
     )
-    state, _ = agent.actor_update(state, batch, None, ctx)
+    state, _ = agent.actor_update(state, batch, None, context)
     return state.actor_state.params
 
 
@@ -411,14 +410,9 @@ def _apo_update(stack: ExtensionStack) -> Any:
     agent = APO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
-    state = train_APO.init_APO(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
-    state = _ext_state(state, stack)
+    # The stack as given, unbound, as each test builds it.
+    context = dataclasses.replace(agent.context(1)[1], extensions=stack)
+    state = _ext_state(agent.init(KEY, context), stack)
     obs = _obs(agent)
     minibatch = {
         "obs": obs,
@@ -429,11 +423,9 @@ def _apo_update(stack: ExtensionStack) -> Any:
         "log_probs": jnp.zeros((BATCH, 1)),
         "targets": jnp.zeros((BATCH, 1)),
         "entropy_key": KEY,
-        "a_expert": None,  # no expert: update_agent's minibatch without one
+        "a_expert": None,  # no expert: the update's minibatch without one
     }
-    state, _ = train_APO.update_networks(
-        state, minibatch, agent.agent_config, jnp.float32(0.0), stack, 1
-    )
+    state, _ = agent.minibatch_step(state, minibatch, jnp.float32(0.0), context)
     return state.actor_state.params
 
 
@@ -441,19 +433,15 @@ def _ppo_update(stack: ExtensionStack) -> Any:
     agent = PPO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
-    state = train_PPO.init_PPO(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
+    state = agent.init(KEY, agent.context(1)[1])
     state = _ext_state(state, stack)
     obs, actor = _obs(agent), state.actor_state
-    extra = train_PPO._stack_actor_loss(stack, state, KEY, 1, raw_observations=obs)
+    extra = ppo_module._extensions_actor_loss(
+        stack, state, KEY, 1, raw_observations=obs
+    )
 
     def loss(params: Any) -> Any:
-        return train_PPO.policy_loss_function(
+        return ppo_module.policy_loss_function(
             params,
             actor,
             obs,
@@ -530,14 +518,17 @@ def test_the_critic_in_the_actor_batch_is_inert_without_the_filter(
     def program() -> str:
         return str(jax.make_jaxpr(lambda: update(_stack(1.0)))())
 
-    with_critic, fold = program(), ExtensionStack.fold_actor_loss
+    with_critic, apply = program(), ExtensionStack.apply_actor_loss
 
     def without(self: ExtensionStack, state: Any, batch: dict, *args: Any) -> Any:
-        return fold(
-            self, state, {k: batch[k] for k in batch.keys() - {"critic_state"}}, *args
+        return apply(
+            self,
+            state,
+            {k: batch[k] for k in set(batch).difference({"critic_state"})},
+            *args,
         )
 
-    monkeypatch.setattr(ExtensionStack, "fold_actor_loss", without)
+    monkeypatch.setattr(ExtensionStack, "apply_actor_loss", without)
     assert program() == with_critic
 
 

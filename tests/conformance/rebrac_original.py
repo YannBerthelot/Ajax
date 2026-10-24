@@ -43,8 +43,10 @@ SETTINGS: dict[str, Any] = {
 TASK = {"MountainCarEnds": "MountainCarContinuous-v0"}
 ACTOR = {"hidden.layers_0": 0, "hidden.layers_2": 1, "hidden.layers_4": 2, "head": 3}
 CRITIC = {"layers_0": "Dense_0", "layers_2": "LayerNorm_0", "layers_3": "Dense_1"}
-CRITIC |= {"layers_5": "LayerNorm_1", "layers_6": "Dense_2", "layers_8": "LayerNorm_2"}
-CRITIC |= {"model": "Dense_3"}
+CRITIC.update(
+    {"layers_5": "LayerNorm_1", "layers_6": "Dense_2", "layers_8": "LayerNorm_2"}
+)
+CRITIC.update({"model": "Dense_3"})
 
 
 def extensions(beta: float = 1.0) -> tuple:
@@ -137,7 +139,7 @@ def run(records: pathlib.Path, precision: str, beta: float = 1.0) -> dict[str, d
     td3_module.sample_replay = injected
     try:
         for task in tasks:
-            out |= _task_updates(records, task, dtype, beta, given)
+            out.update(_task_updates(records, task, dtype, beta, given))
     finally:
         td3_module.sample_replay = sample
     return out

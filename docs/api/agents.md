@@ -33,12 +33,23 @@ notes on using it:
 
 Every agent is also exported from `ajax` itself (`from ajax import SAC`).
 
-IQL, CrossQ and TD3 are declared agents: their hyperparameters are the fields
+IQL, CrossQ, TD3, PPO, APO and PQN are declared agents: their hyperparameters are the fields
 of a dataclass on a family of `ajax.agents.families`, which builds their
 constructor (keyword-only after `env_id`), run config, `agent_config` view,
-replay and train function. Their fields and `agent_config` are fixed once
+replay (IQL, CrossQ, TD3: `ReplayAgent`) or rollouts (PPO, APO, PQN:
+`OnPolicyAgent`) and train function. Their fields and `agent_config` are fixed once
 built: `dataclasses.replace(agent, gamma=0.9)` builds another.
 
 ::: ajax.agents.base.ActorCritic
 
 ::: ajax.agents.families
+
+PPO's update cuts its rollout into minibatches in one of three ways (a
+rollout split), which also says where the advantages are computed: `"flat"`, ppo2's shuffled single steps,
+GAE once on the rollout; `"time"`, brax's shuffled fragments of
+`unroll_length` steps, GAE in each minibatch from the current critic;
+`"recurrent"`, sequences of `bptt_length` steps, GAE once.
+
+::: ajax.agents.minibatch.RolloutSplit
+
+::: ajax.agents.minibatch.choose_rollout_split

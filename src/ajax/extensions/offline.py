@@ -102,13 +102,13 @@ class ConservativeQ(Extension):
         return q, {}
 
     def critic_loss(
-        self, agent_state: Any, ext_state: Any, batch: Any, ctx: ExtensionContext
+        self, agent_state: Any, ext_state: Any, batch: Any, context: ExtensionContext
     ) -> Any:
         del agent_state, ext_state
         obs, actions = batch["observations"], batch["actions"]
         critic, params = batch["critic_state"], batch["critic_params"]
         n, (b, dim) = self.n_actions, actions.shape
-        k_uniform, k_now, k_next = jax.random.split(ctx.rng, 3)
+        k_uniform, k_now, k_next = jax.random.split(context.rng, 3)
         uniform = jax.random.uniform(k_uniform, (n, b, dim), minval=-1.0, maxval=1.0)
         now, log_now = policy_samples(batch["actor_state"], obs, k_now, n)
         nxt, log_nxt = policy_samples(
@@ -122,7 +122,9 @@ class ConservativeQ(Extension):
         q_data = predict_value(critic, params, jnp.concatenate([obs, actions], -1))
         gap = jnp.mean(jax.scipy.special.logsumexp(samples, axis=1) - q_data)
         term = self.alpha * gap
-        return term, {"cql/term": term, "cql/gap": gap} | metrics
+        logged = {"cql/term": term, "cql/gap": gap}
+        logged.update(metrics)
+        return term, logged
 
 
 @dataclass(frozen=True)
@@ -141,12 +143,11 @@ class CalQL(ConservativeQ):
     """
 
     name: str = "cal_ql"
-    requires: ClassVar[frozenset[str]] = ConservativeQ.requires | {
-        "discounted",
-        "replay",
-    }
+    requires: ClassVar[frozenset[str]] = ConservativeQ.requires.union(
+        {"discounted", "replay"}
+    )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
-        "critic_loss": ConservativeQ.batch_keys["critic_loss"] | {"return_to_go"}
+        "critic_loss": ConservativeQ.batch_keys["critic_loss"].union({"return_to_go"})
     }
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"return_to_go"})
 
@@ -186,9 +187,9 @@ class TargetBC(Extension):
         ext_state: Any,
         batch: Any,
         target: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> Any:
-        del agent_state, ext_state, ctx
+        del agent_state, ext_state, context
         a_next = batch["next_action"]
         known = jnp.all(jnp.isfinite(a_next), axis=-1, keepdims=True)
         gap = batch["next_actions"] - jnp.where(known, a_next, 0.0)

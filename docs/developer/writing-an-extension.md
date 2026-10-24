@@ -69,21 +69,21 @@ extensions were given.
 | Phase | Returns | How several extensions combine | Folded by |
 | --- | --- | --- | --- |
 | `init_state(agent_state, rng)` | the extension's state (`()`: none) | one entry each | every agent, fresh runs only |
-| `pretrain(agent_state, ext_state, ctx)` | `(agent_state, ext_state)` | in order, each sees the last one's agent state | every agent, fresh runs only |
-| `reward(agent_state, ext_state, batch, rewards, ctx)` | `(rewards, ext_state, metrics)`: the rollout's new rewards | in order, each transforms the last one's rewards | PPO, after each rollout, before its targets |
-| `on_target(agent_state, ext_state, batch, target, ctx)` | the new target, or `(target, metrics)` (below) | in order, each transforms the last one's target | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, PPO, APO |
-| `critic_loss(agent_state, ext_state, batch, ctx)` | a term added to the critic loss, or `(term, metrics)` | summed | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, PPO, APO |
-| `actor_loss(agent_state, ext_state, batch, ctx)` | a term added to the actor loss, or `(term, metrics)` | summed | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, APG, UDRL |
-| `action(agent_state, ext_state, obs, rng, ctx)` | an action, or `None` to defer | the last non-`None` wins | SAC with an expert policy (below) |
-| `eval_action(agent_state, ext_state, obs, rng, ctx)` | an action, or `None` | the last non-`None` wins | no agent yet |
+| `pretrain(agent_state, ext_state, context)` | `(agent_state, ext_state)` | in order, each sees the last one's agent state | every agent, fresh runs only |
+| `reward(agent_state, ext_state, batch, rewards, context)` | `(rewards, ext_state, metrics)`: the rollout's new rewards | in order, each transforms the last one's rewards | PPO, after each rollout, before its targets |
+| `on_target(agent_state, ext_state, batch, target, context)` | the new target, or `(target, metrics)` (below) | in order, each transforms the last one's target | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, PPO, APO |
+| `critic_loss(agent_state, ext_state, batch, context)` | a term added to the critic loss, or `(term, metrics)` | summed | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, PPO, APO |
+| `actor_loss(agent_state, ext_state, batch, context)` | a term added to the actor loss, or `(term, metrics)` | summed | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, APG, UDRL |
+| `action(agent_state, ext_state, obs, rng, context)` | an action, or `None` to defer | the last non-`None` wins | SAC with an expert policy (below) |
+| `eval_action(agent_state, ext_state, obs, rng, context)` | an action, or `None` | the last non-`None` wins | no agent yet |
 | `transform_action(actions, inputs)` | the executed action, from the policy's and the expert's (`ajax.controller.TransformInputs`): before the action is chosen; the replay stores it and the critics score it | one per agent | SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with an expert policy, in collection, their losses and evaluation |
 | `actuate(actions, inputs)` | `(env_actions, expert_state)`: the chosen action executed through the expert; the replay stores the chosen one, and `policy_action_dim(env_args, expert)` gives its width where it is not the env's | one per agent | SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with an expert policy (gain mode), in collection and evaluation |
-| `post_update(agent_state, ext_state, ctx)` | `(agent_state, ext_state)` | in order | every agent, after each update |
-| `eval_metrics(agent_state, ext_state, rng, ctx)` | a dict of metrics | merged | every agent, at each evaluation |
+| `post_update(agent_state, ext_state, context)` | `(agent_state, ext_state)` | in order | every agent, after each update |
+| `eval_metrics(agent_state, ext_state, rng, context)` | a dict of metrics | merged | every agent, at each evaluation |
 | `observe(inputs, state)` | `(columns, state)`: the `(n_envs, observation_width(env_args))` columns appended to the observation `inputs` (`ajax.controller.ObserveInputs`) describes | in column order (`observes_normalised` first) | the shared collector and evaluation, whenever an observation arrives |
 
 Each phase the stack folds is one `ExtensionStack` method, `fold_<phase>`
-(`fold_init` runs `init_state` then `pretrain`), and an agent calls it once
+(`apply_init` runs `init_state` then `pretrain`), and an agent calls it once
 where the phase applies; the controller dispatches `action`,
 `transform_action` and `actuate` itself.
 Each agent lists the phases it folds in
@@ -107,7 +107,7 @@ own metrics. Returning the value alone logs nothing. Two extensions logging
 the same name raise when the agent is traced.
 
 ```python
-def on_target(self, agent_state, ext_state, batch, target, ctx):
+def on_target(self, agent_state, ext_state, batch, target, context):
     wins = ...  # where the expert's next action scores higher
     return jnp.where(wins, expert_target, target), {"ibrl/expert_wins": wins.mean()}
 ```
@@ -117,14 +117,17 @@ an evaluation (a schedule, a counter kept in the extension's state).
 
 ### What a phase receives
 
-`ctx` is an `ExtensionContext`:
+`context` is an `ExtensionContext`:
 
-- `ctx.step`: the collector's timestep, traced. Use it in `jnp.where`, not
+- `context.step`: the collector's timestep, traced. Use it in `jnp.where`, not
   in a Python `if`.
-- `ctx.rng`: a key for this call.
-- `ctx.total_steps`: the run's horizon, a plain Python `int`. Python-level
+- `context.rng`: a key for this call.
+- `context.total_steps`: the run's horizon, a plain Python `int`. Python-level
   decisions (a schedule's length) can use it at trace time. On a resumed run
   it is the whole run's horizon, so schedules continue rather than restart.
+
+The stack passes it positionally, so an extension written when Ajax named it
+`ctx` keeps working.
 
 `batch` is a dictionary. Every agent folding a phase puts in it the keys
 `COMMON_BATCH_KEYS` lists, in
@@ -184,22 +187,22 @@ class ClippedTarget(Extension):
     fraction: float = 0.5
     name: str = "clipped-target"
 
-    def active(self, ctx):
-        # ctx.step is traced (the collector's timestep); ctx.total_steps
+    def active(self, context):
+        # context.step is traced (the collector's timestep); context.total_steps
         # is a plain int, the run's horizon.
-        return ctx.step < self.fraction * ctx.total_steps
+        return context.step < self.fraction * context.total_steps
 
     def init_state(self, agent_state, rng):
         return jnp.asarray(0, jnp.int32)
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         clipped = jnp.clip(target, self.low, self.high)
-        return jnp.where(self.active(ctx), clipped, target)
+        return jnp.where(self.active(context), clipped, target)
 
-    def post_update(self, agent_state, ext_state, ctx):
-        return agent_state, ext_state + self.active(ctx).astype(jnp.int32)
+    def post_update(self, agent_state, ext_state, context):
+        return agent_state, ext_state + self.active(context).astype(jnp.int32)
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         # A float: between evaluations the logger fills metrics with NaN.
         return {"ClippedTarget/active updates": ext_state.astype(jnp.float32)}
 
@@ -262,7 +265,7 @@ class CriticWeightDecay(Extension):
     coef: float = 1e-4
     name: str = "critic-weight-decay"
 
-    def critic_loss(self, agent_state, ext_state, batch, ctx):
+    def critic_loss(self, agent_state, ext_state, batch, context):
         params = batch.get("critic_params")
         if params is None:
             raise ValueError(
@@ -331,7 +334,7 @@ class ActorNudge(Extension):
 
     name: str = "actor-nudge"
 
-    def actor_loss(self, agent_state, ext_state, batch, ctx):
+    def actor_loss(self, agent_state, ext_state, batch, context):
         return 0.0
 
 
@@ -404,7 +407,7 @@ class EffectiveHorizon(Extension):
             return self  # a value the user passed wins
         return dataclasses.replace(self, gamma=gamma)
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         if self.gamma is None:
             raise ValueError("EffectiveHorizon needs gamma: pass it, or use an agent that binds it")
         return {"Debug/effective horizon": jnp.asarray(1.0 / (1.0 - self.gamma))}
@@ -438,8 +441,8 @@ the same way.
 ## Randomness
 
 `init_state` and `eval_metrics` give each extension a key of its own, the
-`rng` argument. The other phases pass one `ctx` to every extension of the
-stack, so two extensions drawing from `ctx.rng` in the same phase draw the
+`rng` argument. The other phases pass one `context` to every extension of the
+stack, so two extensions drawing from `context.rng` in the same phase draw the
 same numbers: split it with a constant of your own (`jax.random.fold_in`)
 when that matters. SAC's action pipeline passes the same key as `rng` to
 every `action` extension too.

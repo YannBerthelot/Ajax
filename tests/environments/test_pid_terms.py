@@ -154,7 +154,7 @@ def test_the_feature_computes_the_wrappers_terms_through_the_collector():
     runs act uniformly on the same keys, so the plants follow one path."""
     task, params = setpoint_env.Setpoint(), setpoint_env.Params()
     kwargs = {"env_params": params, "n_envs": 2, "learning_starts": 1_000}
-    kwargs |= {"buffer_size": 64, "batch_size": 8}
+    kwargs.update({"buffer_size": 64, "batch_size": 8})
     wrapped = PIDTermsWrapper(task, (0,), (1,))
     old = SAC(wrapped, **kwargs).train(seed=0, n_timesteps=40)[0]
     feature = PIDTermsInput((0,), (1,))

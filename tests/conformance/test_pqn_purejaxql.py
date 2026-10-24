@@ -23,7 +23,7 @@ import refcmp_jax
 from refcmp_specs import COMPARISONS
 
 import ajax
-from ajax.agents.PQN.utils import compute_q_lambda_targets
+from ajax.agents.PQN.PQN import compute_q_lambda_targets
 from ajax.networks.q_networks import predict_q
 from tests.conformance import kit, submaps
 
@@ -83,8 +83,9 @@ def ref_path(p: str) -> str | None:
         return "[0].params" + p[len(".actor_state.params") :]
     if p.startswith(".actor_state.opt_state"):
         return "[0].opt_state" + p[len(".actor_state.opt_state") :]
-    if m := re.fullmatch(r"\.collector_state\._env_state\.(\w+)", p):
-        return f"[1][1].env_state.{m.group(1)}"
+    env_field = re.fullmatch(r"\.collector_state\._env_state\.(\w+)", p)
+    if env_field:
+        return f"[1][1].env_state.{env_field.group(1)}"
     return {
         ".actor_state.step": "[0].step",
         ".collector_state.last_obs": "[1][0]",
@@ -143,7 +144,9 @@ def psi(ref: dict, aj: dict) -> dict:
     perms, per = [v for _, v in ref[r]], len(ref[r]) // len(aj[a])
     assert all(np.array_equal(perms[k - k % per], perms[k]) for k in range(len(perms)))
     values[a] = perms[::per]
-    assert values.keys() == aj.keys(), f"unmapped Ajax draws: {set(aj) - set(values)}"
+    assert values.keys() == aj.keys(), (
+        f"unmapped Ajax draws: {set(aj).difference(values)}"
+    )
     return kit.key_table(aj, values)
 
 

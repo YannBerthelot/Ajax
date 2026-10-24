@@ -35,17 +35,17 @@ AGENTS = "APG APO ASAC AVG DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL".split
 #: The agents a residual policy runs on: their critics score its executed
 #: actions, or their update reads the policy's own (PPO, APO, IQL's actor).
 RESIDUAL = {"SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG"}
-RESIDUAL |= {"PPO", "APO", "IQL", "APG", "UDRL"}
+RESIDUAL.update({"PPO", "APO", "IQL", "APG", "UDRL"})
 
 
 @dataclass(frozen=True)
 class TargetTweak(Extension):
     name: str = "target-tweak"
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         return target
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {}
 
 
@@ -53,7 +53,7 @@ class TargetTweak(Extension):
 class ActorNudge(Extension):
     name: str = "actor-nudge"
 
-    def actor_loss(self, agent_state, ext_state, batch, ctx):
+    def actor_loss(self, agent_state, ext_state, batch, context):
         return 0.0
 
 
@@ -61,10 +61,10 @@ class ActorNudge(Extension):
 class Instrument(Extension):
     name: str = "instrument"
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {}
 
-    def post_update(self, agent_state, ext_state, ctx):
+    def post_update(self, agent_state, ext_state, context):
         return agent_state, ext_state
 
 
@@ -74,28 +74,28 @@ class EveryPhase(Extension):
 
     name: str = "every-phase"
 
-    def pretrain(self, agent_state, ext_state, ctx):
+    def pretrain(self, agent_state, ext_state, context):
         return agent_state, ext_state
 
-    def reward(self, agent_state, ext_state, batch, rewards, ctx):
+    def reward(self, agent_state, ext_state, batch, rewards, context):
         return rewards, ext_state, {}
 
     def observe(self, inputs, state):
         return jnp.zeros((*inputs.raw_obs.shape[:-1], 0)), state
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         return target
 
-    def critic_loss(self, agent_state, ext_state, batch, ctx):
+    def critic_loss(self, agent_state, ext_state, batch, context):
         return 0.0
 
-    def actor_loss(self, agent_state, ext_state, batch, ctx):
+    def actor_loss(self, agent_state, ext_state, batch, context):
         return 0.0
 
-    def action(self, agent_state, ext_state, obs, rng, ctx):
+    def action(self, agent_state, ext_state, obs, rng, context):
         return None
 
-    def eval_action(self, agent_state, ext_state, obs, rng, ctx):
+    def eval_action(self, agent_state, ext_state, obs, rng, context):
         return None
 
     def transform_action(self, actions, inputs):
@@ -104,10 +104,10 @@ class EveryPhase(Extension):
     def actuate(self, actions, inputs):
         return actions, inputs.expert_state
 
-    def post_update(self, agent_state, ext_state, ctx):
+    def post_update(self, agent_state, ext_state, context):
         return agent_state, ext_state
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {}
 
 
@@ -201,7 +201,7 @@ def test_a_distributional_critic_refuses_what_reads_one_target_per_row():
     algorithm = {"actor", "q_critic", "critic_ensemble", "discounted"}
     one = run_capabilities(algorithm, continuous=True, has_expert=True)
     many = run_capabilities(
-        algorithm | {"distributional_critic"}, continuous=True, has_expert=True
+        algorithm.union({"distributional_critic"}), continuous=True, has_expert=True
     )
     assert "scalar_target" in one and "scalar_target" not in many
     for module in (
@@ -229,12 +229,14 @@ class GapReader(Extension):
         "on_target": frozenset({"gap", "rewards"})
     }
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         return target + batch["gap"]
 
 
 class GapAgent(LatentAgent):
-    supported_extension_phases = LatentAgent.supported_extension_phases | {"on_target"}
+    supported_extension_phases = LatentAgent.supported_extension_phases.union(
+        {"on_target"}
+    )
     phase_batch_keys: Mapping[str, frozenset] = {"on_target": frozenset({"gap"})}
 
 
@@ -260,7 +262,7 @@ def test_agents_accept_only_the_phases_they_fold():
     for name in AGENTS:
         agent = getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)
         phases = agent.supported_extension_phases
-        assert LOOP_PHASES - {"observe"} <= phases, name
+        assert LOOP_PHASES.difference({"observe"}) <= phases, name
         assert "eval_action" not in phases, name
         own_collector = name in ("APG", "UDRL", "DreamerV3", "TDMPC2")
         assert ("observe" in phases) != own_collector, name
@@ -272,7 +274,7 @@ def test_agents_accept_only_the_phases_they_fold():
 class Unslotted(Extension):
     name: str = "unslotted"
 
-    def action(self, agent_state, ext_state, obs, rng, ctx):
+    def action(self, agent_state, ext_state, obs, rng, context):
         return None
 
 
@@ -303,7 +305,7 @@ def test_sac_applies_a_residual_policy_only_through_its_pipeline():
 
 
 @pytest.mark.parametrize(
-    "name", sorted(set(AGENTS) - RESIDUAL - {"DreamerV3", "TDMPC2"})
+    "name", sorted(set(AGENTS).difference(RESIDUAL, {"DreamerV3", "TDMPC2"}))
 )
 def test_an_agent_without_a_residual_transform_refuses_a_residual_policy(name):
     """An agent whose update does not score executed actions would train a
@@ -388,11 +390,13 @@ class ContextSpy(Extension):
     def bind_to_agent(self, **agent_context):
         return dataclasses.replace(self, bound=frozenset(agent_context))
 
-    def pretrain(self, agent_state, ext_state, ctx):
+    def pretrain(self, agent_state, ext_state, context):
         fields = ("env_args", "update", "buffer")
-        raise _Reached(self.bound, {f for f in fields if getattr(ctx, f) is not None})
+        raise _Reached(
+            self.bound, {f for f in fields if getattr(context, f) is not None}
+        )
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {}
 
 

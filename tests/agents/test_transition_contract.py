@@ -58,7 +58,7 @@ class _RecordTargets(Extension):
 
     name: str = "record-targets"
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         names = tuple(k for k in KEYS if batch.get(k) is not None)
         jax.debug.callback(lambda *v: _keep(names, *v), *(batch[k] for k in names))
         return target
@@ -106,7 +106,9 @@ def test_on_target_rows_are_their_episodes_transitions(name, monkeypatch):
     np.testing.assert_array_equal(nxt[~terminated], obs[~terminated] + [1.0, 0.0])
     # (ii)
     flags = [k for k in FLAGS if k in BATCHES[0]]
-    assert set(flags) - {"truncated"}, f"no termination flag in {sorted(BATCHES[0])}"
+    assert set(flags).difference({"truncated"}), (
+        f"no termination flag in {sorted(BATCHES[0])}"
+    )
     for key in flags:
         expected = truncated if key == "truncated" else terminated
         np.testing.assert_array_equal(_column(key) > 0, expected, err_msg=key)

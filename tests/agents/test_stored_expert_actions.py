@@ -86,7 +86,7 @@ AGENTS: dict[str, tuple[type, dict]] = {
         },
     ),
     "TD3": (TD3, REPLAY),
-    "REDQ": (REDQ, REPLAY | {"num_critic_updates": 2}),  # not its 20 a step
+    "REDQ": (REDQ, {**REPLAY, "num_critic_updates": 2}),  # not its 20 a step
     "ASAC": (ASAC, REPLAY),
     "AVG": (AVG, {"learning_starts": 16}),
     "APO": (
@@ -96,7 +96,7 @@ AGENTS: dict[str, tuple[type, dict]] = {
 }
 #: The agents keeping a trajectory to re-run: AVG keeps only the step it
 #: updates on.
-TRAJECTORY_AGENTS = sorted(set(AGENTS) - {"AVG"})
+TRAJECTORY_AGENTS = sorted(set(AGENTS).difference({"AVG"}))
 FIELDS = ("raw_obs", "next_obs", "terminated", "truncated", "a_expert", "next_a_expert")
 
 
@@ -161,7 +161,7 @@ class ActorBatchRecorder(Extension):
     def __init__(self) -> None:
         self.seen: list[tuple[np.ndarray, np.ndarray]] = []
 
-    def actor_loss(self, agent_state, ext_state, batch, ctx):
+    def actor_loss(self, agent_state, ext_state, batch, context):
         keep = lambda o, a: self.seen.append((np.asarray(o), np.asarray(a)))  # noqa: E731
         jax.debug.callback(keep, batch["raw_observations"], batch["a_expert"])
         return 0.0
@@ -194,7 +194,7 @@ class TargetBatchRecorder(Extension):
     def __init__(self) -> None:
         self.seen: list[tuple[np.ndarray, np.ndarray]] = []
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         keep = lambda o, a: self.seen.append((np.asarray(o), np.asarray(a)))  # noqa: E731
         jax.debug.callback(keep, batch["raw_next_observations"], batch["next_a_expert"])
         return target

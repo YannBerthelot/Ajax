@@ -106,14 +106,14 @@ def config(spec) -> dict:
     from brax.training.agents.ppo import train as ppo
 
     if spec.agent == "APG":
-        return resolved(apg.train, spec.reference_config | {"num_evals": 1})
+        return resolved(apg.train, {**spec.reference_config, "num_evals": 1})
     added = {
         "num_timesteps": spec.n_timesteps,
         "num_evals": spec.n_timesteps // spec.eval_every + 1,
         "num_eval_envs": spec.n_eval_episodes,
         "deterministic_eval": True,
     }
-    return resolved(ppo.train, spec.reference_config | added)
+    return resolved(ppo.train, {**spec.reference_config, **added})
 
 
 if __name__ == "__main__":

@@ -124,7 +124,6 @@ def test_a_time_limit_bootstraps_on_its_own_episode():
     import numpy as np
 
     from ajax.agents import recurrent
-    from ajax.agents.PPO import train_PPO
     from ajax.networks.networks import predict_value_sequence
     from ajax.state import Transition
 
@@ -135,13 +134,7 @@ def test_a_time_limit_bootstraps_on_its_own_episode():
         batch_size=8,
         memory=MemoryConfig(kind="gru", hidden_size=8),
     )
-    state = train_PPO.init_PPO(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
+    state = agent.init(jax.random.PRNGKey(0), agent.context(8)[1])
     T, B, cut = 8, 2, 4  # env 1's episode hits its time limit at step 4
     keys = jax.random.split(jax.random.PRNGKey(1), 3)
     obs = jax.random.normal(keys[0], (T, B, 3))

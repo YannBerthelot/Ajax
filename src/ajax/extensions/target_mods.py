@@ -208,12 +208,12 @@ class IBRL(Extension):
         ext_state: Any,
         batch: dict,
         target: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> Any:
         del ext_state
         dones, gamma = batch["dones"], discounted("IBRL", batch["gamma"])
         # SAC's target hands its own key; the shared critic step, none.
-        rng = batch.get("rng_key", ctx.rng)
+        rng = batch.get("rng_key", context.rng)
         q_expert, q_policy = _next_target_q(self, agent_state, batch, rng)
         min_q_expert = jnp.min(q_expert, axis=0, keepdims=False)
         min_q_policy = jnp.min(q_policy, axis=0, keepdims=False)
@@ -267,14 +267,14 @@ class LCBGatedBootstrap(Extension):
         ext_state: Any,
         batch: dict,
         target: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> Any:
         del ext_state
         # beta anneals as the EDGE gate's, on the collector's timestep.
         dones, gamma = batch["dones"], discounted("LCBGatedBootstrap", batch["gamma"])
-        rng = batch.get("rng_key", ctx.rng)
+        rng = batch.get("rng_key", context.rng)
         q_expert, q_policy = _next_target_q(self, agent_state, batch, rng)
-        beta = self.beta(agent_state.collector_state.timestep, ctx.total_steps)
+        beta = self.beta(agent_state.collector_state.timestep, context.total_steps)
         score_e, score_p = lcb_score(q_expert, beta), lcb_score(q_policy, beta)
         q_min_e = jnp.min(q_expert, axis=0, keepdims=False)
         q_min_p = jnp.min(q_policy, axis=0, keepdims=False)
@@ -295,11 +295,15 @@ class LCBGatedBootstrap(Extension):
         )
 
     def eval_metrics(
-        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
     ) -> dict:
         del ext_state, rng
         timestep = agent_state.collector_state.timestep
-        return {"lcb_bootstrap/beta": self.beta(timestep, ctx.total_steps)}
+        return {"lcb_bootstrap/beta": self.beta(timestep, context.total_steps)}
 
 
 @dataclass(frozen=True)
@@ -347,7 +351,7 @@ class CriticBlend(Extension):
         ext_state: Any,
         batch: dict,
         target: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> Any:
         del ext_state
         next_observations = batch["next_observations"]
@@ -369,7 +373,7 @@ class CriticBlend(Extension):
             rewards + batch["gamma"] * (1.0 - batch["dones"]) * v_expert_next
         )
         alpha_blend_val = self.expert_weight(
-            agent_state.collector_state.timestep, ctx.total_steps
+            agent_state.collector_state.timestep, context.total_steps
         )
         target_new = blend_modify_target(target, expert_target, alpha_blend_val)
         gap = jax.lax.stop_gradient(jnp.mean(expert_target - target))
@@ -382,12 +386,18 @@ class CriticBlend(Extension):
         return jnp.maximum(1.0 - train_frac / self.critic_warmup_frac, 0.0)
 
     def eval_metrics(
-        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
     ) -> dict:
         del ext_state, rng
         timestep = agent_state.collector_state.timestep
         return {
-            "critic_blend/expert_weight": self.expert_weight(timestep, ctx.total_steps)
+            "critic_blend/expert_weight": self.expert_weight(
+                timestep, context.total_steps
+            )
         }
 
 
@@ -417,9 +427,9 @@ class MCVarianceCorrection(Extension):
         ext_state: Any,
         batch: dict,
         target: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> Any:
-        del ext_state, ctx
+        del ext_state, context
         observations = batch["observations"]
         actions = batch["actions"]
         q_preds = batch["q_preds"]
@@ -477,7 +487,7 @@ class ValueBox(Extension):
         ext_state: Any,
         obs: Any,
         rng: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> jax.Array | None:
         """Override with ``a_expert`` inside the value box, its bounds the
         MC-pretrain v_min/v_max on :class:`SACState`; writes
@@ -489,7 +499,7 @@ class ValueBox(Extension):
         env_action = obs["env_action"]
         expert_action = obs["expert_action"]
 
-        threshold = self.threshold(agent_state, ctx.step, ctx.total_steps)
+        threshold = self.threshold(agent_state, context.step, context.total_steps)
         in_value_box, entry_bonus, _ = box_compute_state(
             obs["observations"],
             expert_action,
@@ -515,13 +525,17 @@ class ValueBox(Extension):
         )
 
     def eval_metrics(
-        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
     ) -> dict:
         del ext_state, rng
         collector = agent_state.collector_state
         return {
             "value_box/threshold": self.threshold(
-                agent_state, ctx.step, ctx.total_steps
+                agent_state, context.step, context.total_steps
             ),
             "value_box/in_box_frac": jnp.mean(collector.last_in_box),
             "value_box/expert_frac": collector.last_expert_frac,

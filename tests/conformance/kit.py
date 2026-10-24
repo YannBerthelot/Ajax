@@ -250,7 +250,7 @@ def capture_step(agent: Any, n_timesteps: int) -> Step:
     }
     fresh = jax.jit(
         lambda key: loop.fresh_state(
-            got["init"], lp.stack, lp.total_timesteps, key, **context
+            got["init"], lp.extensions, lp.total_timesteps, key, **context
         )
     )
     return Step(got["iteration"], kw.get("update"), fresh)

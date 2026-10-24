@@ -210,11 +210,13 @@ def _keyword_names(obj) -> set[str]:
     names: set[str] = set()
     for fn in callables:
         params = inspect.signature(fn).parameters.values()
-        names |= {
-            p.name
-            for p in params
-            if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
-        }
+        names.update(
+            {
+                p.name
+                for p in params
+                if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
+            }
+        )
         if not any(p.kind is p.VAR_KEYWORD for p in params):
             break
     return names
@@ -231,8 +233,8 @@ def test_downstream_symbol_and_keywords_exist(target):
     accepted = _keyword_names(obj)
     if target in KWARGS_FORWARDED_TO:
         assert _takes_var_keyword(obj)
-        accepted |= _keyword_names(_resolve(KWARGS_FORWARDED_TO[target]))
-    missing = set(DOWNSTREAM_API[target]) - accepted
+        accepted.update(_keyword_names(_resolve(KWARGS_FORWARDED_TO[target])))
+    missing = set(DOWNSTREAM_API[target]).difference(accepted)
     assert not missing, f"{target} no longer accepts {sorted(missing)}"
 
 
@@ -266,7 +268,7 @@ def test_dqn_builds_a_plain_q_network_unless_the_encoder_norm_is_opted_in() -> N
     normed = q_network()
     plain_leaves, normed_leaves = leaves(plain.params), leaves(normed.params)
     assert not any("norm" in name for name in plain_leaves), sorted(plain_leaves)
-    added = set(normed_leaves) - set(plain_leaves)
+    added = set(normed_leaves).difference(plain_leaves)
     assert added and all("norm" in name for name in added), sorted(added)
     for name, leaf in plain_leaves.items():
         np.testing.assert_array_equal(normed_leaves[name], leaf)

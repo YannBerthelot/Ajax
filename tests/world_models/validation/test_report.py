@@ -51,7 +51,7 @@ def replica(agent: str, task: str, scale: float = 1.0) -> list[dict]:
     reference = DREAMER if agent == "DreamerV3" else TDMPC2
     seeds = reference["tasks"][task]
     budget = paper_report.reference_budget(agent, reference, task)
-    xs = sorted({x for s in seeds for x in s["x"] if x > 0} | {budget})
+    xs = sorted({x for s in seeds for x in s["x"] if x > 0}.union({budget}))
     return [
         {
             "progress": x // 2,

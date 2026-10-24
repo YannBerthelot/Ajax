@@ -305,7 +305,7 @@ def tdmpc2_reference(checkout: str) -> dict[str, Any]:
     results = os.path.join(checkout, TDMPC2_RESULTS)
     names = sorted(f[: -len(".csv")] for f in os.listdir(results) if f.endswith(".csv"))
     kinds = {name: classify_tdmpc2_task(name) for name in names}
-    missing = sorted(set(TDMPC2_TO_PLAYGROUND) - set(names))
+    missing = sorted(set(TDMPC2_TO_PLAYGROUND).difference(names))
     if missing:
         raise ValueError(f"no results CSV for {missing}")
     tasks = {

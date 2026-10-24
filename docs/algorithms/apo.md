@@ -5,7 +5,9 @@ discounting future rewards, it learns how much reward the policy earns per step
 on average and judges each action by how much better than that average it
 does. This suits continuing tasks, such as holding a setpoint, where there is
 no natural horizon and a discount factor only shortens the agent's view. The
-clipped update and the minibatch epochs are PPO's own code.
+clipped surrogate and the GAE recursion are PPO's own code
+(`agents/PPO/PPO.py`), and the minibatch epochs those of the on-policy
+family (`agents/minibatch.py`); APO's own is in `agents/APO/APO.py`.
 
 **Paper:** Ma et al., *Average-Reward Reinforcement Learning with Trust Region
 Methods*, 2021 ([arXiv:2106.03442](https://arxiv.org/abs/2106.03442)). Ajax

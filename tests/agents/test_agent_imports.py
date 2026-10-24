@@ -57,14 +57,7 @@ _SAC_METRICS = "B4 (the agent's own metrics)"
 #: (importer, agent, name) -> the batch that ends the import. An importer is
 #: an agent, or a shared module's path under src/ajax.
 BORROWED = {
-    # B2 left the on-policy agents as they were: the family comes with PPO's.
-    ("APO", "PPO", "init_PPO"): "B3 (the on-policy family's init)",
-    ("APO", "PPO", "AuxiliaryLogs"): "B3 (APO's own metrics)",
-    ("APO", "PPO", "PolicyAuxiliaries"): "B3 (APO's own metrics)",
-    ("APO", "PPO", "ValueAuxiliaries"): "B3 (APO's own metrics)",
-    ("PQN", "DQN", "init_DQN"): "B3 (the on-policy family's init)",
-    ("PQN", "DQN", "AuxiliaryLogs"): "B3 (PQN's own metrics)",
-    ("PQN", "DQN", "PolicyAuxiliaries"): "B3 (PQN's own metrics)",
+    # B3 declared PPO, APO and PQN on the on-policy family.
     **{
         (agent, "SAC", "SoftACState"): "B4 (the replay family's state)"
         for agent in ("ASAC", "AVG", "REDQ", "TQC")
@@ -149,14 +142,14 @@ def _allowed(importer: str, agent: str, name: str) -> bool:
 
 def test_agents_import_each_other_only_along_a_lineage() -> None:
     breaking = {i for i in cross_agent_imports() if not _allowed(*i)}
-    assert not breaking - BORROWED.keys(), (
+    assert not breaking.difference(BORROWED.keys()), (
         "imports from another agent that are not its parent's equations: move"
         " what is shared to a shared module",
-        sorted(breaking - BORROWED.keys()),
+        sorted(breaking.difference(BORROWED.keys())),
     )
-    assert not BORROWED.keys() - breaking, (
+    assert not set(BORROWED).difference(breaking), (
         "gone from the code: strike them from BORROWED",
-        sorted(BORROWED.keys() - breaking),
+        sorted(set(BORROWED).difference(breaking)),
     )
 
 
@@ -172,7 +165,7 @@ def test_every_parent_and_equation_named_exists() -> None:
             for node in ast.walk(ast.parse(text))
             if isinstance(node, ast.FunctionDef | ast.ClassDef)
         }
-        assert names <= defined, (parent, sorted(names - defined))
+        assert names <= defined, (parent, sorted(names.difference(defined)))
 
 
 def test_the_scan_finds_name_module_and_shared_imports(tmp_path: Path) -> None:

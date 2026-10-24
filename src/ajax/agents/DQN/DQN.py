@@ -25,15 +25,24 @@ class DQN(ActorCritic):
 
     name: str = "DQN"
     capabilities: frozenset = frozenset(
-        "discounted obs_networks off_policy q_critic replay target_critic "
-        "reward_learning".split()
+        {
+            "discounted",
+            "obs_networks",
+            "off_policy",
+            "q_critic",
+            "replay",
+            "target_critic",
+            "reward_learning",
+        }
     )
-    supported_extension_phases: frozenset = LOOP_PHASES | {"on_target", "critic_loss"}
+    supported_extension_phases: frozenset = LOOP_PHASES.union(
+        {"on_target", "critic_loss"}
+    )
     phase_batch_keys: Mapping[str, frozenset] = {
-        "on_target": frozenset("actions dones reward_scale".split()),
-        "critic_loss": frozenset("actions q_state".split()),
+        "on_target": frozenset({"actions", "dones", "reward_scale"}),
+        "critic_loss": frozenset({"actions", "q_state"}),
     }
-    pretrain_context: frozenset = frozenset("buffer env_args update".split())
+    pretrain_context: frozenset = frozenset({"buffer", "env_args", "update"})
     replays_transitions: bool = True
     make_train = staticmethod(make_train)
 

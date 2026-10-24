@@ -47,7 +47,8 @@ def run_config(
     ``exclude``, and the agent's ``algo_name``."""
     dropped = {"self", "__class__", *exclude}
     config = {k: v for k, v in arguments.items() if k not in dropped}
-    return config | {"algo_name": name}
+    config.update({"algo_name": name})
+    return config
 
 
 def shared_counters(state: Any, per_seed_updates: bool = False) -> dict[str, jax.Array]:

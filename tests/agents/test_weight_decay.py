@@ -122,7 +122,7 @@ def test_dreamerv3_decays_at_the_warmed_up_learning_rate(
     as AdamW does before Adam's: update ``k`` decays the world model, the
     actor and the critic at ``lr * min(k / warmup, 1)`` (``lr`` with the
     warmup off), so a warmup's first update decays nothing."""
-    tiny = DREAMER_TINY | {"learning_rate": LR, "warmup": warmup} | given
+    tiny = {**DREAMER_TINY, "learning_rate": LR, "warmup": warmup, **given}
     state = initial_state(DreamerV3("CartPole-v1", n_envs=2, **tiny))
     rates = [LR * min(k / warmup, 1) if warmup else LR for k in range(2)]
     for name in ("world_model_state", "actor_state", "critic_state"):

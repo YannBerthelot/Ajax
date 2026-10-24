@@ -138,8 +138,8 @@ def test_init_buffer_schema_follows_its_options(env_id, action_dtype):
         include_is_expert=True,
     )
     added = {"a_expert", "next_a_expert", "actor_carry", "is_expert"}
-    added |= {"raw_obs", "raw_next_obs"}
-    assert set(full) == set(plain) | added
+    added.update({"raw_obs", "raw_next_obs"})
+    assert set(full) == set(plain).union(added)
     assert full["obs"] == full["next_obs"] == ((obs_dim + 1 + 2,), jnp.float32)
     assert full["raw_obs"] == full["raw_next_obs"] == ((obs_dim,), jnp.float32)
     assert full["is_expert"] == ((1,), jnp.float32)

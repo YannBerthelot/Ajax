@@ -13,17 +13,20 @@ import numpy as np
 import optax
 import pytest
 
-from ajax.agents import minibatch
-from ajax.agents.APO import train_APO
+import ajax.agents.APO.APO as apo_module
 from ajax.agents.APO.APO import APO
 from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
-from ajax.agents.PPO import train_PPO
-from ajax.agents.PPO.PPO import PPO
-from ajax.agents.PPO.state import PPOState
-from ajax.agents.PPO.utils import _compute_gae
+from ajax.agents.minibatch import choose_rollout_split, get_actions_and_log_probs
+from ajax.agents.PPO.PPO import (
+    PPO,
+    PPOState,
+    _compute_gae,
+    policy_loss_function,
+    value_loss_function,
+)
 from ajax.environments.interaction import get_pi
 from ajax.environments.utils import get_state_action_shapes
-from ajax.extensions.base import Extension, ExtensionStack
+from ajax.extensions.base import Extension
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import Squash, recompute_log_prob
 from ajax.networks.networks import predict_value
@@ -68,17 +71,11 @@ def test_ppo_losses_report_kl_std_and_explained_variance() -> None:
     agent = PPO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
-    state = train_PPO.init_PPO(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
+    state = agent.init(KEY, agent.context(1)[1])
     actor, critic = state.actor_state, state.critic_state
     obs, actions, log_probs, gae, targets = _batch(agent)
 
-    _, (p_aux, _) = train_PPO.policy_loss_function(
+    _, (p_aux, _) = policy_loss_function(
         actor.params, actor, obs, actions, log_probs, gae, False, 0.2, 0.0, True
     )
     pi, _ = get_pi(actor, actor.params, obs)
@@ -88,9 +85,7 @@ def test_ppo_losses_report_kl_std_and_explained_variance() -> None:
     )
     np.testing.assert_allclose(p_aux.policy_std, np.mean(pi.stddev()), rtol=1e-6)
 
-    _, (v_aux, _) = train_PPO.value_loss_function(
-        critic.params, critic, obs, targets, False
-    )
+    _, (v_aux, _) = value_loss_function(critic.params, critic, obs, targets, False)
     v = np.asarray(predict_value(critic, critic.params, obs).squeeze(0))
     t = np.asarray(targets)
     np.testing.assert_allclose(
@@ -117,15 +112,7 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
         state = jax.tree.map(lambda x: x[0], state)
     rollout, config = state.last_rollout, agent.agent_config
     assert rollout is not None and isinstance(state, PPOState)
-    _, aux = train_PPO.update_agent(
-        state,
-        rollout,
-        state,
-        config,
-        False,
-        ExtensionStack(()),
-        8,
-    )
+    _, aux = agent.update(state, rollout, state, agent.context(8)[1])
 
     actor, critic = state.actor_state, state.critic_state
     values = predict_value(critic, critic.params, rollout.obs).squeeze(0)
@@ -139,15 +126,15 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
         gamma=config.gamma,
         gae_lambda=config.gae_lambda,
     )
-    actions, log_probs = minibatch.rollout_actions(rollout)
+    actions, log_probs = get_actions_and_log_probs(rollout)
 
     def value_loss(p):
-        return train_PPO.value_loss_function(
+        return value_loss_function(
             p, critic, rollout.obs, targets, False, vf_coef=config.vf_coef
         )[0]
 
     def policy_loss(p):
-        return train_PPO.policy_loss_function(
+        return policy_loss_function(
             p,
             actor,
             rollout.obs,
@@ -168,27 +155,17 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
     assert max(float(v_norm), float(p_norm)) > 0.5  # the clip binds
 
 
-def _apo_state(agent):
-    return train_APO.init_APO(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
-
-
 def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
-    """APO steps both networks at once (train_APO.update_networks); each
+    """APO steps both networks at once (APO.minibatch_step); each
     network's logged gradient norm is that of its own loss term, taken
     before the joint clip, as PPO logs them."""
     agent = APO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
-    config = agent.agent_config
-    state = _apo_state(agent).replace(average_reward=jnp.asarray(0.3))
+    _, context = agent.context(1)
+    state = agent.init(KEY, context).replace(average_reward=jnp.asarray(0.3))
     obs, actions, log_probs, gae, targets = _batch(agent)
-    stack, b = ExtensionStack(()), jnp.asarray(0.7)
+    b = jnp.asarray(0.7)
     minibatch = {
         "obs": obs,
         "actions": actions,
@@ -200,13 +177,13 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
         "a_expert": None,
         "entropy_key": KEY,
     }
-    _, aux = train_APO.update_networks(state, minibatch, config, b, stack, 1)
-    v_aux, p_aux = cast(train_APO.ValueAuxiliaries, aux.value), aux.policy
+    _, aux = agent.minibatch_step(state, minibatch, b, context)
+    v_aux, p_aux = cast(apo_module.ValueAuxiliaries, aux.value), aux.policy
 
     critic = state.critic_state
     v_grads = jax.grad(
-        lambda p: train_APO.value_loss_function(
-            p, critic, obs, targets, config.nu, b, config.vf_coef
+        lambda p: apo_module.value_loss_function(
+            p, critic, obs, targets, agent.nu, b, agent.vf_coef
         )[0]
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
@@ -219,10 +196,10 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
     )
 
     actor = state.actor_state
-    clip = at(config.clip_range, state.collector_state.timestep)
+    clip = at(agent.clip_range, state.collector_state.timestep)
     p_grads = jax.grad(
-        lambda p: train_APO.policy_loss_function(
-            p, actor, obs, actions, log_probs, gae, clip, config.ent_coef, None, KEY
+        lambda p: apo_module.policy_loss_function(
+            p, actor, obs, actions, log_probs, gae, clip, agent.ent_coef, None, KEY
         )[0]
     )(actor.params)
     np.testing.assert_allclose(p_aux.grad_norm, optax.global_norm(p_grads), rtol=1e-6)
@@ -240,7 +217,9 @@ class _ZeroActorLoss(Extension):
 
     name: str = "zero_actor_loss"
 
-    def actor_loss(self, agent_state: Any, ext_state: Any, batch: Any, ctx: Any) -> Any:
+    def actor_loss(
+        self, agent_state: Any, ext_state: Any, batch: Any, context: Any
+    ) -> Any:
         return 0.0
 
 
@@ -251,7 +230,7 @@ WIDE = {"squash": True, "log_std_init": 1.0}  # std 2.7: tanh saturates
     "cls, kwargs",
     [
         (PPO, WIDE),
-        (PPO, WIDE | {"extensions": (_ZeroActorLoss(),)}),
+        (PPO, {**WIDE, "extensions": (_ZeroActorLoss(),)}),
         (APO, {"normalize_observations": True}),
     ],
     ids=["PPO-squash", "PPO-extension", "APO-normalized"],
@@ -297,20 +276,23 @@ def test_the_entropy_bonus_lowers_the_policy_loss() -> None:
         critic_architecture=NET,
     )
     assert agent.agent_config.ent_coef == 0.1
-    state = train_PPO.init_PPO(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
+    _, context = agent.context(1)
+    state = agent.init(KEY, context)
     actor = state.actor_state
-    obs, actions, log_probs, gae, _ = _batch(agent)
+    obs, actions, log_probs, gae, targets = _batch(agent)
 
     def loss(ent_coef: float) -> tuple:
         args = (obs, actions, log_probs, gae, False, 0.2, ent_coef, True)
-        total, (aux, _) = train_PPO.policy_loss_function(actor.params, actor, *args)
+        total, (aux, _) = policy_loss_function(actor.params, actor, *args)
         return float(total), float(aux.entropy)
 
     (with_bonus, entropy), (without, _) = loss(0.1), loss(0.0)
     np.testing.assert_allclose(with_bonus - without, -0.1 * entropy, rtol=1e-5)
+    # The update's minibatch step logs the loss with the agent's bonus.
+    minibatch: dict[str, Any] = {"obs": obs, "actions": actions, "log_probs": log_probs}
+    minibatch.update(
+        {"gae": gae, "targets": targets, "raw_actions": None, "raw_obs": None}
+    )
+    split = choose_rollout_split(agent, agent.n_steps, agent.n_envs, False)
+    _, aux = agent.minibatch_step(state, minibatch, split, context)
+    np.testing.assert_allclose(aux.policy.policy_loss, with_bonus, rtol=1e-5)

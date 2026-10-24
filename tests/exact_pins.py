@@ -24,13 +24,16 @@ import numpy as np
 from optax.tree_utils import tree_norm
 
 from ajax import APO, ASAC, AVG, DQN, IQL, PPO, PQN, REDQ, SAC, TD3, TQC, CrossQ, DAgger
+from ajax.agents.critics import make_huber_td_loss
 from ajax.agents.TD3.TD3 import make_default_action_pipeline
+from ajax.extensions.adversarial import AdversarialReward
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import ExpertGains, ImitationLoss, ResidualPolicy
 from ajax.extensions.observe import ExpertActionInput, TrainingProgressInput
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import MemoryConfig
+from ajax.schedule import linear
 from tests.agents.test_offline import episodes
 from tests.modules import setpoint_env
 
@@ -39,33 +42,46 @@ SEEDS = [0, 1]
 
 @dataclass(frozen=True)
 class Keyed(Extension):
-    """Draws on ``ctx.rng`` in every phase: a moved key moves the numbers."""
+    """Draws on ``context.rng`` in every phase: a moved key moves the numbers."""
 
     name: str = "keyed"
 
     def init_state(self, agent_state, rng):
         return jax.random.normal(rng)
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
-        return target + 0.01 * jax.random.normal(ctx.rng)
+    def on_target(self, agent_state, ext_state, batch, target, context):
+        return target + 0.01 * jax.random.normal(context.rng)
 
-    def critic_loss(self, agent_state, ext_state, batch, ctx):
+    def critic_loss(self, agent_state, ext_state, batch, context):
         params = batch.get("critic_params", batch.get("q_state"))
         if params is None:
             return 0.0
         params = getattr(params, "params", params)
-        return 1e-3 * (1 + jax.random.normal(ctx.rng)) * tree_norm(params, squared=True)
+        return (
+            1e-3
+            * (1 + jax.random.normal(context.rng))
+            * tree_norm(params, squared=True)
+        )
 
-    def actor_loss(self, agent_state, ext_state, batch, ctx):
-        draw = jax.random.normal(ctx.rng)
+    def actor_loss(self, agent_state, ext_state, batch, context):
+        draw = jax.random.normal(context.rng)
         loss = 1e-3 * (1 + draw) * tree_norm(batch["actor_params"], squared=True)
         return loss, {"keyed/draw": draw}
 
-    def post_update(self, agent_state, ext_state, ctx):
-        return agent_state, ext_state + 0.01 * jax.random.normal(ctx.rng)
+    def post_update(self, agent_state, ext_state, context):
+        return agent_state, ext_state + 0.01 * jax.random.normal(context.rng)
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {"keyed": ext_state}
+
+
+@dataclass(frozen=True)
+class RewardKeyed(Keyed):
+    """Keyed, and a rollout's rewards noised on ``context.rng`` (the reward fold)."""
+
+    def reward(self, agent_state, ext_state, batch, rewards, context):
+        noise = 0.01 * jax.random.normal(context.rng, rewards.shape)
+        return rewards + noise, ext_state, {}
 
 
 @dataclass(frozen=True)
@@ -105,23 +121,23 @@ class GainExpert:
 
 
 S: dict[str, Any] = {"env_id": "Pendulum-v1", "n_envs": 2}
-S |= {"actor_architecture": ("32", "relu"), "critic_architecture": ("32", "relu")}
+S.update({"actor_architecture": ("32", "relu"), "critic_architecture": ("32", "relu")})
 R = {"buffer_size": 1000, "batch_size": 16, "learning_starts": 20}
 SAC40 = {**S, **R, "policy_update_start": 40, "alpha_update_start": 40}
 ON = {"env_id": "Pendulum-v1", "n_envs": 2, "n_steps": 32, "batch_size": 16}
-ON |= {"actor_architecture": ("16", "tanh"), "critic_architecture": ("16", "tanh")}
+ON.update({"actor_architecture": ("16", "tanh"), "critic_architecture": ("16", "tanh")})
 CART = {"env_id": "CartPole-v1", "n_envs": 2, **R, "architecture": ("16", "relu")}
 PQN_KW = {"env_id": "CartPole-v1", "n_envs": 4, "n_steps": 16, "num_minibatches": 2}
-PQN_KW |= {"n_epochs": 2, "architecture": ("16", "relu")}
+PQN_KW.update({"n_epochs": 2, "architecture": ("16", "relu")})
 SETPOINT = dict(zip(("env_id", "env_params"), setpoint_env.make(), strict=True))
 PID = {**SETPOINT, "n_envs": 2, "extensions": (setpoint_env.TERMS,)}
-PID |= {"actor_architecture": PIDPolicy(), "critic_architecture": ("16", "relu")}
+PID.update({"actor_architecture": PIDPolicy(), "critic_architecture": ("16", "relu")})
 NORM = {"normalize_observations": True}
 GRU = {"learning_starts": 60, "memory": MemoryConfig(kind="gru", hidden_size=8)}
 DAGGER = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_architecture": ("32", "relu")}
-DAGGER |= {"buffer_size": 1000, "batch_size": 16, "expert_policy": push}
+DAGGER.update({"buffer_size": 1000, "batch_size": 16, "expert_policy": push})
 CROSSQ = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_width": 32, "critic_width": 64}
-CROSSQ |= {**R, "learning_starts": 40}
+CROSSQ.update({**R, "learning_starts": 40})
 # The paths a replay agent's options take: a residual policy (its executed
 # and chosen actions), an expert's stored actions and imitation, gain mode,
 # observation features (one reading the progress), the normalisers.
@@ -129,9 +145,16 @@ RESIDUAL = {"expert_policy": push, "extensions": (ResidualPolicy(), Keyed())}
 BC = {"expert_policy": push, "extensions": (ImitationLoss(push, coef=1.0),)}
 GAIN = {"expert_policy": GainExpert(), "extensions": (ExpertGains(),)}
 OBSERVE: dict[str, Any] = {"expert_policy": push}
-OBSERVE |= {"extensions": (ExpertActionInput(), TrainingProgressInput())}
+OBSERVE.update({"extensions": (ExpertActionInput(), TrainingProgressInput())})
 REWARD_NORM = {"normalize_rewards": True, "reward_normalization_gamma": 0.99}
 OFFLINE_KW = {**S, **R, "learning_starts": 0, "batch_size": 8}
+KEYED = {"extensions": (Keyed(),)}
+TIME_RESET = {**ON, "n_envs": 4, "n_steps": 16, "num_minibatches": 2}
+TIME_RESET.update(
+    {"unroll_length": 16, "num_resets_per_eval": 1, "num_evals": 3, **NORM}
+)
+PPO_GRU = {"memory": MemoryConfig(kind="gru", hidden_size=8)}
+GAIL_DATA = episodes(3, discrete=False)  # Pendulum's observations
 #: Trained offline for their steps (updates on a dataset's rows), then
 #: online for ONLINE steps from that state (train_offline, then train).
 OFFLINE = {"IQL-offline", "TD3-offline"}
@@ -158,8 +181,12 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "DAgger-keyed": (DAgger, {**DAGGER, "extensions": (ActorKeyed(),)}, 200),
     "DAgger-discrete": (
         DAgger,
-        {**DAGGER, "env_id": "CartPole-v1", "actor_architecture": ("16", "relu")}
-        | {"expert_policy": choose_one},
+        {
+            **DAGGER,
+            "env_id": "CartPole-v1",
+            "actor_architecture": ("16", "relu"),
+            "expert_policy": choose_one,
+        },
         200,
     ),
     "IQL": (IQL, {**S, **R}, 200),
@@ -178,8 +205,14 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "PQN-norm": (PQN, {**PQN_KW, **NORM}, 512),
     "SAC-keyed": (
         SAC,
-        {**S, **R, "policy_update_start": 80, "alpha_update_start": 120}
-        | {"target_entropy_initial_per_dim": -3.0, "extensions": (Keyed(),)},
+        {
+            **S,
+            **R,
+            "policy_update_start": 80,
+            "alpha_update_start": 120,
+            "target_entropy_initial_per_dim": -3.0,
+            "extensions": (Keyed(),),
+        },
         240,
     ),
     "SAC-gru": (
@@ -248,19 +281,46 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "APO-norm": (APO, {**ON, **NORM}, 128),
     # The time geometry with brax's forced resets, and recurrent PPO.
-    "PPO-time-reset": (
-        PPO,
-        {**ON, "n_envs": 4, "n_steps": 16, "num_minibatches": 2, "unroll_length": 16}
-        | {"num_resets_per_eval": 1, "num_evals": 3, **NORM},
-        256,
-    ),
+    "PPO-time-reset": (PPO, TIME_RESET, 256),
     "PPO-gru": (
         PPO,
-        {**ON, "n_steps": 16, "num_minibatches": 2, "bptt_length": 4}
-        | {"memory": MemoryConfig(kind="gru", hidden_size=8)},
+        {**ON, "n_steps": 16, "num_minibatches": 2, "bptt_length": 4, **PPO_GRU},
         128,
     ),
     "TQC": (TQC, {**S, **R, "num_critics": 3, "n_quantiles": 5}, 160),
+    # The on-policy paths the on-policy family's restructure moves: each
+    # extension phase PPO folds (the reward, on_target in each minibatch),
+    # an expert read on its raw observations, the action transforms, the
+    # schedules, the exposed rollout and whole-rollout recurrent sequences.
+    "PPO-discrete-keyed": (PPO, {**ON, "env_id": "CartPole-v1", **KEYED}, 128),
+    "PPO-bc": (
+        PPO,
+        {**ON, **NORM, "extensions": (ImitationLoss(push, coef=1.0),)},
+        128,
+    ),
+    "PPO-gail": (PPO, {**ON, "extensions": (AdversarialReward(GAIL_DATA),)}, 128),
+    "PPO-reward": (PPO, {**ON, "extensions": (RewardKeyed(),)}, 128),
+    "PPO-residual": (PPO, {**ON, **RESIDUAL}, 128),
+    "PPO-observe": (PPO, {**ON, **OBSERVE}, 128),
+    "PPO-gain": (PPO, {**ON, **GAIN}, 128),
+    "PPO-time-keyed": (PPO, {**TIME_RESET, **KEYED}, 256),
+    "PPO-reward-norm": (PPO, {**ON, **REWARD_NORM}, 128),
+    "PPO-squash-schedule": (
+        PPO,
+        {**ON, "squash": True, "clip_range": linear(0.3, 0.1, 128)},
+        128,
+    ),
+    "PPO-expose": (PPO, {**ON, "expose_recent_rollout": True}, 128),
+    "PPO-gru-whole": (PPO, {**ON, "n_steps": 16, "num_minibatches": 2, **PPO_GRU}, 128),
+    "APO-keyed": (APO, {**ON, **KEYED}, 128),
+    "APO-bc": (APO, {**ON, **NORM, **BC}, 128),
+    "APO-discrete": (APO, {**ON, "env_id": "CartPole-v1"}, 128),
+    "PQN-huber": (PQN, {**PQN_KW, "td_loss_fn": make_huber_td_loss(1.0)}, 512),
+    "PQN-norm-expose": (
+        PQN,
+        {**PQN_KW, **REWARD_NORM, "expose_recent_rollout": True},
+        512,
+    ),
 }
 
 
@@ -283,7 +343,8 @@ def record(state: Any, evals: Any, tag: str = "") -> dict[str, np.ndarray]:
         ):
             leaf = jax.random.key_data(leaf)
         out[f"{tag}state" + jax.tree_util.keystr(path)] = np.asarray(leaf)
-    return out | {f"{tag}eval/" + k: np.asarray(v) for k, v in (evals or {}).items()}
+    out.update({f"{tag}eval/" + k: np.asarray(v) for k, v in (evals or {}).items()})
+    return out
 
 
 def leaves(name: str) -> dict[str, np.ndarray]:
@@ -297,7 +358,7 @@ def leaves(name: str) -> dict[str, np.ndarray]:
         state, evals = agent.train(
             SEEDS, n_timesteps=ONLINE, initial_state=state, logging_config=logging
         )
-        out |= record(state, evals, tag="online/")
+        out.update(record(state, evals, tag="online/"))
     return out
 
 
@@ -331,7 +392,7 @@ def program(name: str) -> str:
 def differences(ref: dict[str, np.ndarray], got: dict[str, np.ndarray]) -> list[str]:
     """Each leaf that is not bitwise the same, with its largest relative gap."""
     found = [f"{k}: only in one record" for k in sorted(ref.keys() ^ got.keys())]
-    for k in sorted(ref.keys() & got.keys()):
+    for k in sorted(set(ref).intersection(got)):
         a, b = ref[k], got[k]
         if a.shape != b.shape:
             found.append(f"{k}: shape {a.shape} -> {b.shape}")

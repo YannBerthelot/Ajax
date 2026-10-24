@@ -172,7 +172,7 @@ def recompute_log_prob(
     pi: Any, actions: jax.Array, raw_actions: Optional[jax.Array]
 ) -> jax.Array:
     """The current policy's log-probability of the stored actions, shaped
-    like :func:`ajax.agents.minibatch.rollout_actions`'s. A squashed policy recomputes it from the
+    like :func:`ajax.agents.minibatch.get_actions_and_log_probs`'s. A squashed policy recomputes it from the
     stored pre-tanh sample, never through arctanh, which is unstable as
     ``|action| -> 1`` (:func:`log_prob_from_raw`); an unsquashed one's
     pre-tanh sample is its action."""

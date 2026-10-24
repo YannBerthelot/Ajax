@@ -102,8 +102,8 @@ def test_task_set_tables():
     assert TASKS.discount_table.dtype == np.float32
     assert (TASKS.num_tasks, TASKS.obs_dim, TASKS.action_dim) == (3, 5, 4)
     assert TASKS.names == ("task0", "task1", "task2")
-    ctx = TASKS.context(jnp.array([2, 1]))
-    np.testing.assert_array_equal(ctx.mask, TASKS.action_masks[[2, 1]])
+    context = TASKS.context(jnp.array([2, 1]))
+    np.testing.assert_array_equal(context.mask, TASKS.action_masks[[2, 1]])
     np.testing.assert_array_equal(
         TASKS.discount(jnp.array([1, 0])), np.float32([0.975, 0.95])
     )
@@ -268,7 +268,7 @@ def test_plan_renorms_the_row_without_persisting_it():
 
     @jax.jit
     def plan_raw(w):  # plan_from_latent reads the table as given
-        ctx = TASKS.context(2)
+        context = TASKS.context(2)
         z = state.world_model_state.apply_fn(
             {"params": w}, obs[None], w[TASK_EMB][2], method="encode"
         )[0]
@@ -282,7 +282,7 @@ def test_plan_renorms_the_row_without_persisting_it():
             config=TINY,
             gamma=TASKS.discount(2),
             eval_mode=True,
-            task=ctx,
+            task=context,
         )
 
     # (Untrained reward and Q heads are zero: the policy trajectories carry
@@ -434,12 +434,12 @@ def test_td_targets_use_each_samples_task_discount():
     task = jnp.array([0, 1, 2, 0, 2, 1, 1, 0], jnp.int32)
     batch = _batch(task)
     noise = core.draw_update_noise(jax.random.PRNGKey(8), TINY, 8, TASKS.action_dim)
-    ctx = TASKS.context(task)
+    context = TASKS.context(task)
 
     @jax.jit
     def target(gamma):
         return td_target_of(
-            state, batch, noise, TINY, gamma=gamma, dropout_key=None, task=ctx
+            state, batch, noise, TINY, gamma=gamma, dropout_key=None, task=context
         )[0]
 
     gamma = TASKS.discount(task)
@@ -527,7 +527,7 @@ def test_gradients_reach_the_looked_up_rows_from_the_world_model_only():
     wm, pi = state.world_model_state, state.actor_state
     task = jnp.array([0, 2, 0, 2, 2, 0, 0, 2], jnp.int32)
     batch = _batch(task)
-    ctx = TASKS.context(task)
+    context = TASKS.context(task)
     noise = core.draw_update_noise(jax.random.PRNGKey(10), TINY, 8, TASKS.action_dim)
 
     @jax.jit
@@ -540,7 +540,7 @@ def test_gradients_reach_the_looked_up_rows_from_the_world_model_only():
             gamma=TASKS.discount(task),
             wm_params=wm_params,
             dropout_key=None,
-            task=ctx,
+            task=context,
         )
         wm_grads, (_, zs) = jax.grad(core.world_model_loss, has_aux=True)(
             wm_params,
@@ -550,7 +550,7 @@ def test_gradients_reach_the_looked_up_rows_from_the_world_model_only():
             td_targets=td,
             dropout_key=None,
             config=TINY,
-            task=ctx,
+            task=context,
         )
 
         def pi_loss_wrt_wm(params):
@@ -564,7 +564,7 @@ def test_gradients_reach_the_looked_up_rows_from_the_world_model_only():
                 pair=noise.pi_pair,
                 dropout_key=None,
                 config=TINY,
-                task=ctx,
+                task=context,
             )[0]
 
         return wm_grads, jax.grad(pi_loss_wrt_wm)(wm_params)

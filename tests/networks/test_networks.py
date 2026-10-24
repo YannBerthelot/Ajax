@@ -352,16 +352,9 @@ def _redq_nets():
 
 def _ppo_nets():
     from ajax.agents.PPO.PPO import PPO
-    from ajax.agents.PPO.train_PPO import init_PPO
 
     def build(a, key):
-        state = init_PPO(
-            key,
-            a.env_args,
-            a.actor_optimizer_args,
-            a.critic_optimizer_args,
-            a.network_args,
-        )
+        state = a.init(key, a.context(1)[1])
         return state.actor_state.params, state.critic_state.params
 
     return PPO("Pendulum-v1"), build
@@ -392,13 +385,15 @@ def test_paper_agents_build_plain_mlps_unless_layer_norm_is_opted_in(nets):
         return {"/".join(str(getattr(k, "key", k)) for k in p) for p, _ in paths}
 
     plain = leaf_names()
-    leaves = {name.rsplit("/", 1)[-1] for name in plain} - {"log_std_param"}
+    leaves = {name.rsplit("/", 1)[-1] for name in plain}.difference({"log_std_param"})
     assert leaves == {"kernel", "bias"}, plain
     assert not any("norm" in name for name in plain), plain
 
     agent.network_args = agent.network_args.replace(encoder_layer_norm=True)
     normed = leaf_names()
-    assert plain < normed and all("/norm/" in n for n in normed - plain), normed
+    assert plain < normed and all("/norm/" in n for n in normed.difference(plain)), (
+        normed
+    )
 
 
 @pytest.mark.parametrize("state_independent", [False, True])
@@ -492,7 +487,7 @@ def test_tanh_mean_bounds_the_mean_not_the_samples():
     the tanh-squashed head's, whose deterministic action, tanh of the same
     layer, it keeps."""
     kw = {"action_dim": 2, "input_architecture": ARCH, "continuous": True}
-    kw |= {"log_std_state_independent": True, "log_std_init": 0.0}
+    kw.update({"log_std_state_independent": True, "log_std_init": 0.0})
     obs = jax.random.normal(jax.random.PRNGKey(1), (4, 8))
     params = Actor(**kw).init(jax.random.PRNGKey(0), obs)
     squashed = Squashed(Actor(**kw))

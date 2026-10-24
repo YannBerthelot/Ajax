@@ -266,10 +266,10 @@ def test_a_checkpoint_saved_before_a_transition_field_restores(tmp_path, agent_n
     net = ("8", "relu")
     kw = {"n_envs": 2, "actor_architecture": net, "critic_architecture": net}
     if agent_name == "SAC":
-        kw |= {"learning_starts": 100, "batch_size": 4, "buffer_size": 40}
+        kw.update({"learning_starts": 100, "batch_size": 4, "buffer_size": 40})
         agent = SAC(env_id="Pendulum-v1", **kw)
     else:
-        kw |= {"n_steps": 8, "batch_size": 8, "expose_recent_rollout": True}
+        kw.update({"n_steps": 8, "batch_size": 8, "expose_recent_rollout": True})
         agent = PPO(env_id="Pendulum-v1", **kw)
     state, _ = agent.train(seed=0, n_timesteps=16)
     path = str(tmp_path / "old.pkl")
@@ -298,7 +298,7 @@ def test_a_memory_checkpoint_restores_only_into_its_own_final_norm(tmp_path):
     memory = MemoryConfig(kind="transformer", hidden_size=8, num_heads=2, window=4)
     net = ("8", "relu")
     kw = {"n_envs": 2, "n_steps": 8, "batch_size": 8}
-    kw |= {"actor_architecture": net, "critic_architecture": net}
+    kw.update({"actor_architecture": net, "critic_architecture": net})
 
     def skeleton(memory):
         agent = PPO(env_id="CartPole-v1", memory=memory, **kw)
@@ -329,7 +329,7 @@ def test_a_ppo_checkpoint_restores_only_into_its_own_log_std_head(tmp_path):
 
     net = ("8", "relu")
     kw = {"n_envs": 2, "n_steps": 8, "batch_size": 8}
-    kw |= {"actor_architecture": net, "critic_architecture": net}
+    kw.update({"actor_architecture": net, "critic_architecture": net})
 
     def skeleton(**head):
         return PPO(env_id="Pendulum-v1", **kw, **head).train(seed=0, n_timesteps=0)[0]
@@ -441,7 +441,7 @@ def test_a_state_without_a_collector_restores(tmp_path):
     obs = rng.normal(size=(2, length + 1, 2)).astype(np.float32)
     data = pool_tasks([TaskEpisodes(obs, action, reward, length, "task")])
     tiny = {"enc_dim": 32, "mlp_dim": 32, "latent_dim": 16, "num_q": 2}
-    tiny |= {"task_dim": 4, "batch_size": 16, "num_samples": 32, "num_elites": 8}
+    tiny.update({"task_dim": 4, "batch_size": 16, "num_samples": 32, "num_elites": 8})
     agent = TDMPC2MultiTask(data, num_pi_trajs=4, iterations=2, **tiny)
     state, _ = agent.train(seed=0, n_timesteps=0)
     assert state.collector_state is None
@@ -645,14 +645,11 @@ def test_a_gymnax_on_policy_checkpoint_with_env_statistics_restores_them_merged(
     stacked = jax.tree.map(lambda *x: np.stack(x)[None], *per_env)
     collector = saved["collector_state"]
     collector["obs_norm_info"] = None
-    collector["_env_state"]["normalization_info"] = {
-        "obs": {
-            k: np.asarray(getattr(stacked, k))
-            for k in ("var", "count", "mean", "mean_2")
-        }
-        | {"returns": None},
-        "reward": None,
+    obs_info = {
+        k: np.asarray(getattr(stacked, k)) for k in ("var", "count", "mean", "mean_2")
     }
+    obs_info.update({"returns": None})
+    collector["_env_state"]["normalization_info"] = {"obs": obs_info, "reward": None}
     _resave(path, saved)
     got = restore_into(state, path).collector_state.obs_norm_info
     want = update_obs_norm(jnp.asarray(rows), init_agent_obs_norm(3))[1]
@@ -687,7 +684,7 @@ def test_a_brax_on_policy_checkpoint_with_env_statistics_restores_them(
         ]
     )
     env["info"]["normalization_info"] = {
-        "obs": rows | {"returns": None},
+        "obs": {**rows, "returns": None},
         "reward": None,
     }
     if with_raw:
@@ -744,7 +741,7 @@ def test_a_replay_checkpoint_from_before_raw_replay_is_refused(tmp_path, normali
 
     net = ("8", "relu")
     kw = {"n_envs": 2, "actor_architecture": net, "critic_architecture": net}
-    kw |= {"learning_starts": 100, "batch_size": 4, "buffer_size": 40}
+    kw.update({"learning_starts": 100, "batch_size": 4, "buffer_size": 40})
     agent = SAC(env_id="Pendulum-v1", normalize_rewards=normalised == "rewards", **kw)
     state, _ = agent.train(seed=0, n_timesteps=16)
     path = str(tmp_path / "new.pkl")

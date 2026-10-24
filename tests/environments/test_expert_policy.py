@@ -213,7 +213,7 @@ def _constant(obs):
 
 def _sac(**kwargs):
     env, params = paid_action.make()
-    kwargs = _SAC | {"expert_policy": _constant} | kwargs
+    kwargs = {**_SAC, "expert_policy": _constant, **kwargs}
     return SAC(env, env_params=params, **kwargs)
 
 

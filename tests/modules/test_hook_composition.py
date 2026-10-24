@@ -7,9 +7,9 @@ PQN variants (Double DQN, Huber).
 
 These are API-contract tests: construct each agent with each hook (and
 ``None``) and confirm construction succeeds and the hook reaches training:
-forwarded to ``make_train``, or a declared agent's field its family reads
-(TD3's pipeline, which its ``behaviour`` hands collection). They do not run
-training.
+forwarded to ``make_train``, or a declared agent's field (TD3's pipeline,
+which its ``behaviour`` hands collection; PQN's TD loss, which its
+``update`` reads). They do not run training.
 """
 
 import pytest
@@ -17,7 +17,7 @@ import pytest
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.TD3.TD3 import TD3
-from tests.agents.TD3.test_td3_metrics import context
+from tests.agents.TD3.test_td3_metrics import make_context
 
 AGENT_HOOKS = {
     TD3: ("action_pipeline",),
@@ -73,10 +73,13 @@ def _instantiate(agent_cls, **kwargs):
 
 
 def _hooks(agent):
-    """The hooks training receives: make_train's keywords, or TD3's pipeline
-    (its family's make_train collects with what ``behaviour`` returns)."""
+    """The hooks training receives: make_train's keywords, TD3's pipeline
+    (its family's make_train collects with what ``behaviour`` returns) or
+    PQN's TD loss (a field its update reads)."""
     if isinstance(agent, TD3):
         return {"action_pipeline": agent.pipeline}
+    if isinstance(agent, PQN):
+        return {"td_loss_fn": agent.td_loss_fn}
     return agent.get_make_train().keywords
 
 
@@ -92,8 +95,8 @@ def test_default_hooks_are_none(agent_cls):
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
 def test_get_make_train_forwards_hooks(agent_cls):
-    """Each hook reaches training: get_make_train's partial carries it, or
-    TD3's behaviour hands its pipeline to collection."""
+    """Each hook reaches training: get_make_train's partial carries it,
+    TD3's behaviour hands its pipeline to collection, or PQN holds it."""
     hook_kwargs = dict.fromkeys(AGENT_HOOKS[agent_cls], _identity_hook)
     agent = _instantiate(agent_cls, **hook_kwargs)
     keywords = _hooks(agent)
@@ -101,4 +104,4 @@ def test_get_make_train_forwards_hooks(agent_cls):
         assert h in keywords, f"{agent_cls.__name__} should forward {h}"
         assert keywords[h] is fn
     if isinstance(agent, TD3):
-        assert agent.behaviour(context(agent)) is _identity_hook
+        assert agent.behaviour(make_context(agent)) is _identity_hook

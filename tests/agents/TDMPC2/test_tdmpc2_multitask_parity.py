@@ -126,8 +126,8 @@ def test_task_set_reproduces_the_reference_tables(ufx, pfx):
         for k, v in ref.items()
         if k != "task_dim" and isinstance(v, int) and not isinstance(v, bool)
     }
-    sizes |= {*tasks.obs_dims, *tasks.action_dims, tasks.num_tasks}
-    sizes |= {ref["horizon"] + 1, ref["num_samples"] - ref["num_pi_trajs"]}
+    sizes.update({*tasks.obs_dims, *tasks.action_dims, tasks.num_tasks})
+    sizes.update({ref["horizon"] + 1, ref["num_samples"] - ref["num_pi_trajs"]})
     assert ref["task_dim"] not in sizes
     assert reference_config(pfx)["task_dim"] == ref["task_dim"]
     config = ajax_config(ref)
@@ -188,7 +188,7 @@ def test_multitask_update_matches_reference_over_four_updates(ufx):
     @jax.jit
     def pre_step(state, batch, task, noise):
         """The TD target and the rollout, on the pre-step renormed table."""
-        ctx = tasks.context(task)
+        context = tasks.context(task)
         pre = core.renorm_task_embedding(state.world_model_state.params, task)
         td, next_z = td_target_of(
             state,
@@ -198,7 +198,7 @@ def test_multitask_update_matches_reference_over_four_updates(ufx):
             gamma=tasks.discount(task),
             wm_params=pre,
             dropout_key=None,
-            task=ctx,
+            task=context,
         )
         _, (_, zs) = core.world_model_loss(
             pre,
@@ -208,7 +208,7 @@ def test_multitask_update_matches_reference_over_four_updates(ufx):
             td_targets=td,
             dropout_key=None,
             config=config,
-            task=ctx,
+            task=context,
         )
         return td, zs
 
@@ -216,10 +216,10 @@ def test_multitask_update_matches_reference_over_four_updates(ufx):
     def policy_side(post, pi_params, zs, task, noise):
         """The policy loss' samples and Q: pre-step latents, pre-update
         policy, the post-step (renormed) embedding and Q."""
-        ctx = tasks.context(task)
-        emb = core.task_embedding(post, ctx)
+        context = tasks.context(task)
+        emb = core.task_embedding(post, context)
         sample = core.policy_sample(
-            pi_apply, pi_params, zs, noise.pi_eps, config, emb, ctx.mask
+            pi_apply, pi_params, zs, noise.pi_eps, config, emb, context.mask
         )
         logits = core.q_logits(wm_apply, post, zs, sample.action, task_emb=emb)
         q = core.reduce_q_pair(logits[noise.pi_pair], "avg", config.two_hot)

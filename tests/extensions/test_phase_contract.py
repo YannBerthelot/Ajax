@@ -46,18 +46,20 @@ PHASES = ("on_target", "critic_loss", "actor_loss", "post_update")
 SHIFT = 10.0  # what on_target adds to the target
 SLOPE = 1e6  # a loss term's gradient on each parameter of its network
 BATCH_KEYS: dict[str, set] = defaultdict(set)  # phase -> key sets, at trace time
-ROWS: list[tuple] = []  # (phase, step, ctx.rng, agent's rng, *values) per fold
+ROWS: list[tuple] = []  # (phase, step, context.rng, agent's rng, *values) per fold
 DRAWN: list[np.ndarray] = []  # every key the run hands jax.random's functions
 #: jax.random's functions the agents (and distrax, flax) draw or derive keys with.
 DRAWS = "split fold_in normal uniform randint permutation choice bernoulli"
 DRAWS += " categorical gumbel bits truncated_normal exponential"
 
 
-def _record(phase: str, agent_state: Any, batch: Any, ctx: Any, *values: Any) -> None:
+def _record(
+    phase: str, agent_state: Any, batch: Any, context: Any, *values: Any
+) -> None:
     if batch is not None:
         BATCH_KEYS[phase].add(frozenset(batch))
     row = lambda *a: ROWS.append((phase, *map(np.asarray, a)))  # noqa: E731
-    jax.debug.callback(row, ctx.step, ctx.rng, agent_state.rng, *values)
+    jax.debug.callback(row, context.step, context.rng, agent_state.rng, *values)
 
 
 def _spy(draw: Any) -> Any:
@@ -72,27 +74,27 @@ def _total(params: Any) -> Any:
     return sum(leaf.sum() for leaf in jax.tree.leaves(params))
 
 
-def on_target(self, agent_state, ext_state, batch, target, ctx):
+def on_target(self, agent_state, ext_state, batch, target, context):
     target = target + SHIFT
-    _record("on_target", agent_state, batch, ctx, target)
+    _record("on_target", agent_state, batch, context, target)
     return target
 
 
-def critic_loss(self, agent_state, ext_state, batch, ctx):
+def critic_loss(self, agent_state, ext_state, batch, context):
     targets = [batch["targets"]] if "targets" in batch else []
-    _record("critic_loss", agent_state, batch, ctx, *targets)
+    _record("critic_loss", agent_state, batch, context, *targets)
     q_state = batch.get("q_state")
     params = batch.get("critic_params") if q_state is None else q_state.params
     return SLOPE * _total(params)
 
 
-def actor_loss(self, agent_state, ext_state, batch, ctx):
-    _record("actor_loss", agent_state, batch, ctx)
+def actor_loss(self, agent_state, ext_state, batch, context):
+    _record("actor_loss", agent_state, batch, context)
     return -SLOPE * _total(batch.get("actor_params"))
 
 
-def post_update(self, agent_state, ext_state, ctx):
-    _record("post_update", agent_state, None, ctx)
+def post_update(self, agent_state, ext_state, context):
+    _record("post_update", agent_state, None, context)
     return agent_state, ext_state
 
 
@@ -128,12 +130,14 @@ WORLD_MODELS: dict[str, Any] = {
 
 
 def _phases(name: str) -> frozenset:
-    return frozenset(PHASES) & getattr(ajax, name).supported_extension_phases
+    return frozenset(PHASES).intersection(
+        getattr(ajax, name).supported_extension_phases
+    )
 
 
 AGENTS = [name for name in ajax.__all__ if _phases(name)]
 #: The agents folding a phase that hands a batch.
-BATCHED = [name for name in AGENTS if _phases(name) - {"post_update"}]
+BATCHED = [name for name in AGENTS if _phases(name).difference({"post_update"})]
 
 
 def test_every_agent_folding_a_phase_has_a_run() -> None:
@@ -155,14 +159,14 @@ def _setup(name: str) -> tuple[Any, Any, dict, int]:
         case = CASES[name]
         cls, n_timesteps = case.cls, case.n_timesteps
         env_id = "Pendulum-v1" if "Pendulum-v1" in case.envs else "CartPole-v1"
-        kwargs = case.kwargs | OVERRIDES.get(name, {})
+        kwargs = {**case.kwargs, **OVERRIDES.get(name, {})}
     return cls, env_id, kwargs, n_timesteps
 
 
 @functools.cache
 def _run(name: str) -> SimpleNamespace:
     cls, env_id, kwargs, n_timesteps = _setup(name)
-    phases = frozenset(PHASES) & cls.supported_extension_phases
+    phases = frozenset(PHASES).intersection(cls.supported_extension_phases)
     recorder = type("Recorder", (Recorder,), {p: globals()[p] for p in phases})()
     BATCH_KEYS.clear()
     ROWS.clear()
@@ -187,12 +191,12 @@ def _run(name: str) -> SimpleNamespace:
 @pytest.mark.parametrize("name", BATCHED)
 def test_each_batch_holds_the_documented_keys(name: str) -> None:
     run = _run(name)
-    assert set(run.batch_keys) == run.phases - {"post_update"}
+    assert set(run.batch_keys) == run.phases.difference({"post_update"})
     for phase, key_sets in run.batch_keys.items():
         declared = _setup(name)[0].phase_batch_keys.get(phase, frozenset())
-        documented = COMMON_BATCH_KEYS.get(phase, frozenset()) | declared
+        documented = COMMON_BATCH_KEYS.get(phase, frozenset()).union(declared)
         for keys in key_sets:
-            assert not documented - keys, (phase, sorted(keys))
+            assert not documented.difference(keys), (phase, sorted(keys))
 
 
 @pytest.mark.parametrize("name", AGENTS)
@@ -233,7 +237,7 @@ ROLLOUT_IN_THE_ACTOR_LOSS = {"APG"}
 
 @pytest.mark.parametrize("name", [n for n in AGENTS if "post_update" in _phases(n)])
 def test_every_loss_term_sees_the_collectors_step(name: str) -> None:
-    """``ctx.step`` is the collector's env-step count at the update: the steps
+    """``context.step`` is the collector's env-step count at the update: the steps
     the loss terms see are among those ``post_update`` sees (one rollout
     earlier for an actor loss that runs the rollout)."""
     steps: dict[str, set] = defaultdict(set)
@@ -260,7 +264,7 @@ def test_each_loss_term_moves_its_own_network(name: str) -> None:
         q_net = any("q_state" in keys for keys in run.batch_keys["critic_loss"])
         after = state.actor_state.params if q_net else state.critic_state.params
         networks["critic_loss"] = (actor if q_net else critic, after, -1.0)
-    for phase in run.phases & set(networks):
+    for phase in run.phases.intersection(networks):
         before, after, sign = networks[phase]
         moved = _flat(after) - _flat(before)
         common = moved.mean()
@@ -276,7 +280,7 @@ def _logging(phase: str) -> Any:
     """``phase`` leaving its value as it is and logging its constant."""
 
     def logged(self: Any, agent_state: Any, ext_state: Any, *args: Any) -> Any:
-        value = args[1] if phase == "on_target" else 0.0  # (batch, target, ctx)
+        value = args[1] if phase == "on_target" else 0.0  # (batch, target, context)
         return value, {f"logger/{phase}": jnp.asarray(LOGGED[phase])}
 
     return logged
@@ -295,8 +299,8 @@ def test_each_phase_logs_its_metrics_with_the_updates(name: str, options: dict) 
     """Every evaluation logs each folded phase's constant, as the last
     update's or the update's mean."""
     cls, env_id, kwargs, n_timesteps = _setup(name)
-    kwargs = kwargs | options
-    phases = frozenset(LOGGED) & cls.supported_extension_phases
+    kwargs = {**kwargs, **options}
+    phases = frozenset(LOGGED).intersection(cls.supported_extension_phases)
     logger = type("Logger", (Extension,), {p: _logging(p) for p in phases})()
     agent = cls(env_id, **kwargs, extensions=(logger,))
     logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)

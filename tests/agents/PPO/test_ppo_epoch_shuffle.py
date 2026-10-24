@@ -9,27 +9,25 @@ loss (APO's minibatch step) records the observations of every minibatch.
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.APO import train_APO
+import ajax.agents.PPO.PPO as ppo_module
 from ajax.agents.APO.APO import APO
-from ajax.agents.APO.state import APOConfig
-from ajax.agents.PPO import train_PPO
 from ajax.agents.PPO.PPO import PPO
-from ajax.agents.PPO.state import PPOConfig
-from ajax.extensions.base import ExtensionStack
 from ajax.networks.memory import MemoryConfig
 from ajax.state import Transition
 
 N_STEPS, N_EPOCHS = 16, 3
 SMALL: dict[str, Any] = {"env_id": "Pendulum-v1", "n_steps": N_STEPS}
-SMALL |= {"n_envs": 2, "n_epochs": N_EPOCHS, "num_minibatches": 4}
-SMALL |= {"actor_architecture": ("8", "tanh"), "critic_architecture": ("8", "tanh")}
+SMALL.update({"n_envs": 2, "n_epochs": N_EPOCHS, "num_minibatches": 4})
+SMALL.update(
+    {"actor_architecture": ("8", "tanh"), "critic_architecture": ("8", "tanh")}
+)
 
 
 def _rollout(n_envs: int) -> Transition:
@@ -86,59 +84,34 @@ def test_ppo_reshuffles_every_epoch(
     geometry: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     agent = PPO(**{**SMALL, **geometry})
-    config = cast(PPOConfig, agent.agent_config)
     n_envs = agent.env_args.n_envs
     seen: list[np.ndarray] = []
-    value_loss = train_PPO.value_loss_function
+    value_loss = ppo_module.value_loss_function
 
     def spy(params: Any, critic: Any, obs: jax.Array, *args: Any, **kw: Any) -> Any:
         _record(seen, obs)
         return value_loss(params, critic, obs, *args, **kw)
 
-    monkeypatch.setattr(train_PPO, "value_loss_function", spy)
-    state = train_PPO.init_PPO(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
-    train_PPO.update_agent(
-        state,
-        _rollout(n_envs),
-        state,
-        config,
-        agent.network_args.memory is not None,
-        ExtensionStack(()),
-        total_timesteps=1_000,
-    )
+    monkeypatch.setattr(ppo_module, "value_loss_function", spy)
+    _, context = agent.context(1_000)
+    state = agent.init(jax.random.PRNGKey(0), context)
+    agent.update(state, _rollout(n_envs), state, context)
     jax.effects_barrier()
-    _assert_fresh_partitions(seen, n_envs, config.num_minibatches)
+    _assert_fresh_partitions(seen, n_envs, agent.num_minibatches)
 
 
 def test_apo_reshuffles_every_epoch(monkeypatch: pytest.MonkeyPatch) -> None:
     agent = APO(**SMALL)
     seen: list[np.ndarray] = []
-    update_networks = train_APO.update_networks
+    minibatch_step = agent.minibatch_step
 
-    def spy(agent_state: Any, minibatch: dict, *args: Any) -> Any:
+    def spy(agent_state: Any, minibatch: dict, *args: Any, **kw: Any) -> Any:
         _record(seen, minibatch["obs"])
-        return update_networks(agent_state, minibatch, *args)
+        return minibatch_step(agent_state, minibatch, *args, **kw)
 
-    monkeypatch.setattr(train_APO, "update_networks", spy)
-    state = train_APO.init_APO(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
-    train_APO.update_agent(
-        state,
-        _rollout(SMALL["n_envs"]),
-        cast(APOConfig, agent.agent_config),
-        ExtensionStack(()),
-        total_timesteps=1_000,
-    )
+    monkeypatch.setattr(agent, "minibatch_step", spy)
+    _, context = agent.context(1_000)
+    state = agent.init(jax.random.PRNGKey(0), context)
+    agent.update(state, _rollout(SMALL["n_envs"]), state, context)
     jax.effects_barrier()
     _assert_fresh_partitions(seen, SMALL["n_envs"], SMALL["num_minibatches"])

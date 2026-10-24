@@ -4,7 +4,7 @@ APPO's recorded states (benchmarks/reference/conformance_apo.py), written back i
 The state maps one to one, kernels transposed: MujocoFfModel's mean MLP (its tanh the actor's
 ``tanh_mean``) onto Ajax's actor trunk and mean head, its value MLP onto the one-critic ensemble, its
 log_std onto the state-independent log-std, its one Adam onto Ajax's two (per coordinate, stepped on
-one clipped gradient), eta and value_bias onto average_reward and b. ``train_APO.update_agent`` runs on
+one clipped gradient), eta and value_bias onto average_reward and b. ``APO.update`` runs on
 the recorded rollout: a done that is not a time limit is a termination, a time limit a truncation,
 next_obs each env's own observation before a reset, the stored log-probabilities the sampler's
 Gaussian's. Each epoch's minibatch permutation is the record's, from rlpyt's rows (b T + t) to Ajax's
@@ -21,8 +21,6 @@ import jax.numpy as jnp
 import numpy as np
 
 import ajax
-from ajax.agents.APO import train_APO
-from ajax.extensions.base import ExtensionStack
 from ajax.state import Transition
 from tests.conformance import kit
 
@@ -149,17 +147,19 @@ def run(records: Any, precision: str, fault: str | None = None) -> dict[str, dic
     envs = sorted({p.name.rsplit("_", 1)[0] for p in records.glob("*.npz")})
     out: dict = {}
     for env_id in envs:
-        out |= _env_updates(records, env_id, dtype, fault)
+        out.update(_env_updates(records, env_id, dtype, fault))
     return out
 
 
 def _env_updates(records: Any, env_id: str, dtype: Any, fault: str | None) -> dict:
-    agent = ajax.APO(env_id, **(SETTINGS | FAULTS.get(fault or "", {})))
+    settings = dict(SETTINGS)
+    settings.update(FAULTS.get(fault or "", {}))
+    agent = ajax.APO(env_id, **settings)
     template = kit.capture_step(agent, 8 * T * B).fresh(jax.random.PRNGKey(0))
-    stack, config = ExtensionStack(), agent.agent_config
+    _, context = agent.context(8 * T * B)
 
     def update(state: Any, roll: Transition) -> Any:
-        return train_APO.update_agent(state, roll, config, stack, 8 * T * B)[0]
+        return agent.update(state, roll, state, context)[0]
 
     arrays = {p.stem: dict(np.load(p)) for p in sorted(records.glob(f"{env_id}_*.npz"))}
     keys: dict = {}

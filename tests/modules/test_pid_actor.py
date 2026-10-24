@@ -290,19 +290,19 @@ def test_apg_refuses_a_pid_policy():
 _REPLAY = {"learning_starts": 16, "buffer_size": 256, "batch_size": 8}
 _ROLLOUT = {"n_steps": 16, "batch_size": 8, "n_epochs": 1}
 #: SAC updates its policy and temperature from step 2000 by default.
-_SAC = _REPLAY | {"policy_update_start": 16, "alpha_update_start": 16}
+_SAC = {**_REPLAY, "policy_update_start": 16, "alpha_update_start": 16}
 # id: (agent, overrides, steps); REDQ at 2 critic updates per step, not 20.
 # AVG always normalises its observations (env-side); the -norm cases
 # normalise them agent-side.
 AGENTS = {
     "SAC": ("SAC", _SAC, 64),
-    "SAC-norm": ("SAC", _SAC | {"normalize_obs_running": True}, 64),
+    "SAC-norm": ("SAC", {**_SAC, "normalize_obs_running": True}, 64),
     "TD3": ("TD3", _REPLAY, 64),
-    "REDQ": ("REDQ", _REPLAY | {"num_critic_updates": 2}, 64),
+    "REDQ": ("REDQ", {**_REPLAY, "num_critic_updates": 2}, 64),
     "ASAC": ("ASAC", _REPLAY, 64),
     "AVG": ("AVG", {}, 64),
     "PPO": ("PPO", _ROLLOUT, 64),
-    "PPO-norm": ("PPO", _ROLLOUT | {"normalize_observations": True}, 64),
+    "PPO-norm": ("PPO", {**_ROLLOUT, "normalize_observations": True}, 64),
     "APO": ("APO", _ROLLOUT, 64),
 }
 

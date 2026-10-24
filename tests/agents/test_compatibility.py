@@ -332,8 +332,8 @@ def pinned() -> dict[tuple[str, str], str]:
 
 def test_every_cell_is_supported_inherent_or_a_pinned_gap() -> None:
     gaps = {cell for cell, (kind, _) in matrix().items() if kind == "gap"}
-    unpinned = sorted(gaps - set(pinned()))
-    closed = sorted(set(pinned()) - gaps)
+    unpinned = sorted(gaps.difference(pinned()))
+    closed = sorted(set(pinned()).difference(gaps))
     assert not unpinned, f"wire these, or pin them in GAPS with their work: {unpinned}"
     assert not closed, f"these gaps are closed: remove them from GAPS: {closed}"
 

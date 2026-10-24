@@ -110,12 +110,14 @@ def run(records: Any, precision: str, fault: str | None = None) -> dict[str, dic
     envs = sorted({p.name.rsplit("_", 1)[0] for p in records.glob("*.npz")})
     out: dict = {}
     for env_id in envs:
-        out |= _env_updates(records, env_id, dtype, fault)
+        out.update(_env_updates(records, env_id, dtype, fault))
     return out
 
 
 def _env_updates(records: Any, env_id: str, dtype: Any, fault: str | None) -> dict:
-    agent = ajax.AVG(env_id, **(SETTINGS | FAULTS.get(fault or "", {})))
+    settings = dict(SETTINGS)
+    settings.update(FAULTS.get(fault or "", {}))
+    agent = ajax.AVG(env_id, **settings)
     step = kit.capture_step(agent, 2_000)
     template, update = step.fresh(jax.random.PRNGKey(0)), step.update
     assert update is not None, "AVG passes its update to its train loop"

@@ -135,13 +135,13 @@ def test_the_state_has_one_structure_before_and_after_the_fit(
 def test_an_extension_logs_nan_before_its_fit() -> None:
     """And a fit taking no step keeps NaN (BellmanPretrain with
     ``n_steps=0``, CloningPretrain with ``epochs=0``)."""
-    ctx = ExtensionContext(step=jnp.asarray(0), rng=KEY, total_steps=100)
+    context = ExtensionContext(step=jnp.asarray(0), rng=KEY, total_steps=100)
     bounds = SimpleNamespace(
         expert_v_min=jnp.asarray(0.0), expert_v_max=jnp.asarray(1.0)
     )
     logged: dict = {}
     for ext in _stack():
-        logged |= ext.eval_metrics(bounds, ext.init_state(None, KEY), KEY, ctx)
+        logged.update(ext.eval_metrics(bounds, ext.init_state(None, KEY), KEY, context))
     assert {k for k in logged if k not in NAMES} == {
         "mc_pretrain/v_min",
         "mc_pretrain/v_max",

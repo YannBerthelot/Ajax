@@ -789,11 +789,13 @@ def test_q5_ppo_trains_and_evaluates_the_same_action() -> None:
 @dataclasses.dataclass(frozen=True)
 class ZeroActorLoss(Extension):
     """Adds 0 to the actor loss: PPO's actor loss then folds the stack's
-    term (train_PPO.py, _stack_actor_loss)."""
+    term (PPO.py, _extensions_actor_loss)."""
 
     name: str = "zero_actor_loss"
 
-    def actor_loss(self, agent_state: Any, ext_state: Any, batch: Any, ctx: Any) -> Any:
+    def actor_loss(
+        self, agent_state: Any, ext_state: Any, batch: Any, context: Any
+    ) -> Any:
         return 0.0
 
 

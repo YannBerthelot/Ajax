@@ -13,17 +13,15 @@ it computes are checked against that recursion in NumPy.
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.APO import train_APO
+import ajax.agents.APO.APO as apo_module
 from ajax.agents.APO.APO import APO
-from ajax.agents.APO.state import APOConfig
-from ajax.extensions.base import ExtensionStack
 from ajax.networks.networks import predict_value
 from ajax.state import Transition
 
@@ -63,26 +61,18 @@ def test_differential_gae_stops_at_episode_ends(
         actor_architecture=("8", "tanh"),
         critic_architecture=("8", "tanh"),
     )
-    config = cast(APOConfig, agent.agent_config)
-    state = train_APO.init_APO(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
+    _, context = agent.context(1_000)
+    state = agent.init(jax.random.PRNGKey(0), context)
     seen: dict[str, Any] = {}
-    compute_gae = train_APO._compute_gae
+    compute_gae = apo_module._compute_gae
 
     def spy(*args: Any, **kwargs: Any) -> Any:
         seen["gae"], seen["targets"] = compute_gae(*args, **kwargs)
         return seen["gae"], seen["targets"]
 
-    monkeypatch.setattr(train_APO, "_compute_gae", spy)
+    monkeypatch.setattr(apo_module, "_compute_gae", spy)
     rollout = _rollout()
-    new_state, _ = train_APO.update_agent(
-        state, rollout, config, ExtensionStack(()), total_timesteps=1_000
-    )
+    new_state, _ = agent.update(state, rollout, state, context)
 
     critic = state.critic_state
     v = np.asarray(predict_value(critic, critic.params, rollout.obs))[0, ..., 0]
@@ -95,7 +85,7 @@ def test_differential_gae_stops_at_episode_ends(
     want = np.zeros((T + 1, N_ENVS))
     for t in reversed(range(T)):
         delta = r[t] - rho + (1 - end[t]) * v_next[t] - v[t]
-        want[t] = delta + config.gae_lambda * (1 - end[t]) * want[t + 1]
+        want[t] = delta + agent.gae_lambda * (1 - end[t]) * want[t + 1]
     np.testing.assert_allclose(seen["gae"][..., 0], want[:T], atol=1e-5)
     np.testing.assert_allclose(seen["targets"][..., 0], want[:T] + v, atol=1e-5)
     # The rate is the plain mean over every step, episode ends included; the
@@ -115,27 +105,19 @@ def test_the_rate_and_the_bias_start_at_the_first_rollouts_means() -> None:
         actor_architecture=("8", "tanh"),
         critic_architecture=("8", "tanh"),
     )
-    config = cast(APOConfig, agent.agent_config)
-    state = train_APO.init_APO(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
+    _, context = agent.context(1_000)
+    state = agent.init(jax.random.PRNGKey(0), context)
     rollout = _rollout()
     means = []
     for batch in (rollout, rollout.replace(reward=rollout.reward + 1.0)):
         critic = state.critic_state
         v = predict_value(critic, critic.params, batch.obs)
         means.append((float(jnp.mean(batch.reward)), float(jnp.mean(v))))
-        state, _ = train_APO.update_agent(
-            state, batch, config, ExtensionStack(()), total_timesteps=1_000
-        )
+        state, _ = agent.update(state, batch, state, context)
         if len(means) == 1:
             np.testing.assert_allclose(state.average_reward, means[0][0], rtol=1e-6)
             np.testing.assert_allclose(state.b, means[0][1], rtol=1e-5)
-    a = config.alpha
+    a = agent.alpha
     rho = (1 - a) * means[0][0] + a * means[1][0]
     b = (1 - a) * means[0][1] + a * means[1][1]
     np.testing.assert_allclose(state.average_reward, rho, rtol=1e-6)
@@ -157,37 +139,31 @@ def test_a_time_limited_step_leaves_the_loss(monkeypatch: pytest.MonkeyPatch) ->
         critic_architecture=("8", "tanh"),
         actor_architecture=("8", "tanh"),
     )
-    state = train_APO.init_APO(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
+    _, context = agent.context(1_000)
+    state = agent.init(jax.random.PRNGKey(0), context)
     critic, obs = state.critic_state, jax.random.normal(jax.random.PRNGKey(2), (3, 3))
     valid = jnp.array([[1.0], [1.0], [0.0]])
 
     def loss(targets: jax.Array) -> float:
         args = (critic.params, critic, obs, targets, 0.1, 0.5, 1.0, valid)
-        return float(train_APO.value_loss_function(*args)[0])
+        return float(apo_module.value_loss_function(*args)[0])
 
     assert loss(jnp.array([[1.0], [2.0], [3.0]])) == loss(
         jnp.array([[1.0], [2.0], [99.0]])
     )
     seen: list = []
-    value_loss = train_APO.value_loss_function
+    value_loss = apo_module.value_loss_function
 
     def spy(*args: Any) -> Any:
         jax.debug.callback(lambda v: seen.append(np.asarray(v)), args[-1])
         return value_loss(*args)
 
-    monkeypatch.setattr(train_APO, "value_loss_function", spy)
-    config = cast(APOConfig, agent.agent_config)
+    monkeypatch.setattr(apo_module, "value_loss_function", spy)
     rollout = _rollout()
     both = rollout.replace(terminated=rollout.terminated.at[TRUNCATED].set(1.0))
     for roll, dropped in ((rollout, 1), (both, 0)):
         seen.clear()
-        train_APO.update_agent(state, roll, config, ExtensionStack(()), 1_000)
+        agent.update(state, roll, state, context)
         assert len(seen) == 2  # one minibatch, two epochs
         for v in seen:
             assert (v == 0).sum() == dropped and (v == 1).sum() == T * N_ENVS - dropped

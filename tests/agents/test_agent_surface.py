@@ -56,7 +56,7 @@ def defined_names(path: Path) -> set[str]:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             names.add(node.name)
         elif isinstance(node, ast.Assign):
-            names |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+            names.update({t.id for t in node.targets if isinstance(t, ast.Name)})
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             names.add(node.target.id)
     return {n for n in names if not n.startswith("_")}
@@ -123,7 +123,7 @@ def contract(name: str) -> dict[str, Any]:
     make_train = getattr(cls, "make_train", None)
     home = make_train and f"{make_train.__module__}:{make_train.__qualname__}"
     found = {n: plain(getattr(cls, n)) for n in CONTRACT if hasattr(cls, n)}
-    return found | {"make_train": home}
+    return {**found, "make_train": home}
 
 
 def test_every_recorded_name_still_imports() -> None:
@@ -148,7 +148,7 @@ def test_an_agent_keeps_its_recorded_contract(name: str) -> None:
 
 
 if __name__ == "__main__":
-    names = sorted(set(json.loads(SURFACE.read_text())) | set(surface()))
+    names = sorted(set(json.loads(SURFACE.read_text())).union(surface()))
     SURFACE.write_text(json.dumps(names, indent=0) + "\n")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

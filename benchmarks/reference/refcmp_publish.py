@@ -42,15 +42,21 @@ def dataset(out: pathlib.Path, reps: int = 200) -> None:
     for name in recorded():
         for i, r in enumerate(protocol.records(name)):
             batch = f"{name}/{i}"
-            batches.append(
-                {"batch": batch} | {k: v for k, v in r.items() if k != "curve"}
-            )
+            summary = {"batch": batch}
+            summary.update({k: v for k, v in r.items() if k != "curve"})
+            batches.append(summary)
             keys = {k: r[k] for k in ("side", "implementation", "fingerprint")}
             for seed, curve in zip(r["seeds"], r["curve"], strict=True):
                 for step, value in zip(r["steps"], curve, strict=True):
                     rows.append(
-                        {"comparison": name, **keys, "batch": batch, "seed": seed}
-                        | {"step": step, "return": value}
+                        {
+                            "comparison": name,
+                            **keys,
+                            "batch": batch,
+                            "seed": seed,
+                            "step": step,
+                            "return": value,
+                        }
                     )
     out.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_parquet(out / "runs.parquet", index=False)
@@ -61,8 +67,10 @@ def dataset(out: pathlib.Path, reps: int = 200) -> None:
         text = "".join(json.dumps(item) + "\n" for item in items)
         (out / f"{table}.jsonl").write_text(text)
     specs = {
-        name: dataclasses.asdict(COMPARISONS[name])
-        | {"sha256": spec_sha256(COMPARISONS[name])}
+        name: {
+            **dataclasses.asdict(COMPARISONS[name]),
+            "sha256": spec_sha256(COMPARISONS[name]),
+        }
         for name in recorded()
     }
     (out / "specs.json").write_text(json.dumps(specs, indent=1))
@@ -121,7 +129,7 @@ def specs_page() -> str:
                 for k in ((names,) if isinstance(names, str) else names)
                 if k in spec.matched
             ]
-            copied |= set(ajax)
+            copied.update(ajax)
             values = ", ".join(f"`{spec.matched[k]!r}`" for k in ajax)
             keys = ", ".join(f"`{k}`" for k in ajax) or "-"
             lines.append(f"| `{key}` | `{value!r}` | {keys} | {values} |")

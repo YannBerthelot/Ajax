@@ -32,16 +32,13 @@ _NORM = {"normalize_observations": False, "normalize_rewards": False}
 _REPLAY = {"learning_starts": 100, "buffer_size": 10_000, "batch_size": 64}
 _SAC = {**_split(NET), **_NORM, **_REPLAY, "gamma": GAMMA, "n_envs": 1}
 _PPO = {**_split(NET), **_NORM, "n_steps": 32, "batch_size": 32, "n_epochs": 4}
-_PPO.update({"n_envs": 1})
+_PPO |= {"n_envs": 1}
 _Q = {"learning_rate": 1e-3, "architecture": NET, "gamma": GAMMA, "n_envs": 1}
-_AVG: dict[str, Any] = {"actor_architecture": NET, "critic_architecture": NET}
-_AVG.update({"gamma": GAMMA, "n_envs": 1})
-_CROSSQ: dict[str, Any] = {"actor_width": 64, "critic_width": 64, **_NORM, **_REPLAY}
-_CROSSQ.update({"gamma": GAMMA, "n_envs": 1})
 _PROBE = {
     **dict.fromkeys(("SAC", "TD3", "REDQ"), _SAC),
     "ASAC": {k: v for k, v in _SAC.items() if k != "gamma"},
-    "AVG": _AVG,
+    "AVG": {"actor_architecture": NET, "critic_architecture": NET}
+    | {"gamma": GAMMA, "n_envs": 1},
     "PPO": {**_PPO, "gamma": GAMMA},
     "APO": _PPO,
     "DQN": {**_Q, **_REPLAY, "target_update_interval": 100},
@@ -49,7 +46,8 @@ _PROBE = {
     # value of the action it stops exploring drifts.
     "PQN": {**_Q, "n_envs": 8, "n_steps": 16, "n_epochs": 4, "num_minibatches": 1},
     "APG": {"actor_architecture": NET, "n_envs": 64},
-    "CrossQ": _CROSSQ,
+    "CrossQ": {"actor_width": 64, "critic_width": 64, **_NORM, **_REPLAY}
+    | {"gamma": GAMMA, "n_envs": 1},
     "TQC": _SAC,
 }
 
@@ -61,20 +59,9 @@ _PROBE = {
 _B_REPLAY = {"learning_starts": 100, "buffer_size": 2000, "batch_size": 16}
 _B_SAC = {**_split(SMALL), **_NORM, **_B_REPLAY, "gamma": GAMMA, "n_envs": 1}
 _B_PPO = {**_split(SMALL), **_NORM, "n_steps": 32, "batch_size": 16, "n_epochs": 2}
-_B_PPO.update({"n_envs": 1})
+_B_PPO |= {"n_envs": 1}
 _B_Q = {**_NORM, "learning_rate": 1e-3, "architecture": SMALL, "gamma": GAMMA}
-_B_Q.update({"n_envs": 1})
-_B_UDRL = {"actor_architecture": SMALL, "n_steps": 32, "batch_size": 32}
-_B_UDRL.update({"n_updates_per_iter": 4, "n_envs": 1})
-_B_DREAMER = {"model_size": "1m", "units": 16, "hidden": 16, "deter": 32}
-_B_DREAMER.update({"classes": 4, "stoch": 4, "blocks": 4, "imag_horizon": 3})
-_B_DREAMER.update({"batch_size": 4, "batch_length": 8, "warmup": 10, "train_ratio": 8})
-_B_DREAMER.update({"replay_capacity": 1000, "n_envs": 1})
-_B_TDMPC2: dict[str, Any] = {"enc_dim": 32, "mlp_dim": 32, "latent_dim": 16, "num_q": 2}
-_B_TDMPC2.update({"batch_size": 16, "num_samples": 32, "num_elites": 4})
-_B_TDMPC2.update({"num_pi_trajs": 4, "iterations": 2, "gamma": 0.8, "n_envs": 1})
-_B_CROSSQ: dict[str, Any] = {"actor_width": 16, "critic_width": 16, **_NORM}
-_B_CROSSQ.update({**_B_REPLAY, "gamma": GAMMA, "n_envs": 1})
+_B_Q |= {"n_envs": 1}
 _B_SACS = {**_B_SAC, "policy_update_start": 200, "alpha_update_start": 300}
 _BOOKKEEPING = {
     "SAC": _B_SACS,
@@ -87,11 +74,18 @@ _BOOKKEEPING = {
     "APO": _B_PPO,
     "DQN": {**_B_Q, **_B_REPLAY, "target_update_interval": 100},
     "PQN": {**_B_Q, "n_steps": 16, "n_epochs": 2, "num_minibatches": 2},
-    "UDRL": _B_UDRL,
+    "UDRL": {"actor_architecture": SMALL, "n_steps": 32, "batch_size": 32}
+    | {"n_updates_per_iter": 4, "n_envs": 1},
     "APG": {"actor_architecture": SMALL, "horizon": 16, "n_envs": 1},
-    "DreamerV3": _B_DREAMER,
-    "TDMPC2": _B_TDMPC2,
-    "CrossQ": _B_CROSSQ,
+    "DreamerV3": {"model_size": "1m", "units": 16, "hidden": 16, "deter": 32}
+    | {"classes": 4, "stoch": 4, "blocks": 4, "imag_horizon": 3, "batch_size": 4}
+    | {"batch_length": 8, "warmup": 10, "train_ratio": 8, "replay_capacity": 1000}
+    | {"n_envs": 1},
+    "TDMPC2": {"enc_dim": 32, "mlp_dim": 32, "latent_dim": 16, "num_q": 2}
+    | {"batch_size": 16, "num_samples": 32, "num_elites": 4, "num_pi_trajs": 4}
+    | {"iterations": 2, "gamma": 0.8, "n_envs": 1},
+    "CrossQ": {"actor_width": 16, "critic_width": 16, **_NORM, **_B_REPLAY}
+    | {"gamma": GAMMA, "n_envs": 1},
     "TQC": _B_SAC,
 }
 
@@ -100,14 +94,13 @@ _BOOKKEEPING = {
 # DreamerV3),
 # copied so their retuning does not move these calibrations.
 _T_CORE: dict[str, Any] = {"enc_dim": 32, "mlp_dim": 32, "latent_dim": 16}
-_T_CORE.update({"num_q": 2, "batch_size": 32, "num_samples": 64, "num_elites": 8})
-_T_CORE.update({"num_pi_trajs": 4, "iterations": 4, "tau": 0.1, "learning_rate": 1e-3})
-_T_DREAMER = {"model_size": "1m", "units": 32, "hidden": 32, "deter": 64}
-_T_DREAMER.update({"classes": 4, "stoch": 8, "blocks": 4, "batch_size": 8})
-_T_DREAMER.update({"batch_length": 8, "train_ratio": 8, "imag_horizon": 5})
-_T_DREAMER.update({"warmup": 100, "learning_rate": 1e-3, "n_envs": 1})
+_T_CORE |= {"num_q": 2, "batch_size": 32, "num_samples": 64, "num_elites": 8}
+_T_CORE |= {"num_pi_trajs": 4, "iterations": 4, "tau": 0.1, "learning_rate": 1e-3}
 _TINY: dict[str, dict[str, Any]] = {
-    "DreamerV3": _T_DREAMER,
+    "DreamerV3": {"model_size": "1m", "units": 32, "hidden": 32, "deter": 64}
+    | {"classes": 4, "stoch": 8, "blocks": 4, "batch_size": 8, "batch_length": 8}
+    | {"train_ratio": 8, "imag_horizon": 5, "warmup": 100, "learning_rate": 1e-3}
+    | {"n_envs": 1},
     "TDMPC2": {**_T_CORE, "n_envs": 1},
     "TDMPC2MultiTask": {**_T_CORE, "task_dim": 4},
 }
@@ -156,7 +149,7 @@ def make(
     agent (TDMPC2MultiTask: its ``dataset`` an override). Scalar and tuple
     overrides must read back."""
     kwargs = {**(PRESETS[preset].get(name, {}) if preset else {}), **overrides}
-    kwargs.update({} if env is None else {"env_id": env, "env_params": params})
+    kwargs |= {} if env is None else {"env_id": env, "env_params": params}
     agent = (cls or agent_class(name))(extensions=extensions, **kwargs)
     for key, value in overrides.items():
         took = _read_back(agent, key)

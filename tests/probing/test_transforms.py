@@ -84,11 +84,8 @@ class GainExpert:
 EXTRA: dict[str, dict[str, Any]] = {
     # No expert prefill (collection's rows); the policy updates from the
     # warm-up's end, not SAC's 2000th step.
-    "SAC": {
-        "expert_buffer_n_steps": 0,
-        "policy_update_start": 100,
-        "alpha_update_start": 100,
-    },
+    "SAC": {"expert_buffer_n_steps": 0, "policy_update_start": 100}
+    | {"alpha_update_start": 100},
 }
 
 
@@ -97,7 +94,7 @@ def transform_readings(agent: str, gains: bool) -> Any:
         env, params = bandit().make()
         transform = ExpertGains() if gains else ResidualPolicy(scale=1.0)
         expert = GainExpert() if gains else residual_expert
-        kw = {**EXTRA.get(agent, {}), "expert_policy": expert}
+        kw = EXTRA.get(agent, {}) | {"expert_policy": expert}
         return agents.make(agent, env, params, extensions=(transform,), **kw)
 
     def executed(a: jax.Array, s: float) -> jax.Array:

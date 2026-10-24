@@ -90,18 +90,18 @@ def _p0b_read(agent: str) -> Callable:
         x = CUE_OBS if agent == "PPO" else _q_input(CUE_OBS, a, STARTS)
         a, v = a[-1, :, 0], R.critic_sequence(n, x, STARTS)[-1]
         out = dict(zip([q.name for q in P0B[1:5]], v, strict=True))
-        return {**out, P0B[0].name: a[0] - a[1], P0B[5].name: a[2] - a[3]}
+        return out | {P0B[0].name: a[0] - a[1], P0B[5].name: a[2] - a[3]}
 
     return lambda run: R.per_seed(read, R.nets(run.state))
 
 
 def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) -> Any:
     """32 units; replay batches of 4 windows of 25 steps (64 trained positions)."""
-    kw = {**({} if agent == "PPO" else {"batch_size": 4}), **kw}
+    kw = ({} if agent == "PPO" else {"batch_size": 4}) | kw
     if agent == "SAC":  # actor and temperature updates start with the critic's
-        kw.update({"policy_update_start": 100, "alpha_update_start": 100})
+        kw |= {"policy_update_start": 100, "alpha_update_start": 100}
     if agent == "REDQ":
-        kw.update({"num_critic_updates": 1, "num_critics": 4, "subset_size": 2})
+        kw |= {"num_critic_updates": 1, "num_critics": 4, "subset_size": 2}
     return agents.make(agent, *spec.make(), memory=MemoryConfig(kind, 32), **kw)
 
 
@@ -277,10 +277,10 @@ def _q2_agent(agent: str, kind: str, length: int, batch: int = 0) -> Any:
     if agent == "SAC":  # the actor updates from learning_starts, as the others'
         kw = {"alpha_init": ALPHA, "fixed_alpha": True, "policy_update_start": 100}
     if agent == "REDQ":
-        kw.update({"num_critic_updates": 1, "num_critics": 4, "subset_size": 2})
+        kw |= {"num_critic_updates": 1, "num_critics": 4, "subset_size": 2}
     if agent == "TD3":
         kw = {"exploration_noise": 0.3}
-    kw.update({"sequence_length": length, "batch_size": batch or 64 // length})
+    kw |= {"sequence_length": length, "batch_size": batch or 64 // length}
     spec = QUADRATIC_ECHO if agent == "TD3" else ECHO
     memory = MemoryConfig(kind, 32)
     return agents.make(agent, *spec.make(), memory=memory, buffer_size=20_000, **kw)

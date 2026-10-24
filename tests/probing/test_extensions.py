@@ -198,7 +198,7 @@ def _p3_read(agent: str, cell: str) -> Callable:
             v["V(0)"] -= GAMMA * R.alpha(n) * R.entropy(R.pi(n, 1.0), R.KEY)
         if agent in ("DQN", "PQN"):
             return v
-        v.update({"a(0)": R.action(n, 0.0), "a(1)": R.action(n, 1.0)})
+        v |= {"a(0)": R.action(n, 0.0), "a(1)": R.action(n, 1.0)}
         if cell == "E7":
             v["phi*(1, a_E)"] = R.critic(n, 1.0, 0.3, params=n.extra)
         return v
@@ -248,20 +248,18 @@ def p3_queries(test: str, agent: str) -> tuple[Query, ...]:
         if agent == "PPO":
             wrong["shift folded as a reward, before GAE"] = 0.5 + 1.5 * GAMMA
         v1 = Query("V(1)", 1.5, {"shift ignored": 1.0, "shift applied twice": 2.0})
-        return v1, Query("V(0)", v0(1.5, 0.5), {**ignored, **wrong})
+        return v1, Query("V(0)", v0(1.5, 0.5), ignored | wrong)
     if test == "E9":  # PPO's V(0) misses a missing flag by 0.019: V(1) sees it
         wrong = {"shift applied twice": v0(1.0, 2 * GAMMA)}
         if agent != "PPO":
             wrong["done flag missing"] = v0(1.0 + GAMMA, GAMMA)
         v1 = Query("V(1)", 1.0, {"done flag missing": 1.0 + GAMMA})
-        return v1, Query("V(0)", v0(1.0, GAMMA), {**ignored, **wrong})
+        return v1, Query("V(0)", v0(1.0, GAMMA), ignored | wrong)
     w = 0.5 * _default(PPO, "vf_coef") if agent == "PPO" else 1.0
     loc = {"pull on the pre-squash loc": float(np.tanh(-0.5))} if agent == "SAC" else {}
     single = {
         "E2": Query("V(1)", w / (w + 100.0), {"term not folded or no gradient": 1.0}),
-        "E3": Query(
-            "a(0)", -0.5, {"no pull (max-entropy or initial mean)": 0.0, **loc}
-        ),
+        "E3": Query("a(0)", -0.5, {"no pull (max-entropy or initial mean)": 0.0} | loc),
         "E3-gated": Query("a(1)", -0.5, {"gate never opens (context.step 0)": 0.0}),
         "E7": Query("phi*(1, a_E)", 1.0, {"MCPretrain unbound or untrained": 0.0}),
     }
@@ -301,7 +299,7 @@ def _exact(names: Any) -> list:
     return [xparam(a) for a in names]
 
 
-PHASE_EXTENSIONS: dict[str, type[Extension]] = {
+PHASE_EXTENSIONS = {
     "on_target": TargetShift,
     "critic_loss": CriticPull,
     "actor_loss": ActorPull,
@@ -318,8 +316,7 @@ def test_p3_extension_implements_its_phase(phase: str) -> None:
     misspelt hook would be a no-op that passes for the "ignored" defects."""
     ext = PHASE_EXTENSIONS[phase]()
     extra = {"pretrain"} if phase == "post_update" else set()
-    assert ext.implemented_phases() == {phase}.union(extra)
-    assert ext.name.startswith("p3_")
+    assert ext.implemented_phases() == {phase} | extra and ext.name.startswith("p3_")
 
 
 def _rejected(agent: str, ext: Extension) -> None:
@@ -413,7 +410,7 @@ def test_p3_e10_undeclared_phase_raises_at_construction(agent: str) -> None:
     """An agent declaring every phase but ``action`` rejects an extension
     implementing it at construction, naming the phase."""
     cls = agents.agent_class(agent)
-    phases = frozenset(PHASES).difference({"action"})
+    phases = frozenset(PHASES) - {"action"}
     restricted = type(cls.__name__, (cls,), {"supported_extension_phases": phases})
     with pytest.raises(ValueError, match="action"):
         small(agent, 1, (ActionOverride(),), restricted)
@@ -505,7 +502,7 @@ ONE = 1e6  # critic_warmup_frac: the blend and clone weights stay at 1 (1e-6)
 def mc(light: bool = False) -> MCPretrain:
     """512 MC rows, two regression batches (fewer than 256 rows divide by zero
     in extensions/pretrain.py's pretrain_critic_mc), 250 regression steps."""
-    return MCPretrain(EXPERT, use_online_light=light, **{**MC_KW, "n_steps": 250})
+    return MCPretrain(EXPERT, use_online_light=light, **MC_KW | {"n_steps": 250})
 
 
 def q7_readings(agent: str, env_cls: type, read: Callable, exts=(), **kw) -> Any:
@@ -519,8 +516,7 @@ def q7_readings(agent: str, env_cls: type, read: Callable, exts=(), **kw) -> Any
         s = run.state
         out = R.per_seed(read, R.nets(s, getattr(s, "expert_critic_params", None)))
         box = {k: getattr(s, f"expert_{k}", None) for k in ("v_min", "v_max")}
-        out.update({k: np.reshape(v, -1) for k, v in box.items() if v is not None})
-        return out
+        return out | {k: np.reshape(v, -1) for k, v in box.items() if v is not None}
 
     return runs.readings(build, go)
 
@@ -531,7 +527,7 @@ def _phi(n: R.Nets) -> dict:
 
 def _ibrl(n: R.Nets) -> dict:
     q = {f"Q(1, {a})": R.critic(n, 1.0, a) for a in (-0.5, 0.5)}
-    return {**q, "Q(0, 0)": R.critic(n, 0.0, 0.0)}
+    return q | {"Q(0, 0)": R.critic(n, 0.0, 0.0)}
 
 
 def _blend(n: R.Nets) -> dict:
@@ -546,11 +542,11 @@ _UNSCALED = "MC returns left unscaled (pretrain_critic_mc)"
 _G99 = {"gamma bound from the 0.99 default": 0.99 * RS}
 _LAST = {"range of the last batch only, envs in lockstep": RS}
 PHI = (
-    Query("phi*(0, a_E)", GAMMA * RS, {_UNSCALED: GAMMA, **_G99}),
+    Query("phi*(0, a_E)", GAMMA * RS, {_UNSCALED: GAMMA} | _G99),
     Query("phi*(1, a_E)", RS, {_UNSCALED: 1.0}),
 )
 V_RANGE = (
-    Query("v_min", GAMMA * RS, {_UNSCALED: GAMMA, **_G99, **_LAST}),
+    Query("v_min", GAMMA * RS, {_UNSCALED: GAMMA} | _G99 | _LAST),
     Query("v_max", RS, {_UNSCALED: 1.0}),
 )
 # The light case was calibrated on SafeSAC, SAC with an extra critic head
@@ -652,13 +648,10 @@ def _held(alpha: float | None, a_e: float) -> float:
 # 1e-3, not 6.3e-3 and 8.7e-3, at which its filtered policy wanders by 0.05.
 _LR0 = {"alpha_learning_rate": 0.0}
 PINNED: dict[str, dict[str, Any]] = {
-    "SAC": {
-        "fixed_alpha": True,
-        "policy_update_start": 200,
-        "expert_buffer_n_steps": 0,
-    },
+    "SAC": {"fixed_alpha": True, "policy_update_start": 200}
+    | {"expert_buffer_n_steps": 0},
     "TD3": {},
-    "REDQ": {**_LR0, "num_critic_updates": 5},
+    "REDQ": _LR0 | {"num_critic_updates": 5},
     "ASAC": _LR0,
     "AVG": {"actor_learning_rate": 1e-3, "critic_learning_rate": 1e-3},
 }
@@ -668,9 +661,9 @@ def imitation(agent: str, alpha: float | None, a_e: float, q_filter: bool) -> An
     """The agent's own stateful expert (its stored actions are the clone target)."""
     expert = AgentExpert(ConstantExpert(a_e))
     clone = ImitationLoss(expert, coef=COEF, q_filter=q_filter)
-    kw = {**PINNED[agent], **({} if alpha is None else {"alpha_init": alpha})}
+    kw = PINNED[agent] | ({} if alpha is None else {"alpha_init": alpha})
     read = lambda n: {f"a({x})": R.action(n, float(x)) for x in (0, 1)}  # noqa: E731
-    kw.update({"expert_policy": expert})
+    kw |= {"expert_policy": expert}
     return q7_readings(agent, ActionChainEnv, read, (clone,), **kw)
 
 
@@ -735,7 +728,7 @@ def cloning(agent: str, shift: float) -> Any:
 _SKIP = {"cloning pre-training skipped": 0.0}
 _RAW = {"trained on standardised, queried on raw observations": 0.5}
 SIGNED = (Query("a(-1)", -0.5, _SKIP), Query("a(1)", 0.5, _SKIP))
-SHIFTED = (Query("a(1)", -0.5, {**_RAW, **_SKIP}), Query("a(3)", 0.5, _SKIP))
+SHIFTED = (Query("a(1)", -0.5, _RAW | _SKIP), Query("a(3)", 0.5, _SKIP))
 # Epochs (10, 20): 10, the default, qualifies; cert 32/32. APO's update moves
 # its action outwards (at 4 steps per iteration no rung qualified; at the
 # preset's actor rate 1e-3, twice the worst errors 0.161 and 0.143). At 1e-4
@@ -768,7 +761,7 @@ def signed_rows() -> TransitionDataset:
 def prior_data(updates: int) -> Callable:
     def read(n: R.Nets) -> dict:
         actions = {f"a({x:g})": R.action(n, x) for x in (-1.0, 1.0)}
-        return {**actions, "Q(1, 0.5)": R.critic(n, 1.0, 0.5)}
+        return actions | {"Q(1, 0.5)": R.critic(n, 1.0, 0.5)}
 
     rows = PriorData(signed_rows(), offline_updates=updates)
     return q7_readings("TD3", envs.SignedActionEnv, read, (rows,))
@@ -778,12 +771,12 @@ _NONE = {"no offline update, the networks at initialisation": 0.0}
 CASES["prior-data-offline-TD3"] = Case(
     "prior-data-offline-TD3",
     (
-        Query("a(-1)", -1.0, {**_NONE, "the logged actions' mean": 0.0}),
-        Query("a(1)", 1.0, {**_NONE, "the logged actions' mean": 0.0}),
+        Query("a(-1)", -1.0, _NONE | {"the logged actions' mean": 0.0}),
+        Query("a(1)", 1.0, _NONE | {"the logged actions' mean": 0.0}),
         Query(
             "Q(1, 0.5)",
             0.5,
-            {**_NONE, "bootstrapped past the termination": 0.5 + GAMMA / (1 - GAMMA)},
+            _NONE | {"bootstrapped past the termination": 0.5 + GAMMA / (1 - GAMMA)},
         ),
     ),
     prior_data(250),

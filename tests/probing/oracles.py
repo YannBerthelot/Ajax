@@ -50,7 +50,7 @@ def targets(ro: dict, v: Any, gamma: float, lam: float, rule: Rule) -> np.ndarra
     term, trunc = (trunc, term) if rule.swap else (term, trunc)
     done, end = term | trunc, np.arange(term.shape[1]) == term.shape[1] - 1
     masks = {"terminated": term, "or": done, "precedence": term & ~trunc}
-    masked = ({**masks, "none": np.zeros_like(done)})[rule.mask]
+    masked = (masks | {"none": np.zeros_like(done)})[rule.mask]
     masked = masked | end & (rule.rollout_end == "zero")
     masked = masked | end & ~done & (rule.rollout_end == "terminal")
     after_end = np.where(done, ro["reset"], ro["final"])
@@ -99,7 +99,7 @@ def stack(streams: Sequence) -> dict:
     """Weighted rollouts, (weight, rows), of equal length as arrays."""
     cols = np.array([list(zip(*r, strict=False)) for _, r in streams])  # (B, 6, T)
     ro = {f: cols[:, i].astype(float if i == 1 else int) for i, f in enumerate(FIELDS)}
-    return {**ro, "weight": np.array([w for w, _ in streams], float)}
+    return ro | {"weight": np.array([w for w, _ in streams], float)}
 
 
 def rollouts(episodes: Sequence, n_steps: int) -> dict:
@@ -122,8 +122,8 @@ def simulate(step: Callable[[Any], tuple], state: Any, n_steps: int) -> dict:
         rows.append(row)
     obs, reward, term, final = (np.array(c) for c in zip(*rows, strict=False))
     cols = {"obs": obs[:-1], "reward": reward[:-1], "final": final[:-1]}
-    cols.update({"reset": obs[1:], "terminated": term[:-1]})
-    return {**cols, "truncated": np.zeros_like(term[:-1])}
+    cols |= {"reset": obs[1:], "terminated": term[:-1]}
+    return cols | {"truncated": np.zeros_like(term[:-1])}
 
 
 def blocks(cols: dict, length: int) -> dict:
@@ -131,7 +131,7 @@ def blocks(cols: dict, length: int) -> dict:
     n = cols["obs"].shape[0] // length * length
     split = {k: v[:n].reshape(-1, length, v.shape[1]) for k, v in cols.items()}
     ro = {k: np.moveaxis(v, 2, 1).reshape(-1, length) for k, v in split.items()}
-    return {**ro, "weight": np.ones(len(ro["obs"]))}
+    return ro | {"weight": np.ones(len(ro["obs"]))}
 
 
 _X, _W = np.polynomial.hermite_e.hermegauss(200)  # quadrature for the closed forms

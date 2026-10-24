@@ -307,10 +307,10 @@ def _chain(st: envs.State, a: jax.Array, key: Any) -> tuple:
 
 CHAIN = envs.Spec("udrl_chain", _chain, lambda st: jnp.zeros(1), actions=2, limit=EP)
 P7_UDRL: dict[str, Any] = {"n_envs": 1, "n_steps": SEG, "n_updates_per_iter": SEG}
-P7_UDRL.update({"actor_learning_rate": 1e-4, "actor_architecture": agents.NET})
-P7_UDRL.update({"command_scale_r": 1 / EP, "command_scale_h": 1 / EP})
+P7_UDRL |= {"actor_learning_rate": 1e-4, "actor_architecture": agents.NET}
+P7_UDRL |= {"command_scale_r": 1 / EP, "command_scale_h": 1 / EP}
 FIXED = {"command_target_tau": 0.0, "command_return_init": EP / 2}
-FIXED.update({"command_horizon_init": float(EP)})
+FIXED |= {"command_horizon_init": float(EP)}
 
 
 def udrl_agent(**kw: Any) -> Any:
@@ -418,9 +418,8 @@ CASES["p7-UDRL"] = Case(
 # = 1 are exact hindsight labels and leave no other return reachable.
 
 Q14 = {"command_target_tau": 0.0, "command_return_init": 3.0}
-Q14.update({"command_horizon_init": 8.0, "command_scale_r": 0.04})
-Q14.update({"command_scale_h": 0.01, "actor_learning_rate": 3e-4})
-Q14.update({"buffer_capacity": 64})
+Q14 |= {"command_horizon_init": 8.0, "command_scale_r": 0.04, "command_scale_h": 0.01}
+Q14 |= {"actor_learning_rate": 3e-4, "buffer_capacity": 64}
 SHARE = "share of episodes returning exactly 3"
 
 
@@ -438,7 +437,7 @@ def _q14_read(run: runs.Run) -> dict:
 
 
 Q14_WRONG = {"command ignored (at most)": 56 * (3 / 8) ** 3 * (5 / 8) ** 5}
-Q14_WRONG.update({"acting site unscaled (static estimate)": 0.093})
+Q14_WRONG |= {"acting site unscaled (static estimate)": 0.093}
 CASES["q14-UDRL"] = Case(
     "q14-UDRL",
     (Query(SHARE, 1.0, Q14_WRONG),),
@@ -500,11 +499,11 @@ def task(actions: int = 0, terminate: bool = True) -> tuple:
 # agent: (actions, terminates, budget, log every, the probe's own overrides);
 # UDRL's 14-step segment holds two whole episodes; TD-MPC2 only truncates.
 Q3_AGENTS: dict[str, tuple] = {a: (0, True, 210, 70, {}) for a in P2_AGENTS[:8]}
-Q3_AGENTS.update({"DQN": (2, True, 210, 70, {}), "PQN": (2, True, 210, 70, {})})
-Q3_AGENTS.update({"UDRL": (0, True, 98, None, {"n_steps": 14})})
-Q3_AGENTS.update({"DreamerV3": (0, True, 140, 70, {})})
-Q3_AGENTS.update({"TDMPC2": (0, False, 98, 49, {"seed_steps": 1000})})
-Q3_AGENTS.update({"APG": (0, True, 128, 32, {})})
+Q3_AGENTS |= {"DQN": (2, True, 210, 70, {}), "PQN": (2, True, 210, 70, {})}
+Q3_AGENTS |= {"UDRL": (0, True, 98, None, {"n_steps": 14})}
+Q3_AGENTS |= {"DreamerV3": (0, True, 140, 70, {})}
+Q3_AGENTS |= {"TDMPC2": (0, False, 98, 49, {"seed_steps": 1000})}
+Q3_AGENTS |= {"APG": (0, True, 128, 32, {})}
 
 
 @functools.cache
@@ -515,8 +514,7 @@ def q3_run(agent: str) -> dict[str, np.ndarray]:
     model = agents.make(agent, *task(actions, terminate), preset="bookkeeping", **kw)
     run = runs.train(model, (0, 1), budget, every, num_episode_test=4)
     out = {k: run.values(k) for k in (EVAL, LENGTH, "Train/matching_loss")}
-    out = {k: v[~np.isnan(v)] for k, v in out.items()}
-    out[TRAIN] = run.logged(TRAIN)
+    out = {k: v[~np.isnan(v)] for k, v in out.items()} | {TRAIN: run.logged(TRAIN)}
     s, train = run.state, -out["Train/matching_loss"].reshape(2, -1)
     if agent == "UDRL":
         b = s.buffer
@@ -527,7 +525,7 @@ def q3_run(agent: str) -> dict[str, np.ndarray]:
         if (np.asarray(window.count) != window.buffer.shape[1]).any():
             raise RuntimeError("the rolling window must be full: lengthen the run")
         train = np.asarray(window.buffer).reshape(2, -1)
-    return {**out, "train": train}
+    return out | {"train": train}
 
 
 def test_q3_auto_reset_starts_the_next_episode_from_the_wrapper() -> None:
@@ -606,16 +604,16 @@ class CountingExpert:
 SCALAR = dataclasses.replace(counter(0, True, (0, 0)), obs=envs.index_obs, obs_dim=1)
 SCALAR = dataclasses.replace(SCALAR, obs_box=(0.0, float(L)), box=(-1.0, 1.0, 2))
 Q4_SAC: dict[str, Any] = {"n_envs": 2, "gamma": agents.GAMMA, "learning_starts": 10**9}
-Q4_SAC.update({"actor_architecture": ("16", "relu")})
-Q4_SAC.update({"critic_architecture": ("16", "relu"), "buffer_size": 32_064})
-Q4_SAC.update({"batch_size": 64, "expert_buffer_n_steps": 0, "expert_fraction": 0.7})
-Q4_SAC.update({"augment_obs_with_expert_state": True})
+Q4_SAC |= {"actor_architecture": ("16", "relu"), "critic_architecture": ("16", "relu")}
+Q4_SAC |= {"buffer_size": 32_064, "batch_size": 64, "expert_buffer_n_steps": 0}
+Q4_SAC |= {"expert_fraction": 0.7}
+Q4_SAC |= {"augment_obs_with_expert_state": True}
 Q4_KEYS = ("obs", "action", "is_expert", "reward", "terminated", "truncated")
 CELLS = [(e, d) for e in range(2) for d in range(2)]
 
 
 def _q4_sac() -> Any:
-    kw = {**Q4_SAC, "expert_policy": CountingExpert()}
+    kw = Q4_SAC | {"expert_policy": CountingExpert()}
     return agents.make("SAC", *SCALAR.make(), preset=None, **kw)
 
 
@@ -654,7 +652,7 @@ ONE, SHARE_WRONG = {"one draw shared by the two cells": 1.0}, {"expert never use
 CASES["q4-SAC-independence"] = Case(
     "q4-SAC-independence",
     (
-        Query("expert share", 0.7, {**SHARE_WRONG, "decision inverted": 1 - 0.7}),
+        Query("expert share", 0.7, SHARE_WRONG | {"decision inverted": 1 - 0.7}),
         *(Query(f"corr(dim 0, dim 1) in env {e}", 0.0, ONE) for e in range(2)),
         *(Query(f"corr(env 0, env 1) in dim {d}", 0.0, ONE) for d in range(2)),
     ),
@@ -721,7 +719,7 @@ def q5_run(agent: str, seeds: tuple, budget: int, paid: bool = False, **kw: Any)
 
 
 W = {"ClipAction(-1, 1) only under a normalisation flag": 0.3173}
-W.update({"collector maps to the box, training clip stays +-1": 0.5})
+W |= {"collector maps to the box, training clip stays +-1": 0.5}
 UNIT = Query("share outside [-1, 1], cell A minus cell B", 0.0, W)
 W = {"training clip made bounds-aware, collector unmapped": 0.5}
 BOX = Query("share outside [0, 2], cell A minus cell B", 0.0, W)
@@ -745,9 +743,7 @@ def _q5_flag(agent: str) -> Callable:
         cell = functools.partial(q5_run, agent, seeds, budget)
         executed = [cell(normalize_rewards=f)[1] for f in (False, True)]
         a, b = (_outside(x) for x in executed)
-        differences = {k: a[k] - b[k] for k in a}
-        differences[MAPPED] = (executed[0] > 1).mean(1)
-        return differences
+        return {k: a[k] - b[k] for k in a} | {MAPPED: (executed[0] > 1).mean(1)}
 
     return read
 
@@ -806,16 +802,16 @@ class ZeroActorLoss(Extension):
 WIDE = {"squash": True, "log_std_init": 1.0}  # std 2.72: an arctanh recompute shows
 SPLIT = {"n_envs": 4, "num_minibatches": 2}
 Q8_CELLS: dict[str, dict] = {"PPO-squash": WIDE, "PPO-gaussian": {}}
-Q8_CELLS.update({"PPO-discrete": {"actions": 2}})
+Q8_CELLS |= {"PPO-discrete": {"actions": 2}}
 _MEMORY = {"actions": 2, "n_envs": 2, "num_minibatches": 2, "bptt_length": 8}
 for _kind in ("gru", "lstm", "transformer", "mamba"):
-    Q8_CELLS[f"PPO-{_kind}"] = {**_MEMORY, "memory": MemoryConfig(_kind, 16)}
-Q8_CELLS.update({"PPO-env-split": {**WIDE, **SPLIT}})
-Q8_CELLS.update({"PPO-unroll": {**WIDE, **SPLIT, "unroll_length": 8}})
-Q8_CELLS.update({"PPO-extension": {**WIDE, "extensions": (ZeroActorLoss(),)}})
-Q8_CELLS.update({"APO-discrete": {"actions": 2}, "APO-gaussian": {}})
-Q8_CELLS.update({"APO-normalized": {"normalize_observations": True}})
-Q8_CELLS.update({"PPO-normalized": {**WIDE, "normalize_observations": True}})
+    Q8_CELLS[f"PPO-{_kind}"] = _MEMORY | {"memory": MemoryConfig(_kind, 16)}
+Q8_CELLS |= {"PPO-env-split": WIDE | SPLIT}
+Q8_CELLS |= {"PPO-unroll": WIDE | SPLIT | {"unroll_length": 8}}
+Q8_CELLS |= {"PPO-extension": WIDE | {"extensions": (ZeroActorLoss(),)}}
+Q8_CELLS |= {"APO-discrete": {"actions": 2}, "APO-gaussian": {}}
+Q8_CELLS |= {"APO-normalized": {"normalize_observations": True}}
+Q8_CELLS |= {"PPO-normalized": WIDE | {"normalize_observations": True}}
 
 
 @functools.cache
@@ -824,7 +820,7 @@ def q8_run(cell: str) -> runs.Run:
     kw, agent = dict(Q8_CELLS[cell]), cell.split("-")[0]
     two_d = dataclasses.replace(counter(0, True, (0, 0)), box=(-1.0, 1.0, 2))
     spec = counter(2, True, (0, 0)) if kw.pop("actions", 0) else two_d
-    kw.update({"actor_learning_rate": 0.0, "clip_range": 1e-4})
+    kw |= {"actor_learning_rate": 0.0, "clip_range": 1e-4}
     model = agents.make(agent, *spec.make(), preset="bookkeeping", **kw)
     per = kw.get("n_envs", 1) * 32
     return runs.train(model, STAGE_1, 10 * per, per)

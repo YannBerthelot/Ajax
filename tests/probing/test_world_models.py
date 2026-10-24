@@ -126,7 +126,7 @@ def _q10_queries(i: int) -> tuple[Query, ...]:
     plan = {"evaluation context or env swapped": -1.0}
     plan["task routing lost (arbitrary planner)"] = 0.0
     return (
-        Query(f"odd part, task {i}", s, {**odd, "training labels swapped": -s}, True),
+        Query(f"odd part, task {i}", s, odd | {"training labels swapped": -s}, True),
         Query(f"implied discount, task {i}", DISCOUNTS[i], other),
         Query(f"policy action, task {i}", 1.0, pi, True),
         Query(f"eval reward per step, task {i}", 1.0, plan, True),
@@ -243,10 +243,9 @@ def _q12_read(agent: Any, s: Any, key: jax.Array) -> dict:
     )
     kw = {"env_args": agent.env_args, "config": config, "gamma": agent.gamma}
     ev = evaluate_tdmpc2(s, jax.random.split(key)[1], num_episodes=8, **kw)
-    out["rolled R gap"] = rolled[0] - rolled[1]
-    out["plan gap"] = best[0] - best[1:].max()
+    out |= {"rolled R gap": rolled[0] - rolled[1], "plan gap": best[0] - best[1:].max()}
     out["eval return"] = ev[f"Eval/{RET}"]
-    return {**out, "train return": s.collector_state.episodic_mean_return}
+    return out | {"train return": s.collector_state.episodic_mean_return}
 
 
 @functools.cache
@@ -305,7 +304,7 @@ def test_q12_env_pays_back_only_after_investing() -> None:
     env, p = PAYBACK.make()
     w, never = [-1.0] * 9, ([0.0] * 10, [-1.0] * 10)
     plans = {7: ([1.0, *w], [1e-3, *w], [1.0] * 10), 6: ([-1.0, 0.5, *w[1:]],)}
-    for want, plan in [(k, x) for k, v in ({**plans, 0: never}).items() for x in v]:
+    for want, plan in [(k, x) for k, v in (plans | {0: never}).items() for x in v]:
         st, total = env.reset_env(KEY, p)[1], 0.0
         for a in plan:
             _, st, reward, done, _ = env.step_env(KEY, st, jnp.array([a]), p)

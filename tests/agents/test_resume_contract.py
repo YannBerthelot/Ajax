@@ -1,7 +1,7 @@
 """The resume contract: a run split in two, its second leg on a new agent
 instance from the first leg's state, ends in the state one call reaches,
-every leaf alike (floats to rtol 1e-5: programs compiled apart may round
-apart). Every call is told the run's horizon (``total_timesteps``), so the
+every leaf alike (floats to rtol 1e-5 and the row's atol, ATOL: programs
+compiled apart may round apart). Every call is told the run's horizon (``total_timesteps``), so the
 schedules (DQN's and PQN's epsilon decay among them) run as in one call.
 One row per agent of the contract table with the normalisation it takes,
 one more with memory where it takes one, and APG with memory, its optimizer
@@ -42,6 +42,15 @@ NORMALISATION = {
 MEMORY: dict[str, Any] = {"memory": MemoryConfig(kind="gru", hidden_size=8)}
 # Sequence replay: windows of 2 + 4 + 1 steps, one per env before the first update.
 MEMORY |= {"burn_in": 2, "sequence_length": 4, "learning_starts": 16}
+#: A row's float atol where its rounding passes differing_leaves' 1e-6, set
+#: between that rounding and the gaps its float-only planted faults leave
+#: (as test_p4_split_run.EQUIVALENT sets its cells'). CrossQ's two programs
+#: first part by a few ulps in the critic's update, its moments, batch-norm
+#: statistics, counters and keys still alike; over the run that grew to
+#: 1.43e-6 on a CI runner (9e-7 on macOS ARM). Faults planted at the resume
+#: that change only floats (Adam moments zeroed, the batch-norm statistics
+#: or the temperature reset) move it 9e-2 or more.
+ATOL = {"CrossQ": 1e-4}
 
 
 def _row(name: str, memory: bool) -> tuple[Any, int, dict]:
@@ -90,7 +99,7 @@ def test_a_resumed_run_equals_the_uninterrupted_run(
     restored = restore_into(runs.train(agent, SEEDS, 0, **kw).state, path)
     assert not readouts.differing_leaves(first, restored), "the checkpoint"
     split = runs.train(agent, SEEDS, second, initial_state=restored, **kw).state
-    differing = readouts.differing_leaves(full, split)
+    differing = readouts.differing_leaves(full, split, atol=ATOL.get(name, 1e-6))
     assert not differing, (f"first leg ended at {ended}", differing[:20])
 
 

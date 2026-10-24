@@ -1,0 +1,25 @@
+# Originals whose update runs as written only on old torch (tests/conformance):
+# TQC (bayesgroup/tqc_pytorch, pinned to torch 1.3.0) and CQL (aviralkumar2907/CQL,
+# torch >= 1.1). Their actor's backward runs after the critics' optimizer steps; before
+# torch 1.5, optimizers stepped through ``.data``, which autograd does not track, so that
+# backward reads the stepped critics' weights, and newer torch raises there. torch 1.4.0
+# is the newest with that behaviour and the oldest with a Python 3.8 wheel (the oldest
+# Python uv installs on x86 macOS). x86 only (macOS under Rosetta, or Linux): torch 1.4
+# has no arm64 wheels, so CI cannot run it, and these records are committed instead.
+# Their data come from gymnasium.
+[project]
+name = "conformance-torch14"
+version = "0"
+requires-python = "==3.8.*"
+dependencies = [
+    "torch==1.4.0",
+    "numpy==1.24.4",
+    "gymnasium==0.29.1",
+]
+
+[tool.uv]
+package = false
+environments = [
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]

@@ -5,7 +5,9 @@ A recorder writes, per recorded state, ``in.*`` (the state), the update's own dr
 after one update from it in float32 and in float64 (``f32.*``, ``f64.*``), whose difference is the
 rounding the check tolerates. CI keeps the records while the vendored originals, the recorders and the
 recorders' env locks stay the same (``AJAX_CONFORMANCE_RECORDS``, under a cache key that hashes them);
-unset, every session records them.
+unset, every session records them. The originals CI cannot run (benchmarks/reference/envs/torch14:
+torch 1.4 has no arm64 wheels) are recorded locally and their records committed
+(tests/conformance/records, :func:`committed`).
 """
 
 import os
@@ -22,6 +24,9 @@ KEPT = os.environ.get("AJAX_CONFORMANCE_RECORDS")
 TORCH_ENV = "benchmarks/reference/envs/torch"  # CPU-only PyTorch, gymnax, jax
 CROSSQ_ENV = "benchmarks/reference/envs/crossq"  # the authors' own jax, flax and SB3
 ASAC_ENV = "benchmarks/reference/envs/asac"  # BobMak/asac's pins: stable-baselines3 2.4, gymnasium 1.0
+JAX_OFFLINE_ENV = (
+    "benchmarks/reference/envs/jax_offline"  # ReBRAC's and Cal-QL's jax, flax
+)
 
 
 def recorded(
@@ -45,6 +50,13 @@ def recorded(
         )
         subprocess.run([*command, env_id, str(out)], cwd=REPO, env=cpu, check=True)
     marker.write_text(" ".join(envs))
+    return out
+
+
+def committed(name: str) -> pathlib.Path:
+    """The committed records of ``name`` (its recorder's docstring says how to remake them)."""
+    out = REPO / "tests" / "conformance" / "records" / name
+    assert any(out.glob("*.npz")), f"no committed records in {out}"
     return out
 
 

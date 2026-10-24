@@ -4,12 +4,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.PPO.core import policy_entropy
-from ajax.agents.PPO.utils import (
-    _compute_gae,
+from ajax.agents.minibatch import (
     get_minibatches_from_batch,
     get_minibatches_preserving_time,
 )
+from ajax.agents.PPO.core import policy_entropy
+from ajax.agents.PPO.utils import _compute_gae
 from ajax.networks.distributions import Squash
 
 G, L = 0.99, 0.95

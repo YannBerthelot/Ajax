@@ -30,7 +30,7 @@ from ajax.agents.DQN.train_DQN import (
     q_gradient_step,
 )
 from ajax.agents.loop import TrainLoop, extension_key
-from ajax.agents.PPO.utils import get_minibatches_from_batch
+from ajax.agents.minibatch import get_minibatches_from_batch
 from ajax.agents.PQN.networks import PQNNetwork
 from ajax.agents.PQN.state import PQNConfig, PQNState
 from ajax.agents.PQN.utils import compute_q_lambda_targets

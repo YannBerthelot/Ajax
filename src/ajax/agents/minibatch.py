@@ -1,0 +1,261 @@
+"""How an on-policy update cuts its rollout into minibatches and runs its
+epochs over them: shared by PPO, APO and PQN.
+
+A rollout's :class:`Geometry` decides how it is minibatched, and where its
+agent computes GAE:
+
+* ``flat`` (feedforward default): GAE once on the whole rollout, then a flat
+  shuffle of its ``n_steps * n_envs`` samples (PPO's Algorithm 1, OpenAI
+  Baselines' ppo2);
+* ``time`` (with ``unroll_length``): fragments of ``unroll_length`` steps
+  shuffled into minibatches, GAE recomputed in every minibatch with the
+  current critic (brax's ``compute_ppo_loss``);
+* ``recurrent``: GAE once on the whole rollout, then a shuffle of whole
+  sequences of ``length`` steps, each replayed from the carry it started
+  from.
+"""
+
+import dataclasses
+import math
+from typing import Any, Callable, Optional
+
+import jax
+import jax.numpy as jnp
+from jax.tree_util import Partial as partial
+
+from ajax.state import Transition
+
+
+@dataclasses.dataclass(frozen=True)
+class Geometry:
+    """How an update minibatches its rollout (the module docstring)."""
+
+    kind: str  # "time", "flat" or "recurrent"
+    num_minibatches: int
+    length: int  # steps per fragment ("time") or sequence ("recurrent")
+
+
+def default_bptt_length(n_steps: int, n_envs: int, num_minibatches: int) -> int:
+    """The longest sequences that cut every env's rollout evenly and split
+    exactly into ``num_minibatches``; an explicit ``bptt_length`` splits
+    only if it divides this one.
+
+    Libraries disagree on a recurrent PPO's BPTT length (RLlib 20 steps,
+    Sample Factory the rollout, Pleines et al., 2022, tuned per task), so the
+    minibatches set it. When ``n_envs`` is a multiple of ``num_minibatches``
+    it is the whole rollout, each minibatch a subset of the envs, as in
+    Baselines' ppo2 (ea25b9e, ppo2.py:167-180), CleanRL's ppo_atari_lstm
+    (fe8d8a0, :296-313) and PureJaxRL's ppo_rnn (31756b1, :258-291).
+    Otherwise each rollout is cut into the fewest equal pieces that split:
+    ``num_minibatches // gcd(n_envs, num_minibatches)`` of them, which must
+    divide ``n_steps`` (ValueError if not; no length would split then).
+    docs/guide/memory.md compares the libraries and says how to set it.
+    """
+    pieces = num_minibatches // math.gcd(n_envs, num_minibatches)
+    if n_steps % pieces:
+        raise ValueError(
+            f"Recurrent PPO cannot split {n_envs} envs' rollouts of"
+            f" n_steps={n_steps} into {num_minibatches} minibatches of whole"
+            f" sequences: each rollout would need {pieces} equal pieces. Choose"
+            " n_steps, n_envs and num_minibatches (batch_size when it is 0) so"
+            " that they split (docs/guide/memory.md)."
+        )
+    return n_steps // pieces
+
+
+def minibatch_geometry(
+    agent_config: Any, n_steps: int, n_envs: int, recurrent: bool
+) -> Geometry:
+    """The rollout's :class:`Geometry`.
+
+    ``time`` only when ``unroll_length`` asks for it (``n_steps`` gives
+    whole rollouts per env): with as many minibatches as envs, each
+    minibatch is then one env's trajectory, its advantages normalised
+    within it. It needs fragments that split evenly into more than one
+    minibatch: recomputing GAE on a single minibatch, the whole rollout,
+    with a critic that just stepped only makes the value targets oscillate
+    (the flake of the one-env probing fixture). A recurrent rollout is a
+    pool of sequences of ``bptt_length`` steps (by default
+    :func:`default_bptt_length`) that must split exactly into the
+    minibatches, as Baselines' and CleanRL's recurrent PPO assert: a
+    ``bptt_length`` that does not divide the default raises ValueError.
+    """
+    num_minibatches = resolve_num_minibatches(agent_config)
+    if recurrent:
+        longest = default_bptt_length(n_steps, n_envs, num_minibatches)
+        length = agent_config.bptt_length or longest
+        if longest % length:
+            raise ValueError(
+                f"Recurrent PPO minibatches whole sequences: {n_envs} envs'"
+                f" rollouts of n_steps={n_steps} cut into sequences of"
+                f" bptt_length={length} steps do not split into"
+                f" {num_minibatches} minibatches. bptt_length must divide"
+                f" {longest}, the longest length that does; None picks it"
+                " (docs/guide/memory.md)."
+            )
+        return Geometry("recurrent", num_minibatches, length)
+    unroll = agent_config.unroll_length
+    if (
+        unroll is not None
+        and num_minibatches > 1
+        and n_steps % unroll == 0
+        and n_steps // unroll * n_envs % num_minibatches == 0
+    ):
+        return Geometry("time", num_minibatches, unroll)
+    return Geometry("flat", num_minibatches, n_steps)
+
+
+def resolve_num_minibatches(agent_config: Any) -> int:
+    """``num_minibatches`` when positive (brax); otherwise Ajax's legacy
+    ``max(batch_size, n_steps) // min(batch_size, n_steps)``."""
+    if agent_config.num_minibatches > 0:
+        return agent_config.num_minibatches
+    sizes = (agent_config.batch_size, agent_config.n_steps)
+    return max(sizes) // min(sizes)
+
+
+def split_fragments(
+    batch: Any, perm: jax.Array, num_minibatches: int, length: int
+) -> Any:
+    """Split a ``(T, n_envs, ...)`` rollout into ``num_minibatches``
+    minibatches of whole fragments of ``length`` steps. Fragment ``c *
+    n_envs + e`` (chunk ``c`` of env ``e``) goes in the order of ``perm``;
+    per leaf ``(num_minibatches, length, fragments_per_minibatch, ...)``,
+    so a scan over the minibatches sees time-major fragments."""
+    T, n_envs = jax.tree.leaves(batch)[0].shape[:2]
+    n_chunks = T // length
+
+    def split(x: jax.Array) -> jax.Array:
+        # (T, n_envs, ...) -> (n_chunks * n_envs, length, ...)
+        x = x.reshape(n_chunks, length, n_envs, *x.shape[2:])
+        x = jnp.swapaxes(x, 1, 2).reshape(n_chunks * n_envs, length, *x.shape[3:])
+        x = jnp.take(x, perm, axis=0)
+        x = x.reshape(num_minibatches, -1, length, *x.shape[2:])
+        return jnp.swapaxes(x, 1, 2)
+
+    return jax.tree.map(split, batch)
+
+
+@partial(jax.jit, static_argnames=["num_minibatches", "unroll_length"])
+def get_minibatches_preserving_time(
+    batch: Any,
+    rng: jax.Array,
+    num_minibatches: int,
+    unroll_length: Optional[int] = None,
+) -> Any:
+    """Split a ``(T, n_envs, ...)`` rollout into minibatches that keep the
+    time axis (brax PPO): fragments of ``unroll_length`` steps (the whole
+    rollout by default), shuffled and split evenly
+    (:func:`split_fragments`). GAE in the loss then scans each fragment and
+    bootstraps at its end, brax's per-minibatch ``(T=unroll_length,
+    B=batch_size)``."""
+    T, n_envs = jax.tree.leaves(batch)[0].shape[:2]
+    length = unroll_length or T
+    assert T % length == 0, f"n_steps={T} must be a multiple of {length=}."
+    n_fragments = T // length * n_envs
+    assert n_fragments % num_minibatches == 0, (
+        f"{n_fragments} fragments (n_steps={T} / {length=} * n_envs={n_envs})"
+        f" do not split into {num_minibatches=}."
+    )
+    perm = jax.random.permutation(rng, n_fragments)
+    return split_fragments(batch, perm, num_minibatches, length)
+
+
+def get_minibatches_from_batch(batch: Any, rng: jax.Array, num_minibatches: int):
+    """Split a ``(T, n_envs, ...)`` rollout batch into ``num_minibatches``
+    minibatches of shape ``(num_minibatches, T*n_envs/num_minibatches, ...)``.
+
+    The flatten step joins the leading ``(T, n_envs)`` dims into a single
+    sample axis regardless of how many trailing feature dims a leaf has,
+    so leaves with a feature dim (e.g. observations ``(T, n_envs, obs_dim)``)
+    and leaves without one (e.g. ``terminated``, ``truncated`` of shape
+    ``(T, n_envs)``) are reshuffled with the same permutation and stay
+    aligned across leaves.
+    """
+    T, n_envs = jax.tree.leaves(batch)[0].shape[:2]
+    total = T * n_envs
+    assert total % num_minibatches == 0, (
+        "T * n_envs should be a multiple of num_minibatches, got "
+        f"T={T}, n_envs={n_envs}, total={total}, {num_minibatches=}"
+    )
+
+    # One permutation for every leaf: jax.random.permutation(rng, x, axis=0)
+    # per leaf draws the same one, but shuffles a 1-D leaf by sorting it.
+    perm = jax.random.permutation(rng, total)
+
+    def shuffle(x: jax.Array) -> jax.Array:
+        x = jnp.take(x.reshape((total,) + x.shape[2:]), perm, axis=0)
+        return x.reshape((num_minibatches, -1) + x.shape[1:])
+
+    return jax.tree.map(shuffle, batch)
+
+
+def _split_carries(x: jax.Array, perm: jax.Array, num_minibatches: int) -> jax.Array:
+    """``(S, B, ...)`` start carries to ``(k, S * B // k, ...)``, sequence
+    ``s * B + b`` in the order of ``perm`` (as :func:`split_fragments`)."""
+    x = x.reshape(-1, *x.shape[2:])
+    x = jnp.take(x, perm, axis=0)
+    return x.reshape(num_minibatches, -1, *x.shape[1:])
+
+
+def sequence_minibatches(
+    batch: dict, carries: tuple, rng: jax.Array, num_minibatches: int, length: int
+) -> dict:
+    """A recurrent rollout's minibatches of whole sequences, each with the
+    actor's and the critic's carry at its start (the critic's ensemble axis
+    second)."""
+    n_steps, n_envs = batch["obs"].shape[:2]
+    perm = jax.random.permutation(rng, n_steps // length * n_envs)
+
+    def split(x: jax.Array) -> jax.Array:
+        return _split_carries(x, perm, num_minibatches)
+
+    actor_starts, critic_starts = carries
+    return split_fragments(batch, perm, num_minibatches, length) | {
+        "actor_hidden": jax.tree.map(split, actor_starts),
+        "critic_hidden": jax.tree.map(
+            jax.vmap(split, in_axes=1, out_axes=1), critic_starts
+        ),
+    }
+
+
+def run_epochs(
+    agent_state: Any,
+    key: jax.Array,
+    minibatches: Callable[[jax.Array], Any],
+    step: Callable[[Any, Any], tuple[Any, Any]],
+    n_epochs: int,
+) -> tuple[Any, Any]:
+    """``n_epochs`` passes of ``step(agent_state, minibatch) -> (agent_state,
+    aux)``, each over its own partition ``minibatches(epoch_key)`` of the
+    rollout (minibatch axis leading); the metrics averaged over every epoch
+    and minibatch.
+
+    Each epoch reshuffles, as the PPO references do: OpenAI baselines' ppo2
+    and CleanRL's ``ppo.py`` shuffle the sample indices inside their epoch
+    loop, and APO's official code (``xtma/apo``,
+    ``apo/algos/apg/appo.py``, ``APPO.optimize_agent``) draws
+    ``iterate_mb_idxs(..., shuffle=True)`` once per epoch.
+    """
+
+    def epoch(agent_state: Any, epoch_key: jax.Array) -> tuple[Any, Any]:
+        return jax.lax.scan(step, agent_state, minibatches(epoch_key))
+
+    epoch_keys = jax.random.split(key, n_epochs)
+    agent_state, aux = jax.lax.scan(epoch, agent_state, epoch_keys)
+    return agent_state, jax.tree.map(jnp.mean, aux)
+
+
+def rollout_actions(rollout: Transition) -> tuple[jax.Array, jax.Array]:
+    """The rollout's actions and their log-probabilities, each with a
+    trailing axis: a discrete action gains one, a continuous action's
+    per-dimension log-probabilities are summed."""
+    assert rollout.log_prob is not None  # an on-policy rollout carries it
+    action, log_prob = rollout.action, rollout.log_prob
+    actions = jnp.expand_dims(action, -1) if jnp.ndim(action) < 3 else action
+    log_probs = (
+        jnp.expand_dims(log_prob, -1)
+        if jnp.ndim(log_prob) < 3
+        else log_prob.sum(-1, keepdims=True)
+    )
+    return actions, log_probs

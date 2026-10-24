@@ -5,9 +5,9 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
-from ajax.agents.PPO.core import resolve_num_minibatches
+from ajax.agents.minibatch import minibatch_geometry, resolve_num_minibatches
 from ajax.agents.PPO.state import PPOConfig
-from ajax.agents.PPO.train_PPO import make_train, minibatch_geometry
+from ajax.agents.PPO.train_PPO import make_train
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import CNNSpec

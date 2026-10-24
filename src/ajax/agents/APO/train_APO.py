@@ -20,6 +20,12 @@ from flax.core import FrozenDict
 
 from ajax.agents.APO.state import APOConfig, APOState
 from ajax.agents.loop import TrainLoop, extension_key
+from ajax.agents.minibatch import (
+    get_minibatches_from_batch,
+    resolve_num_minibatches,
+    rollout_actions,
+    run_epochs,
+)
 from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
@@ -30,13 +36,10 @@ from ajax.agents.PPO.core import (
     policy_entropy,
     recompute_log_prob,
     resolve_clip_coef,
-    resolve_num_minibatches,
-    rollout_actions,
-    run_epochs,
 )
 from ajax.agents.PPO.core import ValueAuxiliaries as PPOValueAuxiliaries
 from ajax.agents.PPO.train_PPO import init_PPO, joint_step
-from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
+from ajax.agents.PPO.utils import _compute_gae
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig

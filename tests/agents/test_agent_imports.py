@@ -49,13 +49,16 @@ EQUATIONS = {
         "alpha_temperature_loss_fn",
     },
 }
-_SAC_FAMILY_INIT = "B2 (the replay family's init, each agent's networks)"
+# B2 declared the replay family on IQL, CrossQ and TD3 only: SAC's descendants
+# join it, and leave its state and init, when B4 declares them.
+_SAC_FAMILY_INIT = "B4 (the replay family's init, each agent's networks)"
 _SAC_STEPS = "B4 (steps.actor_step or gradient_step over SAC's equations)"
 _SAC_METRICS = "B4 (the agent's own metrics)"
 #: (importer, agent, name) -> the batch that ends the import. An importer is
 #: an agent, or a shared module's path under src/ajax.
 BORROWED = {
-    ("APO", "PPO", "init_PPO"): "B2 (the on-policy family's init)",
+    # B2 left the on-policy agents as they were: the family comes with PPO's.
+    ("APO", "PPO", "init_PPO"): "B3 (the on-policy family's init)",
     ("APO", "PPO", "AuxiliaryLogs"): "B3 (APO's own metrics)",
     ("APO", "PPO", "PolicyAuxiliaries"): "B3 (APO's own metrics)",
     ("APO", "PPO", "ValueAuxiliaries"): "B3 (APO's own metrics)",
@@ -63,7 +66,7 @@ BORROWED = {
     ("PQN", "DQN", "AuxiliaryLogs"): "B3 (PQN's own metrics)",
     ("PQN", "DQN", "PolicyAuxiliaries"): "B3 (PQN's own metrics)",
     **{
-        (agent, "SAC", "SoftACState"): "B2 (the replay family's state)"
+        (agent, "SAC", "SoftACState"): "B4 (the replay family's state)"
         for agent in ("ASAC", "AVG", "REDQ", "TQC")
     },
     **{

@@ -37,12 +37,13 @@ src/ajax/
 
 **Agent anatomy.** A declared agent (IQL, CrossQ, TD3) is one file,
 `src/ajax/agents/<AGENT>/<AGENT>.py`: its hyperparameters as dataclass
-fields, its `init` and `update`, its equations, its state and its
-`<AGENT>Config` view, on a family of `agents/families.py` that builds the
-rest (the constructor, the run config, the replay, the train function); its
-old modules are shims. The other agents' folders hold `<AGENT>.py`, the
-public class (the paper's hyperparameters and `extensions=`; it names its
-`make_train` and fills `train_kwargs`, which `get_make_train()` binds);
+fields, its `init` and `update`, its equations, its state and metrics (and,
+until 0.5.0, the `<AGENT>Config` view it had before), on a family of
+`agents/families.py` that builds the rest (the constructor, the run config,
+the replay, the train function); its old modules are shims. The other
+agents' folders hold `<AGENT>.py`, the public class (the paper's
+hyperparameters and `extensions=`; it names its `make_train` and fills
+`train_kwargs`, which `get_make_train()` binds);
 `train_<AGENT>.py`, the algorithm and a `make_train` that hands its
 initialisation and update to `TrainLoop`; and `state.py`, `<AGENT>State` and
 `<AGENT>Config`. SAC, PPO and TDMPC2 also have a `core.py`: the maths their
@@ -159,13 +160,14 @@ other.
 ## Adding an agent
 
 **Boilerplate goes in the shared code; the algorithm goes in one file**, so a
-reader can follow `train_<AGENT>.py` like the paper's pseudocode. **Lineage
-rule:** an agent imports from another agent only when it is a variant of that
-agent's algorithm (REDQ of SAC, APO of PPO), and then only the parent's
-equations. Anything else two agents share (an init, a network, a loss
-helper, an exploration schedule) goes to a shared module: `agents/steps.py`,
-`agents/minibatch.py`, `agents/critics.py`, `agents/diagnostics.py`,
-`networks/`. A shared module imports no agent.
+reader can follow the agent's file (`<AGENT>/<AGENT>.py` for a declared
+agent) like the paper's pseudocode. **Lineage rule:** an agent imports from
+another agent only when it is a variant of that agent's algorithm (REDQ of
+SAC, APO of PPO), and then only the parent's equations. Anything else two
+agents share (an init, a network, a loss helper, an exploration schedule)
+goes to a shared module: `agents/steps.py`, `agents/minibatch.py`,
+`agents/critics.py`, `agents/diagnostics.py`, `networks/`. A shared module
+imports no agent.
 `tests/agents/test_agent_imports.py` holds the lineages and each parent's
 equations, and fails on any other cross-agent import. Use `critic_step` (a
 replay critic step), `actor_step` (an actor step) and `gradient_step` (an
@@ -182,7 +184,7 @@ dataclass, declared once with the paper's defaults: the family generates the
 constructor (keyword-only after `env_id`), logs the run config, builds the
 optimisers, the replay and the train function (`ReplayAgent.make_train`, on
 `loop.off_policy`). The file reads top-down: the class, its equations in the
-order `update` calls them, then its state, metrics and `FOOConfig` view.
+order `update` calls them, then its state and metrics.
 
 ```python
 @dataclass(kw_only=True, eq=False, repr=False)  # literal: the API docs read it
@@ -227,7 +229,7 @@ class FOO(GradientClipping, ExpertGuided, ReplayAgent):
             n_updates=state.n_updates + 1,
         )
         metrics = merge_metrics(critic_metrics, actor_metrics)
-        return state, AuxiliaryLogs(critic=critic_aux, actor=actor_aux, extensions=metrics)
+        return state, AuxiliaryLogs(value=critic_aux, policy=actor_aux, extensions=metrics)
 
     # The contract, unannotated (an annotation would make it a field).
     name = "FOO"
@@ -243,10 +245,12 @@ def foo_policy_loss(state, params): ...                      # -> (loss, aux, pi
 @struct.dataclass(kw_only=True)
 class FOOState(BaseAgentState):
     """FOO carries only actor + critic + collector."""
-
-
-FOOConfig = FOO.declare_config("gamma tau learning_starts reward_scale")
 ```
+
+A new agent declares no `<AGENT>Config`: its fields are its configuration,
+and `agent.agent_config` is a plain `BaseAgentConfig`. Only the agents that
+had a Config before their fields were declared (IQL, CrossQ, TD3) keep one, a
+view of the fields (`declare_config`), until 0.5.0.
 
 `init` splits the run's key on the agent's own layout, which its pins hold.
 `steps.critic_step` folds `on_target` and `critic_loss`; its keywords are what
@@ -256,12 +260,30 @@ the extensions' keys from the step's
 ([Randomness](docs/developer/writing-an-extension.md#randomness)), so the
 agent's own random stream is the same with or without extensions.
 
-The hooks an agent may add: `check()` refuses arguments before anything is
-built; `networks()` returns the `ActorCritic` arguments the paper fixes
-(initialisations, heads); `build()` builds what the fields derive (IQL's
-value optimiser); `behaviour(ctx)` replaces collection's action pipeline. A
-field named like an `ActorCritic` argument reaches it. The shared knobs an
-algorithm takes beyond those every agent takes are mixins
+An agent writes `init(key, ctx)` and `update(state, ctx)`, and may add these
+hooks; each is a no-op on the family, which does its own part outside them, so
+none calls `super()`:
+
+- `check()` refuses arguments before anything is built;
+- `actor_critic_args()` returns `ActorCritic` arguments the paper fixes or
+  derives from the fields (initialisations, heads; CrossQ's learning rates
+  and widths);
+- `optimizer_settings()` returns the `OptimizerConfig` settings of the
+  reference's optimiser (its Adam's `eps`, its betas): the family sets none,
+  so an agent states its reference's;
+- `build()` builds what the fields derive (IQL's value optimiser), after the
+  family has built the replay;
+- `behaviour(ctx)` replaces collection's action pipeline.
+
+The family reads some fields by name. `ReplayAgent` requires `buffer_size`,
+`batch_size` and `learning_starts`; an agent claiming the `discounted`
+capability declares `gamma` and `reward_scale`, which the evaluation's value
+estimate reads (construction refuses it otherwise); `expert_policy` (the
+`ExpertGuided` mixin) is the agent's expert; and every field named like an
+`ActorCritic.__init__` argument (`actor_learning_rate`,
+`critic_architecture`, ...) reaches it, so a misspelt one is a field that
+reaches nothing. The shared knobs an algorithm takes beyond those every agent
+takes are mixins
 (`GradientClipping`, `ObservationNormalization`, `RewardNormalization`,
 `ExpertGuided`), and `RecurrentReplayAgent` adds `memory=` with R2D2's
 sequence replay. Once built, an agent's fields and `agent_config` are fixed:

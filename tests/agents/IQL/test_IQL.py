@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 
 from ajax import IQL
-from ajax.agents.IQL.train_IQL import expectile_loss, update_agent
+from ajax.agents.families import TrainContext
+from ajax.agents.IQL.IQL import expectile_loss
 
 
 def test_the_expectile_loss_weighs_each_side_of_zero() -> None:
@@ -38,13 +39,23 @@ def test_the_actor_weighs_each_row_by_its_clipped_advantage() -> None:
     agent = IQL("Pendulum-v1", batch_size=8, actor_architecture=("8", "relu"))
     state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=16)[0])
     value = state.value_state.replace(params=_constant(state.value_state.params, 0.0))
+    ctx = TrainContext(  # what the update reads: the replay, the extensions
+        env_args=agent.env_args,
+        network_args=agent.network_args,
+        actor_optimizer_args=agent.actor_optimizer_args,
+        critic_optimizer_args=agent.critic_optimizer_args,
+        stack=agent.extension_stack,
+        total_timesteps=16,
+        collector=agent.collector,
+        buffer=agent.buffer,
+    )
 
     def actor_loss(q: float) -> float:
         critic = state.critic_state
         critic = critic.replace(target_params=_constant(critic.target_params, q))
-        at = state.replace(critic_state=critic, value_state=value)
-        config, stack = agent.agent_config, agent.extension_stack
-        _, aux = update_agent(at, agent.buffer, config, stack, 16)
+        _, aux = agent.update(
+            state.replace(critic_state=critic, value_state=value), ctx
+        )
         return float(aux.value.actor_loss)
 
     np.testing.assert_allclose(actor_loss(10.0) / actor_loss(0.0), 100.0, rtol=1e-3)
@@ -60,10 +71,9 @@ def test_the_defaults_are_the_reference_codes() -> None:
     assert (net.log_std_init, net.log_std_bounds) == (0.0, (-5.0, 2.0))
     assert net.encoder_kernel_init == net.mean_kernel_init == "orthogonal(np.sqrt(2))"
     assert agent.actor_optimizer_args.eps == agent.critic_optimizer_args.eps == 1e-8
-    value = agent.train_kwargs["value_optimizer_args"]
+    value = agent.value_optimizer_args
     assert (value.eps, value.learning_rate) == (1e-8, 3e-4)
-    config = agent.agent_config
-    assert (config.expectile, config.temperature, config.tau) == (0.7, 3.0, 0.005)
+    assert (agent.expectile, agent.temperature, agent.tau) == (0.7, 3.0, 0.005)
 
 
 def test_it_refuses_discrete_actions_and_an_expectile_outside_the_open_unit() -> None:

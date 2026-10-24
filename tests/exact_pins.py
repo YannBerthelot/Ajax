@@ -24,13 +24,16 @@ import numpy as np
 from optax.tree_utils import tree_norm
 
 from ajax import APO, ASAC, AVG, DQN, IQL, PPO, PQN, REDQ, SAC, TD3, TQC, CrossQ, DAgger
+from ajax.agents.critics import make_huber_td_loss
 from ajax.agents.TD3.TD3 import make_default_action_pipeline
+from ajax.extensions.adversarial import AdversarialReward
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import ExpertGains, ImitationLoss, ResidualPolicy
 from ajax.extensions.observe import ExpertActionInput, TrainingProgressInput
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import MemoryConfig
+from ajax.schedule import linear
 from tests.agents.test_offline import episodes
 from tests.modules import setpoint_env
 
@@ -66,6 +69,15 @@ class Keyed(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx):
         return {"keyed": ext_state}
+
+
+@dataclass(frozen=True)
+class RewardKeyed(Keyed):
+    """Keyed, and a rollout's rewards noised on ``ctx.rng`` (the reward fold)."""
+
+    def reward(self, agent_state, ext_state, batch, rewards, ctx):
+        noise = 0.01 * jax.random.normal(ctx.rng, rewards.shape)
+        return rewards + noise, ext_state, {}
 
 
 @dataclass(frozen=True)
@@ -132,6 +144,11 @@ OBSERVE: dict[str, Any] = {"expert_policy": push}
 OBSERVE |= {"extensions": (ExpertActionInput(), TrainingProgressInput())}
 REWARD_NORM = {"normalize_rewards": True, "reward_normalization_gamma": 0.99}
 OFFLINE_KW = {**S, **R, "learning_starts": 0, "batch_size": 8}
+KEYED = {"extensions": (Keyed(),)}
+TIME_RESET = {**ON, "n_envs": 4, "n_steps": 16, "num_minibatches": 2}
+TIME_RESET |= {"unroll_length": 16, "num_resets_per_eval": 1, "num_evals": 3, **NORM}
+PPO_GRU = {"memory": MemoryConfig(kind="gru", hidden_size=8)}
+GAIL_DATA = episodes(3, discrete=False)  # Pendulum's observations
 #: Trained offline for their steps (updates on a dataset's rows), then
 #: online for ONLINE steps from that state (train_offline, then train).
 OFFLINE = {"IQL-offline", "TD3-offline"}
@@ -248,19 +265,46 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "APO-norm": (APO, {**ON, **NORM}, 128),
     # The time geometry with brax's forced resets, and recurrent PPO.
-    "PPO-time-reset": (
-        PPO,
-        {**ON, "n_envs": 4, "n_steps": 16, "num_minibatches": 2, "unroll_length": 16}
-        | {"num_resets_per_eval": 1, "num_evals": 3, **NORM},
-        256,
-    ),
+    "PPO-time-reset": (PPO, TIME_RESET, 256),
     "PPO-gru": (
         PPO,
-        {**ON, "n_steps": 16, "num_minibatches": 2, "bptt_length": 4}
-        | {"memory": MemoryConfig(kind="gru", hidden_size=8)},
+        {**ON, "n_steps": 16, "num_minibatches": 2, "bptt_length": 4, **PPO_GRU},
         128,
     ),
     "TQC": (TQC, {**S, **R, "num_critics": 3, "n_quantiles": 5}, 160),
+    # The on-policy paths the on-policy family's restructure moves: each
+    # extension phase PPO folds (the reward, on_target in each minibatch),
+    # an expert read on its raw observations, the action transforms, the
+    # schedules, the exposed rollout and whole-rollout recurrent sequences.
+    "PPO-discrete-keyed": (PPO, {**ON, "env_id": "CartPole-v1", **KEYED}, 128),
+    "PPO-bc": (
+        PPO,
+        {**ON, **NORM, "extensions": (ImitationLoss(push, coef=1.0),)},
+        128,
+    ),
+    "PPO-gail": (PPO, {**ON, "extensions": (AdversarialReward(GAIL_DATA),)}, 128),
+    "PPO-reward": (PPO, {**ON, "extensions": (RewardKeyed(),)}, 128),
+    "PPO-residual": (PPO, {**ON, **RESIDUAL}, 128),
+    "PPO-observe": (PPO, {**ON, **OBSERVE}, 128),
+    "PPO-gain": (PPO, {**ON, **GAIN}, 128),
+    "PPO-time-keyed": (PPO, {**TIME_RESET, **KEYED}, 256),
+    "PPO-reward-norm": (PPO, {**ON, **REWARD_NORM}, 128),
+    "PPO-squash-schedule": (
+        PPO,
+        {**ON, "squash": True, "clip_range": linear(0.3, 0.1, 128)},
+        128,
+    ),
+    "PPO-expose": (PPO, {**ON, "expose_recent_rollout": True}, 128),
+    "PPO-gru-whole": (PPO, {**ON, "n_steps": 16, "num_minibatches": 2, **PPO_GRU}, 128),
+    "APO-keyed": (APO, {**ON, **KEYED}, 128),
+    "APO-bc": (APO, {**ON, **NORM, **BC}, 128),
+    "APO-discrete": (APO, {**ON, "env_id": "CartPole-v1"}, 128),
+    "PQN-huber": (PQN, {**PQN_KW, "td_loss_fn": make_huber_td_loss(1.0)}, 512),
+    "PQN-norm-expose": (
+        PQN,
+        {**PQN_KW, **REWARD_NORM, "expose_recent_rollout": True},
+        512,
+    ),
 }
 
 

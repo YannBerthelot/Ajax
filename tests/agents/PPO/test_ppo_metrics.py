@@ -13,8 +13,8 @@ import numpy as np
 import optax
 import pytest
 
+import ajax.agents.APO.APO as apo_module
 from ajax.agents import minibatch
-from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
 from ajax.agents.PPO.PPO import (
@@ -26,7 +26,7 @@ from ajax.agents.PPO.PPO import (
 )
 from ajax.environments.interaction import get_pi
 from ajax.environments.utils import get_state_action_shapes
-from ajax.extensions.base import Extension, ExtensionStack
+from ajax.extensions.base import Extension
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import Squash, recompute_log_prob
 from ajax.networks.networks import predict_value
@@ -155,27 +155,17 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
     assert max(float(v_norm), float(p_norm)) > 0.5  # the clip binds
 
 
-def _apo_state(agent):
-    return train_APO.init_APO(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
-
-
 def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
-    """APO steps both networks at once (train_APO.update_networks); each
+    """APO steps both networks at once (APO.minibatch_step); each
     network's logged gradient norm is that of its own loss term, taken
     before the joint clip, as PPO logs them."""
     agent = APO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
-    config = agent.agent_config
-    state = _apo_state(agent).replace(average_reward=jnp.asarray(0.3))
+    _, ctx = agent.context(1)
+    state = agent.init(KEY, ctx).replace(average_reward=jnp.asarray(0.3))
     obs, actions, log_probs, gae, targets = _batch(agent)
-    stack, b = ExtensionStack(()), jnp.asarray(0.7)
+    b = jnp.asarray(0.7)
     minibatch = {
         "obs": obs,
         "actions": actions,
@@ -187,13 +177,13 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
         "a_expert": None,
         "entropy_key": KEY,
     }
-    _, aux = train_APO.update_networks(state, minibatch, config, b, stack, 1)
-    v_aux, p_aux = cast(train_APO.ValueAuxiliaries, aux.value), aux.policy
+    _, aux = agent.minibatch_step(state, minibatch, b, ctx)
+    v_aux, p_aux = cast(apo_module.ValueAuxiliaries, aux.value), aux.policy
 
     critic = state.critic_state
     v_grads = jax.grad(
-        lambda p: train_APO.value_loss_function(
-            p, critic, obs, targets, config.nu, b, config.vf_coef
+        lambda p: apo_module.value_loss_function(
+            p, critic, obs, targets, agent.nu, b, agent.vf_coef
         )[0]
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
@@ -206,10 +196,10 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
     )
 
     actor = state.actor_state
-    clip = at(config.clip_range, state.collector_state.timestep)
+    clip = at(agent.clip_range, state.collector_state.timestep)
     p_grads = jax.grad(
-        lambda p: train_APO.policy_loss_function(
-            p, actor, obs, actions, log_probs, gae, clip, config.ent_coef, None, KEY
+        lambda p: apo_module.policy_loss_function(
+            p, actor, obs, actions, log_probs, gae, clip, agent.ent_coef, None, KEY
         )[0]
     )(actor.params)
     np.testing.assert_allclose(p_aux.grad_norm, optax.global_norm(p_grads), rtol=1e-6)

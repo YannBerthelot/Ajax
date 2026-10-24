@@ -445,9 +445,9 @@ class DeclaredAgent(ActorCritic):
         """``agent_config``'s class, ``<name>Config``: the ``names`` it holds,
         typed and defaulted as the fields (a property, as CrossQ's target
         entropy, is a required entry). Only the agents that had a Config
-        before their fields were declared (IQL, CrossQ, TD3, PPO) keep this view,
-        until 0.5.0; the update reads the fields. Built at run time, it is
-        Any to a type checker."""
+        before their fields were declared (IQL, CrossQ, TD3, PPO, APO) keep
+        this view, until 0.5.0; the update reads the fields. Built at run
+        time, it is Any to a type checker."""
         declared = {f.name: f for f in dataclasses.fields(cls)}  # type: ignore[arg-type]
         spec: dict[str, Any] = {"__annotations__": {}, "__module__": cls.__module__}
         for name in names.split():
@@ -648,7 +648,8 @@ class OnPolicyAgent(DeclaredAgent):
     which every member declares with its paper's values, and brax's
     ``num_resets_per_eval`` and ``num_evals`` where an agent declares them.
     An agent writes :meth:`init` and :meth:`update`, and may replace
-    collection's action pipeline (:meth:`behaviour`).
+    collection's action pipeline (:meth:`behaviour`) and add to each
+    evaluation (:meth:`evaluation_options`).
 
     Args:
         n_steps: The steps each env collects per iteration.
@@ -680,6 +681,12 @@ class OnPolicyAgent(DeclaredAgent):
         """The action pipeline collection runs; None: the policy's sample."""
         del ctx
         return None
+
+    def evaluation_options(self) -> dict[str, Any]:
+        """Each evaluation's options beyond the expert and the critic's
+        estimate (:func:`ajax.log.evaluate_and_log`'s: APO's
+        ``avg_reward_mode``)."""
+        return {}
 
     def collector(
         self, key: jax.Array, loop: TrainLoop, network_args: NetworkConfig, **options
@@ -740,5 +747,6 @@ class OnPolicyAgent(DeclaredAgent):
             eval_kwargs={
                 "expert_policy": self.expert,
                 "value_estimate": self.value_estimate(),
-            },
+            }
+            | self.evaluation_options(),
         )

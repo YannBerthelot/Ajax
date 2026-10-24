@@ -9,7 +9,7 @@ loss (APO's minibatch step) records the observations of every minibatch.
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -17,11 +17,8 @@ import numpy as np
 import pytest
 
 import ajax.agents.PPO.PPO as ppo_module
-from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
-from ajax.agents.APO.state import APOConfig
 from ajax.agents.PPO.PPO import PPO
-from ajax.extensions.base import ExtensionStack
 from ajax.networks.memory import MemoryConfig
 from ajax.state import Transition
 
@@ -104,26 +101,15 @@ def test_ppo_reshuffles_every_epoch(
 def test_apo_reshuffles_every_epoch(monkeypatch: pytest.MonkeyPatch) -> None:
     agent = APO(**SMALL)
     seen: list[np.ndarray] = []
-    update_networks = train_APO.update_networks
+    minibatch_step = agent.minibatch_step
 
-    def spy(agent_state: Any, minibatch: dict, *args: Any) -> Any:
+    def spy(agent_state: Any, minibatch: dict, *args: Any, **kw: Any) -> Any:
         _record(seen, minibatch["obs"])
-        return update_networks(agent_state, minibatch, *args)
+        return minibatch_step(agent_state, minibatch, *args, **kw)
 
-    monkeypatch.setattr(train_APO, "update_networks", spy)
-    state = train_APO.init_APO(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
-    train_APO.update_agent(
-        state,
-        _rollout(SMALL["n_envs"]),
-        cast(APOConfig, agent.agent_config),
-        ExtensionStack(()),
-        total_timesteps=1_000,
-    )
+    monkeypatch.setattr(agent, "minibatch_step", spy)
+    _, ctx = agent.context(1_000)
+    state = agent.init(jax.random.PRNGKey(0), ctx)
+    agent.update(state, _rollout(SMALL["n_envs"]), state, ctx)
     jax.effects_barrier()
     _assert_fresh_partitions(seen, SMALL["n_envs"], SMALL["num_minibatches"])

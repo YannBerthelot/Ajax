@@ -65,7 +65,7 @@ src/ajax/
 └── _compile_cache.py    the persistent JAX compile cache
 ```
 
-A declared agent (IQL, CrossQ, TD3, PPO) is one file, `<AGENT>/<AGENT>.py`: its
+A declared agent (IQL, CrossQ, TD3, PPO, APO) is one file, `<AGENT>/<AGENT>.py`: its
 hyperparameters as dataclass fields, its `init`, `update` and equations, its
 state and metrics, on a family of `agents/families.py` that builds its
 constructor, run config, replay and train function
@@ -177,7 +177,7 @@ rollout more than the budget holds (see [the loop shapes](#three-iteration-shape
 
 Every agent but the declared ones builds its run config the same way, as
 the first line of its constructor: `self.config = run_config(locals(),
-self.name)`. A declared agent (IQL, CrossQ, TD3, PPO) builds it from its fields,
+self.name)`. A declared agent (IQL, CrossQ, TD3, PPO, APO) builds it from its fields,
 first thing in `DeclaredAgent.__post_init__`: each field as passed, and
 `algo_name`.
 [`run_config`](../../src/ajax/agents/base.py) keeps the constructor's

@@ -48,7 +48,7 @@
    "env_args",
    "expert_policy"
   ],
-  "make_train": "ajax.agents.APO.train_APO:make_train",
+  "make_train": "ajax.agents.families:OnPolicyAgent.make_train",
   "name": "APO",
   "per_seed_update_counts": false,
   "phase_batch_keys": {

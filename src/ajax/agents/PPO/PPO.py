@@ -244,11 +244,10 @@ class PPO(
             "actions": actions,
             "log_probs": log_probs,
             "raw_actions": rollout.raw_action,
-        }
-        if stack:
             # The environment's own observations, which only an expert reads
             # (ImitationLoss, in actor_loss); jit drops them where none does.
-            batch["raw_obs"] = rollout.raw_obs
+            "raw_obs": rollout.raw_obs,
+        }
         # What GAE reads of each step beside its observation, on the rollout
         # or in each minibatch.
         outcomes = {
@@ -356,7 +355,7 @@ class PPO(
         target_key, critic_key, actor_key = jax.random.split(extension_key(ent_rng), 3)
         critic_extra = _stack_critic_loss(stack, state, critic_key, total_timesteps)
         actor_extra = _stack_actor_loss(
-            stack, state, actor_key, total_timesteps, mb.get("raw_obs")
+            stack, state, actor_key, total_timesteps, mb["raw_obs"]
         )
 
         if plan.gae_per_minibatch:

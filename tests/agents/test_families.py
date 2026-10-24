@@ -123,6 +123,33 @@ def test_agent_config_is_a_view_of_the_fields_declared_once() -> None:
     assert type(view) is ToyConfig
 
 
+def test_the_fields_are_fixed_once_built_and_replace_builds_another() -> None:
+    """What trains is what the run config logs (owner, 2026-10-24)."""
+    agent = Toy("Pendulum-v1", lam=0.25)
+    with pytest.raises(AttributeError, match=r"lam is fixed.*dataclasses.replace"):
+        agent.lam = 1.0
+    with pytest.raises(AttributeError, match="agent_config is fixed"):
+        agent.agent_config = agent.agent_config.replace(lam=1.0)
+    agent.network_args = agent.network_args  # not a field: writable
+    other = dataclasses.replace(agent, lam=1.0)
+    assert (other.lam, other.config["lam"], other.agent_config.scaled) == (
+        1.0,
+        1.0,
+        2.0,
+    )
+    assert agent.lam == 0.25
+    with pytest.raises(ValueError, match="trains on its fields"):
+        agent.make_train(
+            agent.env_args,
+            agent.actor_optimizer_args,
+            agent.critic_optimizer_args,
+            agent.network_args,
+            agent.agent_config.replace(lam=1.0),
+            total_timesteps=8,
+            num_episode_test=1,
+        )
+
+
 def test_checks_required_fields_and_action_spaces_refuse_at_construction() -> None:
     with pytest.raises(ValueError, match="lam"):
         Toy("Pendulum-v1", lam=-1.0)

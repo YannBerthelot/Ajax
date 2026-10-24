@@ -14,13 +14,13 @@ the training loop's shape and the evaluation's value estimate::
         def init(self, key, context): ...
         def update(self, state, context): ...
 
-An agent learning from a replay of transitions is a :class:`ReplayAgent`,
+An agent learning from a replay of transitions is a ReplayAgent,
 one learning from each rollout of its current policy an
-:class:`OnPolicyAgent`. The shared knobs an algorithm may take beyond the
+OnPolicyAgent. The shared knobs an algorithm may take beyond the
 ones every agent takes (gradient clipping, normalisation, an expert, image
 observations) are field mixins. The family reads some fields by name
-(:class:`DeclaredAgent`, :class:`ReplayAgent`, :class:`OnPolicyAgent`).
-Every agent, family and mixin carries the literal ``@dataclass`` decorator,
+(DeclaredAgent, ReplayAgent, OnPolicyAgent).
+Every agent, family and mixin carries the literal @dataclass decorator,
 which the API docs read the constructor from; the contract an agent declares
 for the extensions and the loop (name, capabilities, ...) stays
 unannotated, so it is no field.
@@ -111,12 +111,12 @@ class TrainContext:
     critic_optimizer_args: OptimizerConfig
     extensions: ExtensionStack
     total_timesteps: int
-    #: ``collector(key, **options)``: the collector state, its replay storing
+    #: collector(key, **options): the collector state, its replay storing
     #: what the run needs (options: init_collector_state's, an agent's).
     collector: Callable[..., Any]
     buffer: Optional[BufferType] = None
     recurrent: bool = False
-    #: ``(actions, a_expert) -> actions`` the critics score under a residual
+    #: (actions, a_expert) -> actions the critics score under a residual
     #: policy (controller.executed_fn); None otherwise.
     executed: Optional[Callable] = None
 
@@ -127,7 +127,7 @@ class TrainContext:
         critic_optimizer_args: Optional[OptimizerConfig] = None,
         **options: Any,
     ) -> tuple[Any, Any]:
-        """``build``'s actor and critic train states on this run's configs
+        """build's actor and critic train states on this run's configs
         (another critic optimiser's with critic_optimizer_args)."""
         critic_args = critic_optimizer_args or self.critic_optimizer_args
         return build(
@@ -203,7 +203,7 @@ class ImageObservations:
     encoder (NetworkConfig).
 
     Args:
-        cnn_image_shape: The image's ``(height, width, channels)``, flattened
+        cnn_image_shape: The image's (height, width, channels), flattened
             first in each observation; None reads the observations with the
             MLP encoder.
         cnn_extra_obs_dim: The features after the image, read beside the
@@ -223,13 +223,13 @@ class DeclaredAgent(ActorCritic):
     its own.
 
     The family reads some fields by name. Every field named like an
-    :class:`ActorCritic` argument (:data:`ACTOR_CRITIC_ARGS`:
+    ActorCritic argument (ACTOR_CRITIC_ARGS:
     actor_learning_rate, critic_architecture, ...) reaches it;
     expert_policy is the agent's expert; an agent claiming the
     discounted capability declares gamma, or construction raises
     TypeError, and reward_scale if it scales its rewards
-    (:data:`DISCOUNT_FIELDS`). Its family may read more
-    (:class:`ReplayAgent`, :class:`OnPolicyAgent`).
+    (DISCOUNT_FIELDS). Its family may read more
+    (ReplayAgent, OnPolicyAgent).
 
     Args:
         env_id: The environment's id, or an environment.
@@ -253,7 +253,7 @@ class DeclaredAgent(ActorCritic):
 
     #: The action spaces the algorithm acts in: "continuous", "discrete", "any".
     action_space: ClassVar[str] = "continuous"
-    #: agent_config's class and the names it holds (:meth:`declare_config`).
+    #: agent_config's class and the names it holds (declare_config).
     config_class: ClassVar[type] = BaseAgentConfig
     agent_config_fields: ClassVar[tuple[str, ...]] = ()
 
@@ -289,7 +289,7 @@ class DeclaredAgent(ActorCritic):
         arguments.update(derived)
         ActorCritic.__init__(self, **arguments)
         # ActorCritic writes the expert in agent units over the field: the
-        # wrapper moves to ``expert``, and the field keeps the caller's, which
+        # wrapper moves to expert, and the field keeps the caller's, which
         # dataclasses.replace passes to the next agent (on its own env).
         self._expert = getattr(self, "expert_policy", None)
         if expert is not None:
@@ -334,7 +334,7 @@ class DeclaredAgent(ActorCritic):
 
     def _build_family(self) -> None:
         """What the family builds from the fields, before the agent's
-        :meth:`setup` (:class:`ReplayAgent`: the replay)."""
+        setup (ReplayAgent: the replay)."""
 
     # -- What an agent may add (each a no-op here; none needs super()) -------
     def check(self) -> None:
@@ -410,7 +410,7 @@ class DeclaredAgent(ActorCritic):
         own configs and extensions unless others are given: the extensions
         bound to the keys of its extension_context. Its family's
         make_train builds the run on them; a test calls
-        ``agent.context(n)`` to call init or update alone."""
+        agent.context(n) to call init or update alone."""
         configs: dict[str, Any] = {
             "env_args": env_args,
             "actor_optimizer_args": actor_optimizer_args,
@@ -464,13 +464,13 @@ class DeclaredAgent(ActorCritic):
     def collector(
         self, key: jax.Array, loop: TrainLoop, network_args: NetworkConfig, **options
     ) -> Any:
-        """The collector state (:func:`init_collector_state`), holding a
-        stateful expert's state, with ``options`` an agent's own."""
+        """The collector state (init_collector_state), holding a
+        stateful expert's state, with options an agent's own."""
         raise NotImplementedError
 
     @classmethod
     def declare_config(cls, names: str) -> Any:
-        """agent_config's class, ``<name>Config``: the names it holds,
+        """agent_config's class, the agent's name then Config: the names it holds,
         typed and defaulted as the fields (a property, as CrossQ's target
         entropy, is a required entry). Only the agents that had a Config
         before their fields were declared (IQL, CrossQ, TD3, PPO, APO, PQN) keep
@@ -494,15 +494,15 @@ class DeclaredAgent(ActorCritic):
 @dataclass(kw_only=True, eq=False, repr=False)
 class ReplayAgent(DeclaredAgent):
     """An off-policy agent on a replay of transitions
-    (:meth:`TrainLoop.off_policy`): one step per env per iteration and, from
-    learning_starts, one :meth:`update`; offline (train_offline) one
+    (TrainLoop.off_policy): one step per env per iteration and, from
+    learning_starts, one update; offline (train_offline) one
     update per iteration on a replay of the dataset.
 
-    Beyond :class:`DeclaredAgent`'s names, the family reads
+    Beyond DeclaredAgent's names, the family reads
     buffer_size, batch_size and learning_starts, which every
-    member declares with its paper's values. An agent writes :meth:`init`
-    and :meth:`update`, and may replace collection's action pipeline
-    (:meth:`behaviour`).
+    member declares with its paper's values. An agent writes init
+    and update, and may replace collection's action pipeline
+    (behaviour).
 
     Args:
         buffer_size: The replay's capacity, in transitions.
@@ -530,7 +530,7 @@ class ReplayAgent(DeclaredAgent):
         raise NotImplementedError
 
     def update(self, state: Any, context: TrainContext) -> tuple[Any, Any]:
-        """One update: ``(state, logged metrics)``."""
+        """One update: (state, logged metrics)."""
         raise NotImplementedError
 
     def behaviour(self, context: TrainContext) -> Optional[Callable]:
@@ -593,8 +593,8 @@ class ReplayAgent(DeclaredAgent):
         offline_data: Any = None,
         extensions: Sequence[Extension] = (),
     ) -> Callable:
-        """The train function :meth:`ActorCritic.train` builds: the loop
-        over :meth:`init` and :meth:`update`."""
+        """The train function ActorCritic.train builds: the loop
+        over init and update."""
         self.check_agent_config(agent_config)
         loop, context = self.context(
             total_timesteps,
@@ -631,8 +631,8 @@ class ReplayAgent(DeclaredAgent):
 @dataclass(kw_only=True, eq=False, repr=False)
 class RecurrentReplayAgent(ReplayAgent):
     """A replay agent that may have memory: it then trains on replayed
-    windows of ``burn_in + sequence_length + 1`` steps with R2D2's burn-in
-    (:mod:`ajax.agents.recurrent`), and its learning_starts must give
+    windows of burn_in + sequence_length + 1 steps with R2D2's burn-in
+    (ajax.agents.recurrent), and its learning_starts must give
     each env more steps than a window.
 
     Args:
@@ -668,19 +668,19 @@ class RecurrentReplayAgent(ReplayAgent):
 
 @dataclass(kw_only=True, eq=False, repr=False)
 class OnPolicyAgent(DeclaredAgent):
-    """An on-policy agent (:meth:`TrainLoop.on_policy`): each iteration
+    """An on-policy agent (TrainLoop.on_policy): each iteration
     collects n_steps per env with the current policy, then one
-    :meth:`update` on that rollout, n_epochs passes over its
-    minibatches (:mod:`ajax.agents.minibatch`). The rollout keeps each
+    update on that rollout, n_epochs passes over its
+    minibatches (ajax.agents.minibatch). The rollout keeps each
     observation normalised with the statistics of its step
     (EnvironmentConfig.store_normalized_obs), as SB3's VecNormalize does.
 
     The family reads n_steps, n_epochs and num_minibatches,
     which every member declares with its paper's values, and brax's
     num_resets_per_eval and num_evals where an agent declares them.
-    An agent writes :meth:`init` and :meth:`update`, and may replace
-    collection's action pipeline (:meth:`behaviour`) and add to each
-    evaluation (:meth:`evaluation_options`).
+    An agent writes init and update, and may replace
+    collection's action pipeline (behaviour) and add to each
+    evaluation (evaluation_options).
 
     Args:
         n_steps: The steps each env collects per iteration.
@@ -703,9 +703,9 @@ class OnPolicyAgent(DeclaredAgent):
     def update(
         self, state: Any, rollout: Transition, start: Any, context: TrainContext
     ) -> tuple[Any, Any]:
-        """One update on the ``(n_steps, n_envs)`` rollout collected from
-        ``start`` (a recurrent agent replays it from start's memories):
-        ``(state, logged metrics)``."""
+        """One update on the (n_steps, n_envs) rollout collected from
+        start (a recurrent agent replays it from start's memories):
+        (state, logged metrics)."""
         raise NotImplementedError
 
     def behaviour(self, context: TrainContext) -> Optional[Callable]:
@@ -715,7 +715,7 @@ class OnPolicyAgent(DeclaredAgent):
 
     def evaluation_options(self) -> dict[str, Any]:
         """Each evaluation's options beyond the expert and the critic's
-        estimate (:func:`ajax.log.evaluate_and_log`'s: APO's
+        estimate (ajax.log.evaluate_and_log's: APO's
         avg_reward_mode)."""
         return {}
 
@@ -746,8 +746,8 @@ class OnPolicyAgent(DeclaredAgent):
         end_timestep: Optional[int] = None,
         extensions: Sequence[Extension] = (),
     ) -> Callable:
-        """The train function :meth:`ActorCritic.train` builds: the loop
-        over :meth:`init` and :meth:`update`. It takes no dataset: an
+        """The train function ActorCritic.train builds: the loop
+        over init and update. It takes no dataset: an
         on-policy agent learns from its own rollouts (train_offline
         refuses it)."""
         self.check_agent_config(agent_config)

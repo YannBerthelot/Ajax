@@ -2,8 +2,8 @@
 average-reward criterion, as its reference code, xtma/apo @bfcd997 (on the
 authors' rlpyt fork, xtma/rlpyt @e28bb20), runs it.
 
-One update on the ``(n_steps, n_envs)`` rollout the on-policy family
-collects (:class:`~ajax.agents.families.OnPolicyAgent`); each line is a
+One update on the (n_steps, n_envs) rollout the on-policy family
+collects (OnPolicyAgent); each line is a
 function below, or PPO's::
 
     rho <- (1 - alpha) rho + alpha mean r_t                        APO.update
@@ -214,14 +214,14 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         """One APO update (the module docstring); with an expert, the
         rollout's a_expert reaches the actor-loss extensions.
 
-        The GAE is PPO's with ``gamma = 1`` on ``r - rho``, as in APO's
-        official code (``xtma/apo``, ``apo/algos/utils.py``,
-        generalized_advantage_estimation with ``discount = 1``, and
-        ``apo/algos/apg/base.py``, process_returns): ``V(s')`` is dropped
+        The GAE is PPO's with gamma = 1 on r - rho, as in APO's
+        official code (xtma/apo, apo/algos/utils.py,
+        generalized_advantage_estimation with discount = 1, and
+        apo/algos/apg/base.py, process_returns): V(s') is dropped
         at every episode end, a time limit included (the reference's
-        ``done``, gym's, includes them), and the lambda-carry is cut there; a
+        done, gym's, includes them), and the lambda-carry is cut there; a
         time-limited row then leaves the loss (bootstrap_timelimit,
-        ``base.py:73-77``).
+        base.py:73-77).
         """
         del start  # a feedforward policy: nothing to replay from it
         extensions, total_timesteps = context.extensions, context.total_timesteps
@@ -322,11 +322,11 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         self, state: APOState, minibatch: dict, b: jax.Array, context: TrainContext
     ) -> tuple[APOState, AuxiliaryLogs]:
         """One step of both networks on the minibatch, as APO's
-        official code takes it (``xtma/apo``, ``apo/algos/apg/``): one Adam
-        over the whole model (``base.py:28``) down the clipped surrogate plus
+        official code takes it (xtma/apo, apo/algos/apg/): one Adam
+        over the whole model (base.py:28) down the clipped surrogate plus
         vf_coef times the value loss minus ent_coef times the entropy
-        (``appo.py:145-158``), its gradient clipped to global norm
-        max_grad_norm over every parameter (``appo.py:106-112``): the two
+        (appo.py:145-158), its gradient clipped to global norm
+        max_grad_norm over every parameter (appo.py:106-112): the two
         networks' Adams on that one gradient (actor_learning_rate).
 
         The extensions' critic and actor terms join the sum, on two keys
@@ -439,7 +439,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
 # -- APO's equations, in the order the update calls them ---------------------
 def valid_mean(x: jax.Array, valid: Optional[jax.Array]) -> jax.Array:
     """The mean over the rows trained on, rlpyt's valid_mean
-    (``rlpyt/utils/tensor.py``); every row when ``valid`` is None. A
+    (rlpyt/utils/tensor.py); every row when valid is None. A
     minibatch with no row to train on gives 0, not rlpyt's 0 / 0."""
     if valid is None:
         return jnp.mean(x)
@@ -497,13 +497,13 @@ def value_loss_function(
     vf_coef: float = 1.0,
     valid: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """The differential value loss ``vf_coef 0.5 (V(s) - (target - nu b))^2``.
+    """The differential value loss vf_coef 0.5 (V(s) - (target - nu b))^2.
 
-    APO's official code (``xtma/apo``, ``apo/algos/apg/``) subtracts
-    ``nu b`` from the critic's target, so with ``b`` the mean value each fit
+    APO's official code (xtma/apo, apo/algos/apg/) subtracts
+    nu b from the critic's target, so with b the mean value each fit
     pulls the values back towards zero mean (Ma et al., 2021, the value
-    bias penalty); adding it would push them away and let ``|b|`` grow.
-    vf_coef is its value_loss_coeff (``appo.py:152-153``), the mean
+    bias penalty); adding it would push them away and let |b| grow.
+    vf_coef is its value_loss_coeff (appo.py:152-153), the mean
     over the valid rows.
     """
     # The single critic still has the ensemble's leading axis.
@@ -518,8 +518,8 @@ def value_loss_function(
     )
 
 
-#: What torch's ``clip_grad_norm_`` adds to the norm before dividing by it
-#: (torch 1.5.1, rlpyt's pin, ``torch/nn/utils/clip_grad.py:33-37``).
+#: What torch's clip_grad_norm_ adds to the norm before dividing by it
+#: (torch 1.5.1, rlpyt's pin, torch/nn/utils/clip_grad.py:33-37).
 TORCH_CLIP_EPS = 1e-6
 
 

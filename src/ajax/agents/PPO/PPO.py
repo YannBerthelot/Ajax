@@ -4,7 +4,7 @@ runs it.
 
 One iteration of the paper's Algorithm 1. The on-policy family runs the
 policy for n_steps in each of n_envs envs
-(:class:`~ajax.agents.families.OnPolicyAgent`); each line after that is a
+(OnPolicyAgent); each line after that is a
 function below::
 
     A_t = GAE(gamma, lambda) of V; V_targ = A_t + V(s_t)         _compute_gae
@@ -20,7 +20,7 @@ How the rollout is cut into minibatches (choose_rollout_split): ppo2 shuffles
 single steps and computes GAE once, on the rollout; with unroll_length
 (brax's PPO) the minibatches are shuffled fragments of that many steps, each
 in time order, and GAE is computed again in each minibatch from the current
-critic; a recurrent policy (``memory``) trains on sequences of
+critic; a recurrent policy (memory) trains on sequences of
 bptt_length steps in time order, each replayed from the memory it
 started with, GAE once. Each network takes the gradient of its own loss,
 which is that of ppo2's summed loss (their parameters are apart).
@@ -90,8 +90,8 @@ class PPO(
 ):
     """Proximal Policy Optimization, for discrete and continuous actions.
 
-    Defaults are ppo2's (``ppo2/ppo2.py:22``, ``model.py:75``, ``:91``,
-    ``:100-107``): Adam at 3e-4 with eps 1e-5, its gradient clipped to 0.5
+    Defaults are ppo2's (ppo2/ppo2.py:22, model.py:75, :91,
+    :100-107): Adam at 3e-4 with eps 1e-5, its gradient clipped to 0.5
     over both networks at once, vf_coef 0.5 on half the squared value
     error, clip 0.2, gamma 0.99, lambda 0.95, the advantages normalised per
     minibatch; the Gaussian's log-std one learned parameter per action
@@ -211,8 +211,8 @@ class PPO(
         start: PPOState,
         context: TrainContext,
     ) -> tuple[PPOState, AuxiliaryLogs]:
-        """One PPO update on the ``(n_steps, n_envs)`` rollout collected
-        from ``start``: n_epochs passes over its minibatches."""
+        """One PPO update on the (n_steps, n_envs) rollout collected
+        from start: n_epochs passes over its minibatches."""
         n_steps, n_envs = rollout.obs.shape[:2]
         # Cut the rollout into minibatches, in one of three ways the hyperparameters choose:
         # - shuffled single steps (ppo2): advantages computed once, on the whole rollout;
@@ -264,7 +264,9 @@ class PPO(
         carries = None  # a recurrent split's sequences' start memories
 
         if split.advantages_per_minibatch:
-            # GAE in each minibatch, with the critic of that step.
+            # brax's PPO computes GAE inside its loss, on each minibatch, with the
+            # critic as it is at that step (brax/training/agents/ppo/losses.py,
+            # compute_ppo_loss), so each minibatch carries what GAE reads.
             batch.update(outcomes)
         else:
             # GAE once, on the rollout, with the critic that collected it.
@@ -312,12 +314,15 @@ class PPO(
         next_values: jax.Array,
         key: jax.Array,
         context: TrainContext,
-        hold: bool = False,
     ) -> tuple[jax.Array, jax.Array, dict]:
-        """GAE and the value targets ``A + V`` on ``steps`` (the rollout's or
-        a minibatch's obs, next_obs, rewards, terminated and truncated),
-        held constant with ``hold`` (brax's); the extensions' on_target
-        reshapes the targets on ``key``. Returns them and its metrics."""
+        """GAE and the value targets A + V on steps (the rollout's, or a
+        minibatch's: obs, next_obs, rewards, terminated and truncated); the
+        extensions' on_target reshapes the targets, drawing on key. Returns
+        the advantages, the targets and the extensions' metrics.
+
+        They enter the losses as inputs, computed before the losses are
+        differentiated, so no gradient flows back through them (brax computes
+        GAE inside its loss and stops the gradient there instead)."""
         gae, value_targets = _compute_gae(
             values=values,
             next_values=next_values,
@@ -327,9 +332,6 @@ class PPO(
             gamma=self.gamma,
             gae_lambda=self.gae_lambda,
         )
-        if hold:
-            gae = jax.lax.stop_gradient(gae)
-            value_targets = jax.lax.stop_gradient(value_targets)
         if not context.extensions:
             return gae, value_targets, {}
         target_batch = {
@@ -356,7 +358,9 @@ class PPO(
         split: RolloutSplit,
         context: TrainContext,
     ) -> tuple[PPOState, AuxiliaryLogs]:
-        """A critic and an actor step, both from the state before either."""
+        """One gradient step on the critic and one on the actor. Both
+        gradients are taken at the parameters this minibatch starts from, then
+        clipped together and applied, as ppo2's single optimiser does."""
         state, ent_rng = state.draw_keys()
         target_metrics: dict = {}
         critic, actor = state.critic_state, state.actor_state
@@ -371,22 +375,17 @@ class PPO(
         )
 
         if split.advantages_per_minibatch:
-            # brax's compute_ppo_loss: GAE from the current critic, held
-            # constant (no gradient reaches the critic through it).
-            values = jax.lax.stop_gradient(
-                predict_value(
-                    critic_state=critic, critic_params=critic.params, x=minibatch["obs"]
-                ).squeeze(0)
-            )
-            next_values = jax.lax.stop_gradient(
-                predict_value(
-                    critic_state=critic,
-                    critic_params=critic.params,
-                    x=minibatch["next_obs"],
-                ).squeeze(0)
-            )
+            # brax's PPO: GAE again, on this minibatch, with the current critic.
+            values = predict_value(
+                critic_state=critic, critic_params=critic.params, x=minibatch["obs"]
+            ).squeeze(0)
+            next_values = predict_value(
+                critic_state=critic,
+                critic_params=critic.params,
+                x=minibatch["next_obs"],
+            ).squeeze(0)
             gae, value_targets, target_metrics = self.advantages(
-                state, minibatch, values, next_values, target_key, context, hold=True
+                state, minibatch, values, next_values, target_key, context
             )
         else:
             gae, value_targets = minibatch["gae"], minibatch["targets"]
@@ -480,9 +479,9 @@ def _compute_gae(
     gae_lambda: float,
 ) -> tuple[jax.Array, jax.Array]:
     """GAE (Schulman et al., 2016) over a time-major rollout, in reverse:
-    ``delta_t = r_t + gamma V(s_{t+1}) (1 - terminated_t) - V(s_t)`` and
-    ``A_t = delta_t + gamma lambda (1 - done_t) A_{t+1}``: a truncation cuts
-    the trace but still bootstraps. Returns ``(A, A + V)``."""
+    delta_t = r_t + gamma V(s_{t+1}) (1 - terminated_t) - V(s_t) and
+    A_t = delta_t + gamma lambda (1 - done_t) A_{t+1}: a truncation cuts
+    the trace but still bootstraps. Returns (A, A + V)."""
 
     def _get_advantages(
         gae: jax.Array,
@@ -520,10 +519,10 @@ def value_loss_function(
     resets: Optional[jax.Array] = None,
     initial_hidden: Optional[Any] = None,
 ) -> Tuple[jax.Array, Tuple[ValueAuxiliaries, dict]]:
-    """``vf_coef * 0.5 * MSE(V(obs), targets)`` plus extra_loss_fn's
-    term, with the metrics and extra_loss_fn's (``{}`` without one). A
+    """vf_coef * 0.5 * MSE(V(obs), targets) plus extra_loss_fn's
+    term, with the metrics and extra_loss_fn's ({} without one). A
     recurrent critic replays the sequence from initial_hidden,
-    ``resets`` flagging the observations that start an episode."""
+    resets flagging the observations that start an episode."""
     if recurrent:
         assert resets is not None and initial_hidden is not None
         v_preds, _ = predict_value_sequence(
@@ -579,7 +578,7 @@ def policy_loss_function(
     plus extra_loss_fn's term; with advantage_normalization the
     advantages are normalised per minibatch. A recurrent actor replays the
     sequence from initial_hidden (the live carry on actor_state has
-    advanced past this rollout), ``resets`` flagging episode starts."""
+    advanced past this rollout), resets flagging episode starts."""
     if recurrent:
         assert resets is not None
         pi, _ = get_pi_sequence(
@@ -624,7 +623,7 @@ def policy_loss_function(
 def clipped_surrogate(
     ratio: jax.Array, advantages: jax.Array, clip_coef: float
 ) -> tuple[jax.Array, jax.Array]:
-    """The per-sample clipped surrogate loss ``-min(r A, clip(r) A)`` and
+    """The per-sample clipped surrogate loss -min(r A, clip(r) A) and
     the fraction of samples whose ratio is clipped."""
     loss = -jnp.minimum(
         ratio * advantages,
@@ -640,9 +639,9 @@ def _extensions_critic_loss(
     key: jax.Array,
     total_timesteps: int,
 ) -> Optional[Callable]:
-    """The extensions' additive critic-loss term on ``key`` as a
-    value_loss_function extra_loss_fn: ``(critic_params,
-    critic_states, observations, value_targets) -> (term, metrics)``;
+    """The extensions' additive critic-loss term on key as a
+    value_loss_function extra_loss_fn: (critic_params,
+    critic_states, observations, value_targets) -> (term, metrics);
     None without extensions. The extensions read their state from
     agent_state.
     """
@@ -674,9 +673,9 @@ def _extensions_actor_loss(
     total_timesteps: int,
     raw_observations: Optional[jax.Array] = None,
 ) -> Optional[Callable]:
-    """The extensions' additive actor-loss term on ``key`` as a
-    policy_loss_function extra_loss_fn: ``(actor_params,
-    actor_state, observations, pi_mean) -> (term, metrics)``, the minibatch's
+    """The extensions' additive actor-loss term on key as a
+    policy_loss_function extra_loss_fn: (actor_params,
+    actor_state, observations, pi_mean) -> (term, metrics), the minibatch's
     raw_observations beside them; None without extensions."""
     if not extensions:
         return None

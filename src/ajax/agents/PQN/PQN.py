@@ -1,10 +1,10 @@
 """Parallelised Q-Network (Gallici et al., 2024, "Simplifying Deep Temporal
 Difference Learning"), as its reference code, purejaxql (mttga/purejaxql
-@47af6d7), runs it; its Q-network is :class:`PQNNetwork`.
+@47af6d7), runs it; its Q-network is PQNNetwork.
 
 One iteration. The on-policy family runs the epsilon-greedy policy for
 n_steps in each of n_envs envs
-(:class:`~ajax.agents.families.OnPolicyAgent`, :meth:`PQN.behaviour`); each
+(OnPolicyAgent, PQN.behaviour); each
 line after that is a function below::
 
     V_t = max_a Q(s_{t+1}, a), on the network that collected      PQN.update
@@ -15,7 +15,7 @@ line after that is a function below::
                                                 (critics.q_gradient_step)
 
 PQN is DQN's sibling: it shares the value agents' Q-network wrapper
-(:mod:`ajax.networks.q_networks`), their TD step (:mod:`ajax.agents.critics`)
+(ajax.networks.q_networks), their TD step (ajax.agents.critics)
 and epsilon-greedy collection, not DQN's code.
 """
 
@@ -188,7 +188,7 @@ class PQN(
         start: PQNState,
         context: TrainContext,
     ) -> Tuple[PQNState, AuxiliaryLogs]:
-        """One PQN update on an ``(n_steps, n_envs)`` rollout: Q(lambda)
+        """One PQN update on an (n_steps, n_envs) rollout: Q(lambda)
         targets bootstrapped on the current network (no target network), then
         n_epochs epochs of TD steps, the rollout reshuffled each epoch;
         also logs the epsilon its rollout read (epsilon_schedule once per
@@ -310,20 +310,20 @@ def compute_q_lambda_targets(
     """Backward Q(lambda) returns over a rollout, as purejaxql's PQN
     computes them (pqn_gymnax.py:216-254 at 47af6d7).
 
-    With the bootstrap ``V_t := max_a Q(s_{t+1}, a)``, for each step t:
+    With the bootstrap V_t := max_a Q(s_{t+1}, a), for each step t:
 
         G_t = r_t                                         at an end
         G_t = r_t + gamma ((1 - lambda) V_t + lambda G_{t+1})   else
 
-    and the last step's ``G = r + gamma V``. An end is a termination or a
+    and the last step's G = r + gamma V. An end is a termination or a
     time limit: gymnax's done flag, which purejaxql reads, does not tell
     them apart. purejaxql seeds its backward pass with the last step's
-    bootstrap, ``V(s_T)``, as the next value of step ``T - 2``, whose own is
-    ``V(s_{T-1})``; that target, and through lambda the ones before it in
+    bootstrap, V(s_T), as the next value of step T - 2, whose own is
+    V(s_{T-1}); that target, and through lambda the ones before it in
     its episode, are not Q(lambda)'s (purejaxql issue #12). Ajax does the
     same.
 
-    All inputs are shaped ``(n_steps, n_envs, 1)``; returns the same.
+    All inputs are shaped (n_steps, n_envs, 1); returns the same.
     """
     done = jnp.logical_or(terminateds.astype(bool), truncateds.astype(bool))
     done = done.astype(rewards.dtype)
@@ -371,7 +371,7 @@ class PolicyAuxiliaries:
 @struct.dataclass
 class AuxiliaryLogs:
     # Nested one level deep so ajax.log.flatten_dict names the metrics
-    # ``value/<field>``, as the other agents' auxiliaries are named.
+    # value/ then the field's name, as the other agents' auxiliaries are named.
     value: ValueAuxiliaries
     policy: PolicyAuxiliaries
     extensions: dict  # the extensions' training metrics

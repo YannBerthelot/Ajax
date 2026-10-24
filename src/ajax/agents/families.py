@@ -70,8 +70,8 @@ from ajax.types import BufferType, EnvType
 
 #: The arguments of ActorCritic's initialiser: a field so named reaches it.
 ACTOR_CRITIC_ARGS = frozenset(
-    inspect.signature(ActorCritic.__init__).parameters.keys() - {"self"}
-)
+    inspect.signature(ActorCritic.__init__).parameters
+).difference({"self"})
 #: The fields the value estimate of an agent claiming the "discounted"
 #: capability reads: its ``gamma``, which it declares, and its
 #: ``reward_scale``, 1 (the rewards unscaled) where it declares none (PPO).
@@ -261,7 +261,8 @@ class DeclaredAgent(ActorCritic):
         # The run config the loggers record: the call, before any check.
         self.config = {
             f.name: getattr(self, f.name) for f in dataclasses.fields(self) if f.init
-        } | {"algo_name": self.name}
+        }
+        self.config.update({"algo_name": self.name})
         names = self.field_names()
         if "discounted" in self.capabilities and "gamma" not in names:
             raise TypeError(
@@ -269,12 +270,14 @@ class DeclaredAgent(ActorCritic):
                 " gamma, the discount its value estimate reads."
             )
         self.check()
-        shared = {name: getattr(self, name) for name in ACTOR_CRITIC_ARGS & names}
+        shared = {
+            name: getattr(self, name) for name in ACTOR_CRITIC_ARGS.intersection(names)
+        }
         derived = self.actor_critic_args()
         # A derived argument may resolve a field the caller left None (PPO's
         # reference initialisation), never replace a value the caller gave.
         given = sorted(
-            n for n in derived.keys() & shared.keys() if shared[n] is not None
+            n for n in set(derived).intersection(shared) if shared[n] is not None
         )
         if given:
             raise TypeError(
@@ -282,7 +285,9 @@ class DeclaredAgent(ActorCritic):
                 f" it would replace {', '.join(given)}."
             )
         expert = getattr(self, "expert_policy", None)
-        ActorCritic.__init__(self, **(shared | derived))
+        arguments = dict(shared)
+        arguments.update(derived)
+        ActorCritic.__init__(self, **arguments)
         # ActorCritic writes the expert in agent units over the field: the
         # wrapper moves to ``expert``, and the field keeps the caller's, which
         # dataclasses.replace passes to the next agent (on its own env).
@@ -417,8 +422,9 @@ class DeclaredAgent(ActorCritic):
         if extensions is None:
             extensions = tuple(self.extension_stack.extensions)
         buffer = getattr(self, "buffer", None)  # a replay agent's
-        given = configs | {"expert_policy": self.expert, "buffer": buffer}
-        unknown = sorted(self.extension_context - given.keys())
+        given = dict(configs)
+        given.update({"expert_policy": self.expert, "buffer": buffer})
+        unknown = sorted(self.extension_context.difference(given.keys()))
         if unknown:
             raise ValueError(
                 f"{self.name}'s extension_context names {', '.join(unknown)},"
@@ -478,7 +484,8 @@ class DeclaredAgent(ActorCritic):
             if f is not None and f.default is not dataclasses.MISSING:
                 spec[name] = f.default
         title = f"{cls.name}Config"
-        view = type(title, (BaseAgentConfig,), spec | {"__qualname__": title})
+        spec.update({"__qualname__": title})
+        view = type(title, (BaseAgentConfig,), spec)
         cls.config_class = struct.dataclass(view, kw_only=True)
         cls.agent_config_fields = tuple(names.split())
         return cls.config_class
@@ -509,13 +516,13 @@ class ReplayAgent(DeclaredAgent):
     learning_starts: int
 
     replays_transitions = True
-    supported_extension_phases = LOOP_PHASES | frozenset(
-        "on_target critic_loss actor_loss transform_action actuate".split()
+    supported_extension_phases = LOOP_PHASES.union(
+        {"on_target", "critic_loss", "actor_loss", "transform_action", "actuate"}
     )
     phase_batch_keys = REPLAY_BATCH_KEYS
-    pretrain_context = frozenset("buffer env_args update".split())
+    pretrain_context = frozenset({"buffer", "env_args", "update"})
     extension_context = frozenset(
-        "actor_optimizer_args buffer env_args expert_policy".split()
+        {"actor_optimizer_args", "buffer", "env_args", "expert_policy"}
     )
 
     def init(self, key: jax.Array, context: TrainContext) -> Any:
@@ -755,6 +762,11 @@ class OnPolicyAgent(DeclaredAgent):
             start_timestep=start_timestep,
             end_timestep=end_timestep,
         )
+        eval_kwargs = {
+            "expert_policy": self.expert,
+            "value_estimate": self.value_estimate(),
+        }
+        eval_kwargs.update(self.evaluation_options())
         return loop.on_policy(
             partial(self.init, context=context),
             partial(self.update, context=context),
@@ -766,9 +778,5 @@ class OnPolicyAgent(DeclaredAgent):
                 getattr(self, "num_evals", 1),
             ),
             collect_kwargs={"action_pipeline": self.behaviour(context)},
-            eval_kwargs={
-                "expert_policy": self.expert,
-                "value_estimate": self.value_estimate(),
-            }
-            | self.evaluation_options(),
+            eval_kwargs=eval_kwargs,
         )

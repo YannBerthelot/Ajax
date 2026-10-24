@@ -97,7 +97,9 @@ class TD3(
         if self.memory is not None:
             return {"squash": True}
         init = ("encoder_kernel_init", "mean_kernel_init", "value_kernel_init")
-        return {"squash": True} | dict.fromkeys(init, TORCH_LINEAR)
+        args: dict[str, Any] = {"squash": True}
+        args.update(dict.fromkeys(init, TORCH_LINEAR))
+        return args
 
     def optimizer_settings(self) -> dict[str, Any]:
         return {"eps": 1e-8}  # torch.optim.Adam's default eps (sfujim/TD3)
@@ -253,12 +255,22 @@ class TD3(
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "TD3"
     capabilities = frozenset(
-        "actor critic_ensemble discounted obs_networks off_policy q_critic"
-        " replay target_critic reward_learning".split()
+        {
+            "actor",
+            "critic_ensemble",
+            "discounted",
+            "obs_networks",
+            "off_policy",
+            "q_critic",
+            "replay",
+            "target_critic",
+            "reward_learning",
+        }
     )
     # Its smoothed next actions join the shared step's on_target keys.
-    phase_batch_keys = steps.REPLAY_BATCH_KEYS | {
-        "on_target": steps.TARGET_KEYS | {"next_actions"}
+    phase_batch_keys = {  # noqa: RUF012
+        **steps.REPLAY_BATCH_KEYS,
+        "on_target": steps.TARGET_KEYS.union({"next_actions"}),
     }
     stores_expert_actions = True
     supported_buffer_fields = frozenset({"next_action", "raw_next_obs", "return_to_go"})

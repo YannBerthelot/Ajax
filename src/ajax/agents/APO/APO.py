@@ -310,7 +310,8 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             own key stream is drawn as before."""
             parts = get_minibatches_from_batch(batch, key, num_minibatches)
             keys = jax.random.split(jax.random.fold_in(key, 1), num_minibatches)
-            return parts | {"entropy_key": keys}
+            parts.update({"entropy_key": keys})
+            return parts
 
         step = partial(self.minibatch_step, b=b, context=context)
         state, aux = run_epochs(state, shuffle_key, minibatches, step, self.n_epochs)
@@ -418,20 +419,20 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
     name = "APO"
     action_space = "any"
     capabilities = frozenset(
-        "actor obs_networks policy_density v_critic reward_learning".split()
+        {"actor", "obs_networks", "policy_density", "v_critic", "reward_learning"}
     )
-    supported_extension_phases = LOOP_PHASES | frozenset(
-        "on_target critic_loss actor_loss transform_action actuate".split()
+    supported_extension_phases = LOOP_PHASES.union(
+        {"on_target", "critic_loss", "actor_loss", "transform_action", "actuate"}
     )
     # Unannotated, as the whole contract, so the dataclass makes it no field.
     phase_batch_keys = {  # noqa: RUF012
-        "on_target": frozenset("terminated truncated gae values".split()),
-        "critic_loss": frozenset("critic_params critic_state".split()),
+        "on_target": frozenset({"terminated", "truncated", "gae", "values"}),
+        "critic_loss": frozenset({"critic_params", "critic_state"}),
         "actor_loss": frozenset(
-            "actor_state observations raw_observations pi_mean a_expert".split()
+            {"actor_state", "observations", "raw_observations", "pi_mean", "a_expert"}
         ),
     }
-    extension_context = frozenset("actor_optimizer_args env_args expert_policy".split())
+    extension_context = frozenset({"actor_optimizer_args", "env_args", "expert_policy"})
     stores_expert_actions = True
 
 

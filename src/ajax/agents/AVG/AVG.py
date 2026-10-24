@@ -25,29 +25,40 @@ class AVG(ActorCritic):
 
     name: str = "AVG"
     capabilities: frozenset = frozenset(
-        "actor critic_ensemble discounted obs_networks off_policy"
-        " policy_density q_critic reward_learning".split()
+        {
+            "actor",
+            "critic_ensemble",
+            "discounted",
+            "obs_networks",
+            "off_policy",
+            "policy_density",
+            "q_critic",
+            "reward_learning",
+        }
     )
-    supported_extension_phases: frozenset = LOOP_PHASES | {
-        "on_target",
-        "critic_loss",
-        "actor_loss",
-        "transform_action",
-        "actuate",
-    }
+    supported_extension_phases: frozenset = LOOP_PHASES.union(
+        {
+            "on_target",
+            "critic_loss",
+            "actor_loss",
+            "transform_action",
+            "actuate",
+        }
+    )
     phase_batch_keys: Mapping[str, frozenset] = {
         "on_target": TARGET_KEYS,
         "critic_loss": CRITIC_LOSS_KEYS,
-        "actor_loss": ACTOR_STEP_KEYS
-        | frozenset("observations raw_observations a_expert critic_state".split()),
+        "actor_loss": ACTOR_STEP_KEYS.union(
+            {"observations", "raw_observations", "a_expert", "critic_state"}
+        ),
     }
-    pretrain_context: frozenset = frozenset("env_args update".split())
+    pretrain_context: frozenset = frozenset({"env_args", "update"})
     # The step's transition carries what a replay batch holds: the
     # expert's stored actions and, for a reader, the raw next observation.
     stores_expert_actions: bool = True
     supported_buffer_fields: frozenset = frozenset({"raw_next_obs"})
     extension_context: frozenset = frozenset(
-        "actor_optimizer_args env_args expert_policy".split()
+        {"actor_optimizer_args", "env_args", "expert_policy"}
     )
     make_train = staticmethod(make_train)
 

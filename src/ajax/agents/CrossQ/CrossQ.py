@@ -293,8 +293,17 @@ class CrossQ(
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "CrossQ"
     capabilities = frozenset(
-        "actor critic_ensemble discounted obs_networks "
-        "off_policy policy_density q_critic replay reward_learning".split()
+        {
+            "actor",
+            "critic_ensemble",
+            "discounted",
+            "obs_networks",
+            "off_policy",
+            "policy_density",
+            "q_critic",
+            "replay",
+            "reward_learning",
+        }
     )
     trains_batch_norm = True
     stores_expert_actions = True

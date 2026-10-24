@@ -29,21 +29,33 @@ class TQC(ActorCritic):
 
     name: str = "TQC"
     capabilities: frozenset = frozenset(
-        "actor critic_ensemble discounted distributional_critic obs_networks "
-        "off_policy policy_density q_critic replay target_critic "
-        "reward_learning".split()
+        {
+            "actor",
+            "critic_ensemble",
+            "discounted",
+            "distributional_critic",
+            "obs_networks",
+            "off_policy",
+            "policy_density",
+            "q_critic",
+            "replay",
+            "target_critic",
+            "reward_learning",
+        }
     )
-    supported_extension_phases: frozenset = LOOP_PHASES | {
-        "on_target",
-        "critic_loss",
-        "actor_loss",
-        "transform_action",
-        "actuate",
-    }
+    supported_extension_phases: frozenset = LOOP_PHASES.union(
+        {
+            "on_target",
+            "critic_loss",
+            "actor_loss",
+            "transform_action",
+            "actuate",
+        }
+    )
     phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS
-    pretrain_context: frozenset = frozenset("buffer env_args update".split())
+    pretrain_context: frozenset = frozenset({"buffer", "env_args", "update"})
     extension_context: frozenset = frozenset(
-        "actor_optimizer_args buffer env_args expert_policy".split()
+        {"actor_optimizer_args", "buffer", "env_args", "expert_policy"}
     )
     supports_memory: bool = True
     replays_transitions: bool = True

@@ -261,12 +261,16 @@ def sequence_minibatches(
         return _split_carries(x, perm, num_minibatches)
 
     actor_starts, critic_starts = carries
-    return split_fragments(batch, perm, num_minibatches, length) | {
-        "actor_hidden": jax.tree.map(split, actor_starts),
-        "critic_hidden": jax.tree.map(
-            jax.vmap(split, in_axes=1, out_axes=1), critic_starts
-        ),
-    }
+    minibatches = split_fragments(batch, perm, num_minibatches, length)
+    minibatches.update(
+        {
+            "actor_hidden": jax.tree.map(split, actor_starts),
+            "critic_hidden": jax.tree.map(
+                jax.vmap(split, in_axes=1, out_axes=1), critic_starts
+            ),
+        }
+    )
+    return minibatches
 
 
 def run_epochs(

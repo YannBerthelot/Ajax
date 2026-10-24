@@ -379,7 +379,8 @@ class TrainLoop:
         from the expert's tracked state, and gain mode actuates the chosen
         action through it (:func:`expert_collect_kwargs`)."""
         common = {"recurrent": recurrent, "mode": self.mode, "env_args": self.env_args}
-        args = common | kwargs
+        args = dict(common)
+        args.update(kwargs)
         if self.expert_policy is None:
             return args
         pipeline = kwargs.get("action_pipeline")
@@ -387,13 +388,13 @@ class TrainLoop:
         # The observation features read the expert the collector tracks.
         expert = {"expert": self.expert_policy} if self.env_args.observers else {}
         transform = next(iter(self.env_args.transforms), None)
-        return (
-            args
-            | expert_collect_kwargs(
+        args.update(
+            expert_collect_kwargs(
                 self.expert_policy, pipeline, recurrent, n_envs, transform
             )
-            | expert
         )
+        args.update(expert)
+        return args
 
     def post_update(self, agent_state: Any) -> Any:
         """:func:`apply_post_update` at the collector's timestep."""
@@ -467,7 +468,7 @@ class TrainLoop:
                 controller, transforms=self.env_args.transforms
             )
         if controller != Controller():
-            kwargs = kwargs | {"controller": controller}
+            kwargs.update({"controller": controller})
         return evaluate_and_log(
             agent_state,
             aux,

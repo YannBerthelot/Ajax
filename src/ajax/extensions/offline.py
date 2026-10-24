@@ -122,7 +122,9 @@ class ConservativeQ(Extension):
         q_data = predict_value(critic, params, jnp.concatenate([obs, actions], -1))
         gap = jnp.mean(jax.scipy.special.logsumexp(samples, axis=1) - q_data)
         term = self.alpha * gap
-        return term, {"cql/term": term, "cql/gap": gap} | metrics
+        logged = {"cql/term": term, "cql/gap": gap}
+        logged.update(metrics)
+        return term, logged
 
 
 @dataclass(frozen=True)
@@ -141,12 +143,11 @@ class CalQL(ConservativeQ):
     """
 
     name: str = "cal_ql"
-    requires: ClassVar[frozenset[str]] = ConservativeQ.requires | {
-        "discounted",
-        "replay",
-    }
+    requires: ClassVar[frozenset[str]] = ConservativeQ.requires.union(
+        {"discounted", "replay"}
+    )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
-        "critic_loss": ConservativeQ.batch_keys["critic_loss"] | {"return_to_go"}
+        "critic_loss": ConservativeQ.batch_keys["critic_loss"].union({"return_to_go"})
     }
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"return_to_go"})
 

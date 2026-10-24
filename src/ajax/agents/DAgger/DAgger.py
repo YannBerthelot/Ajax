@@ -35,14 +35,17 @@ class DAgger(ActorCritic):
     """
 
     name: str = "DAgger"
-    capabilities: frozenset = frozenset("actor obs_networks off_policy replay".split())
-    supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
+    capabilities: frozenset = frozenset(
+        {"actor", "obs_networks", "off_policy", "replay"}
+    )
+    supported_extension_phases: frozenset = LOOP_PHASES.union({"actor_loss"})
     phase_batch_keys: Mapping[str, frozenset] = {
-        "actor_loss": ACTOR_STEP_KEYS
-        | frozenset("observations raw_observations a_expert".split()),
+        "actor_loss": ACTOR_STEP_KEYS.union(
+            {"observations", "raw_observations", "a_expert"}
+        ),
     }
     extension_context: frozenset = frozenset(
-        "actor_optimizer_args buffer env_args expert_policy".split()
+        {"actor_optimizer_args", "buffer", "env_args", "expert_policy"}
     )
     # Its replay is not handed to pretraining: it stores the expert's next
     # action, which a transition dataset does not hold (PriorData).

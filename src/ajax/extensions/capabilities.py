@@ -94,16 +94,16 @@ def run_capabilities(
     and those its environment's actions and its expert give."""
     caps = frozenset(algorithm)
     if num_critics is not None and num_critics < 2:
-        caps -= {"critic_ensemble"}
+        caps = caps.difference({"critic_ensemble"})
     derived = {
-        "critic": bool(caps & {"q_critic", "v_critic"}),
-        "scalar_target": bool(caps & {"q_critic", "v_critic"})
+        "critic": bool(caps.intersection({"q_critic", "v_critic"})),
+        "scalar_target": bool(caps.intersection({"q_critic", "v_critic"}))
         and "distributional_critic" not in caps,
         "continuous_actions": continuous,
         "discrete_actions": not continuous,
         "agent_expert": has_expert,
     }
-    return caps | {name for name, given in derived.items() if given}
+    return caps.union({name for name, given in derived.items() if given})
 
 
 def check_capabilities(
@@ -133,28 +133,28 @@ def check_capabilities(
     missing: dict[str, frozenset[str]] = {}
     unwired: dict[str, str] = {}
     for ext in stack:
-        lacks = ext.needs() - has
+        lacks = ext.needs().difference(has)
         gaps = []
         if "agent_expert" in lacks and not takes_expert_policy:
             gaps.append("takes no expert_policy")
-            lacks -= {"agent_expert"}
+            lacks = lacks.difference({"agent_expert"})
         if lacks:
             missing[type(ext).__name__] = lacks
             continue
-        unfolded = ext.implemented_phases() - phases
-        unbound = ext.context - context
-        unfilled = ext.pretrain_context - frozenset(pretrain_context)
-        unstored = ext.buffer_fields - frozenset(buffer_fields)
+        unfolded = ext.implemented_phases().difference(phases)
+        unbound = ext.context.difference(context)
+        unfilled = ext.pretrain_context.difference(frozenset(pretrain_context))
+        unstored = ext.buffer_fields.difference(frozenset(buffer_fields))
         gaps += [
             *([f"folds no {sorted(unfolded)} phase"] if unfolded else []),
             *([f"binds no {sorted(unbound)}"] if unbound else []),
             *([f"gives its pretraining no {sorted(unfilled)}"] if unfilled else []),
             *([f"stores no {sorted(unstored)}"] if unstored else []),
             *(
-                f"puts no {sorted(keys - batch_keys.get(p, frozenset()))}"
+                f"puts no {sorted(keys.difference(batch_keys.get(p, frozenset())))}"
                 f" in its {p} batch"
                 for p, keys in ext.reads().items()
-                if keys - batch_keys.get(p, frozenset())
+                if keys.difference(batch_keys.get(p, frozenset()))
             ),
         ]
         if gaps:

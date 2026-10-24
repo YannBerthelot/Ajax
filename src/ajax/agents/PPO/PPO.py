@@ -265,7 +265,7 @@ class PPO(
 
         if split.advantages_per_minibatch:
             # GAE in each minibatch, with the critic of that step.
-            batch |= outcomes
+            batch.update(outcomes)
         else:
             # GAE once, on the rollout, with the critic that collected it.
             if context.recurrent:
@@ -284,10 +284,12 @@ class PPO(
                     critic_params=state.critic_state.params,
                     x=rollout.next_obs,
                 ).squeeze(0)
+            batch_with_outcomes = dict(batch)
+            batch_with_outcomes.update(outcomes)
             gae, value_targets, rollout_metrics = self.advantages(
-                state, batch | outcomes, values, next_values, target_key, context
+                state, batch_with_outcomes, values, next_values, target_key, context
             )
-            batch |= {"targets": value_targets, "gae": gae}
+            batch.update({"targets": value_targets, "gae": gae})
 
         def minibatches(key: jax.Array) -> dict:
             """One epoch's partition of the rollout."""
@@ -435,18 +437,32 @@ class PPO(
     name = "PPO"
     action_space = "any"
     capabilities = frozenset(
-        "actor discounted obs_networks policy_density v_critic reward_learning".split()
+        {
+            "actor",
+            "discounted",
+            "obs_networks",
+            "policy_density",
+            "v_critic",
+            "reward_learning",
+        }
     )
-    supported_extension_phases = LOOP_PHASES | frozenset(
-        "reward on_target critic_loss actor_loss transform_action actuate".split()
+    supported_extension_phases = LOOP_PHASES.union(
+        {
+            "reward",
+            "on_target",
+            "critic_loss",
+            "actor_loss",
+            "transform_action",
+            "actuate",
+        }
     )
     # Unannotated, as the whole contract, so the dataclass makes it no field.
     phase_batch_keys = {  # noqa: RUF012
-        "reward": frozenset("observations raw_observations actions".split()),
-        "on_target": frozenset("terminated truncated gae values".split()),
-        "critic_loss": frozenset("critic_params critic_state".split()),
+        "reward": frozenset({"observations", "raw_observations", "actions"}),
+        "on_target": frozenset({"terminated", "truncated", "gae", "values"}),
+        "critic_loss": frozenset({"critic_params", "critic_state"}),
         "actor_loss": frozenset(
-            "actor_state observations raw_observations pi_mean".split()
+            {"actor_state", "observations", "raw_observations", "pi_mean"}
         ),
     }
     supports_memory = True

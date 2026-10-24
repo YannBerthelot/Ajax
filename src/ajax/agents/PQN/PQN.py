@@ -285,15 +285,15 @@ class PQN(
     name = "PQN"
     action_space = "discrete"
     capabilities = frozenset(
-        "discounted obs_networks off_policy q_critic reward_learning".split()
+        {"discounted", "obs_networks", "off_policy", "q_critic", "reward_learning"}
     )
-    supported_extension_phases = LOOP_PHASES | frozenset({"on_target", "critic_loss"})
+    supported_extension_phases = LOOP_PHASES.union({"on_target", "critic_loss"})
     # Unannotated, as the whole contract, so the dataclass makes it no field.
     phase_batch_keys = {  # noqa: RUF012
         "on_target": frozenset(
-            "actions dones reward_scale terminated truncated".split()
+            {"actions", "dones", "reward_scale", "terminated", "truncated"}
         ),
-        "critic_loss": frozenset("actions q_state".split()),
+        "critic_loss": frozenset({"actions", "q_state"}),
     }
 
 

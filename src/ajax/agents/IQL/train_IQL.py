@@ -6,14 +6,14 @@ raise TypeError with the method's call form."""
 
 from ajax.deprecation import moved_names
 
-__getattr__ = moved_names(
-    __name__,
-    dict.fromkeys(
-        ("Auxiliaries", "AuxiliaryLogs", "expectile_loss"), "ajax.agents.IQL.IQL"
-    )
-    | {
+_new_homes = dict.fromkeys(
+    ("Auxiliaries", "AuxiliaryLogs", "expectile_loss"), "ajax.agents.IQL.IQL"
+)
+_new_homes.update(
+    {
         "init_IQL": "ajax.agents.IQL.IQL:IQL.init",
         "update_agent": "ajax.agents.IQL.IQL:IQL.update",
         "make_train": "ajax.agents.families:ReplayAgent.make_train",
-    },
+    }
 )
+__getattr__ = moved_names(__name__, _new_homes)

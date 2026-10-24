@@ -15,21 +15,25 @@ def resolve_clip_coef(agent_config: Any, timestep: int | jax.Array) -> Any:
     return at(agent_config.clip_range, timestep)
 
 
-__getattr__ = moved_names(
-    __name__,
+_new_homes = dict.fromkeys(
+    ("AuxiliaryLogs", "PolicyAuxiliaries", "ValueAuxiliaries", "clipped_surrogate"),
+    "ajax.agents.PPO.PPO",
+)
+_new_homes.update(
     dict.fromkeys(
-        ("AuxiliaryLogs", "PolicyAuxiliaries", "ValueAuxiliaries", "clipped_surrogate"),
-        "ajax.agents.PPO.PPO",
-    )
-    | dict.fromkeys(
         ("resolve_num_minibatches", "run_epochs", "rollout_actions"),
         "ajax.agents.minibatch",
     )
-    | dict.fromkeys(
+)
+_new_homes.update(
+    dict.fromkeys(
         ("approximate_kl", "explained_variance", "mean_policy_std"),
         "ajax.agents.diagnostics",
     )
-    | dict.fromkeys(
-        ("policy_entropy", "recompute_log_prob"), "ajax.networks.distributions"
-    ),
 )
+_new_homes.update(
+    dict.fromkeys(
+        ("policy_entropy", "recompute_log_prob"), "ajax.networks.distributions"
+    )
+)
+__getattr__ = moved_names(__name__, _new_homes)

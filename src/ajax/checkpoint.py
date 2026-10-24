@@ -267,7 +267,7 @@ def _with_added_fields(skeleton: Any, saved: Any) -> Any:
         for key, value in saved.items()
     }
     added: frozenset[str] = getattr(skeleton, "added_fields", frozenset())
-    for name in added - out.keys():
+    for name in added.difference(out.keys()):
         out[name] = np.full_like(np.asarray(children[name]), np.nan)
     return out
 

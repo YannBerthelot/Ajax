@@ -204,12 +204,25 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "IQL"
     capabilities = frozenset(
-        "actor critic_ensemble discounted obs_networks off_policy policy_density"
-        " q_critic replay target_critic v_critic reward_learning".split()
+        {
+            "actor",
+            "critic_ensemble",
+            "discounted",
+            "obs_networks",
+            "off_policy",
+            "policy_density",
+            "q_critic",
+            "replay",
+            "target_critic",
+            "v_critic",
+            "reward_learning",
+        }
     )
-    phase_batch_keys = steps.REPLAY_BATCH_KEYS | {
-        "actor_loss": steps.ACTOR_STEP_KEYS
-        | frozenset("observations raw_observations actions critic_state".split())
+    phase_batch_keys = {  # noqa: RUF012
+        **steps.REPLAY_BATCH_KEYS,
+        "actor_loss": steps.ACTOR_STEP_KEYS.union(
+            {"observations", "raw_observations", "actions", "critic_state"}
+        ),
     }
     supported_buffer_fields = frozenset({"raw_next_obs", "return_to_go"})
 

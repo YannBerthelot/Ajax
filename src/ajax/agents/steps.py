@@ -24,22 +24,40 @@ from ajax.log import unevaluated
 #: :func:`actor_step` adds, and with them the rows' entries a replay agent
 #: passes (REPLAY_ACTOR_KEYS: SAC's, TD3's, CrossQ's and SAC's core's).
 TARGET_KEYS = frozenset(
-    "observations actions next_observations rewards dones gamma reward_scale"
-    " raw_next_observations next_a_expert next_action".split()
+    {
+        "observations",
+        "actions",
+        "next_observations",
+        "rewards",
+        "dones",
+        "gamma",
+        "reward_scale",
+        "raw_next_observations",
+        "next_a_expert",
+        "next_action",
+    }
 )
 
 
 CRITIC_LOSS_KEYS = frozenset(
-    "observations actions next_observations targets critic_params critic_state"
-    " actor_state return_to_go".split()
+    {
+        "observations",
+        "actions",
+        "next_observations",
+        "targets",
+        "critic_params",
+        "critic_state",
+        "actor_state",
+        "return_to_go",
+    }
 )
 
 
-ACTOR_STEP_KEYS = frozenset("pi_mean actor_params actor_state agent_loss".split())
+ACTOR_STEP_KEYS = frozenset({"pi_mean", "actor_params", "actor_state", "agent_loss"})
 
 
-REPLAY_ACTOR_KEYS = ACTOR_STEP_KEYS | frozenset(
-    "observations raw_observations actions a_expert critic_state".split()
+REPLAY_ACTOR_KEYS = ACTOR_STEP_KEYS.union(
+    {"observations", "raw_observations", "actions", "a_expert", "critic_state"}
 )
 
 
@@ -153,7 +171,8 @@ def apply_on_target(
         "next_a_expert": batch.next_a_expert,
         # The dataset's action at s' (NaN where unknown); None unstored.
         "next_action": batch.next_action,
-    } | (target_extras or {})
+    }
+    target_batch.update(target_extras or {})
     target_key, _ = jax.random.split(extension_key(key))
     step = agent_state.collector_state.timestep
     target_q, metrics = extensions.apply_on_target(
@@ -261,12 +280,15 @@ def actor_step(
 
     def loss_fn(params: Any) -> tuple[jax.Array, Any]:
         loss, aux, pi_mean = policy_loss(params)
-        actor_batch = batch | {
-            "pi_mean": pi_mean,
-            "actor_params": params,
-            "actor_state": actor_state,
-            "agent_loss": loss,
-        }
+        actor_batch = dict(batch)
+        actor_batch.update(
+            {
+                "pi_mean": pi_mean,
+                "actor_params": params,
+                "actor_state": actor_state,
+                "agent_loss": loss,
+            }
+        )
         step = agent_state.collector_state.timestep
         extra, metrics = extension_stack.apply_actor_loss(
             agent_state, actor_batch, step, extension_key(key), total_timesteps

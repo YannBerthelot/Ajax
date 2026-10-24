@@ -84,9 +84,9 @@ class MCPretrainResults(PretrainLosses):
     smallest of its critics')."""
 
     q_expert_mean: jax.Array
-    added_fields: ClassVar[frozenset[str]] = PretrainLosses.added_fields | {
-        "q_expert_mean"
-    }
+    added_fields: ClassVar[frozenset[str]] = PretrainLosses.added_fields.union(
+        {"q_expert_mean"}
+    )
 
 
 def _first_and_last(losses: jax.Array) -> PretrainLosses:

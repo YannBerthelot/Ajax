@@ -327,18 +327,19 @@ class ImitationLoss(Extension):
         """The filter and ``alpha`` also read the Q critic; the replayed
         target needs a replay."""
         q = {"q_critic"} if self.q_filter or self.alpha is not None else set()
-        return super().needs() | q | ({"replay"} if self.target == "replay" else set())
+        replay = {"replay"} if self.target == "replay" else set()
+        return super().needs().union(q, replay)
 
     def reads(self) -> Mapping[str, frozenset[str]]:
         """The filter and ``alpha`` also read the critic from the actor-loss
         batch, the replayed target its rows' actions."""
         keys = self.batch_keys["actor_loss"]
         if self.q_filter or self.alpha is not None:
-            keys = keys | {"critic_state"}
+            keys = keys.union({"critic_state"})
         if self.alpha is not None:
-            keys = keys | {"agent_loss"}
+            keys = keys.union({"agent_loss"})
         if self.target == "replay":
-            keys = keys | {"actions"}
+            keys = keys.union({"actions"})
         return {"actor_loss": keys}
 
     def bind_to_agent(self, **agent_context: Any) -> "ImitationLoss":

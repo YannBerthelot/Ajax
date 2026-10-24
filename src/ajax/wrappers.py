@@ -370,7 +370,9 @@ class _OnlineNormalization:
             )[0]
             for k in keys
         }
-        return out | ({RAW_FINAL_OBS_KEY: info[keys[0]]} if keys else {})
+        if keys:
+            out.update({RAW_FINAL_OBS_KEY: info[keys[0]]})
+        return out
 
     def _normalize_reward(
         self, reward: jax.Array, done: jax.Array, stats: NormalizationInfo
@@ -419,7 +421,7 @@ class _OnlineNormalization:
         obs, obs_stats, extra = self._normalize_obs(raw_obs, stats.obs, info)
         reward_stats = stats.reward
         if self.normalize_reward and reward is not None:
-            extra |= {RAW_REWARD_KEY: reward}
+            extra.update({RAW_REWARD_KEY: reward})
             assert reward_stats is not None and done is not None
             reward, reward_stats = self._normalize_reward(reward, done, reward_stats)
         return (
@@ -451,7 +453,8 @@ class NormalizeVecObservationBrax(_OnlineNormalization, BraxWrapper):
             # The state's obs is the normalised one, and an expert reads the
             # env's own units (interaction.get_raw_obs). A gymnax state
             # recomputes its observation from the env instead.
-            extra = extra | {RAW_OBS_KEY: raw_obs}
+            extra = dict(extra)
+            extra.update({RAW_OBS_KEY: raw_obs})
         return obs, stats, extra
 
     def reset(self, rng: jax.Array) -> "State":
@@ -461,7 +464,7 @@ class NormalizeVecObservationBrax(_OnlineNormalization, BraxWrapper):
         )
         if self.normalize_reward:
             # A brax state carries its info: the key exists from the reset.
-            extra |= {RAW_REWARD_KEY: state.reward}
+            extra.update({RAW_REWARD_KEY: state.reward})
         return self._with_stats(state, norm_info, extra, obs=obs)
 
     def step(self, state: "State", action: jax.Array) -> "State":

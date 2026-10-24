@@ -184,6 +184,20 @@ class DeclaredAgent(ActorCritic):
         self.build()
         values = {name: getattr(self, name) for name in self.agent_config_fields}
         self.agent_config = self.config_class(**values)
+        object.__setattr__(self, "_built", True)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Fixed once built (owner, 2026-10-24), so what trains is what the
+        # run config logs; other attributes (network_args, a monkeypatched
+        # method) stay writable.
+        fixed = name == "agent_config" or name in self.field_names()
+        if fixed and getattr(self, "_built", False):
+            raise AttributeError(
+                f"{self.name}'s {name} is fixed once the agent is built (its run"
+                f" config logs it): build another, dataclasses.replace(agent,"
+                f" {name}=...)."
+            )
+        object.__setattr__(self, name, value)
 
     @classmethod
     def field_names(cls) -> frozenset[str]:
@@ -341,7 +355,12 @@ class ReplayAgent(DeclaredAgent):
     ) -> Callable:
         """The train function :meth:`ActorCritic.train` builds: the loop
         over :meth:`init` and :meth:`update`."""
-        del agent_config  # the fields' view: the update reads the fields
+        if agent_config is not self.agent_config:
+            raise ValueError(
+                f"{self.name} trains on its fields, which agent_config only views:"
+                " build another agent, dataclasses.replace(agent, ...), instead of"
+                " passing another agent_config."
+            )
         given = {
             "env_args": env_args,
             "actor_optimizer_args": actor_optimizer_args,

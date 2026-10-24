@@ -24,7 +24,7 @@ import numpy as np
 from optax.tree_utils import tree_norm
 
 from ajax import APO, ASAC, AVG, DQN, IQL, PPO, PQN, REDQ, SAC, TD3, TQC, CrossQ, DAgger
-from ajax.agents.TD3.train_TD3 import make_default_action_pipeline
+from ajax.agents.TD3.TD3 import make_default_action_pipeline
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import ExpertGains, ImitationLoss, ResidualPolicy
 from ajax.extensions.observe import ExpertActionInput, TrainingProgressInput

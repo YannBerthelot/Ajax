@@ -2,7 +2,8 @@
 equations) and :mod:`ajax.agents.families` (its loop); the old path imports
 the names with a FutureWarning until 0.5.0. ``init_TD3``, ``update_agent``,
 ``update_value_functions``, ``update_policy`` and ``make_train`` became
-methods, with the agent's signatures."""
+methods with other parameters: their old names raise TypeError with the
+method's call form. ``update_target_networks`` is ``update_targets``."""
 
 from ajax.deprecation import moved_names
 

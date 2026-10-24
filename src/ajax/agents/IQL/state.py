@@ -1,20 +1,8 @@
-from flax import struct
+"""IQL's state and config, now in :mod:`ajax.agents.IQL.IQL`; their old
+path imports them with a FutureWarning until 0.5.0."""
 
-from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
+from ajax.deprecation import moved_names
 
-
-@struct.dataclass(kw_only=True)
-class IQLState(BaseAgentState):
-    """IQL's actor, twin Q critic (with its target), and state-value network."""
-
-    value_state: LoadedTrainState
-
-
-@struct.dataclass(kw_only=True)
-class IQLConfig(BaseAgentConfig):
-    expectile: float = 0.7
-    temperature: float = 3.0
-    gamma: float = 0.99
-    tau: float = 0.005
-    learning_starts: int = 0
-    reward_scale: float = 1.0
+__getattr__ = moved_names(
+    __name__, dict.fromkeys(("IQLConfig", "IQLState"), "ajax.agents.IQL.IQL")
+)

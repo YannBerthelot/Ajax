@@ -84,8 +84,9 @@ def log_config(every: int, folder: str | None = None) -> LoggingConfig:
 
 def train_module(agent: Any) -> Any:
     """The module whose ``make_train`` the agent runs (it binds ``vmap_log``)."""
-    for cls in type(agent).__mro__:
-        make_train = getattr(sys.modules[cls.__module__], "make_train", None)
+    for cls in type(agent).__mro__:  # a declared agent's: its family's method
+        own = vars(cls).get("make_train")
+        make_train = own or getattr(sys.modules[cls.__module__], "make_train", None)
         if make_train is not None:
             return sys.modules[make_train.__module__]
     raise RuntimeError(f"no make_train for {type(agent).__name__}")

@@ -31,8 +31,6 @@ from ajax.agents.PPO.core import (
     PolicyAuxiliaries,
     ValueAuxiliaries,
     clipped_surrogate,
-    policy_entropy,
-    recompute_log_prob,
     resolve_clip_coef,
 )
 from ajax.agents.PPO.state import PPOConfig, PPOState
@@ -51,6 +49,7 @@ from ajax.environments.utils import (
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.distributions import policy_entropy, recompute_log_prob
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,

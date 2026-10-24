@@ -166,3 +166,28 @@ def log_prob_from_raw(pi: Any, raw: jax.Array) -> jax.Array:
 def entropy(pi: Any, seed: Optional[jax.Array] = None) -> jax.Array:
     """``pi``'s entropy: sampled with ``seed`` when squashed, else exact."""
     return pi.entropy(seed) if isinstance(pi, Squash) else pi.entropy()
+
+
+def recompute_log_prob(
+    pi: Any, actions: jax.Array, raw_actions: Optional[jax.Array]
+) -> jax.Array:
+    """The current policy's log-probability of the stored actions, shaped
+    like :func:`ajax.agents.minibatch.rollout_actions`'s. A squashed policy recomputes it from the
+    stored pre-tanh sample, never through arctanh, which is unstable as
+    ``|action| -> 1`` (:func:`log_prob_from_raw`); an unsquashed one's
+    pre-tanh sample is its action."""
+    if isinstance(pi, distrax.Categorical):
+        return jnp.expand_dims(pi.log_prob(actions.squeeze(-1)), -1)
+    if raw_actions is not None:
+        return log_prob_from_raw(pi, raw_actions).sum(-1, keepdims=True)
+    return pi.log_prob(actions).sum(-1, keepdims=True)
+
+
+def policy_entropy(pi: Any, rng: Optional[jax.Array] = None) -> jax.Array:
+    """The per-sample entropy bonus: the joint action's entropy, summed over
+    the action dimensions as CleanRL's ``ppo_continuous_action.py`` and
+    baselines' ppo2 sum it (a mean would scale ``ent_coef`` by 1 / d). A
+    squashed policy's is sampled with ``rng`` (:meth:`Squash.entropy`)."""
+    if isinstance(pi, distrax.Categorical):
+        return pi.entropy()
+    return entropy(pi, rng).sum(-1)

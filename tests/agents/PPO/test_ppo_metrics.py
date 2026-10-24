@@ -18,15 +18,15 @@ from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
 from ajax.agents.PPO import train_PPO
-from ajax.agents.PPO.core import recompute_log_prob
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PPO.utils import _compute_gae
 from ajax.environments.interaction import get_pi
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
-from ajax.networks.distributions import Squash
+from ajax.networks.distributions import Squash, recompute_log_prob
 from ajax.networks.networks import predict_value
+from ajax.schedule import at
 from tests.environments import paid_action
 
 KEY = jax.random.PRNGKey(0)
@@ -218,7 +218,7 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
     )
 
     actor = state.actor_state
-    clip = train_APO.resolve_clip_coef(config, state.collector_state.timestep)
+    clip = at(config.clip_range, state.collector_state.timestep)
     p_grads = jax.grad(
         lambda p: train_APO.policy_loss_function(
             p, actor, obs, actions, log_probs, gae, clip, config.ent_coef, None, KEY

@@ -31,9 +31,6 @@ from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
     clipped_surrogate,
-    policy_entropy,
-    recompute_log_prob,
-    resolve_clip_coef,
 )
 from ajax.agents.PPO.core import ValueAuxiliaries as PPOValueAuxiliaries
 from ajax.agents.PPO.train_PPO import init_PPO
@@ -42,7 +39,9 @@ from ajax.agents.steps import joint_step
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.distributions import policy_entropy, recompute_log_prob
 from ajax.networks.networks import predict_value
+from ajax.schedule import at
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -204,7 +203,7 @@ def update_networks(
             actions=minibatch["actions"],
             log_probs=minibatch["log_probs"],
             gae=minibatch["gae"],
-            clip_coef=resolve_clip_coef(agent_config, timestep),
+            clip_coef=at(agent_config.clip_range, timestep),
             ent_coef=agent_config.ent_coef,
             raw_actions=minibatch["raw_actions"],
             entropy_key=minibatch["entropy_key"],

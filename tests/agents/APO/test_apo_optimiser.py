@@ -20,10 +20,11 @@ from ajax.agents import steps
 from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.APO.state import APOConfig
-from ajax.agents.PPO.core import recompute_log_prob
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack
+from ajax.networks.distributions import recompute_log_prob
 from ajax.networks.networks import predict_value
+from ajax.schedule import at
 from tests.environments import paid_action
 
 B, VALUE_BIAS = 16, 0.3
@@ -75,7 +76,7 @@ def test_APO_entropy_bonus_is_its_reference_codes(env_id: str) -> None:
             actions,
             old,
             gae=jnp.zeros((B, 1)),
-            clip_coef=train_APO.resolve_clip_coef(config, 0),
+            clip_coef=at(config.clip_range, 0),
             ent_coef=config.ent_coef,
             raw_actions=actions,
         )[0]
@@ -161,7 +162,7 @@ def test_APO_steps_its_whole_model_with_one_clipped_adam(options: dict) -> None:
             mb["actions"],
             mb["log_probs"],
             mb["gae"],
-            clip_coef=train_APO.resolve_clip_coef(config, 0),
+            clip_coef=at(config.clip_range, 0),
             ent_coef=config.ent_coef,
             entropy_key=mb["entropy_key"],
         )

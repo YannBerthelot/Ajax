@@ -2,15 +2,13 @@
 descendants (APO) import rather than copy. Its minibatch epochs are
 :mod:`ajax.agents.minibatch`'s."""
 
-from typing import Any, Optional
+from typing import Any
 
-import distrax
 import jax
 import jax.numpy as jnp
 from flax import struct
 
 from ajax.deprecation import moved_names
-from ajax.networks.distributions import entropy, log_prob_from_raw
 from ajax.schedule import at
 
 
@@ -44,31 +42,6 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-def recompute_log_prob(
-    pi: Any, actions: jax.Array, raw_actions: Optional[jax.Array]
-) -> jax.Array:
-    """The current policy's log-probability of the stored actions, shaped
-    like :func:`ajax.agents.minibatch.rollout_actions`'s. A squashed policy recomputes it from the
-    stored pre-tanh sample, never through arctanh, which is unstable as
-    ``|action| -> 1`` (:func:`log_prob_from_raw`); an unsquashed one's
-    pre-tanh sample is its action."""
-    if isinstance(pi, distrax.Categorical):
-        return jnp.expand_dims(pi.log_prob(actions.squeeze(-1)), -1)
-    if raw_actions is not None:
-        return log_prob_from_raw(pi, raw_actions).sum(-1, keepdims=True)
-    return pi.log_prob(actions).sum(-1, keepdims=True)
-
-
-def policy_entropy(pi: Any, rng: Optional[jax.Array] = None) -> jax.Array:
-    """The per-sample entropy bonus: the joint action's entropy, summed over
-    the action dimensions as CleanRL's ``ppo_continuous_action.py`` and
-    baselines' ppo2 sum it (a mean would scale ``ent_coef`` by 1 / d). A
-    squashed policy's is sampled with ``rng`` (:meth:`Squash.entropy`)."""
-    if isinstance(pi, distrax.Categorical):
-        return pi.entropy()
-    return entropy(pi, rng).sum(-1)
-
-
 def clipped_surrogate(
     ratio: jax.Array, advantages: jax.Array, clip_coef: float
 ) -> tuple[jax.Array, jax.Array]:
@@ -95,5 +68,8 @@ __getattr__ = moved_names(
     | dict.fromkeys(
         ("approximate_kl", "explained_variance", "mean_policy_std"),
         "ajax.agents.diagnostics",
+    )
+    | dict.fromkeys(
+        ("policy_entropy", "recompute_log_prob"), "ajax.networks.distributions"
     ),
 )

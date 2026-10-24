@@ -57,10 +57,7 @@ _SAC_METRICS = "B4 (the agent's own metrics)"
 #: (importer, agent, name) -> the batch that ends the import. An importer is
 #: an agent, or a shared module's path under src/ajax.
 BORROWED = {
-    # B3 declared PPO first; APO and PQN join the on-policy family next.
-    ("APO", "PPO", "AuxiliaryLogs"): "B3 (APO's own metrics)",
-    ("APO", "PPO", "PolicyAuxiliaries"): "B3 (APO's own metrics)",
-    ("APO", "PPO", "ValueAuxiliaries"): "B3 (APO's own metrics)",
+    # B3 declared PPO and APO; PQN joins the on-policy family next.
     ("PQN", "DQN", "init_DQN"): "B3 (the on-policy family's init)",
     ("PQN", "DQN", "AuxiliaryLogs"): "B3 (PQN's own metrics)",
     ("PQN", "DQN", "PolicyAuxiliaries"): "B3 (PQN's own metrics)",

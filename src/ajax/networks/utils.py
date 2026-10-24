@@ -60,7 +60,7 @@ def get_adam_tx(
 
     Unclipped by default. Global-norm clipping is a PPO-family convention
     (PPO passes ``max_grad_norm=0.5``; APO clips both its networks'
-    gradients at once, ``train_APO.update_networks``); the off-policy agents
+    gradients at once, ``APO.minibatch_step``); the off-policy agents
     and the supervised ones run plain Adam, as in their reference
     implementations.
 

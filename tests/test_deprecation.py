@@ -136,3 +136,26 @@ def test_ppos_old_names_resolve_or_give_the_new_call() -> None:
                 found()
         with pytest.raises(AttributeError, match=f"{path}.{name} moved to"):
             setattr(module, name, found)
+
+
+def test_apos_old_names_resolve_or_give_the_new_call() -> None:
+    """APO's old modules serve every name the surface record holds for them
+    from APO.py, the same object; its init, update, minibatch step and
+    make_train became methods."""
+    olds = ("ajax.agents.APO.train_APO", "ajax.agents.APO.state")
+    recorded = json.loads(SURFACE.read_text())
+    lines = [line.split(":") for line in recorded if line.startswith(olds)]
+    assert len(lines) == 11
+    home = importlib.import_module("ajax.agents.APO.APO")
+    methods = {"init_APO", "update_agent", "update_networks", "make_train"}
+    for path, name in lines:
+        module = importlib.import_module(path)
+        with pytest.warns(FutureWarning, match=f"{path}.{name} moved to"):
+            found = getattr(module, name)
+        if name in methods:
+            with pytest.raises(TypeError, match=f"{path}.{name} became .*self"):
+                found()
+        else:
+            assert found is getattr(home, name)
+        with pytest.raises(AttributeError, match=f"{path}.{name} moved to"):
+            setattr(module, name, found)

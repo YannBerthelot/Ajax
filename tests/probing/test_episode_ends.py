@@ -20,7 +20,7 @@ import probing_environments.gymnax_envs as discrete
 import pytest
 from probing_environments.gymnax_envs import continuous_actions as continuous
 
-from ajax.agents.APO.train_APO import init_APO, value_loss_function
+from ajax.agents.APO.APO import value_loss_function
 from ajax.environments.create import build_env_from_id
 from ajax.environments.interaction import reset, step
 from ajax.evaluate import evaluate
@@ -928,8 +928,7 @@ def test_q1_apo_value_loss_pulls_values_towards_zero() -> None:
     """With targets equal to the predictions and b = 1 > 0 only the
     centring force is left: a small gradient step must lower mean V."""
     agent = agents.make("APO", *APO_CONST.make(), ent_coef=0.0)
-    args = (agent.env_args, agent.actor_optimizer_args, agent.critic_optimizer_args)
-    critic = init_APO(R.KEY, *args, agent.network_args).critic_state
+    critic = agent.init(R.KEY, agent.context(1)[1]).critic_state
     obs, nu = jnp.linspace(-1.0, 1.0, 9)[:, None], agent.agent_config.nu
     values = predict_value(critic, critic.params, obs).squeeze(0)
 

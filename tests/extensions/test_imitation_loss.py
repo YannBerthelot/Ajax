@@ -20,7 +20,6 @@ import numpy as np
 import pytest
 
 import ajax.agents.PPO.PPO as ppo_module
-from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC import train_ASAC
 from ajax.agents.ASAC.ASAC import ASAC
@@ -411,14 +410,9 @@ def _apo_update(stack: ExtensionStack) -> Any:
     agent = APO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
-    state = train_APO.init_APO(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-    )
-    state = _ext_state(state, stack)
+    # The stack as given, unbound, as each test builds it.
+    ctx = dataclasses.replace(agent.context(1)[1], stack=stack)
+    state = _ext_state(agent.init(KEY, ctx), stack)
     obs = _obs(agent)
     minibatch = {
         "obs": obs,
@@ -429,11 +423,9 @@ def _apo_update(stack: ExtensionStack) -> Any:
         "log_probs": jnp.zeros((BATCH, 1)),
         "targets": jnp.zeros((BATCH, 1)),
         "entropy_key": KEY,
-        "a_expert": None,  # no expert: update_agent's minibatch without one
+        "a_expert": None,  # no expert: the update's minibatch without one
     }
-    state, _ = train_APO.update_networks(
-        state, minibatch, agent.agent_config, jnp.float32(0.0), stack, 1
-    )
+    state, _ = agent.minibatch_step(state, minibatch, jnp.float32(0.0), ctx)
     return state.actor_state.params
 
 

@@ -28,8 +28,15 @@ from ajax.agents.critics import make_huber_td_loss
 from ajax.agents.TD3.TD3 import make_default_action_pipeline
 from ajax.extensions.adversarial import AdversarialReward
 from ajax.extensions.base import Extension
-from ajax.extensions.expert import ExpertGains, ImitationLoss, ResidualPolicy
+from ajax.extensions.expert import (
+    ExpertGains,
+    ImitationLoss,
+    JSRLCurriculum,
+    ResidualPolicy,
+)
 from ajax.extensions.observe import ExpertActionInput, TrainingProgressInput
+from ajax.extensions.pretrain import BellmanPretrain, MCPretrain
+from ajax.extensions.target_mods import ValueBox
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import MemoryConfig
@@ -154,6 +161,18 @@ TIME_RESET.update(
     {"unroll_length": 16, "num_resets_per_eval": 1, "num_evals": 3, **NORM}
 )
 PPO_GRU = {"memory": MemoryConfig(kind="gru", hidden_size=8)}
+# SAC's own expert options: its replay prefill (expert_buffer_n_steps) and
+# its warm-up mix (expert_fraction, 0.7 by default), alone and with what
+# runs around them: the acting gates before and after the warm-up choice, a
+# pretraining reading the prefill, and the actor loss reading a_expert.
+PREFILL = {**SAC40, "expert_policy": push, "expert_buffer_n_steps": 40}
+NO_PREFILL = {**PREFILL, "expert_buffer_n_steps": 0}
+SMALL_MC = MCPretrain(
+    push, n_mc_steps=200, n_mc_episodes=4, n_steps=20, online_light_steps=5
+)
+GATES = (SMALL_MC, JSRLCurriculum(episode_length=8, decay_frac=0.5), ValueBox())
+BELLMAN = (BellmanPretrain(n_steps=8),)
+RESIDUAL_BC = (ResidualPolicy(), ImitationLoss(push, coef=1.0))
 GAIL_DATA = episodes(3, discrete=False)  # Pendulum's observations
 #: Trained offline for their steps (updates on a dataset's rows), then
 #: online for ONLINE steps from that state (train_offline, then train).
@@ -262,6 +281,12 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         {**PID, **R, **NORM, "policy_update_start": 40, "alpha_update_start": 40},
         160,
     ),
+    "SAC-mix": (SAC, NO_PREFILL, 160),
+    "SAC-prefill": (SAC, {**PREFILL, "expert_fraction": 0.0}, 160),
+    "SAC-expert-norm": (SAC, {**PREFILL, **NORM, **REWARD_NORM}, 160),
+    "SAC-expert-gates": (SAC, {**PREFILL, "extensions": GATES}, 160),
+    "SAC-expert-bellman": (SAC, {**PREFILL, "extensions": BELLMAN}, 160),
+    "SAC-residual-bc": (SAC, {**NO_PREFILL, "extensions": RESIDUAL_BC}, 160),
     "REDQ": (REDQ, {**S, **R}, 120),
     "ASAC": (ASAC, {**S, **R}, 160),
     "CrossQ": (CrossQ, CROSSQ, 160),

@@ -229,6 +229,7 @@
 "ajax.agents.IQL.IQL:IQL",
 "ajax.agents.IQL.IQL:IQLConfig",
 "ajax.agents.IQL.IQL:IQLState",
+"ajax.agents.IQL.IQL:NUM_CRITICS",
 "ajax.agents.IQL.IQL:ORTHOGONAL_SQRT2",
 "ajax.agents.IQL.IQL:awr_loss",
 "ajax.agents.IQL.IQL:awr_weight",

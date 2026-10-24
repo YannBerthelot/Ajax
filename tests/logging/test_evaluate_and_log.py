@@ -82,13 +82,17 @@ def test_a_logged_run_traces_the_evaluation(name: str) -> None:
 #: The agents whose critics estimate an average-reward (differential) value,
 #: not a discounted return: they have no value bias.
 AVERAGE_REWARD = {"APO", "ASAC"}
+#: The agents whose evaluations also measure the reward per step
+#: (``avg_reward_mode``).
+MEASURES_REWARD_RATE = {"APO"}
 
 
 @pytest.mark.parametrize("name", AGENTS)
 def test_an_agent_logs_the_value_bias_of_its_critic(name: str) -> None:
     """``Eval/mean bias``, the critic's estimate minus the realised
     discounted return (:func:`ajax.evaluate.evaluate`), is measured for an
-    agent with a discounted critic and NaN for an average-reward one."""
+    agent with a discounted critic and NaN for an average-reward one; APO's
+    evaluations also measure its objective, the reward per step."""
     cls, kwargs = AGENTS[name]
     _, rows = cls(**kwargs).train(
         seed=0, n_timesteps=BUDGET, num_episode_test=1, logging_config=EVALUATE
@@ -99,6 +103,9 @@ def test_an_agent_logs_the_value_bias_of_its_critic(name: str) -> None:
         assert np.isnan(bias).all()
     else:
         assert np.isfinite(bias).all()
+    rate = np.asarray(rows["Eval/mean average reward"])
+    assert np.isfinite(rate).all() == (name in MEASURES_REWARD_RATE)
+    assert np.isnan(rate).all() == (name not in MEASURES_REWARD_RATE)
 
 
 def _normalising_sac() -> SAC:

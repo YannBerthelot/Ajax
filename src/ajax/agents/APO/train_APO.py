@@ -38,8 +38,9 @@ from ajax.agents.PPO.core import (
     resolve_clip_coef,
 )
 from ajax.agents.PPO.core import ValueAuxiliaries as PPOValueAuxiliaries
-from ajax.agents.PPO.train_PPO import init_PPO, joint_step
+from ajax.agents.PPO.train_PPO import init_PPO
 from ajax.agents.PPO.utils import _compute_gae
+from ajax.agents.steps import joint_step
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig

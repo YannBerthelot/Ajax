@@ -7,6 +7,10 @@ way for every agent. An agent supplies only its `init` and `update`.
 
 ::: ajax.agents.loop
 
+The steps an agent's update is written in:
+
+::: ajax.agents.steps
+
 ::: ajax.perf_utils
 
 ::: ajax.schedule

@@ -1,25 +1,26 @@
 """CrossQ (Bhatt et al., ICLR 2024): SAC without target networks, for
 continuous actions.
 
+One update on a replay batch, in the order of the reference
+(adityab/CrossQ@a318a26, ``sbx/sac/sac.py:195-400``), each line one method
+below or one of SAC's equations (``core``, :mod:`ajax.agents.SAC.core`)::
+
+    a' ~ pi(. | s'), log pi(a' | s')                     core.sample_next_actions
+    Q(s, a), Q(s', a') in one training pass over both               critic_update
+    y = sg(scale r + gamma (1 - d) (min_i Q_i(s', a') - alpha log pi(a' | s')))
+                                                         core.soft_bellman_target
+    Q <- argmin E[(Q(s, a) - y)^2], its running statistics kept
+    every policy_delay-th update, on the same batch:                 actor_update
+      actor <- argmin E[alpha log pi(a | s) - min_i Q_i(s, a)]
+                                                       core.soft_policy_objective
+      alpha <- argmin alpha sg(-log pi(a | s) - H_target)
+                                                   core.alpha_temperature_loss_fn
+
 Batch Renormalization in the actor and the critics, and one training pass of
 the critics over the rows ``(s, a)`` and their next states ``(s', a')``
 together, so that both share the batch statistics: the bootstrap reads that
 pass's second half, held constant. ``a'`` comes from the actor reading its
 running statistics, and so does every critic read outside the critic loss.
-One update on a replay batch, as the authors' code (adityab/CrossQ@a318a26,
-``sbx/sac/sac.py:195-400``), SAC's equations (:mod:`ajax.agents.SAC.core`)
-on the method each line names::
-
-    a' ~ pi(. | s'), log pi(a' | s')                      sample_next_actions
-    Q(s, a), Q(s', a') in one training pass over both          critic_update
-    y = sg(r + gamma (1 - d) (min_i Q_i(s', a') - alpha log pi(a' | s')))
-                                                         soft_bellman_target
-    Q <- argmin E[(Q(s, a) - y)^2], its running statistics kept
-    every policy_delay-th update, on the same batch:            actor_update
-      actor <- argmin E[alpha log pi(a | s) - min_i Q_i(s, a)]
-                                                       soft_policy_objective
-      alpha <- argmin alpha sg(-log pi(a | s) - H_target)
-                                                   alpha_temperature_loss_fn
 """
 
 from __future__ import annotations
@@ -54,13 +55,6 @@ from ajax.state import AlphaConfig, Transition
 
 #: The authors' layers are flax's defaults: lecun-normal kernels, zero biases.
 LECUN = "lecun_normal"
-
-
-def batch_renorm_mlp(width: int) -> tuple[str, ...]:
-    """The authors' MLP: Batch Renorm on the input and after each of two
-    ReLU layers of ``width`` units (``sbx/sac/policies.py:199-231``)."""
-    layer = (str(width), "relu", "batchrenorm")
-    return ("batchrenorm", *layer, *layer)
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -299,6 +293,14 @@ class CrossQ(
     trains_batch_norm = True
     stores_expert_actions = True
     supported_buffer_fields = frozenset({"raw_next_obs", "return_to_go"})
+
+
+# -- CrossQ's own helpers; its equations are SAC.core's ----------------------
+def batch_renorm_mlp(width: int) -> tuple[str, ...]:
+    """The authors' MLP: Batch Renorm on the input and after each of two
+    ReLU layers of ``width`` units (``sbx/sac/policies.py:199-231``)."""
+    layer = (str(width), "relu", "batchrenorm")
+    return ("batchrenorm", *layer, *layer)
 
 
 def scored_action(executed: Callable, a_expert: Any, actions: jax.Array) -> jax.Array:

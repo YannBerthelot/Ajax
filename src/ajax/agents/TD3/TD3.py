@@ -11,7 +11,7 @@ One update on a replay batch, in the order of the reference
     every policy_delay-th update:
         mu <- argmax E[Q_1(s, mu(s))]                         policy_loss_function
         Q_target, mu_target <- tau (Q, mu) + (1 - tau) (Q_target, mu_target)
-                                                            update_target_networks
+                                                                    update_targets
 
 The actor is deterministic (:mod:`ajax.networks.deterministic`: tanh(mu));
 collection explores around it (``gaussian_exploration``), with uniform
@@ -243,7 +243,7 @@ class TD3(
             critic_state=state.critic_state,
         )
         aux = aux.replace(grad_norm=grad_norm)
-        state = update_target_networks(state.replace(actor_state=actor_state), self.tau)
+        state = update_targets(state.replace(actor_state=actor_state), self.tau)
         return state, (aux, metrics)
 
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
@@ -276,10 +276,11 @@ def compute_td3_td_target(
     executed: Optional[Callable] = None,
     next_a_expert: Optional[jax.Array] = None,
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
-    """y = r + gamma * (1-d) * min_i Q_target_i(s', clip(mu_target(s') + clip(N, -c, c), -1, 1)),
-    the share of the noise samples the clip to ``[-c, c]`` changed, and
-    those smoothed next actions, executed (``executed``, a residual policy's,
-    from the expert's stored next actions)."""
+    """``y = scale r + gamma (1 - d) min_i Q_target_i(s', a')`` with ``a' =
+    clip(mu_target(s') + clip(N(0, sigma), -c, c), -1, 1)``, the share of the
+    noise samples the clip to ``[-c, c]`` changed, and those smoothed next
+    actions, executed (``executed``, a residual policy's, from the expert's
+    stored next actions)."""
     rewards = rewards * reward_scale
     next_action = actor_dist(
         actor_state,
@@ -353,14 +354,16 @@ def policy_loss_function(
     return loss, (PolicyAuxiliaries(policy_loss=loss, q_mean=q_first.mean()), actions)
 
 
-def update_target_networks(agent_state: TD3State, tau: float) -> TD3State:
-    """Polyak-average both target networks (actor and critics)."""
+def update_targets(agent_state: TD3State, tau: float) -> TD3State:
+    """Polyak-average both target networks, the actor's and the critics'
+    (steps.update_target_networks averages the critics' only)."""
     return agent_state.replace(
         critic_state=agent_state.critic_state.soft_update(tau=tau),
         actor_state=agent_state.actor_state.soft_update(tau=tau),
     )
 
 
+# -- TD3's exploration, which collection runs ---------------------------------
 def gaussian_exploration(exploration_noise: Schedule) -> Explore:
     """TD3's behaviour policy: ``clip(mu(s) + N(0, exploration_noise), -1, 1)``,
     the noise's scale a schedule of the timestep."""

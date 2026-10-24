@@ -17,11 +17,11 @@ __getattr__ = moved_names(
             "gaussian_exploration",
             "make_default_action_pipeline",
             "policy_loss_function",
-            "update_target_networks",
         ),
         "ajax.agents.TD3.TD3",
     )
     | {
+        "update_target_networks": "ajax.agents.TD3.TD3:update_targets",
         "init_TD3": "ajax.agents.TD3.TD3:TD3.init",
         "update_agent": "ajax.agents.TD3.TD3:TD3.update",
         "update_value_functions": "ajax.agents.TD3.TD3:TD3.critic_update",

@@ -135,7 +135,7 @@ jobs:
         with:
           job: conformance
       # The records of the originals that run in their own envs (PyTorch;
-      # CrossQ's authors' jax, flax and SB3), kept while the vendored
+      # CrossQ's authors' jax, flax and SB3; ASAC's SB3 2.4), kept while the vendored
       # originals, their recorders and their envs' locks stay the same. On a
       # miss the tests record them (CPU-only torch wheels), and a push to
       # main saves them, as for the compile cache.
@@ -143,12 +143,13 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: .cache/conformance
-          key: conformance-records-${{ hashFiles('benchmarks/reference/vendor/**', 'benchmarks/reference/conformance_*.py', 'benchmarks/reference/envs/torch/uv.lock', 'benchmarks/reference/envs/crossq/uv.lock') }}
+          key: conformance-records-${{ hashFiles('benchmarks/reference/vendor/**', 'benchmarks/reference/conformance_*.py', 'benchmarks/reference/envs/torch/uv.lock', 'benchmarks/reference/envs/crossq/uv.lock', 'benchmarks/reference/envs/asac/uv.lock') }}
       - name: Install the originals' environments
         if: steps.records.outputs.cache-hit != 'true'
         run: |
           uv sync --project benchmarks/reference/envs/torch --locked
           uv sync --project benchmarks/reference/envs/crossq --locked
+          uv sync --project benchmarks/reference/envs/asac --locked
       - run: uv run pytest tests/conformance -v --durations=30
         env:
           AJAX_CONFORMANCE_RECORDS: .cache/conformance

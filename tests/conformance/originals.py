@@ -4,7 +4,7 @@ with them: what their conformance tests share.
 A recorder writes, per recorded state, ``in.*`` (the state), the update's own draws, and the state
 after one update from it in float32 and in float64 (``f32.*``, ``f64.*``), whose difference is the
 rounding the check tolerates. CI keeps the records while the vendored originals, the recorders and the
-torch env's lock stay the same (``AJAX_CONFORMANCE_RECORDS``, under a cache key that hashes them);
+recorders' env locks stay the same (``AJAX_CONFORMANCE_RECORDS``, under a cache key that hashes them);
 unset, every session records them.
 """
 
@@ -21,6 +21,7 @@ REPO = pathlib.Path(__file__).parents[2]
 KEPT = os.environ.get("AJAX_CONFORMANCE_RECORDS")
 TORCH_ENV = "benchmarks/reference/envs/torch"  # CPU-only PyTorch, gymnax, jax
 CROSSQ_ENV = "benchmarks/reference/envs/crossq"  # the authors' own jax, flax and SB3
+ASAC_ENV = "benchmarks/reference/envs/asac"  # BobMak/asac's pins: stable-baselines3 2.4, gymnasium 1.0
 
 
 def recorded(

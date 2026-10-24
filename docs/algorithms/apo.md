@@ -199,7 +199,11 @@ PPO's clipped surrogate, the value loss and the entropy bonus.
 
 ## Results
 
-No learning curves are published for APO yet. Unit tests
+No learning curves are published for APO yet. A conformance check
+(`tests/conformance/test_apo_original.py`) makes one update of Ajax's APO
+and of xtma/apo's APPO from the same state and rollout, on two gymnax
+tasks, one of them with time limits, and compares both networks, the
+log-std, the optimiser, the reward rate and the value bias. Unit tests
 (`tests/agents/APO` and the contracts every agent shares) check its pieces
 against exact contracts, without learning, such as its differential
 advantages. The probes (`tests/probing`) train it briefly on tiny

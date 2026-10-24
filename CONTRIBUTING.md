@@ -113,13 +113,14 @@ ships.
 
 An extension is a frozen dataclass subclassing `Extension`. It holds its own
 settings and overrides only the *phases* it touches; the other phases keep
-their defaults, which change nothing. An agent folds its `ExtensionStack`
-through a phase in list order, mostly with a `stack.fold_<phase>(...)` helper
-(`fold_init`, `fold_on_target`, `fold_critic_loss`, `fold_actor_loss`,
-`fold_post_update`, `fold_eval_metrics`) that builds the `ExtensionContext`
-(`step`, `rng`, `total_steps`) and threads the extensions' state. On an empty
-stack a helper changes nothing (a loss term is `0.0`), so an agent without
-extensions traces nothing extra and never guards a fold.
+their defaults, which change nothing. An agent applies a phase of its
+`ExtensionStack` in list order with one helper per phase (`apply_reward`,
+`apply_on_target`, `apply_critic_loss`, `apply_actor_loss`,
+`apply_post_update`; the loop calls `fold_init` and `fold_eval_metrics`)
+that builds the `ExtensionContext` (`step`, `rng`, `total_steps`) and
+threads the extensions' state. On an empty stack a helper changes nothing
+(a loss term is `0.0`), so an agent without extensions traces nothing extra
+and never guards a call.
 
 | Phase | What it does | Folded today by |
 | --- | --- | --- |
@@ -221,12 +222,12 @@ class FOO(GradientClipping, ExpertGuided, ReplayAgent):
         target = foo_target(state, batch, self.gamma, self.reward_scale)
         critic_state, critic_aux, _, critic_metrics = steps.critic_step(
             state, batch, target, partial(foo_value_loss, state.critic_state, batch),
-            ctx.stack, critic_key, ctx.total_timesteps,
+            ctx.extensions, critic_key, ctx.total_timesteps,
             rewards=batch.reward, dones=batch.terminated,
             gamma=self.gamma, reward_scale=self.reward_scale,
         )
         actor_state, actor_aux, _, actor_metrics = steps.actor_step(
-            state, partial(foo_policy_loss, state), ctx.stack, actor_key,
+            state, partial(foo_policy_loss, state), ctx.extensions, actor_key,
             ctx.total_timesteps, observations=batch.obs, actions=batch.action,
         )
         state = state.replace(
@@ -259,9 +260,9 @@ had a Config before their fields were declared (IQL, CrossQ, TD3, PPO, APO, PQN)
 view of the fields (`declare_config`), until 0.5.0.
 
 `init` splits the run's key on the agent's own layout, which its pins hold.
-`steps.critic_step` folds `on_target` and `critic_loss`; its keywords are what
-the target used (`dones`: where it cut the bootstrap). `steps.actor_step`
-folds `actor_loss`; its keywords are the rows the extensions read. Both derive
+`steps.critic_step` applies `on_target` and `critic_loss`; its keywords are
+what the target used (`dones`: where it cut the bootstrap). `steps.actor_step`
+applies `actor_loss`; its keywords are the rows the extensions read. Both derive
 the extensions' keys from the step's
 ([Randomness](docs/developer/writing-an-extension.md#randomness)), so the
 agent's own random stream is the same with or without extensions.

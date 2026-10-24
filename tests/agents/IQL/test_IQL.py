@@ -44,7 +44,7 @@ def test_the_actor_weighs_each_row_by_its_clipped_advantage() -> None:
         network_args=agent.network_args,
         actor_optimizer_args=agent.actor_optimizer_args,
         critic_optimizer_args=agent.critic_optimizer_args,
-        stack=agent.extension_stack,
+        extensions=agent.extension_stack,
         total_timesteps=16,
         collector=agent.collector,
         buffer=agent.buffer,

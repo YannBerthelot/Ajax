@@ -220,7 +220,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         ``base.py:73-77``).
         """
         del start  # a feedforward policy: nothing to replay from it
-        stack, total_timesteps = ctx.stack, ctx.total_timesteps
+        extensions, total_timesteps = ctx.extensions, ctx.total_timesteps
         critic = state.critic_state
         values = predict_value(critic, critic.params, rollout.obs).squeeze(0)
         next_values = predict_value(critic, critic.params, rollout.next_obs).squeeze(0)
@@ -255,7 +255,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         # key derived from it.
         state, shuffle_key = state.next_keys()
         target_metrics: dict = {}
-        if stack:
+        if extensions:
             target_batch = {
                 "observations": rollout.obs,
                 "next_observations": rollout.next_obs,
@@ -267,7 +267,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 "average_reward": average_reward,
                 "gamma": None,  # APO is average-reward (differential V)
             }
-            value_targets, target_metrics = stack.fold_on_target(
+            value_targets, target_metrics = extensions.apply_on_target(
                 state,
                 target_batch,
                 value_targets,
@@ -334,7 +334,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             extension_key(minibatch["entropy_key"])
         )
         timestep = state.collector_state.timestep
-        stack, total_timesteps = ctx.stack, ctx.total_timesteps
+        extensions, total_timesteps = ctx.extensions, ctx.total_timesteps
 
         def loss_fn(params: tuple) -> Tuple[jax.Array, AuxiliaryLogs]:
             actor_params, critic_params = params
@@ -375,10 +375,10 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 "actor_state": actor_state,
                 "a_expert": minibatch["a_expert"],
             }
-            critic_extra, critic_metrics = stack.fold_critic_loss(
+            critic_extra, critic_metrics = extensions.apply_critic_loss(
                 state, critic_batch, timestep, critic_key, total_timesteps
             )
-            actor_extra, actor_metrics = stack.fold_actor_loss(
+            actor_extra, actor_metrics = extensions.apply_actor_loss(
                 state, actor_batch, timestep, actor_key, total_timesteps
             )
             loss = policy_loss + value_loss + critic_extra + actor_extra

@@ -527,11 +527,12 @@ class ExtensionStack:
         """One sub-key per extension (a fold never splits for an empty stack)."""
         return tuple(jax.random.split(rng, len(self.extensions)))
 
-    # ``fold_<phase>``: each fold builds the phase's ExtensionContext and
+    # ``apply_<phase>`` (and the loop's ``fold_init``, ``fold_pretrain``,
+    # ``fold_eval_metrics``): each builds the phase's ExtensionContext and
     # reads (and, for state-threading phases, writes)
     # ``agent_state.ext_state``, in list order. On an empty stack it returns
     # its input unchanged without building a context, so an agent without
-    # extensions traces nothing extra and never needs to guard a fold.
+    # extensions traces nothing extra and never needs to guard a call.
 
     def fold_init(
         self, agent_state: Any, rng: jax.Array, total_steps: int, **context: Any
@@ -580,14 +581,15 @@ class ExtensionStack:
             agent_state, ext_states[i] = ext.pretrain(agent_state, ext_states[i], ctx)
         return agent_state.replace(ext_state=tuple(ext_states))
 
-    def fold_post_update(
+    def apply_post_update(
         self,
         agent_state: Any,
         step: Any,
         rng: jax.Array,
         total_steps: int,
     ) -> Any:
-        """Post-update fold; returns the updated ``agent_state``."""
+        """Every extension's ``post_update``; returns the updated
+        ``agent_state``."""
         if not self.extensions:
             return agent_state
         ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
@@ -598,7 +600,7 @@ class ExtensionStack:
             )
         return agent_state.replace(ext_state=tuple(ext_states))
 
-    def fold_reward(
+    def apply_reward(
         self,
         agent_state: Any,
         batch: Any,
@@ -607,9 +609,9 @@ class ExtensionStack:
         rng: jax.Array,
         total_steps: int,
     ) -> tuple[Any, jax.Array, dict]:
-        """Reward fold, in list order, each seeing the previous rewards;
-        returns the state (the extensions' states updated), the rewards and
-        the metrics."""
+        """Every extension's ``reward``, in list order, each seeing the
+        previous rewards; returns the state (the extensions' states
+        updated), the rewards and the metrics."""
         if not self.extensions:
             return agent_state, rewards, {}
         ext_states, metrics = list(agent_state.ext_state), dict[str, Any]()
@@ -623,7 +625,7 @@ class ExtensionStack:
             metrics = merge_metrics(metrics, ext_metrics)
         return agent_state.replace(ext_state=tuple(ext_states)), rewards, metrics
 
-    def fold_on_target(
+    def apply_on_target(
         self,
         agent_state: Any,
         batch: Any,
@@ -632,8 +634,8 @@ class ExtensionStack:
         rng: jax.Array,
         total_steps: int,
     ) -> tuple[jax.Array, dict]:
-        """Target-modifier fold; returns the (possibly reshaped) target and
-        the extensions' metrics."""
+        """Every extension's ``on_target``; returns the (possibly reshaped)
+        target and the extensions' metrics."""
         if not self.extensions:
             return target, {}
         ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
@@ -645,7 +647,7 @@ class ExtensionStack:
             metrics = merge_metrics(metrics, ext_metrics)
         return target, metrics
 
-    def fold_critic_loss(
+    def apply_critic_loss(
         self,
         agent_state: Any,
         batch: Any,
@@ -653,13 +655,13 @@ class ExtensionStack:
         rng: jax.Array,
         total_steps: int,
     ) -> tuple[jax.Array | float, dict]:
-        """Critic-loss fold; returns the summed additive critic-loss term
-        and the extensions' metrics."""
-        return self._fold_loss(
+        """Every extension's ``critic_loss``; returns the summed additive
+        critic-loss term and the extensions' metrics."""
+        return self._apply_loss(
             "critic_loss", agent_state, batch, step, rng, total_steps
         )
 
-    def fold_actor_loss(
+    def apply_actor_loss(
         self,
         agent_state: Any,
         batch: Any,
@@ -667,11 +669,13 @@ class ExtensionStack:
         rng: jax.Array,
         total_steps: int,
     ) -> tuple[jax.Array | float, dict]:
-        """Actor-loss fold; returns the summed additive actor-loss term and
-        the extensions' metrics."""
-        return self._fold_loss("actor_loss", agent_state, batch, step, rng, total_steps)
+        """Every extension's ``actor_loss``; returns the summed additive
+        actor-loss term and the extensions' metrics."""
+        return self._apply_loss(
+            "actor_loss", agent_state, batch, step, rng, total_steps
+        )
 
-    def _fold_loss(
+    def _apply_loss(
         self,
         phase: str,
         agent_state: Any,
@@ -692,6 +696,14 @@ class ExtensionStack:
             total = total + term
             metrics = merge_metrics(metrics, ext_metrics)
         return total, metrics
+
+    # The former names, which the agents not yet declared on a family call;
+    # 0.5.0 removes them.
+    fold_post_update = apply_post_update
+    fold_reward = apply_reward
+    fold_on_target = apply_on_target
+    fold_critic_loss = apply_critic_loss
+    fold_actor_loss = apply_actor_loss
 
     def fold_eval_metrics(
         self,

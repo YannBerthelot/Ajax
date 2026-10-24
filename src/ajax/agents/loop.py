@@ -68,6 +68,9 @@ from ajax.agents.steps import (
     REPLAY_BATCH_KEYS,
     TARGET_KEYS,
     actor_step,
+    apply_critic_loss,
+    apply_on_target,
+    apply_post_update,
     critic_step,
     extension_key,
     fold_critic_loss,
@@ -393,8 +396,8 @@ class TrainLoop:
         )
 
     def post_update(self, agent_state: Any) -> Any:
-        """:func:`fold_post_update` at the collector's timestep."""
-        return fold_post_update(
+        """:func:`apply_post_update` at the collector's timestep."""
+        return apply_post_update(
             self.stack,
             agent_state,
             agent_state.collector_state.timestep,
@@ -822,6 +825,9 @@ __all__ = [
     "Evaluation",
     "TrainLoop",
     "actor_step",
+    "apply_critic_loss",
+    "apply_on_target",
+    "apply_post_update",
     "critic_step",
     "extension_key",
     "fold_critic_loss",

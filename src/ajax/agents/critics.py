@@ -164,7 +164,7 @@ def q_gradient_step(
                 # gradient.
                 "q_state": q_state.replace(params=params),
             }
-            extra, metrics = extension_stack.fold_critic_loss(
+            extra, metrics = extension_stack.apply_critic_loss(
                 agent_state,
                 batch,
                 agent_state.collector_state.timestep,

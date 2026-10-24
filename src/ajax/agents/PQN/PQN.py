@@ -190,7 +190,7 @@ class PQN(
         also logs the epsilon its rollout read (``epsilon_schedule`` once per
         update, as purejaxql reads it)."""
         del start  # a feedforward network replays nothing
-        stack, total_timesteps = ctx.stack, ctx.total_timesteps
+        extensions, total_timesteps = ctx.extensions, ctx.total_timesteps
         next_q = predict_q(
             state.actor_state,
             state.actor_state.params,
@@ -211,7 +211,7 @@ class PQN(
         # key derived from the update's, then add their loss terms, on keys
         # derived from each epoch's: one per minibatch.
         target_metrics: dict = {}
-        if stack:
+        if extensions:
             target_batch = {
                 "observations": rollout.obs,
                 "actions": rollout.action,
@@ -224,7 +224,7 @@ class PQN(
                 "gamma": self.gamma,
                 "reward_scale": self.reward_scale,
             }
-            targets, target_metrics = stack.fold_on_target(
+            targets, target_metrics = extensions.apply_on_target(
                 state,
                 target_batch,
                 targets,
@@ -253,7 +253,7 @@ class PQN(
                     actions,
                     targets,
                     td_loss_fn,
-                    stack,
+                    extensions,
                     loss_key,
                     total_timesteps,
                 )

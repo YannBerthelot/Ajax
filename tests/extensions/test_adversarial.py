@@ -88,7 +88,7 @@ def test_the_fold_threads_the_discriminators_state() -> None:
             new.ext_state = ext_state
             return new
 
-    state, rewards, _ = stack.fold_reward(
+    state, rewards, _ = stack.apply_reward(
         State(), rollout(), jnp.zeros((4, 2, 1)), 0, KEY, 8
     )
     assert int(state.ext_state[0].step) == gail.n_updates and rewards.shape == (4, 2, 1)

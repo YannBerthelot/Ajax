@@ -51,7 +51,7 @@ def context(agent: TD3, stack: ExtensionStack = EMPTY) -> TrainContext:
         network_args=agent.network_args,
         actor_optimizer_args=agent.actor_optimizer_args,
         critic_optimizer_args=agent.critic_optimizer_args,
-        stack=stack,
+        extensions=stack,
         total_timesteps=1,
         collector=partial(
             init_collector_state,

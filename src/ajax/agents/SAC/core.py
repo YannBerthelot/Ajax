@@ -298,7 +298,7 @@ def soft_actor_step(
             "critic_state": agent_state.critic_state,
             "agent_loss": loss,
         }
-        extra, metrics = extension_stack.fold_actor_loss(
+        extra, metrics = extension_stack.apply_actor_loss(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,

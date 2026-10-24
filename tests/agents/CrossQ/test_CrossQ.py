@@ -48,7 +48,7 @@ def test_the_critics_normalise_the_rows_and_their_next_states_together() -> None
         network_args=agent.network_args,
         actor_optimizer_args=agent.actor_optimizer_args,
         critic_optimizer_args=agent.critic_optimizer_args,
-        stack=agent.extension_stack,
+        extensions=agent.extension_stack,
         total_timesteps=1,
         collector=partial(agent.collector, loop=loop, network_args=agent.network_args),
         buffer=agent.buffer,

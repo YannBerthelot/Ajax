@@ -411,7 +411,7 @@ def _apo_update(stack: ExtensionStack) -> Any:
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
     # The stack as given, unbound, as each test builds it.
-    ctx = dataclasses.replace(agent.context(1)[1], stack=stack)
+    ctx = dataclasses.replace(agent.context(1)[1], extensions=stack)
     state = _ext_state(agent.init(KEY, ctx), stack)
     obs = _obs(agent)
     minibatch = {
@@ -516,14 +516,14 @@ def test_the_critic_in_the_actor_batch_is_inert_without_the_filter(
     def program() -> str:
         return str(jax.make_jaxpr(lambda: update(_stack(1.0)))())
 
-    with_critic, fold = program(), ExtensionStack.fold_actor_loss
+    with_critic, apply = program(), ExtensionStack.apply_actor_loss
 
     def without(self: ExtensionStack, state: Any, batch: dict, *args: Any) -> Any:
-        return fold(
+        return apply(
             self, state, {k: batch[k] for k in batch.keys() - {"critic_state"}}, *args
         )
 
-    monkeypatch.setattr(ExtensionStack, "fold_actor_loss", without)
+    monkeypatch.setattr(ExtensionStack, "apply_actor_loss", without)
     assert program() == with_critic
 
 

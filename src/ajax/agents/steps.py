@@ -1,7 +1,7 @@
 """The steps an agent's update is written in: gradient steps with the
-extensions' loss terms folded in (:func:`critic_step`, :func:`actor_step`,
+extensions' loss terms added (:func:`critic_step`, :func:`actor_step`,
 :func:`joint_step` for two networks clipped together), the extensions'
-target and post-update folds, the gates (:func:`when`) and keys
+target and post-update phases, the gates (:func:`when`) and keys
 (:func:`extension_key`) around them, which :mod:`ajax.agents.loop`
 re-exports, and the target critics' Polyak update SAC, ASAC, REDQ and TQC
 share (:func:`update_target_networks`).
@@ -20,7 +20,7 @@ from ajax.log import unevaluated
 
 #: The keys of the extensions' batches the shared steps below build, which
 #: an agent on them declares (``ActorCritic.phase_batch_keys``), with any it
-#: adds: :func:`fold_on_target`'s, :func:`fold_critic_loss`'s, and those
+#: adds: :func:`apply_on_target`'s, :func:`apply_critic_loss`'s, and those
 #: :func:`actor_step` adds, and with them the rows' entries a replay agent
 #: passes (REPLAY_ACTOR_KEYS: SAC's, TD3's, CrossQ's and SAC's core's).
 TARGET_KEYS = frozenset(
@@ -51,15 +51,17 @@ REPLAY_BATCH_KEYS: dict[str, frozenset[str]] = {
 }
 
 
-def fold_post_update(
-    stack: ExtensionStack, agent_state: Any, step: Any, total_steps: int
+def apply_post_update(
+    extensions: ExtensionStack, agent_state: Any, step: Any, total_steps: int
 ) -> Any:
-    """Fold the extensions' ``post_update`` at ``step`` on a fresh key split
+    """Apply the extensions' ``post_update`` at ``step`` on a fresh key split
     from ``agent_state.rng`` (no key is drawn without extensions)."""
-    if not stack:
+    if not extensions:
         return agent_state
     key, rng = jax.random.split(agent_state.rng)
-    return stack.fold_post_update(agent_state.replace(rng=rng), step, key, total_steps)
+    return extensions.apply_post_update(
+        agent_state.replace(rng=rng), step, key, total_steps
+    )
 
 
 def when(pred: Any, fn: Callable[[Any], Any], state: Any, fill: Any = None) -> Any:
@@ -112,8 +114,8 @@ def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any, jax.Ar
     return train_state.apply_gradients(grads=grads), aux, optax.global_norm(grads)
 
 
-def fold_on_target(
-    stack: ExtensionStack,
+def apply_on_target(
+    extensions: ExtensionStack,
     agent_state: Any,
     batch: Any,
     target_q: jax.Array,
@@ -126,7 +128,7 @@ def fold_on_target(
     reward_scale: float,
     target_extras: Optional[dict] = None,
 ) -> tuple[jax.Array, dict]:
-    """``target_q`` with the extensions' ``on_target`` folded in, held
+    """``target_q`` with the extensions' ``on_target`` applied, held
     constant, and their metrics: :func:`critic_step`'s first half, which an
     agent whose target comes out of its own critic pass (CrossQ) calls
     inside its loss.
@@ -134,7 +136,7 @@ def fold_on_target(
     ``batch`` is a :class:`Transition`. ``rewards``, ``dones`` (where the
     bootstrap is cut), ``gamma`` (None for an average-reward agent) and
     ``reward_scale`` are what the target used; ``target_extras`` join the
-    extensions' batch (TD3's smoothed next actions). The fold draws on a key
+    extensions' batch (TD3's smoothed next actions). The phase draws on a key
     derived from ``key``, the step's (:func:`extension_key`).
     """
     target_batch = {
@@ -154,14 +156,14 @@ def fold_on_target(
     } | (target_extras or {})
     target_key, _ = jax.random.split(extension_key(key))
     step = agent_state.collector_state.timestep
-    target_q, metrics = stack.fold_on_target(
+    target_q, metrics = extensions.apply_on_target(
         agent_state, target_batch, target_q, step, target_key, total_timesteps
     )
     return jax.lax.stop_gradient(target_q), metrics
 
 
-def fold_critic_loss(
-    stack: ExtensionStack,
+def apply_critic_loss(
+    extensions: ExtensionStack,
     agent_state: Any,
     batch: Any,
     params: Any,
@@ -185,7 +187,7 @@ def fold_critic_loss(
     }
     _, loss_key = jax.random.split(extension_key(key))
     step = agent_state.collector_state.timestep
-    return stack.fold_critic_loss(
+    return extensions.apply_critic_loss(
         agent_state, loss_batch, step, loss_key, total_timesteps
     )
 
@@ -202,16 +204,16 @@ def critic_step(
 ) -> tuple[Any, Any, jax.Array, dict]:
     """A replay agent's critic step on ``batch`` (a :class:`Transition`).
 
-    Folds the extensions' ``on_target`` into ``target_q``, held constant
-    (:func:`fold_on_target`, which ``target_args`` reach: what the target
+    Applies the extensions' ``on_target`` to ``target_q``, held constant
+    (:func:`apply_on_target`, which ``target_args`` reach: what the target
     used), then steps the critic down ``value_loss(params, target_q) ->
     (loss, aux)`` plus their ``critic_loss`` terms
-    (:func:`fold_critic_loss`). The folds draw on keys derived from ``key``,
+    (:func:`apply_critic_loss`). The phases draw on keys derived from ``key``,
     the step's, on which the agent may draw too. Returns the stepped critic
     state, ``aux``, the gradients' norm (:func:`gradient_step`) and the two
-    folds' metrics.
+    phases' metrics.
     """
-    target_q, target_metrics = fold_on_target(
+    target_q, target_metrics = apply_on_target(
         extension_stack,
         agent_state,
         batch,
@@ -223,7 +225,7 @@ def critic_step(
 
     def loss_fn(params: Any) -> tuple[jax.Array, Any]:
         loss, aux = value_loss(params, target_q)
-        extra, loss_metrics = fold_critic_loss(
+        extra, loss_metrics = apply_critic_loss(
             extension_stack, agent_state, batch, params, target_q, key, total_timesteps
         )
         return loss + extra, (aux, loss_metrics)
@@ -246,14 +248,14 @@ def actor_step(
 
     Steps the actor down ``policy_loss(params) -> (loss, aux, pi_mean)``
     (``pi_mean``: the policy's mean action at the rows, None for a discrete
-    policy) plus the extensions' ``actor_loss`` terms, folded on a key
+    policy) plus the extensions' ``actor_loss`` terms, on a key
     derived from ``key``, the step's (:func:`extension_key`). Their batch is
     ``batch``, the rows' entries the agent passes (``observations``,
     ``raw_observations``, ``actions``, ``a_expert``, ``critic_state``), with
     the differentiated ``actor_params``, the ``actor_state``, ``pi_mean`` and
     ``agent_loss``.
     Returns the stepped actor state, ``aux``, the gradients' norm
-    (:func:`gradient_step`) and the fold's metrics.
+    (:func:`gradient_step`) and the phase's metrics.
     """
     actor_state = agent_state.actor_state
 
@@ -266,7 +268,7 @@ def actor_step(
             "agent_loss": loss,
         }
         step = agent_state.collector_state.timestep
-        extra, metrics = extension_stack.fold_actor_loss(
+        extra, metrics = extension_stack.apply_actor_loss(
             agent_state, actor_batch, step, extension_key(key), total_timesteps
         )
         return loss + extra, (aux, metrics)
@@ -308,6 +310,13 @@ def joint_step(
         actor.apply_gradients(grads=actor_grads),
         critic.apply_gradients(grads=critic_grads),
     )
+
+
+# The former names, which the agents not yet declared on a family call;
+# 0.5.0 removes them.
+fold_post_update = apply_post_update
+fold_on_target = apply_on_target
+fold_critic_loss = apply_critic_loss
 
 
 def update_target_networks(agent_state: Any, tau: float) -> Any:

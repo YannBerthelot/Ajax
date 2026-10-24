@@ -26,9 +26,9 @@ from ajax.agents.APO.APO import APO
 from ajax.agents.loop import (
     TrainLoop,
     actor_step,
+    apply_critic_loss,
+    apply_on_target,
     critic_step,
-    fold_critic_loss,
-    fold_on_target,
     gradient_step,
     when,
 )
@@ -375,11 +375,11 @@ def test_the_critic_steps_halves_compose_to_the_step() -> None:
     )
 
     def loss_fn(params):
-        target_q, target_metrics = fold_on_target(
+        target_q, target_metrics = apply_on_target(
             stack, state, _ENDS, jnp.ones((4, 1)), key, 100, **target_args
         )
         loss, _ = value_loss(params, target_q)
-        extra, loss_metrics = fold_critic_loss(
+        extra, loss_metrics = apply_critic_loss(
             stack, state, _ENDS, params, target_q, key, 100
         )
         return loss + extra, merge_metrics(target_metrics, loss_metrics)

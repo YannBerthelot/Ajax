@@ -197,7 +197,7 @@ class TD3(
             batch,
             target_q,
             loss,
-            ctx.stack,
+            ctx.extensions,
             key,
             ctx.total_timesteps,
             rewards=batch.reward,
@@ -233,7 +233,7 @@ class TD3(
         actor_state, aux, grad_norm, metrics = steps.actor_step(
             state,
             policy_loss,
-            ctx.stack,
+            ctx.extensions,
             key,
             ctx.total_timesteps,
             observations=batch.obs,

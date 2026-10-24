@@ -214,8 +214,8 @@ class CrossQ(
                 alpha,
                 self.reward_scale,
             )
-            target, target_metrics = steps.fold_on_target(
-                ctx.stack,
+            target, target_metrics = steps.apply_on_target(
+                ctx.extensions,
                 state,
                 batch,
                 target,
@@ -227,8 +227,8 @@ class CrossQ(
                 reward_scale=self.reward_scale,
             )
             loss, aux = q_regression_loss(q_now, target)
-            extra, loss_metrics = steps.fold_critic_loss(
-                ctx.stack, state, batch, params, target, key, ctx.total_timesteps
+            extra, loss_metrics = steps.apply_critic_loss(
+                ctx.extensions, state, batch, params, target, key, ctx.total_timesteps
             )
             metrics = merge_metrics(target_metrics, loss_metrics)
             return loss + extra, (aux, batch_stats, metrics)
@@ -265,7 +265,7 @@ class CrossQ(
         actor_state, (aux, log_probs, batch_stats), _, metrics = steps.actor_step(
             state,
             policy_loss,
-            ctx.stack,
+            ctx.extensions,
             key,
             ctx.total_timesteps,
             observations=batch.obs,

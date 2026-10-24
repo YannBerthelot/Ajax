@@ -312,7 +312,7 @@ def test_an_on_policy_agent_runs_its_update_on_each_rollout() -> None:
     assert agent.network_args.cnn_image_shape is None  # ImageObservations'
     # The context runs init alone, as the run's first state.
     loop, ctx = agent.context(8)
-    assert ctx.stack is loop.stack and not ctx.recurrent and ctx.buffer is None
+    assert ctx.extensions is loop.stack and not ctx.recurrent and ctx.buffer is None
     assert agent.init(jax.random.PRNGKey(0), ctx).collector_state.timestep == 0
     state, _ = agent.train(seed=0, n_timesteps=4)  # 4 // 4 + 1 rollouts
     assert np.asarray(state.n_updates).tolist() == [2]  # one seed

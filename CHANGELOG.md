@@ -69,6 +69,14 @@ PyPI as `ajax-rl`.
   where the advantages are computed (`advantages_per_minibatch`) and cuts
   the rollout (`minibatches`). The old names, also on `train_PPO`, import
   with a FutureWarning until 0.5.0.
+- **Extension phases are applied.** `ExtensionStack.fold_reward`,
+  `fold_on_target`, `fold_critic_loss`, `fold_actor_loss` and
+  `fold_post_update` are now `apply_reward`, `apply_on_target`,
+  `apply_critic_loss`, `apply_actor_loss` and `apply_post_update`, as
+  are `ajax.agents.loop`'s `fold_on_target`, `fold_critic_loss` and
+  `fold_post_update` (also in `ajax.agents.steps`): same arguments. The
+  old names stay as aliases until 0.5.0. `TrainContext.stack` is
+  `TrainContext.extensions`.
 - Writing a name on a module it moved out of (`monkeypatch.setattr` on an
   old path) raises AttributeError naming its new home, where it is read:
   the write would have changed nothing.

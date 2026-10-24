@@ -88,7 +88,7 @@ class TrainContext:
     network_args: NetworkConfig
     actor_optimizer_args: OptimizerConfig
     critic_optimizer_args: OptimizerConfig
-    stack: ExtensionStack
+    extensions: ExtensionStack
     total_timesteps: int
     #: ``collector(key, **options)``: the collector state, its replay storing
     #: what the run needs (``options``: init_collector_state's, an agent's).
@@ -424,7 +424,7 @@ class DeclaredAgent(ActorCritic):
         )
         ctx = TrainContext(
             **configs,
-            stack=loop.stack,
+            extensions=loop.stack,
             total_timesteps=total_timesteps,
             collector=partial(self.collector, loop=loop, network_args=network_args),
             buffer=buffer,

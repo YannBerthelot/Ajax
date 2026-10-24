@@ -162,7 +162,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         actor_state, a_loss, _, actor_metrics = steps.actor_step(
             state,
             partial(awr_loss, state.actor_state, batch.obs, chosen, weight),
-            ctx.stack,
+            ctx.extensions,
             actor_key,
             ctx.total_timesteps,
             observations=batch.obs,
@@ -176,7 +176,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             batch,
             target,
             partial(q_loss, critic, batch),
-            ctx.stack,
+            ctx.extensions,
             critic_key,
             ctx.total_timesteps,
             rewards=batch.reward,

@@ -117,11 +117,11 @@ def test_stack_folds_transforms_and_sums_losses():
         [AddTarget(1.0), AddTarget(10.0), ConstCriticLoss(0.25), ConstCriticLoss(0.75)]
     )
     agent, step, rng = _FakeAgentState(ext_state=((),) * 4), 0, jax.random.PRNGKey(0)
-    target, metrics = stack.fold_on_target(
+    target, metrics = stack.apply_on_target(
         agent, None, jnp.asarray(0.0), step, rng, 100
     )
     assert float(target) == 11.0 and metrics == {}
-    total, metrics = stack.fold_critic_loss(agent, None, step, rng, 100)
+    total, metrics = stack.apply_critic_loss(agent, None, step, rng, 100)
     assert float(total) == 1.0 and metrics == {}
 
 
@@ -145,15 +145,15 @@ def test_a_phase_may_return_its_metrics_beside_its_value():
 
     stack = ExtensionStack([Logged("a"), AddTarget(10.0), Logged("b")])
     agent, step, rng = _FakeAgentState(ext_state=((),) * 3), 0, jax.random.PRNGKey(0)
-    target, metrics = stack.fold_on_target(agent, None, jnp.asarray(0.0), step, rng, 9)
+    target, metrics = stack.apply_on_target(agent, None, jnp.asarray(0.0), step, rng, 9)
     assert float(target) == 12.0
     assert {k: float(v) for k, v in metrics.items()} == {
         "a/target": 0.0,
         "b/target": 11.0,
     }
     for fold, name, total in (
-        (stack.fold_critic_loss, "critic", 1.0),
-        (stack.fold_actor_loss, "actor", 0.5),
+        (stack.apply_critic_loss, "critic", 1.0),
+        (stack.apply_actor_loss, "actor", 0.5),
     ):
         term, metrics = fold(agent, None, step, rng, 9)
         assert float(term) == total and sorted(metrics) == [f"a/{name}", f"b/{name}"]
@@ -161,7 +161,7 @@ def test_a_phase_may_return_its_metrics_beside_its_value():
     twice = ExtensionStack([Logged("a"), Logged("a")])
     agent = _FakeAgentState(ext_state=((),) * 2)
     with pytest.raises(ValueError, match="a/critic"):
-        twice.fold_critic_loss(agent, None, step, rng, 9)
+        twice.apply_critic_loss(agent, None, step, rng, 9)
 
 
 def test_eval_metrics_merge_with_a_key_per_extension():
@@ -198,7 +198,7 @@ def test_state_folds_thread_the_agent_state_in_list_order():
     agent = _FakeAgentState(ext_state=(0, 5))
     pretrained = stack.fold_pretrain(agent, 0, rng, 100)
     assert (pretrained.value, pretrained.ext_state) == (12, (-1, -1))
-    updated = stack.fold_post_update(agent, 0, rng, 100)
+    updated = stack.apply_post_update(agent, 0, rng, 100)
     assert (updated.value, updated.ext_state) == (12, (1, 6))
 
 
@@ -240,7 +240,7 @@ def test_stateful_extension_through_scan():
 
     def body(carry, _):
         agent = _FakeAgentState(ext_state=carry)
-        return stack.fold_post_update(agent, 0, rng, 100).ext_state, None
+        return stack.apply_post_update(agent, 0, rng, 100).ext_state, None
 
     final, _ = jax.lax.scan(body, ext_states, None, length=5)
     assert int(final[0]) == 5
@@ -290,11 +290,11 @@ def test_fold_helpers_empty_stack_zero_cost():
     assert stack.fold_init(agent, rng, 100) is agent
     assert stack.fold_init_states(agent, rng) is agent
     assert stack.fold_pretrain(agent, step, rng, 100) is agent
-    assert stack.fold_post_update(agent, step, rng, 100) is agent
-    folded, metrics = stack.fold_on_target(agent, batch, target, step, rng, 100)
+    assert stack.apply_post_update(agent, step, rng, 100) is agent
+    folded, metrics = stack.apply_on_target(agent, batch, target, step, rng, 100)
     assert folded is target and metrics == {}
-    assert stack.fold_critic_loss(agent, batch, step, rng, 100) == (0.0, {})
-    assert stack.fold_actor_loss(agent, batch, step, rng, 100) == (0.0, {})
+    assert stack.apply_critic_loss(agent, batch, step, rng, 100) == (0.0, {})
+    assert stack.apply_actor_loss(agent, batch, step, rng, 100) == (0.0, {})
     assert stack.fold_eval_metrics(agent, step, rng, 100) == {}
 
 
@@ -310,7 +310,7 @@ def test_fold_helpers_route_through_phase():
     rng = jax.random.PRNGKey(0)
     step = jnp.asarray(0)
 
-    out, _ = stack.fold_on_target(
+    out, _ = stack.apply_on_target(
         agent, batch=None, target=jnp.asarray(0.0), step=step, rng=rng, total_steps=100
     )
     assert float(out) == 11.0
@@ -319,13 +319,13 @@ def test_fold_helpers_route_through_phase():
     # the updated agent_state with the new ext_state attached.
     stack2 = ExtensionStack([Counter()])
     agent2 = stack2.fold_init_states(_FakeAgentState(), jax.random.PRNGKey(0))
-    new_agent = stack2.fold_post_update(agent2, step, rng, 100)
+    new_agent = stack2.apply_post_update(agent2, step, rng, 100)
     assert int(new_agent.ext_state[0]) == 1
 
     # actor_loss fold returns the additive scalar.
     stack3 = ExtensionStack([ConstActorLoss()])
     agent3 = _FakeAgentState(ext_state=((),))
-    val, _ = stack3.fold_actor_loss(
+    val, _ = stack3.apply_actor_loss(
         agent3, batch=None, step=step, rng=rng, total_steps=10
     )
     assert float(val) == 0.25
@@ -487,3 +487,19 @@ def test_with_experts_converts_each_held_expert_and_keeps_identity():
     # one expert, one object: IBRL still reads the agent's stored actions
     bound = ExtensionStack([ibrl]).bind_to_agent(expert_policy=convert(expert))
     assert bound.extensions[0].reads_stored_expert
+
+
+def test_the_former_fold_names_still_apply_the_phases():
+    """The agents not yet declared on a family call fold_<phase>, kept as
+    aliases of apply_<phase> until 0.5.0, on the stack, steps and loop."""
+    from ajax.agents import loop, steps
+
+    for phase in ("reward", "on_target", "critic_loss", "actor_loss", "post_update"):
+        apply = getattr(ExtensionStack, f"apply_{phase}")
+        assert getattr(ExtensionStack, f"fold_{phase}") is apply
+    for phase in ("on_target", "critic_loss", "post_update"):
+        apply = getattr(steps, f"apply_{phase}")
+        assert getattr(steps, f"fold_{phase}") is apply
+        assert (
+            getattr(loop, f"fold_{phase}") is getattr(loop, f"apply_{phase}") is apply
+        )

@@ -217,16 +217,16 @@ class PPO(
         #   from the memory it started with: advantages computed once.
         split = choose_rollout_split(self, n_steps, n_envs, ctx.recurrent)
         actions, log_probs = rollout_actions(rollout)
-        stack, total_timesteps = ctx.stack, ctx.total_timesteps
+        extensions, total_timesteps = ctx.extensions, ctx.total_timesteps
         # The update's key: it shuffles the rollout, and the rollout's folds
         # draw on keys derived from it.
         state, shuffle_key = state.next_keys()
         reward_key, target_key = jax.random.split(extension_key(shuffle_key))
         rewards = rollout.reward
         reward_metrics: dict[str, Any] = {}
-        if "reward" in stack.implemented_phases():
+        if "reward" in extensions.implemented_phases():
             # The extensions' rewards replace the env's (GAIL's discriminator).
-            state, rewards, reward_metrics = stack.fold_reward(
+            state, rewards, reward_metrics = extensions.apply_reward(
                 state,
                 {
                     "observations": rollout.obs,
@@ -323,7 +323,7 @@ class PPO(
         if hold:
             gae = jax.lax.stop_gradient(gae)
             value_targets = jax.lax.stop_gradient(value_targets)
-        if not ctx.stack:
+        if not ctx.extensions:
             return gae, value_targets, {}
         target_batch = {
             "observations": steps["obs"],
@@ -337,7 +337,7 @@ class PPO(
             "gamma": self.gamma,
         }
         timestep, horizon = state.collector_state.timestep, ctx.total_timesteps
-        value_targets, metrics = ctx.stack.fold_on_target(
+        value_targets, metrics = ctx.extensions.apply_on_target(
             state, target_batch, value_targets, timestep, key, horizon
         )
         return gae, value_targets, metrics
@@ -349,12 +349,14 @@ class PPO(
         state, ent_rng = state.next_keys()
         target_metrics: dict = {}
         critic, actor = state.critic_state, state.actor_state
-        stack, total_timesteps = ctx.stack, ctx.total_timesteps
+        extensions, total_timesteps = ctx.extensions, ctx.total_timesteps
         # The extensions' target and loss terms, each on a key of its own.
         target_key, critic_key, actor_key = jax.random.split(extension_key(ent_rng), 3)
-        critic_extra = _stack_critic_loss(stack, state, critic_key, total_timesteps)
+        critic_extra = _stack_critic_loss(
+            extensions, state, critic_key, total_timesteps
+        )
         actor_extra = _stack_actor_loss(
-            stack, state, actor_key, total_timesteps, minibatch["raw_obs"]
+            extensions, state, actor_key, total_timesteps, minibatch["raw_obs"]
         )
 
         if split.advantages_per_minibatch:
@@ -613,10 +615,10 @@ def _stack_critic_loss(
     key: jax.Array,
     total_timesteps: int,
 ) -> Optional[Callable]:
-    """The stack's additive critic-loss term on ``key`` as a
+    """The extensions' additive critic-loss term on ``key`` as a
     ``value_loss_function`` ``extra_loss_fn``: ``(critic_params,
     critic_states, observations, value_targets) -> (term, metrics)``;
-    ``None`` for an empty stack. The extensions read their state from
+    ``None`` without extensions. The extensions read their state from
     ``agent_state``.
     """
     if not extension_stack:
@@ -629,7 +631,7 @@ def _stack_critic_loss(
             "critic_params": critic_params,
             "critic_state": critic_states,
         }
-        return extension_stack.fold_critic_loss(
+        return extension_stack.apply_critic_loss(
             agent_state,
             _batch,
             agent_state.collector_state.timestep,
@@ -647,10 +649,10 @@ def _stack_actor_loss(
     total_timesteps: int,
     raw_observations: Optional[jax.Array] = None,
 ) -> Optional[Callable]:
-    """The stack's additive actor-loss term on ``key`` as a
+    """The extensions' additive actor-loss term on ``key`` as a
     ``policy_loss_function`` ``extra_loss_fn``: ``(actor_params,
     actor_state, observations, pi_mean) -> (term, metrics)``, the minibatch's
-    ``raw_observations`` beside them; ``None`` for an empty stack."""
+    ``raw_observations`` beside them; ``None`` without extensions."""
     if not extension_stack:
         return None
 
@@ -662,7 +664,7 @@ def _stack_actor_loss(
             "actor_params": actor_params,
             "actor_state": actor_state,
         }
-        return extension_stack.fold_actor_loss(
+        return extension_stack.apply_actor_loss(
             agent_state,
             _batch,
             agent_state.collector_state.timestep,

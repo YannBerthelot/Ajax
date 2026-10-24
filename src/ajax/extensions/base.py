@@ -392,6 +392,14 @@ class Extension:
         del env_args, expert
         return None
 
+    def policy_action_for_expert(self, policy_actions: jax.Array) -> jax.Array:
+        """For an action transform: the policy action, shaped like
+        policy_actions, at which it executes its expert's own action. The
+        rows the expert acts in (its prefill) store it as the policy's."""
+        raise NotImplementedError(
+            f"{self.name} names no policy action that executes its expert's action."
+        )
+
     def reward(
         self,
         agent_state: Any,

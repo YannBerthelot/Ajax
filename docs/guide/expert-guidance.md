@@ -175,7 +175,9 @@ thousands of steps for a real run (its defaults collect about a million).
 1. **Replay prefill.** SAC runs the expert for `expert_buffer_n_steps` steps
    in each environment (default 20,000) and writes them to the replay buffer,
    flagged as expert rows. Every row also stores the expert's action at `s`
-   and `s′`, which several extensions read later. Set it to 0 to skip.
+   and `s′`, which several extensions read later. Under gain mode a row
+   stores the anchor gains (action 0) as the action, as collection does
+   when the expert acts as itself. Set it to 0 to skip.
 2. **Cloning**, by extension. `CloningPretrain(expert, n_steps=...)` rolls
    the expert out for `n_steps` steps per environment, in the observation
    layout the agent sees, and trains the actor to reproduce its actions for

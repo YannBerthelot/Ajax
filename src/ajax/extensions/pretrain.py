@@ -33,7 +33,7 @@ from ajax.agents.cloning import cloning_columns, pre_train
 from ajax.agents.loop import seed_replay
 from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
-from ajax.controller import reads_agent_expert
+from ajax.controller import policy_action_dim, reads_agent_expert
 from ajax.environments.interaction import (
     collect_experience_from_expert_policy,
     replay_row,
@@ -990,15 +990,33 @@ def collect_and_store_expert_transitions(
         env_args=env_args,
         n_timesteps=n_steps,
     )
+    # A row stores what collection stores when the expert acts. Under an
+    # action transform, the policy's action is the one at which it executes
+    # the expert's own (policy_action_for_expert); gain mode stores it as
+    # the action too, residual RL stores the executed action, the expert's.
+    transform = next(iter(env_args.transforms), None)
+    stores_choice = (
+        transform is not None and "actuate" in transform.implemented_phases()
+    )
+    choose_for_expert = None
+    if transform is not None and (stores_choice or "policy_action" in schema):
+        choose_for_expert = transform.policy_action_for_expert
 
     def add_step(buffer_state: Any, step: Any) -> tuple[Any, None]:
+        chosen = step.action
+        if choose_for_expert is not None:
+            # Shaped like the policy's actions at this step.
+            policy_actions = jnp.zeros(
+                (*step.reward.shape[:-1], policy_action_dim(env_args))
+            )
+            chosen = choose_for_expert(policy_actions)
         # The expert collector's next observations are the final ones at
         # every end, the live collector's (bootstrap_obs) at time limits
         # only: they differ at terminations alone, which SAC's target masks.
         row = replay_row(
             schema,
             obs=step.obs,
-            action=step.action,
+            action=chosen if stores_choice else step.action,
             reward=step.reward,
             terminated=step.terminated,
             truncated=step.truncated,
@@ -1008,7 +1026,7 @@ def collect_and_store_expert_transitions(
             a_expert=step.a_expert,
             next_a_expert=step.next_a_expert,
             raw_next_obs=step.raw_next_obs,
-            policy_action=step.action,
+            policy_action=chosen,
         )
         # The replay's dtypes: the expert collector keeps the env's.
         row = {name: value.astype(schema[name].dtype) for name, value in row.items()}

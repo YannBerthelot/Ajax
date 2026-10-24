@@ -493,6 +493,10 @@ class ResidualPolicy(Extension):
             actions, inputs.expert_action, scale=self.scale
         )
 
+    def policy_action_for_expert(self, policy_actions: jax.Array) -> jax.Array:
+        # A residual of 0 executes clip(a_expert), the expert's own action.
+        return jnp.zeros_like(policy_actions)
+
 
 @dataclass(frozen=True)
 class ExpertGains(Extension):
@@ -529,6 +533,10 @@ class ExpertGains(Extension):
         expert = inputs.expert
         gains = expert.anchor_gains * jnp.exp(jnp.log(10.0) * actions)
         return expert.step_with_gains(inputs.expert_state, inputs.raw_obs, gains)
+
+    def policy_action_for_expert(self, policy_actions: jax.Array) -> jax.Array:
+        # An action of 0 sets the anchor gains: the expert's own behaviour.
+        return jnp.zeros_like(policy_actions)
 
 
 @dataclass(frozen=True)

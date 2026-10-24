@@ -149,6 +149,7 @@ class OnlineBC(Extension):
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "actor_loss": frozenset({"a_expert", "observations", "pi_mean"})
     }
+    reads_agent_expert_actions: ClassVar[bool] = True
 
     def actor_loss(
         self,
@@ -632,6 +633,7 @@ class ExpertValueMetrics(Extension):
     )
     context: ClassVar[frozenset[str]] = frozenset({"buffer", "expert_policy"})
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+    reads_agent_expert_actions: ClassVar[bool] = True
 
     def bind_to_agent(self, **agent_context: Any) -> "ExpertValueMetrics":
         if self.buffer is not None:

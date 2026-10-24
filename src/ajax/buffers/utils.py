@@ -92,18 +92,19 @@ def init_buffer(
     observation, which a run without an expert never reads.
     """
     observation_shape, action_shape = get_state_action_shapes(env_args.env)
-    if env_args.policy_action_dim is not None:  # gain mode's gains
-        action_shape = (env_args.policy_action_dim,)
     raw_observation_shape = observation_shape
     # The observation features (env_args.observers) are stored with it.
     extra = feature_width(env_args)
     if extra:
         observation_shape = (*observation_shape[:-1], observation_shape[-1] + extra)
 
-    action = jnp.zeros(
-        (action_shape[0],),
-        dtype=jnp.float32 if env_args.continuous else jnp.int32,
-    )
+    action_dtype = jnp.float32 if env_args.continuous else jnp.int32
+    # The expert acts in the env's actions (a_expert); so does the policy,
+    # except under gain mode, where it chooses the expert's gains.
+    env_action = jnp.zeros((action_shape[0],), dtype=action_dtype)
+    action = env_action
+    if env_args.policy_action_dim is not None:
+        action = jnp.zeros((env_args.policy_action_dim,), dtype=action_dtype)
     obsv = jnp.zeros((observation_shape[0],))
     raw_obsv = jnp.zeros((raw_observation_shape[0],))
     reward = jnp.zeros((1,), dtype=jnp.float32)
@@ -122,7 +123,7 @@ def init_buffer(
     if include_is_expert:
         schema["is_expert"] = jnp.zeros((1,), dtype=jnp.float32)
     if include_expert_fields:
-        schema["a_expert"] = schema["next_a_expert"] = action
+        schema["a_expert"] = schema["next_a_expert"] = env_action
     if include_raw_next_obs:
         schema["raw_next_obs"] = raw_obsv
     if include_return_to_go:

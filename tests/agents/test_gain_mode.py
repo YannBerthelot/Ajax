@@ -11,8 +11,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax import APG, UDRL
-from ajax.extensions.expert import ExpertGains
+from ajax import APG, SAC, UDRL
+from ajax.extensions.capabilities import NotWired
+from ajax.extensions.expert import ExpertGains, ImitationLoss
 from tests.agents.test_agent_contract import CASES
 from tests.environments import paid_action
 
@@ -97,3 +98,61 @@ def test_udrl_and_apg_act_in_the_gain_space():
     leaves = jax.tree.leaves(state.actor_state.params)
     assert all(np.isfinite(np.asarray(x)).all() for x in leaves)
     assert apg.env_args.policy_action_dim == 2
+
+
+class OneGainTwoActions:
+    """One learnable gain setting a 2-wide env action."""
+
+    learnable_fields, anchor_gains = ("kp",), jnp.array([1.0])
+
+    def init_state(self, n_envs: int) -> jax.Array:
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+        return self.step_with_gains(state, obs, self.anchor_gains)
+
+    def step_with_gains(self, state: jax.Array, obs: jax.Array, gains: Any) -> tuple:
+        action = jnp.clip(-gains[..., :1] * obs[..., :1], -2.0, 2.0)
+        return jnp.concatenate([action, action / 2], axis=-1), state + 1.0
+
+
+@pytest.mark.parametrize("expert", [OneGainTwoActions(), TwoGains()])
+def test_the_replay_keeps_the_experts_env_action_beside_the_gains(expert):
+    """The replay's action column is as wide as the gains, its a_expert as the
+    env's action: with fewer gains than actions collection used to crash, with
+    more the expert's action was copied into every gain's column."""
+    env_width = 2 if isinstance(expert, OneGainTwoActions) else 1
+    env, params = paid_action.make(length=8, dim=env_width)
+    small = {"actor_architecture": ("16", "relu"), "critic_architecture": ("16",)}
+    agent = SAC(
+        env,
+        env_params=params,
+        n_envs=2,
+        expert_policy=expert,
+        extensions=(ExpertGains(),),
+        expert_buffer_n_steps=0,
+        learning_starts=8,
+        batch_size=8,
+        buffer_size=64,
+        **small,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=32)
+    experience = state.collector_state.buffer_state.experience
+    assert experience["action"].shape[-1] == len(expert.learnable_fields)
+    # Every stored row: the expert's action at its anchor gains (the
+    # observation is constant), in agent units (the box is [-2, 2]).
+    anchor_action, _ = expert(expert.init_state(1), paid_action.OBS[None])
+    stored = np.asarray(experience["a_expert"])[0, :, :16]
+    assert stored.shape[-1] == env_width
+    np.testing.assert_allclose(stored, np.broadcast_to(anchor_action / 2, stored.shape))
+
+
+def test_gain_mode_refuses_an_extension_reading_the_experts_actions():
+    """Its expert's actions are env actions, the policy's are gains."""
+    imitation = ImitationLoss(lambda obs: jnp.zeros(obs.shape[:-1] + (1,)))
+    with pytest.raises(NotWired, match="ImitationLoss"):
+        SAC(
+            "Pendulum-v1",
+            expert_policy=TwoGains(),
+            extensions=(ExpertGains(), imitation),
+        )

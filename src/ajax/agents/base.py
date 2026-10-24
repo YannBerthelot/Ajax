@@ -18,7 +18,7 @@ from ajax.extensions.base import (
     ExtensionStack,
     check_extensions,
 )
-from ajax.extensions.capabilities import run_capabilities
+from ajax.extensions.capabilities import NotWired, run_capabilities
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -380,6 +380,22 @@ class ActorCritic:
         self.env_args = self.env_args.replace(
             observers=observers, transforms=transforms, policy_action_dim=dim
         )
+        # Under gain mode the policy chooses gains, and its expert's actions,
+        # stored (a_expert) or called again, are env actions: an extension
+        # reading them beside the policy's would compare the two spaces.
+        readers = [
+            extension
+            for extension in self.extension_stack
+            if extension.reads_agent_expert_actions
+        ]
+        if dim is not None and readers:
+            reason = "reads the expert's env actions beside the policy's gains"
+            unwired = {type(reader).__name__: reason for reader in readers}
+            raise NotWired(
+                f"{type(self).__name__} cannot run {sorted(unwired)} under gain"
+                f" mode yet: each {reason}.",
+                unwired,
+            )
 
         # An extension acting only in the controller (a feature, gain mode)
         # takes no part in the learner's folds: no state, no key of its own.

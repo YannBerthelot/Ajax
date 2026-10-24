@@ -261,7 +261,8 @@ class Extension:
     #: the phase passes (``COMMON_BATCH_KEYS``).
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {}
     #: Whether the extension reads the agent's stored actions of its expert
-    #: when that expert is the agent's (check_extension_experts).
+    #: when that expert is the agent's (check_extension_experts). They are env
+    #: actions, so gain mode, whose policy chooses gains, refuses it.
     reads_agent_expert_actions: ClassVar[bool] = False
     #: The fields holding an expert (raw observations in, env-unit actions
     #: out), which :meth:`ExtensionStack.with_experts` converts.

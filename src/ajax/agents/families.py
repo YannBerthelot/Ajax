@@ -3,8 +3,8 @@ fields of a dataclass, and writes what its paper defines: its networks, its
 ``init`` (on its own key layout), its ``update`` and its equations. Its
 family builds everything else from those fields, the same for every member:
 the constructor, the logged run config, the ``agent_config`` view, the
-optimisers' settings, the replay, the extensions' binding, the collector's
-storage, the training loop's shape and the evaluation's value estimate::
+optimisers, the replay, the extensions' binding, the collector's storage,
+the training loop's shape and the evaluation's value estimate::
 
     @dataclass(kw_only=True, eq=False, repr=False)
     class IQL(ObservationNormalization, ExpertGuided, ReplayAgent):
@@ -15,12 +15,12 @@ storage, the training loop's shape and the evaluation's value estimate::
         def update(self, state, ctx): ...
 
 The shared knobs an algorithm may take beyond the ones every agent takes
-(gradient clipping, normalisation, an expert) are field mixins; a field
-named like an :class:`ActorCritic` argument reaches it
-(:meth:`DeclaredAgent.__post_init__`). Every agent, family and mixin carries
-the literal ``@dataclass`` decorator, which the API docs read the
-constructor from; the contract an agent declares for the extensions and the
-loop (``name``, ``capabilities``, ...) stays unannotated, so it is no field.
+(gradient clipping, normalisation, an expert) are field mixins. The family
+reads some fields by name (:class:`DeclaredAgent`, :class:`ReplayAgent`).
+Every agent, family and mixin carries the literal ``@dataclass`` decorator,
+which the API docs read the constructor from; the contract an agent declares
+for the extensions and the loop (``name``, ``capabilities``, ...) stays
+unannotated, so it is no field.
 """
 
 from __future__ import annotations
@@ -63,8 +63,13 @@ from ajax.state import (
 )
 from ajax.types import BufferType, EnvType
 
-#: The arguments of ActorCritic's initialiser a same-named field reaches.
-SHARED = frozenset(inspect.signature(ActorCritic.__init__).parameters) - {"self"}
+#: The arguments of ActorCritic's initialiser: a field so named reaches it.
+ACTOR_CRITIC_ARGS = frozenset(
+    inspect.signature(ActorCritic.__init__).parameters.keys() - {"self"}
+)
+#: The fields an agent claiming the "discounted" capability declares, which
+#: its value estimate reads.
+DISCOUNT_FIELDS = ("gamma", "reward_scale")
 
 
 @dataclass(frozen=True, eq=False)
@@ -83,7 +88,6 @@ class TrainContext:
     #: what the run needs (``options``: init_collector_state's, an agent's).
     collector: Callable[..., Any]
     buffer: Optional[BufferType] = None
-    expert_policy: Any = None
     recurrent: bool = False
     #: ``(actions, a_expert) -> actions`` the critics score under a residual
     #: policy (controller.executed_fn); None otherwise.
@@ -112,32 +116,57 @@ class TrainContext:
 # -- Shared knobs an algorithm may take beyond the ones every agent takes ---
 @dataclass(kw_only=True, eq=False, repr=False)
 class GradientClipping:
-    #: Clip each network's gradients to this global norm (OptimizerConfig).
+    """Gradient clipping of both networks' optimisers.
+
+    Args:
+        max_grad_norm: Clip each network's gradients to this global norm
+            (OptimizerConfig); None leaves them unclipped.
+    """
+
     max_grad_norm: Optional[float] = None
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
 class ObservationNormalization:
-    #: Normalise the observations the networks read by running statistics.
+    """Observations normalised inside the agent.
+
+    Args:
+        normalize_observations: Normalise the observations the networks read
+            by running statistics.
+    """
+
     normalize_observations: bool = False
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
 class RewardNormalization:
-    #: Divide the rewards learned from by a running standard deviation (the
-    #: logged returns stay in the env's units): the single step's, or with
-    #: ``reward_normalization_gamma`` the discounted return's (SB3's
-    #: VecNormalize).
+    """Rewards normalised before the agent learns from them.
+
+    Args:
+        normalize_rewards: Divide the rewards learned from by a running
+            standard deviation (the logged returns stay in the env's units):
+            the single step's by default.
+        reward_normalization_gamma: With ``normalize_rewards``, the discount
+            of the return whose running standard deviation divides instead
+            (SB3's VecNormalize).
+    """
+
     normalize_rewards: bool = False
     reward_normalization_gamma: Optional[float] = None
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
 class ExpertGuided:
-    #: An expert the collector tracks: its actions, from its state along each
-    #: trajectory, feed the observation features, a residual policy and the
-    #: extensions reading them; each evaluation logs its return (it speaks
-    #: the env's units; the agent reads it in its own).
+    """An expert the agent tracks.
+
+    Args:
+        expert_policy: An expert the collector tracks: its actions, from its
+            state along each trajectory, feed the observation features, a
+            residual policy and the extensions reading them; each evaluation
+            logs its return. It speaks the env's units; the agent reads it in
+            its own (``agent.expert``).
+    """
+
     expert_policy: Optional[Callable] = None
 
 
@@ -145,15 +174,32 @@ class ExpertGuided:
 class DeclaredAgent(ActorCritic):
     """An agent whose constructor is its fields' (keyword-only but
     ``env_id``): the knobs every agent takes, its family's, its mixins' and
-    its own."""
+    its own.
+
+    The family reads some fields by name. Every field named like an
+    :class:`ActorCritic` argument (:data:`ACTOR_CRITIC_ARGS`:
+    ``actor_learning_rate``, ``critic_architecture``, ...) reaches it;
+    ``expert_policy`` is the agent's expert; an agent claiming the
+    ``discounted`` capability declares ``gamma`` and ``reward_scale``
+    (:data:`DISCOUNT_FIELDS`), or construction raises TypeError. Its family
+    may read more (:class:`ReplayAgent`).
+
+    Args:
+        env_id: The environment's id, or an environment.
+        n_envs: The environments stepped in parallel.
+        env_params: The environment's parameters; its defaults if None.
+        weight_decay: Decoupled weight decay of the networks' optimisers
+            (OptimizerConfig).
+        episode_length: Simulator steps per episode (brax / playground).
+        action_repeat: Simulator steps per agent step (brax / playground).
+        extensions: The extensions folded into the training loop.
+    """
 
     env_id: Union[str, EnvType]
     _: KW_ONLY
     n_envs: int = 1
     env_params: Optional[EnvParams] = None
-    #: Decoupled weight decay of the networks' optimisers (OptimizerConfig).
     weight_decay: float = 0.0
-    #: Simulator steps per episode and per agent step (brax / playground).
     episode_length: Optional[int] = None
     action_repeat: int = 1
     extensions: Sequence[Extension] = ()
@@ -169,10 +215,18 @@ class DeclaredAgent(ActorCritic):
         self.config = {
             f.name: getattr(self, f.name) for f in dataclasses.fields(self) if f.init
         } | {"algo_name": self.name}
+        names = self.field_names()
+        missing = [n for n in DISCOUNT_FIELDS if n not in names]
+        if "discounted" in self.capabilities and missing:
+            raise TypeError(
+                f"{self.name} claims the 'discounted' capability, so it declares"
+                " the fields its value estimate reads, gamma and reward_scale:"
+                f" {', '.join(missing)} missing."
+            )
         self.check()
-        shared = {name: getattr(self, name) for name in SHARED & self.field_names()}
+        shared = {name: getattr(self, name) for name in ACTOR_CRITIC_ARGS & names}
         expert = getattr(self, "expert_policy", None)
-        ActorCritic.__init__(self, **shared, **self.networks())
+        ActorCritic.__init__(self, **shared, **self.actor_critic_args())
         # ActorCritic writes the expert in agent units over the field: the
         # wrapper moves to ``expert``, and the field keeps the caller's, which
         # dataclasses.replace passes to the next agent (on its own env).
@@ -188,6 +242,7 @@ class DeclaredAgent(ActorCritic):
         settings = self.optimizer_settings()
         self.actor_optimizer_args = self.actor_optimizer_args.replace(**settings)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(**settings)
+        self._build_family()
         self.build()
         values = {name: getattr(self, name) for name in self.agent_config_fields}
         self.agent_config = self.config_class(**values)
@@ -197,8 +252,14 @@ class DeclaredAgent(ActorCritic):
         # Fixed once built (owner, 2026-10-24), so what trains is what the
         # run config logs; other attributes (network_args, a monkeypatched
         # method) stay writable.
-        fixed = name == "agent_config" or name in self.field_names()
-        if fixed and getattr(self, "_built", False):
+        built = getattr(self, "_built", False)
+        if built and name == "agent_config":
+            raise AttributeError(
+                f"{self.name}'s agent_config views its fields, fixed once the"
+                " agent is built: build another with a field replaced, as"
+                " dataclasses.replace(agent, gamma=...)."
+            )
+        if built and name in self.field_names():
             raise AttributeError(
                 f"{self.name}'s {name} is fixed once the agent is built (its run"
                 f" config logs it): build another, dataclasses.replace(agent,"
@@ -210,23 +271,28 @@ class DeclaredAgent(ActorCritic):
     def field_names(cls) -> frozenset[str]:
         return frozenset(f.name for f in dataclasses.fields(cls))  # type: ignore[arg-type]
 
-    # -- what an agent may add (each a no-op here) ---------------------------
+    def _build_family(self) -> None:
+        """What the family builds from the fields, before the agent's
+        :meth:`build` (:class:`ReplayAgent`: the replay)."""
+
+    # -- What an agent may add (each a no-op here; none needs super()) -------
     def check(self) -> None:
         """Refuse arguments the algorithm cannot take, before anything is
         built."""
 
-    def networks(self) -> dict[str, Any]:
-        """The ActorCritic arguments the paper fixes (initialisations,
-        heads) or derives from the fields (CrossQ's widths)."""
+    def actor_critic_args(self) -> dict[str, Any]:
+        """ActorCritic arguments the paper fixes (initialisations, heads) or
+        derives from the fields (CrossQ's learning rates and widths)."""
         return {}
 
     def optimizer_settings(self) -> dict[str, Any]:
-        """OptimizerConfig settings both networks' optimisers take."""
+        """OptimizerConfig settings both networks' optimisers take (the
+        reference's Adam: its eps, its betas)."""
         return {}
 
     def build(self) -> None:
-        """What the agent builds from its fields once constructed (its
-        family's replay)."""
+        """What the agent builds from its fields once its family has (IQL's
+        value optimiser)."""
 
     @property
     def expert(self) -> Any:
@@ -236,11 +302,12 @@ class DeclaredAgent(ActorCritic):
 
     @classmethod
     def declare_config(cls, names: str) -> Any:
-        """``agent_config``'s class, ``<name>Config``, which agents kept
-        before their fields were declared: the ``names`` it holds, typed and
-        defaulted as the fields (a property, as CrossQ's target entropy, is
-        a required entry). A view until 0.5.0: the update reads the fields.
-        Built at run time, it is Any to a type checker."""
+        """``agent_config``'s class, ``<name>Config``: the ``names`` it holds,
+        typed and defaulted as the fields (a property, as CrossQ's target
+        entropy, is a required entry). Only the agents that had a Config
+        before their fields were declared (IQL, CrossQ, TD3) keep this view,
+        until 0.5.0; the update reads the fields. Built at run time, it is
+        Any to a type checker."""
         declared = {f.name: f for f in dataclasses.fields(cls)}  # type: ignore[arg-type]
         spec: dict[str, Any] = {"__annotations__": {}, "__module__": cls.__module__}
         for name in names.split():
@@ -259,12 +326,26 @@ class DeclaredAgent(ActorCritic):
 class ReplayAgent(DeclaredAgent):
     """An off-policy agent on a replay of transitions
     (:meth:`TrainLoop.off_policy`): one step per env per iteration and, from
-    its ``learning_starts`` (if it takes one), one :meth:`update`; offline
-    (``train_offline``) one update per iteration on a replay of the dataset.
-    The paper's replay sizes, which each agent states."""
+    ``learning_starts``, one :meth:`update`; offline (``train_offline``) one
+    update per iteration on a replay of the dataset.
+
+    Beyond :class:`DeclaredAgent`'s names, the family reads
+    ``buffer_size``, ``batch_size`` and ``learning_starts``, which every
+    member declares with its paper's values, and its value estimate reads
+    ``gamma`` and ``reward_scale``. An agent writes :meth:`init` and
+    :meth:`update`, and may replace collection's action pipeline
+    (:meth:`behaviour`).
+
+    Args:
+        buffer_size: The replay's capacity, in transitions.
+        batch_size: The rows each update samples.
+        learning_starts: The env steps collected before the first update
+            (0: none).
+    """
 
     buffer_size: int
     batch_size: int
+    learning_starts: int
 
     replays_transitions = True
     supported_extension_phases = LOOP_PHASES | frozenset(
@@ -284,23 +365,29 @@ class ReplayAgent(DeclaredAgent):
         """One update: ``(state, logged metrics)``."""
         raise NotImplementedError
 
-    def optimizer_settings(self) -> dict[str, Any]:
-        # The replay references' Adams keep their library's eps (optax,
-        # torch): 1e-8, not Ajax's shared 1e-5.
-        return {"eps": 1e-8}
+    def behaviour(self, ctx: TrainContext) -> Optional[Callable]:
+        """The action pipeline collection runs; None: the policy's, uniform
+        during the warm-up."""
+        del ctx
+        return None
 
-    def build(self) -> None:
+    def _build_family(self) -> None:
         self.buffer = self.replay_buffer()
 
     def replay_buffer(self) -> BufferType:
         return get_buffer(self.buffer_size, self.batch_size, self.n_envs)
 
+    def stores_state(self) -> bool:
+        """Whether the replay keeps the actor's recurrent state (R2D2's
+        stored state)."""
+        return False
+
     def value_estimate(self) -> Optional[ValueEstimate]:
         """The critic's estimate of the return each evaluation compares, on
-        the agent's discount and reward scale; none without a discount (ASAC)
-        or a discounted critic."""
-        gamma, caps = getattr(self, "gamma", None), self.capabilities
-        if gamma is None or "discounted" not in caps:
+        the agent's discount and reward scale; none without a discounted
+        critic."""
+        caps = self.capabilities
+        if "discounted" not in caps:
             return None
         if "q_critic" in caps:
             value = action_value
@@ -308,17 +395,8 @@ class ReplayAgent(DeclaredAgent):
             value = state_value
         else:
             return None
-        return ValueEstimate(value, gamma, getattr(self, "reward_scale", 1.0))
-
-    def behaviour(self, ctx: TrainContext) -> Optional[Callable]:
-        """The action pipeline collection runs; None: the policy's, uniform
-        during the warm-up."""
-        del ctx
-        return None
-
-    def keeps_carries(self) -> bool:
-        """Whether the replay keeps the actor's carries (R2D2's stored state)."""
-        return False
+        gamma, reward_scale = (getattr(self, name) for name in DISCOUNT_FIELDS)
+        return ValueEstimate(value, gamma, reward_scale)
 
     def collector(
         self, key: jax.Array, loop: TrainLoop, network_args: NetworkConfig, **options
@@ -334,7 +412,7 @@ class ReplayAgent(DeclaredAgent):
             mode=loop.env_args.mode,
             buffer=self.buffer,
             actor_carry_dim=stored_actor_carry_dim(
-                network_args.memory, self.keeps_carries()
+                network_args.memory, self.stores_state()
             ),
             include_raw_obs=stored,
             include_raw_next_obs="raw_next_obs" in fields,
@@ -377,6 +455,13 @@ class ReplayAgent(DeclaredAgent):
             "expert_policy": self.expert,
             "buffer": self.buffer,
         }
+        unknown = sorted(self.extension_context - given.keys())
+        if unknown:
+            raise ValueError(
+                f"{self.name}'s extension_context names {', '.join(unknown)},"
+                " which ReplayAgent.make_train does not give its extensions (it"
+                f" gives {', '.join(sorted(given))})."
+            )
         context = {name: given[name] for name in sorted(self.extension_context)}
         bound = ExtensionStack(extensions).bind_to_agent(**context).extensions
         recurrent = network_args.memory is not None
@@ -405,20 +490,18 @@ class ReplayAgent(DeclaredAgent):
             total_timesteps=total_timesteps,
             collector=partial(self.collector, loop=loop, network_args=network_args),
             buffer=self.buffer,
-            expert_policy=self.expert,
             recurrent=recurrent,
             executed=executed_fn(env_args),
         )
         return loop.off_policy(
             partial(self.init, ctx=ctx),
             lambda state, _transition: self.update(state, ctx),
-            # The agents that warm up declare learning_starts (DAgger: none).
-            getattr(self, "learning_starts", 0),
+            self.learning_starts,
             recurrent=recurrent,
             collect_kwargs={
                 "buffer": self.buffer,
                 "action_pipeline": self.behaviour(ctx),
-                "store_hidden": recurrent and self.keeps_carries(),
+                "store_hidden": recurrent and self.stores_state(),
             },
             eval_kwargs={
                 "expert_policy": self.expert,
@@ -431,13 +514,23 @@ class ReplayAgent(DeclaredAgent):
 class RecurrentReplayAgent(ReplayAgent):
     """A replay agent that may have memory: it then trains on replayed
     windows of ``burn_in + sequence_length + 1`` steps with R2D2's burn-in
-    (:mod:`ajax.agents.recurrent`)."""
+    (:mod:`ajax.agents.recurrent`), and its ``learning_starts`` must give
+    each env more steps than a window.
+
+    Args:
+        memory: The networks' memory block (MemoryConfig or its dict form);
+            None keeps them feedforward.
+        burn_in: The steps that rebuild the recurrent state before a replayed
+            window's trained steps.
+        sequence_length: The trained steps of a replayed window.
+        stored_state: R2D2's stored-state replay: replayed windows start from
+            the actor's recurrent state recorded at collection (Kapturowski
+            et al. 2019).
+    """
 
     memory: Optional[Union[MemoryConfig, dict]] = None
     burn_in: int = 8
     sequence_length: int = 16
-    #: R2D2's stored-state replay: replayed windows start from the actor's
-    #: carries recorded at collection (Kapturowski et al. 2019).
     stored_state: bool = False
 
     supports_memory = True
@@ -451,5 +544,5 @@ class RecurrentReplayAgent(ReplayAgent):
             self.batch_size,
         )
 
-    def keeps_carries(self) -> bool:
+    def stores_state(self) -> bool:
         return self.stored_state

@@ -93,14 +93,16 @@ class TD3(
     #: (AjaxExperiments' TD3 variants).
     action_pipeline: Optional[Callable] = None
 
-    def networks(self) -> dict[str, Any]:
+    def actor_critic_args(self) -> dict[str, Any]:
         if self.memory is not None:
             return {"squash": True}
         init = ("encoder_kernel_init", "mean_kernel_init", "value_kernel_init")
         return {"squash": True} | dict.fromkeys(init, TORCH_LINEAR)
 
+    def optimizer_settings(self) -> dict[str, Any]:
+        return {"eps": 1e-8}  # torch.optim.Adam's default eps (sfujim/TD3)
+
     def build(self) -> None:
-        super().build()
         # A pipeline written before the acting state is adapted, with a
         # warning (a transitional shim, interaction.with_acting_state).
         self.pipeline = with_acting_state(self.action_pipeline)

@@ -86,7 +86,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         if not 0.0 < self.expectile < 1.0:
             raise ValueError(f"IQL's expectile is in (0, 1), got {self.expectile}.")
 
-    def networks(self) -> dict[str, Any]:
+    def actor_critic_args(self) -> dict[str, Any]:
         return {
             "encoder_kernel_init": ORTHOGONAL_SQRT2,
             "mean_kernel_init": ORTHOGONAL_SQRT2,
@@ -97,8 +97,10 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             "tanh_mean": True,
         }
 
+    def optimizer_settings(self) -> dict[str, Any]:
+        return {"eps": 1e-8}  # optax.adam's default eps, the reference's Adam
+
     def build(self) -> None:
-        super().build()
         # V's Adam: the critics', at its own learning rate.
         self.value_optimizer_args = self.critic_optimizer_args.replace(
             learning_rate=self.value_learning_rate

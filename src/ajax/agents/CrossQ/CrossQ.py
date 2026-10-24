@@ -107,7 +107,7 @@ class CrossQ(
     batch_size: int = 256
     learning_starts: int = 5000
 
-    def networks(self) -> dict[str, Any]:
+    def actor_critic_args(self) -> dict[str, Any]:
         return {
             "actor_learning_rate": self.learning_rate,
             "critic_learning_rate": self.learning_rate,
@@ -122,7 +122,8 @@ class CrossQ(
         }
 
     def optimizer_settings(self) -> dict[str, Any]:
-        return super().optimizer_settings() | {"beta_1": self.adam_beta_1}
+        # The authors' optax.adam: its default eps, their beta1 (train.py).
+        return {"eps": 1e-8, "beta_1": self.adam_beta_1}
 
     @property
     def alpha_args(self) -> AlphaConfig:

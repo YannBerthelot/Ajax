@@ -31,10 +31,10 @@ src/ajax/
 ├── __init__.py          the 14 exported agents; configures the compile cache on import
 ├── agents/
 │   ├── base.py          ActorCritic: environment and network setup, extensions=, train(); run_config
-│   ├── families.py      declared agents (fields as hyperparameters) and the replay family's train function
+│   ├── families.py      declared agents (fields as hyperparameters); the replay and on-policy families' train functions
 │   ├── loop.py          TrainLoop, the shared loop (brax's forced resets included)
 │   ├── steps.py         critic_step, actor_step, gradient_step, joint_step, when, the target update
-│   ├── minibatch.py     the on-policy geometry, minibatches and epochs
+│   ├── minibatch.py     the on-policy minibatch plan (MinibatchPlan), minibatches and epochs
 │   ├── critics.py       the Q-critics' regression (continuous and discrete actions)
 │   ├── diagnostics.py   KL, explained variance, policy std
 │   ├── recurrent.py     replay buffers and R2D2-style sequence replay for memory=
@@ -68,9 +68,10 @@ src/ajax/
 A declared agent (IQL, CrossQ, TD3, PPO, APO, PQN) is one file, `<AGENT>/<AGENT>.py`: its
 hyperparameters as dataclass fields, its `init`, `update` and equations, its
 state and metrics, on a family of `agents/families.py` that builds its
-constructor, run config, replay and train function
-([Contributing](contributing.md#adding-an-agent)); its old `train_<AGENT>.py`
-and `state.py` serve their names until 0.5.0. Every other agent package
+constructor, run config, replay (IQL, CrossQ, TD3: `ReplayAgent`) or
+rollouts (PPO, APO, PQN: `OnPolicyAgent`) and train function
+([Contributing](contributing.md#adding-an-agent)); its old modules serve
+their names until 0.5.0. Every other agent package
 `src/ajax/agents/<AGENT>/` holds:
 
 | File | What it holds |
@@ -78,10 +79,11 @@ and `state.py` serve their names until 0.5.0. Every other agent package
 | `<AGENT>.py` | the public class: the paper's hyperparameters and `extensions=`; its `make_train` and `train_kwargs` |
 | `train_<AGENT>.py` | the algorithm, and a `make_train` that hands its initialisation and update to `TrainLoop` |
 | `state.py` | `<AGENT>State` and `<AGENT>Config` |
-| `core.py` | (SAC, PPO, TDMPC2) the maths that descendants import instead of copying |
+| `core.py` | (SAC, TDMPC2) the maths that descendants import instead of copying |
 
 The lineage is explicit: ASAC, REDQ and AVG import SAC's `core.py`; APO
-imports PPO's; the multi-task TD-MPC2 imports TD-MPC2's. A fix to the parent's
+imports PPO's equations from `PPO/PPO.py`; the multi-task TD-MPC2 imports
+TD-MPC2's. A fix to the parent's
 maths reaches every descendant. Some agents keep further modules of their own
 (SAC's `action_pipeline.py`, TD-MPC2's `planner.py`).
 
@@ -128,7 +130,7 @@ agent = SAC("Pendulum-v1", extensions=(...))     ActorCritic.__init__
 agent.train(seed=[0, 1], n_timesteps=..., logging_config=..., initial_state=...)
   ├─ get_make_train()(env_args, ..., total_timesteps, logging_config)
   │    └─ make_train                              train_<AGENT>.py, with train_kwargs and the extensions
-  │                                               (a declared agent: ReplayAgent.make_train over its init and update)
+  │                                               (a declared agent: its family's make_train over its init and update)
   │         ├─ TrainLoop.create(...)              budget, extensions, logging
   │         └─ loop.off_policy(init, update, ...) or loop.on_policy(...)
   │              └─ build_resumable_train(...)    jitted train(key, index, initial_state, ...)
@@ -247,7 +249,9 @@ Before `learning_starts`, the off-policy shape acts uniformly at random
 from the start, as TQC's does) and logs the update's metrics as NaN, which the
 logger drops. The on-policy shape
 passes `start` to the update so that a recurrent agent can replay its rollout
-from the memory carries it began with.
+from the memory carries it began with. PPO's update cuts its rollout by a
+`MinibatchPlan` (`agents/minibatch.py`), which also says where the
+advantages are computed.
 
 Three agents use the loop's parts without one of these shapes. UDRL runs its
 own iteration (a segment, its replay, its command statistics, the updates)

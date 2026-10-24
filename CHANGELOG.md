@@ -34,6 +34,41 @@ PyPI as `ajax-rl`.
 
   Training is unchanged: every final state is bitwise the same, and so is
   the compiled program.
+- **PPO, APO and PQN are declared agents**, on the on-policy family
+  (`OnPolicyAgent` in `ajax.agents.families`): each is one file,
+  `agents/<AGENT>/<AGENT>.py`. What changes for a caller, as for IQL,
+  CrossQ and TD3:
+  - the constructor is keyword-only after `env_id`;
+  - an agent's fields and `agent_config` are fixed once built, and
+    `agent_config` is a view of the fields;
+  - `PPOConfig`, `APOConfig` and `PQNConfig` are views that subclass
+    `BaseAgentConfig` only, and are untyped (`Any`) to mypy until 0.5.0;
+  - `train_kwargs` is empty: PQN's `epsilon_start`, `epsilon_end`,
+    `epsilon_decay_frac` and `td_loss_fn` are its fields; `make_train`
+    takes only the keywords every agent's takes;
+  - PPO's and APO's `expert_policy` holds the expert as passed, which the
+    run config logs; `agent.expert` is the one read in agent units;
+  - PPO's `encoder_kernel_init` defaults to `"orthogonal(np.sqrt(2))"`,
+    which None still means: `PPO(encoder_kernel_init=None)` trains as
+    before but logs None in the run config;
+  - the old modules (`train_PPO`, `PPO.state`, `PPO.utils`, `PPO.core`,
+    `train_APO`, `APO.state`, `train_PQN`, `PQN.state`, `PQN.utils`) still
+    import their names, with a FutureWarning, until 0.5.0.
+    `policy_loss_function` and `value_loss_function` keep their
+    parameters. The functions that became methods (`init_PPO`,
+    `init_APO`, the `update_agent`s, APO's `update_networks`, `make_train`)
+    take other arguments: calling one raises TypeError with the method's
+    call form.
+
+  Training is unchanged: every final state is bitwise the same, and so is
+  the compiled program.
+- **`MinibatchPlan`.** `ajax.agents.minibatch.Geometry`, the plan for
+  cutting an on-policy rollout into minibatches, is now `MinibatchPlan`,
+  and `minibatch_geometry` is `minibatch_plan`: same arguments and fields,
+  `kind` still `"flat"`, `"time"` or `"recurrent"`. The plan also says
+  where the advantages are computed (`gae_per_minibatch`) and cuts the
+  rollout (`minibatches`). The old names, also on `train_PPO`, import with
+  a FutureWarning until 0.5.0.
 - Writing a name on a module it moved out of (`monkeypatch.setattr` on an
   old path) raises AttributeError naming its new home, where it is read:
   the write would have changed nothing.

@@ -19,10 +19,10 @@ These are the pieces every agent shares:
 ```
 src/ajax/
 ├── agents/base.py       ActorCritic: environment and network setup, extensions=, train()
-├── agents/families.py   declared agents: fields as hyperparameters, the replay family
+├── agents/families.py   declared agents: fields as hyperparameters, the replay and on-policy families
 ├── agents/loop.py       TrainLoop, the shared loop (brax's forced resets included)
 ├── agents/steps.py      critic_step, actor_step, gradient_step, joint_step, when, the target update
-├── agents/minibatch.py  the on-policy geometry, minibatches and epochs
+├── agents/minibatch.py  the on-policy minibatch plan, minibatches and epochs
 ├── agents/critics.py    the Q-critics' regression (continuous and discrete actions)
 ├── agents/diagnostics.py  KL, explained variance, policy std
 ├── agents/recurrent.py  replay buffers and R2D2-style sequence replay for memory=
@@ -40,15 +40,17 @@ src/ajax/
 fields, its `init` and `update`, its equations, its state and metrics (and,
 until 0.5.0, the `<AGENT>Config` view it had before), on a family of
 `agents/families.py` that builds the rest (the constructor, the run config,
-the replay, the train function); its old modules are shims. The other
-agents' folders hold `<AGENT>.py`, the public class (the paper's
+the replay or the rollouts, the train function); its old modules are shims.
+The other agents' folders hold `<AGENT>.py`, the public class (the paper's
 hyperparameters and `extensions=`; it names its `make_train` and fills
 `train_kwargs`, which `get_make_train()` binds);
 `train_<AGENT>.py`, the algorithm and a `make_train` that hands its
 initialisation and update to `TrainLoop`; and `state.py`, `<AGENT>State` and
-`<AGENT>Config`. SAC, PPO and TDMPC2 also have a `core.py`: the maths their
+`<AGENT>Config`. SAC and TDMPC2 also have a `core.py`: the maths their
 descendants import instead of copying (ASAC, AVG, CrossQ, REDQ and TQC from
-SAC; APO from PPO; TDMPC2MultiTask from it), under the lineage rule below.
+SAC; TDMPC2MultiTask from TDMPC2), under the lineage rule below. A declared
+parent's equations are in its one file: APO imports PPO's from
+`PPO/PPO.py`.
 
 ## The shared training loop
 
@@ -173,18 +175,22 @@ equations, and fails on any other cross-agent import. Use `critic_step` (a
 replay critic step), `actor_step` (an actor step) and `gradient_step` (an
 optimiser step) from `agents/steps.py` rather than writing your own.
 
-A replay agent `FOO` declares itself on a family of `agents/families.py`, as
-IQL, CrossQ and TD3 do (read `agents/IQL/IQL.py` first). The other agents
-keep the older three-file form (`state.py`, `train_<AGENT>.py` with a
-`make_train`, `<AGENT>.py`) until their batch moves them. An on-policy agent
-declares itself on `OnPolicyAgent`, as PPO, APO and PQN do (`agents/PPO/PPO.py`).
+A new agent `FOO` declares itself on a family of `agents/families.py`: a
+replay agent on `ReplayAgent`, as IQL, CrossQ and TD3 do (read
+`agents/IQL/IQL.py` first); an on-policy agent on `OnPolicyAgent`, as PPO,
+APO and PQN do (read `agents/PPO/PPO.py` first, and the on-policy family
+below). The other agents keep the older three-file form (`state.py`,
+`train_<AGENT>.py` with a `make_train`, `<AGENT>.py`) until their batch
+moves them.
 
 **1. `FOO/FOO.py`, the one file.** Its hyperparameters are the fields of a
 dataclass, declared once with the paper's defaults: the family generates the
 constructor (keyword-only after `env_id`), logs the run config, builds the
 optimisers, the replay and the train function (`ReplayAgent.make_train`, on
-`loop.off_policy`). The file reads top-down: the class, its equations in the
-order `update` calls them, then its state and metrics.
+`loop.off_policy`; an on-policy agent's is `OnPolicyAgent.make_train`, on
+`loop.on_policy`). The file reads top-down: the class, its equations in the
+order `update` calls them, then its state and metrics. The template below
+is a replay agent's; an on-policy agent's file has the same parts.
 
 ```python
 @dataclass(kw_only=True, eq=False, repr=False)  # literal: the API docs read it
@@ -260,14 +266,16 @@ the extensions' keys from the step's
 ([Randomness](docs/developer/writing-an-extension.md#randomness)), so the
 agent's own random stream is the same with or without extensions.
 
-An agent writes `init(key, ctx)` and `update(state, ctx)`, and may add these
-hooks; each is a no-op on the family, which does its own part outside them, so
-none calls `super()`:
+An agent writes `init(key, ctx)` and `update(state, ctx)` (an on-policy
+agent's `update(state, rollout, start, ctx)`), and may add these hooks; each
+is a no-op on the family, which does its own part outside them, so none
+calls `super()`:
 
 - `check()` refuses arguments before anything is built;
 - `actor_critic_args()` returns `ActorCritic` arguments the paper fixes or
   derives from the fields (initialisations, heads; CrossQ's learning rates
-  and widths);
+  and widths); it may only fill a field the caller left None (TypeError
+  otherwise), as PPO's `encoder_kernel_init` does;
 - `optimizer_settings()` returns the `OptimizerConfig` settings of the
   reference's optimiser (its Adam's `eps`, its betas): the family sets none,
   so an agent states its reference's;
@@ -288,6 +296,19 @@ takes are mixins
 `ExpertGuided`), and `RecurrentReplayAgent` adds `memory=` with R2D2's
 sequence replay. Once built, an agent's fields and `agent_config` are fixed:
 `dataclasses.replace(agent, gamma=0.9)` builds another.
+
+**The on-policy family.** `OnPolicyAgent.make_train` runs `loop.on_policy`:
+each iteration collects `n_steps` per env, then calls `update(state,
+rollout, start, ctx)` on the `(n_steps, n_envs)` rollout and the state it
+was collected from (a recurrent agent replays the rollout from its
+memories). The family requires `n_steps`, `n_epochs` and
+`num_minibatches`, reads brax's `num_resets_per_eval` and `num_evals` where
+an agent declares them, and adds the `evaluation_options()` hook (APO's
+`avg_reward_mode`). `agents/minibatch.py` runs the passes (`run_epochs`);
+PPO's `minibatch_plan` returns the `MinibatchPlan` that says how its
+rollout is cut and where the advantages are computed, while APO and PQN
+shuffle single steps. `ImageObservations` adds the CNN encoder's fields;
+`train_offline` refuses an on-policy agent.
 
 Do **not** add a field for a feature (`use_critic_blend=True`, ...): it
 belongs on an extension.

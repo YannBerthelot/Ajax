@@ -77,7 +77,7 @@ Defaults are those of the constructor.
 | `log_std_state_independent`, `log_std_init` | True, 0.0 | one learned log standard deviation per action dimension, and its initial value (see the notes) |
 | `log_std_bounds` | None | the `(low, high)` clip of that log standard deviation; `None` leaves it unclipped |
 | `actor_bias_init`, `critic_bias_init` | None | initialisers by name ([Networks](../guide/networks.md)) |
-| `encoder_kernel_init` | None | the hidden layers' initialiser; None is `"orthogonal(np.sqrt(2))"` (Baselines' ppo2; PureJaxRL's recurrent PPO, with `memory=`) |
+| `encoder_kernel_init` | `"orthogonal(np.sqrt(2))"` | the hidden layers' initialiser (Baselines' ppo2; PureJaxRL's recurrent PPO, with `memory=`); None is the same one |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | None, 0, None | convolutional encoder for flat image observations |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `expose_recent_rollout` | False | keep the last rollout on the state, for measurement extensions |
@@ -102,7 +102,9 @@ Defaults are those of the constructor.
   whole fragments, and its advantages are recomputed with the current critic.
   `unroll_length=n_steps` keeps each environment's whole rollout as one
   fragment. PPO refuses at construction a length that does not split the
-  rollout evenly into the minibatches.
+  rollout evenly into the minibatches. The choice is the update's minibatch
+  plan (`ajax.agents.minibatch.MinibatchPlan`, its `kind` `"flat"`,
+  `"time"` or, with memory, `"recurrent"`).
 - **Actions.** A continuous PPO samples an unbounded Gaussian by default;
   Ajax clips the sample to `[-1, 1]` and maps that range onto the
   environment's bounds, so on gymnax Pendulum (torque in `[-2, 2]`) one unit

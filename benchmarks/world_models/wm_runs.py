@@ -170,7 +170,7 @@ def spec_differences(expected: Any, stored: Any, prefix: str = "") -> list[str]:
     expected, stored = jsonable(expected), jsonable(stored)
     if isinstance(expected, dict) and isinstance(stored, dict):
         out = []
-        for key in sorted(set(expected) | set(stored)):
+        for key in sorted(set(expected).union(stored)):
             path = f"{prefix}{key}"
             if key not in expected or key not in stored:
                 out.append(path)

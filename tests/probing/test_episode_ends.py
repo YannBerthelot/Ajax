@@ -131,7 +131,7 @@ def _row_counts(obs: np.ndarray, term: np.ndarray, trunc: np.ndarray) -> dict:
     term, trunc = (x.reshape(seeds, -1) > 0.5 for x in (term, trunc))
     end = term | trunc
     out = {"rows": np.full(seeds, kind.shape[1]), "terminated": term.sum(1)}
-    out |= {"truncated": trunc.sum(1), "ends": end.sum(1)}
+    out.update({"truncated": trunc.sum(1), "ends": end.sum(1)})
     for i, x in enumerate("0AB"):
         for flag, mask in (("ends", end), ("terminated", term), ("truncated", trunc)):
             out[f"{flag} {x}"] = (mask & (kind == i)).sum(1)
@@ -142,19 +142,19 @@ def _twin_agent(name: str, backend: str) -> Any:
     lam, n_steps = LEARNERS.get(name, (0.0, 1))
     kw: dict[str, Any] = {"gamma": G6}
     if name == "PQN":
-        kw |= {"n_envs": 1, "n_steps": n_steps, "q_lambda": lam}
+        kw.update({"n_envs": 1, "n_steps": n_steps, "q_lambda": lam})
         kw["expose_recent_rollout"] = True
     elif name == "PPO":
         # One 4-row minibatch per epoch; no global-norm clipping, which would
         # weigh each batch by its own norm and move the critic's fixed point.
-        kw |= {"n_steps": n_steps, "batch_size": n_steps, "gae_lambda": lam}
-        kw |= {"max_grad_norm": None, "expose_recent_rollout": True}
+        kw.update({"n_steps": n_steps, "batch_size": n_steps, "gae_lambda": lam})
+        kw.update({"max_grad_norm": None, "expose_recent_rollout": True})
     elif name not in ("TD3", "DQN"):
         # The rewards ignore the action: from 1e-3 the soft term alpha H
         # stays at a few thousandths.
         kw["alpha_init"] = 1e-3
     if name == "AVG":  # at its own rates the last updates pull V(B) 0.05 low
-        kw |= {"actor_learning_rate": 1e-3, "critic_learning_rate": 1e-3}
+        kw.update({"actor_learning_rate": 1e-3, "critic_learning_rate": 1e-3})
     if backend == "gymnax":
         return agents.make(name, *TWIN[2 if name in ("DQN", "PQN") else 0].make(), **kw)
     if name == "PPO":
@@ -207,9 +207,10 @@ def _twin_run(name: str, backend: str) -> Any:
 
         ret, length = jax.vmap(own_eval)(run.state.actor_state, run.state.eval_rng)
         out = {k: np.mean([v[k] for v in values], 0) for k in values[0]}
-        out |= {f"rows {k}": v for k, v in rows.items()} | {"phases": np.array(phases)}
+        out.update({f"rows {k}": v for k, v in rows.items()})
+        out["phases"] = np.array(phases)
         out["train return"] = run.state.collector_state.episodic_mean_return
-        return out | {"eval return": ret, "eval length": length}
+        return {**out, "eval return": ret, "eval length": length}
 
     return runs.readings(lambda: _twin_agent(name, backend), read)
 
@@ -240,7 +241,7 @@ for backend, name in P6_CELLS:
         slow=slow,
     )
     P6[case.id] = case
-CASES |= P6
+CASES.update(P6)
 P6_ROWS = {k: c for k, c in P6.items() if "AVG" not in k}  # AVG keeps no rows
 
 
@@ -347,7 +348,7 @@ def _scaled(cell: str, extensions: tuple = ()) -> Any:
     if name == "REDQ":
         kw["num_critic_updates"] = 1
     if name == "AVG":
-        kw |= {"actor_learning_rate": 1e-3, "critic_learning_rate": 1e-3}
+        kw.update({"actor_learning_rate": 1e-3, "critic_learning_rate": 1e-3})
     if cell.endswith("+on_target"):
         extensions = (IdentityTarget(),)
     env = (discrete if name in ("DQN", "PQN") else continuous).ValueLossOrOptimizerEnv
@@ -368,7 +369,7 @@ VALUE_Q = Query(
 # Calibrated on 1000-1031 + 2000-2031, worst error 0.0059 or less (AVG, at
 # its reference initialisation, 0.0091 at 2500); 3000-3031 within 0.009.
 P5_VALUE = {"SAC": 625, "REDQ": 625, "REDQ+on_target": 625, "TD3": 625}
-P5_VALUE |= {"AVG": 2500, "DQN": 312, "PQN": 80_000}  # DQN: tol 0.063
+P5_VALUE.update({"AVG": 2500, "DQN": 312, "PQN": 80_000})  # DQN: tol 0.063
 
 
 def _p5_read(cell: str, run: runs.Run) -> dict:
@@ -507,7 +508,7 @@ THETA = Query(
     },
 )
 PENALTY_WRONG = {"p_0 Config default (10) leaks": 0.75, "penalty never updated": 0.0}
-PENALTY_WRONG |= {"the batch's mean non-terminal reward": 0.5, "B06: row 0's": 1.0}
+PENALTY_WRONG.update({"the batch's mean non-terminal reward": 0.5, "B06: row 0's": 1.0})
 PENALTY = Query("penalty / p_0", 1.5, PENALTY_WRONG)
 SP = S5 * PEN  # the penalty in the target's units
 CRITIC = Query(
@@ -533,7 +534,7 @@ ASAC_TRACE = Trace(("theta", "penalty", "Q(0,0)"), 1500)
 def _asac(extensions: tuple) -> Any:
     """ASAC's own batch, tau and p_0, learning from step 1000 (not 1e4)."""
     kw: dict[str, Any] = {"learning_starts": 1000, "buffer_size": 100_000}
-    kw |= {"batch_size": 256, "reward_scale": S5, "extensions": extensions}
+    kw.update({"batch_size": 256, "reward_scale": S5, "extensions": extensions})
     return agents.make("ASAC", *COIN[0].make(), **kw)
 
 
@@ -555,13 +556,13 @@ def _asac_read(run: runs.Run) -> dict:
     tr = ASAC_TRACE.unroll(run.state.ext_state[0])
     q00, pen = (tr[k][:, -1000:].mean(-1) for k in ("Q(0,0)", "penalty"))
     out = {THETA.name: np.asarray(run.state.theta) - a_h}
-    out |= {CRITIC.name: q00 + (a_h + S5 * pen) / 3}
-    out |= {PENALTY.name: tr["penalty"].mean(-1) / P0}
-    return (
-        out
-        | {THETA_STEP.name: _steps(tr["theta"], THETA_RMS)}
-        | {PEN_STEP.name: _steps(tr["penalty"], PEN_RMS)}
-    )
+    out.update({CRITIC.name: q00 + (a_h + S5 * pen) / 3})
+    out.update({PENALTY.name: tr["penalty"].mean(-1) / P0})
+    return {
+        **out,
+        THETA_STEP.name: _steps(tr["theta"], THETA_RMS),
+        PEN_STEP.name: _steps(tr["penalty"], PEN_RMS),
+    }
 
 
 # Calibrated on 1000-1031 + 2000-2031 at 3000 steps, certified 32/32 on
@@ -647,7 +648,7 @@ FAULTS9 = {
     "untrained": "untrained networks",
 }
 D0, UNTRAINED = {"D": (0.0, 0.0)}, {"untrained": (0.0, 0.0)}
-TD9 = {"A": (0.0, 1.0), "B": (0.854, 1.427), "C": (0.723, 1.362)} | D0
+TD9 = {"A": (0.0, 1.0), "B": (0.854, 1.427), "C": (0.723, 1.362), **D0}
 # Estimator, its oracle readings under each fault (seed 0, so within about
 # 0.005 of exact), budget, tolerances and overrides. Calibrated on 1000-1031
 # + 2000-2031, certified 32/32 on 3000-3031 each. The spread must stay near
@@ -665,15 +666,20 @@ P9_CELLS: dict[str, tuple] = {
     ),
     "PPO": (  # 2 minibatches split the env axis, GAE recomputed per minibatch
         ("gae", 4096, 0.5),
-        {"A": (0.0, 1.0), "B": (1.102, 1.940), "C": (1.028, 2.066), "P10": (0.0, 1.663)}
-        | D0,
+        {
+            "A": (0.0, 1.0),
+            "B": (1.102, 1.940),
+            "C": (1.028, 2.066),
+            "P10": (0.0, 1.663),
+            **D0,
+        },
         320_000,  # 160,000 failed: 0.128
         (0.045, 0.06),
-        _P9_PPO | {"unroll_length": 4096},  # brax's time geometry, opted into
+        {**_P9_PPO, "unroll_length": 4096},  # brax's time geometry, opted into
     ),
     "PQN": (
         ("q_lambda", 512, 0.65),
-        {"A": (0.394, 1.198), "B": (0.902, 1.562), "C": (0.766, 1.527)} | D0,
+        {"A": (0.394, 1.198), "B": (0.902, 1.562), "C": (0.766, 1.527), **D0},
         320_000,  # with RAdam; 80,000 and 160,000 do not qualify
         (0.064, 0.078),
         {"learning_rate": 2.5e-4, "n_steps": 512, "num_minibatches": 2, "n_epochs": 3},
@@ -683,26 +689,28 @@ P9_CELLS: dict[str, tuple] = {
 # critic updates a step, not 20; AVG learns from the final obs; APO runs
 # PPO's rollouts, with its own global-norm clipping (0.5).
 _ON9 = {"normalize_observations": True, "buffer_size": 16384}
-_REDQ9 = _ON9 | {"num_critic_updates": 2}
-P9_CELLS |= {
-    "TD3": (("td", 1, 0.0), TD9, 30_000, (0.058, 0.086), _ON9),
-    "REDQ": (("td", 1, 0.0), TD9, 10_000, (0.069, 0.093), _REDQ9),
-    "AVG": (
-        ("gae", 1, 0.0),
-        {"A": (0.0, 1.0), "B": (1.195, 1.997), "C": (1.139, 2.144)} | D0,
-        # C planted: (1.080, 2.045) at 80,000 steps, still climbing; C by 320,000
-        80_000,  # critic rate 2e-4: worst 0.04 on 8 seeds
-        (0.075, 0.082),
-        {"actor_learning_rate": 1e-3, "critic_learning_rate": 5e-5},
-    ),
-    "APO": (
-        ("apo", 4096, 0.5),
-        {"A": (0.0, 1.0), "B": (1.758, 2.507), "C": (1.698, 2.777)} | D0,
-        240_000,  # 160,000 failed: 0.137
-        (0.073, 0.078),
-        _P9_PPO | {"normalize_observations": True},
-    ),
-}
+_REDQ9 = {**_ON9, "num_critic_updates": 2}
+P9_CELLS.update(
+    {
+        "TD3": (("td", 1, 0.0), TD9, 30_000, (0.058, 0.086), _ON9),
+        "REDQ": (("td", 1, 0.0), TD9, 10_000, (0.069, 0.093), _REDQ9),
+        "AVG": (
+            ("gae", 1, 0.0),
+            {"A": (0.0, 1.0), "B": (1.195, 1.997), "C": (1.139, 2.144), **D0},
+            # C planted: (1.080, 2.045) at 80,000 steps, still climbing; C by 320,000
+            80_000,  # critic rate 2e-4: worst 0.04 on 8 seeds
+            (0.075, 0.082),
+            {"actor_learning_rate": 1e-3, "critic_learning_rate": 5e-5},
+        ),
+        "APO": (
+            ("apo", 4096, 0.5),
+            {"A": (0.0, 1.0), "B": (1.758, 2.507), "C": (1.698, 2.777), **D0},
+            240_000,  # 160,000 failed: 0.137
+            (0.073, 0.078),
+            {**_P9_PPO, "normalize_observations": True},
+        ),
+    }
+)
 
 
 def _p9_step(state: tuple) -> tuple:
@@ -780,7 +788,7 @@ def _p9_run(agent: str, kw: dict) -> Callable:
             out["sign change"] = _sign_changes(run.state)
             if not ((out["sign change"] > 0.3) & (out["sign change"] < 0.7)).all():
                 raise RuntimeError(f"resets repeat their sign: {out['sign change']}")
-        return out | {"lockstep": lockstep * 1.0}  # the ladder rounds readings
+        return {**out, "lockstep": lockstep * 1.0}  # the ladder rounds readings
 
     spec = HAZARD[2 if agent in ("DQN", "PQN") else 0]
     kw = kw if agent == "APO" else {"gamma": G9, **kw}
@@ -789,7 +797,7 @@ def _p9_run(agent: str, kw: dict) -> Callable:
 
 
 for agent, ((kind, *_), table, budget, tol9, kw) in P9_CELLS.items():
-    wrong = {f"{k}: {FAULTS9[k]}": w for k, w in (table | UNTRAINED).items()}
+    wrong = {f"{k}: {FAULTS9[k]}": w for k, w in {**table, **UNTRAINED}.items()}
     truth = (2.0, 2.0) if kind == "apo" else TRUTH9
     queries = tuple(
         Query(
@@ -918,7 +926,8 @@ def _q1_apo(spec: envs.Spec, at: dict[str, float]) -> Callable:
 
     def read(run: runs.Run) -> dict:
         ns, b = R.nets(run.state), {"b": run.state.b}
-        return R.per_seed(lambda n: {k: R.critic(n, x) for k, x in at.items()}, ns) | b
+        out = R.per_seed(lambda n: {k: R.critic(n, x) for k, x in at.items()}, ns)
+        return {**out, **b}
 
     build = functools.partial(agents.make, "APO", *spec.make(), ent_coef=0.0)
     return runs.readings(build, read)

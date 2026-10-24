@@ -211,7 +211,10 @@ def test_the_config_is_built_from_the_constructor_arguments():
     multitask = {"buffer_size", "episodic", "termination_coef"}
     for agent, unused in ((TDMPC2, set()), (TDMPC2MultiTask, multitask)):
         parameters = set(inspect.signature(agent.__init__).parameters)
-        assert fields - unused <= parameters, (agent, fields - unused - parameters)
+        assert fields.difference(unused) <= parameters, (
+            agent,
+            fields.difference(unused, parameters),
+        )
 
 
 def test_every_hyperparameter_reaches_the_config():

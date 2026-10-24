@@ -67,7 +67,7 @@ def test_the_gap_falls_by_the_datas_own_values() -> None:
     cql = ConservativeQ(alpha=1.0, n_actions=4)
 
     def gap_and_value(actions: jax.Array) -> tuple[float, float]:
-        at = batch | {"actions": actions}
+        at = {**batch, "actions": actions}
         _, metrics = cql.critic_loss(None, (), at, CTX)
         x = jnp.concatenate([at["observations"], actions], -1)
         value = predict_value(at["critic_state"], at["critic_params"], x).mean()

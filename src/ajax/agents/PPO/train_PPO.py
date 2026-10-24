@@ -3,12 +3,11 @@ the shared modules, from which they resolve until 0.5.0."""
 
 from ajax.deprecation import moved_names
 
-__getattr__ = moved_names(
-    __name__,
-    dict.fromkeys(
-        ("policy_loss_function", "value_loss_function"), "ajax.agents.PPO.PPO"
-    )
-    | {
+_new_homes = dict.fromkeys(
+    ("policy_loss_function", "value_loss_function"), "ajax.agents.PPO.PPO"
+)
+_new_homes.update(
+    {
         "init_PPO": "ajax.agents.PPO.PPO:PPO.init",
         "update_agent": "ajax.agents.PPO.PPO:PPO.update",
         "make_train": "ajax.agents.families:OnPolicyAgent.make_train",
@@ -18,5 +17,6 @@ __getattr__ = moved_names(
         "run_epochs": "ajax.agents.minibatch",
         "clip_global_norm": "ajax.agents.steps",
         "joint_step": "ajax.agents.steps",
-    },
+    }
 )
+__getattr__ = moved_names(__name__, _new_homes)

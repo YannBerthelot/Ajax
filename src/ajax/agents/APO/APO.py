@@ -18,7 +18,7 @@ function below, or PPO's::
         one step of both networks down L, its gradient clipped over both
         at once (torch's clip_grad_norm_)               APO.minibatch_step
 
-A row that hit a time limit leaves both losses (``valid_mean``).
+A row that hit a time limit leaves both losses (valid_mean).
 """
 
 from __future__ import annotations
@@ -212,15 +212,15 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         context: TrainContext,
     ) -> tuple[APOState, AuxiliaryLogs]:
         """One APO update (the module docstring); with an expert, the
-        rollout's ``a_expert`` reaches the actor-loss extensions.
+        rollout's a_expert reaches the actor-loss extensions.
 
         The GAE is PPO's with ``gamma = 1`` on ``r - rho``, as in APO's
         official code (``xtma/apo``, ``apo/algos/utils.py``,
-        ``generalized_advantage_estimation`` with ``discount = 1``, and
-        ``apo/algos/apg/base.py``, ``process_returns``): ``V(s')`` is dropped
+        generalized_advantage_estimation with ``discount = 1``, and
+        ``apo/algos/apg/base.py``, process_returns): ``V(s')`` is dropped
         at every episode end, a time limit included (the reference's
         ``done``, gym's, includes them), and the lambda-carry is cut there; a
-        time-limited row then leaves the loss (``bootstrap_timelimit``,
+        time-limited row then leaves the loss (bootstrap_timelimit,
         ``base.py:73-77``).
         """
         del start  # a feedforward policy: nothing to replay from it
@@ -310,7 +310,8 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             own key stream is drawn as before."""
             parts = get_minibatches_from_batch(batch, key, num_minibatches)
             keys = jax.random.split(jax.random.fold_in(key, 1), num_minibatches)
-            return parts | {"entropy_key": keys}
+            parts.update({"entropy_key": keys})
+            return parts
 
         step = partial(self.minibatch_step, b=b, context=context)
         state, aux = run_epochs(state, shuffle_key, minibatches, step, self.n_epochs)
@@ -320,17 +321,17 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
     def minibatch_step(
         self, state: APOState, minibatch: dict, b: jax.Array, context: TrainContext
     ) -> tuple[APOState, AuxiliaryLogs]:
-        """One step of both networks on the minibatch ``minibatch``, as APO's
+        """One step of both networks on the minibatch, as APO's
         official code takes it (``xtma/apo``, ``apo/algos/apg/``): one Adam
         over the whole model (``base.py:28``) down the clipped surrogate plus
-        ``vf_coef`` times the value loss minus ``ent_coef`` times the entropy
+        vf_coef times the value loss minus ent_coef times the entropy
         (``appo.py:145-158``), its gradient clipped to global norm
-        ``max_grad_norm`` over every parameter (``appo.py:106-112``): the two
-        networks' Adams on that one gradient (``actor_learning_rate``).
+        max_grad_norm over every parameter (``appo.py:106-112``): the two
+        networks' Adams on that one gradient (actor_learning_rate).
 
         The extensions' critic and actor terms join the sum, on two keys
         derived from the minibatch's entropy key; the actor's also read
-        ``a_expert``, the expert's actions collection stored at the rows
+        a_expert, the expert's actions collection stored at the rows
         (None without an expert).
         """
         actor_state, critic_state = state.actor_state, state.critic_state
@@ -418,26 +419,26 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
     name = "APO"
     action_space = "any"
     capabilities = frozenset(
-        "actor obs_networks policy_density v_critic reward_learning".split()
+        {"actor", "obs_networks", "policy_density", "v_critic", "reward_learning"}
     )
-    supported_extension_phases = LOOP_PHASES | frozenset(
-        "on_target critic_loss actor_loss transform_action actuate".split()
+    supported_extension_phases = LOOP_PHASES.union(
+        {"on_target", "critic_loss", "actor_loss", "transform_action", "actuate"}
     )
     # Unannotated, as the whole contract, so the dataclass makes it no field.
     phase_batch_keys = {  # noqa: RUF012
-        "on_target": frozenset("terminated truncated gae values".split()),
-        "critic_loss": frozenset("critic_params critic_state".split()),
+        "on_target": frozenset({"terminated", "truncated", "gae", "values"}),
+        "critic_loss": frozenset({"critic_params", "critic_state"}),
         "actor_loss": frozenset(
-            "actor_state observations raw_observations pi_mean a_expert".split()
+            {"actor_state", "observations", "raw_observations", "pi_mean", "a_expert"}
         ),
     }
-    extension_context = frozenset("actor_optimizer_args env_args expert_policy".split())
+    extension_context = frozenset({"actor_optimizer_args", "env_args", "expert_policy"})
     stores_expert_actions = True
 
 
 # -- APO's equations, in the order the update calls them ---------------------
 def valid_mean(x: jax.Array, valid: Optional[jax.Array]) -> jax.Array:
-    """The mean over the rows trained on, rlpyt's ``valid_mean``
+    """The mean over the rows trained on, rlpyt's valid_mean
     (``rlpyt/utils/tensor.py``); every row when ``valid`` is None. A
     minibatch with no row to train on gives 0, not rlpyt's 0 / 0."""
     if valid is None:
@@ -461,8 +462,8 @@ def policy_loss_function(
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, Optional[jax.Array]]]:
     """PPO's clipped surrogate with PPO's entropy bonus (APO's Gaussian's,
     exact; a squashed policy's executed action's, sampled with
-    ``entropy_key``), each averaged over the ``valid`` rows (appo.py:149-158);
-    also returns the policy mean for extensions (``None`` for a discrete
+    entropy_key), each averaged over the valid rows (appo.py:149-158);
+    also returns the policy mean for extensions (None for a discrete
     policy, which has no mean action)."""
     pi, _ = get_pi(actor_state, actor_params, observations)
     new_log_probs = recompute_log_prob(pi, actions, raw_actions)
@@ -502,8 +503,8 @@ def value_loss_function(
     ``nu b`` from the critic's target, so with ``b`` the mean value each fit
     pulls the values back towards zero mean (Ma et al., 2021, the value
     bias penalty); adding it would push them away and let ``|b|`` grow.
-    ``vf_coef`` is its ``value_loss_coeff`` (``appo.py:152-153``), the mean
-    over the ``valid`` rows.
+    vf_coef is its value_loss_coeff (``appo.py:152-153``), the mean
+    over the valid rows.
     """
     # The single critic still has the ensemble's leading axis.
     v_preds = predict_value(critic_states, critic_params, observations).squeeze(0)
@@ -563,8 +564,8 @@ class PolicyAuxiliaries:
 
 @struct.dataclass(kw_only=True)
 class ValueAuxiliaries:
-    """The critic's metrics, the value bias ``b`` the loss used and the
-    reward rate ``rho`` the targets used (filled in after the step)."""
+    """The critic's metrics, the value bias b the loss used and the
+    reward rate rho the targets used (filled in after the step)."""
 
     critic_loss: jax.Array
     predictions: jax.Array
@@ -582,7 +583,7 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-#: ``agent.agent_config``'s class: a view of the fields until 0.5.0.
+#: agent.agent_config's class: a view of the fields until 0.5.0.
 APOConfig = APO.declare_config(
     "ent_coef clip_range n_steps batch_size n_epochs gae_lambda"
     " normalize_advantage alpha nu num_minibatches vf_coef max_grad_norm"

@@ -23,8 +23,11 @@ def old_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     monkeypatch.setitem(sys.modules, "old_home", module)  # as while it runs
     module.__getattr__ = moved_names(  # type: ignore[method-assign]
         "old_home",
-        {"warn_inert": "ajax.deprecation", "gone": "ajax.deprecation:moved_names"}
-        | {"train_agent": "ajax.agents.base:ActorCritic.train"},
+        {
+            "warn_inert": "ajax.deprecation",
+            "gone": "ajax.deprecation:moved_names",
+            "train_agent": "ajax.agents.base:ActorCritic.train",
+        },
     )
     return module
 

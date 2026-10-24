@@ -47,7 +47,12 @@ def test_every_test_directory_is_a_package():
             str(Path(path).parent)
             for path in tracked
             if path.startswith("tests/") and path.endswith(".py")
-        }
-        - {str(Path(path).parent) for path in tracked if path.endswith("/__init__.py")}
+        }.difference(
+            {
+                str(Path(path).parent)
+                for path in tracked
+                if path.endswith("/__init__.py")
+            }
+        )
     )
     assert not missing, f"test directories without __init__.py: {missing}"

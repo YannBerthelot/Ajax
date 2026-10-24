@@ -41,7 +41,7 @@ NORMALISATION = {
 }
 MEMORY: dict[str, Any] = {"memory": MemoryConfig(kind="gru", hidden_size=8)}
 # Sequence replay: windows of 2 + 4 + 1 steps, one per env before the first update.
-MEMORY |= {"burn_in": 2, "sequence_length": 4, "learning_starts": 16}
+MEMORY.update({"burn_in": 2, "sequence_length": 4, "learning_starts": 16})
 #: A row's float atol where its rounding passes differing_leaves' 1e-6, set
 #: between that rounding and the gaps its float-only planted faults leave
 #: (as test_p4_split_run.EQUIVALENT sets its cells'). CrossQ's two programs
@@ -59,12 +59,15 @@ def _row(name: str, memory: bool) -> tuple[Any, int, dict]:
     if name == "APG":  # it restarts its optimizer on resume unless told not to
         env, params = paid_action.make()
         kw: dict[str, Any] = {"n_envs": 4, "horizon": 1, "memory": MEMORY["memory"]}
-        kw |= {"lr_schedule": "warmup_cosine", "warmup_steps": 2}
+        kw.update({"lr_schedule": "warmup_cosine", "warmup_steps": 2})
         keep = {"reset_optimizer_on_resume": False, "total_timesteps": 64}
         return lambda: APG(env, env_params=params, pid=None, **kw), 64, keep
     case, taken = CASES[name], inspect.signature(CASES[name].cls).parameters
-    options = NORMALISATION | (MEMORY if memory else {})
-    kw = case.kwargs | {k: v for k, v in options.items() if k in taken}
+    options = dict(NORMALISATION)
+    if memory:
+        options.update(MEMORY)
+    kw = dict(case.kwargs)
+    kw.update({k: v for k, v in options.items() if k in taken})
     budget = case.n_timesteps
     return (
         lambda: case.cls(env_id=case.envs[-1], n_envs=2, **kw),
@@ -108,7 +111,8 @@ def test_every_agent_taking_normalisation_or_memory_has_its_row() -> None:
     ids = {p.id for p in ROWS}
     for name in ajax.__all__:
         cls = getattr(ajax, name)
-        normalises = NORMALISATION.keys() & inspect.signature(cls).parameters.keys()
+        parameters = inspect.signature(cls).parameters
+        normalises = set(NORMALISATION).intersection(parameters)
         assert not normalises or name in ids, name
         assert not getattr(cls, "supports_memory", None) or f"{name}-memory" in ids
 

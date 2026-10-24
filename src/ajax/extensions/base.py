@@ -124,8 +124,8 @@ PHASES: tuple[str, ...] = (
 #: batches" above); an agent declares the others its folds pass in its
 #: ``phase_batch_keys``.
 COMMON_BATCH_KEYS: dict[str, frozenset[str]] = {
-    "on_target": frozenset("observations next_observations rewards gamma".split()),
-    "critic_loss": frozenset("observations targets".split()),
+    "on_target": frozenset({"observations", "next_observations", "rewards", "gamma"}),
+    "critic_loss": frozenset({"observations", "targets"}),
     "actor_loss": frozenset({"actor_params"}),
 }
 
@@ -166,8 +166,9 @@ def check_extensions(
         pretrain_context=pretrain_context,
         buffer_fields=buffer_fields,
         batch_keys={
-            phase: COMMON_BATCH_KEYS.get(phase, frozenset())
-            | frozenset(batch_keys.get(phase, ()))
+            phase: COMMON_BATCH_KEYS.get(phase, frozenset()).union(
+                frozenset(batch_keys.get(phase, ()))
+            )
             for phase in PHASES
         },
         takes_expert_policy=takes_expert_policy,
@@ -476,14 +477,14 @@ def merge_metrics(*metrics: dict) -> dict:
     log raises (two extensions of one class report the same names)."""
     merged: dict = {}
     for named in metrics:
-        clash = sorted(merged.keys() & named.keys())
+        clash = sorted(set(merged).intersection(named))
         if clash:
             raise ValueError(
                 f"Two extensions in the stack log the training metrics {clash};"
                 " each name is logged once, so a stack holds one extension"
                 " reporting it."
             )
-        merged |= named
+        merged.update(named)
     return merged
 
 
@@ -622,7 +623,8 @@ class ExtensionStack:
         updated), the rewards and the metrics."""
         if not self.extensions:
             return agent_state, rewards, {}
-        ext_states, metrics = list(agent_state.ext_state), dict[str, Any]()
+        ext_states = list(agent_state.ext_state)
+        metrics: dict[str, Any] = {}
         for i, (ext, key) in enumerate(
             zip(self.extensions, self._keys(rng), strict=True)
         ):

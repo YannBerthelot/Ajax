@@ -384,7 +384,7 @@ def compare(baseline_path: str, new_path: str, tol: float) -> int:
             flag = "  <-- REGRESSION"
             regressed.append((agent, delta))
         print(f"{agent:10s} {b:12.1f} {n:12.1f} {delta:+8.1%}{flag}")
-    for agent in sorted(set(new) - set(base)):
+    for agent in sorted(set(new).difference(base)):
         print(f"{agent:10s} {'NEW':>12s} {new[agent]:12.1f}   (no baseline)")
     if regressed:
         print(

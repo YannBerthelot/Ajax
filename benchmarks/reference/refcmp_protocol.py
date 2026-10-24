@@ -91,7 +91,7 @@ def digest(paths) -> str:
         )
         for f in files:
             parts = f.relative_to(base).parts
-            if f.is_file() and not {"__pycache__", ".venv"} & set(parts):
+            if f.is_file() and not {"__pycache__", ".venv"}.intersection(parts):
                 h.update("/".join(parts).encode() + f.read_bytes())
     return h.hexdigest()
 
@@ -162,7 +162,9 @@ def subproject_env(project: pathlib.Path, **extra: str) -> dict[str, str]:
     settings: its uv.lock is the one they resolved (the lowest job's lowest-direct sync)."""
     own = project.resolve() == ROOT.resolve()
     dropped = ("VIRTUAL_ENV",) if own else CALLER_SETTINGS
-    return {k: v for k, v in os.environ.items() if k not in dropped} | extra
+    env = {k: v for k, v in os.environ.items() if k not in dropped}
+    env.update(extra)
+    return env
 
 
 def train(name: str, side: str, seeds: list) -> dict:

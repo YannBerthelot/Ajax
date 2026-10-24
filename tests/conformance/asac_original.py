@@ -155,7 +155,7 @@ def run(records: Any, precision: str, fault: str | None = None) -> dict[str, dic
     train_ASAC.sample_replay = injected
     try:
         for env_id in envs:
-            out |= _env_updates(records, env_id, dtype, fault, given)
+            out.update(_env_updates(records, env_id, dtype, fault, given))
     finally:
         train_ASAC.sample_replay = sample
     return out
@@ -164,7 +164,8 @@ def run(records: Any, precision: str, fault: str | None = None) -> dict[str, dic
 def _env_updates(
     records: Any, env_id: str, dtype: Any, fault: str | None, given: dict
 ) -> dict:
-    settings = SETTINGS | FAULTS.get(fault or "", {})
+    settings = dict(SETTINGS)
+    settings.update(FAULTS.get(fault or "", {}))
     if env_id in ENVS:
         env, params = ENVS[env_id].make()
         agent = ajax.ASAC(env, env_params=params, **settings)

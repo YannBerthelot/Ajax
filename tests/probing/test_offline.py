@@ -59,7 +59,7 @@ def offline_readings(name: str, extensions: tuple = (), data: Any = None) -> Any
     def read(run: runs.Run) -> dict:
         def at(n: R.Nets) -> dict:
             actions = {f"a({x:g})": R.action(n, x) for x in (-1.0, 1.0)}
-            return actions | {"Q(1, 0.5)": R.critic(n, 1.0, 0.5)}
+            return {**actions, "Q(1, 0.5)": R.critic(n, 1.0, 0.5)}
 
         return R.per_seed(at, R.nets(run.state))
 
@@ -96,7 +96,8 @@ def iql_readings() -> Any:
     def read(run: runs.Run) -> dict:
         def at(n: R.Nets) -> dict:
             v = predict_value(n.extra, n.extra.params, R.inp(n, 1.0)).reshape(())
-            return {"V(1)": v} | {f"a({x:g})": R.action(n, x) for x in (-1.0, 1.0)}
+            out = {f"a({x:g})": R.action(n, x) for x in (-1.0, 1.0)}
+            return {"V(1)": v, **out}
 
         return R.per_seed(at, R.nets(run.state, run.state.value_state))
 
@@ -108,7 +109,7 @@ def _awr(x: float) -> Query:
         "no advantage weights": 0.0,
         "no clip at 100": awr_mean(V_IQL, BETA, False),
     }
-    wrong |= {"expectile 0.5 (V the mean)": awr_mean(0.0, BETA)}
+    wrong.update({"expectile 0.5 (V the mean)": awr_mean(0.0, BETA)})
     return Query(
         f"a({x:g})", x * awr_mean(V_IQL, BETA), {k: x * w for k, w in wrong.items()}
     )
@@ -195,13 +196,15 @@ CASES: dict[str, Case] = {
     "offline-TD3": Case(
         "offline-TD3",
         (
-            Query("a(-1)", -1.0, _NONE | {"the logged actions' mean": 0.0}),
-            Query("a(1)", 1.0, _NONE | {"the logged actions' mean": 0.0}),
+            Query("a(-1)", -1.0, {**_NONE, "the logged actions' mean": 0.0}),
+            Query("a(1)", 1.0, {**_NONE, "the logged actions' mean": 0.0}),
             Query(
                 "Q(1, 0.5)",
                 0.5,
-                _NONE
-                | {"bootstrapped past the termination": 0.5 + GAMMA / (1 - GAMMA)},
+                {
+                    **_NONE,
+                    "bootstrapped past the termination": 0.5 + GAMMA / (1 - GAMMA),
+                },
             ),
         ),
         offline_readings("TD3"),

@@ -78,7 +78,7 @@ def failed_nodes(stdout: str) -> list[str]:
 def catch(fault: faults.Fault, nodes: list[str], scratch: str) -> dict:
     root = os.path.join(scratch, fault.id)
     shutil.rmtree(root, ignore_errors=True)
-    shutil.copytree(REPO, root, ignore=lambda d, names: SKIPPED & set(names))
+    shutil.copytree(REPO, root, ignore=lambda d, names: SKIPPED.intersection(names))
     faults.plant(fault, root)
     env = dict(os.environ, PYTHONPATH=os.path.join(root, "src"), JAX_PLATFORMS="cpu")
     env["AJAX_JAX_COMPILE_CACHE_DIR"] = os.path.join(scratch, "jax-cache")

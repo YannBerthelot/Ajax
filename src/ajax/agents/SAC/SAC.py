@@ -76,30 +76,54 @@ class SAC(ActorCritic):
     supports_memory: bool = True
     replays_transitions: bool = True
     capabilities: frozenset = frozenset(
-        "actor critic_ensemble discounted obs_networks "
-        "off_policy policy_density q_critic replay target_critic "
-        "reward_learning".split()
+        {
+            "actor",
+            "critic_ensemble",
+            "discounted",
+            "obs_networks",
+            "off_policy",
+            "policy_density",
+            "q_critic",
+            "replay",
+            "target_critic",
+            "reward_learning",
+        }
     )
     # ``action`` reaches only the action pipeline's slots, and
     # ``transform_action`` the pipeline, with an expert policy
     # (check_action_extensions).
-    supported_extension_phases: frozenset = LOOP_PHASES | {
-        "on_target",
-        "critic_loss",
-        "actor_loss",
-        "action",
-        "transform_action",
-        "actuate",
-    }
+    supported_extension_phases: frozenset = LOOP_PHASES.union(
+        {
+            "on_target",
+            "critic_loss",
+            "actor_loss",
+            "action",
+            "transform_action",
+            "actuate",
+        }
+    )
     # Its critic step's target_extras join the shared step's on_target keys.
-    phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS | {
-        "on_target": TARGET_KEYS | {"rng_key", "q_preds", "recurrent"}
+    phase_batch_keys: Mapping[str, frozenset] = {
+        **REPLAY_BATCH_KEYS,
+        "on_target": TARGET_KEYS.union({"rng_key", "q_preds", "recurrent"}),
     }
-    pretrain_context: frozenset = frozenset("buffer env_args update".split())
+    pretrain_context: frozenset = frozenset({"buffer", "env_args", "update"})
     extension_context: frozenset = frozenset(
-        "actor_optimizer_args buffer critic_optimizer_args env_args "
-        "expert_policy extensions gamma network_args num_critics recurrent "
-        "reward_scale update_target_fn update_value_fn".split()
+        {
+            "actor_optimizer_args",
+            "buffer",
+            "critic_optimizer_args",
+            "env_args",
+            "expert_policy",
+            "extensions",
+            "gamma",
+            "network_args",
+            "num_critics",
+            "recurrent",
+            "reward_scale",
+            "update_target_fn",
+            "update_value_fn",
+        }
     )
     supported_buffer_fields: frozenset = frozenset({"raw_next_obs", "return_to_go"})
     stores_expert_actions: bool = True
@@ -228,11 +252,13 @@ class SAC(ActorCritic):
             # The Gaussian head's settings are the MLP actor's: a PID actor in
             # its place keeps its own log-std start (PID_LOG_STD_INIT).
             if not isinstance(actor_architecture, PIDPolicy):
-                reference_init |= {
-                    "mean_kernel_init": "xavier_uniform",
-                    "log_std_kernel_init": "xavier_uniform",
-                    "log_std_init": 0.0,
-                }
+                reference_init.update(
+                    {
+                        "mean_kernel_init": "xavier_uniform",
+                        "log_std_kernel_init": "xavier_uniform",
+                        "log_std_init": 0.0,
+                    }
+                )
         features = augmentation_features(
             expert_policy,
             progress=use_train_frac,

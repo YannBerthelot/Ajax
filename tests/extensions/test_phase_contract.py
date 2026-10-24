@@ -130,12 +130,14 @@ WORLD_MODELS: dict[str, Any] = {
 
 
 def _phases(name: str) -> frozenset:
-    return frozenset(PHASES) & getattr(ajax, name).supported_extension_phases
+    return frozenset(PHASES).intersection(
+        getattr(ajax, name).supported_extension_phases
+    )
 
 
 AGENTS = [name for name in ajax.__all__ if _phases(name)]
 #: The agents folding a phase that hands a batch.
-BATCHED = [name for name in AGENTS if _phases(name) - {"post_update"}]
+BATCHED = [name for name in AGENTS if _phases(name).difference({"post_update"})]
 
 
 def test_every_agent_folding_a_phase_has_a_run() -> None:
@@ -157,14 +159,14 @@ def _setup(name: str) -> tuple[Any, Any, dict, int]:
         case = CASES[name]
         cls, n_timesteps = case.cls, case.n_timesteps
         env_id = "Pendulum-v1" if "Pendulum-v1" in case.envs else "CartPole-v1"
-        kwargs = case.kwargs | OVERRIDES.get(name, {})
+        kwargs = {**case.kwargs, **OVERRIDES.get(name, {})}
     return cls, env_id, kwargs, n_timesteps
 
 
 @functools.cache
 def _run(name: str) -> SimpleNamespace:
     cls, env_id, kwargs, n_timesteps = _setup(name)
-    phases = frozenset(PHASES) & cls.supported_extension_phases
+    phases = frozenset(PHASES).intersection(cls.supported_extension_phases)
     recorder = type("Recorder", (Recorder,), {p: globals()[p] for p in phases})()
     BATCH_KEYS.clear()
     ROWS.clear()
@@ -189,12 +191,12 @@ def _run(name: str) -> SimpleNamespace:
 @pytest.mark.parametrize("name", BATCHED)
 def test_each_batch_holds_the_documented_keys(name: str) -> None:
     run = _run(name)
-    assert set(run.batch_keys) == run.phases - {"post_update"}
+    assert set(run.batch_keys) == run.phases.difference({"post_update"})
     for phase, key_sets in run.batch_keys.items():
         declared = _setup(name)[0].phase_batch_keys.get(phase, frozenset())
-        documented = COMMON_BATCH_KEYS.get(phase, frozenset()) | declared
+        documented = COMMON_BATCH_KEYS.get(phase, frozenset()).union(declared)
         for keys in key_sets:
-            assert not documented - keys, (phase, sorted(keys))
+            assert not documented.difference(keys), (phase, sorted(keys))
 
 
 @pytest.mark.parametrize("name", AGENTS)
@@ -262,7 +264,7 @@ def test_each_loss_term_moves_its_own_network(name: str) -> None:
         q_net = any("q_state" in keys for keys in run.batch_keys["critic_loss"])
         after = state.actor_state.params if q_net else state.critic_state.params
         networks["critic_loss"] = (actor if q_net else critic, after, -1.0)
-    for phase in run.phases & set(networks):
+    for phase in run.phases.intersection(networks):
         before, after, sign = networks[phase]
         moved = _flat(after) - _flat(before)
         common = moved.mean()
@@ -297,8 +299,8 @@ def test_each_phase_logs_its_metrics_with_the_updates(name: str, options: dict) 
     """Every evaluation logs each folded phase's constant, as the last
     update's or the update's mean."""
     cls, env_id, kwargs, n_timesteps = _setup(name)
-    kwargs = kwargs | options
-    phases = frozenset(LOGGED) & cls.supported_extension_phases
+    kwargs = {**kwargs, **options}
+    phases = frozenset(LOGGED).intersection(cls.supported_extension_phases)
     logger = type("Logger", (Extension,), {p: _logging(p) for p in phases})()
     agent = cls(env_id, **kwargs, extensions=(logger,))
     logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)

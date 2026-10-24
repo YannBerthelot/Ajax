@@ -75,7 +75,8 @@ def test_dqn_starts_every_layer_as_torch7_nn_linear(cls):
     layers = {  # name: (params, fan_in); CartPole's 4 observations
         "hidden 0": (params["encoder"]["network"]["layers_0"], 4),
         "hidden 1": (params["encoder"]["network"]["layers_2"], 64),
-    } | {head: (params[head], 64) for head in heads}
+    }
+    layers.update({head: (params[head], 64) for head in heads})
     for name, (layer, fan_in) in layers.items():
         assert_torch_linear(name, layer, fan_in)
 

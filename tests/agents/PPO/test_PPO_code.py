@@ -159,8 +159,9 @@ def test_rollout_actions_resolves_to_get_actions_and_log_probs() -> None:
 def test_an_unusable_unroll_length_is_refused(config):
     """The update would fall back to whole rollouts: refused at construction."""
     kw = {"env_id": "Pendulum-v1", "n_steps": 32, "n_envs": 2, "num_minibatches": 4}
+    kw.update(config)
     with pytest.raises(ValueError, match="unroll_length"):
-        PPO(**kw | config)
+        PPO(**kw)
 
 
 @pytest.mark.parametrize(

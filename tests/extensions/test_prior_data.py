@@ -37,7 +37,8 @@ def data() -> dict[bool, ds.TransitionDataset]:
 def train(name: str, extensions: tuple = (), **kw: Any) -> Any:
     """``name`` on the identity task, trained 0 steps: one seed's state."""
     case, env = CASES[name], IdentityEnv(discrete=name == "DQN")
-    agent = case.cls(env, n_envs=1, extensions=extensions, **case.kwargs | kw)
+    kwargs = {**case.kwargs, **kw}
+    agent = case.cls(env, n_envs=1, extensions=extensions, **kwargs)
     return jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
 
 
@@ -81,7 +82,7 @@ def test_the_rows_join_the_normalisers_once_each(data) -> None:
     through the rows, its running discounted return left at zero."""
     rows = data[False]
     norm: dict[str, Any] = {"normalize_observations": True}
-    norm |= {"normalize_rewards": True, "reward_normalization_gamma": 0.9}
+    norm.update({"normalize_rewards": True, "reward_normalization_gamma": 0.9})
     state = train("TD3", (PriorData(rows),), **norm)
     obs = state.collector_state.obs_norm_info
     assert float(obs.count.sum()) == len(rows.reward)

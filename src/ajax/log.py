@@ -190,9 +190,11 @@ def aux_metrics(aux: Any) -> Dict[str, Any]:
     metrics, by their own names."""
     groups = dict(to_state_dict(aux))
     extensions = groups.pop("extensions", {})
-    return flatten_dict(groups) | {
-        name: _metric_value(name, value) for name, value in extensions.items()
-    }
+    metrics = flatten_dict(groups)
+    metrics.update(
+        {name: _metric_value(name, value) for name, value in extensions.items()}
+    )
+    return metrics
 
 
 def _make_no_op(extra_eval_metrics=None):

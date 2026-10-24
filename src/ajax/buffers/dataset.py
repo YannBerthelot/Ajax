@@ -152,11 +152,13 @@ def record(
         n_timesteps=n_steps,
     )
     rows = {"obs": t.raw_obs, "action": t.action, "reward": t.reward[..., 0]}
-    rows |= {
-        "terminated": t.terminated[..., 0] > 0,
-        "truncated": t.truncated[..., 0] > 0,
-    }
-    rows |= {"next_obs": t.raw_next_obs, "a_expert": t.a_expert}
+    rows.update(
+        {
+            "terminated": t.terminated[..., 0] > 0,
+            "truncated": t.truncated[..., 0] > 0,
+        }
+    )
+    rows.update({"next_obs": t.raw_next_obs, "a_expert": t.a_expert})
     streams = {f: np.swapaxes(np.asarray(x), 0, 1) for f, x in rows.items()}
     streams["is_expert"] = np.ones_like(streams["reward"], bool)
     return _whole_episodes(streams, gamma, env, cut=False)
@@ -244,7 +246,7 @@ def fill_replay(buffer: Any, buffer_state: Any, data: TransitionDataset) -> Any:
     outnumber its capacity."""
     schema, rows = buffer_state.experience, _replay_rows(data)
     n_envs, capacity = jax.tree.leaves(schema)[0].shape[:2]
-    missing = sorted(set(schema) - set(rows))
+    missing = sorted(set(schema).difference(set(rows)))
     if missing:
         raise ValueError(f"the replay keeps {missing}, which a dataset does not hold")
     for k, x in schema.items():

@@ -401,11 +401,13 @@ def strip_ajax_wrappers(env: EnvType) -> tuple[EnvType, dict]:
     layers: dict = {}
     for layer in wrapper_chain(env):
         if isinstance(layer, _NORMALISERS):
-            layers |= {
-                "normalize_obs": layer.normalize_obs,
-                "normalize_reward": layer.normalize_reward,
-                "gamma": layer.gamma,
-            }
+            layers.update(
+                {
+                    "normalize_obs": layer.normalize_obs,
+                    "normalize_reward": layer.normalize_reward,
+                    "gamma": layer.gamma,
+                }
+            )
         elif not isinstance(layer, _CLIPS):
             return layer, layers
     raise ValueError(f"No task env under the Ajax wrappers of {env!r}")

@@ -126,8 +126,8 @@ def test_task_set_reproduces_the_reference_tables(ufx, pfx):
         for k, v in ref.items()
         if k != "task_dim" and isinstance(v, int) and not isinstance(v, bool)
     }
-    sizes |= {*tasks.obs_dims, *tasks.action_dims, tasks.num_tasks}
-    sizes |= {ref["horizon"] + 1, ref["num_samples"] - ref["num_pi_trajs"]}
+    sizes.update({*tasks.obs_dims, *tasks.action_dims, tasks.num_tasks})
+    sizes.update({ref["horizon"] + 1, ref["num_samples"] - ref["num_pi_trajs"]})
     assert ref["task_dim"] not in sizes
     assert reference_config(pfx)["task_dim"] == ref["task_dim"]
     config = ajax_config(ref)

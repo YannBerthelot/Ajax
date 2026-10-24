@@ -57,7 +57,7 @@ def _counter(actions: int) -> envs.Spec:
 
 def test_every_normalising_agent_has_a_row() -> None:
     """A new agent taking normalize_rewards joins test_agent_contract.CASES."""
-    assert set(NORMALISING) <= set(CASES), set(NORMALISING) - set(CASES)
+    assert set(NORMALISING) <= set(CASES), set(NORMALISING).difference(CASES)
 
 
 @pytest.mark.parametrize("name", NORMALISING)

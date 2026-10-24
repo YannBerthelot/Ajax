@@ -43,7 +43,7 @@ from ajax.networks.networks import predict_value
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import Architecture, FloatOrCallable
 
-#: The reference's initialisation (common.py ``default_init``).
+#: The reference's initialisation (common.py default_init).
 ORTHOGONAL_SQRT2 = "orthogonal(np.sqrt(2))"
 
 
@@ -52,12 +52,12 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
     """Implicit Q-Learning: a state value fitted as an expectile of the
     critic over the data's actions, and an actor fitted by
     advantage-weighted regression (the module's equations). Train it on a
-    dataset with ``train_offline`` (the paper's setting), then fine-tune
+    dataset with train_offline (the paper's setting), then fine-tune
     online with ``train``: the same update, the offline rows kept in its
     replay (Sec. 5.3).
 
     Defaults are the reference code's (``configs/mujoco_config.py``,
-    ``learner.py``, ``policy.py``): expectile 0.7 and temperature 3
+    learner.py, policy.py): expectile 0.7 and temperature 3
     (locomotion; antmaze takes 0.9 and 10); 256-256 ReLU networks,
     orthogonal(sqrt 2) initialisation; Adam at 3e-4 with optax's eps 1e-8
     for the actor, the critics and the value; the actor a Gaussian on a
@@ -66,7 +66,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
     actor's offline learning rate to 0 by a cosine over its updates: pass
     ``actor_learning_rate=optax.cosine_decay_schedule(3e-4, n_updates)``
     for that. Its locomotion rewards are scaled by 1000 over the dataset's
-    range of returns: ``reward_scale``.
+    range of returns: reward_scale.
     """
 
     actor_learning_rate: FloatOrCallable = 3e-4
@@ -204,12 +204,25 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "IQL"
     capabilities = frozenset(
-        "actor critic_ensemble discounted obs_networks off_policy policy_density"
-        " q_critic replay target_critic v_critic reward_learning".split()
+        {
+            "actor",
+            "critic_ensemble",
+            "discounted",
+            "obs_networks",
+            "off_policy",
+            "policy_density",
+            "q_critic",
+            "replay",
+            "target_critic",
+            "v_critic",
+            "reward_learning",
+        }
     )
-    phase_batch_keys = steps.REPLAY_BATCH_KEYS | {
-        "actor_loss": steps.ACTOR_STEP_KEYS
-        | frozenset("observations raw_observations actions critic_state".split())
+    phase_batch_keys = {  # noqa: RUF012
+        **steps.REPLAY_BATCH_KEYS,
+        "actor_loss": steps.ACTOR_STEP_KEYS.union(
+            {"observations", "raw_observations", "actions", "critic_state"}
+        ),
     }
     supported_buffer_fields = frozenset({"raw_next_obs", "return_to_go"})
 
@@ -222,7 +235,7 @@ def min_target_q(critic: LoadedTrainState, batch: Transition) -> jax.Array:
 
 
 def expectile_loss(diff: jax.Array, expectile: float) -> jax.Array:
-    """``|expectile - 1(diff < 0)| diff^2`` (critic.py ``loss``)."""
+    """``|expectile - 1(diff < 0)| diff^2`` (critic.py loss)."""
     weight = jnp.where(diff > 0, expectile, 1.0 - expectile)
     return weight * diff**2
 
@@ -234,7 +247,7 @@ def value_loss(
     expectile: float,
     params: Any,
 ) -> tuple[jax.Array, None]:
-    """V's expectile regression on ``q`` (critic.py ``update_v``)."""
+    """V's expectile regression on q (critic.py update_v)."""
     v = predict_value(value_state, params, obs)[0]
     return jnp.mean(expectile_loss(q - v, expectile)), None
 
@@ -270,7 +283,7 @@ def bellman_target(
 def q_loss(
     critic: LoadedTrainState, batch: Transition, params: Any, target: jax.Array
 ) -> tuple[jax.Array, jax.Array]:
-    """The critics' mean squared error to ``target`` (the deviation above)."""
+    """The critics' mean squared error to the target (the deviation above)."""
     loss, _ = critic_loss_fn(params, critic, batch.obs, batch.action, target)
     return loss, loss
 
@@ -298,7 +311,7 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-#: ``agent.agent_config``'s class: a view of the fields until 0.5.0.
+#: agent.agent_config's class: a view of the fields until 0.5.0.
 IQLConfig = IQL.declare_config(
     "expectile temperature gamma tau learning_starts reward_scale"
 )

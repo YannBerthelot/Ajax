@@ -365,11 +365,9 @@ def update_temperature(
     return agent_state.replace(alpha=new_alpha_state), jax.lax.stop_gradient(aux)
 
 
-__getattr__ = moved_names(
-    __name__,
-    dict.fromkeys(
-        ("CoreCriticAux", "critic_loss_fn", "q_regression_loss"),
-        "ajax.agents.critics",
-    )
-    | dict.fromkeys(("update_target_networks",), "ajax.agents.steps"),
+_new_homes = dict.fromkeys(
+    ("CoreCriticAux", "critic_loss_fn", "q_regression_loss"),
+    "ajax.agents.critics",
 )
+_new_homes.update(dict.fromkeys(("update_target_networks",), "ajax.agents.steps"))
+__getattr__ = moved_names(__name__, _new_homes)

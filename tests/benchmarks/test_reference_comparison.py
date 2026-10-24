@@ -53,7 +53,7 @@ def test_matched_arm_copies_every_setting_it_shares_with_the_reference(name):
                 pairs.append((key, ajax_key))
                 expected = value * spec.scale[key] if key in spec.scale else value
                 assert spec.matched[ajax_key] == expected, (key, ajax_key)
-    renamed = {k for k, _ in pairs} & spec.renames.keys()
+    renamed = {k for k, _ in pairs}.intersection(spec.renames.keys())
     assert renamed == spec.renames.keys(), "every rename names a copied setting"
     assert len(pairs) >= 3
 
@@ -65,7 +65,9 @@ def test_sb3_keywords_leave_the_harness_keys_to_the_runner(name):
     kwargs = refcmp_sb3.sb3_kwargs(COMPARISONS[name])
     harness = kwargs.pop("_harness")
     assert "net_arch" in harness
-    assert not {"n_envs", "net_arch", "activation", "action_noise_std"} & kwargs.keys()
+    assert not {"n_envs", "net_arch", "activation", "action_noise_std"}.intersection(
+        kwargs.keys()
+    )
 
 
 class _VecEnvBase:

@@ -90,7 +90,9 @@ def config(spec, arm: str) -> dict:
     """The agent's run config, its schedule and loss given as the spec's tokens."""
     resolved = build_agent(spec, arm).config
     arm_kwargs = spec.matched if arm == "matched" else spec.defaults
-    return {k: v for k, v in resolved.items() if not callable(v)} | arm_kwargs
+    settings = {k: v for k, v in resolved.items() if not callable(v)}
+    settings.update(arm_kwargs)
+    return settings
 
 
 if __name__ == "__main__":

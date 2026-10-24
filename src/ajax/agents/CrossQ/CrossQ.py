@@ -3,7 +3,7 @@ continuous actions.
 
 One update on a replay batch, in the order of the reference
 (adityab/CrossQ@a318a26, ``sbx/sac/sac.py:195-400``), each line one method
-below or one of SAC's equations (``core``, :mod:`ajax.agents.SAC.core`)::
+below or one of SAC's equations (core, :mod:`ajax.agents.SAC.core`)::
 
     a' ~ pi(. | s'), log pi(a' | s')                     core.sample_next_actions
     Q(s, a), Q(s', a') in one training pass over both               critic_update
@@ -78,7 +78,7 @@ class CrossQ(
 
     Args:
         learning_rate: The actor's and the critics' (and the temperature's,
-            unless ``alpha_learning_rate`` is given).
+            unless alpha_learning_rate is given).
         actor_width: The units of the actor's two hidden layers.
         critic_width: The units of the critics' two hidden layers; the
             paper's are 2048 wide (SBX's 1024).
@@ -130,12 +130,12 @@ class CrossQ(
 
     @property
     def target_entropy(self) -> float:
-        """``target_entropy_per_dim`` times the policy's action width (gain
+        """target_entropy_per_dim times the policy's action width (gain
         mode's gains)."""
         return self.target_entropy_per_dim * policy_action_dim(self.env_args)
 
     def init(self, key: jax.Array, context: TrainContext) -> CrossQState:
-        """A squashed Gaussian actor, ``num_critics`` Q critics without
+        """A squashed Gaussian actor, num_critics Q critics without
         targets, and the temperature."""
         rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
         actor_state, critic_state = context.actor_critic(
@@ -160,7 +160,7 @@ class CrossQ(
         self, state: CrossQState, context: TrainContext
     ) -> tuple[CrossQState, AuxiliaryLogs]:
         """A critic step on a fresh replay batch, then, on the
-        ``policy_delay``-th, an actor and a temperature step on the same
+        policy_delay-th, an actor and a temperature step on the same
         batch (the authors' ``(n_updates + i + 1) % policy_delay``,
         ``sbx/sac/sac.py:201``)."""
         state, sample_key = state.draw_keys()
@@ -293,8 +293,17 @@ class CrossQ(
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "CrossQ"
     capabilities = frozenset(
-        "actor critic_ensemble discounted obs_networks "
-        "off_policy policy_density q_critic replay reward_learning".split()
+        {
+            "actor",
+            "critic_ensemble",
+            "discounted",
+            "obs_networks",
+            "off_policy",
+            "policy_density",
+            "q_critic",
+            "replay",
+            "reward_learning",
+        }
     )
     trains_batch_norm = True
     stores_expert_actions = True
@@ -335,7 +344,7 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-#: ``agent.agent_config``'s class: a view of the fields until 0.5.0.
+#: agent.agent_config's class: a view of the fields until 0.5.0.
 CrossQConfig = CrossQ.declare_config(
     "gamma target_entropy learning_starts reward_scale policy_delay"
 )

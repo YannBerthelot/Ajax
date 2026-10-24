@@ -44,7 +44,10 @@ def rewrite(catalogues: str, moved: dict) -> None:
         with open(path) as fh:
             lines = fh.readlines()
         for i, line in enumerate(lines):
-            if line.strip() and (fid := json.loads(line)["id"]) in moved:
+            if not line.strip():
+                continue
+            fid = json.loads(line)["id"]
+            if fid in moved:
                 old, new = moved[fid]
                 lines[i] = line.replace(f'"path": "{old}"', f'"path": "{new}"', 1)
         with open(path, "w") as fh:

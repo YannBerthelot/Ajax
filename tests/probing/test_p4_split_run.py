@@ -73,7 +73,7 @@ def _apg() -> Any:
     )
     system = UniformPerturbation(params.replace(g=0.0), ("m", "l"), scale=0.1)
     kw: dict[str, Any] = {"n_envs": 4, "horizon": 16, "learning_rate": 3e-3}
-    kw |= {"system_class": system, "actor_architecture": ("16", "relu")}
+    kw.update({"system_class": system, "actor_architecture": ("16", "relu")})
     return agents.make("APG", wrapped, system.nominal, preset=None, **kw)
 
 
@@ -92,10 +92,10 @@ SAC_KW = {**NETS, "buffer_size": 1000, "batch_size": 32, **dict.fromkeys(STARTS,
 EPS = {"architecture": N32, "epsilon_start": 0.3, "epsilon_end": 0.3}
 DQN_KW = {**EPS, "buffer_size": 1000, "batch_size": 32}
 UDRL_KW = {"n_envs": 1, "actor_architecture": N32, "n_steps": 8, "batch_size": 8}
-UDRL_KW |= {"n_updates_per_iter": 4}
+UDRL_KW.update({"n_updates_per_iter": 4})
 # The second leg enters DAgger's second iteration (beta 1, then 0).
 DAGGER_KW = {"actor_architecture": N32, "iteration_steps": 96, "batch_size": 8}
-DAGGER_KW |= {"expert_policy": lambda obs: jnp.full(obs.shape[:-1] + (1,), 0.5)}
+DAGGER_KW.update({"expert_policy": lambda obs: jnp.full(obs.shape[:-1] + (1,), 0.5)})
 IQL_KW = {"buffer_size": 1000, "batch_size": 32, "learning_starts": 50}
 EQUIVALENT = {
     # SAC's two programs rounded 3.4e-5 apart on a CI runner (4e-6 after a
@@ -163,7 +163,7 @@ def test_every_agent_is_checked_for_resume() -> None:
     root = Path(ajax.__file__).parent / "agents"
     dirs = {p.name for p in root.iterdir() if (p / f"{p.name}.py").is_file()}
     listed = sorted([*EQUIVALENT, *COUNTED, *ELSEWHERE])
-    assert listed == sorted(set(ajax.__all__) | dirs)
+    assert listed == sorted(set(ajax.__all__).union(dirs))
     for where in ELSEWHERE.values():
         path, test = where.split("::")
         text = (Path(runs.REPO) / "tests" / "agents" / path).read_text()
@@ -176,7 +176,8 @@ def logged(name: str) -> dict[str, tuple[list[int], list[int]]]:
     """Per call, sorted: the timesteps it logged at, and every evaluation it
     computed, logged or not (a callback in ajax.log.evaluate, once per seed)."""
     s, kw, out = EQUIVALENT[name], {**TEST, "log_every": LOGGED[name]}, {}
-    agent, evaluate, seen = s.build(), ajax.log.evaluate, list[int]()
+    agent, evaluate = s.build(), ajax.log.evaluate
+    seen: list[int] = []
 
     def counted(*args: Any, **kwargs: Any) -> Any:
         result, state = evaluate(*args, **kwargs), kwargs["agent_state"]
@@ -282,7 +283,7 @@ def value_box_agent(records: list) -> Any:
     e = ConstantExpert()
     off: dict[str, Any] = {"expert_buffer_n_steps": 0}
     mc: dict[str, Any] = {"n_mc_steps": 200, "n_mc_episodes": 4, "n_steps": 20}
-    mc |= {"online_light_steps": 5}
+    mc.update({"online_light_steps": 5})
 
     def sink(*values: Any) -> None:
         records.append(tuple(float(np.asarray(v).item()) for v in values))
@@ -292,7 +293,7 @@ def value_box_agent(records: list) -> Any:
         RecordingValueBox(sink=sink),
     )
     kw: dict[str, Any] = {**SAC_KW, **dict.fromkeys(STARTS, 20), **off, "n_envs": 1}
-    kw |= {"batch_size": 16, "gamma": agents.GAMMA, "expert_policy": e}
+    kw.update({"batch_size": 16, "gamma": agents.GAMMA, "expert_policy": e})
     return agents.make("SAC", *envs.package(RD), preset=None, extensions=exts, **kw)
 
 
@@ -300,7 +301,8 @@ def value_box_agent(records: list) -> Any:
 def value_box() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per seed and step, (handed v_min, v_max, stored v_min, v_max, position)
     in a fresh leg and in the resumed leg; the bounds stored after the first."""
-    fresh, resumed = list[tuple](), list[tuple]()
+    fresh: list[tuple] = []
+    resumed: list[tuple] = []
     first = runs.train(value_box_agent(fresh), SEEDS, VB_STEPS, **TEST)
     stored = np.stack([first.state.expert_v_min, first.state.expert_v_max], -1)
     with tempfile.TemporaryDirectory() as folder:

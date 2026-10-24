@@ -3,7 +3,7 @@ DDPG with three changes against the critics' overestimation, for continuous
 actions.
 
 One update on a replay batch, in the order of the reference
-(sfujim/TD3@34770cc, TD3.py ``train``), each line one function below::
+(sfujim/TD3@34770cc, TD3.py train), each line one function below::
 
     a' = clip(mu_target(s') + clip(N(0, sigma), -c, c), -1, 1)
     y = scale r + gamma (1 - d) min_i Q_target_i(s', a')     compute_td3_td_target
@@ -14,7 +14,7 @@ One update on a replay batch, in the order of the reference
                                                                     update_targets
 
 The actor is deterministic (:mod:`ajax.networks.deterministic`: tanh(mu));
-collection explores around it (``gaussian_exploration``), with uniform
+collection explores around it (gaussian_exploration), with uniform
 actions during the warm-up.
 """
 
@@ -69,7 +69,7 @@ class TD3(
     layers keep torch's nn.Linear initialisation (bc98e62 TD3.py:24-26,
     :43-50), kernel and bias uniform in +-1/sqrt(fan_in), the actor's last
     layer included (DDPG's uniform(+-3e-3) is in neither), and its critics
-    read the env's units, max_action * tanh. With ``memory``, TD3 keeps
+    read the env's units, max_action * tanh. With memory, TD3 keeps
     Ajax's previous initialisation until Ni et al.'s reference
     (pomdp-baselines) is audited, as SAC, REDQ and ASAC do.
     """
@@ -89,7 +89,7 @@ class TD3(
     buffer_size: int = int(1e6)
     batch_size: int = 256
     learning_starts: int = int(25e3)
-    #: Collection's action selection, in place of ``gaussian_exploration``
+    #: Collection's action selection, in place of gaussian_exploration
     #: (AjaxExperiments' TD3 variants).
     action_pipeline: Optional[Callable] = None
 
@@ -97,7 +97,9 @@ class TD3(
         if self.memory is not None:
             return {"squash": True}
         init = ("encoder_kernel_init", "mean_kernel_init", "value_kernel_init")
-        return {"squash": True} | dict.fromkeys(init, TORCH_LINEAR)
+        args: dict[str, Any] = {"squash": True}
+        args.update(dict.fromkeys(init, TORCH_LINEAR))
+        return args
 
     def optimizer_settings(self) -> dict[str, Any]:
         return {"eps": 1e-8}  # torch.optim.Adam's default eps (sfujim/TD3)
@@ -116,7 +118,7 @@ class TD3(
         )
 
     def init(self, key: jax.Array, context: TrainContext) -> TD3State:
-        """A deterministic actor and ``num_critics`` Q critics, with targets."""
+        """A deterministic actor and num_critics Q critics, with targets."""
         rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
         actor_state, critic_state = context.actor_critic(
             init_key,
@@ -137,7 +139,7 @@ class TD3(
     def update(
         self, state: TD3State, context: TrainContext
     ) -> tuple[TD3State, AuxiliaryLogs]:
-        """A critic step on a replay batch and, every ``policy_delay``
+        """A critic step on a replay batch and, every policy_delay
         updates, an actor step and the targets' Polyak update."""
         state, sample_key = state.draw_keys()
         # Sequence replay burns the TARGET actor's carry in as well: TD3's
@@ -253,12 +255,22 @@ class TD3(
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "TD3"
     capabilities = frozenset(
-        "actor critic_ensemble discounted obs_networks off_policy q_critic"
-        " replay target_critic reward_learning".split()
+        {
+            "actor",
+            "critic_ensemble",
+            "discounted",
+            "obs_networks",
+            "off_policy",
+            "q_critic",
+            "replay",
+            "target_critic",
+            "reward_learning",
+        }
     )
     # Its smoothed next actions join the shared step's on_target keys.
-    phase_batch_keys = steps.REPLAY_BATCH_KEYS | {
-        "on_target": steps.TARGET_KEYS | {"next_actions"}
+    phase_batch_keys = {  # noqa: RUF012
+        **steps.REPLAY_BATCH_KEYS,
+        "on_target": steps.TARGET_KEYS.union({"next_actions"}),
     }
     stores_expert_actions = True
     supported_buffer_fields = frozenset({"next_action", "raw_next_obs", "return_to_go"})
@@ -385,7 +397,7 @@ def make_default_action_pipeline(
     recurrent: bool, exploration_noise: Schedule, transform: Any = None
 ) -> Callable:
     """TD3's action pipeline: :func:`gaussian_exploration`, through the run's
-    residual ``transform`` where it has one, uniform actions during the
+    residual transform where it has one, uniform actions during the
     warm-up."""
     return explore_pipeline(
         gaussian_exploration(exploration_noise), recurrent, transform=transform
@@ -424,7 +436,7 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-#: ``agent.agent_config``'s class: a view of the fields until 0.5.0.
+#: agent.agent_config's class: a view of the fields until 0.5.0.
 TD3Config = TD3.declare_config(
     "gamma tau learning_starts reward_scale num_critics policy_delay"
     " target_policy_noise target_noise_clip exploration_noise burn_in"

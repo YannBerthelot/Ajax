@@ -44,7 +44,7 @@ def _sac(*extensions: Any, expert: Any = None) -> SAC:
 
 def test_the_metrics_are_logged_only_with_the_extension() -> None:
     _, rows = _sac().train(seed=0, n_timesteps=64, logging_config=LOGGED)
-    assert not {*KEYS, "value/phi_star_q_gap_ood"} & set(rows)
+    assert not {*KEYS, "value/phi_star_q_gap_ood"}.intersection(rows)
     _, rows = _sac(ExpertValueMetrics()).train(
         seed=0, n_timesteps=64, logging_config=LOGGED
     )

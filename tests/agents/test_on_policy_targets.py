@@ -108,7 +108,7 @@ def test_ppo_gae_reads_each_steps_own_flags_and_next_state(unroll) -> None:
         "num_minibatches": 2,
         "n_epochs": 1,
     }
-    kw |= {"gae_lambda": 0.8}
+    kw.update({"gae_lambda": 0.8})
     agent = PPO(
         env, env_params=env.default_params, n_envs=2, extensions=[_PPOTargets()], **kw
     )
@@ -130,8 +130,8 @@ def test_pqn_targets_read_each_steps_own_reward_flags_and_next_state() -> None:
     SEEN.clear()
     env = IdentityEnv(discrete=True, keep_raw=True)
     kw: dict[str, Any] = {"n_steps": 16, "num_minibatches": 2, "n_epochs": 1}
-    kw |= {"reward_scale": 2.0}
-    kw |= {"gamma": 0.9, "q_lambda": 0.5}
+    kw.update({"reward_scale": 2.0})
+    kw.update({"gamma": 0.9, "q_lambda": 0.5})
     agent = PQN(
         env, env_params=env.default_params, n_envs=2, extensions=[_PQNTargets()], **kw
     )

@@ -178,7 +178,7 @@ def transforms_of(stack: Any) -> tuple[Any, ...]:
     """The extensions of ``stack`` that transform the action (residual RL's
     ``transform_action``, gain mode's ``actuate``)."""
     phases = {"transform_action", "actuate"}
-    return tuple(e for e in stack if e.implemented_phases() & phases)
+    return tuple(e for e in stack if e.implemented_phases().intersection(phases))
 
 
 def executed_actions(env_args: Any, actions: jax.Array, a_expert: Any) -> jax.Array:

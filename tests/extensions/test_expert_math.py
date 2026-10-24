@@ -131,7 +131,7 @@ def test_online_bc_weighs_each_row_by_its_place_in_the_experts_value_range(
     )
     batch = {"a_expert": jnp.zeros((4, 1)), "pi_mean": jnp.ones((4, 1))}
     bc = OnlineBC(bc_coef=1.0, critic_warmup_frac=0.5)
-    term, _ = bc.actor_loss(agent_state, None, batch | {"observations": obs}, CTX)
+    term, _ = bc.actor_loss(agent_state, None, {**batch, "observations": obs}, CTX)
     np.testing.assert_allclose(term, 9 / 16, rtol=1e-5)
 
 

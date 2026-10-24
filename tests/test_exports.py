@@ -15,7 +15,7 @@ def library_agents(cls: type = ActorCritic) -> set[type]:
     no agents (ajax.agents.families)."""
     found = set()
     for sub in cls.__subclasses__():
-        found |= library_agents(sub)
+        found.update(library_agents(sub))
         if sub.__module__.startswith("ajax.") and sub.__module__ != families.__name__:
             found.add(sub)
     return found
@@ -33,5 +33,5 @@ def test_every_agent_class_is_exported():
     # An ActorCritic agent named otherwise would escape the scan above.
     assert library_agents() <= set(agents.values())
 
-    assert sorted(set(agents) - set(ajax.__all__)) == []
+    assert sorted(set(agents).difference(ajax.__all__)) == []
     assert all(getattr(ajax, name) is cls for name, cls in agents.items())

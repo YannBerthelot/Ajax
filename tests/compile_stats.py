@@ -20,7 +20,7 @@ COUNTS["/jax/compilation_cache/cache_misses"] = "misses"
 DURATIONS = {"/jax/core/compile/backend_compile_duration": "compile_s"}
 DURATIONS["/jax/compilation_cache/cache_retrieval_time_sec"] = "retrieval_s"
 stats: dict[str, float] = {"hits": 0, "misses": 0, "requests": 0}
-stats |= {"compile_s": 0.0, "retrieval_s": 0.0}
+stats.update({"compile_s": 0.0, "retrieval_s": 0.0})
 
 
 def on_event(event: str, **_: str | int) -> None:

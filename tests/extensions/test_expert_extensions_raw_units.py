@@ -173,7 +173,7 @@ def test_the_buffer_keeps_raw_observations_and_expert_flags_only_for_an_expert(
         "critic_architecture": ("8", "relu"),
     }
     if expert:
-        kw |= {"expert_policy": _RecordingExpert(), "expert_buffer_n_steps": 0}
+        kw.update({"expert_policy": _RecordingExpert(), "expert_buffer_n_steps": 0})
     if extension:
         kw["extensions"] = (ImitationLoss(expert_policy=lambda obs: obs[..., :1]),)
     agent = getattr(ajax, agent_name)("Pendulum-v1", n_envs=2, **kw)

@@ -340,7 +340,9 @@ class ActorCritic:
             weight_decay=weight_decay,
         )
 
-        self.agent_config = BaseAgentConfig()
+        # Any: a declared agent's is the class its fields generate
+        # (ajax.agents.families.DeclaredAgent.declare_config).
+        self.agent_config: Any = BaseAgentConfig()
         #: ``make_train``'s keyword arguments proper to the agent, beyond the
         #: ones every agent's takes (:meth:`train`); each agent fills it.
         self.train_kwargs: dict[str, Any] = {}

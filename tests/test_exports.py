@@ -5,16 +5,18 @@ import inspect
 from pathlib import Path
 
 import ajax
+from ajax.agents import families
 from ajax.agents.base import ActorCritic
 
 
 def library_agents(cls: type = ActorCritic) -> set[type]:
     """The library's agent classes: ``ajax.`` subclasses of ``cls`` at any
-    depth (test files subclass agents too)."""
+    depth (test files subclass agents too), but the family bases, which are
+    no agents (ajax.agents.families)."""
     found = set()
     for sub in cls.__subclasses__():
         found |= library_agents(sub)
-        if sub.__module__.startswith("ajax."):
+        if sub.__module__.startswith("ajax.") and sub.__module__ != families.__name__:
             found.add(sub)
     return found
 

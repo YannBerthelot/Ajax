@@ -26,9 +26,10 @@ def warn_inert(owner: str, reason: str, stacklevel: int = 3, **values: Any) -> N
 def moved_names(old: str, homes: dict[str, str]) -> Callable[[str], Any]:
     """A module ``__getattr__`` (PEP 562) for the names moved out of module
     ``old``: ``homes`` maps each to its new module (``"module:new_name"``
-    when renamed), from which it resolves, with a FutureWarning, on every
-    access. The old module must not import them itself, or the import binds
-    them and the warning never fires."""
+    when renamed, ``"module:Class.method"`` for a function that became a
+    method), from which it resolves, with a FutureWarning, on every access.
+    The old module must not import them itself, or the import binds them and
+    the warning never fires."""
 
     def __getattr__(name: str) -> Any:
         if name not in homes:
@@ -41,6 +42,9 @@ def moved_names(old: str, homes: dict[str, str]) -> Callable[[str], Any]:
             FutureWarning,
             stacklevel=2,
         )
-        return getattr(importlib.import_module(module), new_name)
+        found = importlib.import_module(module)
+        for part in new_name.split("."):
+            found = getattr(found, part)
+        return found
 
     return __getattr__

@@ -9,12 +9,9 @@ line one function below::
     V <- argmin E[|expectile - 1(q - V(s) < 0)| (q - V(s))^2]         value_loss
     actor <- argmax E[min(exp(temperature (q - V(s))), 100) log pi(a | s)]
                                          awr_weight, awr_loss (on the new V)
-    Q <- argmin E[(Q(s, a) - scale r - gamma (1 - d) V(s'))^2]
+    Q_i <- argmin sum_i E[(Q_i(s, a) - scale r - gamma (1 - d) V(s'))^2]
                                                       bellman_target, q_loss
     Q_target <- tau Q + (1 - tau) Q_target
-
-Deviation: the critics' loss is their mean squared error, half the
-reference's sum over the two (Adam's step is the same).
 """
 
 from __future__ import annotations
@@ -45,6 +42,8 @@ from ajax.types import Architecture, FloatOrCallable
 
 #: The reference's initialisation (common.py ``default_init``).
 ORTHOGONAL_SQRT2 = "orthogonal(np.sqrt(2))"
+#: The reference's twin critics, whose losses it sums (critic.py ``update_q``).
+NUM_CRITICS = 2
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -124,7 +123,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         """A Gaussian actor, two Q critics with their targets, and V(s)."""
         rng, init_key, value_key, collector_key, eval_rng = jax.random.split(key, 5)
         actor_state, critic_state = ctx.actor_critic(
-            init_key, continuous=True, action_value=True, num_critics=2
+            init_key, continuous=True, action_value=True, num_critics=NUM_CRITICS
         )
         _, value_state = ctx.actor_critic(
             value_key,
@@ -270,8 +269,11 @@ def bellman_target(
 def q_loss(
     critic: LoadedTrainState, batch: Transition, params: Any, target: jax.Array
 ) -> tuple[jax.Array, jax.Array]:
-    """The critics' mean squared error to ``target`` (the deviation above)."""
+    """The critics' squared errors to ``target``, summed over the critics as
+    the reference sums them: critic_loss_fn averages them, and averaging
+    would halve the gradient that Adam's eps and the clip weigh."""
     loss, _ = critic_loss_fn(params, critic, batch.obs, batch.action, target)
+    loss = loss * NUM_CRITICS
     return loss, loss
 
 

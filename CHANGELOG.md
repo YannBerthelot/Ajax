@@ -69,6 +69,9 @@ PyPI as `ajax-rl`.
   it bootstrapped on the final observation and trained on the step. With
   `normalize_advantage`, the advantages use the other steps' mean and
   unbiased standard deviation, floored at `1e-6`.
+- **IQL** sums its two critics' squared errors, as the reference does
+  (`ikostrikov/implicit_q_learning`, `update_q`): it averaged them, which
+  halved the critics' gradient against Adam's eps and `max_grad_norm`.
 - `NetworkConfig.squash_log_det_eps` sets the guard inside the `tanh`
   log-det, `log(1 - tanh(u)^2 + eps)`, for an agent whose reference uses
   one; 0, the exact log-det, by default. `NetworkConfig.log_variance_head`

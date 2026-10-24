@@ -361,8 +361,14 @@ A convention that differs from a reference implementation (an ordering, a
 default, a constant) is for code review, not for a test. *Pins* record what a
 tiny run produces today, so a restructuring can show it changed nothing:
 `tests/agents/test_agent_pins.py` (tiny runs' fingerprints),
+`tests/agents/test_agent_surface.py` (every public name the agent modules
+define, and each agent's run config and `agent_config`),
 `tests/extensions/test_sac_extensions_equivalence.py` and
-`tests/test_downstream_api.py` (the names downstream projects import). *Slow
+`tests/test_downstream_api.py` (the names downstream projects import). The
+fingerprints hold to 1e-3 across platforms; on one machine, `uv run python -m
+tests.exact_pins record DIR`, then `compare DIR` after the change, shows a
+restructuring bitwise: every leaf of tiny runs' final states, their logged
+evaluations and the text of their training programs' jaxprs. *Slow
 tests* (`@pytest.mark.slow`) are the long trainings.
 
 The tests come in two tiers. The *fast tier* is the tests not marked slow:

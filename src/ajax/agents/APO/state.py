@@ -1,6 +1,5 @@
 from typing import Optional
 
-import jax.numpy as jnp
 from flax import struct
 
 from ajax.schedule import Schedule
@@ -26,7 +25,6 @@ class APOConfig(BaseAgentConfig):
     gae_lambda: float = 0.95
     normalize_advantage: bool = True
     alpha: float = 0.1
-    gamma: float = jnp.nan
     nu: float = 0.1
     # When > 0, decouples num_minibatches from batch_size (brax-style).
     num_minibatches: int = 0

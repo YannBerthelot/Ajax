@@ -210,7 +210,7 @@ def test_cloning_pretrain_seeds_the_agents_statistics(agent_name):
     dataset's."""
     tiny = ("8", "relu")
     kw = {"n_envs": 2, "actor_architecture": tiny, "critic_architecture": tiny}
-    kw |= {"expert_policy": _half_torque, **_LAYOUT.get(agent_name, {})}
+    kw.update({"expert_policy": _half_torque, **_LAYOUT.get(agent_name, {})})
     module = importlib.import_module(f"ajax.agents.{agent_name}.{agent_name}")
     cloning = CloningPretrain(_half_torque, n_steps=16, epochs=2, batch_size=8)
     agent = getattr(module, agent_name)("Pendulum-v1", extensions=(cloning,), **kw)

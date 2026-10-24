@@ -68,7 +68,7 @@ def dagger_readings(discrete: bool) -> Any:
     def build() -> Any:
         env, params = chain(2 * discrete).make()
         kw: dict[str, Any] = {"expert_policy": chooser if discrete else expert}
-        kw |= {"n_envs": 4, "iteration_steps": 4}  # beta 1 on the first tick only
+        kw.update({"n_envs": 4, "iteration_steps": 4})  # beta 1 on the first tick only
         return agents.make("DAgger", env, params, **kw)
 
     def read(run: runs.Run) -> dict:
@@ -124,7 +124,7 @@ CASES: dict[str, Case] = {
         (
             Query("a(0)", LABELS[0], _SELF),
             Query("a(1)", LABELS[1], _SELF),
-            Query("a(3)", LABELS[3], _SELF | {"no label off the expert's path": 0.0}),
+            Query("a(3)", LABELS[3], {**_SELF, "no label off the expert's path": 0.0}),
         ),
         dagger_readings(False),
         500,

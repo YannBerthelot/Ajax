@@ -24,7 +24,9 @@ def resolved(fn, kwargs: dict) -> dict:
     """``fn``'s keyword defaults that are plain values, under ``kwargs``."""
     plain = (bool, int, float, str, type(None))
     params = inspect.signature(fn).parameters.items()
-    return {k: p.default for k, p in params if isinstance(p.default, plain)} | kwargs
+    defaults = {k: p.default for k, p in params if isinstance(p.default, plain)}
+    defaults.update(kwargs)
+    return defaults
 
 
 def main(run, config, libraries) -> None:
@@ -38,7 +40,7 @@ def main(run, config, libraries) -> None:
     record = {
         "curve": [[round(float(x), 4) for x in row] for row in curve],
         "config": config(spec, side),
-        "versions": versions | {"python": platform.python_version()},
+        "versions": {**versions, "python": platform.python_version()},
         "compile_s": round(covered_seconds(spans), 2),
     }
     print(json.dumps(record, default=str))

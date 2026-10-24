@@ -235,7 +235,7 @@ def test_a_subproject_runs_without_the_callers_venv_and_resolution_mode(monkeypa
     monkeypatch.setenv("VIRTUAL_ENV", "/caller/.venv")
     monkeypatch.setenv("AJAX_KEPT", "1")
     env = protocol.subproject_env(protocol.HERE / "envs" / "torch", JAX_PLATFORMS="cpu")
-    assert not set(protocol.CALLER_SETTINGS) & set(env)
+    assert not set(protocol.CALLER_SETTINGS).intersection(env)
     assert (env["AJAX_KEPT"], env["JAX_PLATFORMS"]) == ("1", "cpu")
 
 

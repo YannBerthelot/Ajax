@@ -85,7 +85,9 @@ def prior_data() -> Extension:
 EXPERT, GRU = Expert(), MemoryConfig(kind="gru", hidden_size=8)
 #: Every row's keywords an agent takes: one replay window per env, then updates.
 BASE = {"learning_starts": 16, "burn_in": 2, "sequence_length": 4}
-BASE |= {"expert_buffer_n_steps": 0, "policy_update_start": 8, "alpha_update_start": 8}
+BASE.update(
+    {"expert_buffer_n_steps": 0, "policy_update_start": 8, "alpha_update_start": 8}
+)
 FLAGS = "normalize_observations normalize_rewards normalize_obs_running use_train_frac"
 FLAGS += " fixed_alpha store_policy_action"
 FLAGS += " expose_recent_rollout encoder_layer_norm"
@@ -96,38 +98,40 @@ NEGATED = ("squash", "log_std_state_independent")
 #: Each option's keywords, taken by an agent whose signature (env ids) takes them;
 #: NEGATED options negate the default, the CNN fits the env.
 OPTIONS: dict[str, dict] = {k: {k: True} for k in FLAGS.split()}
-OPTIONS |= {env: {"env_id": env} for env in ENVS}
-OPTIONS |= {
-    "reward_normalization_gamma": {
-        "normalize_rewards": True,
-        "reward_normalization_gamma": 0.9,
-    },
-    "memory": {"memory": GRU},
-    "stored_state": {"memory": GRU, "stored_state": True},
-    "bptt_length": {"memory": GRU, "bptt_length": 8},
-    "n_envs": {"n_envs": 2},
-    "max_grad_norm": {"max_grad_norm": 1.0},
-    "weight_decay": {"weight_decay": 1e-2},
-    "unroll_length": {"unroll_length": 8},
-    "normalize_advantage": {"normalize_advantage": False},
-    **{k: {k: None} for k in NEGATED},
-    "expert_policy": {"expert_policy": EXPERT},
-    "eval_expert_policy": {"eval_expert_policy": EXPERT},
-    "expert_buffer_n_steps": {"expert_buffer_n_steps": 16},  # the expert prefill
-    "target_entropy_initial_per_dim": {"target_entropy_initial_per_dim": 0.0},
-    "action_pipeline": {"action_pipeline": None},  # TD3's, for the row's actor
-    "n_gradient_steps": {"n_gradient_steps": 2},
-    "n_epochs": {"n_epochs": 2},
-    "cnn_image_shape": {"cnn_image_shape": None},
-    "mlp": {"cnn_image_shape": None},  # the CNN's alternative
-    "lr_schedule": {"lr_schedule": "warmup_cosine", "warmup_steps": 2},
-    "pid": {"pid": PIDHeadConfig()},
-    "actor_bias_init": {"actor_bias_init": "0.1"},
-    "critic_bias_init": {"critic_bias_init": "0.1"},
-    "encoder_kernel_init": {"encoder_kernel_init": "lecun_uniform"},
-    "mean_kernel_init": {"mean_kernel_init": "lecun_uniform"},
-    "log_std_bounds": {"log_std_bounds": (-5.0, 1.0)},  # neither PPO's nor APO's
-}
+OPTIONS.update({env: {"env_id": env} for env in ENVS})
+OPTIONS.update(
+    {
+        "reward_normalization_gamma": {
+            "normalize_rewards": True,
+            "reward_normalization_gamma": 0.9,
+        },
+        "memory": {"memory": GRU},
+        "stored_state": {"memory": GRU, "stored_state": True},
+        "bptt_length": {"memory": GRU, "bptt_length": 8},
+        "n_envs": {"n_envs": 2},
+        "max_grad_norm": {"max_grad_norm": 1.0},
+        "weight_decay": {"weight_decay": 1e-2},
+        "unroll_length": {"unroll_length": 8},
+        "normalize_advantage": {"normalize_advantage": False},
+        **{k: {k: None} for k in NEGATED},
+        "expert_policy": {"expert_policy": EXPERT},
+        "eval_expert_policy": {"eval_expert_policy": EXPERT},
+        "expert_buffer_n_steps": {"expert_buffer_n_steps": 16},  # the expert prefill
+        "target_entropy_initial_per_dim": {"target_entropy_initial_per_dim": 0.0},
+        "action_pipeline": {"action_pipeline": None},  # TD3's, for the row's actor
+        "n_gradient_steps": {"n_gradient_steps": 2},
+        "n_epochs": {"n_epochs": 2},
+        "cnn_image_shape": {"cnn_image_shape": None},
+        "mlp": {"cnn_image_shape": None},  # the CNN's alternative
+        "lr_schedule": {"lr_schedule": "warmup_cosine", "warmup_steps": 2},
+        "pid": {"pid": PIDHeadConfig()},
+        "actor_bias_init": {"actor_bias_init": "0.1"},
+        "critic_bias_init": {"critic_bias_init": "0.1"},
+        "encoder_kernel_init": {"encoder_kernel_init": "lecun_uniform"},
+        "mean_kernel_init": {"mean_kernel_init": "lecun_uniform"},
+        "log_std_bounds": {"log_std_bounds": (-5.0, 1.0)},  # neither PPO's nor APO's
+    }
+)
 CNN = {"Pendulum-v1": (1, 3, 1), "fast": (1, 2, 1), "CartPole-v1": (2, 2, 1)}
 #: The switches other tests run (tests/...).
 ELSEWHERE = {
@@ -193,12 +197,14 @@ NEEDS_EXPERT += " ExpertActionInput ExpertStateInput ExpertGains"
 #: What an option or extension needs on in its row: phi* is MCPretrain's,
 #: BellmanPretrain reads its prefilled replay.
 REQUIRES = {o: {"MCPretrain"} for o in (*PHI_STAR.split(), "BellmanPretrain")}
-REQUIRES |= {o: {"expert_policy"} for o in NEEDS_EXPERT.split()}
-REQUIRES |= {"MCPretrain": {"expert_policy", "expert_buffer_n_steps"}}
-REQUIRES |= {
-    o: {"expose_recent_rollout"}
-    for o in ("ConditioningMetrics", "BiasVoreDecomposition")
-}
+REQUIRES.update({o: {"expert_policy"} for o in NEEDS_EXPERT.split()})
+REQUIRES.update({"MCPretrain": {"expert_policy", "expert_buffer_n_steps"}})
+REQUIRES.update(
+    {
+        o: {"expose_recent_rollout"}
+        for o in ("ConditioningMetrics", "BiasVoreDecomposition")
+    }
+)
 EXPERTS = {"expert_policy", "eval_expert_policy"}
 #: Options no row takes together: one of each group, and no pair across these.
 ONE_OF = [{"normalize_rewards", "reward_normalization_gamma"}, MEMORY, set(ENVS)]
@@ -206,13 +212,16 @@ ONE_OF += [{"cnn_image_shape", "mlp"}]  # else the CNN takes every row
 EXCLUSIVE = [
     # Recurrent agents refuse experts and extensions (recurrent.py), PPO
     # its feedforward fragments.
-    (MEMORY, EXPERTS | set(EXTENSIONS) | {"unroll_length"}),
+    (MEMORY, EXPERTS.union(EXTENSIONS, {"unroll_length"})),
     # The gain policy bypasses SAC's action slots, and the expert acts on its
     # output (SAC refuses its action in the observation).
-    ({"use_pid_policy"}, ACTING | {"augment_obs_with_expert_action"}),
+    ({"use_pid_policy"}, ACTING.union({"augment_obs_with_expert_action"})),
     ({"use_pid_policy"}, {"ExpertActionInput"}),
     # ExpertGains is gain mode (use_pid_policy builds it): one transform a run.
-    ({"ExpertGains"}, ACTING | {"use_pid_policy", "augment_obs_with_expert_action"}),
+    (
+        {"ExpertGains"},
+        ACTING.union({"use_pid_policy", "augment_obs_with_expert_action"}),
+    ),
     ({"ExpertGains"}, {"ExpertActionInput"}),
     # A feature and the deprecated keyword making it would widen the
     # observation twice under one name.
@@ -220,22 +229,22 @@ EXCLUSIVE = [
     ({"ExpertStateInput"}, {"augment_obs_with_expert_state"}),
     ({"TrainingProgressInput"}, {"use_train_frac"}),
     # Experts act in continuous spaces; ImitationLoss reads a mean action.
-    ({"CartPole-v1"}, EXPERTS | {"ImitationLoss"}),
+    ({"CartPole-v1"}, EXPERTS.union({"ImitationLoss"})),
     # The rows are Pendulum's own observations: the replay's of another env,
     # one widened by the training fraction, or one keeping the expert's next
     # action (an expert_policy) cannot take them; GAIL's discriminator reads
     # Pendulum's (s, a) only.
     (
         {"PriorData"},
-        {"fast", "CartPole-v1", "use_train_frac", "TrainingProgressInput"}
-        | {"PIDTermsInput"}
-        | EXPERTS,
+        {"fast", "CartPole-v1", "use_train_frac", "TrainingProgressInput"}.union(
+            {"PIDTermsInput"}, EXPERTS
+        ),
     ),
     # Cal-QL is CQL's term with a floor: a stack holds one of them.
     ({"ConservativeQ"}, {"CalQL"}),
     ({"AdversarialReward"}, {"fast", "CartPole-v1"}),
 ]
-TABLE = CASES | {"APG": Case(APG, {"horizon": 1, "pid": None}, ())}
+TABLE = {**CASES, "APG": Case(APG, {"horizon": 1, "pid": None}, ())}
 #: The exported agents off TABLE, and the tests that run their options.
 OWN_TESTS = {"DreamerV3": "DreamerV3", "TDMPC2": "TDMPC2", "TDMPC2MultiTask": "TDMPC2"}
 
@@ -254,10 +263,13 @@ def rows(name: str) -> list[frozenset[str]]:
 
     def closed(row: set) -> set | None:
         """``row`` with what it requires; None if incompatible."""
-        while need := set().union(*(REQUIRES.get(o, set()) for o in row)) - row:
-            row = row | need
-        clash = any(row & a and row & b for a, b in EXCLUSIVE)
-        clash |= any(len(row & group) > 1 for group in ONE_OF)
+        while True:
+            need = set().union(*(REQUIRES.get(o, set()) for o in row)).difference(row)
+            if not need:
+                break
+            row = row.union(need)
+        clash = any(row.intersection(a) and row.intersection(b) for a, b in EXCLUSIVE)
+        clash |= any(len(row.intersection(group)) > 1 for group in ONE_OF)
         return None if clash or not row <= set(options) else row
 
     pairs = {frozenset(p) for p in itertools.combinations(options, 2) if closed(set(p))}
@@ -265,7 +277,7 @@ def rows(name: str) -> list[frozenset[str]]:
         row = closed(set(min(pairs, key=sorted)))
         assert row is not None  # every pair left is compatible
         for option in sorted(options, key=lambda o: -sum(o in p for p in pairs)):
-            row = closed(row | {option}) or row  # grow while compatible
+            row = closed(row.union({option})) or row  # grow while compatible
         pairs = {p for p in pairs if not p <= row}
         out.append(frozenset(row))
     return out
@@ -279,9 +291,10 @@ PARAMS = [
 
 def _build(name: str, row: frozenset[str]) -> Any:
     case, params = TABLE[name], inspect.signature(TABLE[name].cls).parameters
-    kw = case.kwargs | {k: v for k, v in BASE.items() if k in params}
-    for option in sorted(row & set(OPTIONS)):
-        kw |= OPTIONS[option]
+    kw = dict(case.kwargs)
+    kw.update({k: v for k, v in BASE.items() if k in params})
+    for option in sorted(row.intersection(OPTIONS)):
+        kw.update(OPTIONS[option])
     env = kw.pop("env_id", None)
     for option in NEGATED:
         if option in kw:
@@ -320,10 +333,10 @@ def test_every_switch_is_in_a_row_or_named_elsewhere(name: str) -> None:
     switches = {
         p.name for p in params if isinstance(p.default, (bool, str, type(None)))
     }
-    keys = set().union(*OPTIONS.values()) | {"extensions"}
-    missing = switches - keys - set(ELSEWHERE)
+    keys = set().union(*OPTIONS.values(), {"extensions"})
+    missing = switches.difference(keys, ELSEWHERE)
     assert not missing, f"give {sorted(missing)} an OPTIONS entry or an ELSEWHERE test"
-    for switch in switches & set(ELSEWHERE):
+    for switch in switches.intersection(ELSEWHERE):
         assert switch in (Path(__file__).parents[1] / ELSEWHERE[switch]).read_text()
     assert set(_options(name)) <= set().union(*ROWS[name])
 
@@ -335,11 +348,13 @@ def test_every_src_extension_has_a_builder() -> None:
     while todo:
         for sub in todo.pop().__subclasses__():
             todo.append(sub)
-            found |= {sub.__name__} if sub.__module__.startswith("ajax.") else set()
+            found.update(
+                {sub.__name__} if sub.__module__.startswith("ajax.") else set()
+            )
     assert found == set(EXTENSIONS)
 
 
 def test_every_agent_has_rows_or_its_own_option_tests() -> None:
     """A new agent joins TABLE (test_agent_contract.CASES) or names its tests."""
-    assert set(TABLE) | set(OWN_TESTS) == set(ajax.__all__)
+    assert set(TABLE).union(OWN_TESTS) == set(ajax.__all__)
     assert all((Path(__file__).parent / d).is_dir() for d in OWN_TESTS.values())

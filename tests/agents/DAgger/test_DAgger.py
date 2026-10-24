@@ -97,7 +97,7 @@ def test_the_actor_learns_the_experts_labels_not_the_actions_taken(env_id):
     The discrete expert picks the action the untrained actor does not."""
     continuous = env_id == "Pendulum-v1"
     kwargs = {"n_envs": N_ENVS, "iteration_steps": N_ENVS, "batch_size": 8}
-    kwargs |= {"buffer_size": 256, "actor_learning_rate": 1e-2}
+    kwargs.update({"buffer_size": 256, "actor_learning_rate": 1e-2})
     init, _ = DAgger(env_id, expert_policy=push, **kwargs).train(
         seed=[0], n_timesteps=0
     )

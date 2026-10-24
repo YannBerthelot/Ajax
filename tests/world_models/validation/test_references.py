@@ -126,7 +126,7 @@ def test_every_tdmpc2_result_is_classified():
         classify_tdmpc2_task("quadruped-fetch")
     assert set(TDMPC2_TO_PLAYGROUND.values()) <= PLAYGROUND_DMC
     assert set(DREAMERV3_TO_PLAYGROUND.values()) <= PLAYGROUND_DMC
-    assert not set(TDMPC2_TO_PLAYGROUND) & set(TDMPC2_DMC_UNAVAILABLE)
+    assert not set(TDMPC2_TO_PLAYGROUND).intersection(TDMPC2_DMC_UNAVAILABLE)
     # 22 + 17 = the 39 DMC tasks of the released results (tdmpc2_spec 4.27).
     assert len(TDMPC2_TO_PLAYGROUND) + len(TDMPC2_DMC_UNAVAILABLE) == 39
 

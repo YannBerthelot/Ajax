@@ -149,7 +149,7 @@ def run(
     td3_module.sample_replay = injected
     try:
         for env_id in envs:
-            out |= _env_updates(records, env_id, dtype, fault, given, extensions)
+            out.update(_env_updates(records, env_id, dtype, fault, given, extensions))
     finally:
         td3_module.sample_replay = sample
     return out
@@ -163,12 +163,9 @@ def _env_updates(
     given: dict,
     extensions: tuple,
 ) -> dict[str, dict]:
-    step = kit.capture_step(
-        ajax.TD3(
-            env_id, **(SETTINGS | FAULTS.get(fault or "", {})), extensions=extensions
-        ),
-        2_000,
-    )
+    settings = dict(SETTINGS)
+    settings.update(FAULTS.get(fault or "", {}))
+    step = kit.capture_step(ajax.TD3(env_id, **settings, extensions=extensions), 2_000)
     template, update = step.fresh(jax.random.PRNGKey(0)), updater(step)
     paths = sorted(records.glob(f"{env_id}_*.npz"))
     arrays = {p.stem: dict(np.load(p)) for p in paths}

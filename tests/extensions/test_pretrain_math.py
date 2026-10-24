@@ -143,14 +143,14 @@ def test_bellman_pretrain_binds_the_agent_context():
     bound = ext.bind_to_agent(**context)
     assert (bound.buffer, bound.gamma, bound.reward_scale) == ("buffer", 0.9, 2.0)
     assert (bound.update_value_fn, bound.update_target_fn) == (len, abs)
-    assert bound.bind_to_agent(**context | {"gamma": 0.5}) is bound
+    assert bound.bind_to_agent(**{**context, "gamma": 0.5}) is bound
     assert ext.bind_to_agent(env_args=None) is ext
 
 
 def test_mc_pretrain_binds_the_agents_discount_and_reward_scale():
     ext, env = MCPretrain(expert_policy=abs), SimpleNamespace(observers=())
     context = {"env_args": env, "network_args": "net", "gamma": 0.9}
-    context |= {"critic_optimizer_args": "opt", "reward_scale": 2.0}
+    context.update({"critic_optimizer_args": "opt", "reward_scale": 2.0})
     bound = ext.bind_to_agent(**context, expert_policy=abs)
     assert (bound.env_args, bound.gamma, bound.reward_scale) == (env, 0.9, 2.0)
 
@@ -207,7 +207,7 @@ def test_cloning_pretrain_binds_the_agent_context():
     context = {"env_args": env, "actor_optimizer_args": "adam", "expert_policy": abs}
     bound = ext.bind_to_agent(**context)
     assert (bound.env_args, bound.actor_optimizer_args) == (env, "adam")
-    assert bound.bind_to_agent(**context | {"env_args": "other"}) is bound
+    assert bound.bind_to_agent(**{**context, "env_args": "other"}) is bound
     assert ext.bind_to_agent(env_args=env) is ext
 
 

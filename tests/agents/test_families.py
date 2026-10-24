@@ -165,7 +165,7 @@ def test_the_run_config_is_the_call_and_the_knobs_reach_the_actor_critic() -> No
         weight_decay=0.1,
         normalize_observations=True,
     )
-    assert set(agent.config) == Toy.field_names() | {"algo_name"}
+    assert set(agent.config) == Toy.field_names().union({"algo_name"})
     assert agent.config["algo_name"] == "Toy" and agent.config["n_envs"] == 2
     # The field and the run config keep the caller's expert; the agent reads
     # it in agent units.
@@ -289,7 +289,7 @@ def test_the_value_estimate_reads_the_declared_discount_and_reward_scale() -> No
 def test_make_train_refuses_an_extension_context_it_cannot_give() -> None:
     @dataclasses.dataclass(kw_only=True, eq=False, repr=False)
     class Asking(Toy):
-        extension_context = Toy.extension_context | {"gamma"}
+        extension_context = Toy.extension_context.union({"gamma"})
 
     agent = Asking("Pendulum-v1")
     with pytest.raises(ValueError, match="extension_context names gamma, which"):
@@ -369,6 +369,8 @@ def decorator(cls: type) -> dict[str, Any] | None:
 def test_each_is_a_literal_dataclass_whose_contract_is_no_field(cls: type) -> None:
     # DeclaredAgent's env_id stays positional (KW_ONLY after it).
     want = {"eq": False, "repr": False}
-    assert decorator(cls) == want | ({} if cls is DeclaredAgent else {"kw_only": True})
+    if cls is not DeclaredAgent:
+        want.update({"kw_only": True})
+    assert decorator(cls) == want
     names = {f.name for f in dataclasses.fields(cls)}
-    assert not names & {*CONTRACT, "make_train"}
+    assert not names.intersection({*CONTRACT, "make_train"})

@@ -35,7 +35,7 @@ AGENTS = "APG APO ASAC AVG DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL".split
 #: The agents a residual policy runs on: their critics score its executed
 #: actions, or their update reads the policy's own (PPO, APO, IQL's actor).
 RESIDUAL = {"SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG"}
-RESIDUAL |= {"PPO", "APO", "IQL", "APG", "UDRL"}
+RESIDUAL.update({"PPO", "APO", "IQL", "APG", "UDRL"})
 
 
 @dataclass(frozen=True)
@@ -201,7 +201,7 @@ def test_a_distributional_critic_refuses_what_reads_one_target_per_row():
     algorithm = {"actor", "q_critic", "critic_ensemble", "discounted"}
     one = run_capabilities(algorithm, continuous=True, has_expert=True)
     many = run_capabilities(
-        algorithm | {"distributional_critic"}, continuous=True, has_expert=True
+        algorithm.union({"distributional_critic"}), continuous=True, has_expert=True
     )
     assert "scalar_target" in one and "scalar_target" not in many
     for module in (
@@ -234,7 +234,9 @@ class GapReader(Extension):
 
 
 class GapAgent(LatentAgent):
-    supported_extension_phases = LatentAgent.supported_extension_phases | {"on_target"}
+    supported_extension_phases = LatentAgent.supported_extension_phases.union(
+        {"on_target"}
+    )
     phase_batch_keys: Mapping[str, frozenset] = {"on_target": frozenset({"gap"})}
 
 
@@ -260,7 +262,7 @@ def test_agents_accept_only_the_phases_they_fold():
     for name in AGENTS:
         agent = getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)
         phases = agent.supported_extension_phases
-        assert LOOP_PHASES - {"observe"} <= phases, name
+        assert LOOP_PHASES.difference({"observe"}) <= phases, name
         assert "eval_action" not in phases, name
         own_collector = name in ("APG", "UDRL", "DreamerV3", "TDMPC2")
         assert ("observe" in phases) != own_collector, name
@@ -303,7 +305,7 @@ def test_sac_applies_a_residual_policy_only_through_its_pipeline():
 
 
 @pytest.mark.parametrize(
-    "name", sorted(set(AGENTS) - RESIDUAL - {"DreamerV3", "TDMPC2"})
+    "name", sorted(set(AGENTS).difference(RESIDUAL, {"DreamerV3", "TDMPC2"}))
 )
 def test_an_agent_without_a_residual_transform_refuses_a_residual_policy(name):
     """An agent whose update does not score executed actions would train a

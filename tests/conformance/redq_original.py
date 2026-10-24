@@ -164,7 +164,7 @@ def run(
     train_REDQ.sample_replay = injected
     try:
         for env_id in envs:
-            out |= _env_updates(records, env_id, dtype, fault, given)
+            out.update(_env_updates(records, env_id, dtype, fault, given))
     finally:
         train_REDQ.sample_replay = sample
     return out
@@ -177,7 +177,9 @@ def _env_updates(
     fault: str | None,
     given: dict,
 ) -> dict:
-    agent = ajax.REDQ(env_id, **(SETTINGS | FAULTS.get(fault or "", {})))
+    settings = dict(SETTINGS)
+    settings.update(FAULTS.get(fault or "", {}))
+    agent = ajax.REDQ(env_id, **settings)
     step = kit.capture_step(agent, 2_000)
     template, update = step.fresh(jax.random.PRNGKey(0)), step.update
     assert update is not None, "REDQ passes its update to its train loop"

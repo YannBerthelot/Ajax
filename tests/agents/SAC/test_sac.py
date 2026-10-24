@@ -105,7 +105,7 @@ def test_jsrl_curriculum_counts_the_episode_steps_it_reads():
     needed. The deprecated ``jsrl_curriculum`` flag warns, and leaving it
     out stays quiet."""
     kw = {"expert_policy": stateless_expert, "expert_buffer_n_steps": 0}
-    kw |= {"learning_starts": 8, "batch_size": 8, "buffer_size": 64}
+    kw.update({"learning_starts": 8, "batch_size": 8, "buffer_size": 64})
     jsrl = (JSRLCurriculum(episode_length=8, decay_frac=0.5),)
     with warnings.catch_warnings():
         warnings.simplefilter("error", FutureWarning)
@@ -124,8 +124,8 @@ def test_jsrl_flags_the_steps_its_expert_takes():
     EDGE's and the value box's are; the warm-up rows (uniform here) are not.
     """
     kw = {"expert_policy": stateless_expert, "expert_buffer_n_steps": 0}
-    kw |= {"learning_starts": 4, "batch_size": 4, "buffer_size": 64}
-    kw |= {"expert_fraction": 0.0, "policy_update_start": 100}
+    kw.update({"learning_starts": 4, "batch_size": 4, "buffer_size": 64})
+    kw.update({"expert_fraction": 0.0, "policy_update_start": 100})
     jsrl = (JSRLCurriculum(episode_length=1000, decay_frac=1.0),)
     agent = SAC(env_id="Pendulum-v1", n_envs=1, extensions=jsrl, **kw)
     state, _ = agent.train(seed=0, n_timesteps=12)
@@ -145,8 +145,8 @@ def test_the_warmup_draws_each_action_dimension_on_its_own():
     the two columns of a 2-D box's warm-up rows differ, and each spans it."""
     env, params = paid_action.make((-1.0, 1.0), length=8, dim=2)
     kw = {"learning_starts": 64, "batch_size": 8, "buffer_size": 128}
-    kw |= {"expert_policy": lambda obs: jnp.zeros(obs.shape[:-1] + (2,))}
-    kw |= {"expert_buffer_n_steps": 0, "expert_fraction": 0.0}
+    kw.update({"expert_policy": lambda obs: jnp.zeros(obs.shape[:-1] + (2,))})
+    kw.update({"expert_buffer_n_steps": 0, "expert_fraction": 0.0})
     agent = SAC(env, env_params=params, n_envs=1, **kw)
     state, _ = agent.train(seed=0, n_timesteps=32)
     actions = np.asarray(state.collector_state.buffer_state.experience["action"])

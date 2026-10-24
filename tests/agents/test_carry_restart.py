@@ -28,8 +28,8 @@ from tests.environments.identity_env import IdentityEnv
 
 NET = ("16", "relu")
 OFF_POLICY: dict[str, Any] = {"actor_architecture": NET, "critic_architecture": NET}
-OFF_POLICY |= {"learning_starts": 10_000, "batch_size": 8, "buffer_size": 128}
-OFF_POLICY |= {"burn_in": 2, "sequence_length": 4}
+OFF_POLICY.update({"learning_starts": 10_000, "batch_size": 8, "buffer_size": 128})
+OFF_POLICY.update({"burn_in": 2, "sequence_length": 4})
 #: The agent's options with its parameters held fixed, and its budget.
 AGENTS: dict[str, tuple[dict[str, Any], int]] = {
     "PPO": (
@@ -47,11 +47,11 @@ AGENTS: dict[str, tuple[dict[str, Any], int]] = {
     "SAC": (OFF_POLICY, 32),
     "ASAC": (OFF_POLICY, 32),
     "REDQ": (
-        OFF_POLICY | {"num_critics": 3, "subset_size": 2, "num_critic_updates": 2},
+        {**OFF_POLICY, "num_critics": 3, "subset_size": 2, "num_critic_updates": 2},
         32,
     ),
     "TD3": (OFF_POLICY, 32),
-    "TQC": (OFF_POLICY | {"num_critics": 3, "n_quantiles": 4}, 32),
+    "TQC": ({**OFF_POLICY, "num_critics": 3, "n_quantiles": 4}, 32),
 }
 SEEDS = [0, 1, 2, 3]
 
@@ -61,7 +61,7 @@ def test_every_recurrent_agent_has_a_row() -> None:
     recurrent = {
         n for n in ajax.__all__ if getattr(getattr(ajax, n), "supports_memory", False)
     }
-    assert recurrent - {"APG"} == set(AGENTS)
+    assert recurrent.difference({"APG"}) == set(AGENTS)
 
 
 def _at(tree: Any, index: Any) -> Any:
@@ -80,7 +80,7 @@ def _next_action(actor: Any, params: Any, obs: Any, carry: Any) -> Any:
 #: action pipeline with a carry holding flags); the others run in the slow
 #: tier.
 FAST = {("PPO", "gru"), ("SAC", "lstm"), ("ASAC", "mamba"), ("REDQ", "gru")}
-FAST |= {("TD3", "transformer"), ("TQC", "gru")}
+FAST.update({("TD3", "transformer"), ("TQC", "gru")})
 ROWS = [
     pytest.param(n, k, id=f"{n}-{k}", marks=() if (n, k) in FAST else pytest.mark.slow)
     for n in sorted(AGENTS)

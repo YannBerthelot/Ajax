@@ -121,23 +121,23 @@ class GainExpert:
 
 
 S: dict[str, Any] = {"env_id": "Pendulum-v1", "n_envs": 2}
-S |= {"actor_architecture": ("32", "relu"), "critic_architecture": ("32", "relu")}
+S.update({"actor_architecture": ("32", "relu"), "critic_architecture": ("32", "relu")})
 R = {"buffer_size": 1000, "batch_size": 16, "learning_starts": 20}
 SAC40 = {**S, **R, "policy_update_start": 40, "alpha_update_start": 40}
 ON = {"env_id": "Pendulum-v1", "n_envs": 2, "n_steps": 32, "batch_size": 16}
-ON |= {"actor_architecture": ("16", "tanh"), "critic_architecture": ("16", "tanh")}
+ON.update({"actor_architecture": ("16", "tanh"), "critic_architecture": ("16", "tanh")})
 CART = {"env_id": "CartPole-v1", "n_envs": 2, **R, "architecture": ("16", "relu")}
 PQN_KW = {"env_id": "CartPole-v1", "n_envs": 4, "n_steps": 16, "num_minibatches": 2}
-PQN_KW |= {"n_epochs": 2, "architecture": ("16", "relu")}
+PQN_KW.update({"n_epochs": 2, "architecture": ("16", "relu")})
 SETPOINT = dict(zip(("env_id", "env_params"), setpoint_env.make(), strict=True))
 PID = {**SETPOINT, "n_envs": 2, "extensions": (setpoint_env.TERMS,)}
-PID |= {"actor_architecture": PIDPolicy(), "critic_architecture": ("16", "relu")}
+PID.update({"actor_architecture": PIDPolicy(), "critic_architecture": ("16", "relu")})
 NORM = {"normalize_observations": True}
 GRU = {"learning_starts": 60, "memory": MemoryConfig(kind="gru", hidden_size=8)}
 DAGGER = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_architecture": ("32", "relu")}
-DAGGER |= {"buffer_size": 1000, "batch_size": 16, "expert_policy": push}
+DAGGER.update({"buffer_size": 1000, "batch_size": 16, "expert_policy": push})
 CROSSQ = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_width": 32, "critic_width": 64}
-CROSSQ |= {**R, "learning_starts": 40}
+CROSSQ.update({**R, "learning_starts": 40})
 # The paths a replay agent's options take: a residual policy (its executed
 # and chosen actions), an expert's stored actions and imitation, gain mode,
 # observation features (one reading the progress), the normalisers.
@@ -145,12 +145,14 @@ RESIDUAL = {"expert_policy": push, "extensions": (ResidualPolicy(), Keyed())}
 BC = {"expert_policy": push, "extensions": (ImitationLoss(push, coef=1.0),)}
 GAIN = {"expert_policy": GainExpert(), "extensions": (ExpertGains(),)}
 OBSERVE: dict[str, Any] = {"expert_policy": push}
-OBSERVE |= {"extensions": (ExpertActionInput(), TrainingProgressInput())}
+OBSERVE.update({"extensions": (ExpertActionInput(), TrainingProgressInput())})
 REWARD_NORM = {"normalize_rewards": True, "reward_normalization_gamma": 0.99}
 OFFLINE_KW = {**S, **R, "learning_starts": 0, "batch_size": 8}
 KEYED = {"extensions": (Keyed(),)}
 TIME_RESET = {**ON, "n_envs": 4, "n_steps": 16, "num_minibatches": 2}
-TIME_RESET |= {"unroll_length": 16, "num_resets_per_eval": 1, "num_evals": 3, **NORM}
+TIME_RESET.update(
+    {"unroll_length": 16, "num_resets_per_eval": 1, "num_evals": 3, **NORM}
+)
 PPO_GRU = {"memory": MemoryConfig(kind="gru", hidden_size=8)}
 GAIL_DATA = episodes(3, discrete=False)  # Pendulum's observations
 #: Trained offline for their steps (updates on a dataset's rows), then
@@ -179,8 +181,12 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "DAgger-keyed": (DAgger, {**DAGGER, "extensions": (ActorKeyed(),)}, 200),
     "DAgger-discrete": (
         DAgger,
-        {**DAGGER, "env_id": "CartPole-v1", "actor_architecture": ("16", "relu")}
-        | {"expert_policy": choose_one},
+        {
+            **DAGGER,
+            "env_id": "CartPole-v1",
+            "actor_architecture": ("16", "relu"),
+            "expert_policy": choose_one,
+        },
         200,
     ),
     "IQL": (IQL, {**S, **R}, 200),
@@ -199,8 +205,14 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "PQN-norm": (PQN, {**PQN_KW, **NORM}, 512),
     "SAC-keyed": (
         SAC,
-        {**S, **R, "policy_update_start": 80, "alpha_update_start": 120}
-        | {"target_entropy_initial_per_dim": -3.0, "extensions": (Keyed(),)},
+        {
+            **S,
+            **R,
+            "policy_update_start": 80,
+            "alpha_update_start": 120,
+            "target_entropy_initial_per_dim": -3.0,
+            "extensions": (Keyed(),),
+        },
         240,
     ),
     "SAC-gru": (
@@ -331,7 +343,8 @@ def record(state: Any, evals: Any, tag: str = "") -> dict[str, np.ndarray]:
         ):
             leaf = jax.random.key_data(leaf)
         out[f"{tag}state" + jax.tree_util.keystr(path)] = np.asarray(leaf)
-    return out | {f"{tag}eval/" + k: np.asarray(v) for k, v in (evals or {}).items()}
+    out.update({f"{tag}eval/" + k: np.asarray(v) for k, v in (evals or {}).items()})
+    return out
 
 
 def leaves(name: str) -> dict[str, np.ndarray]:
@@ -345,7 +358,7 @@ def leaves(name: str) -> dict[str, np.ndarray]:
         state, evals = agent.train(
             SEEDS, n_timesteps=ONLINE, initial_state=state, logging_config=logging
         )
-        out |= record(state, evals, tag="online/")
+        out.update(record(state, evals, tag="online/"))
     return out
 
 
@@ -379,7 +392,7 @@ def program(name: str) -> str:
 def differences(ref: dict[str, np.ndarray], got: dict[str, np.ndarray]) -> list[str]:
     """Each leaf that is not bitwise the same, with its largest relative gap."""
     found = [f"{k}: only in one record" for k in sorted(ref.keys() ^ got.keys())]
-    for k in sorted(ref.keys() & got.keys()):
+    for k in sorted(set(ref).intersection(got)):
         a, b = ref[k], got[k]
         if a.shape != b.shape:
             found.append(f"{k}: shape {a.shape} -> {b.shape}")

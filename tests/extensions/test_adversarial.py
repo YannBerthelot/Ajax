@@ -53,7 +53,7 @@ def test_the_discriminator_reads_the_executed_action() -> None:
     gail = AdversarialReward(demos())
     context = ExtensionContext(step=jnp.asarray(0), rng=KEY)
     state = gail.init_state(None, KEY)
-    beyond, bound = (rollout() | {"actions": jnp.full((4, 2, 1), a)} for a in (3, 1))
+    beyond, bound = ({**rollout(), "actions": jnp.full((4, 2, 1), a)} for a in (3, 1))
     zeros = jnp.zeros((4, 2, 1))
     np.testing.assert_array_equal(
         gail.reward(None, state, beyond, zeros, context)[0],

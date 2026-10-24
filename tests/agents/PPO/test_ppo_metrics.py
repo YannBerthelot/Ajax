@@ -230,7 +230,7 @@ WIDE = {"squash": True, "log_std_init": 1.0}  # std 2.7: tanh saturates
     "cls, kwargs",
     [
         (PPO, WIDE),
-        (PPO, WIDE | {"extensions": (_ZeroActorLoss(),)}),
+        (PPO, {**WIDE, "extensions": (_ZeroActorLoss(),)}),
         (APO, {"normalize_observations": True}),
     ],
     ids=["PPO-squash", "PPO-extension", "APO-normalized"],
@@ -290,7 +290,9 @@ def test_the_entropy_bonus_lowers_the_policy_loss() -> None:
     np.testing.assert_allclose(with_bonus - without, -0.1 * entropy, rtol=1e-5)
     # The update's minibatch step logs the loss with the agent's bonus.
     minibatch: dict[str, Any] = {"obs": obs, "actions": actions, "log_probs": log_probs}
-    minibatch |= {"gae": gae, "targets": targets, "raw_actions": None, "raw_obs": None}
+    minibatch.update(
+        {"gae": gae, "targets": targets, "raw_actions": None, "raw_obs": None}
+    )
     split = choose_rollout_split(agent, agent.n_steps, agent.n_envs, False)
     _, aux = agent.minibatch_step(state, minibatch, split, context)
     np.testing.assert_allclose(aux.policy.policy_loss, with_bonus, rtol=1e-5)

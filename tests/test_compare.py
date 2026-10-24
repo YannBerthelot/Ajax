@@ -51,9 +51,8 @@ def test_family_wise_error_stays_at_alpha_under_the_null(names):
 
 def test_shifts_are_found_early_with_their_sign_and_the_rest_left_equal():
     rng = np.random.default_rng(1)
-    scores = {a: rng.normal(size=(5, 5)) for a in "ab"} | {
-        "c": rng.normal(3, size=(5, 5))
-    }
+    scores = {a: rng.normal(size=(5, 5)) for a in "ab"}
+    scores.update({"c": rng.normal(3, size=(5, 5))})
     test = AdaStop("abc", B=2000)
     used = run(test, scores)
     assert test.decisions == {

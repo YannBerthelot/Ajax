@@ -133,7 +133,8 @@ STACKS = {
     "brax": lambda: add_ajax_wrappers(brax_stack(), **_NORMALISED),
     "playground": lambda: add_ajax_wrappers(playground_stack(), **_NORMALISED),
 }
-BUILDERS = {cls.__name__: build for cls, build in ROWS.items()} | STACKS
+BUILDERS = {cls.__name__: build for cls, build in ROWS.items()}
+BUILDERS.update(STACKS)
 
 
 def ajax_wrappers() -> set:
@@ -145,7 +146,7 @@ def ajax_wrappers() -> set:
     while todo:
         subclasses = todo.pop().__subclasses__()
         todo += subclasses
-        found |= {c for c in subclasses if c.__module__.startswith("ajax.")}
+        found.update({c for c in subclasses if c.__module__.startswith("ajax.")})
     return found
 
 

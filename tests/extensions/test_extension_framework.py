@@ -463,7 +463,7 @@ def test_every_extension_field_holding_an_expert_is_declared():
             if "expert" in f.name and "Callable" in str(hints[f.name])
         }
         assert cls.expert_fields == held, cls.__name__
-        holders |= {cls.__name__} if held else set()
+        holders.update({cls.__name__} if held else set())
     assert {"ImitationLoss", "IBRL", "MCPretrain", "ExpertValueMetrics"} <= holders
 
 

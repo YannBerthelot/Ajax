@@ -141,7 +141,7 @@ def test_the_q_filter_weight_is_zero_wherever_the_critic_prefers_the_policy() ->
     ext = ImitationLoss(expert_policy=EXPERT, coef=2.0, q_filter=True)
     with pytest.raises(ValueError, match="critic_state"):
         ext.actor_loss(None, (), batch, CTX)
-    term, _ = ext.actor_loss(None, (), batch | {"critic_state": _critic()}, CTX)
+    term, _ = ext.actor_loss(None, (), {**batch, "critic_state": _critic()}, CTX)
     want = 2.0 * np.mean(np.array(KEPT) * (np.asarray(PI)[:, 0] - 0.9) ** 2) / 4.0
     np.testing.assert_allclose(float(term), want, rtol=1e-6)
 
@@ -290,7 +290,7 @@ def test_sac_logs_the_filtered_fraction_on_a_replay_batch() -> None:
 _REPLAY = {"n_envs": 2, "learning_starts": 16, "batch_size": 8}
 Q_AGENTS = {
     "TD3": (TD3, _REPLAY),
-    "REDQ": (REDQ, _REPLAY | {"num_critic_updates": 1}),
+    "REDQ": (REDQ, {**_REPLAY, "num_critic_updates": 1}),
     "ASAC": (ASAC, _REPLAY),
     "AVG": (AVG, {}),
 }
@@ -520,7 +520,10 @@ def test_the_critic_in_the_actor_batch_is_inert_without_the_filter(
 
     def without(self: ExtensionStack, state: Any, batch: dict, *args: Any) -> Any:
         return apply(
-            self, state, {k: batch[k] for k in batch.keys() - {"critic_state"}}, *args
+            self,
+            state,
+            {k: batch[k] for k in set(batch).difference({"critic_state"})},
+            *args,
         )
 
     monkeypatch.setattr(ExtensionStack, "apply_actor_loss", without)

@@ -91,7 +91,7 @@ def test_the_termination_head_exists_only_in_the_episodic_mode():
     key = jax.random.PRNGKey(4)
     on = make_world_model(EPISODIC).init(key, x, a)["params"]
     off = make_world_model(PAPER_ERA).init(key, x, a)["params"]
-    assert set(on) == set(off) | {"termination"}
+    assert set(on) == set(off).union({"termination"})
     jax.tree.map(np.testing.assert_array_equal, {k: on[k] for k in off}, off)
     head = on["termination"]
     assert head["out"]["kernel"].shape == (EPISODIC.mlp_dim, 1)
@@ -128,11 +128,13 @@ def test_the_termination_loss_is_the_bce_at_the_rollout_latents(state, batch):
     bce = -jnp.mean(t * jnp.log(p) + (1 - t) * jnp.log(1 - p))
     np.testing.assert_allclose(terms["termination_loss"], bce, rtol=1e-5)
     np.testing.assert_allclose(total, base + 0.7 * bce, rtol=1e-5)
-    assert set(terms) == set(base_terms) | {
-        "termination_loss",
-        "termination_rate",
-        "termination_f1",
-    }
+    assert set(terms) == set(base_terms).union(
+        {
+            "termination_loss",
+            "termination_rate",
+            "termination_f1",
+        }
+    )
     np.testing.assert_allclose(terms["termination_rate"], jnp.mean(t[-1]))
 
     def head_loss(head):

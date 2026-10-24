@@ -141,7 +141,7 @@ def test_an_extension_logs_nan_before_its_fit() -> None:
     )
     logged: dict = {}
     for ext in _stack():
-        logged |= ext.eval_metrics(bounds, ext.init_state(None, KEY), KEY, context)
+        logged.update(ext.eval_metrics(bounds, ext.init_state(None, KEY), KEY, context))
     assert {k for k in logged if k not in NAMES} == {
         "mc_pretrain/v_min",
         "mc_pretrain/v_max",

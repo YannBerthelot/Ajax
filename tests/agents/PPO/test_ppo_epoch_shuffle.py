@@ -24,8 +24,10 @@ from ajax.state import Transition
 
 N_STEPS, N_EPOCHS = 16, 3
 SMALL: dict[str, Any] = {"env_id": "Pendulum-v1", "n_steps": N_STEPS}
-SMALL |= {"n_envs": 2, "n_epochs": N_EPOCHS, "num_minibatches": 4}
-SMALL |= {"actor_architecture": ("8", "tanh"), "critic_architecture": ("8", "tanh")}
+SMALL.update({"n_envs": 2, "n_epochs": N_EPOCHS, "num_minibatches": 4})
+SMALL.update(
+    {"actor_architecture": ("8", "tanh"), "critic_architecture": ("8", "tanh")}
+)
 
 
 def _rollout(n_envs: int) -> Transition:

@@ -25,7 +25,7 @@ EPS = 1e-3
 
 
 def stats(**values) -> dict:
-    return {"mean": jnp.zeros(3), "var": jnp.ones(3), "steps": jnp.asarray(0)} | values
+    return {"mean": jnp.zeros(3), "var": jnp.ones(3), "steps": jnp.asarray(0), **values}
 
 
 def run(batch_stats: dict, train: bool):

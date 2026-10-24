@@ -33,8 +33,7 @@ COMMON = {
 RUNS = {
     "SAC": (
         SAC,
-        {"n_envs": 4, "learning_starts": 500, "buffer_size": 20_000}
-        | {"batch_size": 128},
+        {"n_envs": 4, "learning_starts": 500, "buffer_size": 20_000, "batch_size": 128},
         80_000,
     ),
     "PPO": (

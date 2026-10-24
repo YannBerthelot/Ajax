@@ -6,8 +6,10 @@ TD3's ``action_pipeline`` (AjaxExperiments' TD3 variants) and the DQN /
 PQN variants (Double DQN, Huber).
 
 These are API-contract tests: construct each agent with each hook (and
-``None``) and confirm construction succeeds and the hook is forwarded to
-``make_train``. They do not run training.
+``None``) and confirm construction succeeds and the hook reaches training:
+forwarded to ``make_train``, or a declared agent's field its family reads
+(TD3's pipeline, which its ``behaviour`` hands collection). They do not run
+training.
 """
 
 import pytest
@@ -15,6 +17,7 @@ import pytest
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.TD3.TD3 import TD3
+from tests.agents.TD3.test_td3_metrics import context
 
 AGENT_HOOKS = {
     TD3: ("action_pipeline",),
@@ -69,10 +72,18 @@ def _instantiate(agent_cls, **kwargs):
     return agent_cls(**common)
 
 
+def _hooks(agent):
+    """The hooks training receives: make_train's keywords, or TD3's pipeline
+    (its family's make_train collects with what ``behaviour`` returns)."""
+    if isinstance(agent, TD3):
+        return {"action_pipeline": agent.pipeline}
+    return agent.get_make_train().keywords
+
+
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
 def test_default_hooks_are_none(agent_cls):
-    """By default every hook make_train receives is None (feature inactive)."""
-    keywords = _instantiate(agent_cls).get_make_train().keywords
+    """By default every hook training receives is None (feature inactive)."""
+    keywords = _hooks(_instantiate(agent_cls))
     for hook in AGENT_HOOKS[agent_cls]:
         assert keywords[hook] is None, (
             f"{agent_cls.__name__}.{hook} should default to None"
@@ -81,14 +92,13 @@ def test_default_hooks_are_none(agent_cls):
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
 def test_get_make_train_forwards_hooks(agent_cls):
-    """get_make_train wraps make_train in a partial that carries the hooks."""
+    """Each hook reaches training: get_make_train's partial carries it, or
+    TD3's behaviour hands its pipeline to collection."""
     hook_kwargs = dict.fromkeys(AGENT_HOOKS[agent_cls], _identity_hook)
     agent = _instantiate(agent_cls, **hook_kwargs)
-    make_train_partial = agent.get_make_train()
-    # functools.partial stores kwargs on .keywords
-    keywords = getattr(make_train_partial, "keywords", {})
+    keywords = _hooks(agent)
     for h, fn in hook_kwargs.items():
-        assert h in keywords, (
-            f"{agent_cls.__name__}.get_make_train() should forward {h}"
-        )
+        assert h in keywords, f"{agent_cls.__name__} should forward {h}"
         assert keywords[h] is fn
+    if isinstance(agent, TD3):
+        assert agent.behaviour(context(agent)) is _identity_hook

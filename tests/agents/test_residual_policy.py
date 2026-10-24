@@ -14,7 +14,7 @@ import pytest
 from ajax import APG, UDRL
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC import core
-from ajax.agents.TD3.train_TD3 import compute_td3_td_target
+from ajax.agents.TD3.TD3 import compute_td3_td_target
 from ajax.extensions.base import ExtensionStack
 from ajax.extensions.expert import ResidualPolicy
 from tests.agents.test_agent_contract import CASES

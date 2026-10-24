@@ -4,18 +4,21 @@ norm equal their definitions."""
 
 from __future__ import annotations
 
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 
 from ajax.agents.critics import critic_loss_fn
+from ajax.agents.families import TrainContext
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC import core as sac_core
 from ajax.agents.SAC import train_SAC
 from ajax.agents.SAC.SAC import SAC
-from ajax.agents.TD3 import train_TD3
-from ajax.agents.TD3.TD3 import TD3
+from ajax.agents.TD3.TD3 import TD3, compute_td3_td_target, policy_loss_function
+from ajax.environments.interaction import init_collector_state
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
 from ajax.state import Transition
@@ -40,25 +43,39 @@ def _batch(agent) -> Transition:
     )
 
 
+def context(agent: TD3, stack: ExtensionStack = EMPTY) -> TrainContext:
+    """What TD3's init and update read, outside a training run."""
+    env_args = agent.env_args
+    return TrainContext(
+        env_args=env_args,
+        network_args=agent.network_args,
+        actor_optimizer_args=agent.actor_optimizer_args,
+        critic_optimizer_args=agent.critic_optimizer_args,
+        stack=stack,
+        total_timesteps=1,
+        collector=partial(
+            init_collector_state,
+            env_args=env_args,
+            mode=env_args.mode,
+            buffer=agent.buffer,
+        ),
+        buffer=agent.buffer,
+    )
+
+
 def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
     agent = TD3("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    state = train_TD3.init_TD3(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.buffer,
-    )
+    ctx = context(agent)
+    state = agent.init(KEY, ctx)
     batch, config = _batch(agent), agent.agent_config
-    _, v_aux, _ = train_TD3.update_value_functions(state, batch, config, EMPTY, 1)
+    _, v_aux, _ = agent.critic_update(state, batch, None, ctx)
 
     critic = state.critic_state
     q = q_values(critic, critic.params, batch.obs, batch.action)
     np.testing.assert_allclose(v_aux.q_gap, np.mean(np.abs(q[0] - q[1])), rtol=1e-5)
     # The target noise is drawn on the first of the three keys the step splits.
     key = jax.random.split(state.rng, 3)[0]
-    target, clip_frac, _ = train_TD3.compute_td3_td_target(
+    target, clip_frac, _ = compute_td3_td_target(
         state.actor_state,
         critic,
         key,
@@ -78,29 +95,22 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 
-    _, p_aux, _ = train_TD3.update_policy(state, batch.obs, None, EMPTY, 1)
+    _, (p_aux, _) = agent.actor_update(state, batch, None, ctx)
     actor = state.actor_state
-    p_grads = jax.grad(
-        lambda p: train_TD3.policy_loss_function(p, actor, critic, batch.obs)[0]
-    )(actor.params)
+    p_grads = jax.grad(lambda p: policy_loss_function(p, actor, critic, batch.obs)[0])(
+        actor.params
+    )
     np.testing.assert_allclose(p_aux.grad_norm, optax.global_norm(p_grads), rtol=1e-6)
 
 
 def test_the_clip_share_counts_the_noise_samples_the_clip_changes() -> None:
     agent = TD3("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    state = train_TD3.init_TD3(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.buffer,
-    )
+    state = agent.init(KEY, context(agent))
     batch = _batch(agent)
 
     def clip_frac(sigma: float, c: float) -> float:
         return float(
-            train_TD3.compute_td3_td_target(
+            compute_td3_td_target(
                 state.actor_state,
                 state.critic_state,
                 KEY,

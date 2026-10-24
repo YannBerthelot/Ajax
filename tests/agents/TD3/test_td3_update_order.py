@@ -7,10 +7,9 @@ from __future__ import annotations
 import jax
 import numpy as np
 
-from ajax.agents.TD3 import train_TD3
+import ajax.agents.TD3.TD3 as td3_module
 from ajax.agents.TD3.TD3 import TD3
-from ajax.extensions.base import ExtensionStack
-from tests.agents.TD3.test_td3_metrics import KEY, NET, _batch
+from tests.agents.TD3.test_td3_metrics import KEY, NET, _batch, context
 
 
 def _moved(before, after) -> bool:
@@ -26,23 +25,15 @@ def test_the_actor_and_targets_first_step_on_the_policy_delay_th_update(
     agent = TD3(
         "Pendulum-v1", actor_architecture=NET, critic_architecture=NET, policy_delay=2
     )
-    state = train_TD3.init_TD3(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.buffer,
-    )
+    ctx = context(agent)
+    state = agent.init(KEY, ctx)
     batch = _batch(agent)
     monkeypatch.setattr(
-        train_TD3, "sample_replay", lambda *args, **kwargs: (batch, None)
+        td3_module, "sample_replay", lambda *args, **kwargs: (batch, None)
     )
     moved = []
     for _ in range(4):
-        new, _ = train_TD3.update_agent(
-            state, agent.buffer, False, agent.agent_config, ExtensionStack(()), 1
-        )
+        new, _ = agent.update(state, ctx)
         moved.append(
             (
                 _moved(state.critic_state.params, new.critic_state.params),

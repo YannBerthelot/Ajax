@@ -5,8 +5,8 @@ usage: python conformance_sfujim_td3_bc.py ENV_ID OUT_DIR   (in envs/torch: CPU-
 Imports nothing from Ajax. sfujim's own TD3_BC.py and ReplayBuffer (vendor/sfujim_td3_bc) train offline
 by main.py's loop, written out below: ``convert_D4RL`` of a dataset, ``normalize_states``, one
 ``train()`` per step. There is no D4RL here: the dataset holds DATASET transitions of the gymnax task
-under uniform random actions, its terminals true terminations only, as D4RL's ``qlearning_dataset``
-gives. Before the updates that bring total_it to SNAPSHOTS + 1 the update is recorded as
+under uniform random actions, as D4RL's ``qlearning_dataset`` gives it: its terminals true terminations
+only, and each time limit's row dropped (a D4RL file lacks that row's final observation). Before the updates that bring total_it to SNAPSHOTS + 1 the update is recorded as
 conformance_sfujim_td3.py records TD3's (conformance_torch.sfujim_snapshot), with the dataset's mean
 and std.
 """
@@ -34,6 +34,9 @@ def dataset(env: OldGym) -> dict:
     for _ in range(DATASET):
         action = env.sample()
         next_obs, reward, done, _ = env.step(action)
+        if done and not env.terminated:  # a time limit: qlearning_dataset drops the row
+            obs = env.reset()
+            continue
         for k, v in zip(
             FIELDS, (obs, action, next_obs, reward, float(env.terminated)), strict=False
         ):

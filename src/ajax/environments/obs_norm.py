@@ -4,14 +4,13 @@ Lives inside ``CollectorState.obs_norm_info`` so stats are part of
 ``agent_state`` and thread through naturally. Normalization is applied
 at every actor/critic ``apply_fn`` boundary; stats are updated only at
 collection time (online interaction and BC dataset prep). The replay
-buffer stores RAW augmented observations so changing stats don't poison
+buffer stores raw observations (their features included) so changing stats do not poison
 old samples; we re-normalize at sample time.
 
-Why agent-side and not env-wrapper-side: when ``augment_obs_with_expert_state``
-is on, the ``expert_state`` (PID integrators etc.) is appended AFTER the
-env step, in the collector. The env wrapper can't see those dims, so
-its running stats don't cover them. Agent-side normalization wraps the
-full augmented vector.
+Agent-side so that the statistics are the agent's, shipped with its policy,
+and cover its observation features (``ajax.controller``), which the env never
+sees: the env's columns and the normalised features; the raw features (an
+expert's action) come last and stay raw.
 """
 
 from typing import Optional, Tuple
@@ -35,6 +34,19 @@ def init_agent_obs_norm(obs_dim: int) -> NormalizationInfo:
     return init_norm_info(batch_size=1, obs_shape=(obs_dim,))
 
 
+def _covered(obs: jnp.ndarray, info: NormalizationInfo) -> tuple:
+    """``obs``'s leading columns, which ``info``'s statistics cover, and the
+    raw features after them (None when there are none)."""
+    span = info.mean.shape[-1]
+    if obs.shape[-1] == span:
+        return obs, None
+    return obs[..., :span], obs[..., span:]
+
+
+def _joined(normalised: jnp.ndarray, raw: Optional[jnp.ndarray]) -> jnp.ndarray:
+    return normalised if raw is None else jnp.concatenate([normalised, raw], -1)
+
+
 def update_obs_norm(
     obs: jnp.ndarray, info: Optional[NormalizationInfo], raw_columns: int = 0
 ) -> Tuple[jnp.ndarray, Optional[NormalizationInfo]]:
@@ -42,12 +54,14 @@ def update_obs_norm(
 
     ``obs`` shape: ``(n_envs, obs_dim)``. When ``info is None`` the call is
     a no-op (returns input unchanged) so call sites can stay unconditional.
-    The leading ``raw_columns`` stay raw (see ``online_normalize``).
+    The leading ``raw_columns`` stay raw (see ``online_normalize``), as do
+    the raw features after the columns the statistics cover.
     """
     if info is None:
         return obs, None
+    own, raw = _covered(obs, info)
     new_obs, count, mean, mean_2, var = online_normalize(
-        obs,
+        own,
         info.count,
         info.mean,
         info.mean_2,
@@ -62,7 +76,29 @@ def update_obs_norm(
         var=var,
         returns=info.returns,
     )
-    return new_obs, new_info
+    return _joined(new_obs, raw), new_info
+
+
+def normalized_obs(
+    obs: jnp.ndarray, info: Optional[NormalizationInfo], raw_columns: int = 0
+) -> jnp.ndarray:
+    """``obs`` normalised with the statistics ``info``, not updated, as
+    :func:`update_obs_norm` normalises (``online_normalize``): the frozen
+    statistics of an on-policy agent's evaluation and of its final and
+    reset observations. ``info`` None: ``obs`` as it is."""
+    if info is None:
+        return obs
+    own, raw = _covered(obs, info)
+    normalised = online_normalize(
+        own,
+        info.count,
+        info.mean,
+        info.mean_2,
+        train=False,
+        nan_safe=False,
+        raw_columns=raw_columns,
+    )[0]
+    return _joined(normalised, raw)
 
 
 def apply_obs_norm(obs: jnp.ndarray, info: Optional[NormalizationInfo]) -> jnp.ndarray:
@@ -73,9 +109,9 @@ def apply_obs_norm(obs: jnp.ndarray, info: Optional[NormalizationInfo]) -> jnp.n
     stats are still empty (count == 0), avoiding a divide-by-≈0 at
     step 1 before any update.
 
-    The statistics cover the agent's own observation, the leading columns;
-    what is appended after it stays raw: the expert's action
-    (``interaction.augment_obs``) and a critic's action, already in action
+    The statistics cover the leading columns: the env's and the normalised
+    features'; what follows stays raw: a raw feature (an expert's action)
+    and a critic's action, already in action
     units, as the env's ``raw_columns`` keep a PID's terms raw."""
     if info is None or info.var is None:
         return obs

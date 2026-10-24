@@ -29,16 +29,23 @@ ALGORITHM_CAPABILITIES: Mapping[str, str] = {
     "replay": "its updates sample stored past transitions",
     "off_policy": "its update stays correct on actions its policy did not choose",
     "critic_ensemble": "two critics or more (num_critics, where the agent has it)",
+    "target_critic": "a slowly updated copy of its critic, which its bootstrap reads",
+    "distributional_critic": (
+        "its critic predicts quantiles of the return, and regresses on many"
+        " target values per row"
+    ),
     "policy_density": "a stochastic policy, with a density over its actions",
     "obs_networks": (
         "its policy and value networks read the observation, not a world"
         " model's latent state"
     ),
+    "reward_learning": "it learns from the reward, not from an expert's labels alone",
 }
 
 #: The capabilities a run gives, with what gives them.
 RUN_CAPABILITIES: Mapping[str, str] = {
     "critic": "a q_critic or a v_critic",
+    "scalar_target": "a critic that regresses on one target per row, not a distributional_critic",
     "continuous_actions": "an environment with continuous actions",
     "discrete_actions": "an environment with discrete actions",
     "agent_expert": "give the agent an expert_policy",
@@ -53,6 +60,7 @@ PHASE_NEEDS: Mapping[str, frozenset[str]] = {
     # The executed action becomes one the policy did not choose.
     "action": frozenset({"off_policy"}),
     "transform_action": frozenset({"continuous_actions"}),
+    "actuate": frozenset({"continuous_actions"}),
 }
 
 
@@ -89,23 +97,13 @@ def run_capabilities(
         caps -= {"critic_ensemble"}
     derived = {
         "critic": bool(caps & {"q_critic", "v_critic"}),
+        "scalar_target": bool(caps & {"q_critic", "v_critic"})
+        and "distributional_critic" not in caps,
         "continuous_actions": continuous,
         "discrete_actions": not continuous,
         "agent_expert": has_expert,
     }
     return caps | {name for name, given in derived.items() if given}
-
-
-def batch_keys(agent_name: str, phase: str, table: Mapping) -> frozenset[str]:
-    """The keys ``agent_name``'s ``phase`` batch holds (the rows of ``table``,
-    ``PHASE_BATCH_KEYS``, for every agent and for this one)."""
-    rows = table.get(phase, {})
-    return frozenset(
-        key
-        for agents, keys in rows.items()
-        if agents == "*" or agent_name in agents.split()
-        for key in keys.split()
-    )
 
 
 def check_capabilities(
@@ -117,14 +115,14 @@ def check_capabilities(
     context: Iterable[str],
     pretrain_context: Iterable[str],
     buffer_fields: Iterable[str],
-    batch_table: Mapping,
+    batch_keys: Mapping[str, frozenset[str]],
     takes_expert_policy: bool,
 ) -> None:
     """Raise when a module of ``stack`` cannot run on ``agent_name``, whose
     run has the capabilities ``has`` and whose code folds ``phases``, binds
     the ``context`` keys, fills the ``pretrain_context`` fields of its
-    pretraining's ExtensionContext, stores the ``buffer_fields``, passes the batch
-    keys ``batch_table`` lists, and which takes an ``expert_policy`` when
+    pretraining's ExtensionContext, stores the ``buffer_fields``, passes the
+    ``batch_keys`` (per phase), and which takes an ``expert_policy`` when
     ``takes_expert_policy``.
 
     :class:`MissingCapability` names each module and the capabilities it
@@ -153,10 +151,10 @@ def check_capabilities(
             *([f"gives its pretraining no {sorted(unfilled)}"] if unfilled else []),
             *([f"stores no {sorted(unstored)}"] if unstored else []),
             *(
-                f"puts no {sorted(keys - batch_keys(agent_name, p, batch_table))}"
+                f"puts no {sorted(keys - batch_keys.get(p, frozenset()))}"
                 f" in its {p} batch"
                 for p, keys in ext.reads().items()
-                if keys - batch_keys(agent_name, p, batch_table)
+                if keys - batch_keys.get(p, frozenset())
             ),
         ]
         if gaps:

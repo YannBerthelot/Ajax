@@ -24,7 +24,7 @@ HumanCompatibleAI/imitation at `e5ef188`
 | Memory (`memory=`) | no |
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `actor_loss` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `actor_loss` |
 
 ## Example
 

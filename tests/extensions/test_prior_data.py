@@ -54,7 +54,7 @@ FILLING = [
 
 
 def test_the_agents_taking_prior_data_are_the_transition_replays() -> None:
-    assert FILLING == ["ASAC", "DQN", "IQL", "REDQ", "SAC", "TD3"]
+    assert FILLING == ["ASAC", "CrossQ", "DQN", "IQL", "REDQ", "SAC", "TD3", "TQC"]
 
 
 @pytest.mark.parametrize("name", FILLING)

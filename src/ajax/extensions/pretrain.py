@@ -29,17 +29,16 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
-from ajax.agents.cloning import pre_train
+from ajax.agents.cloning import cloning_columns, pre_train
 from ajax.agents.loop import seed_replay
 from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
+from ajax.controller import reads_agent_expert
 from ajax.environments.interaction import (
-    augment_from_batch,
-    augment_obs,
     collect_experience_from_expert_policy,
     reward_statistics,
 )
-from ajax.environments.utils import get_state_action_shapes, raw_obs_columns
+from ajax.environments.utils import raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.networks.networks import phi_star_critic_state, predict_value
@@ -108,10 +107,7 @@ def _first_and_last(losses: jax.Array) -> PretrainLosses:
         "n_mc_episodes",
         "mode",
         "env_args",
-        "max_timesteps",
         "batch_size",
-        "augment_obs_with_expert_action",
-        "augment_obs_with_expert_state",
     ],
 )
 def pretrain_critic_mc(
@@ -126,9 +122,6 @@ def pretrain_critic_mc(
     n_mc_episodes: int = 500,
     n_steps: int = 5_000,
     batch_size: int = 256,
-    max_timesteps: Optional[int] = None,
-    augment_obs_with_expert_action: bool = False,
-    augment_obs_with_expert_state: bool = False,
 ) -> Tuple[Any, FrozenDict, jax.Array, jax.Array, MCPretrainAux, LoadedTrainState]:
     """Pre-train critic using Monte Carlo returns from expert trajectories.
 
@@ -153,10 +146,6 @@ def pretrain_critic_mc(
         mode=mode,
         env_args=env_args,
         n_timesteps=n_total_steps,
-        # The online critic's layout: the training fraction (0 before
-        # training), then the expert's state.
-        augment_obs_with_expert_state=augment_obs_with_expert_state,
-        train_frac=0.0 if max_timesteps is not None else None,
     )
 
     rewards = all_transitions.reward * reward_scale
@@ -180,12 +169,6 @@ def pretrain_critic_mc(
     obs_flat = all_transitions.obs.reshape(T * n_envs, -1)
     action_flat = all_transitions.action.reshape(T * n_envs, -1)
     mc_flat = mc_returns.reshape(T * n_envs, 1)
-
-    # Augment obs with the expert's actions as its rollout took them (on raw
-    # observations, from its state), as collection stores a_expert.
-    if augment_obs_with_expert_action:
-        a_expert_flat = all_transitions.a_expert.reshape(T * n_envs, -1)
-        obs_flat = augment_obs(obs_flat, expert_action=a_expert_flat)
 
     n_total = obs_flat.shape[0]
     n_batches = n_total // batch_size
@@ -326,10 +309,8 @@ def refresh_phi_star(
     gamma: float,
     reward_scale: float,
     ext: "PhiRefresh",
-    augment: bool = False,
 ) -> Any:
     """Periodic self-consistent φ* refresh using expert-flagged buffer transitions.
-    ``augment``: φ* reads observations augmented with SAC's expert actions;
     ``ext``'s expert gives the action at s' (expert_next_actions).
 
     Target: r + γ * min_k Q_φ*(s′, π*(s′))  — φ* supervises its own bootstraps.
@@ -360,8 +341,6 @@ def refresh_phi_star(
         # state), or its call on the raw next observations.
         stored = batch.next_a_expert if ext.reads_stored_expert else None
         a_expert_next = expert_next_actions(ext, batch.raw_next_obs, stored)
-        if augment:
-            obs, next_obs = augment_from_batch(batch)
         q_next = predict_value(
             critic_state=expert_critic_state,
             critic_params=expert_critic_state.target_params,
@@ -425,21 +404,17 @@ class CloningPretrain(Extension):
     # Agent context, bound by bind_to_agent.
     env_args: Any = None
     actor_optimizer_args: Any = None
-    augment_obs_with_expert_action: bool = False
-    augment_obs_with_expert_state: bool = False
-    use_train_frac: bool = False
     name: str = "cloning_pretrain"
     requires: ClassVar[frozenset[str]] = frozenset({"actor", "continuous_actions"})
     context: ClassVar[frozenset[str]] = frozenset({"actor_optimizer_args", "env_args"})
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
 
     def bind_to_agent(self, **agent_context: Any) -> "CloningPretrain":
-        """Copy the agent's ``env_args``, ``actor_optimizer_args`` and
-        observation layout (``augment_obs_with_expert_action``,
-        ``augment_obs_with_expert_state``, ``use_train_frac``). Raises
-        ``ValueError`` when the layout carries the agent's expert's action or
-        state and ``expert_policy`` is another expert, or when another
-        pretrain-phase extension comes before it in the stack."""
+        """Copy the agent's ``env_args`` (its observation features
+        included) and ``actor_optimizer_args``. Raises ``ValueError`` when
+        a feature reads the agent's expert and ``expert_policy`` is another
+        expert, or when another pretrain-phase extension comes before it in
+        the stack."""
         optimizer = agent_context.get("actor_optimizer_args")
         if self.actor_optimizer_args is not None or optimizer is None:
             return self
@@ -453,22 +428,17 @@ class CloningPretrain(Extension):
                 "CloningPretrain seeds the observation statistics the critic"
                 " reads: put it before the other pretraining extensions."
             )
-        augment_action = agent_context.get("augment_obs_with_expert_action", False)
-        augment_state = agent_context.get("augment_obs_with_expert_state", False)
-        agent_expert = agent_context.get("expert_policy")
-        if (augment_action or augment_state) and self.expert_policy is not agent_expert:
+        env_args = agent_context["env_args"]
+        if reads_agent_expert(env_args) and self.expert_policy is not agent_context.get(
+            "expert_policy"
+        ):
             raise ValueError(
-                "CloningPretrain clones on the agent's observations, which carry"
-                " its expert's action or state (augment_obs_with_expert_*): give"
-                " CloningPretrain the agent's expert_policy."
+                "CloningPretrain clones on the agent's observations, whose"
+                " features read its expert: give CloningPretrain the agent's"
+                " expert_policy."
             )
         return dataclasses.replace(
-            self,
-            env_args=agent_context["env_args"],
-            actor_optimizer_args=optimizer,
-            augment_obs_with_expert_action=augment_action,
-            augment_obs_with_expert_state=augment_state,
-            use_train_frac=agent_context.get("use_train_frac", False),
+            self, env_args=env_args, actor_optimizer_args=optimizer
         )
 
     def init_state(self, agent_state: Any, rng: jax.Array) -> PretrainLosses:
@@ -499,10 +469,7 @@ class CloningPretrain(Extension):
             env_args=self.env_args,
             mode=self.env_args.mode,
             n_timesteps=self.n_steps,
-            augment_obs_with_expert_state=self.augment_obs_with_expert_state,
-            train_frac=0.0 if self.use_train_frac else None,
         )
-        env_obs_dim = get_state_action_shapes(env)[0][-1]
         actor_state, metrics, obs_mean, obs_std = pre_train(
             rng=key,
             actor_state=agent_state.actor_state,
@@ -513,9 +480,8 @@ class CloningPretrain(Extension):
             skip_actor=self.skip_actor,
             reset_log_std=self.reset_log_std,
             reset_actor_head=self.reset_actor_head,
-            augment_obs_with_expert_action=self.augment_obs_with_expert_action,
             raw_columns=raw_obs_columns(env),
-            train_frac_column=env_obs_dim if self.use_train_frac else None,
+            **cloning_columns(self.env_args),
         )
         losses = (
             PretrainLosses.unknown()
@@ -597,9 +563,6 @@ class MCPretrain(Extension):
     num_critics: int = 2
     gamma: Optional[float] = None
     reward_scale: Optional[float] = None
-    use_train_frac: bool = False
-    augment_obs_with_expert_action: bool = False
-    expert_state_aug_dim: int = 0
     use_phi_refresh: bool = False
     name: str = "mc_pretrain"
     requires: ClassVar[frozenset[str]] = frozenset({"critic", "discounted"})
@@ -612,21 +575,19 @@ class MCPretrain(Extension):
     def bind_to_agent(self, **agent_context: Any) -> "MCPretrain":
         """Copy the agent's context (``env_args``, ``network_args``,
         ``critic_optimizer_args``, ``num_critics``, ``gamma``,
-        ``reward_scale``, ``use_train_frac``,
-        ``augment_obs_with_expert_action``, ``expert_state_aug_dim``) onto a
-        new instance, and keep
+        ``reward_scale``) onto a new instance, and keep
         ``φ*``'s optimiser when the stack (``extensions``) holds a
         :class:`PhiRefresh`."""
         env_args = agent_context.get("env_args", None)
         if self.env_args is not None or env_args is None:
             return self
-        state_dim = agent_context.get("expert_state_aug_dim", 0)
-        if state_dim and self.expert_policy is not agent_context.get("expert_policy"):
+        if reads_agent_expert(env_args) and self.expert_policy is not agent_context.get(
+            "expert_policy"
+        ):
             raise ValueError(
-                "MCPretrain fits phi* on the agent's observations, which carry"
-                " the state of the agent's expert (augment_obs_with_expert_state):"
-                " its MC rollout must be that expert's. Give MCPretrain the"
-                " agent's expert_policy."
+                "MCPretrain fits phi* on the agent's observations, whose features"
+                " read its expert: its MC rollout must be that expert's. Give"
+                " MCPretrain the agent's expert_policy."
             )
         return dataclasses.replace(
             self,
@@ -636,12 +597,6 @@ class MCPretrain(Extension):
             num_critics=agent_context.get("num_critics", self.num_critics),
             gamma=agent_context.get("gamma"),
             reward_scale=agent_context.get("reward_scale"),
-            use_train_frac=agent_context.get("use_train_frac", self.use_train_frac),
-            augment_obs_with_expert_action=agent_context.get(
-                "augment_obs_with_expert_action",
-                self.augment_obs_with_expert_action,
-            ),
-            expert_state_aug_dim=state_dim,
             use_phi_refresh=any(
                 isinstance(e, PhiRefresh) for e in agent_context.get("extensions", ())
             ),
@@ -674,25 +629,16 @@ class MCPretrain(Extension):
                 " the agent did not bind it (only SAC supports MCPretrain)."
             )
 
-        from ajax.environments.utils import get_action_dim
         from ajax.networks.networks import get_initialized_critic
 
         rng = ctx.rng
-        max_timesteps = ctx.total_steps if self.use_train_frac else None
+        # The online critic's input: the observation and its features.
         expert_critic_state = get_initialized_critic(
             key=rng,
             env_config=self.env_args,
             critic_optimizer_config=self.critic_optimizer_args,
             network_config=self.network_args,
             num_critics=self.num_critics,
-            max_timesteps=max_timesteps,
-            # The online critic's extra columns: the expert's state and action.
-            extra_obs_dim=self.expert_state_aug_dim
-            + (
-                get_action_dim(self.env_args.env, self.env_args.env_params)
-                if self.augment_obs_with_expert_action
-                else 0
-            ),
         )
         (
             agent_state,
@@ -712,9 +658,6 @@ class MCPretrain(Extension):
             n_mc_steps=self.n_mc_steps,
             n_mc_episodes=self.n_mc_episodes,
             n_steps=self.n_steps,
-            max_timesteps=max_timesteps,
-            augment_obs_with_expert_action=self.augment_obs_with_expert_action,
-            augment_obs_with_expert_state=self.expert_state_aug_dim > 0,
         )
         agent_state = agent_state.replace(
             expert_critic_params=frozen_expert_params,
@@ -776,7 +719,6 @@ class MCPretrain(Extension):
         "buffer",
         "update_value_fn",
         "update_target_fn",
-        "augment",
     ],
 )
 def pretrain_critic_bellman(
@@ -788,13 +730,10 @@ def pretrain_critic_bellman(
     n_steps: int,
     update_value_fn: Callable,
     update_target_fn: Callable,
-    augment: bool = False,
 ):
     """``n_steps`` Bellman critic updates (the agent's ``update_value_fn``)
-    on replay batches, each followed by a target update at tau 5e-4;
-    ``augment``: the critic reads observations augmented with the expert's
-    stored actions, as in SAC's update. Returns the agent state and each
-    update's critic loss."""
+    on replay batches, each followed by a target update at tau 5e-4.
+    Returns the agent state and each update's critic loss."""
 
     def critic_pretrain_step(carry, _):
         agent_state = carry
@@ -807,20 +746,13 @@ def pretrain_critic_bellman(
             sample_key,
             reward_statistics(collector.env_state),
         )
-        observations, next_observations = batch.obs, batch.next_obs
-        if augment:
-            observations, next_observations = augment_from_batch(batch)
         # The plain Bellman target: no extension's target or loss term.
         agent_state, aux, _ = update_value_fn(
-            observations=observations,
-            actions=batch.action,
-            next_observations=next_observations,
-            rewards=batch.reward,
-            dones=batch.terminated,
-            agent_state=agent_state,
-            recurrent=recurrent,
-            gamma=gamma,
-            extension_stack=ExtensionStack(),
+            agent_state,
+            batch,
+            recurrent,
+            gamma,
+            ExtensionStack(),
             reward_scale=reward_scale,
         )
         agent_state = update_target_fn(agent_state, tau=5e-4)
@@ -852,7 +784,6 @@ class BellmanPretrain(Extension):
     recurrent: bool = False
     update_value_fn: Optional[Callable] = None
     update_target_fn: Optional[Callable] = None
-    augment_obs_with_expert_action: bool = False
     name: str = "bellman_pretrain"
     requires: ClassVar[frozenset[str]] = frozenset({"agent_expert", "critic", "replay"})
     context: ClassVar[frozenset[str]] = frozenset(
@@ -881,9 +812,6 @@ class BellmanPretrain(Extension):
             recurrent=agent_context["recurrent"],
             update_value_fn=agent_context["update_value_fn"],
             update_target_fn=agent_context["update_target_fn"],
-            augment_obs_with_expert_action=agent_context.get(
-                "augment_obs_with_expert_action", False
-            ),
         )
 
     def init_state(self, agent_state: Any, rng: jax.Array) -> PretrainLosses:
@@ -910,7 +838,6 @@ class BellmanPretrain(Extension):
             n_steps=self.n_steps,
             update_value_fn=self.update_value_fn,
             update_target_fn=self.update_target_fn,
-            augment=self.augment_obs_with_expert_action,
         )
         jax.debug.print("[Bellman pretrain] done ({n} steps)", n=self.n_steps)
         return agent_state, _first_and_last(losses)
@@ -946,7 +873,6 @@ class PhiRefresh(Extension):
     buffer: Any = None
     gamma: Optional[float] = None
     reward_scale: Optional[float] = None
-    augment_obs_with_expert_action: bool = False
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "phi_refresh"
     requires: ClassVar[frozenset[str]] = frozenset(
@@ -961,21 +887,18 @@ class PhiRefresh(Extension):
         return (self.expert_policy,)
 
     def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
-        """Copy the agent's ``buffer``, ``gamma``, ``reward_scale`` and
-        observation augmentation, and whether its expert is the agent's
-        (:func:`reads_stored_expert_actions`)."""
+        """Copy the agent's ``buffer``, ``gamma`` and ``reward_scale``, and
+        whether its expert is the agent's (:func:`reads_stored_expert_actions`)."""
         buffer = agent_context.get("buffer", None)
         gamma = agent_context.get("gamma", None)
         reward_scale = agent_context.get("reward_scale", None)
         if self.buffer is not None or buffer is None:
             return self
-        augment = agent_context.get("augment_obs_with_expert_action", False)
         return dataclasses.replace(
             self,
             buffer=buffer,
             gamma=gamma,
             reward_scale=reward_scale,
-            augment_obs_with_expert_action=augment,
             reads_stored_expert=reads_stored_expert_actions(self, agent_context),
         )
 
@@ -1006,7 +929,6 @@ class PhiRefresh(Extension):
                 gamma,
                 reward_scale,
                 self,
-                self.augment_obs_with_expert_action,
             )
 
         new_state = jax.lax.cond(

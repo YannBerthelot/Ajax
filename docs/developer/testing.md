@@ -56,7 +56,7 @@ an episode with `c > 0` terminates at `t = 3`, the others are truncated at
 | Test | The contract |
 | --- | --- |
 | `tests/agents/test_agent_contract.py` | every agent on the shared loop builds its configs on each action space it acts in and refuses the other; a default run keeps no extension state; a run of two seeds and two envs folds its extensions in step and adds their metrics to every evaluation; the measurement extensions find its critic by themselves; the run config drops the instance; the evaluation key is apart from the training key, and each evaluation draws fresh keys; a continuous agent acts on the env's whole box; `episode_length` and `action_repeat` reach the env |
-| `tests/extensions/test_phase_contract.py` | for every agent and every phase it folds (`on_target`, `critic_loss`, `actor_loss`, `post_update`): each batch holds the keys `PHASE_BATCH_KEYS` documents; each fold gets a key of its own, never one the agent draws on; `critic_loss` gets the target `on_target` returned; a loss term moves the network it names, and that one only |
+| `tests/extensions/test_phase_contract.py` | for every agent and every phase it folds (`on_target`, `critic_loss`, `actor_loss`, `post_update`): each batch holds the keys the agent declares (`phase_batch_keys`) and the common ones; each fold gets a key of its own, never one the agent draws on; `critic_loss` gets the target `on_target` returned; a loss term moves the network it names, and that one only |
 | `tests/extensions/test_no_silent_noop.py` | every extension implementing `on_target`, `critic_loss` or `actor_loss` raises on a batch without what it reads, rather than return its input or 0 |
 | `tests/extensions/test_extension_phase_support.py` | each agent accepts exactly the phases it folds; a reader of phi\* needs `MCPretrain` |
 | `tests/agents/test_compatibility.py` | every extension and network option (`memory`, `cnn`) on every agent, as the agent is built: it builds, or it is refused for a capability the algorithm lacks, or it is a gap pinned with the work that closes it; the matrix is [Compatibility](../guide/compatibility.md), rewritten with `AJAX_WRITE_COMPATIBILITY=1` |
@@ -113,11 +113,15 @@ check.
 | AVG | gauthamvasan/avg (PyTorch) | `tests/conformance/test_avg_original.py` |
 | ASAC | BobMak/asac (PyTorch, stable-baselines3) | `tests/conformance/test_asac_original.py` |
 | APO | xtma/apo on xtma/rlpyt (PyTorch) | `tests/conformance/test_apo_original.py` |
+| CrossQ | adityab/CrossQ (JAX, its own versions) | `tests/conformance/test_crossq_original.py` |
+| TQC | bayesgroup/tqc_pytorch (PyTorch, from Software Heritage) | `tests/conformance/test_tqc_original.py` |
 
 The originals are vendored under `benchmarks/reference/vendor`. A PyTorch
-original runs in its own environment (`benchmarks/reference/envs/torch`;
-ASAC's, with its authors' pins, `benchmarks/reference/envs/asac`) and
-records its states to disk; CI keeps those records between runs while
+original runs in its own environment (`benchmarks/reference/envs/torch`),
+as do ASAC's and CrossQ's, on the versions their authors pinned
+(`benchmarks/reference/envs/asac`: stable-baselines3 2.4 and gymnasium
+1.0; `benchmarks/reference/envs/crossq`: jax, flax and Stable-Baselines3).
+Each records its states to disk; CI keeps those records between runs while
 the original, its recorder and that environment's lock stay the same
 (`AJAX_CONFORMANCE_RECORDS`). `tests/conformance/kit.py` holds the seams
 that make one step comparable without changing the code under test: a tape

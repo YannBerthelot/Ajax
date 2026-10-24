@@ -192,7 +192,7 @@ def _env_updates(
         draws = kit.by_role(rec.log)
         keys[n] = {r: draws[r][0][0] for r in draws if r[0] == "normal"}
     roles = next(iter(keys.values()))
-    actor = next(r for r in roles if r[1].endswith("soft_policy_loss"))
+    actor = next(r for r in roles if r[1].endswith("soft_policy_objective"))
     nxt = next(r for r in roles if r[1].endswith("sample_next_actions"))
     # Every noise that yields values is taped (shape-only traces log nothing), so no draw differs
     # between the two precisions.

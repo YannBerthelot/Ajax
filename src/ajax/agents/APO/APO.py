@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Callable, Optional, Tuple, Union
 
 from gymnax import EnvParams
@@ -9,6 +9,7 @@ from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import Extension
 from ajax.networks.utils import TORCH_LINEAR
+from ajax.schedule import Schedule
 from ajax.types import EnvType, InitializationFunction
 
 
@@ -21,12 +22,21 @@ class APO(ActorCritic):
 
     name: str = "APO"
     capabilities: frozenset = frozenset(
-        "actor obs_networks policy_density v_critic".split()
+        "actor obs_networks policy_density v_critic reward_learning".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",
         "actor_loss",
+        "transform_action",
+        "actuate",
+    }
+    phase_batch_keys: Mapping[str, frozenset] = {
+        "on_target": frozenset("terminated truncated gae values".split()),
+        "critic_loss": frozenset("critic_params critic_state".split()),
+        "actor_loss": frozenset(
+            "actor_state observations raw_observations pi_mean a_expert".split()
+        ),
     }
     extension_context: frozenset = frozenset(
         "actor_optimizer_args env_args expert_policy".split()
@@ -73,7 +83,7 @@ class APO(ActorCritic):
         # The value loss's weight in the summed loss, the official code's
         # value_loss_coeff (appo.py:27, which mujoco_appo.py leaves).
         vf_coef: float = 1.0,
-        clip_range: float = 0.2,
+        clip_range: Schedule = 0.2,  # or a function of the timestep
         n_steps: int = 2048,
         batch_size: int = 64,
         n_epochs: int = 10,

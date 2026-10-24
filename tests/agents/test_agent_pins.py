@@ -1,7 +1,8 @@
 """Behaviour pins for the agents a refactoring step restructures: SAC's
-descendants (ASAC, REDQ, AVG), TD3, recurrent SAC, PPO on each minibatch
+descendants (ASAC, REDQ, AVG, TQC, CrossQ), SAC itself (plain, with an
+expert's prefill and warm-up mix, recurrent), TD3, PPO on each minibatch
 geometry, APO, PQN, DQN, the world models (DreamerV3, TD-MPC2 single- and
-multi-task), UDRL and APG.
+multi-task), UDRL, APG, DAgger and IQL.
 
 Each case trains a tiny fixed run and compares a fingerprint (the sum of
 squares of each parameter tree, alpha, the ``Nudge`` or ``Drift``
@@ -27,9 +28,12 @@ from ajax.agents.APG.networks import PIDHeadConfig
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
+from ajax.agents.CrossQ.CrossQ import CrossQ
+from ajax.agents.DAgger.DAgger import DAgger
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.DQN.networks import DuelingQNetwork
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
+from ajax.agents.IQL.IQL import IQL
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
@@ -38,6 +42,7 @@ from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.TDMPC2.dataset import TaskEpisodes, pool_tasks
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.agents.TDMPC2.TDMPC2MultiTask import TDMPC2MultiTask
+from ajax.agents.TQC.TQC import TQC
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
@@ -102,6 +107,11 @@ class Drift(Extension):
 
     def eval_metrics(self, agent_state, ext_state, rng, ctx):
         return {"drift": ext_state}
+
+
+def _push(obs: jax.Array) -> jax.Array:
+    """DAgger's expert: 0.5 in env units on Pendulum's [-2, 2] torque."""
+    return jnp.full(obs.shape[:-1] + (1,), 0.5)
 
 
 def _multitask(**kwargs: Any) -> TDMPC2MultiTask:
@@ -184,6 +194,46 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "AVG": (AVG, {**_SMALL, "learning_starts": 20}, 200),
     "TD3": (TD3, {**_SMALL, **_REPLAY}, 200),
+    "DAgger-nudge": (
+        DAgger,
+        {
+            "env_id": "Pendulum-v1",
+            "n_envs": 2,
+            "actor_architecture": ("32", "relu"),
+            "batch_size": 16,
+            "buffer_size": 400,
+            "expert_policy": _push,
+            "extensions": (ActorNudge(),),
+        },
+        200,
+    ),
+    "IQL-nudge": (IQL, {**_SMALL, **_REPLAY, "extensions": (Nudge(),)}, 200),
+    "TQC-nudge": (
+        TQC,
+        {**_SMALL, **_REPLAY, "num_critics": 3, "n_quantiles": 5}
+        | {"extensions": (Nudge(),)},
+        200,
+    ),
+    "TQC": (TQC, {**_SMALL, **_REPLAY, "num_critics": 3, "n_quantiles": 5}, 200),
+    "CrossQ": (
+        CrossQ,
+        {"env_id": "Pendulum-v1", "n_envs": 2, "actor_width": 32, "critic_width": 32}
+        | _REPLAY,
+        200,
+    ),
+    "SAC": (
+        SAC,
+        {**_SMALL, **_REPLAY, "policy_update_start": 40, "alpha_update_start": 40},
+        200,
+    ),
+    # Expert prefill (40 expert steps written to replay) and the warm-up mix
+    # (the expert acts 70% of the warm-up's steps).
+    "SAC-expert": (
+        SAC,
+        {**_SMALL, **_REPLAY, "policy_update_start": 40, "alpha_update_start": 40}
+        | {"expert_policy": _push, "expert_buffer_n_steps": 40},
+        200,
+    ),
     "SAC-mcc": (
         SAC,
         {
@@ -1039,6 +1089,203 @@ _GOLDEN |= {
     },
 }
 
+# Recorded on macOS ARM CPU before loop.actor_step took over DAgger's and
+# IQL's actor steps. DAgger's critic and both agents' actor targets are
+# never-updated copies: not pinned.
+_GOLDEN |= {
+    "DAgger-nudge": {
+        "actor": 2.6231772899627686,
+        "n_updates": 93.0,
+        "nudge": 0.3833875358104706,
+    },
+    "IQL-nudge": {
+        "actor": 7.997806549072266,
+        "critic": 19.84935760498047,
+        "value": 7.8957977294921875,
+        "n_updates": 91.0,
+        "nudge": 0.34812238812446594,
+    },
+}
+
+# Re-recorded on macOS ARM CPU once DQN's warm-up drew its uniform actions on
+# the collector's mix key, as every other agent's warm-up (was a split of the
+# action key): the same distribution, other actions in the first 20 steps.
+# Relative shifts (actor, target): DQN -0.58%, -0.63%; DQN-dueling-nudge
+# +0.17%, +0.27%; the nudge is unchanged.
+_GOLDEN |= {
+    "DQN": {"actor": 9.091397285461426, "target": 9.063859939575195},
+    "DQN-dueling-nudge": {
+        "actor": 9.635614395141602,
+        "target": 9.612397193908691,
+        "nudge": 0.2874566912651062,
+    },
+}
+
+# Re-recorded on macOS ARM CPU once each step took its key from the state
+# (BaseAgentState.next_keys) and critic_step, actor_step and soft_actor_step
+# derived the extensions' keys from it (loop.extension_key): TD3's and AVG's
+# actor steps now draw a key of their own, ASAC's and REDQ's actor key is
+# split first, and DQN with extensions no longer splits a key for them.
+# Relative shifts (actor, critic): TD3 +4.8e-4, +1.4e-4; TD3-mcc +3.9e-4,
+# +8.5e-4; AVG -2.4%, -6.2%; ASAC -5.5e-4, +1.0e-3; REDQ +4.9e-4, +2.7e-4
+# (alpha -2.0e-4); DQN-dueling-nudge actor -0.54%, target -0.41%, nudge
+# +14.7%. Plain DQN, DAgger, IQL, PQN and SAC are unchanged.
+_GOLDEN |= {
+    "TD3": {"actor": 15.442390441894531, "critic": 27.048847198486328},
+    "TD3-mcc": {"actor": 17.49720001220703, "critic": 28.56031608581543},
+    "AVG": {
+        "actor": 5.481132984161377,
+        "critic": 17.05487060546875,
+        "alpha": 0.07000000029802322,
+    },
+    "ASAC": {
+        "actor": 17.27532958984375,
+        "critic": 27.402420043945312,
+        "alpha": 0.19999998807907104,
+    },
+    "REDQ": {
+        "actor": 10.620380401611328,
+        "critic": 36.89820861816406,
+        "alpha": 0.9879003763198853,
+    },
+    "DQN-dueling-nudge": {
+        "actor": 9.583549499511719,
+        "target": 9.572633743286133,
+        "nudge": 0.43414005637168884,
+    },
+}
+
+# Re-recorded on macOS ARM CPU once SAC's actor step took its keys from the
+# state (next_keys) and its extensions' key from its policy key: relative
+# shifts (actor, critic, alpha) SAC-mcc +2.2e-3, +1.1e-3, -1.3e-5; SAC-gru
+# -8.7e-5, -5.6e-4, -5.7e-5.
+_GOLDEN |= {
+    "SAC-mcc": {
+        "actor": 8.334127426147461,
+        "critic": 15.657291412353516,
+        "alpha": 0.9759774804115295,
+    },
+    "SAC-gru": {
+        "actor": 54.36890411376953,
+        "critic": 126.46063995361328,
+        "alpha": 0.9759207367897034,
+    },
+}
+
+# Re-recorded on macOS ARM CPU once SAC stopped splitting a discarded third
+# key off its replay key: relative shifts (actor, critic, alpha) SAC-mcc
+# -1.2e-4, +4.5e-3, +9.0e-5; SAC-gru -5.7e-4, +5.3e-4, -5.5e-5.
+_GOLDEN |= {
+    "SAC-mcc": {
+        "actor": 8.333091735839844,
+        "critic": 15.72756576538086,
+        "alpha": 0.9760676622390747,
+    },
+    "SAC-gru": {
+        "actor": 54.338035583496094,
+        "critic": 126.52761840820312,
+        "alpha": 0.9758655428886414,
+    },
+}
+# Re-recorded on macOS ARM CPU on 2026-10-22 once PPO, APO and PQN derived
+# their extensions' keys from keys their steps hold (loop.extension_key)
+# instead of splitting them off the state's rng: with extensions, the agent's
+# own stream is now the one it draws without. Relative shifts: PPO-discrete-
+# nudge actor +0.88%, critic -2.3e-5, nudge -6.2%; APO-nudge actor -0.27%,
+# critic +0.23%, nudge -13.1%; PQN-nudge actor +1.0e-4, nudge -0.87%. Plain
+# PPO, APO and PQN runs and PPO-env-split-nudge (time geometry: no key split
+# off for its extensions) are bitwise unchanged.
+_GOLDEN |= {
+    "PPO-discrete-nudge": {
+        "actor": 7.366045951843262,
+        "critic": 9.033742904663086,
+        "nudge": 0.29222556948661804,
+    },
+    "APO-nudge": {
+        "actor": 9.178837776184082,
+        "critic": 8.076091766357422,
+        "nudge": 0.2922629714012146,
+    },
+    "PQN-nudge": {"actor": 34.02363586425781, "nudge": 0.3327599763870239},
+}
+# Re-recorded on macOS ARM CPU on 2026-10-22 once PPO's minibatch step drew
+# one key from the state, not three (the extensions' key, unused since they
+# derive theirs from the entropy key, is gone): the state's rng, which
+# collection and the next update's shuffle draw on, moves for every PPO run.
+# Relative shifts (actor, critic): PPO-mcc +0.31%, +0.067%; PPO-flat -0.25%,
+# +0.27%; PPO-env-split -0.026%, -1.4%; PPO-unroll -1.0%, -0.16%; PPO-gru
+# +0.22%, +0.022%; PPO-discrete-nudge -2.1%, -0.71%, nudge +4.8%;
+# PPO-env-split-nudge -0.17%, +0.012%, nudge +6.7%. APO and PQN are
+# bitwise unchanged.
+_GOLDEN |= {
+    "PPO-mcc": {"actor": 4.0060930252075195, "critic": 5.060414791107178},
+    "PPO-flat": {"actor": 5.9997878074646, "critic": 7.219112396240234},
+    "PPO-env-split": {"actor": 6.002913951873779, "critic": 7.049428939819336},
+    "PPO-unroll": {"actor": 6.012901306152344, "critic": 7.256919860839844},
+    "PPO-gru": {"actor": 55.387298583984375, "critic": 54.797359466552734},
+    "PPO-discrete-nudge": {
+        "actor": 7.213113307952881,
+        "critic": 8.969327926635742,
+        "nudge": 0.3061334490776062,
+    },
+    "PPO-env-split-nudge": {
+        "actor": 5.666478157043457,
+        "critic": 7.248126029968262,
+        "nudge": 0.33081668615341187,
+    },
+}
+
+# Recorded on macOS ARM CPU when TQC joined (its actor's target is a
+# never-updated copy: not pinned).
+_GOLDEN |= {
+    "TQC-nudge": {
+        "actor": 17.04564666748047,
+        "critic": 42.50415802001953,
+        "alpha": 0.9729037284851074,
+        "nudge": 0.41105806827545166,
+    },
+}
+
+# Re-recorded on macOS ARM CPU once the on-policy agents normalised their
+# observations in the collector with one shared set of statistics, updated
+# by every copy's observation (2026-10-23), instead of per-copy statistics
+# averaged after each step: AVG (two copies) -0.35% actor, -1.88% critic;
+# PPO-env-split +0.10%, -0.24%. Every other pin holds.
+_GOLDEN |= {
+    "AVG": {
+        "actor": 5.461740970611572,
+        "critic": 16.733787536621094,
+        "alpha": 0.07000000029802322,
+    },
+    "PPO-env-split": {"actor": 6.008933067321777, "critic": 7.032352447509766},
+}
+
+
+# Recorded on macOS ARM CPU on 2026-10-24, before the agent files are
+# restructured (the actors' targets are never-updated copies: not pinned).
+_GOLDEN |= {
+    "TQC": {
+        "actor": 17.27611541748047,
+        "critic": 45.251319885253906,
+        "alpha": 0.9727481007575989,
+    },
+    "CrossQ": {
+        "actor": 132.80531311035156,
+        "critic": 271.5867919921875,
+        "alpha": 0.981685996055603,
+    },
+    "SAC": {
+        "actor": 10.55981731414795,
+        "critic": 17.899744033813477,
+        "alpha": 0.9750370979309082,
+    },
+    "SAC-expert": {
+        "actor": 10.559991836547852,
+        "critic": 17.84046173095703,
+        "alpha": 0.9768109321594238,
+    },
+}
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]
@@ -1050,6 +1297,8 @@ def fingerprint(name: str) -> dict[str, float]:
         out["world_model"] = float(
             tree_norm(state.world_model_state.params, squared=True)
         )
+    if getattr(state, "value_state", None) is not None:  # IQL's V
+        out["value"] = float(tree_norm(state.value_state.params, squared=True))
     if getattr(state.actor_state, "target_params", None) is not None:
         out["target"] = float(tree_norm(state.actor_state.target_params, squared=True))
     if getattr(state, "n_updates", None) is not None:

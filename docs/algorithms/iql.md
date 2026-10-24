@@ -26,7 +26,7 @@ at `09d7002` (`learner.py`, `critic.py`, `actor.py`, `policy.py`,
 | Memory (`memory=`) | no |
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `on_target`, `critic_loss`, `actor_loss` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate` |
 
 ## Example
 
@@ -70,6 +70,7 @@ and the critics (`value/value_loss`, `value/actor_loss`,
 | `reward_scale` | 1.0 | multiplies the rewards in the critic's target |
 | `learning_starts` | 0 | online: steps before the first update (the replay holds the dataset already) |
 | `normalize_observations` | False | running observation normalisation of the actor and the critics |
+| `expert_policy` | `None` | an expert the collector tracks (online): its actions feed the observation features and a residual policy (`ResidualPolicy`), and the evaluation reports its return next to the agent's |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 ## How it works

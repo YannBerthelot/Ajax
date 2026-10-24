@@ -1,6 +1,6 @@
 import sys
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -173,22 +173,6 @@ def get_env_type(env: EnvType) -> str:
     if check_env_is_gymnax(env):
         return "gymnax"
     raise ValueError(f"Unsupported env type: {type(env)}")
-
-
-def maybe_append_train_frac(
-    obs: jax.Array,
-    train_frac: Optional[Union[float, jax.Array]],
-) -> jax.Array:
-    """
-    Append train_time_fraction as a final observation dimension if provided.
-    This is used to give the agent a curriculum signal (how far through
-    training we are). Pass train_frac=0.0 for pre-collected expert data
-    (collected before training begins) and None to leave obs unchanged.
-    """
-    if train_frac is None:
-        return obs
-    new_col = jnp.full((obs.shape[0], 1), train_frac)
-    return jnp.concatenate([obs, new_col], axis=-1)
 
 
 def env_action_repeat(env: EnvType) -> int:

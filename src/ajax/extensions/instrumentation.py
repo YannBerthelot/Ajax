@@ -35,6 +35,7 @@ import jax.numpy as jnp
 
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.networks.networks import action_value_input, predict_value
+from ajax.state import with_batch_stats
 
 # Public metric keys — duplicated here so Ajax callers don't need to
 # import from EVAREST. The strings are identical so dashboards built on
@@ -176,7 +177,8 @@ def _takes_action(
             built = shapes(jax.eval_shape(init, rng, x))
         except ValueError:
             continue
-        if built == shapes(critic_state.params):
+        # The init builds every collection: the running statistics too.
+        if built == shapes(with_batch_stats(critic_state, critic_state.params)):
             return takes_action
     raise ValueError(
         "The critic's parameters fit neither the observation nor the"
@@ -195,7 +197,7 @@ def _critic_kind(
     if _is_ensemble_critic(critic_state):
         return "q" if _takes_action(critic_state, obs, act, rng) else "v"
     actor = agent_state.actor_state
-    if hasattr(actor.apply_fn(actor.params, obs), "q_values"):
+    if hasattr(actor.apply_fn(with_batch_stats(actor, actor.params), obs), "q_values"):
         return "qnet"
     raise ValueError(
         f"{type(agent_state).__name__} has neither an ensemble critic on"
@@ -209,13 +211,16 @@ def _encoder_features_ppo_sac(critic_state: Any, x: jax.Array) -> jax.Array:
     Returns ``(num_critics, batch, d)``.
     """
     return critic_state.apply_fn(
-        critic_state.params, x, method="apply_encoder_ensemble"
+        with_batch_stats(critic_state, critic_state.params),
+        x,
+        method="apply_encoder_ensemble",
     )
 
 
 def _encoder_features_qnet(actor_state: Any, x: jax.Array) -> jax.Array:
     """Penultimate features sown by DQN / PQN Q-networks. ``(1, batch, d)``."""
-    _, mv = actor_state.apply_fn(actor_state.params, x, mutable=["intermediates"])
+    variables = with_batch_stats(actor_state, actor_state.params)
+    _, mv = actor_state.apply_fn(variables, x, mutable=["intermediates"])
     if "encoder_features" not in mv.get("intermediates", {}):
         raise ValueError(
             "ConditioningMetrics found neither an ensemble critic on"
@@ -464,6 +469,8 @@ class BiasVorePenalty(Extension):
     # so the MSE:Var ratio matches paper eq. (6) for PPO too.
     loss_scale: float = 1.0
     name: str = "bias_vore_penalty"
+    # The residual is a value's minus its one target.
+    requires: ClassVar[frozenset[str]] = frozenset({"scalar_target"})
 
     def _penalty(self, coeff: float, resid: jax.Array) -> tuple[jax.Array, dict]:
         """The penalty on the residual ``Q - target``, and what it logs."""

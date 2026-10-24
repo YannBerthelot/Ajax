@@ -18,7 +18,7 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
-from ajax.agents.loop import TrainLoop, critic_step, gradient_step
+from ajax.agents.loop import TrainLoop, actor_step, critic_step, when
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
@@ -31,16 +31,17 @@ from ajax.agents.SAC.core import critic_loss_fn
 from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
 from ajax.buffers.dataset import TransitionDataset
+from ajax.controller import critic_action_units, executed_fn
 from ajax.environments.interaction import (
-    ActionPipelineResult,
-    get_pi,
+    Explore,
+    explore_pipeline,
     init_collector_state,
 )
-from ajax.environments.utils import critic_action_units
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import action_value
+from ajax.schedule import Schedule, at
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -77,43 +78,28 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-def make_default_action_pipeline(recurrent: bool, exploration_noise: float):
+def gaussian_exploration(exploration_noise: Schedule) -> Explore:
     """TD3's behaviour policy: ``clip(mu(s) + N(0, exploration_noise), -1, 1)``,
-    uniform actions during the warm-up."""
+    the noise's scale a schedule of the timestep."""
 
-    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
-        del raw_obs
-        collector = agent_state.collector_state
-        done = jnp.logical_or(collector.last_terminated, collector.last_truncated)
-        pi, actor_state = get_pi(
-            agent_state.actor_state,
-            agent_state.actor_state.params,
-            collector.last_obs,
-            done,
-            recurrent,
-        )
-        # A recurrent actor runs a one-step sequence: drop its time axis.
-        mean_action = pi.mean().squeeze(0) if recurrent else pi.mean()
-        noise = jax.random.normal(action_key, mean_action.shape) * exploration_noise
-        policy_action = jnp.clip(mean_action + noise, -1.0, 1.0)
-        uniform_action = jax.random.uniform(
-            mix_key, minval=-1.0, maxval=1.0, shape=policy_action.shape
-        )
-        zeros = jnp.zeros(mean_action.shape[:-1] + (1,))
-        return ActionPipelineResult(
-            env_action=jax.lax.cond(
-                uniform, lambda: uniform_action, lambda: policy_action
-            ),
-            policy_action=policy_action,
-            log_probs=zeros,
-            is_expert_flag=zeros,
-            in_value_box=zeros,
-            entry_bonus=zeros,
-            rng=rng,
-            new_actor_hidden=actor_state.hidden_state if recurrent else None,
-        )
+    def explore(pi: Any, key: jax.Array, step: jax.Array) -> jax.Array:
+        mean_action = pi.mean()
+        sigma = at(exploration_noise, step)
+        noise = jax.random.normal(key, mean_action.shape) * sigma
+        return jnp.clip(mean_action + noise, -1.0, 1.0)
 
-    return pipeline
+    return explore
+
+
+def make_default_action_pipeline(
+    recurrent: bool, exploration_noise: Schedule, transform: Any = None
+):
+    """TD3's action pipeline: :func:`gaussian_exploration`, through the run's
+    residual ``transform`` where it has one, uniform actions during the
+    warm-up."""
+    return explore_pipeline(
+        gaussian_exploration(exploration_noise), recurrent, transform=transform
+    )
 
 
 def init_TD3(
@@ -178,10 +164,13 @@ def compute_td3_td_target(
     target_noise_clip: float,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
+    executed: Optional[Callable] = None,
+    next_a_expert: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, jax.Array, jax.Array]:
     """y = r + gamma * (1-d) * min_i Q_target_i(s', clip(mu_target(s') + clip(N, -c, c), -1, 1)),
     the share of the noise samples the clip to ``[-c, c]`` changed, and
-    those smoothed next actions."""
+    those smoothed next actions, executed (``executed``, a residual policy's,
+    from the expert's stored next actions)."""
     rewards = rewards * reward_scale
     next_action = actor_dist(
         actor_state,
@@ -195,6 +184,8 @@ def compute_td3_td_target(
     clip_frac = (jnp.abs(noise) > target_noise_clip).mean()
     noise = jnp.clip(noise, -target_noise_clip, target_noise_clip)
     next_action = jnp.clip(next_action + noise, -1.0, 1.0)
+    if executed is not None:
+        next_action = executed(next_action, next_a_expert)
     q_targets = q_values(
         critic_state,
         critic_state.target_params,
@@ -213,11 +204,15 @@ def policy_loss_function(
     critic_state: LoadedTrainState,
     observations: jax.Array,
     carries: Optional[RecurrentCarries] = None,
+    executed: Optional[Callable] = None,
+    a_expert: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, jax.Array]]:
-    """TD3 actor loss ``-Q1(s, mu(s))``; also returns ``mu(s)`` for extensions."""
+    """TD3 actor loss ``-Q1(s, mu(s))``, at the executed action with a
+    residual policy (``executed``); also returns ``mu(s)`` for extensions."""
     actions = actor_dist(actor_state, actor_params, observations, carries).mean()
+    scored = actions if executed is None else executed(actions, a_expert)
     q_first = q_values(
-        critic_state, critic_state.params, observations, actions, carries
+        critic_state, critic_state.params, observations, scored, carries
     )[0]  # TD3 uses Q1 only for the actor objective.
     loss = -q_first.mean()
     return loss, (PolicyAuxiliaries(policy_loss=loss, q_mean=q_first.mean()), actions)
@@ -230,11 +225,10 @@ def update_value_functions(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
+    executed: Optional[Callable] = None,
 ) -> Tuple[TD3State, ValueAuxiliaries, dict]:
     """The critic step on the smoothed, clipped double-Q target."""
-    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
-    # default partitionable threefry, so the agent's own draws are unchanged.
-    key, rng, ext_key = jax.random.split(agent_state.rng, 3)
+    agent_state, key = agent_state.next_keys()
     # A truncated row bootstraps on its final observation (bootstrap_obs).
     dones = batch.terminated
     target_q, noise_clip_frac, next_actions = compute_td3_td_target(
@@ -249,6 +243,8 @@ def update_value_functions(
         agent_config.target_noise_clip,
         agent_config.reward_scale,
         carries,
+        executed,
+        batch.next_a_expert,
     )
 
     def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
@@ -274,7 +270,7 @@ def update_value_functions(
         target_q,
         value_loss,
         extension_stack,
-        ext_key,
+        key,
         total_timesteps,
         rewards=batch.reward,
         dones=dones,
@@ -285,7 +281,7 @@ def update_value_functions(
         target_extras={"next_actions": next_actions},
     )
     aux = aux.replace(grad_norm=grad_norm)
-    return agent_state.replace(rng=rng, critic_state=critic_state), aux, metrics
+    return agent_state.replace(critic_state=critic_state), aux, metrics
 
 
 def update_policy(
@@ -297,39 +293,38 @@ def update_policy(
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
     actions: Optional[jax.Array] = None,
+    executed: Optional[Callable] = None,
 ) -> Tuple[TD3State, PolicyAuxiliaries, dict]:
     """The deterministic policy-gradient step on ``-Q1(s, mu(s))``;
     ``a_expert``, the expert's stored actions at the rows (None without an
     expert), and ``actions``, the rows' own, reach the extensions. Also
     returns the extensions' metrics."""
-    actor_state = agent_state.actor_state
+    agent_state, key = agent_state.next_keys()
 
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, Any]:
+    def policy_loss(params: FrozenDict) -> Tuple[jax.Array, Any, jax.Array]:
         loss, (aux, pi_mean) = policy_loss_function(
-            params, actor_state, agent_state.critic_state, observations, carries
+            params,
+            agent_state.actor_state,
+            agent_state.critic_state,
+            observations,
+            carries,
+            executed,
+            a_expert,
         )
-        actor_batch = {
-            "observations": observations,
-            "raw_observations": raw_observations,
-            "pi_mean": pi_mean,
-            "actor_params": params,
-            "actor_state": actor_state,
-            "a_expert": a_expert,
-            "actions": actions,
-            "critic_state": agent_state.critic_state,
-            "agent_loss": loss,
-        }
-        extra, metrics = extension_stack.fold_actor_loss(
-            agent_state,
-            actor_batch,
-            agent_state.collector_state.timestep,
-            # The next update splits the agent's key in two (update_agent).
-            jax.random.split(agent_state.rng, 3)[2],
-            total_timesteps,
-        )
-        return loss + extra, (aux, metrics)
+        return loss, aux, pi_mean
 
-    actor_state, (aux, metrics), grad_norm = gradient_step(actor_state, loss_fn)
+    actor_state, aux, grad_norm, metrics = actor_step(
+        agent_state,
+        policy_loss,
+        extension_stack,
+        key,
+        total_timesteps,
+        observations=observations,
+        raw_observations=raw_observations,
+        a_expert=a_expert,
+        actions=actions,
+        critic_state=agent_state.critic_state,
+    )
     aux = aux.replace(grad_norm=grad_norm)
     return agent_state.replace(actor_state=actor_state), aux, metrics
 
@@ -349,11 +344,11 @@ def update_agent(
     agent_config: TD3Config,
     extension_stack: ExtensionStack,
     total_timesteps: int,
+    executed: Optional[Callable] = None,
 ) -> Tuple[TD3State, AuxiliaryLogs]:
     """One update: a critic step on a replay batch and, every
     ``policy_delay`` updates, an actor step and the target updates."""
-    sample_key, rng = jax.random.split(agent_state.rng)
-    agent_state = agent_state.replace(rng=rng)
+    agent_state, sample_key = agent_state.next_keys()
     # Sequence replay burns the TARGET actor's carry in as well: TD3's
     # bootstrap action comes from it.
     batch, carries = sample_replay(
@@ -366,7 +361,13 @@ def update_agent(
         burn_target_actor=True,
     )
     agent_state, value_aux, value_metrics = update_value_functions(
-        agent_state, batch, agent_config, extension_stack, total_timesteps, carries
+        agent_state,
+        batch,
+        agent_config,
+        extension_stack,
+        total_timesteps,
+        carries,
+        executed,
     )
 
     def policy_and_targets(agent_state: TD3State) -> Tuple[TD3State, Any]:
@@ -379,23 +380,17 @@ def update_agent(
             carries,
             a_expert=batch.a_expert,
             actions=batch.action,
+            executed=executed,
         )
         agent_state = update_target_networks(agent_state, agent_config.tau)
         return agent_state, (policy_aux, policy_metrics)
 
-    def skip_policy(agent_state: TD3State) -> Tuple[TD3State, Any]:
-        # Zeros of the actor step's metrics, their structure read from its
-        # trace (with the extensions' names).
-        shapes = jax.eval_shape(lambda s: policy_and_targets(s)[1], agent_state)
-        return agent_state, jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), shapes)
-
     # sfujim/TD3 counts the update first (total_it += 1), then steps the actor
     # when the count is a multiple of the delay: its first actor step is the
-    # policy_delay-th update, not the first.
-    policy_delay = agent_config.policy_delay
-    do_policy = ((agent_state.n_updates + 1) % policy_delay) == 0
-    agent_state, (policy_aux, policy_metrics) = jax.lax.cond(
-        do_policy, policy_and_targets, skip_policy, agent_state
+    # policy_delay-th update, not the first. Skipped, its metrics are zeros.
+    do_policy = ((agent_state.n_updates + 1) % agent_config.policy_delay) == 0
+    agent_state, (policy_aux, policy_metrics) = when(
+        do_policy, policy_and_targets, agent_state, fill=0.0
     )
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
     return agent_state, AuxiliaryLogs(
@@ -453,12 +448,14 @@ def make_train(
     )
     if action_pipeline is None:
         action_pipeline = make_default_action_pipeline(
-            recurrent, agent_config.exploration_noise
+            recurrent,
+            agent_config.exploration_noise,
+            next(iter(env_args.transforms), None),
         )
 
     # sfujim/TD3's critics read max_action * tanh, the env's units: so do
     # TD3's (computed once here, from the concrete env params).
-    units = critic_action_units(env_args.env, env_args.env_params)
+    units = critic_action_units(env_args)
 
     def init(key: jax.Array) -> TD3State:
         return init_TD3(
@@ -481,7 +478,13 @@ def make_train(
     def update(agent_state: TD3State, _transition: Transition) -> Any:
         # The step just collected is in the buffer: TD3 samples it from there.
         return update_agent(
-            agent_state, buffer, recurrent, agent_config, loop.stack, total_timesteps
+            agent_state,
+            buffer,
+            recurrent,
+            agent_config,
+            loop.stack,
+            total_timesteps,
+            executed_fn(env_args),
         )
 
     return loop.off_policy(

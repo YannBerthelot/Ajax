@@ -76,14 +76,16 @@ extensions were given.
 | `actor_loss(agent_state, ext_state, batch, ctx)` | a term added to the actor loss, or `(term, metrics)` | summed | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, APG, UDRL |
 | `action(agent_state, ext_state, obs, rng, ctx)` | an action, or `None` to defer | the last non-`None` wins | SAC with an expert policy (below) |
 | `eval_action(agent_state, ext_state, obs, rng, ctx)` | an action, or `None` | the last non-`None` wins | no agent yet |
-| `transform_action(actions, a_expert)` | the executed action, from the policy's and the expert's | the first one acts | SAC with an expert policy, in collection, its losses and evaluation |
+| `transform_action(actions, inputs)` | the executed action, from the policy's and the expert's (`ajax.controller.TransformInputs`): before the action is chosen; the replay stores it and the critics score it | one per agent | SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with an expert policy, in collection, their losses and evaluation |
+| `actuate(actions, inputs)` | `(env_actions, expert_state)`: the chosen action executed through the expert; the replay stores the chosen one, and `policy_action_dim(env_args, expert)` gives its width where it is not the env's | one per agent | SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with an expert policy (gain mode), in collection and evaluation |
 | `post_update(agent_state, ext_state, ctx)` | `(agent_state, ext_state)` | in order | every agent, after each update |
 | `eval_metrics(agent_state, ext_state, rng, ctx)` | a dict of metrics | merged | every agent, at each evaluation |
+| `observe(inputs, state)` | `(columns, state)`: the `(n_envs, observation_width(env_args))` columns appended to the observation `inputs` (`ajax.controller.ObserveInputs`) describes | in column order (`observes_normalised` first) | the shared collector and evaluation, whenever an observation arrives |
 
 Each phase the stack folds is one `ExtensionStack` method, `fold_<phase>`
 (`fold_init` runs `init_state` then `pretrain`), and an agent calls it once
-where the phase applies; SAC's action pipeline dispatches `action` and
-`transform_action` itself.
+where the phase applies; the controller dispatches `action`,
+`transform_action` and `actuate` itself.
 Each agent lists the phases it folds in
 `supported_extension_phases`. An extension implementing any other phase is
 rejected when the agent is built, instead of being silently ignored.
@@ -124,37 +126,35 @@ an evaluation (a schedule, a counter kept in the extension's state).
   decisions (a schedule's length) can use it at trace time. On a resumed run
   it is the whole run's horizon, so schedules continue rather than restart.
 
-`batch` is a dictionary. `PHASE_BATCH_KEYS` in
-[`extensions/base.py`](../../src/ajax/extensions/base.py) lists the keys each
-agent puts in it, and `tests/extensions/test_phase_contract.py` checks every
-agent against that list:
+`batch` is a dictionary. Every agent folding a phase puts in it the keys
+`COMMON_BATCH_KEYS` lists, in
+[`extensions/base.py`](../../src/ajax/extensions/base.py); each agent
+declares the others in its `phase_batch_keys` (`ajax.PPO.phase_batch_keys`,
+for instance), and `tests/extensions/test_phase_contract.py` checks every
+agent's batches against its declaration. The replay agents on the shared
+steps (`critic_step`, `actor_step`) pass the sets `ajax.agents.loop` lists:
 
-| Phase | Agents | Keys |
+| Phase | Every agent folding it | The shared replay steps add |
 | --- | --- | --- |
-| `reward` | PPO | `observations`, `raw_observations`, `actions` (the rollout's) |
-| `on_target` | every agent folding it | `observations`, `next_observations`, `rewards`, `gamma` |
-| | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN | `actions`, `dones`, `reward_scale` |
-| | PQN, PPO, APO | `terminated`, `truncated` |
-| | PPO, APO | `gae`, `values` |
-| `critic_loss` | every agent folding it | `observations`, `targets` |
-| | SAC, TD3, REDQ, ASAC, AVG, PPO, APO | `critic_params`, `critic_state` |
-| | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN | `actions` |
-| | DQN, PQN | `q_state` |
-| `actor_loss` | every agent folding it | `actor_params` |
-| | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, UDRL, APG | `actor_state`, `observations`, `raw_observations`, `pi_mean` |
-| | SAC, TD3, REDQ, ASAC, AVG, APO | `a_expert` |
-| | SAC, TD3, REDQ, ASAC, AVG | `critic_state` |
-| | UDRL | `actions` |
-| | APG | `rollout`, `returns` |
+| `on_target` | `observations`, `next_observations`, `rewards`, `gamma` | `actions`, `dones`, `reward_scale`, `raw_next_observations`, `next_a_expert`, `next_action` (`TARGET_KEYS`) |
+| `critic_loss` | `observations`, `targets` | `actions`, `next_observations`, `critic_params`, `critic_state`, `actor_state`, `return_to_go` (`CRITIC_LOSS_KEYS`) |
+| `actor_loss` | `actor_params` | `actor_state`, `pi_mean`, `agent_loss`, and the rows the agent passes: `observations`, `raw_observations`, `actions`, `a_expert`, `critic_state` (`REPLAY_ACTOR_KEYS`) |
+
+The other agents build their own batches: PPO's and APO's `on_target` carry
+`terminated`, `truncated`, `gae` and `values`, DQN's and PQN's
+`critic_loss` their `q_state`, APG's `actor_loss` its `rollout` and
+`returns`, PPO's `reward` the rollout's `observations`, `raw_observations`
+and `actions`.
 
 What the keys mean: `gamma` is `None` for the average-reward agents, ASAC
 and APO. `dones` marks where the target cut the bootstrap. `targets` is the
 target `on_target` returned, held constant. The critic and actor parameters
 (`critic_params`, `q_state`, `actor_params`) are the ones being
 differentiated. `raw_observations` is `None` in a replay agent's run without
-an expert, whose replay does not keep them. An agent may add keys of its own
-(SAC's `on_target` batch carries `rng_key`, the target's own key); read its
-fold call in `train_<AGENT>.py` before relying on one.
+an expert, whose replay does not keep them, and so are the stored fields
+(`next_action`, `return_to_go`, ...) a run does not store. An agent may add
+keys of its own (SAC's `on_target` batch carries `rng_key`, the target's own
+key), and declares them.
 
 ## A worked example
 
@@ -304,7 +304,7 @@ context it binds, its batches and replay fields;
 | `provides` (class attribute) | the capabilities it gives its stack | adds them to the run's: `MCPretrain` provides `phi_star`, which its readers require |
 | `context` (class attribute) | the agent-context keys it cannot work without | refuses it when its `extension_context`, the keys its `make_train` binds, lacks one (`NotWired`) |
 | `pretrain_context` (class attribute) | the `ExtensionContext` fields its `pretrain` reads (`env_args`, `update`, `buffer`) | refuses it when its loop does not fill one: its `pretrain_context` (`NotWired`) |
-| `batch_keys` (class attribute) and `reads()` | per phase, the batch keys it reads beyond those every agent folding the phase passes | refuses it when `PHASE_BATCH_KEYS` lists none of them for the agent (`NotWired`) |
+| `batch_keys` (class attribute) and `reads()` | per phase, the batch keys it reads beyond those every agent folding the phase passes | refuses it when the agent's `phase_batch_keys` lacks one of them (`NotWired`) |
 | `buffer_fields` (class attribute, a frozenset) | replay fields beyond the agent's own that the extension reads, such as `raw_next_obs`, the environment's own next observation | stores them only when an extension declares them; rejects the ones it cannot store (SAC, TD3, REDQ, ASAC and AVG store `raw_next_obs`) |
 | `expert_fields` (class attribute) and `experts()` | the fields holding an expert, written in env units, and the experts the extension calls itself | reads every expert in `expert_fields` in agent units (`ExtensionStack.with_experts`); keeps the raw observations and expert flags in replay for a run with an expert; refuses a stateful expert (one with `init_state`) that `experts()` would call without its state |
 | `reads_agent_expert_actions` (class attribute) | the extension reads the expert actions the agent stored, when its expert is the agent's `expert_policy` | lets a stateful expert through for it, on an agent that stores those actions (`stores_expert_actions`: SAC, TD3, REDQ, ASAC, AVG, APO) |
@@ -420,10 +420,9 @@ Five agents call `bind_to_agent`, when training starts:
 
 - SAC passes `env_args`, `actor_optimizer_args`, `network_args`,
   `critic_optimizer_args`, `num_critics`, `buffer`, `gamma`, `reward_scale`,
-  `use_train_frac`, `augment_obs_with_expert_action`,
-  `augment_obs_with_expert_state`, `expert_state_aug_dim`, `extensions` (the
-  whole stack), `expert_policy`, `recurrent`, `update_value_fn` and
-  `update_target_fn`.
+  `extensions` (the whole stack), `expert_policy`, `recurrent`,
+  `update_value_fn` and `update_target_fn`. Its observation features reach
+  extensions through `env_args.observers`.
 - TD3, REDQ and APO pass `env_args`, `actor_optimizer_args` and
   `expert_policy`, which `CloningPretrain` needs.
 - DreamerV3 passes `env_args`, `agent_config`, `gamma` and
@@ -447,11 +446,14 @@ every `action` extension too.
 
 Each fold's key is one no other fold gets and one the agent draws nothing
 else on (`tests/extensions/test_phase_contract.py` checks both on every
-agent). When you add a fold to an agent, take its key as an extra entry of a
-split the agent already makes: `key, rng, ext_key = jax.random.split(k, 3)`
-where the agent used `key, rng = jax.random.split(k)`. Under JAX's default
-partitionable threefry the first two keys are unchanged, so the agent's own
-random stream stays the same with or without extensions.
+agent). `critic_step` and `actor_step` derive their folds' keys from the
+step's key with `extension_key(key)` (`ajax.agents.loop`), so an agent hands
+them the key its step draws on and never splits one for the extensions. When
+you add a fold to an agent outside them, fold on `extension_key` of a key the
+step holds, never a split of it: under JAX's partitionable threefry
+`fold_in(k, i)` is `split(k, n)[i]`, which is why `extension_key` folds in a
+tag far past any split's length. An agent's own random stream is then the
+same with or without extensions.
 
 ## Pitfalls
 

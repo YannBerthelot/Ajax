@@ -38,9 +38,13 @@ Phases
 ``eval_action``  override the evaluation-time action (same rule)
 ``transform_action`` make the executed action a function of the policy's
                  and the expert's (residual RL), in collection, the
-                 losses and evaluation
+                 losses and evaluation; the replay stores the executed one
+``actuate``      execute the chosen action through the expert (gain mode:
+                 it sets the expert's gains); the replay stores the chosen
 ``post_update``  hook after the update step (φ-refresh, schedules, …)
 ``eval_metrics`` extra metrics, merged into the eval log
+``observe``      columns appended to every observation (an expert's action,
+                 the training progress), stored with it
 
 ``on_target``, ``critic_loss`` and ``actor_loss`` may return ``(value,
 metrics)`` instead of their value: ``metrics``, a dict of scalars named
@@ -50,10 +54,11 @@ agent logs its own). Two extensions logging one name raise.
 
 Phase batches
 -------------
-The ``batch`` dict of a phase holds the keys :data:`PHASE_BATCH_KEYS`
-lists on every agent that folds it; an agent may add its own (read its
-fold call), and an extension raises on a key it needs and does not find,
-rather than return a no-op. ``gamma`` is ``None`` for an average-reward
+The ``batch`` dict of a phase holds the keys :data:`COMMON_BATCH_KEYS`
+lists, on every agent that folds it, and those the agent declares in its
+``phase_batch_keys`` (on the shared steps: their sets in
+``ajax.agents.loop``, ``TARGET_KEYS`` and the others). An extension raises
+on a key it needs and does not find, rather than return a no-op. ``gamma`` is ``None`` for an average-reward
 agent, ``dones`` is where the target cut the bootstrap and ``targets`` the
 target, held constant; the critic (DQN's and PQN's ``q_state``) and the
 actor come at the differentiated parameters. The replay agents'
@@ -103,47 +108,25 @@ class ExtensionContext:
 PHASES: tuple[str, ...] = (
     "pretrain",
     "reward",
+    "observe",
     "on_target",
     "critic_loss",
     "actor_loss",
     "action",
     "eval_action",
     "transform_action",
+    "actuate",
     "post_update",
     "eval_metrics",
 )
 
-#: The keys of each phase's ``batch`` ("Phase batches" above): per phase,
-#: the agents passing them ("*": every agent folding it) -> the keys.
-PHASE_BATCH_KEYS: dict[str, dict[str, str]] = {
-    "reward": {"PPO": "observations raw_observations actions"},
-    "on_target": {
-        "*": "observations next_observations rewards gamma",
-        "SAC TD3 REDQ ASAC AVG DQN PQN IQL": "actions dones reward_scale",
-        "SAC TD3 REDQ ASAC AVG IQL": "raw_next_observations next_a_expert",
-        "PQN PPO APO": "terminated truncated",
-        "PPO APO": "gae values",
-        "SAC": "rng_key q_preds recurrent",
-        "TD3 REDQ ASAC AVG IQL": "next_action",
-        "TD3": "next_actions",
-    },
-    "critic_loss": {
-        "*": "observations targets",
-        "SAC TD3 REDQ ASAC AVG PPO APO IQL": "critic_params critic_state",
-        "SAC TD3 REDQ ASAC AVG DQN PQN IQL": "actions",
-        "SAC TD3 REDQ ASAC AVG IQL": "next_observations actor_state",
-        "SAC TD3 REDQ IQL": "return_to_go",
-        "DQN PQN": "q_state",
-    },
-    "actor_loss": {
-        "*": "actor_params",
-        "SAC TD3 REDQ ASAC AVG PPO APO UDRL APG DAgger IQL": "actor_state observations",
-        "SAC TD3 REDQ ASAC AVG PPO APO APG UDRL DAgger IQL": "raw_observations pi_mean",
-        "SAC TD3 REDQ ASAC AVG APO DAgger": "a_expert",
-        "SAC TD3 REDQ ASAC AVG IQL": "critic_state agent_loss",
-        "SAC TD3 REDQ ASAC UDRL IQL": "actions",
-        "APG": "rollout returns",
-    },
+#: The keys of each phase's ``batch`` every agent folding it passes ("Phase
+#: batches" above); an agent declares the others its folds pass in its
+#: ``phase_batch_keys``.
+COMMON_BATCH_KEYS: dict[str, frozenset[str]] = {
+    "on_target": frozenset("observations next_observations rewards gamma".split()),
+    "critic_loss": frozenset("observations targets".split()),
+    "actor_loss": frozenset({"actor_params"}),
 }
 
 
@@ -156,14 +139,16 @@ def check_extensions(
     context: Iterable[str] = (),
     pretrain_context: Iterable[str] = (),
     buffer_fields: Iterable[str] = (),
+    batch_keys: Mapping[str, Iterable[str]] = {},
     agent_expert: Any = None,
     takes_expert_policy: bool = False,
     stores_expert_actions: bool = False,
 ) -> None:
     """Reject the extensions of ``stack`` that cannot run on ``agent_name``,
     whose run has ``capabilities`` and whose code folds ``phases``, binds the
-    ``context`` keys, fills the ``pretrain_context`` fields and stores the
-    ``buffer_fields``
+    ``context`` keys, fills the ``pretrain_context`` fields, stores the
+    ``buffer_fields`` and passes, per phase, the ``batch_keys`` beyond the
+    common ones
     (:func:`~ajax.extensions.capabilities.check_capabilities`), or that call
     a stateful expert without its state (:func:`check_extension_experts`).
 
@@ -180,7 +165,11 @@ def check_extensions(
         context=context,
         pretrain_context=pretrain_context,
         buffer_fields=buffer_fields,
-        batch_table=PHASE_BATCH_KEYS,
+        batch_keys={
+            phase: COMMON_BATCH_KEYS.get(phase, frozenset())
+            | frozenset(batch_keys.get(phase, ()))
+            for phase in PHASES
+        },
         takes_expert_policy=takes_expert_policy,
     )
     check_extension_experts(agent_name, stack, agent_expert, stores_expert_actions)
@@ -268,7 +257,7 @@ class Extension:
     #: ``update``, ``buffer``), which the agent's loop fills.
     pretrain_context: ClassVar[frozenset[str]] = frozenset()
     #: Per phase, the batch keys it reads beyond those every agent folding
-    #: the phase passes (``PHASE_BATCH_KEYS``).
+    #: the phase passes (``COMMON_BATCH_KEYS``).
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {}
     #: Whether the extension reads the agent's stored actions of its expert
     #: when that expert is the agent's (check_extension_experts).
@@ -279,6 +268,30 @@ class Extension:
     #: Whether the extension reads each env's step within its episode
     #: (``CollectorState.step_in_episode``), which an agent counts only then.
     reads_step_in_episode: ClassVar[bool] = False
+
+    #: Whether the observation normaliser covers the columns :meth:`observe`
+    #: appends (an expert's action, already in action units, stays raw).
+    observes_normalised: ClassVar[bool] = True
+
+    # -- observe: observation features -------------------------------------
+    def observation_width(self, env_args: Any) -> int:
+        """The columns :meth:`observe` appends to every observation."""
+        del env_args
+        return 0
+
+    def init_observer(self, n_envs: int) -> Any:
+        """Its per-env state at an episode start (``()``: none)."""
+        del n_envs
+        return ()
+
+    def observe(self, inputs: Any, state: Any) -> tuple[jax.Array, Any]:
+        """The ``(n_envs, observation_width)`` columns it appends to the
+        observation ``inputs`` describes (:class:`ajax.controller.ObserveInputs`)
+        and its state after that observation. It runs whenever an
+        observation arrives, in collection and evaluation alike, and its
+        columns are stored with the observation (``ajax.controller``). The
+        default appends none."""
+        return jnp.zeros((*inputs.raw_obs.shape[:-1], 0)), state
 
     # -- lifecycle -------------------------------------------------------
     def init_state(self, agent_state: Any, rng: jax.Array) -> Any:
@@ -356,11 +369,27 @@ class Extension:
         del agent_state, ext_state, obs, rng, ctx
         return None
 
-    def transform_action(self, actions: jax.Array, a_expert: jax.Array) -> jax.Array:
+    def transform_action(self, actions: jax.Array, inputs: Any) -> jax.Array:
         """The executed action from the policy's ``actions`` and the
-        expert's ``a_expert``; the policy's by default."""
-        del a_expert
+        expert's (:class:`ajax.controller.TransformInputs`), before the action
+        is chosen: the warm-up and the acting modes act on executed actions,
+        and the critics score them; the policy's by default."""
+        del inputs
         return actions
+
+    def actuate(self, actions: jax.Array, inputs: Any) -> tuple[jax.Array, Any]:
+        """The env's action from the chosen ``actions`` (warm-up draws
+        included), executed through the expert of ``inputs``
+        (:class:`ajax.controller.TransformInputs`), and the expert's state
+        after it. The replay stores the chosen actions; the default executes
+        them as they are."""
+        return actions, inputs.expert_state
+
+    def policy_action_dim(self, env_args: Any, expert: Any) -> Optional[int]:
+        """The dimension of the actions the policy chooses, where it is not
+        the env's (gain mode: the expert's learnable gains); None: the env's."""
+        del env_args, expert
+        return None
 
     def reward(
         self,

@@ -78,7 +78,8 @@ it can stop a little past the budget.
 
 The off-policy agents act uniformly at random and do not update until
 `learning_starts` steps are collected: 10,000 by default for SAC, TD3, REDQ
-and ASAC, 1,000 for DQN, 0 for AVG. A short test run must lower it, or the
+and ASAC, 5,000 for CrossQ, 1,000 for DQN, 257 for TQC (whose policy acts
+from the first step), 0 for AVG. A short test run must lower it, or the
 agent never trains.
 
 ### Seeds
@@ -106,7 +107,7 @@ The defaults differ by agent:
 
 | `n_envs` default | Agents |
 | --- | --- |
-| 1 | SAC, ASAC, REDQ, TD3, IQL, AVG, DQN, UDRL, DAgger, TDMPC2 |
+| 1 | SAC, ASAC, REDQ, CrossQ, TQC, TD3, IQL, AVG, DQN, UDRL, DAgger, TDMPC2 |
 | 4 | PPO, APO |
 | 8 | PQN, APG |
 | 16 | DreamerV3 |

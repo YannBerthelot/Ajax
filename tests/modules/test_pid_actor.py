@@ -14,6 +14,7 @@ from ajax.agents.TD3.networks import (
     get_initialized_td3_actor_critic,
 )
 from ajax.evaluate import evaluate
+from ajax.extensions.observe import PIDTermsInput, pid_terms_at
 from ajax.modules.pid_actor import (
     PID_LOG_STD_INIT,
     PIDActor,
@@ -148,6 +149,21 @@ def test_bad_policies_raise(kwargs):
         PIDPolicy(**kwargs)
 
 
+def test_a_pid_law_reads_the_terms_where_the_features_put_them():
+    """PIDTermsInput's terms trail the env's columns: the builders point the
+    law at them, and refuse a feature tracking another number of errors."""
+    task, params = setpoint_env.Setpoint(), setpoint_env.Params()
+    bare = EnvironmentConfig(env=task, env_params=params, n_envs=2, continuous=True)
+    fed = bare.replace(observers=(PIDTermsInput((0,), (1,)),))
+    assert (pid_terms_at(bare, 1), pid_terms_at(fed, 1)) == (0, 2)
+    with pytest.raises(ValueError, match="n_errors=2"):
+        pid_terms_at(fed, 2)
+    law = PIDLaw(PIDPolicy(), action_dim=1, terms_at=2)
+    obs = jnp.array([[9.0, 9.0, 0.5, 0.25, -1.0]])  # x, r, then e, I, D
+    ones = jax.tree.map(jnp.ones_like, law.init(jax.random.PRNGKey(0), obs))
+    np.testing.assert_allclose(law.apply(ones, obs), [[0.5 + 0.25 - 1.0]])
+
+
 def _build(
     memory=None, td3=False, log_std_bounds=LOG_STD_BOUNDS, tanh_mean=False, **net_fields
 ):
@@ -155,7 +171,11 @@ def _build(
     ``net_fields`` set more of the network config."""
     env, params = setpoint_env.make()
     env_config = EnvironmentConfig(
-        env=env, env_params=params, n_envs=2, continuous=True
+        env=env,
+        env_params=params,
+        n_envs=2,
+        continuous=True,
+        observers=(setpoint_env.TERMS,),
     )
     net = NetworkConfig(actor_architecture=PIDPolicy(), critic_architecture=("8",))
     net = net.replace(memory=memory, log_std_bounds=log_std_bounds)
@@ -291,14 +311,14 @@ def _obs_statistics(state):
     """The observation statistics the policy is queried with, if any."""
     if state.actor_state.obs_norm_info is not None:
         return state.actor_state.obs_norm_info
-    return getattr(state.collector_state.env_state, "normalization_info", None)
+    return state.collector_state.obs_norm_info  # stored normalised (on-policy)
 
 
 @pytest.mark.parametrize("case", list(AGENTS))
 def test_every_continuous_agent_trains_a_pid_policy(case):
     """A short run moves the gains off zero and the actor stays the PID.
-    Where observations are normalised, the terms' statistics stay pinned
-    (raw terms) and the plant's are learned."""
+    Where observations are normalised, the statistics cover the plant's
+    columns alone: the terms after them stay raw."""
     name, overrides, steps = AGENTS[case]
     env, params = setpoint_env.make()
     cls = getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)
@@ -308,6 +328,7 @@ def test_every_continuous_agent_trains_a_pid_policy(case):
         n_envs=1,
         actor_architecture=PIDPolicy(),
         critic_architecture=("8", "relu"),
+        extensions=(setpoint_env.TERMS,),
         **overrides,
     )
     state, _ = agent.train(seed=[0], n_timesteps=steps, num_episode_test=2)
@@ -319,8 +340,8 @@ def test_every_continuous_agent_trains_a_pid_policy(case):
     if stats is not None:
         stats = getattr(stats, "obs", stats)
         mean, var = np.asarray(stats.mean), np.asarray(stats.var)
-        assert np.all(mean[..., :3] == 0.0) and np.all(var[..., :3] == 1.0)
-        assert np.all(var[..., 3] != 1.0)
+        assert mean.shape[-1] == var.shape[-1] == 2  # x and r
+        assert np.all(var[..., 0] != 1.0)
 
 
 def test_the_gains_are_normalised_on_a_wider_box():
@@ -353,7 +374,12 @@ def test_an_agents_gaussian_head_settings_leave_its_pid_actor_alone(name):
     import ajax
 
     env, params = setpoint_env.make()
-    agent = getattr(ajax, name)(env, env_params=params, actor_architecture=PIDPolicy())
+    agent = getattr(ajax, name)(
+        env,
+        env_params=params,
+        actor_architecture=PIDPolicy(),
+        extensions=(setpoint_env.TERMS,),
+    )
     actor, _ = get_initialized_actor_critic(
         jax.random.PRNGKey(0),
         agent.env_args,

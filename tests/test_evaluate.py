@@ -14,7 +14,9 @@ from flax import struct
 from ajax.agents.SAC.train_SAC import init_SAC
 from ajax.agents.UDRL.train_UDRL import EvalCommand
 from ajax.buffers.utils import get_buffer
+from ajax.controller import Controller
 from ajax.evaluate import ValueEstimate, evaluate
+from ajax.extensions.expert import ExpertGains
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
@@ -449,7 +451,7 @@ class _GainExpertPayingZero:
 
 
 def test_the_value_bias_reads_a_gain_policy_critic_at_the_gains_action():
-    """Under pid_gain_policy collection stores the actor's action (the
+    """Under gain mode collection stores the actor's action (the
     gains'), not the expert's executed one, so the critic is read at it: the
     plant critic estimates t at step t, the expert's action 0 pays 0, and the
     bias is the mean of t over the 3 steps, 1 (at the executed action, 0)."""
@@ -461,7 +463,7 @@ def test_the_value_bias_reads_a_gain_policy_critic_at_the_gains_action():
         jax.random.PRNGKey(0),
         env.default_params,
         expert_policy=_GainExpertPayingZero(),
-        pid_gain_policy=True,
+        controller=Controller(transforms=(ExpertGains(),)),
         value_estimate=ValueEstimate(_ten_times_the_action, gamma=0.9),
     )[3]
     np.testing.assert_allclose(bias, 1.0, rtol=1e-6)

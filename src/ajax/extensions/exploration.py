@@ -28,6 +28,7 @@ import jax.numpy as jnp
 
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.networks.networks import predict_value
+from ajax.schedule import progress
 
 
 def _q_pair(
@@ -53,8 +54,8 @@ def lcb_beta(
 ) -> jax.Array:
     """The LCB pessimism ``init (1 - t / T)^decay_k``, annealed over the
     run (``t / T`` clipped to [0, 1], ``T`` at least 1)."""
-    progress = jnp.clip(step / max(int(total_steps), 1), 0.0, 1.0)
-    return init * jnp.power(1.0 - progress, decay_k)
+    done = jnp.clip(progress(step, total_steps), 0.0, 1.0)
+    return init * jnp.power(1.0 - done, decay_k)
 
 
 def lcb_score(q: jax.Array, beta: jax.Array) -> jax.Array:
@@ -91,7 +92,7 @@ def edge_compute_decay(
     """
     if decay_frac == 0.0:
         return jnp.ones(())
-    train_frac = timestep / total_timesteps
+    train_frac = progress(timestep, total_timesteps)
     return jnp.maximum(1.0 - train_frac / decay_frac, 0.0)
 
 

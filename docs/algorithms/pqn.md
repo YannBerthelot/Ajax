@@ -20,7 +20,7 @@ varied data.
 | Vectorised environments (`n_envs`) | Yes, and it relies on them |
 | Recurrent memory (`memory=`) | No |
 | Image observations (CNN encoder) | Yes, with `cnn_image_shape` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `on_target`, `critic_loss` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss` |
 
 ## Example
 

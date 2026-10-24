@@ -33,6 +33,7 @@ from ajax.agents.recurrent import (
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.buffers.dataset import TransitionDataset
+from ajax.controller import executed_fn
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.memory import zeros_carry_like
@@ -145,19 +146,22 @@ def compute_asac_td_target(
     alpha: jax.Array,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
+    executed: Optional[Callable] = None,
+    next_a_expert: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, jax.Array]:
     """``r - theta + (1 - done) (min_i Q_target_i(s', a') - alpha (log pi(a'|s')
     - log(1 / nA))) - Q_target(0, 0)``, ``r`` with a termination's penalty.
 
     As the authors' code (BobMak/asac@4b68862, ``darer/ASAC.py:179-205``): a
     termination drops the next value and is charged the penalty; the origin
-    shift applies to every row. Returns the stop_gradient'd target and the
-    next actions' log-probs.
+    shift applies to every row. ``a'`` is executed (``executed``, a residual
+    policy's). Returns the stop_gradient'd target and the next actions'
+    log-probs.
     """
     rewards = rewards * reward_scale
     sample_key, _ = jax.random.split(rng)
     next_actions, log_probs = core.sample_next_actions(
-        actor_state, next_observations, sample_key, carries
+        actor_state, next_observations, sample_key, carries, executed, next_a_expert
     )
     q_targets = q_values(
         critic_states,
@@ -226,11 +230,10 @@ def update_value_functions(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     carries: Optional[RecurrentCarries] = None,
+    executed: Optional[Callable] = None,
 ) -> Tuple[ASACState, ValueAuxiliaries, dict]:
     """The critic step on the differential target of the penalised ``rewards``."""
-    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
-    # default partitionable threefry, so the agent's own draws are unchanged.
-    key, rng, ext_key = jax.random.split(agent_state.rng, 3)
+    agent_state, key = agent_state.next_keys()
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
     dones = batch.terminated
     target_q, next_log_probs = compute_asac_td_target(
@@ -244,6 +247,8 @@ def update_value_functions(
         alpha,
         reward_scale,
         carries,
+        executed,
+        batch.next_a_expert,
     )
 
     def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
@@ -264,14 +269,14 @@ def update_value_functions(
         target_q,
         value_loss,
         extension_stack,
-        ext_key,
+        key,
         total_timesteps,
         rewards=rewards,
         dones=dones,
         gamma=None,
         reward_scale=reward_scale,
     )
-    return agent_state.replace(rng=rng, critic_state=critic_state), aux, metrics
+    return agent_state.replace(critic_state=critic_state), aux, metrics
 
 
 def update_policy(
@@ -283,6 +288,7 @@ def update_policy(
     carries: Optional[RecurrentCarries] = None,
     a_expert: Optional[jax.Array] = None,
     actions: Optional[jax.Array] = None,
+    executed: Optional[Callable] = None,
 ) -> Tuple[ASACState, PolicyAuxiliaries, jax.Array, dict]:
     """The actor step on ``alpha log pi(a|s) - min_i Q_i(s, a)``; also
     returns its samples' log-probs (the temperature and ``theta`` read them)
@@ -296,6 +302,7 @@ def update_policy(
         carries,
         a_expert=a_expert,
         actions=actions,
+        executed=executed,
     )
     aux = PolicyAuxiliaries(
         policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()
@@ -327,11 +334,12 @@ def update_agent(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     fixed_alpha: bool,
+    executed: Optional[Callable] = None,
 ) -> Tuple[ASACState, AuxiliaryLogs]:
     """One update on a replay batch: the termination penalty, then the
     critic, actor, temperature, ``theta`` and target steps."""
     tau = agent_config.tau
-    sample_key, rng = jax.random.split(agent_state.rng)
+    agent_state, sample_key = agent_state.next_keys()
     transition, carries = sample_replay(
         agent_state,
         buffer,
@@ -351,7 +359,7 @@ def update_agent(
         episode_termination_penalty, transition.reward, transition.terminated
     )
     agent_state = agent_state.replace(
-        rng=rng, episode_termination_penalty=episode_termination_penalty
+        episode_termination_penalty=episode_termination_penalty
     )
     agent_state, aux_value, value_metrics = update_value_functions(
         agent_state,
@@ -361,6 +369,7 @@ def update_agent(
         extension_stack,
         total_timesteps,
         carries,
+        executed,
     )
     # The temperature and theta read the actor's own sample, drawn before its
     # step, as the authors' code does (darer/ASAC.py:146-213).
@@ -373,6 +382,7 @@ def update_agent(
         carries,
         a_expert=transition.a_expert,
         actions=transition.action,
+        executed=executed,
     )
     # The dual-gradient step towards ``target_entropy`` (target entropy
     # per dimension times the action dimension).
@@ -478,6 +488,7 @@ def make_train(
             loop.stack,
             total_timesteps,
             fixed_alpha,
+            executed_fn(env_args),
         )
 
     return loop.off_policy(

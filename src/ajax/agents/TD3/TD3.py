@@ -1,17 +1,19 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional, Union
 
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config
-from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.loop import LOOP_PHASES, REPLAY_BATCH_KEYS, TARGET_KEYS
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.TD3.state import TD3Config
 from ajax.agents.TD3.train_TD3 import make_train
+from ajax.environments.interaction import with_acting_state
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.utils import TORCH_LINEAR
+from ajax.schedule import Schedule
 from ajax.types import EnvType
 
 
@@ -33,13 +35,19 @@ class TD3(ActorCritic):
 
     name: str = "TD3"
     capabilities: frozenset = frozenset(
-        "actor critic_ensemble discounted "
-        "obs_networks off_policy q_critic replay".split()
+        "actor critic_ensemble discounted obs_networks "
+        "off_policy q_critic replay target_critic reward_learning".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",
         "actor_loss",
+        "transform_action",
+        "actuate",
+    }
+    # Its smoothed next actions join the shared step's on_target keys.
+    phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS | {
+        "on_target": TARGET_KEYS | {"next_actions"}
     }
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     extension_context: frozenset = frozenset(
@@ -74,7 +82,7 @@ class TD3(ActorCritic):
         policy_delay: int = 2,
         target_policy_noise: float = 0.2,
         target_noise_clip: float = 0.5,
-        exploration_noise: float = 0.1,
+        exploration_noise: Schedule = 0.1,  # or a function of the timestep
         # Pluggable memory block (see ajax.networks.memory); trains on
         # replayed sequences with R2D2-style burn-in (see ajax.agents.recurrent).
         memory: Optional[Union[MemoryConfig, dict]] = None,
@@ -176,5 +184,5 @@ class TD3(ActorCritic):
         self.train_kwargs = {
             "buffer": self.buffer,
             "expert_policy": self.expert_policy,
-            "action_pipeline": action_pipeline,
+            "action_pipeline": with_acting_state(action_pipeline),
         }

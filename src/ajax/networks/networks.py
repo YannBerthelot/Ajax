@@ -11,8 +11,10 @@ from flax.core import FrozenDict
 from flax.linen.initializers import constant, lecun_normal, orthogonal
 from flax.serialization import to_state_dict
 
+from ajax.controller import feature_width, policy_action_dim
 from ajax.environments.obs_norm import apply_obs_norm
-from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.environments.utils import get_state_action_shapes
+from ajax.extensions.observe import pid_terms_at
 from ajax.modules.pid_actor import (
     PID_LOG_STD_INIT,
     PIDActor,
@@ -42,6 +44,7 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
     check_log_std_bounds,
+    with_batch_stats,
 )
 from ajax.types import ActivationFunction, InitializationFunction
 
@@ -430,6 +433,9 @@ class Critic(nn.Module):
     # The value layer's kernel init (as Actor's output layers'); None keeps
     # orthogonal(1.0).
     value_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # The head's outputs: one value, or a distributional critic's quantiles
+    # of the return (TQC's), whose mean __call__ returns.
+    n_quantiles: int = 1
 
     def setup(self):
         if self.memory is not None:
@@ -451,9 +457,22 @@ class Critic(nn.Module):
                 kernel_init=self.encoder_kernel_init,
                 layer_norm=self.encoder_layer_norm,
             )
-        self.model = dense(1, self.value_kernel_init, self.bias_init, orthogonal(1.0))
+        self.model = dense(
+            self.n_quantiles, self.value_kernel_init, self.bias_init, orthogonal(1.0)
+        )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
+        """The value: the head's output, or the mean of its quantiles."""
+        out = self.quantiles(x, hidden_state, done)
+        if self.n_quantiles == 1:
+            return out
+        if self.memory is None:
+            return out.mean(-1, keepdims=True)
+        values, hidden_state = out
+        return values.mean(-1, keepdims=True), hidden_state
+
+    def quantiles(self, x: jax.Array, hidden_state=None, done=None):
+        """The head's ``n_quantiles`` outputs (and the carry, with memory)."""
         if self.memory is None:
             return self.model(self.encoder(x))
         if hidden_state is None or done is None:
@@ -489,6 +508,7 @@ class MultiCritic(nn.Module):
     memory: Optional[MemoryConfig] = None
     query_dim: int = 0  # see Critic.query_dim
     value_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    n_quantiles: int = 1  # see Critic.n_quantiles
 
     def setup(self):
         # x (and done) are broadcast across the ensemble; the carry is
@@ -501,10 +521,10 @@ class MultiCritic(nn.Module):
             target=Critic,
             in_axes=in_axes,
             out_axes=0,
-            variable_axes={"params": 0},
+            variable_axes={"params": 0, "batch_stats": 0},
             split_rngs={"params": True},
             axis_size=self.num,
-            methods=("__call__", "apply_encoder"),
+            methods=("__call__", "apply_encoder", "quantiles"),
         )
         self.ensemble = Vmapped(
             input_architecture=self.input_architecture,
@@ -518,6 +538,7 @@ class MultiCritic(nn.Module):
             memory=self.memory,
             query_dim=self.query_dim,
             value_kernel_init=self.value_kernel_init,
+            n_quantiles=self.n_quantiles,
         )
 
     def __call__(self, x: jax.Array, hidden_state=None, done=None):
@@ -526,6 +547,12 @@ class MultiCritic(nn.Module):
             # hidden leaves (num, B, hidden).
             return self.ensemble(x, hidden_state, done)
         return self.ensemble(x)
+
+    def quantiles(self, x: jax.Array, hidden_state=None, done=None):
+        """Every member's quantiles, the ensemble axis first."""
+        if self.memory is not None:
+            return self.ensemble.quantiles(x, hidden_state, done)
+        return self.ensemble.quantiles(x)
 
     def apply_encoder_ensemble(self, x: jax.Array) -> jax.Array:
         """Per-ensemble-member encoder features, shape ``(num, ..., d)``
@@ -555,9 +582,7 @@ def get_initialized_actor_critic(
     action_value: bool = False,
     squash: bool = False,
     num_critics: int = 4,
-    max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
-    action_dim_override: Optional[int] = None,
     actor: Optional[nn.Module] = None,
 ) -> Tuple[LoadedTrainState, LoadedTrainState]:
     """
@@ -568,17 +593,15 @@ def get_initialized_actor_critic(
     its Categorical).
 
     extra_obs_dim: dimensions the agent appends to obs at run time (UDRL's
-    command; SAC's expert action and expert state when it augments with
-    them), so the network is initialised on the input width it will be fed.
+    command), so the network is initialised on the input width it will be
+    fed; the observation features (``env_config.observers``) join them.
 
     A :class:`PIDPolicy` as ``network_config.actor_architecture`` makes the
-    actor a :class:`PIDActor` (see :mod:`ajax.modules.pid_actor`).
+    actor a :class:`PIDActor` (see :mod:`ajax.modules.pid_actor`). The
+    actions are the policy's (:func:`ajax.controller.policy_action_dim`:
+    gain mode's gains).
     """
-    action_dim = (
-        action_dim_override
-        if action_dim_override is not None
-        else get_action_dim(env_config.env, env_config.env_params)
-    )
+    action_dim = policy_action_dim(env_config)
 
     memory = parse_memory_config(network_config.memory)
 
@@ -587,11 +610,11 @@ def get_initialized_actor_critic(
     cnn_image_shape = network_config.cnn_image_shape
     critic_cnn_image_shape = None if action_value else cnn_image_shape
     cnn_spec = network_config.cnn_spec
-    # Dims appended to the env's observation at run time: the train
-    # fraction and the agent's augmentation (UDRL's command, an expert's
-    # action). A CNN passes them through after the convolutions, with the
-    # env's own trailing dims, the same way in the actor and the critic.
-    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
+    # Dims appended to the env's observation at run time: UDRL's command
+    # and the observation features. A CNN passes them through after the
+    # convolutions, with the env's own trailing dims, the same way in the
+    # actor and the critic.
+    obs_extra = extra_obs_dim + feature_width(env_config)  # with the features
     cnn_extra_obs_dim = network_config.cnn_extra_obs_dim + obs_extra
 
     if actor is not None:
@@ -602,12 +625,14 @@ def get_initialized_actor_critic(
         # log-std kernel init is for its Dense head and does not apply, and
         # a start that head's layer would draw (None) is the PID actor's own.
         log_std_init = network_config.log_std_init
+        policy = network_config.actor_architecture
         actor = PIDActor(
-            policy=network_config.actor_architecture,
+            policy=policy,
             action_dim=action_dim,
             tanh_mean=network_config.tanh_mean,
             log_std_init=PID_LOG_STD_INIT if log_std_init is None else log_std_init,
             log_std_bounds=network_config.log_std_bounds,
+            terms_at=pid_terms_at(env_config, policy.n_errors),
         )
     else:
         actor = Actor(
@@ -646,6 +671,7 @@ def get_initialized_actor_critic(
         memory=memory,
         query_dim=action_dim if action_value and memory is not None else 0,
         value_kernel_init=network_config.value_kernel_init,
+        n_quantiles=network_config.critic_quantiles,
     )
 
     actor_tx = get_adam_tx(**to_state_dict(actor_optimizer_config))
@@ -663,8 +689,8 @@ def get_initialized_actor_critic(
     # n_envs rows would allocate an n_envs-times larger zero tensor for
     # nothing, which matters with many envs or image observations.
     init_obs = jnp.zeros((1, *observation_shape))
-    if action_dim_override is not None:
-        action_shape = (action_dim_override,)
+    if env_config.policy_action_dim is not None:
+        action_shape = (env_config.policy_action_dim,)
     init_action = jnp.zeros((1, *action_shape))
 
     actor_state = init_network_state(
@@ -698,7 +724,6 @@ def get_initialized_critic(
     critic_optimizer_config: OptimizerConfig,
     network_config: NetworkConfig,
     num_critics: int = 2,
-    max_timesteps: Optional[int] = None,
     extra_obs_dim: int = 0,
 ) -> LoadedTrainState:
     """Initialize a standalone critic network (no actor). Same architecture as
@@ -716,7 +741,7 @@ def get_initialized_critic(
 
     observation_shape, action_shape = get_state_action_shapes(env_config.env)
 
-    obs_extra = (1 if max_timesteps is not None else 0) + extra_obs_dim
+    obs_extra = extra_obs_dim + feature_width(env_config)  # with the features
     if obs_extra > 0:
         _obs_shape = list(observation_shape)
         _obs_shape[-1] += obs_extra
@@ -759,7 +784,7 @@ def init_network_state(
     batch-sized to ``n_envs``.
     """
     if memory is None:
-        params: FrozenDict[str, Any] = FrozenDict(network.init(key, init_x))
+        variables = dict(network.init(key, init_x))
         hidden_state = None
     else:
         init_key, carry_key = jax.random.split(key)
@@ -771,7 +796,7 @@ def init_network_state(
         init_carry_batch = init_network_carry(
             network, memory, carry_key, init_x.shape[0]
         )
-        params = FrozenDict(
+        variables = dict(
             network.init(
                 init_key,
                 init_x[None, ...],
@@ -779,6 +804,9 @@ def init_network_state(
                 done=jnp.zeros((1, init_x.shape[0]), dtype=bool),
             )
         )
+    # Running statistics (BatchRenorm's) live apart from the trained params.
+    batch_stats = variables.pop("batch_stats", None)
+    params: FrozenDict[str, Any] = FrozenDict(variables)
     return LoadedTrainState.create(
         params=params,
         tx=tx,
@@ -786,6 +814,7 @@ def init_network_state(
         hidden_state=hidden_state,
         recurrent=memory is not None,
         target_params=params,
+        batch_stats=None if batch_stats is None else FrozenDict(batch_stats),
     )
 
 
@@ -827,8 +856,11 @@ def predict_value_sequence(
     x: jax.Array,
     resets: jax.Array,
     initial_hidden: Carry,
+    *,
+    quantiles: bool = False,
 ) -> Tuple[jax.Array, Carry]:
-    """Run a recurrent critic over a time-major sequence.
+    """Run a recurrent critic over a time-major sequence (``quantiles``: a
+    distributional critic's quantiles, last axis, in place of the values).
 
     Args:
         x: (T, B, features) critic input (obs, or concat(obs, action)).
@@ -843,7 +875,11 @@ def predict_value_sequence(
     """
     x = _apply_critic_obs_norm(critic_state, x)
     return critic_state.apply_fn(
-        critic_params, x, hidden_state=initial_hidden, done=resets
+        with_batch_stats(critic_state, critic_params),
+        x,
+        hidden_state=initial_hidden,
+        done=resets,
+        method="quantiles" if quantiles else None,
     )
 
 
@@ -861,14 +897,34 @@ def predict_value(
     critic_state: LoadedTrainState,
     critic_params: FrozenDict,
     x: jax.Array,
+    *,
+    quantiles: bool = False,
 ) -> jax.Array:
     """The critic's values at ``x``: obs, or ``concat(obs, action)`` with the
     agent's [-1, 1] action, which a critic with ``action_units`` reads in its
-    units (TD3's, in the env's)."""
+    units (TD3's, in the env's). ``quantiles``: a distributional critic's
+    quantiles (last axis) in place of their mean, the value."""
     x = _apply_critic_action_units(
         critic_state, _apply_critic_obs_norm(critic_state, x)
     )
-    return critic_state.apply_fn(critic_params, x)
+    variables = with_batch_stats(critic_state, critic_params)
+    if quantiles:
+        return critic_state.apply_fn(variables, x, method="quantiles")
+    return critic_state.apply_fn(variables, x)
+
+
+def predict_value_train(
+    critic_state: LoadedTrainState,
+    critic_params: FrozenDict,
+    x: jax.Array,
+) -> Tuple[jax.Array, Optional[FrozenDict]]:
+    """:func:`predict_value` in training: the critic's values at ``x`` and
+    its running statistics after this pass
+    (:meth:`LoadedTrainState.apply_train`)."""
+    x = _apply_critic_action_units(
+        critic_state, _apply_critic_obs_norm(critic_state, x)
+    )
+    return critic_state.apply_train(critic_params, x)
 
 
 def state_value(agent_state: Any, obs: jax.Array, action: jax.Array) -> jax.Array:

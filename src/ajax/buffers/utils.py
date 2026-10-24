@@ -6,6 +6,7 @@ import jax.numpy as jnp
 from flashbax.buffers.trajectory_buffer import TrajectoryBufferSample
 from jax.tree_util import Partial as partial
 
+from ajax.controller import feature_width
 from ajax.environments.utils import get_state_action_shapes
 from ajax.state import EnvironmentConfig
 from ajax.types import BufferType, NormalizationInfo
@@ -59,9 +60,6 @@ def get_buffer(
 def init_buffer(
     buffer: fbx.flat_buffer.TrajectoryBuffer,
     env_args: EnvironmentConfig,
-    add_train_frac: bool = False,
-    action_dim_override: Optional[int] = None,
-    expert_state_aug_dim: int = 0,
     include_expert_fields: bool = False,
     actor_carry_dim: int = 0,
     include_raw_next_obs: bool = False,
@@ -69,17 +67,15 @@ def init_buffer(
     include_is_expert: bool = False,
     include_return_to_go: bool = False,
     include_next_action: bool = False,
+    include_policy_action: bool = False,
 ) -> fbx.flat_buffer.TrajectoryBufferState:
     """
     Initialize the flashbax buffer state with correctly shaped dummy transitions.
 
     Observations are flat (``build_env_from_id`` flattens gymnax ones).
 
-    add_train_frac: whether to append the train_time_fraction scalar as the
-      last observation dimension.
-    expert_state_aug_dim: extra trailing obs dims reserved for the
-      flattened expert internal state when running with
-      `augment_obs_with_expert_state=True`. 0 disables.
+    The observations are as wide as the agent's, their features
+    (``env_args.observers``) included.
     include_raw_obs, include_raw_next_obs: also keep the environment's own
       observation, ``raw_obs``, and next observation (the final one where
       an episode ended), ``raw_next_obs``, for an expert to read.
@@ -88,15 +84,19 @@ def init_buffer(
       end, ``return_to_go`` (a collected row's is -inf: unknown).
     include_next_action: also keep a dataset row's next action, its
       episode's next row's, ``next_action`` (NaN where unknown).
+    include_policy_action: also keep the action the policy chose,
+      ``policy_action``, where it differs from the executed one (a residual
+      policy's, for an actor fitting its own actions: IQL's).
 
     A field is stored only for a reader: a row is about 40% raw
     observation, which a run without an expert never reads.
     """
     observation_shape, action_shape = get_state_action_shapes(env_args.env)
-    if action_dim_override is not None:
-        action_shape = (action_dim_override,)
+    if env_args.policy_action_dim is not None:  # gain mode's gains
+        action_shape = (env_args.policy_action_dim,)
     raw_observation_shape = observation_shape
-    extra = add_train_frac + expert_state_aug_dim
+    # The observation features (env_args.observers) are stored with it.
+    extra = feature_width(env_args)
     if extra:
         observation_shape = (*observation_shape[:-1], observation_shape[-1] + extra)
 
@@ -129,6 +129,8 @@ def init_buffer(
         schema["return_to_go"] = jnp.zeros((1,), dtype=jnp.float32)
     if include_next_action:
         schema["next_action"] = jnp.zeros(action.shape, dtype=jnp.float32)
+    if include_policy_action:
+        schema["policy_action"] = action
     if actor_carry_dim > 0:
         # R2D2-style stored-state replay: the actor's flattened carry at
         # each step (see ajax.networks.memory.flatten_carry).
@@ -157,6 +159,8 @@ class ReplayBatch(NamedTuple):
     return_to_go: Optional[jax.Array] = None
     # A dataset row's next action (include_next_action).
     next_action: Optional[jax.Array] = None
+    # The action the policy chose (include_policy_action).
+    policy_action: Optional[jax.Array] = None
 
 
 def normalized_rewards(reward: jax.Array, stats: NormalizationInfo) -> jax.Array:
@@ -200,6 +204,7 @@ def get_batch_from_buffer(
         raw_next_obs=first.get("raw_next_obs"),
         return_to_go=first.get("return_to_go"),
         next_action=first.get("next_action"),
+        policy_action=first.get("policy_action"),
     )
 
 

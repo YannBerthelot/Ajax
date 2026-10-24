@@ -1,16 +1,16 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Literal, Optional, Union
 
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config
-from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.loop import LOOP_PHASES, REPLAY_BATCH_KEYS
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.REDQ.state import REDQConfig
 from ajax.agents.REDQ.train_REDQ import make_train
+from ajax.controller import policy_action_dim
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
-    get_action_dim,
 )
 from ajax.extensions.base import Extension
 from ajax.modules.pid_actor import PIDPolicy
@@ -56,14 +56,18 @@ class REDQ(ActorCritic):
 
     name: str = "REDQ"
     capabilities: frozenset = frozenset(
-        "actor critic_ensemble discounted "
-        "obs_networks off_policy policy_density q_critic replay".split()
+        "actor critic_ensemble discounted obs_networks "
+        "off_policy policy_density q_critic replay target_critic "
+        "reward_learning".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",
         "actor_loss",
+        "transform_action",
+        "actuate",
     }
+    phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     extension_context: frozenset = frozenset(
         "actor_optimizer_args buffer env_args expert_policy".split()
@@ -204,7 +208,8 @@ class REDQ(ActorCritic):
         )
         if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("REDQ only supports continuous action spaces.")
-        action_dim = get_action_dim(self.env_args.env, env_params)
+        # The policy's actions: gain mode's gains.
+        action_dim = policy_action_dim(self.env_args)
         target_entropy = resolve_target_entropy(
             target_entropy_per_dim, action_dim, env_id
         )

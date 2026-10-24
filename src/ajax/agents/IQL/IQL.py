@@ -1,12 +1,12 @@
-from collections.abc import Sequence
-from typing import Optional
+from collections.abc import Mapping, Sequence
+from typing import Callable, Optional
 
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.IQL.state import IQLConfig
 from ajax.agents.IQL.train_IQL import make_train
-from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.loop import ACTOR_STEP_KEYS, CRITIC_LOSS_KEYS, LOOP_PHASES, TARGET_KEYS
 from ajax.buffers.utils import get_buffer
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
@@ -39,17 +39,25 @@ class IQL(ActorCritic):
 
     name: str = "IQL"
     capabilities: frozenset = frozenset(
-        "actor critic_ensemble discounted obs_networks off_policy"
-        " policy_density q_critic replay v_critic".split()
+        "actor critic_ensemble discounted obs_networks off_policy "
+        "policy_density q_critic replay target_critic v_critic reward_learning".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",
         "actor_loss",
+        "transform_action",
+        "actuate",
+    }
+    phase_batch_keys: Mapping[str, frozenset] = {
+        "on_target": TARGET_KEYS,
+        "critic_loss": CRITIC_LOSS_KEYS,
+        "actor_loss": ACTOR_STEP_KEYS
+        | frozenset("observations raw_observations actions critic_state".split()),
     }
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     extension_context: frozenset = frozenset(
-        "actor_optimizer_args buffer env_args".split()
+        "actor_optimizer_args buffer env_args expert_policy".split()
     )
     replays_transitions: bool = True
     supported_buffer_fields: frozenset = frozenset({"raw_next_obs", "return_to_go"})
@@ -76,6 +84,10 @@ class IQL(ActorCritic):
         max_grad_norm: Optional[float] = None,
         weight_decay: float = 0.0,
         normalize_observations: bool = False,
+        # An expert the collector tracks (online): its actions, from its
+        # state along each trajectory, feed the observation features and a
+        # residual policy, and each evaluation logs its return.
+        expert_policy: Optional[Callable] = None,
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground
         # envs (ActorCritic).
@@ -85,6 +97,8 @@ class IQL(ActorCritic):
         self.config = run_config(locals(), self.name)
         if not 0.0 < expectile < 1.0:
             raise ValueError(f"IQL's expectile is in (0, 1), got {expectile}.")
+        # Read by the extension check in the base initialiser.
+        self.expert_policy = expert_policy
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -127,4 +141,5 @@ class IQL(ActorCritic):
         self.train_kwargs = {
             "buffer": self.buffer,
             "value_optimizer_args": value_optimizer_args,
+            "expert_policy": self.expert_policy,
         }

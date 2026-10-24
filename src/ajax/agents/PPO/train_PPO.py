@@ -27,7 +27,7 @@ import jax.numpy as jnp
 import optax
 from flax.core import FrozenDict
 
-from ajax.agents.loop import TrainLoop
+from ajax.agents.loop import TrainLoop, extension_key
 from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
@@ -50,16 +50,18 @@ from ajax.agents.PPO.utils import (
     get_minibatches_preserving_time,
     split_fragments,
 )
-from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     get_pi,
     get_pi_sequence,
     init_collector_state,
     reset,
+    reset_features,
 )
+from ajax.environments.obs_norm import normalized_obs
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     env_keys,
+    raw_obs_columns,
 )
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
@@ -536,63 +538,61 @@ def _normalisation_info(env_state: Any, mode: str) -> Any:
     return getattr(env_state, "normalization_info", None)
 
 
-def _renormalised(obs: jax.Array, fresh: Any, saved: Any) -> jax.Array:
-    """``obs``, normalised with the statistics ``fresh``, normalised with
-    ``saved`` instead; each read as ``online_normalize`` reads them (the
-    clipped std and the mean averaged over their leading axis)."""
-
-    def moments(info: Any) -> tuple[jax.Array, jax.Array]:
-        std = jnp.clip(jnp.sqrt(info.var + 1e-8), 1e-6, 1e6)
-        return info.mean.mean(axis=0), std.mean(axis=0)
-
-    (fresh_mean, fresh_std), (saved_mean, saved_std) = moments(fresh), moments(saved)
-    return (obs * fresh_std + fresh_mean - saved_mean) / saved_std
-
-
 def _force_reset(
-    agent_state: PPOState, env_args: EnvironmentConfig, mode: str
+    agent_state: PPOState,
+    env_args: EnvironmentConfig,
+    mode: str,
+    expert_policy: Any = None,
 ) -> PPOState:
     """Reset every env on a fresh key (brax's ``num_resets_per_eval``).
 
-    An observation or reward normaliser in the env stack keeps its running
-    statistics: its reset restarts them from the reset observation, so the
-    saved ones are put back and the reset observation, when the normaliser
-    normalises it, is normalised with them instead. Gymnax keeps one
-    normaliser per env (each restarts from its own observation), brax one
-    for the batch. The cut episodes are abandoned, not finished: the next
-    return starts from zero, and they are flagged truncated, so a recurrent
-    actor and critic restart their memory on the reset observation, as at
-    any episode start.
+    The reset observations get their features (from fresh observer states)
+    and are normalised with the agent's running statistics, which they do
+    not count in. A reward normaliser in the env
+    stack keeps its running statistics: its reset restarts them, so the
+    saved ones are put back. The cut episodes are abandoned, not finished:
+    the next return starts from zero, and they are flagged truncated, so a
+    recurrent actor and critic restart their memory on the reset
+    observation, as at any episode start, and so does a stateful tracked
+    expert (the features of the reset observations read its initial state).
     """
-    reset_key, new_rng = jax.random.split(agent_state.rng)
+    agent_state, reset_key = agent_state.next_keys()
     saved = _normalisation_info(agent_state.collector_state.env_state, mode)
     reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
     if saved is not None:
-        layers = strip_ajax_wrappers(env_args.env)[1]
-        if layers["normalize_obs"] and layers["apply_obs_normalization"]:
-            fresh = _normalisation_info(new_env_state, mode).obs
-            per_normaliser = (
-                _renormalised if mode == "brax" else jax.vmap(_renormalised)
-            )
-            new_obs = per_normaliser(new_obs, fresh, saved.obs)
         if mode == "brax":
             info = {**new_env_state.info, "normalization_info": saved}
-            new_env_state = new_env_state.replace(obs=new_obs, info=info)
+            new_env_state = new_env_state.replace(info=info)
         else:
             new_env_state = new_env_state.replace(normalization_info=saved)
+    collector = agent_state.collector_state
+    observer_states = collector.observer_states
+    if env_args.observers:
+        new_obs, observer_states = reset_features(
+            new_obs,
+            new_env_state,
+            env_args,
+            mode,
+            expert_policy,
+            collector.train_time_fraction,
+        )
+    if env_args.store_normalized_obs:
+        new_obs = normalized_obs(
+            new_obs, collector.obs_norm_info, raw_obs_columns(env_args.env)
+        )
     returns = agent_state.collector_state.episodic_return_state
     returns = returns.replace(
         cumulative_reward=jnp.zeros_like(returns.cumulative_reward)
     )
-    collector = agent_state.collector_state
     new_collector = collector.replace(
         _env_state=new_env_state,
         last_obs=new_obs,
+        observer_states=observer_states,
         episodic_return_state=returns,
         last_truncated=jnp.ones_like(collector.last_truncated),
     )
-    return agent_state.replace(collector_state=new_collector, rng=new_rng)
+    return agent_state.replace(collector_state=new_collector)
 
 
 def update_agent(
@@ -606,19 +606,23 @@ def update_agent(
     extension_stack: ExtensionStack,
     total_timesteps: int,
     total_n_updates: int,
+    expert_policy: Optional[Callable] = None,
 ) -> tuple[PPOState, AuxiliaryLogs]:
     """One PPO update on the ``(n_steps, n_envs)`` ``rollout`` collected
     from ``start``: ``n_epochs`` passes over its minibatches, then brax's
-    periodic forced reset."""
+    periodic forced reset (the features read the tracked ``expert_policy``)."""
     n_steps, n_envs = rollout.obs.shape[:2]
     geometry = minibatch_geometry(agent_config, n_steps, n_envs, recurrent)
     actions, log_probs = rollout_actions(rollout)
+    # The update's key: it shuffles the rollout, and the rollout's folds draw
+    # on keys derived from it.
+    agent_state, shuffle_key = agent_state.next_keys()
+    reward_key, target_key = jax.random.split(extension_key(shuffle_key))
     rewards, reward_metrics = rollout.reward, dict[str, Any]()
     if "reward" in extension_stack.implemented_phases():
         # The extensions' rewards replace the env's (GAIL's discriminator).
-        reward_key, rng = jax.random.split(agent_state.rng)
         agent_state, rewards, reward_metrics = extension_stack.fold_reward(
-            agent_state.replace(rng=rng),
+            agent_state,
             {
                 "observations": rollout.obs,
                 "raw_observations": rollout.raw_obs,
@@ -675,8 +679,6 @@ def update_agent(
             gae_lambda=agent_config.gae_lambda,
         )
         if extension_stack:
-            target_key, rng = jax.random.split(agent_state.rng)
-            agent_state = agent_state.replace(rng=rng)
             target_batch = {
                 "observations": rollout.obs,
                 "next_observations": rollout.next_obs,
@@ -698,8 +700,6 @@ def update_agent(
             )
         batch |= {"targets": value_targets, "gae": gae}
 
-    shuffle_key, rng = jax.random.split(agent_state.rng)
-    agent_state = agent_state.replace(rng=rng)
     k, length = geometry.num_minibatches, geometry.length
 
     def minibatches(key: jax.Array) -> dict:
@@ -712,12 +712,11 @@ def update_agent(
 
     def minibatch_step(agent_state: PPOState, mb: dict) -> tuple[PPOState, Any]:
         """A critic and an actor step, both from the state before either."""
-        ent_rng, ext_rng, new_rng = jax.random.split(agent_state.rng, 3)
+        agent_state, ent_rng = agent_state.next_keys()
         target_metrics: dict = {}
-        agent_state = agent_state.replace(rng=new_rng)
         critic, actor = agent_state.critic_state, agent_state.actor_state
         # The extensions' target and loss terms, each on a key of its own.
-        target_key, critic_key, actor_key = jax.random.split(ext_rng, 3)
+        target_key, critic_key, actor_key = jax.random.split(extension_key(ent_rng), 3)
         critic_extra = _stack_critic_loss(
             extension_stack, agent_state, critic_key, total_timesteps
         )
@@ -845,7 +844,7 @@ def update_agent(
         )
         agent_state = jax.lax.cond(
             should_reset,
-            lambda s: _force_reset(s, env_args, mode),
+            lambda s: _force_reset(s, env_args, mode, expert_policy),
             lambda s: s,
             agent_state,
         )
@@ -864,13 +863,16 @@ def make_train(
     logging_config: Optional[LoggingConfig] = None,
     start_timestep: int = 0,
     end_timestep: Optional[int] = None,
+    expert_policy: Optional[Callable] = None,
     extensions: Sequence = (),
 ):
     """PPO's train function: an ``n_steps`` rollout per env, then one
     update, per iteration."""
     recurrent = network_args.memory is not None
-    if recurrent and extensions:
-        raise NotImplementedError("Recurrent PPO does not support extensions yet.")
+    if recurrent and (extensions or expert_policy is not None):
+        raise NotImplementedError(
+            "Recurrent PPO does not support extensions or an expert_policy yet."
+        )
     loop = TrainLoop.create(
         env_args,
         total_timesteps,
@@ -880,6 +882,7 @@ def make_train(
         extensions,
         start_timestep=start_timestep,
         end_timestep=end_timestep,
+        expert_policy=expert_policy,
     )
 
     def init(key: jax.Array) -> PPOState:
@@ -889,6 +892,7 @@ def make_train(
             actor_optimizer_args,
             critic_optimizer_args,
             network_args,
+            expert_policy,
         )
 
     def update(
@@ -907,6 +911,7 @@ def make_train(
             # brax's reset cadence divides the whole training: the updates
             # of one call over the run, from 0 to its horizon.
             loop.n_rollouts(agent_config.n_steps, total_timesteps),
+            expert_policy,
         )
 
     return loop.on_policy(
@@ -915,5 +920,8 @@ def make_train(
         agent_config.n_steps,
         recurrent=recurrent,
         expose_rollout=agent_config.expose_recent_rollout,
-        eval_kwargs={"value_estimate": ValueEstimate(state_value, agent_config.gamma)},
+        eval_kwargs={
+            "value_estimate": ValueEstimate(state_value, agent_config.gamma),
+            "expert_policy": expert_policy,
+        },
     )

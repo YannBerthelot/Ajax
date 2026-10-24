@@ -80,7 +80,7 @@ def _apg() -> Any:
 # Every SAC part updates from step 50, in both legs. The discrete agents run the
 # coupling env (the discrete discounting env has one action), epsilon constant
 # (the legs are not told the run's horizon, so its default would decay to each
-# leg's own end, train_DQN.linear_epsilon; test_resume_contract covers the
+# leg's own end, as DQN's make_train builds it; test_resume_contract covers the
 # schedules); PQN's two minibatches make its shuffle matter. PPO and PQN run
 # one iteration more per call (TrainLoop.n_rollouts): their second leg is one
 # shorter. PQN's run is short: the two programs round apart (JAX 0.11), and
@@ -117,7 +117,7 @@ EQUIVALENT = {
 }
 # Resumed on the bookkeeping preset, their counters checked: these agents'
 # whole states are not compared with an uninterrupted run yet.
-COUNTED = ("TD3", "REDQ", "ASAC", "APO", "AVG")
+COUNTED = ("TD3", "REDQ", "ASAC", "APO", "AVG", "CrossQ", "TQC")
 ELSEWHERE = {  # world models whose own tests assert a resume equals one call
     "DreamerV3": "DreamerV3/test_dreamerv3_agent.py::test_resume_continues_the_schedule_and_matches_an_uninterrupted_run",
     "TDMPC2": "TDMPC2/test_TDMPC2.py::test_a_new_agent_resumes_a_checkpoint_as_the_uninterrupted_run",

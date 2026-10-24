@@ -1,5 +1,5 @@
-from collections.abc import Sequence
-from typing import Optional, Tuple
+from collections.abc import Mapping, Sequence
+from typing import Callable, Optional, Tuple
 
 from gymnax import EnvParams
 
@@ -18,9 +18,20 @@ class UDRL(ActorCritic):
 
     name: str = "UDRL"
     capabilities: frozenset = frozenset(
-        "actor obs_networks off_policy policy_density replay".split()
+        "actor obs_networks off_policy policy_density replay reward_learning".split()
     )
-    supported_extension_phases: frozenset = LOOP_PHASES | {"actor_loss"}
+    # Its collector, which appends the command, is its own: no observation
+    # features yet. It acts through the run's transform itself.
+    supported_extension_phases: frozenset = (LOOP_PHASES - {"observe"}) | {
+        "actor_loss",
+        "transform_action",
+        "actuate",
+    }
+    phase_batch_keys: Mapping[str, frozenset] = {
+        "actor_loss": frozenset(
+            "actor_state observations raw_observations pi_mean actions".split()
+        ),
+    }
     # It learns from the segments of up to buffer_capacity past iterations.
     replays_transitions: bool = True
     make_train = staticmethod(make_train)
@@ -54,6 +65,9 @@ class UDRL(ActorCritic):
         # joins the CNN embedding after the convolutions. None keeps the
         # MLP encoder.
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,
+        # An expert its collector tracks: a residual policy or gain mode acts
+        # through it, and each evaluation logs its return.
+        expert_policy: Optional[Callable] = None,
         extensions: Sequence[Extension] = (),
         # Simulator steps per episode and per agent step on brax / playground
         # envs (ActorCritic).
@@ -62,6 +76,8 @@ class UDRL(ActorCritic):
     ) -> None:
         self.config = run_config(locals(), self.name)
 
+        # Read by the extension check in the base initialiser.
+        self.expert_policy = expert_policy
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -98,3 +114,4 @@ class UDRL(ActorCritic):
             buffer_capacity=buffer_capacity,
             n_updates_per_iter=n_updates_per_iter,
         )
+        self.train_kwargs = {"expert_policy": self.expert_policy}

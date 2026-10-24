@@ -15,8 +15,14 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 
+from ajax.agents.recurrent import actor_dist
 from ajax.agents.SAC.core import (
+    alpha_temperature_loss_fn,
     create_alpha_train_state,
+    q_regression_loss,
+    soft_bellman_target,
+    soft_policy_loss,
+    soft_policy_objective,
     temperature_loss_fn,
     update_target_networks,
     update_temperature,
@@ -142,3 +148,52 @@ def test_update_target_networks(env_config, SAC_state):
     assert _allclose(updated_state.critic_state.params, original_params)
     assert not _allclose(new_target, original_target_params)
     assert _allclose(new_target, expected_target)
+
+
+def test_the_soft_bellman_target_from_a_bootstrap_value():
+    """r scaled by 2, then 0.9 (1 - d)(Q' - 0.5 log pi): a terminal row
+    keeps its reward alone."""
+    target = soft_bellman_target(
+        next_q=jnp.array([[2.0], [2.0]]),
+        next_log_probs=jnp.array([[-1.0], [-1.0]]),
+        rewards=jnp.array([[1.0], [1.0]]),
+        dones=jnp.array([[0.0], [1.0]]),
+        gamma=0.9,
+        alpha=jnp.asarray(0.5),
+        reward_scale=2.0,
+    )
+    np.testing.assert_allclose(target, [[4.25], [2.0]], rtol=1e-6)
+
+
+def test_the_q_regression_loss_from_predictions():
+    q_preds = jnp.array([[[1.0], [3.0]], [[2.0], [5.0]]])  # 2 critics, 2 rows
+    loss, aux = q_regression_loss(q_preds, jnp.array([[2.0], [4.0]]))
+    assert float(loss) == pytest.approx((1 + 1 + 0 + 1) / 4)
+    assert float(aux.q_gap[0]) == pytest.approx((1 + 2) / 2)
+
+
+def test_the_soft_policy_objective_is_the_loss_on_a_given_policy(SAC_state):
+    actor, critic = SAC_state.actor_state, SAC_state.critic_state
+    obs = SAC_state.collector_state.last_obs
+    key, alpha = jax.random.PRNGKey(1), jnp.asarray(0.2)
+    pi = actor_dist(actor, actor.params, obs)
+    loss, (log_probs, q, _) = soft_policy_loss(
+        actor.params, actor, critic, obs, alpha, key
+    )
+    same, (same_log_probs, same_q, _) = soft_policy_objective(
+        pi, critic, obs, alpha, key
+    )
+    assert float(loss) == float(same)
+    assert _allclose((log_probs, q), (same_log_probs, same_q))
+
+
+def test_the_alpha_temperature_loss_scales_sacs_gradient_by_alpha():
+    """CrossQ's authors' loss, alpha (H - H_target): its gradient on log alpha
+    is alpha times SAC's, (H - H_target)."""
+    params = FrozenDict({"log_alpha": jnp.log(0.5)})
+    log_probs, target = jnp.array([-1.0, -3.0]), jnp.asarray(-1.0)
+    grad = jax.grad(lambda p: alpha_temperature_loss_fn(p, log_probs, target)[0])
+    sac_grad = jax.grad(lambda p: temperature_loss_fn(p, log_probs, target)[0])
+    entropy_gap = 2.0 - (-1.0)
+    assert float(grad(params)["log_alpha"]) == pytest.approx(0.5 * entropy_gap)
+    assert float(sac_grad(params)["log_alpha"]) == pytest.approx(entropy_gap)

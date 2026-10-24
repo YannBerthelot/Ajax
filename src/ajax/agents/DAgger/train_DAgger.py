@@ -32,7 +32,7 @@ import jax.numpy as jnp
 from flax import struct
 
 from ajax.agents.DAgger.state import DAggerConfig, DAggerState
-from ajax.agents.loop import TrainLoop, gradient_step
+from ajax.agents.loop import TrainLoop, actor_step
 from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
@@ -87,17 +87,14 @@ def make_action_pipeline(
     ``beta_i``, else the actor's; the expert's action at every state is
     stored (``a_expert``), from its state along the trajectory."""
 
-    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
+    def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
         del uniform, action_key
-        collector = agent_state.collector_state
         actor = agent_state.actor_state
-        own = learner_action(
-            get_pi(actor, actor.params, collector.last_obs)[0], continuous
-        )
-        a_expert, expert_state = expert_step(expert_policy, collector, raw_obs, n_envs)
+        own = learner_action(get_pi(actor, actor.params, acting.obs)[0], continuous)
+        a_expert, expert_state = expert_step(expert_policy, acting, raw_obs, n_envs)
         a_expert = a_expert.reshape(own.shape).astype(own.dtype)
         draw = jax.random.uniform(mix_key, (n_envs, 1))
-        use_expert = draw < beta(collector.timestep, config)
+        use_expert = draw < beta(acting.timestep, config)
         action = jnp.where(use_expert, a_expert, own)
         zeros = jnp.zeros((n_envs, 1))
         return ActionPipelineResult(
@@ -174,41 +171,34 @@ def update_agent(
     total_timesteps: int,
 ) -> tuple[DAggerState, AuxiliaryLogs]:
     """One supervised step towards the expert's actions on a replay batch."""
-    sample_key, ext_key, rng = jax.random.split(agent_state.rng, 3)
+    agent_state, sample_key, actor_key = agent_state.next_keys(2)
     batch = get_batch_from_buffer(
         buffer, agent_state.collector_state.buffer_state, sample_key
     )
-    actor_state = agent_state.actor_state
 
-    def loss_fn(params: Any) -> tuple[jax.Array, Any]:
-        pi, _ = get_pi(actor_state, params, batch.obs)
+    def imitation_loss(params: Any) -> tuple[jax.Array, jax.Array, Any]:
+        pi, _ = get_pi(agent_state.actor_state, params, batch.obs)
         if continuous:
             pi_mean = pi.mean()
             loss = jnp.mean(jnp.square(pi_mean - batch.a_expert))
         else:
             pi_mean = None
             loss = -jnp.mean(pi.log_prob(batch.a_expert[..., 0]))
-        actor_batch = {
-            "observations": batch.obs,
-            "raw_observations": batch.raw_obs,
-            "pi_mean": pi_mean,
-            "actor_params": params,
-            "actor_state": actor_state,
-            "a_expert": batch.a_expert,
-        }
-        extra, metrics = extension_stack.fold_actor_loss(
-            agent_state,
-            actor_batch,
-            agent_state.collector_state.timestep,
-            ext_key,
-            total_timesteps,
-        )
-        return loss + extra, (loss, metrics)
+        return loss, loss, pi_mean
 
-    actor_state, (loss, metrics), grad_norm = gradient_step(actor_state, loss_fn)
+    actor_state, loss, grad_norm, metrics = actor_step(
+        agent_state,
+        imitation_loss,
+        extension_stack,
+        actor_key,
+        total_timesteps,
+        observations=batch.obs,
+        raw_observations=batch.raw_obs,
+        a_expert=batch.a_expert,
+    )
     collector = agent_state.collector_state
     agent_state = agent_state.replace(
-        rng=rng, actor_state=actor_state, n_updates=agent_state.n_updates + 1
+        actor_state=actor_state, n_updates=agent_state.n_updates + 1
     )
     return agent_state, AuxiliaryLogs(
         policy=PolicyAuxiliaries(imitation_loss=loss, grad_norm=grad_norm),

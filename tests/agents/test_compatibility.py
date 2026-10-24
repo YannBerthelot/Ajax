@@ -41,7 +41,10 @@ from tests.agents.TDMPC2.test_TDMPC2MultiTask import make_dataset
 
 #: (agent, environment): each agent on each action kind it takes.
 ROWS = [
-    *((name, "Pendulum-v1") for name in "SAC TD3 REDQ ASAC AVG IQL APG TDMPC2".split()),
+    *(
+        (name, "Pendulum-v1")
+        for name in "SAC TD3 REDQ ASAC AVG CrossQ TQC IQL APG TDMPC2".split()
+    ),
     *(
         (name, env)
         for name in "PPO APO UDRL DAgger DreamerV3".split()
@@ -76,6 +79,13 @@ DEFERRED = "memory on this agent has no published form (deferred)"
 PRIOR = "the agent's own replay is not handed to its pretraining yet"
 NEXT = "only TD3 hands on_target the next actions its target scored (ReBRAC's TargetBC)"
 REWARD = "only PPO folds the reward phase (GAIL's AdversarialReward)"
+OWN_ROLLOUT = (
+    "the agent's own collector does not observe features yet (APG's differentiable"
+    " rollout, UDRL's command)"
+)
+FEATURES = (
+    "ExpertActionInput ExpertStateInput TrainingProgressInput PIDTermsInput".split()
+)
 
 #: Module forms not written yet: a refusal for these capabilities alone is
 #: a gap, not inherent.
@@ -89,27 +99,27 @@ FORM_GAPS = {
 #: for an agent taking both action kinds) where it is not wired yet.
 GAPS: dict[str, dict[str, str]] = {
     ACTION: {
-        "EDGEExploration": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DAgger"
+        "EDGEExploration": "TD3 REDQ TQC CrossQ ASAC AVG UDRL UDRL/discrete DAgger"
         " DAgger/discrete DQN PQN IQL",
-        "JSRLCurriculum": "TD3 REDQ ASAC AVG UDRL UDRL/discrete DAgger"
+        "JSRLCurriculum": "TD3 REDQ TQC CrossQ ASAC AVG UDRL UDRL/discrete DAgger"
         " DAgger/discrete DQN PQN IQL",
-        "ResidualPolicy": "TD3 REDQ ASAC AVG APG PPO APO UDRL DAgger IQL",
-        "ValueBox": "TD3 REDQ AVG DQN PQN IQL",
+        "ValueBox": "TD3 REDQ TQC CrossQ AVG DQN PQN IQL",
     },
     MC: {
-        "CriticBlend": "TD3 REDQ AVG DQN PQN IQL",
-        "MCPretrain": "TD3 REDQ AVG PPO PPO/discrete DQN PQN IQL",
-        "MCVarianceCorrection": "TD3 REDQ IQL",
-        "OnlineBC": "TD3 REDQ AVG IQL",
-        "PhiRefresh": "TD3 REDQ DQN IQL",
+        "CriticBlend": "TD3 REDQ CrossQ AVG DQN PQN IQL",
+        "MCPretrain": "TD3 REDQ TQC CrossQ AVG PPO PPO/discrete DQN PQN IQL",
+        "MCVarianceCorrection": "TD3 REDQ CrossQ IQL",
+        "OnlineBC": "TD3 REDQ TQC CrossQ AVG IQL",
+        "PhiRefresh": "TD3 REDQ TQC CrossQ DQN IQL",
     },
     CONTEXT: {
-        "BellmanPretrain": "TD3 REDQ ASAC",
+        "BellmanPretrain": "TD3 REDQ TQC CrossQ ASAC",
         "CloningPretrain": "APG PPO UDRL",
     },
     EXPERT: {
         "BellmanPretrain": "DQN IQL",
-        "ExpertValueMetrics": "DQN IQL",
+        "ExpertValueMetrics": "DQN",
+        **dict.fromkeys(FEATURES[:2], "DQN PQN"),
     },
     FORM: {
         "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"
@@ -138,19 +148,23 @@ GAPS: dict[str, dict[str, str]] = {
             "TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask",
         ),
         **dict.fromkeys(
-            "CloningPretrain ImitationLoss ResidualPolicy".split(),
+            "CloningPretrain ImitationLoss".split(),
             "TDMPC2 DreamerV3 TDMPC2MultiTask",
         ),
+        **dict.fromkeys(
+            FEATURES, "TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask"
+        ),
     },
+    OWN_ROLLOUT: dict.fromkeys(FEATURES, "APG UDRL UDRL/discrete"),
     CNN: {
-        "cnn": "SAC TD3 REDQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete"
+        "cnn": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete"
         " DAgger DAgger/discrete IQL"
     },
     MEMORY: {"memory": "APO APO/discrete DQN PQN DAgger DAgger/discrete IQL"},
-    DEFERRED: {"memory": "AVG UDRL UDRL/discrete"},
-    NEXT: {"TargetBC": "SAC REDQ AVG IQL"},
+    DEFERRED: {"memory": "AVG CrossQ UDRL UDRL/discrete"},
+    NEXT: {"TargetBC": "SAC REDQ TQC CrossQ AVG IQL"},
     REWARD: {
-        "AdversarialReward": "SAC TD3 REDQ ASAC AVG APG APO UDRL DAgger IQL DreamerV3"
+        "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO UDRL DAgger IQL DreamerV3"
         " TDMPC2 TDMPC2MultiTask"
     },
     PRIOR: {
@@ -166,6 +180,26 @@ def _expert(obs: jnp.ndarray) -> jnp.ndarray:
 
 def _discrete_expert(obs: jnp.ndarray) -> jnp.ndarray:
     return jnp.zeros(obs.shape[:-1], jnp.int32)
+
+
+class _GainExpert:
+    """A stateful expert with one learnable gain, which gain mode
+    (ExpertGains) needs."""
+
+    learnable_fields, anchor_gains = ("kp",), jnp.array([1.0])
+
+    def init_state(self, n_envs: int) -> jnp.ndarray:
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state: jnp.ndarray, obs: jnp.ndarray) -> tuple:
+        return self.step_with_gains(state, obs, self.anchor_gains)
+
+    def step_with_gains(self, state: Any, obs: jnp.ndarray, gains: Any) -> tuple:
+        return -gains[0] * obs[..., :1], state
+
+
+#: The agent's expert a module needs beyond the stateless one.
+MODULE_EXPERTS = {"ExpertGains": _GainExpert()}
 
 
 @cache
@@ -194,6 +228,9 @@ def field_values(env: str) -> dict[str, Any]:
         "threshold": 1.0,
         "dataset": episode,
         "demonstrations": episode,
+        # A PID's error x[1] - x[0], on every row's observation.
+        "current_idx": (0,),
+        "target_idx": (1,),
     }
 
 
@@ -241,6 +278,9 @@ def verdict(agent: str, env: str, column: str) -> tuple[str, str]:
             (MCPretrain(expert_policy=expert),) if "phi_star" in ext.needs() else ()
         )
         kwargs = {"extensions": (*companions, ext)}
+        takes = inspect.signature(agent_class(agent).__init__).parameters
+        if name in MODULE_EXPERTS and env != "CartPole-v1" and "expert_policy" in takes:
+            kwargs["expert_policy"] = MODULE_EXPERTS[name]
     try:
         build(agent, env, **kwargs)
     except MissingCapability as error:

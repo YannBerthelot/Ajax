@@ -1,9 +1,11 @@
 import jax
 import numpy as np
+import pytest
 
 from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.TD3.train_TD3 import make_default_action_pipeline
+from ajax.controller import acting_state
 from ajax.environments.interaction import get_pi
 
 
@@ -103,11 +105,35 @@ def test_the_behaviour_policy_adds_its_exploration_noise():
 
     def act(sigma: float):
         pipeline = make_default_action_pipeline(False, sigma)
-        return pipeline(state, None, keys[0], False, keys[1], keys[2]).env_action
+        acting = acting_state(state)
+        return pipeline(
+            state, acting, None, keys[0], False, keys[1], keys[2]
+        ).env_action
 
     np.testing.assert_allclose(act(0.0), np.clip(mean, -1.0, 1.0), atol=1e-6)
     spread = np.std(np.asarray(act(0.3) - mean))
     assert 0.2 < spread < 0.4, spread
+
+
+def test_an_old_signature_pipeline_is_adapted_with_a_warning():
+    """A pipeline written before the acting state, as AjaxExperiments' TD3
+    variants are, still collects, called with its old arguments."""
+    seen = []
+
+    def old(agent_state, raw_obs, rng, uniform, mix_key, action_key):
+        seen.append((agent_state, raw_obs, rng, uniform, mix_key, action_key))
+        return "result"
+
+    with pytest.warns(FutureWarning, match="ActingState"):
+        agent = TD3(env_id="Pendulum-v1", action_pipeline=old)
+    adapted = agent.train_kwargs["action_pipeline"]
+    assert adapted("s", "acting", "o", "r", "u", "m", "a") == "result"
+    assert seen == [("s", "o", "r", "u", "m", "a")]
+    new = make_default_action_pipeline(False, 0.1)
+    assert (
+        TD3(env_id="Pendulum-v1", action_pipeline=new).train_kwargs["action_pipeline"]
+        is new
+    )
 
 
 def test_the_target_noise_clip_reaches_the_update():

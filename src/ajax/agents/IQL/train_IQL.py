@@ -19,6 +19,7 @@ step is the same).
 """
 
 from collections.abc import Sequence
+from functools import partial
 from typing import Any, Callable, Optional, Tuple
 
 import jax
@@ -26,11 +27,16 @@ import jax.numpy as jnp
 from flax import struct
 
 from ajax.agents.IQL.state import IQLConfig, IQLState
-from ajax.agents.loop import TrainLoop, critic_step, gradient_step
+from ajax.agents.loop import TrainLoop, actor_step, critic_step, gradient_step
 from ajax.agents.recurrent import q_values, sample_replay
 from ajax.agents.SAC.core import critic_loss_fn
 from ajax.buffers.dataset import TransitionDataset
-from ajax.environments.interaction import get_pi, init_collector_state
+from ajax.controller import executed_fn
+from ajax.environments.interaction import (
+    get_pi,
+    init_collector_state,
+    policy_pipeline,
+)
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -74,9 +80,13 @@ def init_IQL(
     buffer: BufferType,
     store_raw_next_obs: bool = False,
     store_return_to_go: bool = False,
+    expert_policy: Optional[Callable] = None,
+    store_policy_action: bool = False,
 ) -> IQLState:
     """A Gaussian actor, two Q critics and one state value V(s); the replay
-    keeps the env's own next observations for an extension reading them."""
+    keeps the env's own next observations for an extension reading them,
+    the tracked ``expert_policy``'s actions, and, with a residual policy,
+    the residuals the policy chose (``store_policy_action``)."""
     rng, init_key, value_key, collector_key, eval_rng = jax.random.split(key, 5)
     actor_state, critic_state = get_initialized_actor_critic(
         init_key,
@@ -104,6 +114,8 @@ def init_IQL(
         buffer=buffer,
         include_raw_next_obs=store_raw_next_obs,
         include_return_to_go=store_return_to_go,
+        expert_policy=expert_policy,
+        include_policy_action=store_policy_action,
     )
     return IQLState(
         rng=rng,
@@ -123,7 +135,7 @@ def update_agent(
     total_timesteps: int,
 ) -> Tuple[IQLState, AuxiliaryLogs]:
     """One IQL update (the module docstring)."""
-    sample_key, critic_key, actor_key, rng = jax.random.split(agent_state.rng, 4)
+    agent_state, sample_key, critic_key, actor_key = agent_state.next_keys(3)
     batch, _ = sample_replay(agent_state, buffer, sample_key)
     critic = agent_state.critic_state
     q = jnp.min(q_values(critic, critic.target_params, batch.obs, batch.action), axis=0)
@@ -136,32 +148,29 @@ def update_agent(
     v_loss = value_loss(value_state.params)[0]
     v = predict_value(value_state, value_state.params, batch.obs)[0]
     weight = jnp.minimum(jnp.exp(config.temperature * (q - v)), 100.0)
-    actor = agent_state.actor_state
 
-    def actor_loss(params: Any) -> Tuple[jax.Array, Any]:
-        pi, _ = get_pi(actor, params, batch.obs)
-        log_probs = pi.log_prob(batch.action).sum(-1, keepdims=True)
+    # The actor fits the actions it chose: a residual policy's residuals,
+    # which its replay keeps apart from the executed actions the critics
+    # score.
+    chosen = batch.action if batch.policy_action is None else batch.policy_action
+
+    def actor_loss(params: Any) -> Tuple[jax.Array, jax.Array, jax.Array]:
+        pi, _ = get_pi(agent_state.actor_state, params, batch.obs)
+        log_probs = pi.log_prob(chosen).sum(-1, keepdims=True)
         loss = -jnp.mean(weight * log_probs)
-        actor_batch = {
-            "observations": batch.obs,
-            "raw_observations": batch.raw_obs,
-            "pi_mean": pi.mean(),
-            "actor_params": params,
-            "actor_state": actor,
-            "actions": batch.action,
-            "critic_state": critic,
-            "agent_loss": loss,
-        }
-        extra, metrics = extension_stack.fold_actor_loss(
-            agent_state,
-            actor_batch,
-            agent_state.collector_state.timestep,
-            actor_key,
-            total_timesteps,
-        )
-        return loss + extra, (loss, metrics)
+        return loss, loss, pi.mean()
 
-    actor_state, (a_loss, actor_metrics), _ = gradient_step(actor, actor_loss)
+    actor_state, a_loss, _, actor_metrics = actor_step(
+        agent_state,
+        actor_loss,
+        extension_stack,
+        actor_key,
+        total_timesteps,
+        observations=batch.obs,
+        raw_observations=batch.raw_obs,
+        actions=batch.action,
+        critic_state=critic,
+    )
     next_v = predict_value(value_state, value_state.params, batch.next_obs)[0]
     dones = batch.terminated
     target_q = (
@@ -186,7 +195,6 @@ def update_agent(
         reward_scale=config.reward_scale,
     )
     agent_state = agent_state.replace(
-        rng=rng,
         actor_state=actor_state,
         critic_state=critic_state.soft_update(tau=config.tau),
         value_state=value_state,
@@ -219,6 +227,7 @@ def make_train(
     start_timestep: int = 0,
     end_timestep: Optional[int] = None,
     offline_data: Optional[TransitionDataset] = None,
+    expert_policy: Optional[Callable] = None,
     extensions: Sequence = (),
 ) -> Callable:
     """IQL's train function: offline, one update per iteration; online, one
@@ -226,6 +235,7 @@ def make_train(
     agent_context = {
         "env_args": env_args,
         "actor_optimizer_args": actor_optimizer_args,
+        "expert_policy": expert_policy,
         "buffer": buffer,
     }
     extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
@@ -238,8 +248,21 @@ def make_train(
         extensions,
         start_timestep=start_timestep,
         end_timestep=end_timestep,
+        expert_policy=expert_policy,
         offline_data=offline_data,
     )
+    # A residual policy acts on the chosen action, so the warm-up draws
+    # residuals and the replay keeps the one the actor fits.
+    residual = executed_fn(env_args) is not None
+    pipeline = None
+    if residual:
+        pipeline = partial(
+            policy_pipeline,
+            recurrent=False,
+            n_envs=env_args.n_envs,
+            transform=env_args.transforms[0],
+            after_choice=True,
+        )
 
     def init(key: jax.Array) -> IQLState:
         return init_IQL(
@@ -252,6 +275,8 @@ def make_train(
             buffer,
             store_raw_next_obs="raw_next_obs" in loop.stack.buffer_fields(),
             store_return_to_go="return_to_go" in loop.stack.buffer_fields(),
+            expert_policy=expert_policy,
+            store_policy_action=residual,
         )
 
     def update(agent_state: IQLState, _transition: Optional[Transition]) -> Any:
@@ -263,10 +288,11 @@ def make_train(
         init,
         update,
         agent_config.learning_starts,
-        collect_kwargs={"buffer": buffer},
+        collect_kwargs={"buffer": buffer, "action_pipeline": pipeline},
         eval_kwargs={
             "value_estimate": ValueEstimate(
                 action_value, agent_config.gamma, agent_config.reward_scale
-            )
+            ),
+            "expert_policy": expert_policy,
         },
     )

@@ -107,14 +107,13 @@ def test_strip_ajax_wrappers_reads_back_the_layers_prepare_env_added():
     layers (a user's wrapper kept) and the keywords that rebuild them."""
     env, _ = make_gymnax_env("Pendulum-v1")
     task = InitialStateWrapper(env, lambda key, state, params: state)
-    trained, *_ = prepare_env(task, normalize_obs=True, apply_obs_normalization=False)
+    trained, *_ = prepare_env(task, normalize_obs=True)
     stripped, layers = strip_ajax_wrappers(trained)
     assert stripped is task and strip_ajax_wrappers(task) == (task, {})
     assert layers == {
         "normalize_obs": True,
         "normalize_reward": False,
         "gamma": None,
-        "apply_obs_normalization": False,
     }
     rebuilt = add_ajax_wrappers(stripped, **layers)
     assert list(map(type, wrapper_chain(rebuilt))) == list(

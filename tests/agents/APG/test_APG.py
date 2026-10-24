@@ -528,7 +528,7 @@ def test_the_evaluation_rolls_out_the_training_horizon(monkeypatch):
     length the RMSE divides by."""
     seen = []
 
-    def rollout(agent_state, params, rng, env_args, system_class, horizon, n):
+    def rollout(agent_state, params, rng, env_args, system_class, horizon, n, **_):
         seen.append(horizon)
         return -jnp.full((n,), 4.0 * horizon), None
 

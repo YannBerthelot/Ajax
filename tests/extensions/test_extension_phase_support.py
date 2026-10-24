@@ -3,8 +3,9 @@ fold; an extension needing anything else is refused, naming it."""
 
 import dataclasses
 import importlib
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 import jax.numpy as jnp
 import pytest
@@ -13,7 +14,6 @@ from ajax import PPO, SAC
 from ajax.agents.base import ActorCritic
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import (
-    PHASE_BATCH_KEYS,
     PHASES,
     Extension,
     ExtensionStack,
@@ -23,15 +23,19 @@ from ajax.extensions.capabilities import (
     ALGORITHM_CAPABILITIES,
     MissingCapability,
     NotWired,
-    batch_keys,
     run_capabilities,
 )
 from ajax.extensions.ensemble import KernelRepulsion
 from ajax.extensions.expert import JSRLCurriculum, OnlineBC, ResidualPolicy
+from ajax.extensions.instrumentation import BiasVorePenalty
 from ajax.extensions.pretrain import MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import CriticBlend, MCVarianceCorrection, ValueBox
 
 AGENTS = "APG APO ASAC AVG DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL".split()
+#: The agents a residual policy runs on: their critics score its executed
+#: actions, or their update reads the policy's own (PPO, APO, IQL's actor).
+RESIDUAL = {"SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG"}
+RESIDUAL |= {"PPO", "APO", "IQL", "APG", "UDRL"}
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,9 @@ class EveryPhase(Extension):
     def reward(self, agent_state, ext_state, batch, rewards, ctx):
         return rewards, ext_state, {}
 
+    def observe(self, inputs, state):
+        return jnp.zeros((*inputs.raw_obs.shape[:-1], 0)), state
+
     def on_target(self, agent_state, ext_state, batch, target, ctx):
         return target
 
@@ -91,8 +98,11 @@ class EveryPhase(Extension):
     def eval_action(self, agent_state, ext_state, obs, rng, ctx):
         return None
 
-    def transform_action(self, actions, a_expert):
+    def transform_action(self, actions, inputs):
         return actions
+
+    def actuate(self, actions, inputs):
+        return actions, inputs.expert_state
 
     def post_update(self, agent_state, ext_state, ctx):
         return agent_state, ext_state
@@ -157,6 +167,7 @@ def test_a_module_provides_capabilities_to_its_stack():
         has,
         frozenset(PHASES),
         context=MCPretrain.context,
+        batch_keys=SAC.phase_batch_keys,
     )
 
 
@@ -164,11 +175,42 @@ def test_run_capabilities_follow_the_environment_expert_and_critics():
     caps = run_capabilities(
         {"q_critic", "critic_ensemble"}, continuous=False, has_expert=False
     )
-    assert caps == {"q_critic", "critic_ensemble", "critic", "discrete_actions"}
+    assert caps == {
+        "q_critic",
+        "critic_ensemble",
+        "critic",
+        "scalar_target",
+        "discrete_actions",
+    }
     one = run_capabilities(
         {"v_critic", "critic_ensemble"}, continuous=True, has_expert=True, num_critics=1
     )
-    assert one == {"v_critic", "critic", "continuous_actions", "agent_expert"}
+    assert one == {
+        "v_critic",
+        "critic",
+        "scalar_target",
+        "continuous_actions",
+        "agent_expert",
+    }
+
+
+def test_a_distributional_critic_refuses_what_reads_one_target_per_row():
+    """A critic regressing on quantiles (TQC's) lacks ``scalar_target``, so
+    the extensions that blend its target toward one value, replace it with
+    one, or compare one value with it refuse the agent."""
+    algorithm = {"actor", "q_critic", "critic_ensemble", "discounted"}
+    one = run_capabilities(algorithm, continuous=True, has_expert=True)
+    many = run_capabilities(
+        algorithm | {"distributional_critic"}, continuous=True, has_expert=True
+    )
+    assert "scalar_target" in one and "scalar_target" not in many
+    for module in (
+        CriticBlend(expert_policy=_expert),
+        MCVarianceCorrection(threshold=1.0),
+        BiasVorePenalty(alpha=0.25),
+    ):
+        with pytest.raises(MissingCapability, match="scalar_target"):
+            check_extensions("X", [module], many, frozenset(PHASES))
 
 
 def test_agents_declare_only_known_capabilities():
@@ -178,16 +220,38 @@ def test_agents_declare_only_known_capabilities():
         assert agent.capabilities, name
 
 
-def test_batch_keys_read_the_rows_of_every_agent_and_its_own():
-    assert {"a_expert", "pi_mean"} <= batch_keys("SAC", "actor_loss", PHASE_BATCH_KEYS)
-    assert "critic_state" not in batch_keys("APO", "actor_loss", PHASE_BATCH_KEYS)
-    assert batch_keys("SAC", "no_such_phase", PHASE_BATCH_KEYS) == frozenset()
+@dataclass(frozen=True)
+class GapReader(Extension):
+    """Reads ``gap``, which no agent of Ajax passes, and the common ``rewards``."""
+
+    name: str = "gap-reader"
+    batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
+        "on_target": frozenset({"gap", "rewards"})
+    }
+
+    def on_target(self, agent_state, ext_state, batch, target, ctx):
+        return target + batch["gap"]
+
+
+class GapAgent(LatentAgent):
+    supported_extension_phases = LatentAgent.supported_extension_phases | {"on_target"}
+    phase_batch_keys: Mapping[str, frozenset] = {"on_target": frozenset({"gap"})}
+
+
+def test_an_agent_declares_the_batch_keys_it_passes():
+    """An agent written outside Ajax hands its extensions a key of its own
+    by declaring it; the keys every agent passes need no declaration."""
+    GapAgent(extensions=[GapReader()])
+    undeclared = type("Undeclared", (GapAgent,), {"phase_batch_keys": {}})
+    with pytest.raises(NotWired, match=r"puts no \['gap'\] in its on_target batch"):
+        undeclared(extensions=[GapReader()])
 
 
 def test_agents_accept_only_the_phases_they_fold():
-    """The base accepts none; every agent the loop's, no agent
-    ``eval_action``, only SAC ``action`` (its pipeline's slots) and
-    ``transform_action`` (its residual policy)."""
+    """The base accepts none; every agent the loop's, ``observe`` but where
+    it collects on its own, no agent ``eval_action``, only SAC ``action``
+    (its pipeline's slots), and ``transform_action`` (a residual policy) the
+    agents whose critics score executed actions."""
     assert ActorCritic.supported_extension_phases == frozenset()
     assert EveryPhase().implemented_phases() == frozenset(PHASES)
     # PPO, on policy, lacks what replacing the executed action needs.
@@ -196,9 +260,12 @@ def test_agents_accept_only_the_phases_they_fold():
     for name in AGENTS:
         agent = getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)
         phases = agent.supported_extension_phases
-        assert LOOP_PHASES <= phases and "eval_action" not in phases, name
+        assert LOOP_PHASES - {"observe"} <= phases, name
+        assert "eval_action" not in phases, name
+        own_collector = name in ("APG", "UDRL", "DreamerV3", "TDMPC2")
+        assert ("observe" in phases) != own_collector, name
         assert ("action" in phases) == (name == "SAC"), name
-        assert ("transform_action" in phases) == (name == "SAC"), name
+        assert ("transform_action" in phases) == (name in RESIDUAL), name
 
 
 @dataclass(frozen=True)
@@ -235,17 +302,18 @@ def test_sac_applies_a_residual_policy_only_through_its_pipeline():
     SAC("Pendulum-v1", expert_policy=_expert, extensions=[residual])
 
 
-@pytest.mark.parametrize("name", sorted(set(AGENTS) - {"SAC", "DreamerV3", "TDMPC2"}))
+@pytest.mark.parametrize(
+    "name", sorted(set(AGENTS) - RESIDUAL - {"DreamerV3", "TDMPC2"})
+)
 def test_an_agent_without_a_residual_transform_refuses_a_residual_policy(name):
-    """Only SAC runs ``transform_action``: any other agent would train a
+    """An agent whose update does not score executed actions would train a
     plain policy and report it as residual, so it refuses one, as lacking
-    continuous actions (discrete-action agents) or not wired."""
+    continuous actions (discrete-action agents), an expert, or not wired."""
     module = importlib.import_module(f"ajax.agents.{name}.{name}")
     agent = getattr(module, name)
     env = "CartPole-v1" if name in ("DQN", "PQN", "UDRL") else "Pendulum-v1"
-    kwargs = {"expert_policy": _expert} if name in ("TD3", "REDQ", "APO") else {}
     with pytest.raises(ValueError, match=r"'residual_policy'"):
-        agent(env, extensions=[ResidualPolicy()], **kwargs)
+        agent(env, extensions=[ResidualPolicy()])
 
 
 def test_online_bc_needs_the_agents_expert_policy():
@@ -289,6 +357,7 @@ def test_a_reader_of_phi_star_needs_mc_pretrain(name: str) -> None:
     kwargs: dict[str, Any] = {
         "context": SAC.extension_context,
         "buffer_fields": SAC.supported_buffer_fields,
+        "batch_keys": SAC.phase_batch_keys,
         "agent_expert": _expert,
         "takes_expert_policy": True,
     }

@@ -3,17 +3,15 @@ from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-import optax
 from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
-from ajax.agents.loop import TrainLoop
+from ajax.agents.loop import TrainLoop, actor_step, critic_step, when
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
-    q_values,
-    sample_and_burnin_sequences,
+    sample_replay,
     unsupported_recurrent_options,
 )
 from ajax.agents.SAC import core
@@ -26,19 +24,17 @@ from ajax.agents.SAC.core import (
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.buffers.dataset import TransitionDataset
-from ajax.buffers.utils import get_batch_from_buffer
-from ajax.environments.interaction import augment_obs, reward_statistics
-from ajax.environments.utils import get_state_action_shapes
+from ajax.controller import executed_actions
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import latent
 from ajax.networks.networks import action_value, predict_value
 from ajax.perf_utils import final_aux_scan
+from ajax.schedule import Schedule, at, linear
 from ajax.state import (
     AlphaConfig,
     EnvironmentConfig,
-    LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
     Transition,
@@ -48,12 +44,10 @@ from ajax.types import BufferType
 
 @struct.dataclass
 class PolicyAuxiliaries:
-    raw_loss: jax.Array  # α·log π - Q: pure SAC gradient
-    policy_loss: jax.Array  # raw_loss + the actor-loss extensions' terms
+    policy_loss: jax.Array  # α·log π - Q, before the extensions' terms
     log_pi: jax.Array  # entropy proxy; tracks target_entropy
     policy_std: jax.Array  # mean unsquashed std; lower = more deterministic
     q_min: jax.Array  # Q(s, π(s)): what policy optimises
-    bc_term: jax.Array  # actor-loss extensions' terms (OnlineBC's: 0 after warmup)
     # Before clipping; the loss builds these metrics before the gradient
     # exists, update_policy fills it in.
     grad_norm: jax.Array | float = jnp.nan
@@ -87,32 +81,14 @@ def init_SAC(
     window_size: int = 10,
     stored_state: bool = False,
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
-    max_timesteps: Optional[int] = None,
     num_critics: int = 2,
     expert_buffer_n_steps: int = 20_000,
-    augment_obs_with_expert_action: bool = False,
-    augment_obs_with_expert_state: bool = False,
-    expert_state_aug_dim: int = 0,
-    action_dim_override: Optional[int] = None,
     count_episode_steps: bool = False,
     store_raw_next_obs: bool = False,
     store_expert_data: bool = False,
     store_return_to_go: bool = False,
 ) -> SACState:
     rng, init_key, collector_key, expert_key, eval_rng = jax.random.split(key, 5)
-
-    # When augment_obs_with_expert_action=True, the actor and critic receive
-    # obs augmented with a_expert at runtime (action_dim extra dimensions).
-    # When augment_obs_with_expert_state=True, the obs is also augmented
-    # with the flattened expert internal state (expert_state_aug_dim
-    # extra dimensions). We must initialise the networks with the
-    # matching inflated input size.
-    extra_obs_dim = 0
-    if augment_obs_with_expert_action:
-        _, action_shape = get_state_action_shapes(env_args.env)
-        extra_obs_dim += action_shape[0]
-    if augment_obs_with_expert_state and expert_state_aug_dim > 0:
-        extra_obs_dim += expert_state_aug_dim
 
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
         init_key,
@@ -125,17 +101,7 @@ def init_SAC(
         num_critics=num_critics,
         window_size=window_size,
         stored_state=stored_state,
-        network_extras={
-            "max_timesteps": max_timesteps,
-            "extra_obs_dim": extra_obs_dim,
-            "action_dim_override": action_dim_override,
-        },
         collector_extras={
-            "max_timesteps": max_timesteps,
-            "action_dim_override": action_dim_override,
-            "expert_state_aug_dim": (
-                expert_state_aug_dim if augment_obs_with_expert_state else 0
-            ),
             "expert_policy": expert_policy,
             "include_raw_next_obs": store_raw_next_obs,
             "include_return_to_go": store_return_to_go,
@@ -157,8 +123,6 @@ def init_SAC(
                 buffer_state=collector_state.buffer_state,
                 rng=expert_key,
                 n_steps=expert_buffer_n_steps,
-                augment_obs_with_expert_state=augment_obs_with_expert_state,
-                with_train_frac=max_timesteps is not None,
             )
         )
 
@@ -181,228 +145,86 @@ def init_SAC(
 
 def update_value_functions(
     agent_state: SACState,
-    observations: jax.Array,
-    actions: jax.Array,
-    next_observations: jax.Array,
-    dones: jax.Array,
+    transition: Transition,
     recurrent: bool,
-    rewards: jax.Array,
     gamma: float,
     extension_stack: ExtensionStack,
     reward_scale: float = 1.0,
     total_timesteps: int = 1,
     next_action_transform: Optional[Callable] = None,
-    next_a_expert: Optional[jax.Array] = None,
     carries: Optional[RecurrentCarries] = None,
-    raw_next_observations: Optional[jax.Array] = None,
-    stored_next_a_expert: Optional[jax.Array] = None,
-    return_to_go: Optional[jax.Array] = None,
 ) -> Tuple[SACState, ValueAuxiliaries, dict]:
-    # A third key for the extensions: split(k, 3)[:2] is split(k) under JAX's
-    # default partitionable threefry, so the agent's own draws are unchanged.
-    value_loss_key, rng, ext_key = jax.random.split(agent_state.rng, 3)
-    target_key, loss_key = jax.random.split(ext_key)
-    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
-    target_metrics: dict = {}
-
-    # 1. Core Bellman target (pure SAC). Pass next_action_transform so
-    # residual RL evaluates the bootstrap critic at the same residual-
-    # transformed action distribution the critic was trained on.
+    """The critic step on SAC's soft target. ``next_action_transform``
+    (residual RL) evaluates the bootstrap at the transformed next action,
+    from the expert's stored action at s', so the critic is queried where
+    it was trained."""
+    agent_state, key = agent_state.next_keys()
+    # A truncated row bootstraps on its final observation (bootstrap_obs).
+    dones = transition.terminated
     target_q = core.compute_td_target(
         actor_state=agent_state.actor_state,
         critic_state=agent_state.critic_state,
-        next_observations=next_observations,
+        next_observations=transition.next_obs,
         dones=dones,
-        rewards=rewards,
+        rewards=transition.reward,
         gamma=gamma,
-        alpha=alpha,
-        rng=value_loss_key,
+        alpha=jnp.exp(agent_state.alpha.params["log_alpha"]),
+        rng=key,
         recurrent=recurrent,
         reward_scale=reward_scale,
         next_action_transform=next_action_transform,
-        next_a_expert=next_a_expert,
+        next_a_expert=(
+            transition.next_a_expert if next_action_transform is not None else None
+        ),
         carries=carries,
     )
-
-    # 2. The extensions' target modifiers (IBRL, LCBGatedBootstrap,
-    # CriticBlend, MCVarianceCorrection, ...) fold in stack order. They get
-    # the critic's predictions (``q_preds``: MCVarianceCorrection's
-    # variance) from a pass of their own: the target comes before the
-    # gradient-bearing pass inside critic_loss_fn.
+    # The target extensions (MCVarianceCorrection's variance) read the
+    # critics' predictions, from a pass of their own: the target comes
+    # before the gradient-bearing pass.
+    q_preds = None
     if "on_target" in extension_stack.implemented_phases():
-        q_preds_for_var = predict_value(
+        q_preds = predict_value(
             critic_state=agent_state.critic_state,
             critic_params=agent_state.critic_state.params,
-            x=jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1),
+            x=jnp.concatenate(
+                (transition.obs, jax.lax.stop_gradient(transition.action)), axis=-1
+            ),
         )
-        batch = {
-            "observations": observations,
-            "actions": actions,
-            "next_observations": next_observations,
-            "rewards": rewards,
-            "reward_scale": reward_scale,
-            "dones": dones,
-            # The target's own key: IBRL and LCBGatedBootstrap redraw its
-            # next-action sample.
-            "rng_key": value_loss_key,
-            "q_preds": q_preds_for_var,
-            "gamma": gamma,
-            "raw_next_observations": raw_next_observations,
-            # The agent's expert's actions at s', from its state.
-            "next_a_expert": stored_next_a_expert,
-            "recurrent": recurrent,
-        }
-        target_q, target_metrics = extension_stack.fold_on_target(
-            agent_state,
-            batch,
+
+    def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
+        return core.critic_loss_fn(
+            params,
+            agent_state.critic_state,
+            transition.obs,
+            transition.action,
             target_q,
-            agent_state.collector_state.timestep,
-            target_key,
-            total_timesteps,
+            carries=carries,
         )
 
-    # 3. Core critic loss (MSE against the composed target) plus the
-    #    extensions' critic-loss terms, inside the same value_and_grad so
-    #    the one Adam step sees the combined gradient.
-    critic_state = agent_state.critic_state
-
-    def _critic_loss(params):
-        loss, core_aux = core.critic_loss_fn(
-            params, critic_state, observations, actions, target_q, carries=carries
-        )
-        loss_batch = {
-            "observations": observations,
-            "actions": actions,
-            "next_observations": next_observations,
-            "targets": target_q,
-            "critic_params": params,
-            "critic_state": critic_state,
-            "actor_state": agent_state.actor_state,
-            "return_to_go": return_to_go,
-        }
-        extra, metrics = extension_stack.fold_critic_loss(
-            agent_state,
-            loss_batch,
-            agent_state.collector_state.timestep,
-            loss_key,
-            total_timesteps,
-        )
-        return loss + extra, (core_aux, metrics)
-
-    (loss, (core_aux, loss_metrics)), grads = jax.value_and_grad(
-        _critic_loss, has_aux=True
-    )(critic_state.params)
-
+    critic_state, core_aux, grad_norm, metrics = critic_step(
+        agent_state,
+        transition,
+        target_q,
+        value_loss,
+        extension_stack,
+        key,
+        total_timesteps,
+        rewards=transition.reward,
+        dones=dones,
+        gamma=gamma,
+        reward_scale=reward_scale,
+        # The target's key (IBRL and LCBGatedBootstrap redraw its
+        # next-action sample), the critics' predictions and the memory flag.
+        target_extras={"rng_key": key, "q_preds": q_preds, "recurrent": recurrent},
+    )
     aux = ValueAuxiliaries(
         critic_loss=core_aux.critic_loss,
         q_pred_min=core_aux.q_pred_min,
         var_preds=core_aux.var_preds,
         expert_frac_in_buffer=jnp.zeros(1),
-        grad_norm=optax.global_norm(grads),
+        grad_norm=grad_norm,
     )
-
-    updated_critic_state = agent_state.critic_state.apply_gradients(grads=grads)
-    metrics = merge_metrics(target_metrics, loss_metrics)
-    return agent_state.replace(rng=rng, critic_state=updated_critic_state), aux, metrics
-
-
-def policy_loss_function(
-    actor_params: FrozenDict,
-    actor_state: LoadedTrainState,
-    critic_states: LoadedTrainState,
-    observations: jax.Array,
-    alpha: jax.Array,
-    rng: jax.Array,
-    extension_stack: ExtensionStack,
-    raw_observations: Optional[jax.Array] = None,
-    expert_policy: Optional[Callable] = None,
-    a_expert_precomputed: Optional[jax.Array] = None,
-    policy_action_transform: Optional[Callable] = None,
-    carries: Optional[RecurrentCarries] = None,
-    agent_state: Any = None,
-    total_timesteps: int = 1,
-    replay_actions: Optional[jax.Array] = None,
-) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, dict]]:
-    """SAC actor loss with composable expert modifiers; ``replay_actions``,
-    the rows' own actions, reach the extensions as ``actions``."""
-    _raw_obs = (
-        raw_observations if raw_observations is not None else observations[..., :-1]
-    )
-
-    # 1. Core forward pass + sample (``carries`` for sequence replay).
-    pi = actor_dist(actor_state, actor_params, observations, carries)
-    sample_key, rng = jax.random.split(rng)
-    actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
-    log_probs = log_probs.sum(-1, keepdims=True)
-
-    policy_std = latent(pi).stddev().mean()
-
-    # 2. Action transform modifier (residual RL)
-    q_input_actions = (
-        policy_action_transform(actions, _raw_obs, a_expert_precomputed)
-        if policy_action_transform is not None
-        else actions
-    )
-
-    # Core Q evaluation and SAC loss. In recurrent mode the fresh actions
-    # are queried at the critic's head, its memory reading the actions
-    # taken; gradients flow to the actor through the actions.
-    q_preds = q_values(
-        critic_states, critic_states.params, observations, q_input_actions, carries
-    )
-    q_min = jnp.min(q_preds, axis=0)
-    loss_actor = alpha * log_probs - q_min
-
-    # 3. The actor-loss extensions' terms, which get the expert's action as
-    # collection stored it, from the expert's tracked state (the clone
-    # target of OnlineBC and ImitationLoss), and the critic (the Q-filter's).
-    needs_expert = (
-        "actor_loss" in extension_stack.implemented_phases()
-        and expert_policy is not None
-    )
-    if needs_expert:
-        assert expert_policy is not None
-        a_expert = (
-            a_expert_precomputed
-            if a_expert_precomputed is not None
-            else jax.lax.stop_gradient(expert_policy(_raw_obs))
-        )
-    else:
-        a_expert = None
-
-    ext_batch = {
-        "observations": observations,
-        # The replay keeps them only for a run with an expert: None
-        # without one, never the observations passed off as raw.
-        "raw_observations": raw_observations,
-        "pi_mean": pi.mean(),
-        "actor_params": actor_params,
-        "actor_state": actor_state,
-        "a_expert": a_expert,
-        "actions": replay_actions,
-        "critic_state": critic_states,
-        "agent_loss": loss_actor.mean(),
-    }
-    bc_term, metrics = extension_stack.fold_actor_loss(
-        agent_state,
-        ext_batch,
-        agent_state.collector_state.timestep,
-        rng,
-        total_timesteps,
-    )
-    bc_term = jnp.asarray(bc_term)
-
-    total_loss = loss_actor.mean() + bc_term
-
-    aux = PolicyAuxiliaries(
-        policy_loss=total_loss,
-        log_pi=log_probs.mean(),
-        policy_std=policy_std,
-        q_min=q_min.mean(),
-        raw_loss=loss_actor.mean(),
-        bc_term=bc_term,
-    )
-    return total_loss, (aux, metrics)
+    return agent_state.replace(critic_state=critic_state), aux, metrics
 
 
 def update_policy(
@@ -417,43 +239,72 @@ def update_policy(
     carries: Optional[RecurrentCarries] = None,
     replay_actions: Optional[jax.Array] = None,
 ) -> Tuple[SACState, PolicyAuxiliaries, jax.Array, dict]:
-    """Returns (new_state, aux, log_probs, metrics): log_probs from a fresh
-    pass of the updated actor, for update_temperature (CleanRL's SAC order;
-    cited from memory, unverified), and the extensions' metrics."""
-    rng, policy_key = jax.random.split(agent_state.rng)
+    """The actor step on SAC's soft policy loss (core.soft_policy_loss),
+    the critics scoring ``policy_action_transform``'s executed actions with
+    a residual policy. Returns the state, ``aux``, the log-probs of a fresh
+    sample of the stepped actor for update_temperature (CleanRL's SAC order;
+    cited from memory, unverified) and the extensions' metrics."""
+    agent_state, key, sample_key = agent_state.next_keys(2)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    # The env's own observations, what the expert reads (a run with an
+    # expert stores them).
+    raw = raw_observations
+    transform = None
+    if policy_action_transform is not None:
 
-    (loss, (aux, metrics)), grads = jax.value_and_grad(
-        policy_loss_function, has_aux=True, argnums=0
-    )(
-        agent_state.actor_state.params,
-        agent_state.actor_state,
-        agent_state.critic_state,
-        observations,
-        alpha,
-        policy_key,
+        def transform(actions: jax.Array) -> jax.Array:
+            return policy_action_transform(actions, raw, a_expert_precomputed)
+
+    # The actor-loss extensions get the expert's action as collection stored
+    # it, from its tracked state (the clone target of OnlineBC and
+    # ImitationLoss).
+    a_expert = None
+    if (
+        expert_policy is not None
+        and "actor_loss" in extension_stack.implemented_phases()
+    ):
+        a_expert = a_expert_precomputed
+        if a_expert is None:
+            a_expert = jax.lax.stop_gradient(expert_policy(raw))
+
+    def policy_loss(params: FrozenDict) -> Tuple[jax.Array, Any, jax.Array]:
+        loss, (log_probs, q, pi) = core.soft_policy_loss(
+            params,
+            agent_state.actor_state,
+            agent_state.critic_state,
+            observations,
+            alpha,
+            key,
+            carries,
+            action_transform=transform,
+        )
+        aux = PolicyAuxiliaries(
+            policy_loss=loss,
+            log_pi=log_probs.mean(),
+            policy_std=latent(pi).stddev().mean(),
+            q_min=q.mean(),
+        )
+        return loss, aux, pi.mean()
+
+    actor_state, aux, grad_norm, metrics = actor_step(
+        agent_state,
+        policy_loss,
+        extension_stack,
+        key,
+        total_timesteps,
+        observations=observations,
+        # The replay keeps them only for a run with an expert: None
+        # without one, never the observations passed off as raw.
         raw_observations=raw_observations,
-        expert_policy=expert_policy,
-        a_expert_precomputed=a_expert_precomputed,
-        policy_action_transform=policy_action_transform,
-        carries=carries,
-        extension_stack=extension_stack,
-        agent_state=agent_state,
-        total_timesteps=total_timesteps,
-        replay_actions=replay_actions,
+        a_expert=a_expert,
+        actions=replay_actions,
+        critic_state=agent_state.critic_state,
     )
-
-    updated_actor_state = agent_state.actor_state.apply_gradients(grads=grads)
-    aux = aux.replace(grad_norm=optax.global_norm(grads))
-
-    temp_rng, temp_sample_key = jax.random.split(rng)
-    pi = actor_dist(
-        updated_actor_state, updated_actor_state.params, observations, carries
-    )
-    _, log_probs = pi.sample_and_log_prob(seed=temp_sample_key)
+    pi = actor_dist(actor_state, actor_state.params, observations, carries)
+    _, log_probs = pi.sample_and_log_prob(seed=sample_key)
     return (
-        agent_state.replace(rng=temp_rng, actor_state=updated_actor_state),
-        aux,
+        agent_state.replace(actor_state=actor_state),
+        aux.replace(grad_norm=grad_norm),
         jax.lax.stop_gradient(log_probs),
         metrics,
     )
@@ -464,7 +315,7 @@ def update_agent(
     buffer: BufferType,
     recurrent: bool,
     gamma: float,
-    target_entropy: float,
+    target_entropy: Schedule,
     tau: float,
     extension_stack: ExtensionStack,
     num_critic_updates: int = 1,
@@ -473,82 +324,22 @@ def update_agent(
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
     fixed_alpha: bool = False,
-    augment_obs_with_expert_action: bool = False,
     total_timesteps: int = 1,
-    target_entropy_initial: Optional[float] = None,
-    target_entropy_ramp_frac: float = 0.5,
     policy_action_transform: Optional[Callable] = None,
     burn_in: int = 8,
     stored_state: bool = False,
 ) -> Tuple[SACState, AuxiliaryLogs]:
-    # Three keys: the second once drew a batch mixed into this one from the
-    # same buffer; splitting three keeps the agent's key stream unchanged.
-    sample_key, _, rng = jax.random.split(agent_state.rng, 3)
-    agent_state = agent_state.replace(rng=rng)
-
-    carries = None
-    if recurrent:
-        # Sequence replay with burned-in carries (R2D2-style); expert
-        # features are rejected upstream in make_train, so the expert
-        # blocks below are all trace-time no-ops.
-        transition, carries = sample_and_burnin_sequences(
-            agent_state, buffer, sample_key, burn_in, stored_state=stored_state
-        )
-        expert_frac_in_buffer = jnp.zeros(())
-        raw_next_observations = None
-    else:
-        collector = agent_state.collector_state
-        batch = get_batch_from_buffer(
-            buffer,
-            collector.buffer_state,
-            sample_key,
-            reward_statistics(collector.env_state),
-        )
-        # No expert, no stored flags: none acted.
-        expert_frac_in_buffer = (
-            jnp.zeros(()) if batch.is_expert is None else batch.is_expert.mean()
-        )
-        # The raw next observations, kept for extensions that call an
-        # expert of their own (init_SAC's store_raw_next_obs).
-        raw_next_observations = batch.raw_next_obs
-        # The expert's actions are stored with an expert policy
-        # (the collector stores them with an expert), None without one.
-        transition = Transition(
-            batch.obs,
-            batch.action,
-            batch.reward,
-            batch.terminated,
-            batch.truncated,
-            batch.next_obs,
-            raw_obs=batch.raw_obs,
-            a_expert=batch.a_expert,
-            next_a_expert=batch.next_a_expert,
-            return_to_go=batch.return_to_go,
-        )
-
-    # A truncated row bootstraps on its final observation (bootstrap_obs).
-    dones = transition.terminated
-    # The env observations without train_frac, which is what expert_policy
-    # expects.
-    _raw = (
-        transition.raw_obs
-        if transition.raw_obs is not None
-        else transition.obs[..., :-1]
+    agent_state, sample_key = agent_state.next_keys()
+    # Sequence replay burns the carries in (R2D2-style); expert features are
+    # rejected with memory upstream (make_train), so the expert blocks below
+    # are trace-time no-ops there.
+    transition, carries = sample_replay(
+        agent_state, buffer, sample_key, recurrent, burn_in, stored_state
     )
-
-    # --- Obs augmentation (interaction.augment_obs's layout) ---
-    # Must happen before any network call (critic, actor, policy loss).
-    # The expert's actions as collection computed them, on the raw
-    # observations (an expert is defined in the environment's units) and
-    # from the expert's state, which the update does not have: a_expert at
-    # s, next_a_expert at s' (the final observation where an episode ended,
-    # from the expert's post-step state).
-    if augment_obs_with_expert_action and expert_policy is not None:
-        aug_obs = augment_obs(transition.obs, expert_action=transition.a_expert)
-        aug_next_obs = augment_obs(
-            transition.next_obs, expert_action=transition.next_a_expert
-        )
-        transition = transition.replace(obs=aug_obs, next_obs=aug_next_obs)
+    # The share of the rows an expert acted in (no stored flags: none).
+    expert_frac_in_buffer = (
+        jnp.zeros(()) if transition.is_expert is None else transition.is_expert.mean()
+    )
 
     a_expert_precomputed = None
     # The actor-loss extensions (OnlineBC) take the expert action from
@@ -566,40 +357,24 @@ def update_agent(
         if transition.a_expert is not None:
             a_expert_precomputed = jax.lax.stop_gradient(transition.a_expert)
         else:
-            a_expert_precomputed = jax.lax.stop_gradient(expert_policy(_raw))
-
-    # --- Critic updates ---
-    # For residual RL: apply the same residual transform to the
-    # bootstrap action in the TD target so the critic is queried in-
-    # distribution. policy_action_transform expects a_expert at s_t,
-    # but at the target it must use a_expert at s_{t+1} = next_a_expert.
-    _next_a_expert_for_target = (
-        transition.next_a_expert
-        if transition.next_a_expert is not None and policy_action_transform is not None
-        else None
-    )
+            # The env's own observations, which a run with an expert stores.
+            a_expert_precomputed = jax.lax.stop_gradient(
+                expert_policy(transition.raw_obs)
+            )
 
     # See ajax.perf_utils.final_aux_scan: carry-only scan that exposes
     # last-step aux without materialising the full ys axis.
     def critic_update_step(state, _):
         state, aux, metrics = update_value_functions(
-            observations=transition.obs,
-            actions=transition.action,
-            next_observations=transition.next_obs,
-            rewards=transition.reward,
-            dones=dones,
-            agent_state=state,
-            recurrent=recurrent,
-            gamma=gamma,
+            state,
+            transition,
+            recurrent,
+            gamma,
+            extension_stack,
             reward_scale=reward_scale,
-            extension_stack=extension_stack,
             total_timesteps=total_timesteps,
             next_action_transform=policy_action_transform,
-            next_a_expert=_next_a_expert_for_target,
             carries=carries,
-            raw_next_observations=raw_next_observations,
-            stored_next_a_expert=transition.next_a_expert,
-            return_to_go=transition.return_to_go,
         )
         return state, (aux, metrics)
 
@@ -621,47 +396,21 @@ def update_agent(
         carries=carries,
         replay_actions=transition.action,
     )
-    agent_state = jax.lax.cond(
-        agent_state.collector_state.timestep >= policy_update_start,
-        lambda: new_agent_state,
-        lambda: agent_state,
+    # The policy step is computed from the start, its log-probs feeding the
+    # temperature step, and kept from policy_update_start.
+    timestep = agent_state.collector_state.timestep
+    agent_state = when(
+        timestep >= policy_update_start, lambda _: new_agent_state, agent_state
     )
 
-    if target_entropy_initial is not None:
-        # Time-based ramp from `target_entropy_initial` (low, near
-        # -dim*1) to `target_entropy` over the first
-        # `target_entropy_ramp_frac` of training. Stays at the standard
-        # target after the ramp completes. Used to keep alpha low at
-        # the start of training so the (BC-warmed) policy mean rolls
-        # out near-deterministically and the agent stays alive on
-        # brittle envs; exploration grows as the policy learns.
-        ramp_horizon = jnp.maximum(
-            target_entropy_ramp_frac * jnp.asarray(total_timesteps, jnp.float32),
-            1.0,
-        )
-        progress = jnp.clip(
-            agent_state.collector_state.timestep / ramp_horizon, 0.0, 1.0
-        )
-        effective_target_entropy = (
-            1.0 - progress
-        ) * target_entropy_initial + progress * target_entropy
-    else:
-        effective_target_entropy = jnp.asarray(target_entropy)
-
-    # ``fixed_alpha`` keeps alpha pinned at ``alpha_init`` for the whole run
-    # (the temperature loss is still computed for its logged auxiliaries,
-    # only the gradient step is dropped).
+    # The temperature loss is computed for its logged auxiliaries; its step
+    # is kept from alpha_update_start, never with ``fixed_alpha`` (alpha stays
+    # at ``alpha_init``).
     new_agent_state_temp, aux_temperature = update_temperature(
-        agent_state, policy_log_probs, effective_target_entropy
+        agent_state, policy_log_probs, jnp.asarray(at(target_entropy, timestep))
     )
-    agent_state = jax.lax.cond(
-        jnp.logical_and(
-            not fixed_alpha,
-            agent_state.collector_state.timestep >= alpha_update_start,
-        ),
-        lambda: new_agent_state_temp,
-        lambda: agent_state,
-    )
+    alpha_ready = jnp.logical_and(not fixed_alpha, timestep >= alpha_update_start)
+    agent_state = when(alpha_ready, lambda _: new_agent_state_temp, agent_state)
 
     agent_state = update_target_networks(agent_state, tau=tau)
 
@@ -694,23 +443,12 @@ def make_train(
     num_critics: int = 2,
     expert_buffer_n_steps: int = 20_000,
     num_critic_updates: int = 1,
-    # Expert obs augmentation: changes init_SAC / collect_experience
-    # network input dim.
-    augment_obs_with_expert_action: bool = False,
-    # Train-fraction conditioning: append timestep/total_timesteps to obs
-    use_train_frac: bool = False,
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
     expert_fraction: float = 0.7,
     target_entropy_initial: Optional[float] = None,
     target_entropy_ramp_frac: float = 0.5,
-    augment_obs_with_expert_state: bool = False,
-    expert_state_aug_dim: int = 0,
     store_policy_action: bool = False,
-    # PID policy: execute expert action directly (no actor used for env interaction)
-    use_pid_policy: bool = False,
-    # Gain-policy mode: actor output dim = len(expert.learnable_fields)
-    action_dim_override: Optional[int] = None,
     offline_data: Optional[TransitionDataset] = None,
     extensions: Sequence = (),
 ):
@@ -740,17 +478,11 @@ def make_train(
         "buffer": buffer,
         "gamma": agent_config.gamma,
         "reward_scale": agent_config.reward_scale,
-        "use_train_frac": use_train_frac,
-        "augment_obs_with_expert_action": augment_obs_with_expert_action,
-        "expert_state_aug_dim": (
-            expert_state_aug_dim if augment_obs_with_expert_state else 0
-        ),
         "extensions": tuple(extensions),
         "expert_policy": expert_policy,
         "recurrent": recurrent,
         "update_value_fn": update_value_functions,
         "update_target_fn": update_target_networks,
-        "augment_obs_with_expert_state": augment_obs_with_expert_state,
     }
     stack = ExtensionStack(extensions).bind_to_agent(**agent_context)
     if recurrent:
@@ -786,15 +518,10 @@ def make_train(
             alpha_args=alpha_args,
             buffer=buffer,
             expert_policy=expert_policy,
-            max_timesteps=total_timesteps if use_train_frac else None,
             num_critics=num_critics,
             expert_buffer_n_steps=(
                 expert_buffer_n_steps if expert_policy is not None else 0
             ),
-            augment_obs_with_expert_action=augment_obs_with_expert_action,
-            augment_obs_with_expert_state=augment_obs_with_expert_state,
-            expert_state_aug_dim=expert_state_aug_dim,
-            action_dim_override=action_dim_override,
             count_episode_steps=any(e.reads_step_in_episode for e in stack),
             # Kept only for an extension that declares it reads it.
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),
@@ -802,27 +529,37 @@ def make_train(
             store_return_to_go="return_to_go" in stack.buffer_fields(),
         )
 
-    # An extension implementing ``transform_action`` (ResidualPolicy) makes
-    # the executed action residual: in collection (the action pipeline),
-    # the actor loss and TD target ``(actions, raw_obs, a_expert) ->
-    # actions``, and evaluation; ``None`` ⇒ pure SAC. Gain mode
-    # (``use_pid_policy``, which rejects a residual policy) handles its own
-    # eval transform in ``step_environment``.
+    # A residual policy (``transform_action``) makes the executed action
+    # residual: in collection (the action pipeline), the actor loss and TD
+    # target (the critics score executed actions) and evaluation (the loop's
+    # controller). Gain mode (``actuate``) acts through the default
+    # pipeline, which the shared collector actuates.
     residual: Any = next(
         (
-            e
-            for e in loop.stack.extensions
-            if "transform_action" in e.implemented_phases()
+            t
+            for t in env_args.transforms
+            if "transform_action" in t.implemented_phases()
         ),
         None,
     )
-    policy_action_transform = (
-        residual.build_policy_transform(expert_policy) if residual else None
-    )
-    eval_action_transform = (
-        None
-        if (use_pid_policy or residual is None)
-        else residual.build_eval_transform()
+    policy_action_transform = None
+    if residual is not None:
+
+        def policy_action_transform(actions, raw_obs, a_expert):
+            del raw_obs
+            return executed_actions(env_args, actions, a_expert)
+
+    # A ramp from target_entropy_initial (low: a BC-warmed policy mean rolls
+    # out near-deterministically and stays alive on brittle envs) to the
+    # standard target over the first target_entropy_ramp_frac of training.
+    target_entropy: Schedule = (
+        agent_config.target_entropy
+        if target_entropy_initial is None
+        else linear(
+            target_entropy_initial,
+            agent_config.target_entropy,
+            target_entropy_ramp_frac * total_timesteps,
+        )
     )
 
     def update(agent_state: SACState, _transition: Transition) -> Any:
@@ -832,7 +569,7 @@ def make_train(
             buffer=buffer,
             recurrent=recurrent,
             gamma=agent_config.gamma,
-            target_entropy=agent_config.target_entropy,
+            target_entropy=target_entropy,
             tau=agent_config.tau,
             reward_scale=agent_config.reward_scale,
             expert_policy=expert_policy,
@@ -840,10 +577,7 @@ def make_train(
             alpha_update_start=alpha_update_start,
             fixed_alpha=fixed_alpha,
             num_critic_updates=num_critic_updates,
-            augment_obs_with_expert_action=augment_obs_with_expert_action,
             total_timesteps=total_timesteps,
-            target_entropy_initial=target_entropy_initial,
-            target_entropy_ramp_frac=target_entropy_ramp_frac,
             extension_stack=loop.stack,
             policy_action_transform=policy_action_transform,
             burn_in=agent_config.burn_in,
@@ -854,15 +588,14 @@ def make_train(
     # ``is_expert_flag``, ``buffer_action``, expert-state threading) and
     # the gain-policy short-circuit; the EDGE / ValueBox / JSRL gates run
     # through the extension stack.
+    gain_mode = env_args.policy_action_dim is not None
     action_pipeline = make_action_pipeline(
-        expert_policy=expert_policy,
+        expert_policy=None if gain_mode else expert_policy,
         recurrent=recurrent,
         env_args=env_args,
         extension_stack=loop.stack,
         expert_fraction=expert_fraction,
         residual=residual,
-        use_pid_policy=use_pid_policy,
-        augment_obs_with_expert_action=augment_obs_with_expert_action,
         store_policy_action=store_policy_action,
         total_timesteps=total_timesteps,
     )
@@ -879,15 +612,11 @@ def make_train(
         eval_kwargs={
             # Evaluate only in the last 20% of training (HPO phases).
             "sweep": logging_config is not None and logging_config.sweep,
-            # The training expert builds the actor's input (augmentation,
-            # the residual's base, PID gains); eval_expert_policy, when
+            # The training expert feeds the observation features, the
+            # residual's base and the PID gains; eval_expert_policy, when
             # given, only the expert's baseline return.
             "expert_policy": expert_policy,
             "eval_expert_policy": eval_expert_policy,
-            "eval_action_transform": eval_action_transform,
-            "pid_gain_policy": use_pid_policy,
-            "augment_obs_with_expert_action": augment_obs_with_expert_action,
-            "augment_obs_with_expert_state": augment_obs_with_expert_state,
             "value_estimate": ValueEstimate(
                 action_value, agent_config.gamma, agent_config.reward_scale
             ),

@@ -20,7 +20,6 @@ Differences from the SAC/TD3 template in this codebase:
     one mechanism, no boolean flag.
 """
 
-import functools
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple
 
@@ -36,11 +35,12 @@ from ajax.agents.DQN.networks import (
     q_network_value,
 )
 from ajax.agents.DQN.state import DQNConfig, DQNState
-from ajax.agents.loop import TrainLoop, gradient_step
+from ajax.agents.loop import TrainLoop, extension_key, gradient_step, when
 from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
-    ActionPipelineResult,
+    Explore,
+    explore_pipeline,
     init_collector_state,
     reward_statistics,
 )
@@ -49,6 +49,7 @@ from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.perf_utils import final_aux_scan
+from ajax.schedule import Schedule, at, linear
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -83,85 +84,20 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-def linear_epsilon(
-    timestep: jax.Array | int,
-    total_timesteps: int,
-    epsilon_start: float,
-    epsilon_end: float,
-    epsilon_decay_frac: float,
-) -> jax.Array:
-    """Epsilon at ``timestep``: linear from ``epsilon_start`` to
-    ``epsilon_end`` over the first ``epsilon_decay_frac`` of the
-    ``total_timesteps`` horizon, then flat."""
-    train_frac = timestep / total_timesteps
-    decay = jnp.clip(train_frac / epsilon_decay_frac, 0.0, 1.0)
-    return epsilon_start + decay * (epsilon_end - epsilon_start)
+def epsilon_greedy(epsilon: Schedule, n_actions: int) -> Explore:
+    """DQN's behaviour policy: with probability ``epsilon`` (a schedule of
+    the timestep) a uniform action, else the greedy one."""
 
-
-def make_epsilon_greedy_pipeline(
-    n_actions: int,
-    epsilon_start: float,
-    epsilon_end: float,
-    epsilon_decay_frac: float,
-    total_timesteps: int,
-    steps_per_update: Optional[int] = None,
-) -> Callable:
-    """Build the default DQN ``action_pipeline``: linear-decay epsilon-greedy.
-
-    Epsilon follows :func:`linear_epsilon` over the ``total_timesteps``
-    horizon, at the collector's timestep, or with ``steps_per_update`` once
-    per update, at ``n_updates * steps_per_update`` (PQN's reference reads
-    it so). During the ``learning_starts`` warmup (``uniform`` is set)
-    actions are fully random regardless of epsilon.
-    """
-
-    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
-        del raw_obs, mix_key
-        obs = agent_state.collector_state.last_obs
-        q_values = predict_q(
-            agent_state.actor_state, agent_state.actor_state.params, obs
-        )
-        greedy_action = jnp.argmax(q_values, axis=-1).astype(jnp.int32)
-
-        timestep = (
-            agent_state.collector_state.timestep
-            if steps_per_update is None
-            else agent_state.n_updates * steps_per_update
-        )
-        epsilon = linear_epsilon(
-            timestep,
-            total_timesteps,
-            epsilon_start,
-            epsilon_end,
-            epsilon_decay_frac,
-        )
-
-        explore_key, random_key = jax.random.split(action_key)
+    def explore(pi: Any, key: jax.Array, step: jax.Array) -> jax.Array:
+        greedy_action = pi.mode()  # argmax_a Q(s, a)
+        explore_key, random_key = jax.random.split(key)
         random_action = jax.random.randint(
             random_key, shape=greedy_action.shape, minval=0, maxval=n_actions
         ).astype(jnp.int32)
-        explore = jax.random.uniform(explore_key, shape=greedy_action.shape) < epsilon
-        eps_greedy_action = jnp.where(explore, random_action, greedy_action)
+        explore = jax.random.uniform(explore_key, shape=greedy_action.shape)
+        return jnp.where(explore < at(epsilon, step), random_action, greedy_action)
 
-        env_action = jax.lax.cond(
-            uniform, lambda: random_action, lambda: eps_greedy_action
-        )
-        # The env expects (n_envs,) integer actions; the buffer schema
-        # stores discrete actions as (n_envs, 1).
-        buffer_action = env_action[:, None]
-        n_envs = greedy_action.shape[0]
-        return ActionPipelineResult(
-            env_action=env_action,
-            policy_action=buffer_action,
-            log_probs=jnp.zeros((n_envs, 1), dtype=jnp.float32),
-            is_expert_flag=jnp.zeros((n_envs, 1), dtype=jnp.float32),
-            in_value_box=jnp.zeros((n_envs, 1), dtype=jnp.float32),
-            entry_bonus=jnp.zeros((n_envs, 1), dtype=jnp.float32),
-            rng=rng,
-            buffer_action=buffer_action,
-        )
-
-    return pipeline
+    return explore
 
 
 def init_DQN(
@@ -379,9 +315,7 @@ def update_agent(
     """One gradient step on a replay batch, and the target network's
     update every ``target_update_interval`` steps; also logs
     ``epsilon_schedule`` at the collector's timestep."""
-    sample_key, rng = jax.random.split(agent_state.rng)
-    agent_state = agent_state.replace(rng=rng)
-
+    agent_state, sample_key = agent_state.next_keys()
     collector = agent_state.collector_state
     batch = get_batch_from_buffer(
         buffer,
@@ -404,30 +338,25 @@ def update_agent(
     )
 
     # The extensions reshape the target, then add their loss terms, each on
-    # a key of its own (drawn only with extensions).
-    loss_key = None
-    target_metrics: dict = {}
-    if extension_stack:
-        ext_key, rng = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=rng)
-        target_key, loss_key = jax.random.split(ext_key)
-        _tgt_batch = {
-            "observations": observations,
-            "actions": actions,
-            "next_observations": next_observations,
-            "rewards": rewards,
-            "dones": dones,
-            "gamma": gamma,
-            "reward_scale": reward_scale,
-        }
-        target_q, target_metrics = extension_stack.fold_on_target(
-            agent_state,
-            _tgt_batch,
-            target_q,
-            agent_state.collector_state.timestep,
-            target_key,
-            total_timesteps,
-        )
+    # a key of its own.
+    target_key, loss_key = jax.random.split(extension_key(sample_key))
+    target_batch = {
+        "observations": observations,
+        "actions": actions,
+        "next_observations": next_observations,
+        "rewards": rewards,
+        "dones": dones,
+        "gamma": gamma,
+        "reward_scale": reward_scale,
+    }
+    target_q, target_metrics = extension_stack.fold_on_target(
+        agent_state,
+        target_batch,
+        target_q,
+        agent_state.collector_state.timestep,
+        target_key,
+        total_timesteps,
+    )
 
     q_state, value_aux, loss_metrics = q_gradient_step(
         agent_state,
@@ -441,12 +370,7 @@ def update_agent(
     )
 
     do_target_update = (agent_state.n_updates % target_update_interval) == 0
-    q_state = jax.lax.cond(
-        do_target_update,
-        lambda s: s.soft_update(tau),
-        lambda s: s,
-        q_state,
-    )
+    q_state = when(do_target_update, lambda s: s.soft_update(tau), q_state)
 
     agent_state = agent_state.replace(
         actor_state=q_state,
@@ -499,12 +423,9 @@ def make_train(
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_target_fn = td_target_fn if td_target_fn is not None else compute_dqn_td_target
     td_loss_fn = td_loss_fn if td_loss_fn is not None else huber_1_td_loss
-    epsilon_schedule = functools.partial(
-        linear_epsilon,
-        total_timesteps=total_timesteps,
-        epsilon_start=epsilon_start,
-        epsilon_end=epsilon_end,
-        epsilon_decay_frac=epsilon_decay_frac,
+    # Linear over the first epsilon_decay_frac of the horizon, then flat.
+    epsilon_schedule = linear(
+        epsilon_start, epsilon_end, epsilon_decay_frac * total_timesteps
     )
 
     def init(key: jax.Array) -> DQNState:
@@ -538,12 +459,8 @@ def make_train(
             one_update, agent_state, length=agent_config.n_gradient_steps
         )
 
-    action_pipeline = make_epsilon_greedy_pipeline(
-        n_actions=n_actions,
-        epsilon_start=epsilon_start,
-        epsilon_end=epsilon_end,
-        epsilon_decay_frac=epsilon_decay_frac,
-        total_timesteps=total_timesteps,
+    action_pipeline = explore_pipeline(
+        epsilon_greedy(epsilon_schedule, n_actions), False, n_actions
     )
     return loop.off_policy(
         init,

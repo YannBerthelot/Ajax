@@ -1,6 +1,7 @@
 from flax import struct
 
 from ajax.agents.recurrent import RecurrentReplayConfig
+from ajax.schedule import Schedule
 from ajax.state import BaseAgentState
 
 
@@ -19,4 +20,4 @@ class TD3Config(RecurrentReplayConfig):
     policy_delay: int = 2
     target_policy_noise: float = 0.2
     target_noise_clip: float = 0.5
-    exploration_noise: float = 0.1
+    exploration_noise: Schedule = 0.1

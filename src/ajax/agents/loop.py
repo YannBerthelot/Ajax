@@ -60,6 +60,7 @@ import optax
 from jax.tree_util import Partial as partial
 
 from ajax.buffers.dataset import TransitionDataset, fill_replay
+from ajax.controller import Controller, reads_progress
 from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     collect_experience,
@@ -85,10 +86,36 @@ from ajax.types import NormalizationInfo
 from ajax.utils import online_normalize
 
 #: The extension phases the loop folds for every agent: a fresh run's
-#: one-shot ``pretrain``, ``post_update`` after each update and
-#: ``eval_metrics`` at each evaluation. An agent adds the phases its own
-#: update folds (``ActorCritic.supported_extension_phases``).
-LOOP_PHASES = frozenset({"pretrain", "post_update", "eval_metrics"})
+#: one-shot ``pretrain``, ``post_update`` after each update,
+#: ``eval_metrics`` at each evaluation and ``observe`` wherever the shared
+#: collector and evaluation meet an observation (an agent rolling out on
+#: its own removes it). An agent adds the phases its own update folds
+#: (``ActorCritic.supported_extension_phases``).
+LOOP_PHASES = frozenset({"pretrain", "post_update", "eval_metrics", "observe"})
+
+#: The keys of the extensions' batches the shared steps below build, which
+#: an agent on them declares (``ActorCritic.phase_batch_keys``), with any it
+#: adds: :func:`fold_on_target`'s, :func:`fold_critic_loss`'s, and those
+#: :func:`actor_step` adds, and with them the rows' entries a replay agent
+#: passes (REPLAY_ACTOR_KEYS: SAC's, TD3's, CrossQ's and SAC's core's).
+TARGET_KEYS = frozenset(
+    "observations actions next_observations rewards dones gamma reward_scale"
+    " raw_next_observations next_a_expert next_action".split()
+)
+CRITIC_LOSS_KEYS = frozenset(
+    "observations actions next_observations targets critic_params critic_state"
+    " actor_state return_to_go".split()
+)
+ACTOR_STEP_KEYS = frozenset("pi_mean actor_params actor_state agent_loss".split())
+REPLAY_ACTOR_KEYS = ACTOR_STEP_KEYS | frozenset(
+    "observations raw_observations actions a_expert critic_state".split()
+)
+#: A replay actor-critic's on the three steps (REDQ, ASAC, CrossQ, TQC).
+REPLAY_BATCH_KEYS: dict[str, frozenset[str]] = {
+    "on_target": TARGET_KEYS,
+    "critic_loss": CRITIC_LOSS_KEYS,
+    "actor_loss": REPLAY_ACTOR_KEYS,
+}
 
 #: ``init(key) -> agent_state``: a fresh agent state. One-shot pretraining
 #: (behaviour cloning) is an extension's, on a key the loop splits off.
@@ -155,18 +182,34 @@ def fresh_state(
     ``extension_key`` (:meth:`ExtensionStack.fold_init`; ``context``: the
     pretraining's static context fields)."""
     init_key, extension_key = jax.random.split(key)
-    state = with_obs_norm(init(init_key))
+    env_args = context.get("env_args")
+    state = with_obs_norm(init(init_key), env_args)
+    state = with_horizon(state, env_args, total_steps)
     return stack.fold_init(state, extension_key, total_steps, **context)
 
 
-def with_obs_norm(agent_state: Any) -> Any:
+def with_horizon(agent_state: Any, env_args: Any, total_steps: int) -> Any:
+    """A state whose collector keeps the run's horizon ``total_steps``,
+    which a feature reading the training progress needs
+    (:func:`ajax.controller.reads_progress`); a resumed run measures its
+    progress against its own call's."""
+    if env_args is None or not reads_progress(env_args):
+        return agent_state
+    horizon = jnp.asarray(total_steps, jnp.int32)
+    collector = agent_state.collector_state.replace(max_timesteps=horizon)
+    return agent_state.replace(collector_state=collector)
+
+
+def with_obs_norm(agent_state: Any, env_args: Any = None) -> Any:
     """An agent normalising its own observations (the collector's
     ``obs_norm_info``) with those statistics mirrored on its networks, which
     apply them; collection refreshes the mirror at every step, and setting
-    it at init keeps the scan carry's structure fixed."""
+    it at init keeps the scan carry's structure fixed. An agent storing
+    normalised observations (``env_args.store_normalized_obs``) gets no
+    mirror: its networks read them as stored."""
     collector = getattr(agent_state, "collector_state", None)
     stats = None if collector is None else collector.obs_norm_info
-    if stats is None:
+    if stats is None or getattr(env_args, "store_normalized_obs", False):
         return agent_state
     return agent_state.replace(
         actor_state=agent_state.actor_state.replace(obs_norm_info=stats),
@@ -226,6 +269,45 @@ def fold_post_update(
     return stack.fold_post_update(agent_state.replace(rng=rng), step, key, total_steps)
 
 
+def when(pred: Any, fn: Callable[[Any], Any], state: Any, fill: Any = None) -> Any:
+    """``fn(state)`` where ``pred`` holds, else ``state`` unchanged: a policy
+    delay, a target refresh, a warm-up.
+
+    ``fn`` returns the new state, or the new state and its metrics. Skipped,
+    the metrics have ``fn``'s structure, read from its trace (with the names
+    the extensions log), filled with ``fill``: by default NaN, -1 in integer
+    leaves (:func:`ajax.log.unevaluated`), which the logger drops. Under the
+    seed ``vmap`` a ``pred`` read from per-seed state runs ``fn`` every time
+    and selects; one from unbatched counters runs it only where it holds.
+    """
+    # The branches close over ``state`` rather than take it as an operand:
+    # with ``state`` an operand, SAC's warm-ups (an ``fn`` returning a state
+    # computed outside) compiled to other float rounding than the
+    # ``lax.cond`` they replaced.
+    out = jax.eval_shape(fn, state)
+    # PyTreeDef compares by structure; its stub does not declare __eq__.
+    if jax.tree.structure(out) == jax.tree.structure(state):  # type: ignore[operator]
+        return jax.lax.cond(pred, lambda: fn(state), lambda: state)
+    metrics = (
+        unevaluated(out[1])
+        if fill is None
+        else jax.tree.map(lambda s: jnp.full(s.shape, fill, s.dtype), out[1])
+    )
+    return jax.lax.cond(pred, lambda: fn(state), lambda: (state, metrics))
+
+
+#: What a step's key is folded with into its extensions' key. fold_in(k, i)
+#: is split(k, n)[i] under JAX's partitionable threefry, so the tag lies far
+#: past any split's length: no key a step splits off its own is theirs.
+EXTENSIONS = 0x45585453  # "EXTS"
+
+
+def extension_key(key: jax.Array) -> jax.Array:
+    """The extensions' key of a step on ``key``, which the step's own draws
+    (on ``key`` and the keys it splits off it) never get."""
+    return jax.random.fold_in(key, EXTENSIONS)
+
+
 def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any, jax.Array]:
     """One optimiser step down ``loss_fn(params) -> (loss, aux)``.
 
@@ -237,12 +319,11 @@ def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any, jax.Ar
     return train_state.apply_gradients(grads=grads), aux, optax.global_norm(grads)
 
 
-def critic_step(
+def fold_on_target(
+    stack: ExtensionStack,
     agent_state: Any,
     batch: Any,
     target_q: jax.Array,
-    value_loss: Callable[[Any, jax.Array], tuple[jax.Array, Any]],
-    extension_stack: ExtensionStack,
     key: jax.Array,
     total_timesteps: int,
     *,
@@ -251,21 +332,18 @@ def critic_step(
     gamma: Optional[float],
     reward_scale: float,
     target_extras: Optional[dict] = None,
-) -> tuple[Any, Any, jax.Array, dict]:
-    """A replay agent's critic step on ``batch`` (a :class:`Transition`).
+) -> tuple[jax.Array, dict]:
+    """``target_q`` with the extensions' ``on_target`` folded in, held
+    constant, and their metrics: :func:`critic_step`'s first half, which an
+    agent whose target comes out of its own critic pass (CrossQ) calls
+    inside its loss.
 
-    Folds the extensions' ``on_target`` into ``target_q`` (held constant),
-    then steps the critic down ``value_loss(params, target_q) -> (loss,
-    aux)`` plus their ``critic_loss`` terms. ``rewards``, ``dones`` (where
-    the bootstrap is cut), ``gamma`` (None for an average-reward agent) and
-    ``reward_scale`` are what the target used; ``key``, split between the
-    two folds, is one the agent draws nothing else on. ``target_extras``
-    joins the ``on_target`` batch (TD3's smoothed next actions). Returns the stepped
-    critic state, ``aux``, the gradients' norm (:func:`gradient_step`) and
-    the two folds' metrics.
+    ``batch`` is a :class:`Transition`. ``rewards``, ``dones`` (where the
+    bootstrap is cut), ``gamma`` (None for an average-reward agent) and
+    ``reward_scale`` are what the target used; ``target_extras`` join the
+    extensions' batch (TD3's smoothed next actions). The fold draws on a key
+    derived from ``key``, the step's (:func:`extension_key`).
     """
-    step = agent_state.collector_state.timestep
-    target_key, loss_key = jax.random.split(key)
     target_batch = {
         "observations": batch.obs,
         "actions": batch.action,
@@ -281,31 +359,127 @@ def critic_step(
         # The dataset's action at s' (NaN where unknown); None unstored.
         "next_action": batch.next_action,
     } | (target_extras or {})
-    target_q, target_metrics = extension_stack.fold_on_target(
+    target_key, _ = jax.random.split(extension_key(key))
+    step = agent_state.collector_state.timestep
+    target_q, metrics = stack.fold_on_target(
         agent_state, target_batch, target_q, step, target_key, total_timesteps
     )
-    target_q = jax.lax.stop_gradient(target_q)
-    critic_state = agent_state.critic_state
+    return jax.lax.stop_gradient(target_q), metrics
+
+
+def fold_critic_loss(
+    stack: ExtensionStack,
+    agent_state: Any,
+    batch: Any,
+    params: Any,
+    target_q: jax.Array,
+    key: jax.Array,
+    total_timesteps: int,
+) -> tuple[jax.Array | float, dict]:
+    """The extensions' ``critic_loss`` terms at the critic's ``params`` (the
+    differentiated ones) on ``batch`` against the held ``target_q``, and
+    their metrics: :func:`critic_step`'s second half, on a key derived from
+    ``key``, the step's."""
+    loss_batch = {
+        "observations": batch.obs,
+        "actions": batch.action,
+        "next_observations": batch.next_obs,
+        "targets": target_q,
+        "critic_params": params,
+        "critic_state": agent_state.critic_state,
+        "actor_state": agent_state.actor_state,
+        "return_to_go": batch.return_to_go,
+    }
+    _, loss_key = jax.random.split(extension_key(key))
+    step = agent_state.collector_state.timestep
+    return stack.fold_critic_loss(
+        agent_state, loss_batch, step, loss_key, total_timesteps
+    )
+
+
+def critic_step(
+    agent_state: Any,
+    batch: Any,
+    target_q: jax.Array,
+    value_loss: Callable[[Any, jax.Array], tuple[jax.Array, Any]],
+    extension_stack: ExtensionStack,
+    key: jax.Array,
+    total_timesteps: int,
+    **target_args: Any,
+) -> tuple[Any, Any, jax.Array, dict]:
+    """A replay agent's critic step on ``batch`` (a :class:`Transition`).
+
+    Folds the extensions' ``on_target`` into ``target_q``, held constant
+    (:func:`fold_on_target`, which ``target_args`` reach: what the target
+    used), then steps the critic down ``value_loss(params, target_q) ->
+    (loss, aux)`` plus their ``critic_loss`` terms
+    (:func:`fold_critic_loss`). The folds draw on keys derived from ``key``,
+    the step's, on which the agent may draw too. Returns the stepped critic
+    state, ``aux``, the gradients' norm (:func:`gradient_step`) and the two
+    folds' metrics.
+    """
+    target_q, target_metrics = fold_on_target(
+        extension_stack,
+        agent_state,
+        batch,
+        target_q,
+        key,
+        total_timesteps,
+        **target_args,
+    )
 
     def loss_fn(params: Any) -> tuple[jax.Array, Any]:
         loss, aux = value_loss(params, target_q)
-        loss_batch = {
-            "observations": batch.obs,
-            "actions": batch.action,
-            "next_observations": batch.next_obs,
-            "targets": target_q,
-            "critic_params": params,
-            "critic_state": critic_state,
-            "actor_state": agent_state.actor_state,
-            "return_to_go": batch.return_to_go,
-        }
-        extra, loss_metrics = extension_stack.fold_critic_loss(
-            agent_state, loss_batch, step, loss_key, total_timesteps
+        extra, loss_metrics = fold_critic_loss(
+            extension_stack, agent_state, batch, params, target_q, key, total_timesteps
         )
         return loss + extra, (aux, loss_metrics)
 
-    critic_state, (aux, loss_metrics), grad_norm = gradient_step(critic_state, loss_fn)
+    critic_state, (aux, loss_metrics), grad_norm = gradient_step(
+        agent_state.critic_state, loss_fn
+    )
     return critic_state, aux, grad_norm, merge_metrics(target_metrics, loss_metrics)
+
+
+def actor_step(
+    agent_state: Any,
+    policy_loss: Callable[[Any], tuple[jax.Array, Any, Optional[jax.Array]]],
+    extension_stack: ExtensionStack,
+    key: jax.Array,
+    total_timesteps: int,
+    **batch: Any,
+) -> tuple[Any, Any, jax.Array, dict]:
+    """A replay agent's actor step.
+
+    Steps the actor down ``policy_loss(params) -> (loss, aux, pi_mean)``
+    (``pi_mean``: the policy's mean action at the rows, None for a discrete
+    policy) plus the extensions' ``actor_loss`` terms, folded on a key
+    derived from ``key``, the step's (:func:`extension_key`). Their batch is
+    ``batch``, the rows' entries the agent passes (``observations``,
+    ``raw_observations``, ``actions``, ``a_expert``, ``critic_state``), with
+    the differentiated ``actor_params``, the ``actor_state``, ``pi_mean`` and
+    ``agent_loss``.
+    Returns the stepped actor state, ``aux``, the gradients' norm
+    (:func:`gradient_step`) and the fold's metrics.
+    """
+    actor_state = agent_state.actor_state
+
+    def loss_fn(params: Any) -> tuple[jax.Array, Any]:
+        loss, aux, pi_mean = policy_loss(params)
+        actor_batch = batch | {
+            "pi_mean": pi_mean,
+            "actor_params": params,
+            "actor_state": actor_state,
+            "agent_loss": loss,
+        }
+        step = agent_state.collector_state.timestep
+        extra, metrics = extension_stack.fold_actor_loss(
+            agent_state, actor_batch, step, extension_key(key), total_timesteps
+        )
+        return loss + extra, (aux, metrics)
+
+    actor_state, (aux, metrics), grad_norm = gradient_step(actor_state, loss_fn)
+    return actor_state, aux, grad_norm, metrics
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
@@ -428,15 +602,23 @@ class TrainLoop:
     def collect_kwargs(self, recurrent: bool, **kwargs: Any) -> dict:
         """:func:`collect_experience`'s arguments for this run. With the
         agent's expert, its action pipeline also stores the expert's actions
-        from the expert's tracked state (:func:`expert_collect_kwargs`)."""
+        from the expert's tracked state, and gain mode actuates the chosen
+        action through it (:func:`expert_collect_kwargs`)."""
         common = {"recurrent": recurrent, "mode": self.mode, "env_args": self.env_args}
         args = common | kwargs
         if self.expert_policy is None:
             return args
         pipeline = kwargs.get("action_pipeline")
         n_envs = self.env_args.n_envs
-        return args | expert_collect_kwargs(
-            self.expert_policy, pipeline, recurrent, n_envs
+        # The observation features read the expert the collector tracks.
+        expert = {"expert": self.expert_policy} if self.env_args.observers else {}
+        transform = next(iter(self.env_args.transforms), None)
+        return (
+            args
+            | expert_collect_kwargs(
+                self.expert_policy, pipeline, recurrent, n_envs, transform
+            )
+            | expert
         )
 
     def post_update(self, agent_state: Any) -> Any:
@@ -464,14 +646,8 @@ class TrainLoop:
             aux = jax.tree.map(lambda x: jnp.reshape(x, (1,)), aux)
             return self.post_update(agent_state), aux
 
-        def skip_update(agent_state: Any) -> tuple[Any, Any]:
-            # The structure is read from the update's trace: the names the
-            # extensions log are known only once their phases are traced.
-            shapes = jax.eval_shape(lambda s: do_update(s)[1], agent_state)
-            return agent_state, unevaluated(shapes)
-
         ready = agent_state.collector_state.timestep >= learning_starts
-        return jax.lax.cond(ready, do_update, skip_update, agent_state)
+        return when(ready, do_update, agent_state)
 
     def repeat_update(
         self, agent_state: Any, n: Any, update: Callable[[Any], tuple[Any, Any]]
@@ -499,7 +675,25 @@ class TrainLoop:
         """Evaluate and log every ``log_frequency`` steps
         (:func:`ajax.log.evaluate_and_log`), the extensions' eval metrics
         included; returns the state and the metrics (``None`` without
-        logging)."""
+        logging). An agent storing normalised observations evaluates with
+        them normalised by its running statistics, unless its own
+        ``controller`` says how it acts."""
+        controller = kwargs.get("controller") or Controller()
+        if self.env_args.store_normalized_obs:
+            columns = raw_obs_columns(self.env_args.env)
+            controller = dataclasses.replace(
+                controller, normalize_obs=True, raw_columns=columns
+            )
+        if self.env_args.observers:
+            controller = dataclasses.replace(
+                controller, observers=self.env_args.observers
+            )
+        if self.env_args.transforms:
+            controller = dataclasses.replace(
+                controller, transforms=self.env_args.transforms
+            )
+        if controller != Controller():
+            kwargs = kwargs | {"controller": controller}
         return evaluate_and_log(
             agent_state,
             aux,
@@ -542,14 +736,9 @@ class TrainLoop:
 
     # -- the train function ------------------------------------------------
     def continued(self, agent_state: Any) -> Any:
-        """A resumed state, its training fraction measured against the
+        """A resumed state, its training progress measured against the
         run's horizon (a fresh state is built with it)."""
-        collector = agent_state.collector_state
-        if collector.max_timesteps is None:
-            return agent_state
-        horizon = jnp.asarray(self.total_timesteps, jnp.int32)
-        collector = collector.replace(max_timesteps=horizon)
-        return agent_state.replace(collector_state=collector)
+        return with_horizon(agent_state, self.env_args, self.total_timesteps)
 
     def train(
         self,
@@ -629,6 +818,7 @@ class TrainLoop:
         update: Update,
         learning_starts: int = 0,
         *,
+        uniform_steps: Optional[int] = None,
         recurrent: bool = False,
         expose_rollout: bool = False,
         after_collect: Optional[Callable[[Any, Any], Any]] = None,
@@ -641,8 +831,9 @@ class TrainLoop:
     ) -> Callable:
         """Train on one environment step per env per iteration (a tick).
 
-        Each tick collects a step (uniform actions before
-        ``learning_starts``), applies ``after_collect(agent_state,
+        Each tick collects a step (uniform actions before ``uniform_steps``,
+        by default ``learning_starts``; 0: the policy's from the first step,
+        as TQC's authors act), applies ``after_collect(agent_state,
         transition)`` when given, then from ``learning_starts`` runs
         ``update(agent_state, transition)``, then evaluates the actor
         (:meth:`evaluate_and_log`). ``expose_rollout`` keeps the step on
@@ -675,7 +866,8 @@ class TrainLoop:
             if collect is not None:
                 return collect(agent_state, tick)
             timestep = agent_state.collector_state.timestep
-            uniform = should_use_uniform_sampling(timestep, learning_starts)
+            warmup = learning_starts if uniform_steps is None else uniform_steps
+            uniform = should_use_uniform_sampling(timestep, warmup)
             agent_state, transition = collect_experience(
                 agent_state, None, uniform=uniform, **collect_args
             )
@@ -814,9 +1006,14 @@ __all__ = [
     "LOOP_PHASES",
     "Evaluation",
     "TrainLoop",
+    "actor_step",
     "critic_step",
+    "extension_key",
+    "fold_critic_loss",
+    "fold_on_target",
     "fold_post_update",
     "fresh_state",
     "gradient_step",
     "seed_replay",
+    "when",
 ]

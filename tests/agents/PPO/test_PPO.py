@@ -7,8 +7,10 @@ from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PPO.train_PPO import _force_reset, _normalisation_info
 from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import collect_experience, reset
+from ajax.extensions.observe import TrainingProgressInput
 from ajax.networks.memory import MEMORY_KINDS, MemoryConfig, zeros_carry_like
 from ajax.networks.networks import get_initialized_actor_critic
+from tests.agents.extension_stubs import RawProgress
 from tests.probing import readouts
 
 
@@ -21,9 +23,10 @@ def test_PPO_train_playground_smoke():
 
 @pytest.mark.parametrize("env_id, mode", [("Pendulum-v1", "gymnax"), ("fast", "brax")])
 def test_a_forced_reset_keeps_the_normaliser_statistics(env_id, mode):
-    """num_resets_per_eval resets the envs, not the normaliser's running
-    statistics (each gymnax env restarted its own from the reset): the reset
-    observation is normalised with the statistics before it."""
+    """num_resets_per_eval resets the envs, not the running statistics: the
+    env's reward normaliser keeps its own, the agent's observation
+    statistics do not count the reset observation, which is normalised with
+    them."""
     agent = PPO(
         env_id=env_id,
         n_envs=2,
@@ -37,14 +40,38 @@ def test_a_forced_reset_keeps_the_normaliser_statistics(env_id, mode):
     after = _force_reset(state, agent.env_args, mode).collector_state
     kept = _normalisation_info(after.env_state, mode)
     jax.tree.map(np.testing.assert_array_equal, kept, saved)
+    stats = state.collector_state.obs_norm_info
+    jax.tree.map(np.testing.assert_array_equal, after.obs_norm_info, stats)
 
     key = jax.random.split(state.rng)[0]
     keys = jax.random.split(key, 2) if mode == "gymnax" else key
     task = strip_ajax_wrappers(agent.env_args.env)[0]
     raw, _ = reset(keys, task, mode, agent.env_args.env_params)
-    std = np.sqrt(np.asarray(saved.obs.var) + 1e-8).mean(axis=0)
-    want = (raw - np.asarray(saved.obs.mean).mean(axis=0)) / std
+    std = np.sqrt(np.asarray(stats.var) + 1e-8)
+    want = (raw - np.asarray(stats.mean)) / std
     np.testing.assert_allclose(after.last_obs, want.reshape(raw.shape), atol=1e-4)
+
+
+def test_a_forced_reset_gives_the_reset_observations_their_features():
+    """The reset observations carry their features, the training progress
+    where the run stands among them: normalised with the env's columns, or
+    raw and last."""
+    agent = PPO(
+        env_id="Pendulum-v1",
+        n_envs=2,
+        n_steps=8,
+        n_epochs=1,
+        normalize_observations=True,
+        extensions=(TrainingProgressInput(), RawProgress()),
+    )
+    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=32)[0])
+    after = _force_reset(state, agent.env_args, "gymnax").collector_state
+    assert after.last_obs.shape == (2, 3 + 2)
+    done = float(state.collector_state.train_time_fraction)
+    np.testing.assert_allclose(after.last_obs[:, -1], done)
+    stats = state.collector_state.obs_norm_info
+    normalised = (done - stats.mean[..., -1]) / np.sqrt(stats.var[..., -1] + 1e-8)
+    np.testing.assert_allclose(after.last_obs[:, -2], normalised[0], atol=1e-4)
 
 
 @pytest.mark.parametrize("kind", MEMORY_KINDS)

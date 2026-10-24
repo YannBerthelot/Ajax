@@ -23,11 +23,19 @@ from flax.training.train_state import TrainState
 
 from ajax.agents import loop as loop_module
 from ajax.agents.APO.APO import APO
-from ajax.agents.loop import TrainLoop, critic_step, gradient_step
+from ajax.agents.loop import (
+    TrainLoop,
+    actor_step,
+    critic_step,
+    fold_critic_loss,
+    fold_on_target,
+    gradient_step,
+    when,
+)
 from ajax.agents.SAC.SAC import SAC
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.evaluate import evaluate
-from ajax.extensions.base import Extension, ExtensionStack
+from ajax.extensions.base import Extension, ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import Transition
 from ajax.types import Replaceable
@@ -87,6 +95,42 @@ def test_no_update_before_learning_starts() -> None:
     ready, metrics = loop.maybe_update(_state(10), 10, _update)
     assert float(ready.value) == 2.0
     np.testing.assert_array_equal(metrics.loss, [1.0])
+
+
+@pytest.mark.parametrize(
+    "uniform_steps, uniform", [(None, [True, True, False]), (0, [False] * 3)]
+)
+def test_the_collector_acts_uniformly_until_uniform_steps(uniform_steps, uniform):
+    """Before ``learning_starts`` the collector acts uniformly, unless
+    ``uniform_steps`` sets another warm-up (0: the policy acts from the
+    first step, as TQC's authors' does)."""
+    seen = []
+
+    def collect(agent_state, _, uniform, **kwargs):
+        seen.append(bool(uniform))
+        tick = agent_state.collector_state.timestep + 1
+        return agent_state.replace(collector_state=Collector(tick)), None
+
+    loop = dataclasses.replace(
+        _loop(), env_args=SimpleNamespace(mode="gymnax", n_envs=1)
+    )
+    built = {}
+
+    def train(self, init, iteration, *args, **kwargs):
+        built["iteration"] = iteration
+
+    with (
+        mock.patch.object(loop_module, "collect_experience", collect),
+        mock.patch.object(TrainLoop, "train", train),
+        mock.patch.object(
+            TrainLoop, "evaluate_and_log", lambda self, s, *a, **k: (s, None)
+        ),
+    ):
+        loop.off_policy(None, lambda s, _: _update(s), 2, uniform_steps=uniform_steps)
+        state = _state(0)
+        for tick in range(3):
+            state, _ = built["iteration"](state, 0, tick)
+    assert seen == uniform
 
 
 def test_post_update_draws_a_key_only_with_extensions() -> None:
@@ -288,6 +332,131 @@ def test_the_extensions_see_the_cuts_the_target_used() -> None:
     np.testing.assert_array_equal(seen[:, 0], [0, 0, 1, 1])
     # d/dw mean((w - target)^2) at w = 0 on the target [0, 0, 1, 1]: -1.
     assert float(grad_norm) == 1.0
+
+
+@dataclass(frozen=True)
+class PullTerm(Extension):
+    """Adds ``w * mean(targets)`` to the critic loss and logs the targets."""
+
+    name: str = "pull"
+
+    def critic_loss(self, agent_state, ext_state, batch, ctx):
+        mean = batch["targets"].mean()
+        return batch["critic_params"]["w"] * mean, {"targets": mean}
+
+
+def test_the_critic_steps_halves_compose_to_the_step() -> None:
+    """An agent whose target comes out of its own loss (CrossQ) folds the
+    extensions with critic_step's two halves inside it: the same step, the
+    same metrics as critic_step's."""
+    critic = TrainState.create(
+        apply_fn=None, params={"w": jnp.asarray(0.5)}, tx=optax.sgd(1.0)
+    )
+    state = SimpleNamespace(
+        collector_state=Collector(jnp.asarray(0)),
+        critic_state=critic,
+        actor_state=None,
+        ext_state=((), ()),
+    )
+    stack = ExtensionStack((AddDones(), PullTerm()))
+    key = jax.random.PRNGKey(0)
+    target_args = {
+        "rewards": _ENDS.reward,
+        "dones": _ENDS.terminated,
+        "gamma": 0.9,
+        "reward_scale": 1.0,
+    }
+
+    def value_loss(params, target_q):
+        return jnp.mean((params["w"] - target_q) ** 2), target_q
+
+    stepped, _, _, metrics = critic_step(
+        state, _ENDS, jnp.ones((4, 1)), value_loss, stack, key, 100, **target_args
+    )
+
+    def loss_fn(params):
+        target_q, target_metrics = fold_on_target(
+            stack, state, _ENDS, jnp.ones((4, 1)), key, 100, **target_args
+        )
+        loss, _ = value_loss(params, target_q)
+        extra, loss_metrics = fold_critic_loss(
+            stack, state, _ENDS, params, target_q, key, 100
+        )
+        return loss + extra, merge_metrics(target_metrics, loss_metrics)
+
+    composed, own_metrics, _ = gradient_step(critic, loss_fn)
+    assert float(composed.params["w"]) == float(stepped.params["w"])
+    assert jax.tree.map(float, own_metrics) == jax.tree.map(float, metrics)
+
+
+@dataclass(frozen=True)
+class SquareTerm(Extension):
+    """Adds ``w ** 2`` to the actor loss and logs the agent's loss."""
+
+    name: str = "square"
+    seen: dict = dataclasses.field(default_factory=dict, hash=False, compare=False)
+
+    def actor_loss(self, agent_state, ext_state, batch, ctx):
+        self.seen.update(dict.fromkeys(batch))
+        return batch["actor_params"]["w"] ** 2, {"agent_loss": batch["agent_loss"]}
+
+
+def test_actor_step_steps_down_the_loss_plus_the_extensions_terms() -> None:
+    """The extensions see the rows the agent passes with the differentiated
+    parameters, the mean action and the agent's loss; the actor steps down
+    the sum: d/dw (2w + w^2) at w = 3 is 8."""
+    actor = TrainState.create(
+        apply_fn=None, params={"w": jnp.asarray(3.0)}, tx=optax.sgd(0.5)
+    )
+    state = SimpleNamespace(
+        collector_state=Collector(jnp.asarray(0)), actor_state=actor, ext_state=((),)
+    )
+    term = SquareTerm()
+
+    def policy_loss(params):
+        return 2.0 * params["w"], jnp.asarray(1.0), params["w"] + 1.0
+
+    stepped, aux, grad_norm, metrics = actor_step(
+        state,
+        policy_loss,
+        ExtensionStack((term,)),
+        jax.random.PRNGKey(0),
+        100,
+        observations=jnp.zeros((1, 1)),
+    )
+    assert float(stepped.params["w"]) == 3.0 - 0.5 * 8.0 and float(grad_norm) == 8.0
+    assert float(aux) == 1.0 and float(jax.tree.leaves(metrics)[0]) == 6.0
+    assert set(term.seen) == {
+        "observations",
+        "actor_params",
+        "actor_state",
+        "pi_mean",
+        "agent_loss",
+    }
+
+
+def test_when_runs_fn_only_where_the_predicate_holds() -> None:
+    def double(x):
+        return x * 2
+
+    assert float(when(jnp.asarray(True), double, jnp.asarray(3.0))) == 6.0
+    assert float(when(jnp.asarray(False), double, jnp.asarray(3.0))) == 3.0
+
+
+def test_when_fills_a_skipped_fns_metrics() -> None:
+    """Skipped, the metrics keep fn's structure: NaN, and -1 in integer
+    leaves, by default; ``fill`` otherwise."""
+
+    def step(x):
+        return x + 1.0, {"loss": x * 2, "count": jnp.asarray(1)}
+
+    x, metrics = when(jnp.asarray(True), step, jnp.asarray(3.0))
+    assert float(x) == 4.0 and float(metrics["loss"]) == 6.0
+    x, metrics = when(jnp.asarray(False), step, jnp.asarray(3.0))
+    assert float(x) == 3.0 and np.isnan(metrics["loss"])
+    assert int(metrics["count"]) == -1
+    _, metrics = when(jnp.asarray(False), step, jnp.asarray(3.0), fill=0.0)
+    assert float(metrics["loss"]) == 0.0 and int(metrics["count"]) == 0
 
 
 # --- Evaluations without a logging backend -----------------------------------

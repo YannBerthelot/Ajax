@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional
 
 from gymnax import EnvParams
@@ -6,7 +6,7 @@ from gymnax import EnvParams
 from ajax.agents.AVG.state import AVGConfig
 from ajax.agents.AVG.train_AVG import make_train
 from ajax.agents.base import ActorCritic, run_config
-from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.loop import ACTOR_STEP_KEYS, CRITIC_LOSS_KEYS, LOOP_PHASES, TARGET_KEYS
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import Extension
 from ajax.modules.pid_actor import PIDPolicy
@@ -26,12 +26,20 @@ class AVG(ActorCritic):
     name: str = "AVG"
     capabilities: frozenset = frozenset(
         "actor critic_ensemble discounted obs_networks off_policy"
-        " policy_density q_critic".split()
+        " policy_density q_critic reward_learning".split()
     )
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target",
         "critic_loss",
         "actor_loss",
+        "transform_action",
+        "actuate",
+    }
+    phase_batch_keys: Mapping[str, frozenset] = {
+        "on_target": TARGET_KEYS,
+        "critic_loss": CRITIC_LOSS_KEYS,
+        "actor_loss": ACTOR_STEP_KEYS
+        | frozenset("observations raw_observations a_expert critic_state".split()),
     }
     pretrain_context: frozenset = frozenset("env_args update".split())
     # The step's transition carries what a replay batch holds: the

@@ -1,9 +1,8 @@
 """SAC's action pipeline (collection-time action selection).
 
 The pipeline owns SAC's collection bookkeeping (``is_expert_flag``,
-``buffer_action``, expert-state threading), the gain-policy
-short-circuit, the expert-action obs augmentation and the warmup
-expert/uniform mix. Extensions that declare an ``action_slot`` substitute
+``buffer_action``) and the warmup expert/uniform mix; the shared collector
+calls the expert and tracks its state. Extensions that declare an ``action_slot`` substitute
 the action through their :meth:`~ajax.extensions.base.Extension.action`
 phase: ``"pre_warmup"`` ones (EDGEExploration, JSRLCurriculum) before the
 warmup choice, ``"post_warmup"`` ones (ValueBox) after it. They read and
@@ -13,11 +12,9 @@ write a dict of the step's quantities passed as ``obs``.
 import jax
 import jax.numpy as jnp
 
+from ajax.controller import TransformInputs
 from ajax.environments.interaction import (
     ActionPipelineResult,
-    augment_obs,
-    expert_state_at_step,
-    expert_step,
     get_action_and_log_probs,
 )
 from ajax.extensions.base import ExtensionContext, ExtensionStack
@@ -32,8 +29,9 @@ def check_action_extensions(extension_stack: ExtensionStack, dispatched: bool) -
     """Reject the ``action`` extensions the pipeline never dispatches: one
     without an ``action_slot`` of :data:`ACTION_SLOTS`, or any, or a residual
     policy (an extension implementing ``transform_action``), when the
-    pipeline does not dispatch (``dispatched`` False: no expert policy, or the
-    gain-policy short-circuit). SAC calls it at construction."""
+    pipeline does not dispatch (``dispatched`` False: no expert policy, or
+    gain mode, which acts through the default pipeline). SAC calls it at
+    construction."""
     acting = [e for e in extension_stack if "action" in e.implemented_phases()]
     unslotted = [
         e.name for e in acting if getattr(e, "action_slot", None) not in ACTION_SLOTS
@@ -49,74 +47,19 @@ def check_action_extensions(extension_stack: ExtensionStack, dispatched: bool) -
     if (acting or residual) and not dispatched:
         raise ValueError(
             "SAC dispatches the action phase only with an expert_policy and"
-            f" without use_pid_policy; {[e.name for e in acting + residual]}"
+            f" without gain mode; {[e.name for e in acting + residual]}"
             " would be ignored."
         )
 
 
-def _gain_policy_step(
-    *,
-    agent_state,
-    expert_policy,
-    env_args,
-    recurrent,
-    raw_obs,
-    rng,
-    uniform,
-    mix_key,
-    action_key,
-    anchor_gains,
-    gain_log_scale,
+def _dispatch_actions(
+    agent_state, acting, extensions_indexed, batch, slot, rng, total_steps
 ):
-    """Gain-policy short-circuit branch of the action pipeline.
-
-    The actor predicts a gain-space action (per-gain log-scale); we
-    convert it back to a physical control via the expert's
-    ``step_with_gains`` hook. This branch bypasses every collection-time
-    Extension override (no EDGE / box / JSRL semantics here); it is the
-    only path that returns early from ``pipeline``.
-    """
-    collector_state = agent_state.collector_state
-    expert_state_in = expert_state_at_step(
-        expert_policy, collector_state, env_args.n_envs
-    )
-    _raw_for_expert = raw_obs if raw_obs is not None else collector_state.last_obs
-    action, log_probs, _raw_action, _agent_state = get_action_and_log_probs(
-        action_key=action_key,
-        agent_state=agent_state,
-        recurrent=recurrent,
-    )
-    uniform_action = jax.random.uniform(
-        mix_key, minval=-1.0, maxval=1.0, shape=action.shape
-    )
-    gain_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
-    gains = anchor_gains * jnp.exp(gain_log_scale * gain_action)
-    env_action, new_expert_state = expert_policy.step_with_gains(
-        expert_state_in, _raw_for_expert, gains
-    )
-    is_expert_flag = jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32)
-    return ActionPipelineResult(
-        env_action=env_action,
-        policy_action=action,
-        log_probs=log_probs,
-        is_expert_flag=is_expert_flag,
-        in_value_box=jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32),
-        entry_bonus=jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32),
-        rng=rng,
-        new_expert_state=new_expert_state,
-        buffer_action=gain_action,
-        initial_expert_state=expert_policy.init_state(env_args.n_envs),
-    )
-
-
-def _dispatch_actions(agent_state, extensions_indexed, batch, slot, rng, total_steps):
     """Fold the ``(index, extension)`` pairs' ``action`` phase over
     ``batch``, which they read and write: each non-None proposal replaces
     ``batch[slot]``. Stack order, so the last proposal wins (JSRL after
     EDGE)."""
-    ctx = ExtensionContext(
-        step=agent_state.collector_state.timestep, rng=rng, total_steps=total_steps
-    )
+    ctx = ExtensionContext(step=acting.timestep, rng=rng, total_steps=total_steps)
     for idx, ext in extensions_indexed:
         proposed = ext.action(agent_state, agent_state.ext_state[idx], batch, rng, ctx)
         if proposed is not None:
@@ -129,11 +72,9 @@ def make_action_pipeline(
     recurrent,
     env_args,
     extension_stack: ExtensionStack,
-    # Action transforms: the stack's residual policy (ResidualPolicy), whose
-    # ``transform_action`` makes the post-warmup action residual.
+    # The run's residual policy (ResidualPolicy), whose ``transform_action``
+    # makes the post-warmup action residual.
     residual=None,
-    use_pid_policy=False,
-    augment_obs_with_expert_action=False,
     # Off-policy correctness ablation: when True, the pipeline returns
     # the policy's sampled action as buffer_action (instead of letting
     # collect_experience fall back to env_action = the executed action).
@@ -151,20 +92,6 @@ def make_action_pipeline(
     if expert_policy is None:
         return None
 
-    # Stateful experts (FunctionalExpertPolicy) expose init_state; stateless
-    # callables (e.g. make_noise_expert_policy) don't.
-    expert_is_stateful = hasattr(expert_policy, "init_state")
-
-    # Gain-policy mode: actor output is interpreted as PID gain modulation.
-    gain_policy_mode = use_pid_policy and hasattr(expert_policy, "learnable_fields")
-    if use_pid_policy and not gain_policy_mode:
-        raise ValueError(
-            "use_pid_policy=True but expert_policy lacks learnable_fields."
-        )
-    if gain_policy_mode:
-        _anchor_gains = expert_policy.anchor_gains  # (n_gains,)
-        _gain_log_scale = jnp.log(10.0)
-
     # The extensions of each collection-time slot, classified at trace
     # time by their declared ``action_slot``.
     extensions = extension_stack.extensions
@@ -178,47 +105,18 @@ def make_action_pipeline(
 
     _pre_warmup_exts, _post_warmup_exts = map(_slot, ACTION_SLOTS)
 
-    def pipeline(agent_state, raw_obs, rng, uniform, mix_key, action_key):
-        collector_state = agent_state.collector_state
+    def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
+        # The expert's action this step, which the collector computed from
+        # its tracked state (expert_collect_kwargs).
+        expert_action = acting.expert_action
 
-        if gain_policy_mode:
-            return _gain_policy_step(
-                agent_state=agent_state,
-                expert_policy=expert_policy,
-                env_args=env_args,
-                recurrent=recurrent,
-                raw_obs=raw_obs,
-                rng=rng,
-                uniform=uniform,
-                mix_key=mix_key,
-                action_key=action_key,
-                anchor_gains=_anchor_gains,
-                gain_log_scale=_gain_log_scale,
-            )
-
-        # --- The expert's call, from its tracked state when stateful ---
-        _raw_for_expert = raw_obs if raw_obs is not None else collector_state.last_obs
-        expert_action, new_expert_state = expert_step(
-            expert_policy, collector_state, _raw_for_expert, env_args.n_envs
-        )
-
-        # --- Obs augmentation (interaction.augment_obs's layout) ---
-        if augment_obs_with_expert_action:
-            _last_obs = agent_state.collector_state.last_obs
-            _augmented_obs = augment_obs(_last_obs, expert_action=expert_action)
-            agent_state_for_actor = agent_state.replace(
-                collector_state=agent_state.collector_state.replace(
-                    last_obs=_augmented_obs
-                )
-            )
-        else:
-            agent_state_for_actor = agent_state
-            _augmented_obs = None
-
+        # The actor reads the observation with its features (an expert's
+        # action among them), as collection stored it.
         action, log_probs, _raw_action, _agent_state = get_action_and_log_probs(
             action_key=action_key,
-            agent_state=agent_state_for_actor,
+            agent_state=agent_state,
             recurrent=recurrent,
+            acting=acting,
         )
 
         uniform_action = jax.random.uniform(
@@ -226,7 +124,8 @@ def make_action_pipeline(
         )
 
         if residual is not None:
-            post_warmup_action = residual.transform_action(action, expert_action)
+            inputs = TransformInputs(raw_obs=raw_obs, expert_action=expert_action)
+            post_warmup_action = residual.transform_action(action, inputs)
         else:
             post_warmup_action = action
 
@@ -237,18 +136,15 @@ def make_action_pipeline(
         if _pre_warmup_exts:
             pre = _dispatch_actions(
                 agent_state,
+                acting,
                 _pre_warmup_exts,
                 {
                     "policy_action": action,
                     "expert_action": expert_action,
                     "post_warmup_action": post_warmup_action,
-                    # The critics' input, augmented when it is, and the
+                    # The critics' input, its features included, and the
                     # critic the gates score with: phi* once it exists.
-                    "observations": (
-                        _augmented_obs
-                        if augment_obs_with_expert_action
-                        else agent_state.collector_state.last_obs
-                    ),
+                    "observations": acting.obs,
                     "critic_params": (
                         agent_state.expert_critic_params
                         if agent_state.expert_critic_params is not None
@@ -293,16 +189,13 @@ def make_action_pipeline(
         if _post_warmup_exts:
             post = _dispatch_actions(
                 agent_state,
+                acting,
                 _post_warmup_exts,
                 {
                     "expert_action": expert_action,
                     "env_action": env_action,
-                    # The actor's and critics' input, augmented when it is.
-                    "observations": (
-                        _augmented_obs
-                        if augment_obs_with_expert_action
-                        else agent_state.collector_state.last_obs
-                    ),
+                    # The actor's and critics' input, its features included.
+                    "observations": acting.obs,
                 },
                 "env_action",
                 rng,
@@ -348,14 +241,7 @@ def make_action_pipeline(
             entry_bonus=entry_bonus,
             box_entry=box_entry,
             rng=rng,
-            new_expert_state=new_expert_state,
             buffer_action=_buffer_action_field,
-            a_expert=expert_action,
-            initial_expert_state=(
-                expert_policy.init_state(env_args.n_envs)
-                if expert_is_stateful
-                else None
-            ),
         )
 
     return pipeline

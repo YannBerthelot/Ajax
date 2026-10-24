@@ -1,0 +1,32 @@
+# The authors' CrossQ (vendor/adityab_crossq) for its conformance check
+# (tests/conformance/test_crossq_original.py): the versions its setup.py pins.
+# jax is its era's (it annotates jax.random.KeyArray, which later jax
+# removed); torch, CPU-only, is Stable-Baselines3's dependency.
+[project]
+name = "conformance-crossq"
+version = "0"
+requires-python = "==3.11.*"
+dependencies = [
+    "jax==0.4.18",
+    "jaxlib==0.4.18",
+    "flax==0.7.4",
+    "optax==0.1.7",
+    "tensorflow-probability==0.21.0",
+    "stable-baselines3==2.1.0",
+    "gymnasium==0.29.1",
+    "torch==2.1.2",
+    "scipy==1.11.4",
+    "numpy==1.26.4",
+    "ml-dtypes==0.3.1",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

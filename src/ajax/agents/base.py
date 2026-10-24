@@ -1,6 +1,6 @@
 import dataclasses
 import inspect
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from functools import partial
 from typing import Any, Callable, Optional, Tuple, Union
 
@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 from gymnax import EnvParams
 
+from ajax.controller import observers_of, transforms_of
 from ajax.environments.create import prepare_env
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import ExpertInAgentUnits
@@ -130,6 +131,11 @@ class ActorCritic:
     # to True; every other agent gets a loud error instead of a silent
     # misconfiguration when `memory` is provided.
     supports_memory: bool = False
+    # Agents whose losses run their networks in training, so that BatchRenorm
+    # layers ("batchrenorm" in an architecture) learn their running
+    # statistics (CrossQ), set this; every other agent refuses the layer
+    # instead of normalising by statistics that never move.
+    trains_batch_norm: bool = False
     # Whether the agent takes per-copy (batched) env params, one system per
     # env (ajax.environments.system_class). The shared loop's collector
     # compiles env_args as a static argument, which jax cannot hash with
@@ -148,6 +154,11 @@ class ActorCritic:
     # The keys of the agent context its make_train binds its extensions to
     # (Extension.bind_to_agent); an extension needing another is refused.
     extension_context: frozenset = frozenset()
+    # Per phase, the keys its folds put in the extensions' batch beyond those
+    # every agent passes (ajax.extensions.base.COMMON_BATCH_KEYS); an
+    # extension reading another is refused. On the shared steps, their sets
+    # in ajax.agents.loop (TARGET_KEYS, CRITIC_LOSS_KEYS, ...) and its own.
+    phase_batch_keys: Mapping[str, frozenset] = {}
     # The ExtensionContext fields its loop fills for its extensions'
     # pretraining (the shared loop: env_args; off-policy also update, and
     # buffer with a replay).
@@ -167,12 +178,11 @@ class ActorCritic:
     # differing counts are refused, since a batched count turns the update
     # schedules' lax.cond into a select running both branches.
     per_seed_update_counts: bool = False
-    # Whether the agent replays stored transitions. It then normalises
-    # observations itself (EnvironmentConfig.normalize_obs_in_agent): its
-    # replay keeps the env's own observations, normalised with the current
-    # statistics when read, as SB3's replay buffer does under VecNormalize.
-    # The env's normaliser would leave each row at the statistics of its
-    # collection.
+    # Whether the agent replays stored transitions. Its replay then keeps the
+    # env's own observations, normalised with the current statistics when
+    # read, as SB3's replay buffer does under VecNormalize; an on-policy
+    # agent's rollout keeps them normalised with the statistics of their
+    # collection (EnvironmentConfig.store_normalized_obs).
     replays_transitions: bool = False
     # Set, before this initialiser, by the agents that take an expert.
     expert_policy: Any
@@ -212,7 +222,6 @@ class ActorCritic:
         encoder_layer_norm: bool = False,
         squash: bool = False,
         episode_length: Optional[int] = None,
-        apply_obs_normalization: bool = True,
         action_repeat: int = 1,
         extensions: Sequence[Extension] = (),
     ) -> None:
@@ -261,12 +270,11 @@ class ActorCritic:
         env, env_params, env_id, continuous = prepare_env(
             env_id,
             env_params=env_params,
-            normalize_obs=normalize_observations and not self.replays_transitions,
+            normalize_obs=False,
             normalize_reward=normalize_rewards,
             gamma=reward_normalization_gamma,
             n_envs=n_envs,
             episode_length=episode_length,
-            apply_obs_normalization=apply_obs_normalization,
             action_repeat=action_repeat,
         )
 
@@ -283,7 +291,9 @@ class ActorCritic:
             n_envs=n_envs,
             continuous=continuous,
             action_repeat=action_repeat,
-            normalize_obs_in_agent=normalize_observations and self.replays_transitions,
+            normalize_obs_in_agent=normalize_observations,
+            store_normalized_obs=normalize_observations
+            and not self.replays_transitions,
         )
 
         self.network_args = NetworkConfig(
@@ -307,6 +317,17 @@ class ActorCritic:
             encoder_layer_norm=encoder_layer_norm,
             squash=squash,
         )
+
+        batch_norm = any(
+            isinstance(arch, (tuple, list)) and "batchrenorm" in arch
+            for arch in (actor_architecture, critic_architecture)
+        )
+        if batch_norm and not self.trains_batch_norm:
+            raise ValueError(
+                f"{type(self).__name__} runs its networks with their running"
+                " statistics fixed, so a 'batchrenorm' layer would never learn"
+                " them. CrossQ trains them; remove 'batchrenorm' here."
+            )
 
         self.actor_optimizer_args = OptimizerConfig(
             learning_rate=actor_learning_rate,
@@ -338,6 +359,36 @@ class ActorCritic:
         if expert is not None:
             self.expert_policy = self._in_agent_units(expert)
         self.extension_stack = self.extension_stack.with_experts(self._in_agent_units)
+        # The observation features its stack appends and its action transform
+        # (residual RL, gain mode): the controller's (ajax.controller), which
+        # collection and evaluation run.
+        observers = observers_of(self.extension_stack)
+        transforms = transforms_of(self.extension_stack)
+        if len(transforms) > 1:
+            raise ValueError(
+                "An agent takes one action transform, got"
+                f" {[e.name for e in transforms]}."
+            )
+        dim = None
+        if transforms:
+            expert = getattr(self, "expert_policy", None)
+            with_features = self.env_args.replace(observers=observers)
+            dim = transforms[0].policy_action_dim(with_features, expert)
+        self.env_args = self.env_args.replace(
+            observers=observers, transforms=transforms, policy_action_dim=dim
+        )
+
+        # An extension acting only in the controller (a feature, gain mode)
+        # takes no part in the learner's folds: no state, no key of its own.
+        # A residual policy stays: the learner scores its executed actions.
+        def controller_only(extension: Any) -> bool:
+            phases = extension.implemented_phases()
+            return bool(phases) and phases <= {"observe", "actuate"}
+
+        if any(controller_only(e) for e in self.extension_stack):
+            self.extension_stack = ExtensionStack(
+                [e for e in self.extension_stack if not controller_only(e)]
+            )
 
     def _in_agent_units(self, expert: Any) -> Any:
         """``expert`` read in agent units (:class:`ExpertInAgentUnits`),
@@ -378,6 +429,7 @@ class ActorCritic:
             context=self.extension_context,
             pretrain_context=self.pretrain_context,
             buffer_fields=self.supported_buffer_fields,
+            batch_keys=self.phase_batch_keys,
             agent_expert=getattr(self, "expert_policy", None),
             takes_expert_policy="expert_policy"
             in inspect.signature(type(self).__init__).parameters,

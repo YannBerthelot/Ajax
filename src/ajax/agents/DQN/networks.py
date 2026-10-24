@@ -16,6 +16,7 @@ import jax.numpy as jnp
 from flax.linen.initializers import orthogonal
 from flax.serialization import to_state_dict
 
+from ajax.controller import feature_width
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_state_action_shapes
 from ajax.networks.networks import CNNEncoder, CNNSpec, Encoder, init_network_state
@@ -25,6 +26,7 @@ from ajax.state import (
     LoadedTrainState,
     NetworkConfig,
     OptimizerConfig,
+    with_batch_stats,
 )
 from ajax.types import ActivationFunction, InitializationFunction
 
@@ -163,7 +165,7 @@ def predict_q(
     the observations normalised first when the agent normalises them
     (``q_state.obs_norm_info``)."""
     obs = apply_obs_norm(obs, getattr(q_state, "obs_norm_info", None))
-    return q_state.apply_fn(q_params, obs).q_values
+    return q_state.apply_fn(with_batch_stats(q_state, q_params), obs).q_values
 
 
 def q_network_value(agent_state, obs: jax.Array, action: jax.Array) -> jax.Array:
@@ -190,19 +192,22 @@ def get_initialized_q_network(
     QNetwork's constructor arguments.
     """
     cls = q_network_cls if q_network_cls is not None else QNetwork
+    # The observation features (env_config.observers) follow the env's
+    # columns; a CNN passes them on after its convolutions.
+    features = feature_width(env_config)
     network = cls(
         input_architecture=network_config.critic_architecture,
         n_actions=n_actions,
         penultimate_normalization=network_config.penultimate_normalization,
         encoder_layer_norm=network_config.encoder_layer_norm,
         cnn_image_shape=network_config.cnn_image_shape,
-        cnn_extra_obs_dim=network_config.cnn_extra_obs_dim,
+        cnn_extra_obs_dim=network_config.cnn_extra_obs_dim + features,
         cnn_spec=network_config.cnn_spec,
         kernel_init=network_config.encoder_kernel_init,
         head_kernel_init=network_config.value_kernel_init,
     )
     tx = get_adam_tx(**to_state_dict(optimizer_config))
-    observation_shape, _ = get_state_action_shapes(env_config.env)
+    shape, _ = get_state_action_shapes(env_config.env)
     # One observation: the parameters do not depend on the batch.
-    init_obs = jnp.zeros((1, *observation_shape))
+    init_obs = jnp.zeros((1, *shape[:-1], shape[-1] + features))
     return init_network_state(init_x=init_obs, network=network, key=key, tx=tx)

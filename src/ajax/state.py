@@ -18,6 +18,7 @@ from gymnax import EnvParams
 
 from ajax.environments.utils import get_env_type
 from ajax.networks.memory import MemoryConfig
+from ajax.schedule import progress
 from ajax.types import EnvStateType, EnvType, InitializationFunction, Replaceable
 from ajax.wrappers import NormalizationInfo
 
@@ -60,6 +61,12 @@ class Transition(Replaceable):
     # A dataset row's next action, its episode's next row's (NaN where
     # unknown: an episode's end, a collected row), for ReBRAC's TargetBC.
     next_action: Optional[jnp.ndarray] = None
+    # 1 where an expert acted at the row, for a replay that stores it (a run
+    # with an expert): the share SAC logs.
+    is_expert: Optional[jnp.ndarray] = None
+    # The action the policy chose where it differs from the executed one
+    # (a residual policy's), for a replay that stores it: IQL's actor fits it.
+    policy_action: Optional[jnp.ndarray] = None
 
     def __len__(self):
         return self.obs.shape[0] if self.obs.ndim > 0 else 1
@@ -90,11 +97,26 @@ class EnvironmentConfig(Replaceable):
     # ``ajax.environments.create``). Static: it fixes shapes and schedules
     # (episode length in agent steps), never a traced value.
     action_repeat: int = struct.field(pytree_node=False, default=1)
-    # The agent normalises the observations itself (a replay agent's
-    # ``normalize_observations``): the env passes them raw, the collector
-    # keeps running statistics (CollectorState.obs_norm_info) and the
-    # networks apply the current ones (ajax.environments.obs_norm).
+    # The agent normalises the observations itself (``normalize_observations``):
+    # the env passes them raw and the collector keeps running statistics
+    # (CollectorState.obs_norm_info). A replay agent's networks apply the
+    # current ones to raw observations (ajax.environments.obs_norm).
     normalize_obs_in_agent: bool = struct.field(pytree_node=False, default=False)
+    # An on-policy agent's collector stores each observation normalised with
+    # the statistics of its collection, updated with it after the env step,
+    # and its networks read them as stored (openai/baselines ppo2's
+    # VecNormalize).
+    store_normalized_obs: bool = struct.field(pytree_node=False, default=False)
+    # The extensions appending features to every observation, in column
+    # order (ajax.controller.observers_of): the agent sees the env's
+    # observation followed by their columns.
+    observers: tuple = struct.field(pytree_node=False, default=())
+    # The extension transforming the action (ajax.controller.transforms_of):
+    # residual RL's, or gain mode's, through the agent's expert.
+    transforms: tuple = struct.field(pytree_node=False, default=())
+    # The dimension of the actions the policy chooses where it is not the
+    # env's (gain mode: the expert's learnable gains); None: the env's.
+    policy_action_dim: Optional[int] = struct.field(pytree_node=False, default=None)
 
     @property
     def mode(self) -> str:
@@ -140,6 +162,9 @@ class CollectorState(Replaceable):
     # so it's part of agent_state and threads through naturally. None
     # disables normalization.
     obs_norm_info: Optional[NormalizationInfo] = None
+    # The observation features' per-env states (ajax.controller), as the
+    # last observation left them; None without features.
+    observer_states: Optional[Any] = None
     # Fraction of envs an expert drove on the latest collection step
     # (EDGEExploration logs it); NaN until the first step.
     last_expert_frac: Union[float, jax.Array] = jnp.nan
@@ -153,7 +178,7 @@ class CollectorState(Replaceable):
     def train_time_fraction(self) -> Optional[Union[float, jax.Array]]:
         if self.max_timesteps is None:
             return None
-        return self.timestep / self.max_timesteps
+        return progress(self.timestep, self.max_timesteps)
 
     @property
     def env_state(self) -> EnvStateType:
@@ -180,6 +205,10 @@ class LoadedTrainState(TrainState):
     # (sfujim/TD3's max_action * tanh) trains its critic on those, and Adam's
     # steps on the action inputs depend on the scale. None: [-1, 1] as is.
     action_units: Optional[tuple] = struct.field(pytree_node=False, default=None)
+    # The network's running statistics (its BatchRenorm layers'
+    # ``batch_stats`` collection), apart from the trained ``params``: the
+    # optimiser never steps them. None for a network without any.
+    batch_stats: Optional[flax.core.FrozenDict] = None
 
     def soft_update(self, tau):
         new_target_params = optax.incremental_update(
@@ -196,7 +225,29 @@ class LoadedTrainState(TrainState):
         return instance.replace(hidden_state=hidden_state, recurrent=recurrent)
 
     def apply(self, params, *args, **kwargs):
-        return self.apply_fn(params, *args, **kwargs)
+        """The network at ``params``, reading its running statistics."""
+        return self.apply_fn(with_batch_stats(self, params), *args, **kwargs)
+
+    def apply_train(self, params, *args, **kwargs):
+        """The network in training at ``params``: ``(out, batch_stats)``,
+        its running statistics after this pass (None without any)."""
+        if self.batch_stats is None:
+            return self.apply_fn(params, *args, **kwargs), None
+        out, updates = self.apply_fn(
+            with_batch_stats(self, params), *args, mutable=["batch_stats"], **kwargs
+        )
+        # Frozen as init stores them: a state's structure stays one type.
+        return out, flax.core.FrozenDict(updates["batch_stats"])
+
+
+def with_batch_stats(train_state: Any, params: Any) -> Any:
+    """The variables a forward pass at ``params`` reads: ``params`` and the
+    train state's running statistics, if it has any
+    (:attr:`LoadedTrainState.batch_stats`)."""
+    batch_stats = getattr(train_state, "batch_stats", None)
+    if batch_stats is None:
+        return params
+    return {**params, "batch_stats": batch_stats}
 
 
 @struct.dataclass
@@ -229,6 +280,12 @@ class BaseAgentState(Replaceable):
     # rollout of memory), pre-allocated at ``make_train`` time so the scan
     # carry's structure is stable from iteration zero.
     last_rollout: Optional[Any] = None
+
+    def next_keys(self, n: int = 1) -> tuple:
+        """``(state, *keys)``: ``n`` fresh keys and the state whose ``rng``
+        has moved past them (``*keys, rng = split(rng, n + 1)``)."""
+        *keys, rng = jax.random.split(self.rng, n + 1)
+        return (self.replace(rng=rng), *keys)
 
 
 @struct.dataclass
@@ -297,6 +354,9 @@ class NetworkConfig(Replaceable):
     log_std_kernel_init: Optional[Union[str, InitializationFunction]] = None
     # The critic's value (V or Q) layer; Critic (networks.py) documents it.
     value_kernel_init: Optional[Union[str, InitializationFunction]] = None
+    # A distributional critic's quantiles per value head (Critic.n_quantiles);
+    # 1: one value.
+    critic_quantiles: int = 1
     tanh_mean: bool = False
     # Opt-in LayerNorm on the shared encoder's output (Encoder in
     # networks.py), for every network built from this config. Off by

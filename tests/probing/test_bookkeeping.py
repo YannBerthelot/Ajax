@@ -65,7 +65,10 @@ def counter(
 
 LOG_EVERY, BUDGET, SEEDS = 140, {1: 1400, 4: 2800}, tuple(range(8))
 TRAIN, EVAL, LENGTH = runs.TRAIN_KEYS
-P2_AGENTS = ("SAC", "ASAC", "REDQ", "TD3", "AVG", "PPO", "APO", "DQN", "PQN")
+P2_AGENTS = (
+    *("SAC", "ASAC", "REDQ", "TD3", "AVG", "PPO", "APO"),
+    *("DQN", "PQN", "CrossQ", "TQC"),
+)
 ROLLOUT = {"PPO": 32, "APO": 32, "PQN": 16}
 
 
@@ -110,7 +113,10 @@ def steps(
     return {
         # The actor steps on updates 3, 6, ... (sfujim/TD3 counts the update first).
         "TD3": {"critic": u, "actor": u // 3},
+        # The actor and the temperature on updates 3, 6, ... (the authors').
+        "CrossQ": {"critic": u, "actor": u // 3, "alpha": u // 3},
         "REDQ": {"critic": 3 * u, "actor": u, "alpha": u},
+        "TQC": {"critic": u, "actor": u, "alpha": u},
         "ASAC": {"critic": u, "actor": u, "alpha": u if learned_alpha else 0},
         "AVG": {"critic": u, "actor": u, "alpha": 0},
         "DQN": {"actor": u, "critic": 0},

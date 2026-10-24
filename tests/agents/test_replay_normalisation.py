@@ -32,7 +32,10 @@ REPLAYING = sorted(
 
 
 def test_the_replaying_agents_are_the_replay_buffer_ones() -> None:
-    assert REPLAYING == ["ASAC", "DAgger", "DQN", "IQL", "REDQ", "SAC", "TD3", "UDRL"]
+    assert REPLAYING == [
+        *("ASAC", "CrossQ", "DAgger", "DQN", "IQL"),
+        *("REDQ", "SAC", "TD3", "TQC", "UDRL"),
+    ]
 
 
 def _replayed_rows(state: Any) -> np.ndarray:
@@ -81,19 +84,21 @@ def test_a_replay_agent_keeps_the_envs_own_observations(name: str) -> None:
     pi, _ = get_pi(actor, actor.params, raw)
     normed = (raw[:, :own] - stats.mean) / np.sqrt(stats.var + 1e-8)
     normed = jnp.concatenate([normed, raw[:, own:]], axis=-1)
-    direct = actor.apply_fn(actor.params, normed)
+    direct = actor.apply(actor.params, normed)  # with its running statistics
     if hasattr(pi, "q_values"):  # DQN's greedy policy: its Q-values
         pi, direct = pi.q_values, direct.q_values
     for got, want in zip(jax.tree.leaves(pi), jax.tree.leaves(direct), strict=True):
         np.testing.assert_allclose(got, want, rtol=1e-5, atol=1e-6)
 
 
-def test_an_on_policy_agent_keeps_the_envs_normaliser() -> None:
-    """An agent learning from its current rollout reads observations
-    normalised when collected, by the env, as before."""
+def test_an_on_policy_agent_stores_observations_normalised_when_collected() -> None:
+    """An agent learning from its current rollout keeps the statistics
+    itself and stores each observation normalised with those of its
+    collection; its env normalises none."""
     agent = ajax.PPO(env_id=IdentityEnv(), normalize_observations=True)
-    assert not agent.env_args.normalize_obs_in_agent
-    assert strip_ajax_wrappers(agent.env_args.env)[1]["normalize_obs"]
+    args = agent.env_args
+    assert args.normalize_obs_in_agent and args.store_normalized_obs
+    assert not strip_ajax_wrappers(args.env)[1].get("normalize_obs", False)
 
 
 # UDRL's segments still keep the rewards the env normalised: its commands and

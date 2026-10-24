@@ -25,7 +25,7 @@ tracking history closed by a PID layer, trained across a family of systems.
 | Environments | gymnax environments with transition gradients: Pendulum, MountainCarContinuous, PointRobot, Reacher, Swimmer |
 | Families of systems | yes, `system_class=` |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `actor_loss` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `actor_loss` , `transform_action`, `actuate` |
 | Resume and checkpoints | yes; a split run equals the uninterrupted one (probe, and the resume contract with memory) |
 
 Brax and Playground environments are not supported: they take no per-step
@@ -106,6 +106,7 @@ stages = [  # the nominal pendulum first, then the whole family
 | `squash` | True | bound actions to [-1, 1] with tanh; without it they are clipped there |
 | `system_class` | None | distribution over the environment's parameters; `None` trains on `env_params` only |
 | `controller_factory` | None | builds a custom controller module (see `Controller` in `ajax.agents.APG.networks`) |
+| `expert_policy` | None | an expert the rollout runs alongside: a residual policy (`ResidualPolicy`) or gain mode (`ExpertGains`) acts through it, the gradient running through the expert too |
 | `episode_length`, `action_repeat` | None, 1 | accepted as by every agent; on gymnax environments, the only ones APG takes, the episode length is the environment's and the repeat must be 1 |
 
 `APG.contextual_controller(env, system_class, ...)` sets the paper's values:

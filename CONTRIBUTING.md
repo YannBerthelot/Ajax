@@ -19,7 +19,7 @@ These are the pieces every agent shares:
 ```
 src/ajax/
 ├── agents/base.py       ActorCritic: environment and network setup, extensions=, train()
-├── agents/loop.py       TrainLoop, the shared loop; critic_step and gradient_step
+├── agents/loop.py       TrainLoop, the shared loop; critic_step, actor_step, gradient_step
 ├── agents/recurrent.py  replay buffers and R2D2-style sequence replay for memory=
 ├── agents/cloning.py    the behaviour-cloning loss and fit (CloningPretrain's)
 ├── extensions/base.py   Extension, ExtensionStack, ExtensionContext, the phases
@@ -55,12 +55,12 @@ only its algorithm:
 
 and picks one of two iterations:
 
-- **`loop.off_policy(init, update, aux_cls, learning_starts, ...)`** (SAC,
+- **`loop.off_policy(init, update, learning_starts, ...)`** (SAC,
   TD3, REDQ, ASAC, AVG, DQN): each iteration collects one step per
   environment, then, from `learning_starts`, runs `update(agent_state,
   transition)` and folds the extensions' `post_update`. Before
-  `learning_starts` the actions are uniform and the metrics are `aux_cls`
-  filled with NaN, which the logger drops.
+  `learning_starts` the actions are uniform and the metrics have the
+  update's structure, filled with NaN, which the logger drops.
 - **`loop.on_policy(init, update, n_steps, ...)`** (PPO, APO, PQN): each
   iteration collects an `n_steps` rollout per environment from the state
   `start`, then runs `update(agent_state, rollout, start)` and folds
@@ -128,7 +128,13 @@ Every agent lists the phases it folds in `supported_extension_phases`: the
 shared loop's `LOOP_PHASES` (`pretrain`, `post_update`, `eval_metrics`, in
 `ajax.agents.loop`) plus those its update folds; the base class's default is
 empty. An extension implementing any other phase is rejected when the agent
-is built instead of being silently ignored.
+is built instead of being silently ignored. It declares in
+`phase_batch_keys` the keys its folds put in the extensions' batches beyond
+the common ones (`COMMON_BATCH_KEYS`): an agent on `critic_step` and
+`actor_step` declares their sets (`REPLAY_BATCH_KEYS`, or `TARGET_KEYS`,
+`CRITIC_LOSS_KEYS` and `ACTOR_STEP_KEYS` with its own rows'), plus any it
+adds. An extension reading an undeclared key is refused when the agent is
+built.
 
 What changes during training lives in `agent_state.ext_state` (one entry per
 extension), never on `self`: extensions are static arguments of the compiled
@@ -145,7 +151,7 @@ other.
 **Boilerplate goes in the shared code; the algorithm goes in one file**, so a
 reader can follow `train_<AGENT>.py` like the paper's pseudocode. **Lineage
 rule:** an agent descending from another (REDQ from SAC) imports the parent's
-maths from its `core.py`. Use `critic_step` (a replay critic step) and `gradient_step` (an
+maths from its `core.py`. Use `critic_step` (a replay critic step), `actor_step` (an actor step) and `gradient_step` (an
 optimiser step) from `agents/loop.py` rather than writing your own.
 
 These templates for an agent `FOO` follow the replay agents TD3 and REDQ; an
@@ -172,22 +178,36 @@ class FOOConfig(RecurrentReplayConfig):
 **2. `train_FOO.py`.** The paper's maths, then `make_train`. The critic step
 goes through `critic_step`, which folds `on_target` and `critic_loss`; its
 keywords are what the target used (`dones`: where it cut the bootstrap, as
-TD3's `batch.terminated`):
+TD3's `batch.terminated`). The actor step goes through `actor_step`, which
+folds `actor_loss`; its keywords are the rows the extensions read:
 
 ```python
 def update_value_functions(agent_state, batch, agent_config, extension_stack, total_timesteps):
-    key, rng = jax.random.split(agent_state.rng)
+    agent_state, key = agent_state.next_keys()  # key, rng = split(rng)
     target_q = compute_foo_td_target(agent_state, key, batch, agent_config)  # the paper's target
 
     def value_loss(params, target_q):  # -> (loss, aux)
         return value_loss_function(params, agent_state.critic_state, batch.obs, batch.action, target_q)
 
-    critic_state, aux = critic_step(
+    critic_state, aux, grad_norm, metrics = critic_step(
         agent_state, batch, target_q, value_loss, extension_stack, key, total_timesteps,
         rewards=batch.reward, dones=batch.terminated,
         gamma=agent_config.gamma, reward_scale=agent_config.reward_scale,
     )
-    return agent_state.replace(rng=rng, critic_state=critic_state), aux
+    return agent_state.replace(critic_state=critic_state), aux, metrics
+
+
+def update_policy(agent_state, batch, extension_stack, total_timesteps):
+    agent_state, key = agent_state.next_keys()
+
+    def policy_loss(params):  # -> (loss, aux, pi_mean)
+        return foo_policy_loss(params, agent_state, batch.obs)  # the paper's actor loss
+
+    actor_state, aux, grad_norm, metrics = actor_step(
+        agent_state, policy_loss, extension_stack, key, total_timesteps,
+        observations=batch.obs, actions=batch.action,
+    )
+    return agent_state.replace(actor_state=actor_state), aux, metrics
 
 
 def make_train(
@@ -208,18 +228,21 @@ def make_train(
         return update_agent(agent_state, buffer, agent_config, loop.stack, total_timesteps)
 
     return loop.off_policy(
-        init, update, AuxiliaryLogs, agent_config.learning_starts,
+        init, update, agent_config.learning_starts,
         collect_kwargs={"buffer": buffer},
     )
 ```
 
 `update_agent` samples a batch (`sample_replay`), takes the critic step, then
-the actor step, whose loss adds `extension_stack.fold_actor_loss(...)`, and
-returns the state with an `AuxiliaryLogs` of both steps' metrics.
+the actor step, and returns the state with an `AuxiliaryLogs` of both steps' metrics (the
+extensions' under `extensions`, `merge_metrics` of the two steps').
 `ActorCritic.train` calls `make_train` with the keyword names above
-(`start_timestep` when it resumes a run), so keep them. Split a random key
-for the extensions only under `if stack:`, so an agent without extensions
-keeps its random stream.
+(`start_timestep` when it resumes a run), so keep them. A step takes its
+key from the state with `agent_state.next_keys()`, which splits `rng` and
+writes the new one back; `critic_step` and `actor_step` derive the
+extensions' keys from it
+([Randomness](docs/developer/writing-an-extension.md#randomness)), so an
+agent's own random stream is the same with or without extensions.
 
 **3. `FOO.py`.**
 
@@ -232,6 +255,8 @@ class FOO(ActorCritic):
     supported_extension_phases: frozenset = LOOP_PHASES | {
         "on_target", "critic_loss", "actor_loss"
     }
+    # The keys critic_step and actor_step hand its extensions (ajax.agents.loop).
+    phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS
     make_train = staticmethod(make_train)  # ActorCritic.get_make_train binds it
 
     def __init__(
@@ -336,8 +361,14 @@ A convention that differs from a reference implementation (an ordering, a
 default, a constant) is for code review, not for a test. *Pins* record what a
 tiny run produces today, so a restructuring can show it changed nothing:
 `tests/agents/test_agent_pins.py` (tiny runs' fingerprints),
+`tests/agents/test_agent_surface.py` (every public name the agent modules
+define, and each agent's run config and `agent_config`),
 `tests/extensions/test_sac_extensions_equivalence.py` and
-`tests/test_downstream_api.py` (the names downstream projects import). *Slow
+`tests/test_downstream_api.py` (the names downstream projects import). The
+fingerprints hold to 1e-3 across platforms; on one machine, `uv run python -m
+tests.exact_pins record DIR`, then `compare DIR` after the change, shows a
+restructuring bitwise: every leaf of tiny runs' final states, their logged
+evaluations and the text of their training programs' jaxprs. *Slow
 tests* (`@pytest.mark.slow`) are the long trainings.
 
 The tests come in two tiers. The *fast tier* is the tests not marked slow:

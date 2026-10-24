@@ -243,18 +243,76 @@ def parse_layer(
 
     ``("256", "layernorm", "relu")`` per hidden layer is RLPD's critic MLP
     (Ball et al., ICML 2023; ``ikostrikov/rlpd``, ``rlpd/networks/mlp.py``).
+    ``"batchrenorm"`` gives a :class:`BatchRenorm`, whose running statistics
+    only an agent training them in its losses may have (CrossQ).
     """
     if str(layer).isnumeric():
         return dense(int(cast("str", layer)), kernel_init, bias_init, orthogonal(1.0))
     if layer == "layernorm":
         return nn.LayerNorm()
+    if layer == "batchrenorm":
+        return BatchRenorm()
     try:
         return parse_activation(activation=layer)
     except ValueError as e:
         raise ValueError(
-            f"Unrecognized layer {layer!r}: a width such as '256', 'layernorm'"
-            f" or an activation, {sorted(_ACTIVATIONS)}"
+            f"Unrecognized layer {layer!r}: a width such as '256', 'layernorm',"
+            f" 'batchrenorm' or an activation, {sorted(_ACTIVATIONS)}"
         ) from e
+
+
+class BatchRenorm(nn.Module):
+    """Batch Renormalization (Ioffe, NeurIPS 2017) as CrossQ's authors run it
+    (adityab/CrossQ@a318a26, ``sbx/sac/policies.py:37-186``): batch norm
+    for its first ``warmup_steps`` training passes, then the batch's
+    statistics corrected towards the running ones by ``r`` and ``d``,
+    clipped to ``r_max`` and ``d_max`` and held constant.
+
+    It trains, normalising by the batch and updating its running statistics,
+    exactly when its ``batch_stats`` collection is mutable (``apply(...,
+    mutable=["batch_stats"])``, as the authors pass ``train=True`` exactly
+    then); otherwise it normalises by the running statistics. An init traces
+    the training branch without updating them.
+    """
+
+    momentum: float = 0.99
+    epsilon: float = 1e-3
+    warmup_steps: int = 100_000
+    r_max: float = 3.0
+    d_max: float = 5.0
+
+    @nn.compact
+    def __call__(self, x: jax.Array) -> jax.Array:
+        features = x.shape[-1:]
+        ra_mean = self.variable("batch_stats", "mean", jnp.zeros, features)
+        ra_var = self.variable("batch_stats", "var", jnp.ones, features)
+        steps = self.variable("batch_stats", "steps", jnp.zeros, (), jnp.int32)
+        scale = self.param("scale", nn.initializers.ones, features)
+        bias = self.param("bias", nn.initializers.zeros, features)
+        if not self.is_mutable_collection("batch_stats"):
+            mean, var = ra_mean.value, ra_var.value
+        else:
+            # flax's _compute_stats with its fast variance, as the authors'.
+            axes = tuple(range(x.ndim - 1))
+            mean = x.mean(axes)
+            var = jnp.maximum(0.0, (x * x).mean(axes) - mean * mean)
+            if not self.is_initializing():
+                ra_std = jnp.sqrt(ra_var.value + self.epsilon)
+                r = jax.lax.stop_gradient(jnp.sqrt(var + self.epsilon) / ra_std)
+                r = jnp.clip(r, 1 / self.r_max, self.r_max)
+                d = jax.lax.stop_gradient((mean - ra_mean.value) / ra_std)
+                d = jnp.clip(d, -self.d_max, self.d_max)
+                m = self.momentum
+                ra_mean.value = m * ra_mean.value + (1 - m) * mean
+                ra_var.value = m * ra_var.value + (1 - m) * var
+                warm = steps.value >= self.warmup_steps
+                steps.value += 1
+                mean, var = (
+                    jnp.where(warm, mean - d * jnp.sqrt(var) / r, mean),
+                    jnp.where(warm, var / r**2, var),
+                )
+        # flax's _normalize: (x - mean) * (rsqrt(var + eps) * scale) + bias.
+        return (x - mean) * (jax.lax.rsqrt(var + self.epsilon) * scale) + bias
 
 
 def dense(

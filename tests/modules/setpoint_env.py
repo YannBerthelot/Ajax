@@ -3,8 +3,8 @@
 The plant is an integrator, ``x_{t+1} = x_t + B u_t`` with ``u_t =
 clip(a_t, -1, 1)``, from ``x_0 = 0`` toward a set-point ``r`` drawn in
 ``[-1, 1]`` per episode; the reward is ``-(r - x_{t+1})^2`` and episodes
-last ``LENGTH`` steps. Observation ``[x, r]``; wrapped in
-:class:`PIDTermsWrapper` (``dt = 1``) it becomes ``[e, I, D, x, r]``.
+last ``LENGTH`` steps. Observation ``[x, r]``; with the :data:`TERMS`
+feature (``dt = 1``) it becomes ``[x, r, e, I, D]``.
 
 The best PID is deadbeat, ``(Kp, Ki, Kd) = (1 / B, 0, 0)``: it zeroes the
 error in one step and holds it there, so every reward is 0, the maximum,
@@ -20,11 +20,13 @@ import jax.numpy as jnp
 from flax import struct
 from gymnax.environments import environment, spaces
 
-from ajax.environments.pid_terms import PIDTermsWrapper
+from ajax.extensions.observe import PIDTermsInput
 
 B = 4.0
 LENGTH = 10
 BEST_GAINS = {"kp": 1.0 / B, "ki": 0.0, "kd": 0.0}
+#: The PID's terms of the error ``r - x``, for the agent's extensions.
+TERMS = PIDTermsInput(current_idx=(0,), target_idx=(1,))
 
 
 @struct.dataclass
@@ -64,5 +66,5 @@ class Setpoint(environment.Environment):
         return spaces.Box(-1.0, 1.0, (1,))
 
 
-def make() -> tuple[PIDTermsWrapper, Params]:
-    return PIDTermsWrapper(Setpoint(), current_idx=(0,), target_idx=(1,)), Params()
+def make() -> tuple[Setpoint, Params]:
+    return Setpoint(), Params()

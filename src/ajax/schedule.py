@@ -1,6 +1,34 @@
-from collections.abc import Callable
+"""Schedules: hyperparameters that change over training."""
 
+from collections.abc import Callable
+from typing import Any, Union
+
+import jax.numpy as jnp
 import optax
+
+#: A hyperparameter over training: a constant, or a function of the
+#: timestep. The timestep is traced, so a function is written with ``jnp``
+#: (``jnp.clip``, ``jnp.where``), never a Python ``if`` or ``min``.
+Schedule = Union[float, Callable[[Any], Any]]
+
+
+def progress(timestep: Any, horizon: Any) -> Any:
+    """The share of a run of ``horizon`` steps (at least one) done at
+    ``timestep``, unclipped: what every schedule over training reads."""
+    return timestep / jnp.maximum(horizon, 1)
+
+
+def at(schedule: Schedule, timestep: Any) -> Any:
+    """``schedule``'s value at ``timestep``."""
+    return schedule(timestep) if callable(schedule) else schedule
+
+
+def linear(start: float, end: float, steps: float) -> Callable[[Any], Any]:
+    """From ``start`` at timestep 0 to ``end`` at ``steps`` (at least one),
+    then ``end``."""
+    steps = max(steps, 1.0)
+    return lambda timestep: start + jnp.clip(timestep / steps, 0.0, 1.0) * (end - start)
+
 
 # ----------------------------
 # Optimizer step schedules

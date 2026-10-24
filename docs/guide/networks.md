@@ -183,8 +183,8 @@ u = Kp e + Ki I + Kd D
 ```
 
 where `e`, `I` and `D` are the tracking error, its integral and its
-difference, which [`PIDTermsWrapper`](environments.md#pid-error-terms) puts
-first in the observation. The agent learns the gains. Pass a `PIDPolicy` as
+difference, which the [`PIDTermsInput`](environments.md#pid-error-terms)
+feature appends to the observation. The agent learns the gains. Pass a `PIDPolicy` as
 the `actor_architecture` of any continuous-action agent: SAC, TD3, REDQ,
 ASAC, AVG, PPO or APO.
 
@@ -195,7 +195,7 @@ from flax import struct
 from gymnax.environments import environment, spaces
 
 from ajax import SAC
-from ajax.environments.pid_terms import PIDTermsWrapper
+from ajax.extensions.observe import PIDTermsInput
 from ajax.modules.pid_actor import PIDPolicy, pid_gains
 
 
@@ -237,10 +237,11 @@ class Setpoint(environment.Environment):
         return spaces.Box(-1.0, 1.0, (1,))
 
 
-# The observation becomes [e, I, D, x, r], with e = r - x.
-env = PIDTermsWrapper(Setpoint(), current_idx=(0,), target_idx=(1,), dt=1.0)
+# The observation becomes [x, r, e, I, D], with e = r - x.
+terms = PIDTermsInput(current_idx=(0,), target_idx=(1,), dt=1.0)
 agent = SAC(
-    env,
+    Setpoint(),
+    extensions=(terms,),
     env_params=Params(),
     n_envs=4,
     actor_architecture=PIDPolicy(n_errors=1, gains="fixed"),
@@ -272,7 +273,7 @@ with longer training.
   method="gains")`, an array of shape `(..., 3, action_dim, n_errors)`;
   the parameters of a squashed PID actor are the same.
 
-`n_errors` is the number of errors the wrapper tracks; with several, each
+`n_errors` is the number of errors the feature tracks; with several, each
 action dimension gets its own gain on each error. The gains start at zero:
 the untrained controller commands the centre of the action box, which is
 no action on a symmetric box. The stochastic agents explore with a
@@ -301,5 +302,5 @@ memory is the integral and the difference in the observation.
 
 Two other PID features are separate from this one. APG's in-context
 controller ends with a learnable PID layer on its network's output: see
-[APG](../algorithms/apg.md). SAC's `use_pid_policy` lets SAC tune the gains of
-an expert controller: see [Expert guidance](expert-guidance.md).
+[APG](../algorithms/apg.md). Gain mode (`ExpertGains`) lets SAC tune the gains
+of an expert controller: see [Expert guidance](expert-guidance.md).

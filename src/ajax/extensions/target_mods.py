@@ -15,12 +15,13 @@ These reshape the SAC Bellman target before it enters the critic loss
 * :class:`ValueBox`           — value-threshold expert action override
   during collection (the ``action`` phase).
 
-The ``batch`` argument to ``on_target`` is the dict SAC's
-``update_value_functions`` builds: ``observations``, ``actions``,
-``next_observations``, ``rewards`` (unscaled), ``reward_scale``, ``dones``,
-``rng_key``, ``q_preds``, ``gamma``, ``raw_next_observations`` (the
-environment's own next observations, which an extension's expert reads:
-SAC keeps them when an extension carries an expert) and ``recurrent``.
+The ``batch`` argument to ``on_target`` is the dict ``loop.critic_step``
+builds for SAC: ``observations``, ``actions``, ``next_observations``,
+``rewards`` (unscaled), ``reward_scale``, ``dones``, ``gamma``,
+``raw_next_observations`` (the environment's own next observations, which
+an extension's expert reads: SAC keeps them when an extension carries an
+expert), ``next_a_expert``, and SAC's own ``rng_key``, ``q_preds`` and
+``recurrent``.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.extensions.exploration import lcb_beta, lcb_score
 from ajax.networks.networks import phi_star_critic_state, predict_value
+from ajax.schedule import progress
 
 
 def blend_modify_target(
@@ -182,7 +184,9 @@ class IBRL(Extension):
     expert_policy: Callable
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "ibrl"
-    requires: ClassVar[frozenset[str]] = frozenset({"actor", "discounted", "q_critic"})
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"actor", "discounted", "q_critic", "target_critic"}
+    )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "on_target": frozenset({"dones", "next_a_expert", "raw_next_observations"})
     }
@@ -240,7 +244,7 @@ class LCBGatedBootstrap(Extension):
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "lcb_gated_bootstrap"
     requires: ClassVar[frozenset[str]] = frozenset(
-        {"actor", "critic_ensemble", "discounted", "q_critic"}
+        {"actor", "critic_ensemble", "discounted", "q_critic", "target_critic"}
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "on_target": frozenset({"dones", "next_a_expert", "raw_next_observations"})
@@ -315,8 +319,10 @@ class CriticBlend(Extension):
     critic_warmup_frac: float = 0.15
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "critic_blend"
+    # The blend is of one target value: atoms blended toward it would shrink
+    # a distribution's spread.
     requires: ClassVar[frozenset[str]] = frozenset(
-        {"discounted", "phi_star", "q_critic"}
+        {"discounted", "phi_star", "q_critic", "scalar_target"}
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "on_target": frozenset(
@@ -372,7 +378,7 @@ class CriticBlend(Extension):
     def expert_weight(self, timestep: Any, total_steps: int) -> jax.Array:
         """``α``: 1 at the start, falling linearly to 0 at
         ``critic_warmup_frac`` of the run."""
-        train_frac = timestep / max(int(total_steps), 1)
+        train_frac = progress(timestep, total_steps)
         return jnp.maximum(1.0 - train_frac / self.critic_warmup_frac, 0.0)
 
     def eval_metrics(
@@ -396,8 +402,10 @@ class MCVarianceCorrection(Extension):
 
     threshold: float
     name: str = "mc_variance_correction"
+    # It swaps one target value for the oracle's: a distribution's would
+    # collapse to that point.
     requires: ClassVar[frozenset[str]] = frozenset(
-        {"critic_ensemble", "phi_star", "q_critic"}
+        {"critic_ensemble", "phi_star", "q_critic", "scalar_target"}
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "on_target": frozenset({"actions", "q_preds"})
@@ -501,7 +509,9 @@ class ValueBox(Extension):
         """The box's threshold at ``step``: MCPretrain's ``v_min`` rising
         linearly to its ``v_max`` over the run."""
         return box_compute_threshold(
-            agent_state.expert_v_min, agent_state.expert_v_max, step / total_steps
+            agent_state.expert_v_min,
+            agent_state.expert_v_max,
+            progress(step, total_steps),
         )
 
     def eval_metrics(

@@ -14,7 +14,8 @@ from typing import Optional, Tuple, Union
 import flax.linen as nn
 import jax
 
-from ajax.environments.utils import get_action_dim
+from ajax.controller import policy_action_dim
+from ajax.extensions.observe import pid_terms_at
 from ajax.modules.pid_actor import PIDLaw, PIDPolicy, check_pid_actor
 from ajax.networks.distributions import Deterministic
 from ajax.networks.memory import MemoryCell, MemoryConfig
@@ -81,9 +82,10 @@ class DeterministicPIDActor(nn.Module):
 
     policy: PIDPolicy
     action_dim: int
+    terms_at: int = 0  # PIDLaw's
 
     def setup(self):
-        self.pid = PIDLaw(self.policy, self.action_dim)
+        self.pid = PIDLaw(self.policy, self.action_dim, self.terms_at)
 
     def gains(self, obs: jax.Array) -> jax.Array:
         return self.pid.gains(obs)
@@ -108,11 +110,13 @@ def get_initialized_td3_actor_critic(
     on the actor and both initialisations are
     :func:`get_initialized_actor_critic`'s.
     """
-    action_dim = get_action_dim(env_config.env, env_config.env_params)
+    action_dim = policy_action_dim(env_config)  # gain mode's gains
     actor: nn.Module
     if isinstance(network_config.actor_architecture, PIDPolicy):
         check_pid_actor(True, network_config.memory)
-        actor = DeterministicPIDActor(network_config.actor_architecture, action_dim)
+        policy = network_config.actor_architecture
+        at = pid_terms_at(env_config, policy.n_errors)
+        actor = DeterministicPIDActor(policy, action_dim, at)
     else:
         actor = DeterministicActor(
             input_architecture=network_config.actor_architecture,

@@ -26,7 +26,7 @@ experiments.
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Image observations | yes, a CNN encoder (`cnn_image_shape`) |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `actor_loss` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `actor_loss` , `transform_action`, `actuate` |
 | Resume and checkpoints | yes; a split run equals the uninterrupted one (probe and resume contract) |
 
 ## Example
@@ -73,6 +73,7 @@ training metrics of those iterations
 | `normalize_observations`, `normalize_rewards`, `reward_normalization_gamma` | False, False, None | running normalisation |
 | `cnn_image_shape` | None | convolutional encoder for flat image observations |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
+| `expert_policy` | `None` | an expert the rollout runs alongside: a residual policy (`ResidualPolicy`) or gain mode (`ExpertGains`) acts through it |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 ## How it works

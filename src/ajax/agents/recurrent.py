@@ -37,6 +37,7 @@ from ajax.buffers.utils import (
     normalized_rewards,
 )
 from ajax.environments.interaction import get_pi, get_pi_sequence, reward_statistics
+from ajax.environments.obs_norm import apply_obs_norm
 from ajax.networks.memory import (
     MemoryConfig,
     flat_carry_dim,
@@ -272,6 +273,8 @@ def sample_replay(
         raw_next_obs=b.raw_next_obs,
         return_to_go=b.return_to_go,
         next_action=b.next_action,
+        is_expert=b.is_expert,
+        policy_action=b.policy_action,
     )
     return batch, None
 
@@ -344,6 +347,16 @@ def actor_dist(
     return jax.tree.map(lambda leaf: _bootstrap_steps(carries, leaf), pi)
 
 
+def actor_dist_train(
+    actor_state: LoadedTrainState, params: Any, obs: jax.Array
+) -> Tuple[Any, Optional[Any]]:
+    """:func:`actor_dist` in training, feedforward: the actor's distribution
+    over ``obs`` and its running statistics after this pass
+    (:meth:`~ajax.state.LoadedTrainState.apply_train`)."""
+    obs = apply_obs_norm(obs, getattr(actor_state, "obs_norm_info", None))
+    return actor_state.apply_train(params, obs)
+
+
 def q_values(
     critic_state: LoadedTrainState,
     params: Any,
@@ -352,8 +365,10 @@ def q_values(
     carries: Optional[RecurrentCarries] = None,
     *,
     bootstrap: bool = False,
+    quantiles: bool = False,
 ) -> jax.Array:
-    """Every critic's ``Q(obs, actions)``, the ensemble axis first.
+    """Every critic's ``Q(obs, actions)``, the ensemble axis first
+    (``quantiles``: a distributional critic's quantiles, last axis).
 
     With ``carries``, on a replayed sequence from the online critic's
     burned-in carry, or the target critic's when ``bootstrap`` (``obs``
@@ -364,13 +379,19 @@ def q_values(
     a feedforward query's).
     """
     if carries is None:
-        return predict_value(critic_state, params, action_value_input(obs, actions))
+        x = action_value_input(obs, actions)
+        return predict_value(critic_state, params, x, quantiles=quantiles)
     actions = in_critic_units(critic_state, actions)
     prev_actions = in_critic_units(critic_state, carries.prev_actions)
     if not bootstrap:
         x = action_value_input(obs, actions, prev_actions)
         return predict_value_sequence(
-            critic_state, params, x, carries.resets, carries.critic_hidden
+            critic_state,
+            params,
+            x,
+            carries.resets,
+            carries.critic_hidden,
+            quantiles=quantiles,
         )[0]
     # The rows' queries are unread; after a termination nothing came before.
     rows = action_value_input(carries.obs, actions, prev_actions)
@@ -383,9 +404,15 @@ def q_values(
         carries, rows, action_value_input(obs, actions, taken)
     )
     values = predict_value_sequence(
-        critic_state, params, xs, resets, carries.target_critic_hidden
+        critic_state,
+        params,
+        xs,
+        resets,
+        carries.target_critic_hidden,
+        quantiles=quantiles,
     )[0]
-    # Values are (ensemble, T, B, 1): the ensemble axis goes last meanwhile.
+    # Values are (ensemble, T, B, 1 or quantiles): the ensemble axis goes
+    # last meanwhile.
     steps = _bootstrap_steps(carries, jnp.moveaxis(values, 0, -1))
     return jnp.moveaxis(steps, -1, 0)
 

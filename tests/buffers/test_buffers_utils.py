@@ -9,6 +9,7 @@ from gymnax import make as make_gymnax_env
 from ajax.buffers.utils import get_batch_from_buffer, get_buffer, init_buffer
 from ajax.environments.create import build_env_from_id
 from ajax.environments.utils import get_state_action_shapes
+from ajax.extensions.observe import ExpertStateInput, TrainingProgressInput
 from ajax.state import EnvironmentConfig
 
 
@@ -111,8 +112,8 @@ def test_init_buffer_schema_follows_its_options(env_id, action_dtype):
     obs_dim = env.observation_space(params).shape[0]
     buffer = get_buffer(buffer_size=8, batch_size=2)
 
-    def row(**options):
-        rows = init_buffer(buffer, env_args, **options).experience
+    def row(args=env_args, **options):
+        rows = init_buffer(buffer, args, **options).experience
         return {k: (v.shape[2:], v.dtype) for k, v in rows.items()}
 
     plain = row()
@@ -126,9 +127,10 @@ def test_init_buffer_schema_follows_its_options(env_id, action_dtype):
     }
     assert plain["obs"] == plain["next_obs"] == ((obs_dim,), jnp.float32)
     assert plain["action"] == ((1,), action_dtype)
+    # Observation features (one column, then two) widen the observations.
+    features = (TrainingProgressInput(), ExpertStateInput(width=2))
     full = row(
-        add_train_frac=True,
-        expert_state_aug_dim=2,
+        env_args.replace(observers=features),
         include_expert_fields=True,
         actor_carry_dim=5,
         include_raw_next_obs=True,

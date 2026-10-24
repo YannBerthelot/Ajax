@@ -218,10 +218,18 @@ acts. SAC runs them in two places, which each extension names in its
   transition and pays the expert's value as a reward, in place of the
   bootstrap, whatever its sign.
 
-`ResidualPolicy` changes what the policy's action means: SAC executes
-`clip(a_E + scale · a_π, −1, 1)`, in agent units, in collection, in the
-critic's target, in the actor's loss and in evaluation. The policy then
-learns a correction to the expert (residual RL).
+`ResidualPolicy` changes what the policy's action means: the agent executes
+`clip(a_E + scale · a_π, −1, 1)`, in agent units, in collection (before the
+warm-up's choice, so the warm-up draws executed actions), in the critics'
+target, in the actor's loss and in evaluation; the replay stores the
+executed action. The policy then learns a correction to the expert
+(residual RL). SAC, TD3, REDQ, TQC, CrossQ, ASAC and AVG run it, their
+critics scoring the executed action; PPO and APO too, their ratio reading
+the policy's own sample; and IQL, whose replay also keeps the residual the
+policy chose (its warm-up draws residuals), which its actor fits. UDRL
+acts through it in its own collector, keeping the policy's action, and APG
+in its differentiable rollout, whose gradient runs through the residual
+and the expert.
 
 Steps where the expert acted are flagged in the buffer;
 `value/expert_frac_in_buffer` logs their share of each training batch. The
@@ -263,13 +271,19 @@ the executed action rather than the policy's, it is refused.
 
 ### Observation
 
-Three SAC options change the networks' input, because they change its size:
+Observation features append columns to every observation, which the actor,
+the critics and the replay all read (`ajax.extensions.observe`):
 
-- `augment_obs_with_expert_action=True` appends the expert's action to the
-  observation, so the policy can condition on the expert's suggestion.
-- `augment_obs_with_expert_state=True` appends a stateful expert's internal
+- `ExpertActionInput()` appends the expert's action, so the policy can
+  condition on the expert's suggestion. It stays raw: it is an action.
+- `ExpertStateInput.for_expert(expert)` appends a stateful expert's internal
   state (a PID's integral, say).
-- `use_train_frac=True` appends the fraction of training done.
+- `TrainingProgressInput()` appends the fraction of training done; an
+  evaluation holds the collector's.
+
+They join an observation when it arrives, in collection and evaluation, and
+are stored with it. SAC's `augment_obs_with_expert_action`,
+`augment_obs_with_expert_state` and `use_train_frac` build them, and warn.
 
 ### Evaluation
 
@@ -299,7 +313,7 @@ Ajax" marks a feature with no external reference.
 | Keep the actor near the expert early on | `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger; PPO, APG, UDRL with a stateless expert), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |
 | Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC, TD3, REDQ, ASAC, AVG) | Q-filtered behaviour cloning (Nair et al., 2018) |
 | Let the expert act while the agent is poor | `JSRLCurriculum`, `EDGEExploration`, `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
-| Learn a correction to the expert | `ResidualPolicy` (SAC) | residual RL (Johannink et al., 2019) |
+| Learn a correction to the expert | `ResidualPolicy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL) | residual RL (Johannink et al., 2019) |
 | Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` (SAC) | developed with Ajax |
 | Make the target account for the expert | `IBRL` (SAC, TD3, REDQ, AVG), `LCBGatedBootstrap` (SAC, TD3, REDQ) | IBRL (Hu et al., 2023); the LCB gate developed with Ajax |
 | Measure how the critic rates the expert | `ExpertValueMetrics` (SAC, TD3, REDQ, ASAC) | |
@@ -309,7 +323,8 @@ built:
 
 | Extension | Needs | Refused |
 | --- | --- | --- |
-| `EDGEExploration`, `JSRLCurriculum`, `ValueBox`, `ResidualPolicy` | SAC with an `expert_policy` and without `use_pid_policy` | when built |
+| `EDGEExploration`, `JSRLCurriculum`, `ValueBox` | SAC with an `expert_policy` and without gain mode (`ExpertGains`) | when built |
+| `ResidualPolicy` | SAC (without gain mode), TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL, with an `expert_policy` | when built |
 | `OnlineBC`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox`, `PhiRefresh` | `MCPretrain` in the stack | when built |
 | `OnlineBC` | SAC with an `expert_policy`, whose actions it clones | when built |
 | `IBRL`, `LCBGatedBootstrap` | a discounted agent that keeps the raw next observations they read; `LCBGatedBootstrap` also a critic ensemble | when built |
@@ -371,18 +386,23 @@ agent = TD3(
 state, _ = agent.train(seed=0, n_timesteps=2_000)
 ```
 
-## Learning a PID's gains: SAC's gain mode
+## Learning a PID's gains: gain mode
 
 With a stateful PID expert that exposes `learnable_fields`, `anchor_gains`
 and `step_with_gains` (TargetGym's `FunctionalExpertPolicy` after
-`register_learnable_gains`), `SAC(use_pid_policy=True)` learns to schedule
-the expert's gains instead of acting directly. The actor outputs one number
-`a` in `[-1, 1]` per learnable gain; the gain applied is `anchor · 10^a`,
-between a tenth and ten times the expert's own. The PID computes the action.
-SAC refuses this mode, when it is built, with the collection extensions
-(their `action` phase never runs in it), `ResidualPolicy` and
-`augment_obs_with_expert_action` (the expert's action does not exist before
-the actor has chosen the gains).
+`register_learnable_gains`), the `ExpertGains` extension
+(`ajax.extensions.expert`) makes an agent schedule the expert's gains
+instead of acting directly: SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL run it with the expert as their
+`expert_policy` (SAC's `use_pid_policy=True` builds it and warns). The
+actor outputs one number `a` in `[-1, 1]` per learnable gain; the gain
+applied is `anchor · 10^a`, between a tenth and ten times the expert's own.
+The PID computes the action. The replay, or the rollout, holds the gains
+(the agent's actions, as many as the learnable gains), so the critics score
+them and the warm-up draws uniform gains; the expert's own action is stored
+as `a_expert`. An agent refuses this mode, when it is built, with
+`ResidualPolicy` (one transform a run) and `ExpertActionInput` (the
+expert's action does not exist before the actor has chosen the gains), and
+SAC with its collection extensions (their `action` phase never runs in it).
 
 It is different from the [PID policy](networks.md#the-pid-policy), in which
 the actor itself is a PID whose gains are learned, for any

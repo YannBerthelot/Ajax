@@ -67,6 +67,15 @@ Re-captured when SAC's Adam eps became softlearning's, TensorFlow's 1e-8
 (was 1e-5): every stack moved the same way, critic +2.3e-4..2.1e-3 (the
 pretraining stacks most), actor at most 1.5e-4, target at most 6.5e-5,
 alpha at most 1.2e-6; the plain-SAC parity goldens moved alike.
+
+Re-captured when SAC's actor step took its keys from the state
+(``next_keys``) and its extensions' key from its policy key
+(``extension_key``), the random stream of every SAC run moving: up to
+4.2e-3 (critic), 5.0e-4 (actor), 8.2e-5 (target), 1.2e-4 (alpha).
+
+Re-captured when SAC stopped splitting a third, discarded key off its
+replay key (left from a removed expert-batch mix): up to 2.0e-3 (critic),
+3.7e-4 (actor), 7.6e-5 (target), 1.0e-4 (alpha).
 """
 
 from __future__ import annotations

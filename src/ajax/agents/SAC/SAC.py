@@ -1,25 +1,57 @@
 import warnings
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional, Union
 
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config
-from ajax.agents.loop import LOOP_PHASES
+from ajax.agents.loop import LOOP_PHASES, REPLAY_BATCH_KEYS, TARGET_KEYS
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.SAC.action_pipeline import check_action_extensions
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
+from ajax.controller import policy_action_dim
 from ajax.deprecation import warn_inert
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
-    get_action_dim,
 )
 from ajax.extensions.base import Extension
+from ajax.extensions.expert import ExpertGains
+from ajax.extensions.observe import (
+    ExpertActionInput,
+    ExpertStateInput,
+    TrainingProgressInput,
+)
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
+
+
+def augmentation_features(
+    expert: Any, *, progress: bool, state: bool, action: bool
+) -> tuple:
+    """The observation features SAC's augmentation keywords stand for, in
+    their columns' order: the training progress (``use_train_frac``), the
+    expert's state (``augment_obs_with_expert_state``, a stateful expert's)
+    and its action (``augment_obs_with_expert_action``, with an expert).
+    Expand-then-contract (CLAUDE.md rule 10): the keywords warn, and go
+    once AjaxExperiments passes the features."""
+    if progress or state or action:
+        warnings.warn(
+            "SAC's use_train_frac, augment_obs_with_expert_state and"
+            " augment_obs_with_expert_action will be removed: pass"
+            " TrainingProgressInput(), ExpertStateInput.for_expert(expert) and"
+            " ExpertActionInput() (ajax.extensions.observe) in extensions.",
+            FutureWarning,
+            stacklevel=3,
+        )
+    stateful = expert is not None and hasattr(expert, "init_state")
+    return (
+        *([TrainingProgressInput()] if progress else []),
+        *([ExpertStateInput.for_expert(expert)] if state and stateful else []),
+        *([ExpertActionInput()] if action and expert is not None else []),
+    )
 
 
 class SAC(ActorCritic):
@@ -27,12 +59,14 @@ class SAC(ActorCritic):
 
     ``extensions=`` is the sole surface for composing research features.
 
-    Several kwargs remain because they thread into network init,
-    collection, or the action pipeline at a level the extension
-    framework doesn't reach (``use_pid_policy``,
-    ``augment_obs_with_expert_action``, ``augment_obs_with_expert_state``,
-    ``use_train_frac``, ``store_policy_action``).
-    They mirror the matching extension's "static" flag.
+    Several kwargs remain because they thread into collection or the
+    action pipeline at a level the extension framework doesn't reach
+    (``store_policy_action``). ``augment_obs_with_expert_action``,
+    ``augment_obs_with_expert_state`` and ``use_train_frac`` build the
+    observation features they stand for (:mod:`ajax.extensions.observe`),
+    and ``use_pid_policy`` gain mode's
+    :class:`~ajax.extensions.expert.ExpertGains`; they warn: pass those
+    instead.
     ``normalize_obs_running`` is ``normalize_observations`` under its old
     name, kept with a FutureWarning until the downstream projects pass the
     new one.
@@ -42,8 +76,9 @@ class SAC(ActorCritic):
     supports_memory: bool = True
     replays_transitions: bool = True
     capabilities: frozenset = frozenset(
-        "actor critic_ensemble discounted "
-        "obs_networks off_policy policy_density q_critic replay".split()
+        "actor critic_ensemble discounted obs_networks "
+        "off_policy policy_density q_critic replay target_critic "
+        "reward_learning".split()
     )
     # ``action`` reaches only the action pipeline's slots, and
     # ``transform_action`` the pipeline, with an expert policy
@@ -54,14 +89,17 @@ class SAC(ActorCritic):
         "actor_loss",
         "action",
         "transform_action",
+        "actuate",
+    }
+    # Its critic step's target_extras join the shared step's on_target keys.
+    phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS | {
+        "on_target": TARGET_KEYS | {"rng_key", "q_preds", "recurrent"}
     }
     pretrain_context: frozenset = frozenset("buffer env_args update".split())
     extension_context: frozenset = frozenset(
-        "actor_optimizer_args augment_obs_with_expert_action "
-        "augment_obs_with_expert_state buffer critic_optimizer_args "
-        "env_args expert_policy expert_state_aug_dim extensions "
-        "gamma network_args num_critics recurrent reward_scale "
-        "update_target_fn update_value_fn use_train_frac".split()
+        "actor_optimizer_args buffer critic_optimizer_args env_args "
+        "expert_policy extensions gamma network_args num_critics recurrent "
+        "reward_scale update_target_fn update_value_fn".split()
     )
     supported_buffer_fields: frozenset = frozenset({"raw_next_obs", "return_to_go"})
     stores_expert_actions: bool = True
@@ -112,8 +150,7 @@ class SAC(ActorCritic):
         # Deprecated, no effect: SAC counts each env's steps in its episode
         # when an extension reads them (JSRLCurriculum).
         jsrl_curriculum: Optional[bool] = None,
-        # PID policy: gain-mode short-circuit in the action pipeline,
-        # changes the action_dim of actor/critic/buffer.
+        # Deprecated: gain mode, ExpertGains() in extensions.
         use_pid_policy: bool = False,
         fixed_alpha: bool = False,
         num_critics: int = 2,
@@ -196,6 +233,20 @@ class SAC(ActorCritic):
                     "log_std_kernel_init": "xavier_uniform",
                     "log_std_init": 0.0,
                 }
+        features = augmentation_features(
+            expert_policy,
+            progress=use_train_frac,
+            state=augment_obs_with_expert_state,
+            action=augment_obs_with_expert_action,
+        )
+        if use_pid_policy:
+            warnings.warn(
+                "SAC's use_pid_policy will be removed: pass ExpertGains()"
+                " (ajax.extensions.expert) in extensions.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            features = (*features, ExpertGains())
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -214,7 +265,7 @@ class SAC(ActorCritic):
             **reference_init,
             episode_length=episode_length,
             action_repeat=action_repeat,
-            extensions=extensions,
+            extensions=(*extensions, *features),
         )
         # Adam's eps is TensorFlow's default, 1e-8, which softlearning's
         # tf.train.AdamOptimizer keeps (a1253bc sac.py:236-244, :318-324);
@@ -228,34 +279,16 @@ class SAC(ActorCritic):
         )
         if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("SAC only supports continuous action spaces.")
+        # Gain mode (ExpertGains) acts through the default pipeline, which
+        # dispatches no action extension.
+        gain_mode = self.env_args.policy_action_dim is not None
         check_action_extensions(
             self.extension_stack,
-            dispatched=expert_policy is not None and not use_pid_policy,
+            dispatched=expert_policy is not None and not gain_mode,
         )
 
-        # Gain-policy mode: actor outputs PID gains (see make_action_pipeline).
-        # Critic / buffer / target_entropy then operate in gain-space.
-        action_dim_override: Optional[int] = None
-        if use_pid_policy:
-            if expert_policy is None or not hasattr(expert_policy, "learnable_fields"):
-                raise ValueError(
-                    "use_pid_policy=True requires a FunctionalExpertPolicy with"
-                    " learnable_fields (registered via register_learnable_gains)."
-                )
-            action_dim_override = len(expert_policy.learnable_fields)
-            if augment_obs_with_expert_action:
-                raise ValueError(
-                    "use_pid_policy=True cannot take augment_obs_with_expert_action"
-                    "=True: the actor's output sets the gains the expert acts"
-                    " with, so the expert's action does not exist before the"
-                    " actor reads its observation."
-                )
-
-        action_dim = (
-            action_dim_override
-            if action_dim_override is not None
-            else get_action_dim(self.env_args.env, env_params)
-        )
+        # Gain mode's critic, buffer and target entropy act in gain space.
+        action_dim = policy_action_dim(self.env_args)
         self.agent_config: SACConfig = SACConfig(
             gamma=gamma,
             tau=tau,
@@ -281,34 +314,23 @@ class SAC(ActorCritic):
             " them (JSRLCurriculum).",
             jsrl_curriculum=jsrl_curriculum,
         )
-        expert_state_aug_dim = 0
-        if augment_obs_with_expert_state and expert_policy is not None:
-            from ajax.environments.interaction import expert_state_dim
-
-            expert_state_aug_dim = expert_state_dim(expert_policy)
         self.train_kwargs = {
             "buffer": self.buffer,
             "alpha_args": self.alpha_args,
             "expert_policy": self.expert_policy,
             "eval_expert_policy": self.eval_expert_policy,
-            "use_pid_policy": use_pid_policy,
             "fixed_alpha": fixed_alpha,
             "num_critics": num_critics,
             "num_critic_updates": num_critic_updates,
             "expert_buffer_n_steps": expert_buffer_n_steps,
-            "augment_obs_with_expert_action": augment_obs_with_expert_action,
-            "use_train_frac": use_train_frac,
             "policy_update_start": policy_update_start,
             "alpha_update_start": alpha_update_start,
             "expert_fraction": expert_fraction,
-            "augment_obs_with_expert_state": augment_obs_with_expert_state,
             "store_policy_action": store_policy_action,
-            "expert_state_aug_dim": expert_state_aug_dim,
             "target_entropy_initial": (
                 target_entropy_initial_per_dim * action_dim
                 if target_entropy_initial_per_dim is not None
                 else None
             ),
             "target_entropy_ramp_frac": target_entropy_ramp_frac,
-            "action_dim_override": action_dim_override,
         }

@@ -20,8 +20,8 @@ from tests.conformance import submaps
 REPO = pathlib.Path(__file__).parents[2]
 KEPT = os.environ.get("AJAX_CONFORMANCE_RECORDS")
 TORCH_ENV = "benchmarks/reference/envs/torch"  # CPU-only PyTorch, gymnax, jax
+CROSSQ_ENV = "benchmarks/reference/envs/crossq"  # the authors' own jax, flax and SB3
 ASAC_ENV = "benchmarks/reference/envs/asac"  # BobMak/asac's pins: stable-baselines3 2.4, gymnasium 1.0
-CPU = subproject_env(REPO / TORCH_ENV, JAX_PLATFORMS="cpu", CUDA_VISIBLE_DEVICES="")
 
 
 def recorded(
@@ -32,8 +32,7 @@ def recorded(
     project: str = TORCH_ENV,
 ) -> pathlib.Path:
     """``recorder``'s records (benchmarks/reference/) on ``envs``: CI's kept ones when whole, else
-    recorded now in ``project`` (an env of benchmarks/reference/envs), under the kept directory or else
-    in ``scratch``."""
+    recorded now in ``project``'s env, under the kept directory or else in ``scratch``."""
     out = REPO / KEPT / name if KEPT else scratch
     marker = out / "envs"  # written last: unfinished records are never taken
     if marker.is_file() and marker.read_text() == " ".join(envs):
@@ -41,7 +40,10 @@ def recorded(
     for env_id in envs:
         script = f"benchmarks/reference/{recorder}"
         command = ["uv", "run", "--project", project, "--locked", "python", script]
-        subprocess.run([*command, env_id, str(out)], cwd=REPO, env=CPU, check=True)
+        cpu = subproject_env(
+            REPO / project, JAX_PLATFORMS="cpu", CUDA_VISIBLE_DEVICES=""
+        )
+        subprocess.run([*command, env_id, str(out)], cwd=REPO, env=cpu, check=True)
     marker.write_text(" ".join(envs))
     return out
 

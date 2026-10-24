@@ -33,6 +33,7 @@ from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
 from ajax.agents.base import ActorCritic, run_config
+from ajax.agents.CrossQ.CrossQ import CrossQ
 from ajax.agents.DAgger.DAgger import DAgger
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
@@ -44,6 +45,7 @@ from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
+from ajax.agents.TQC.TQC import TQC
 from ajax.agents.UDRL.state import UDRLConfig
 from ajax.agents.UDRL.train_UDRL import EvalCommand
 from ajax.agents.UDRL.UDRL import UDRL
@@ -56,6 +58,7 @@ from ajax.extensions.instrumentation import (
     BiasVoreDecomposition,
     ConditioningMetrics,
 )
+from ajax.extensions.observe import TrainingProgressInput
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import (
     AlphaConfig,
@@ -64,7 +67,7 @@ from ajax.state import (
     OptimizerConfig,
 )
 from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
-from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt
+from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt, RawProgress
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
 from tests.environments import paid_action
 
@@ -132,6 +135,21 @@ CASES = {
         buffer=True,
     ),
     "TD3": Case(TD3, OFF_POLICY, CONTINUOUS, buffer=True),
+    "TQC": Case(
+        TQC,
+        {**OFF_POLICY, "num_critics": 3, "n_quantiles": 4},
+        CONTINUOUS,
+        alpha=True,
+        buffer=True,
+    ),
+    "CrossQ": Case(
+        CrossQ,
+        {"actor_width": 16, "critic_width": 16}
+        | {k: OFF_POLICY[k] for k in ("learning_starts", "batch_size", "buffer_size")},
+        CONTINUOUS,
+        alpha=True,
+        buffer=True,
+    ),
     "IQL": Case(IQL, OFF_POLICY, CONTINUOUS, buffer=True),
     "AVG": Case(
         AVG,
@@ -281,9 +299,10 @@ class _KeyExt(Extension):
 
 @pytest.fixture(scope="module")
 def extended_run() -> Any:
-    """``extended_run(name)``: the agent's run with every extension the three
-    contracts below read (two counters and a metric, the key recorder, and
-    the instrumentation where it has a critic), on 2 seeds and 2 envs of its
+    """``extended_run(name)``: the agent's run with every extension the
+    contracts below read (two counters and a metric, the key recorder, the
+    instrumentation where it has a critic, and the training progress, as a
+    normalised and a raw feature, where it observes), on 2 seeds and 2 envs of its
     last env, logging every 32 steps, its rollout exposed where it has one.
     Built once per agent: each build traces and compiles a train program,
     and one shared run took half the time of the three it replaced."""
@@ -305,6 +324,8 @@ def _extended_run(case: Case) -> SimpleNamespace:
     kwargs |= case.kwargs | case.extended
     extensions: list[Extension] = [CounterExt("a"), CounterExt("b"), MetricExt()]
     extensions.append(_KeyExt())
+    if "observe" in case.cls.supported_extension_phases:
+        extensions += [TrainingProgressInput(), RawProgress()]
     if case.critic:
         buffer = getattr(case.cls(**kwargs), "buffer", None)
         extensions += [
@@ -357,6 +378,21 @@ def test_a_run_folds_its_extensions_and_keeps_its_rollout(
     obs = state.last_rollout.obs
     assert obs.shape[:3] == (2, case.rollout, 2), obs.shape
     assert jnp.isfinite(obs).all()
+
+
+@AGENTS
+def test_a_run_observes_its_features(name: str, extended_run: Any) -> None:
+    """The collector's last observation ends with the training progress
+    where it arrived, before the step's 2 envs counted: kept raw, last."""
+    run = extended_run(name)
+    if "observe" not in run.case.cls.supported_extension_phases:
+        pytest.skip(f"{name} rolls out on its own")
+    collector = run.state.collector_state
+    arrived = (np.asarray(collector.timestep) - 2) / run.case.n_timesteps
+    last = np.asarray(collector.last_obs)[..., -1]
+    expected = np.broadcast_to(arrived[:, None], last.shape)
+    np.testing.assert_allclose(last, expected, rtol=1e-6)
+    assert (arrived > 0.5).all(), arrived
 
 
 @AGENTS
@@ -433,7 +469,10 @@ def test_each_evaluation_draws_fresh_keys(name: str, extended_run: Any) -> None:
 #: dropping the offset (2a) or the scale (1 + a) pays another amount:
 #: SAC's and TD3's first 64 steps warm up, and every run's 128 steps fill
 #: the 128-row buffer (an unwritten row would read reward 0 for action 0).
-ON_THE_BOX = ("APG", "APO", "ASAC", "AVG", "PPO", "REDQ", "SAC", "TD3", "UDRL")
+ON_THE_BOX = (
+    *("APG", "APO", "ASAC", "AVG", "CrossQ"),
+    *("PPO", "REDQ", "SAC", "TD3", "TQC", "UDRL"),
+)
 BOX = (-1.0, 3.0)  # centre 1, half-range 2
 WARM_UP = {"learning_starts": 64, "buffer_size": 128}
 
@@ -529,7 +568,8 @@ def test_a_world_model_acts_on_the_whole_box(name: str) -> None:
 
 #: Every agent on ActorCritic (TD-MPC2 multi-task, offline, builds no env).
 ACTOR_CRITICS = (
-    "APG APO ASAC AVG DAgger DQN DreamerV3 IQL PPO PQN REDQ SAC TD3 TDMPC2 UDRL"
+    "APG APO ASAC AVG CrossQ DAgger DQN DreamerV3 IQL PPO PQN REDQ SAC TD3 TDMPC2 TQC"
+    " UDRL"
 )
 
 
@@ -589,7 +629,8 @@ def test_no_agent_class_lets_its_seeds_update_unequally() -> None:
 #: papers do.
 CLIPS: dict[str, tuple[str, float | None]] = {
     **dict.fromkeys(
-        "AVG DAgger DQN IQL REDQ SAC TD3 UDRL".split(), ("max_grad_norm", None)
+        "AVG CrossQ DAgger DQN IQL REDQ SAC TD3 TQC UDRL".split(),
+        ("max_grad_norm", None),
     ),
     # BobMak/asac @4b68862: every hparams/*/asac.yaml sets max_grad_norm 10.
     "ASAC": ("max_grad_norm", 10.0),

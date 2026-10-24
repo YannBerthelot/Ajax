@@ -6,15 +6,19 @@
 # is the newest with that behaviour and the oldest with a Python 3.8 wheel (the oldest
 # Python uv installs on x86 macOS). x86 only (macOS under Rosetta, or Linux): torch 1.4
 # has no arm64 wheels, so CI cannot run it, and these records are committed instead.
-# Their data come from gymnasium.
+# Their data come from gymnasium. python-dateutil, gtimer and matplotlib are what rlkit's core imports
+# (CQL's d4rl/environment pins gtimer 1.0.0b5).
 [project]
 name = "conformance-torch14"
 version = "0"
 requires-python = "==3.8.*"
 dependencies = [
     "torch==1.4.0",
-    "numpy==1.24.4",
+    "numpy==1.23.5",  # rlkit (CQL) uses np.bool, which numpy 1.24 removed
     "gymnasium==0.29.1",
+    "python-dateutil",
+    "gtimer==1.0.0b5",
+    "matplotlib",
 ]
 
 [tool.uv]

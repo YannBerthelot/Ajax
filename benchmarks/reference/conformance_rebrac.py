@@ -3,10 +3,9 @@
 usage: python conformance_rebrac.py ENV_ID OUT_DIR   (in envs/jax_offline: see its pyproject for the versions)
 
 Imports nothing from Ajax. The original (vendor/tinkoff_rebrac) learns from a D4RL dataset; here the
-dataset is uniform random actions in [-1, 1]^A on a gymnasium task, in D4RL's format (observations, actions,
-rewards, terminals, timeouts), turned into rows by the original's qlearning_dataset. MountainCarEnds is
-MountainCarContinuous terminating every ENDS_EVERY-th step, so that rows end episodes. Both tasks' action
-box is [-1, 1]: ReBRAC compares its tanh actions with the dataset's directly, as D4RL's boxes allow. The networks, states and
+dataset is conformance_d4rl's (uniform random actions on MountainCarContinuous and on MountainCarEnds,
+which terminates every 20th step, both with [-1, 1] boxes), turned into rows by the original's
+qlearning_dataset. The networks, states and
 hyperparameters are main()'s (rebrac.py:226-269, Config's defaults), and the training is main()'s loop
 body (td3_loop_update_step: update_td3 at even updates, update_td3_no_targets at odd ones). Before the
 updates in RECORDS, the update is run eagerly on the same state and batch, the critic's target-noise
@@ -20,7 +19,6 @@ import pathlib
 import sys
 import types
 
-import gymnasium as gym
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -34,42 +32,19 @@ for _name in ("wandb", "d4rl", "h5py", "pyrallis", "src.utils.vd4rl_utils"):
 sys.modules["pyrallis"].wrap = lambda *_args, **_kwargs: (lambda f: f)
 sys.modules["src.utils.vd4rl_utils"].ExtendedTimeStep = None
 sys.modules["src.utils.vd4rl_utils"].step_type_lookup = None
+from conformance_d4rl import dataset  # noqa: E402
 from src.algorithms import rebrac  # noqa: E402
 from src.networks import DetActor, EnsembleCritic  # noqa: E402
 from src.utils.buffer import ReplayBuffer, qlearning_dataset  # noqa: E402
 from src.utils.common import Metrics  # noqa: E402
 
 RECORDS = (0, 1, 1000, 1001)
-STEPS, SEED, ENDS_EVERY = 5_000, 0, 20
 METRICS = ["critic_loss", "q_min", "actor_loss", "batch_entropy"]
 METRICS += [
     "bc_mse_policy",
     "bc_mse_random",
     "action_mse",
 ]  # main()'s bc_metrics_to_log
-
-
-def dataset(env_id: str) -> dict:
-    """D4RL-format episodes of uniform random actions on ``env_id``."""
-    ends = env_id == "MountainCarEnds"
-    env = gym.make("MountainCarContinuous-v0" if ends else env_id)
-    rng = np.random.default_rng(SEED)
-    data: dict = {
-        k: [] for k in ("observations", "actions", "rewards", "terminals", "timeouts")
-    }
-    (obs, _), t = env.reset(seed=SEED), 0
-    for _ in range(STEPS):
-        action = rng.uniform(-1.0, 1.0, env.action_space.shape).astype(np.float32)
-        nxt, reward, terminated, truncated, _ = env.step(action * env.action_space.high)
-        t += 1
-        terminal = terminated or (ends and t % ENDS_EVERY == 0)
-        timeout = truncated and not terminal
-        for k, v in zip(data, (obs, action, reward, terminal, timeout), strict=False):
-            data[k].append(v)
-        obs = nxt
-        if terminal or timeout:
-            (obs, _), t = env.reset(), 0
-    return {k: np.asarray(v) for k, v in data.items()}
 
 
 def buffer_of(rows: dict) -> ReplayBuffer:

@@ -16,13 +16,9 @@ import pytest
 from ajax.agents import minibatch
 from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
+from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
 from ajax.agents.PPO import train_PPO
-from ajax.agents.PPO.core import (
-    approximate_kl,
-    explained_variance,
-    mean_policy_std,
-    recompute_log_prob,
-)
+from ajax.agents.PPO.core import recompute_log_prob
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PPO.utils import _compute_gae
 from ajax.environments.interaction import get_pi

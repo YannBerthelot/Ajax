@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 
+from ajax.agents.critics import critic_loss_fn
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC import core as sac_core
 from ajax.agents.SAC import train_SAC
@@ -73,7 +74,7 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
     # TD3 sums its critics' squared errors (sfujim/TD3); critic_loss_fn averages them.
     v_grads = jax.grad(
         lambda p: config.num_critics
-        * sac_core.critic_loss_fn(p, critic, batch.obs, batch.action, target)[0]
+        * critic_loss_fn(p, critic, batch.obs, batch.action, target)[0]
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 
@@ -145,7 +146,7 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
         False,
     )
     v_grads = jax.grad(
-        lambda p: sac_core.critic_loss_fn(p, critic, batch.obs, batch.action, target)[0]
+        lambda p: critic_loss_fn(p, critic, batch.obs, batch.action, target)[0]
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 

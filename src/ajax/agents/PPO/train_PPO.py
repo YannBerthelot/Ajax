@@ -16,6 +16,7 @@ import jax.numpy as jnp
 import optax
 from flax.core import FrozenDict
 
+from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
 from ajax.agents.loop import TrainLoop, extension_key
 from ajax.agents.minibatch import (
     get_minibatches_from_batch,
@@ -29,10 +30,7 @@ from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
     ValueAuxiliaries,
-    approximate_kl,
     clipped_surrogate,
-    explained_variance,
-    mean_policy_std,
     policy_entropy,
     recompute_log_prob,
     resolve_clip_coef,

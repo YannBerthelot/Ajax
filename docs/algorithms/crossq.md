@@ -81,8 +81,9 @@ Defaults are read from `CrossQ.__init__`, the authors' `train.py -algo crossq`.
 - **No target networks.** The critics' state keeps no target parameters.
   `IBRL` and `LCBGatedBootstrap`, which bootstrap on target critics, are
   refused.
-- **Shared maths.** The target, the critics' regression and the actor's
-  objective are SAC's (`ajax.agents.SAC.core`), and the extensions fold
+- **Shared maths.** The target and the actor's objective are SAC's
+  (`ajax.agents.SAC.core`), the critics' regression is the one every
+  Q-critic agent shares (`ajax.agents.critics`), and the extensions fold
   through the shared critic step's two halves (`fold_on_target`,
   `fold_critic_loss`).
 - **Cost.** The critics' pass doubles its batch, and the default critics are

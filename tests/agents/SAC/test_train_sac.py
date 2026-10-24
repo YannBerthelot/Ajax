@@ -15,11 +15,11 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 
+from ajax.agents.critics import q_regression_loss
 from ajax.agents.recurrent import actor_dist
 from ajax.agents.SAC.core import (
     alpha_temperature_loss_fn,
     create_alpha_train_state,
-    q_regression_loss,
     soft_bellman_target,
     soft_policy_loss,
     soft_policy_objective,

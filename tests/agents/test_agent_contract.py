@@ -70,6 +70,7 @@ from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
 from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt, RawProgress
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
 from tests.environments import paid_action
+from tests.test_exports import library_agents
 
 CONTINUOUS, DISCRETE = ("fast", "Pendulum-v1"), ("CartPole-v1",)
 NET = ("16", "relu")
@@ -602,11 +603,7 @@ def test_every_src_agent_is_in_actor_critics() -> None:
     for module in pkgutil.iter_modules(ajax.agents.__path__):
         if module.ispkg:
             importlib.import_module(f"ajax.agents.{module.name}.{module.name}")
-    found = {
-        c.__name__
-        for c in base.ActorCritic.__subclasses__()
-        if c.__module__.startswith("ajax.")
-    }
+    found = {c.__name__ for c in library_agents()}
     assert found == set(ACTOR_CRITICS.split()), "add the new agent to ACTOR_CRITICS"
 
 

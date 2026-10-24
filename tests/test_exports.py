@@ -8,6 +8,17 @@ import ajax
 from ajax.agents.base import ActorCritic
 
 
+def library_agents(cls: type = ActorCritic) -> set[type]:
+    """The library's agent classes: ``ajax.`` subclasses of ``cls`` at any
+    depth (test files subclass agents too)."""
+    found = set()
+    for sub in cls.__subclasses__():
+        found |= library_agents(sub)
+        if sub.__module__.startswith("ajax."):
+            found.add(sub)
+    return found
+
+
 def test_every_agent_class_is_exported():
     # CONTRIBUTING's agent anatomy: an agent folder holds its public class in
     # the module of the same name (SAC/SAC.py, TDMPC2/TDMPC2MultiTask.py).
@@ -18,10 +29,7 @@ def test_every_agent_class_is_exported():
         if inspect.isclass(cls) and cls.__module__ == module.__name__:
             agents[cls.__name__] = cls
     # An ActorCritic agent named otherwise would escape the scan above.
-    library = {
-        c for c in ActorCritic.__subclasses__() if c.__module__.startswith("ajax.")
-    }
-    assert library <= set(agents.values())
+    assert library_agents() <= set(agents.values())
 
     assert sorted(set(agents) - set(ajax.__all__)) == []
     assert all(getattr(ajax, name) is cls for name, cls in agents.items())

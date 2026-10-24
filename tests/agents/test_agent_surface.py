@@ -1,12 +1,17 @@
 """The agents' surface, pinned while their files are restructured: every
 public name an agent module defines still imports from its path (a moved
-name leaves a shim there until 0.5.0), and every agent built on its defaults
-logs the run config and holds the ``agent_config`` it did.
+name leaves a shim there until 0.5.0), every agent built on its defaults
+logs the run config and holds the ``agent_config`` it did, and every agent
+class keeps the contract the extensions and the loop read off it (a value
+a family base supplies is the one the agent declared).
 
-After a deliberate change (a name removed at contract, a default changed in
-its own pull request), rewrite the records::
+After a deliberate change (a default changed in its own pull request, a new
+name), rewrite the records::
 
     uv run python -m tests.agents.test_agent_surface
+
+The names a shim serves are no module's definitions: the rewrite keeps
+every recorded name, and a name removed at contract is struck by hand.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ import dataclasses
 import importlib
 import json
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -29,9 +35,18 @@ HERE = Path(__file__).parent
 AGENTS = Path(ajax.__file__).parent / "agents"
 SURFACE = HERE / "agent_surface.json"
 CONFIGS = HERE / "agent_configs.json"
+CONTRACTS = HERE / "agent_contracts.json"
 #: The exported agents test_agent_contract has no row for: the env each is
 #: built on (TDMPC2MultiTask on the pins' two toy tasks).
 OTHERS = {"APG": "Pendulum-v1", "TDMPC2": "Pendulum-v1", "DreamerV3": "CartPole-v1"}
+#: ActorCritic's class attributes an agent declares for the extensions and
+#: the loop (with its make_train, :func:`contract`).
+CONTRACT = (
+    "name capabilities supported_extension_phases phase_batch_keys"
+    " extension_context pretrain_context supported_buffer_fields"
+    " replays_transitions stores_expert_actions supports_memory trains_batch_norm"
+    " supports_batched_env_params per_seed_update_counts"
+).split()
 
 
 def defined_names(path: Path) -> set[str]:
@@ -93,6 +108,24 @@ def configs(name: str) -> dict[str, Any]:
     }
 
 
+def contract(name: str) -> dict[str, Any]:
+    """An agent class's :data:`CONTRACT` (sets as sorted lists) and the
+    ``module:qualified name`` of its make_train."""
+
+    def plain(value: Any) -> Any:
+        if isinstance(value, frozenset | set):
+            return sorted(value)
+        if isinstance(value, Mapping):
+            return {k: plain(v) for k, v in sorted(value.items())}
+        return value
+
+    cls = getattr(ajax, name)  # TDMPC2MultiTask is no ActorCritic: what it has
+    make_train = getattr(cls, "make_train", None)
+    home = make_train and f"{make_train.__module__}:{make_train.__qualname__}"
+    found = {n: plain(getattr(cls, n)) for n in CONTRACT if hasattr(cls, n)}
+    return found | {"make_train": home}
+
+
 def test_every_recorded_name_still_imports() -> None:
     missing = []
     for line in json.loads(SURFACE.read_text()):
@@ -109,9 +142,17 @@ def test_an_agent_keeps_its_recorded_configs(name: str) -> None:
     assert configs(name) == json.loads(CONFIGS.read_text())[name]
 
 
+@pytest.mark.parametrize("name", ajax.__all__)
+def test_an_agent_keeps_its_recorded_contract(name: str) -> None:
+    assert contract(name) == json.loads(CONTRACTS.read_text())[name]
+
+
 if __name__ == "__main__":
-    SURFACE.write_text(json.dumps(surface(), indent=0) + "\n")
+    names = sorted(set(json.loads(SURFACE.read_text())) | set(surface()))
+    SURFACE.write_text(json.dumps(names, indent=0) + "\n")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         records = {name: configs(name) for name in ajax.__all__}
     CONFIGS.write_text(json.dumps(records, indent=1, sort_keys=True) + "\n")
+    contracts = {name: contract(name) for name in ajax.__all__}
+    CONTRACTS.write_text(json.dumps(contracts, indent=1, sort_keys=True) + "\n")

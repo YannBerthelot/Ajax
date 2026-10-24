@@ -1,0 +1,1083 @@
+{
+ "APG": {
+  "capabilities": [
+   "actor",
+   "obs_networks",
+   "reward_learning"
+  ],
+  "extension_context": [],
+  "make_train": "ajax.agents.APG.train_APG:make_train",
+  "name": "APG",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "actor_state",
+    "observations",
+    "pi_mean",
+    "raw_observations",
+    "returns",
+    "rollout"
+   ]
+  },
+  "pretrain_context": [],
+  "replays_transitions": false,
+  "stores_expert_actions": false,
+  "supported_buffer_fields": [],
+  "supported_extension_phases": [
+   "actor_loss",
+   "actuate",
+   "eval_metrics",
+   "post_update",
+   "pretrain",
+   "transform_action"
+  ],
+  "supports_batched_env_params": true,
+  "supports_memory": true,
+  "trains_batch_norm": false
+ },
+ "APO": {
+  "capabilities": [
+   "actor",
+   "obs_networks",
+   "policy_density",
+   "reward_learning",
+   "v_critic"
+  ],
+  "extension_context": [
+   "actor_optimizer_args",
+   "env_args",
+   "expert_policy"
+  ],
+  "make_train": "ajax.agents.APO.train_APO:make_train",
+  "name": "APO",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "a_expert",
+    "actor_state",
+    "observations",
+    "pi_mean",
+    "raw_observations"
+   ],
+   "critic_loss": [
+    "critic_params",
+    "critic_state"
+   ],
+   "on_target": [
+    "gae",
+    "terminated",
+    "truncated",
+    "values"
+   ]
+  },
+  "pretrain_context": [
+   "env_args"
+  ],
+  "replays_transitions": false,
+  "stores_expert_actions": true,
+  "supported_buffer_fields": [],
+  "supported_extension_phases": [
+   "actor_loss",
+   "actuate",
+   "critic_loss",
+   "eval_metrics",
+   "observe",
+   "on_target",
+   "post_update",
+   "pretrain",
+   "transform_action"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": false,
+  "trains_batch_norm": false
+ },
+ "ASAC": {
+  "capabilities": [
+   "actor",
+   "critic_ensemble",
+   "obs_networks",
+   "off_policy",
+   "policy_density",
+   "q_critic",
+   "replay",
+   "reward_learning",
+   "target_critic"
+  ],
+  "extension_context": [
+   "actor_optimizer_args",
+   "buffer",
+   "env_args",
+   "expert_policy"
+  ],
+  "make_train": "ajax.agents.ASAC.train_ASAC:make_train",
+  "name": "ASAC",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "a_expert",
+    "actions",
+    "actor_params",
+    "actor_state",
+    "agent_loss",
+    "critic_state",
+    "observations",
+    "pi_mean",
+    "raw_observations"
+   ],
+   "critic_loss": [
+    "actions",
+    "actor_state",
+    "critic_params",
+    "critic_state",
+    "next_observations",
+    "observations",
+    "return_to_go",
+    "targets"
+   ],
+   "on_target": [
+    "actions",
+    "dones",
+    "gamma",
+    "next_a_expert",
+    "next_action",
+    "next_observations",
+    "observations",
+    "raw_next_observations",
+    "reward_scale",
+    "rewards"
+   ]
+  },
+  "pretrain_context": [
+   "buffer",
+   "env_args",
+   "update"
+  ],
+  "replays_transitions": true,
+  "stores_expert_actions": true,
+  "supported_buffer_fields": [
+   "raw_next_obs"
+  ],
+  "supported_extension_phases": [
+   "actor_loss",
+   "actuate",
+   "critic_loss",
+   "eval_metrics",
+   "observe",
+   "on_target",
+   "post_update",
+   "pretrain",
+   "transform_action"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": true,
+  "trains_batch_norm": false
+ },
+ "AVG": {
+  "capabilities": [
+   "actor",
+   "critic_ensemble",
+   "discounted",
+   "obs_networks",
+   "off_policy",
+   "policy_density",
+   "q_critic",
+   "reward_learning"
+  ],
+  "extension_context": [
+   "actor_optimizer_args",
+   "env_args",
+   "expert_policy"
+  ],
+  "make_train": "ajax.agents.AVG.train_AVG:make_train",
+  "name": "AVG",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "a_expert",
+    "actor_params",
+    "actor_state",
+    "agent_loss",
+    "critic_state",
+    "observations",
+    "pi_mean",
+    "raw_observations"
+   ],
+   "critic_loss": [
+    "actions",
+    "actor_state",
+    "critic_params",
+    "critic_state",
+    "next_observations",
+    "observations",
+    "return_to_go",
+    "targets"
+   ],
+   "on_target": [
+    "actions",
+    "dones",
+    "gamma",
+    "next_a_expert",
+    "next_action",
+    "next_observations",
+    "observations",
+    "raw_next_observations",
+    "reward_scale",
+    "rewards"
+   ]
+  },
+  "pretrain_context": [
+   "env_args",
+   "update"
+  ],
+  "replays_transitions": false,
+  "stores_expert_actions": true,
+  "supported_buffer_fields": [
+   "raw_next_obs"
+  ],
+  "supported_extension_phases": [
+   "actor_loss",
+   "actuate",
+   "critic_loss",
+   "eval_metrics",
+   "observe",
+   "on_target",
+   "post_update",
+   "pretrain",
+   "transform_action"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": false,
+  "trains_batch_norm": false
+ },
+ "CrossQ": {
+  "capabilities": [
+   "actor",
+   "critic_ensemble",
+   "discounted",
+   "obs_networks",
+   "off_policy",
+   "policy_density",
+   "q_critic",
+   "replay",
+   "reward_learning"
+  ],
+  "extension_context": [
+   "actor_optimizer_args",
+   "buffer",
+   "env_args",
+   "expert_policy"
+  ],
+  "make_train": "ajax.agents.CrossQ.train_CrossQ:make_train",
+  "name": "CrossQ",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "a_expert",
+    "actions",
+    "actor_params",
+    "actor_state",
+    "agent_loss",
+    "critic_state",
+    "observations",
+    "pi_mean",
+    "raw_observations"
+   ],
+   "critic_loss": [
+    "actions",
+    "actor_state",
+    "critic_params",
+    "critic_state",
+    "next_observations",
+    "observations",
+    "return_to_go",
+    "targets"
+   ],
+   "on_target": [
+    "actions",
+    "dones",
+    "gamma",
+    "next_a_expert",
+    "next_action",
+    "next_observations",
+    "observations",
+    "raw_next_observations",
+    "reward_scale",
+    "rewards"
+   ]
+  },
+  "pretrain_context": [
+   "buffer",
+   "env_args",
+   "update"
+  ],
+  "replays_transitions": true,
+  "stores_expert_actions": true,
+  "supported_buffer_fields": [
+   "raw_next_obs",
+   "return_to_go"
+  ],
+  "supported_extension_phases": [
+   "actor_loss",
+   "actuate",
+   "critic_loss",
+   "eval_metrics",
+   "observe",
+   "on_target",
+   "post_update",
+   "pretrain",
+   "transform_action"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": false,
+  "trains_batch_norm": true
+ },
+ "DAgger": {
+  "capabilities": [
+   "actor",
+   "obs_networks",
+   "off_policy",
+   "replay"
+  ],
+  "extension_context": [
+   "actor_optimizer_args",
+   "buffer",
+   "env_args",
+   "expert_policy"
+  ],
+  "make_train": "ajax.agents.DAgger.train_DAgger:make_train",
+  "name": "DAgger",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "a_expert",
+    "actor_params",
+    "actor_state",
+    "agent_loss",
+    "observations",
+    "pi_mean",
+    "raw_observations"
+   ]
+  },
+  "pretrain_context": [
+   "env_args"
+  ],
+  "replays_transitions": true,
+  "stores_expert_actions": true,
+  "supported_buffer_fields": [],
+  "supported_extension_phases": [
+   "actor_loss",
+   "eval_metrics",
+   "observe",
+   "post_update",
+   "pretrain"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": false,
+  "trains_batch_norm": false
+ },
+ "DQN": {
+  "capabilities": [
+   "discounted",
+   "obs_networks",
+   "off_policy",
+   "q_critic",
+   "replay",
+   "reward_learning",
+   "target_critic"
+  ],
+  "extension_context": [],
+  "make_train": "ajax.agents.DQN.train_DQN:make_train",
+  "name": "DQN",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "critic_loss": [
+    "actions",
+    "q_state"
+   ],
+   "on_target": [
+    "actions",
+    "dones",
+    "reward_scale"
+   ]
+  },
+  "pretrain_context": [
+   "buffer",
+   "env_args",
+   "update"
+  ],
+  "replays_transitions": true,
+  "stores_expert_actions": false,
+  "supported_buffer_fields": [],
+  "supported_extension_phases": [
+   "critic_loss",
+   "eval_metrics",
+   "observe",
+   "on_target",
+   "post_update",
+   "pretrain"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": false,
+  "trains_batch_norm": false
+ },
+ "DreamerV3": {
+  "capabilities": [
+   "actor",
+   "discounted",
+   "off_policy",
+   "policy_density",
+   "replay",
+   "reward_learning",
+   "v_critic"
+  ],
+  "extension_context": [
+   "agent_config",
+   "env_args",
+   "gamma",
+   "total_timesteps"
+  ],
+  "make_train": "ajax.agents.DreamerV3.train_DreamerV3:make_train",
+  "name": "DreamerV3",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {},
+  "pretrain_context": [
+   "env_args",
+   "update"
+  ],
+  "replays_transitions": false,
+  "stores_expert_actions": false,
+  "supported_buffer_fields": [],
+  "supported_extension_phases": [
+   "eval_metrics",
+   "post_update",
+   "pretrain"
+  ],
+  "supports_batched_env_params": true,
+  "supports_memory": false,
+  "trains_batch_norm": false
+ },
+ "IQL": {
+  "capabilities": [
+   "actor",
+   "critic_ensemble",
+   "discounted",
+   "obs_networks",
+   "off_policy",
+   "policy_density",
+   "q_critic",
+   "replay",
+   "reward_learning",
+   "target_critic",
+   "v_critic"
+  ],
+  "extension_context": [
+   "actor_optimizer_args",
+   "buffer",
+   "env_args",
+   "expert_policy"
+  ],
+  "make_train": "ajax.agents.IQL.train_IQL:make_train",
+  "name": "IQL",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "actions",
+    "actor_params",
+    "actor_state",
+    "agent_loss",
+    "critic_state",
+    "observations",
+    "pi_mean",
+    "raw_observations"
+   ],
+   "critic_loss": [
+    "actions",
+    "actor_state",
+    "critic_params",
+    "critic_state",
+    "next_observations",
+    "observations",
+    "return_to_go",
+    "targets"
+   ],
+   "on_target": [
+    "actions",
+    "dones",
+    "gamma",
+    "next_a_expert",
+    "next_action",
+    "next_observations",
+    "observations",
+    "raw_next_observations",
+    "reward_scale",
+    "rewards"
+   ]
+  },
+  "pretrain_context": [
+   "buffer",
+   "env_args",
+   "update"
+  ],
+  "replays_transitions": true,
+  "stores_expert_actions": false,
+  "supported_buffer_fields": [
+   "raw_next_obs",
+   "return_to_go"
+  ],
+  "supported_extension_phases": [
+   "actor_loss",
+   "actuate",
+   "critic_loss",
+   "eval_metrics",
+   "observe",
+   "on_target",
+   "post_update",
+   "pretrain",
+   "transform_action"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": false,
+  "trains_batch_norm": false
+ },
+ "PPO": {
+  "capabilities": [
+   "actor",
+   "discounted",
+   "obs_networks",
+   "policy_density",
+   "reward_learning",
+   "v_critic"
+  ],
+  "extension_context": [],
+  "make_train": "ajax.agents.PPO.train_PPO:make_train",
+  "name": "PPO",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "actor_state",
+    "observations",
+    "pi_mean",
+    "raw_observations"
+   ],
+   "critic_loss": [
+    "critic_params",
+    "critic_state"
+   ],
+   "on_target": [
+    "gae",
+    "terminated",
+    "truncated",
+    "values"
+   ],
+   "reward": [
+    "actions",
+    "observations",
+    "raw_observations"
+   ]
+  },
+  "pretrain_context": [
+   "env_args"
+  ],
+  "replays_transitions": false,
+  "stores_expert_actions": false,
+  "supported_buffer_fields": [],
+  "supported_extension_phases": [
+   "actor_loss",
+   "actuate",
+   "critic_loss",
+   "eval_metrics",
+   "observe",
+   "on_target",
+   "post_update",
+   "pretrain",
+   "reward",
+   "transform_action"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": true,
+  "trains_batch_norm": false
+ },
+ "PQN": {
+  "capabilities": [
+   "discounted",
+   "obs_networks",
+   "off_policy",
+   "q_critic",
+   "reward_learning"
+  ],
+  "extension_context": [],
+  "make_train": "ajax.agents.PQN.train_PQN:make_train",
+  "name": "PQN",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "critic_loss": [
+    "actions",
+    "q_state"
+   ],
+   "on_target": [
+    "actions",
+    "dones",
+    "reward_scale",
+    "terminated",
+    "truncated"
+   ]
+  },
+  "pretrain_context": [
+   "env_args"
+  ],
+  "replays_transitions": false,
+  "stores_expert_actions": false,
+  "supported_buffer_fields": [],
+  "supported_extension_phases": [
+   "critic_loss",
+   "eval_metrics",
+   "observe",
+   "on_target",
+   "post_update",
+   "pretrain"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": false,
+  "trains_batch_norm": false
+ },
+ "REDQ": {
+  "capabilities": [
+   "actor",
+   "critic_ensemble",
+   "discounted",
+   "obs_networks",
+   "off_policy",
+   "policy_density",
+   "q_critic",
+   "replay",
+   "reward_learning",
+   "target_critic"
+  ],
+  "extension_context": [
+   "actor_optimizer_args",
+   "buffer",
+   "env_args",
+   "expert_policy"
+  ],
+  "make_train": "ajax.agents.REDQ.train_REDQ:make_train",
+  "name": "REDQ",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "a_expert",
+    "actions",
+    "actor_params",
+    "actor_state",
+    "agent_loss",
+    "critic_state",
+    "observations",
+    "pi_mean",
+    "raw_observations"
+   ],
+   "critic_loss": [
+    "actions",
+    "actor_state",
+    "critic_params",
+    "critic_state",
+    "next_observations",
+    "observations",
+    "return_to_go",
+    "targets"
+   ],
+   "on_target": [
+    "actions",
+    "dones",
+    "gamma",
+    "next_a_expert",
+    "next_action",
+    "next_observations",
+    "observations",
+    "raw_next_observations",
+    "reward_scale",
+    "rewards"
+   ]
+  },
+  "pretrain_context": [
+   "buffer",
+   "env_args",
+   "update"
+  ],
+  "replays_transitions": true,
+  "stores_expert_actions": true,
+  "supported_buffer_fields": [
+   "raw_next_obs",
+   "return_to_go"
+  ],
+  "supported_extension_phases": [
+   "actor_loss",
+   "actuate",
+   "critic_loss",
+   "eval_metrics",
+   "observe",
+   "on_target",
+   "post_update",
+   "pretrain",
+   "transform_action"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": true,
+  "trains_batch_norm": false
+ },
+ "SAC": {
+  "capabilities": [
+   "actor",
+   "critic_ensemble",
+   "discounted",
+   "obs_networks",
+   "off_policy",
+   "policy_density",
+   "q_critic",
+   "replay",
+   "reward_learning",
+   "target_critic"
+  ],
+  "extension_context": [
+   "actor_optimizer_args",
+   "buffer",
+   "critic_optimizer_args",
+   "env_args",
+   "expert_policy",
+   "extensions",
+   "gamma",
+   "network_args",
+   "num_critics",
+   "recurrent",
+   "reward_scale",
+   "update_target_fn",
+   "update_value_fn"
+  ],
+  "make_train": "ajax.agents.SAC.train_SAC:make_train",
+  "name": "SAC",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "a_expert",
+    "actions",
+    "actor_params",
+    "actor_state",
+    "agent_loss",
+    "critic_state",
+    "observations",
+    "pi_mean",
+    "raw_observations"
+   ],
+   "critic_loss": [
+    "actions",
+    "actor_state",
+    "critic_params",
+    "critic_state",
+    "next_observations",
+    "observations",
+    "return_to_go",
+    "targets"
+   ],
+   "on_target": [
+    "actions",
+    "dones",
+    "gamma",
+    "next_a_expert",
+    "next_action",
+    "next_observations",
+    "observations",
+    "q_preds",
+    "raw_next_observations",
+    "recurrent",
+    "reward_scale",
+    "rewards",
+    "rng_key"
+   ]
+  },
+  "pretrain_context": [
+   "buffer",
+   "env_args",
+   "update"
+  ],
+  "replays_transitions": true,
+  "stores_expert_actions": true,
+  "supported_buffer_fields": [
+   "raw_next_obs",
+   "return_to_go"
+  ],
+  "supported_extension_phases": [
+   "action",
+   "actor_loss",
+   "actuate",
+   "critic_loss",
+   "eval_metrics",
+   "observe",
+   "on_target",
+   "post_update",
+   "pretrain",
+   "transform_action"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": true,
+  "trains_batch_norm": false
+ },
+ "TD3": {
+  "capabilities": [
+   "actor",
+   "critic_ensemble",
+   "discounted",
+   "obs_networks",
+   "off_policy",
+   "q_critic",
+   "replay",
+   "reward_learning",
+   "target_critic"
+  ],
+  "extension_context": [
+   "actor_optimizer_args",
+   "buffer",
+   "env_args",
+   "expert_policy"
+  ],
+  "make_train": "ajax.agents.TD3.train_TD3:make_train",
+  "name": "TD3",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "a_expert",
+    "actions",
+    "actor_params",
+    "actor_state",
+    "agent_loss",
+    "critic_state",
+    "observations",
+    "pi_mean",
+    "raw_observations"
+   ],
+   "critic_loss": [
+    "actions",
+    "actor_state",
+    "critic_params",
+    "critic_state",
+    "next_observations",
+    "observations",
+    "return_to_go",
+    "targets"
+   ],
+   "on_target": [
+    "actions",
+    "dones",
+    "gamma",
+    "next_a_expert",
+    "next_action",
+    "next_actions",
+    "next_observations",
+    "observations",
+    "raw_next_observations",
+    "reward_scale",
+    "rewards"
+   ]
+  },
+  "pretrain_context": [
+   "buffer",
+   "env_args",
+   "update"
+  ],
+  "replays_transitions": true,
+  "stores_expert_actions": true,
+  "supported_buffer_fields": [
+   "next_action",
+   "raw_next_obs",
+   "return_to_go"
+  ],
+  "supported_extension_phases": [
+   "actor_loss",
+   "actuate",
+   "critic_loss",
+   "eval_metrics",
+   "observe",
+   "on_target",
+   "post_update",
+   "pretrain",
+   "transform_action"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": true,
+  "trains_batch_norm": false
+ },
+ "TDMPC2": {
+  "capabilities": [
+   "actor",
+   "critic_ensemble",
+   "discounted",
+   "off_policy",
+   "policy_density",
+   "q_critic",
+   "replay",
+   "reward_learning",
+   "target_critic"
+  ],
+  "extension_context": [],
+  "make_train": "ajax.agents.TDMPC2.train_TDMPC2:make_train",
+  "name": "TDMPC2",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {},
+  "pretrain_context": [
+   "env_args",
+   "update"
+  ],
+  "replays_transitions": false,
+  "stores_expert_actions": false,
+  "supported_buffer_fields": [],
+  "supported_extension_phases": [
+   "eval_metrics",
+   "post_update",
+   "pretrain"
+  ],
+  "supports_batched_env_params": true,
+  "supports_memory": false,
+  "trains_batch_norm": false
+ },
+ "TDMPC2MultiTask": {
+  "capabilities": [
+   "actor",
+   "critic_ensemble",
+   "discounted",
+   "off_policy",
+   "policy_density",
+   "q_critic",
+   "replay",
+   "reward_learning",
+   "target_critic"
+  ],
+  "make_train": null,
+  "name": "TDMPC2MultiTask",
+  "supported_extension_phases": [
+   "eval_metrics",
+   "post_update",
+   "pretrain"
+  ]
+ },
+ "TQC": {
+  "capabilities": [
+   "actor",
+   "critic_ensemble",
+   "discounted",
+   "distributional_critic",
+   "obs_networks",
+   "off_policy",
+   "policy_density",
+   "q_critic",
+   "replay",
+   "reward_learning",
+   "target_critic"
+  ],
+  "extension_context": [
+   "actor_optimizer_args",
+   "buffer",
+   "env_args",
+   "expert_policy"
+  ],
+  "make_train": "ajax.agents.TQC.train_TQC:make_train",
+  "name": "TQC",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "a_expert",
+    "actions",
+    "actor_params",
+    "actor_state",
+    "agent_loss",
+    "critic_state",
+    "observations",
+    "pi_mean",
+    "raw_observations"
+   ],
+   "critic_loss": [
+    "actions",
+    "actor_state",
+    "critic_params",
+    "critic_state",
+    "next_observations",
+    "observations",
+    "return_to_go",
+    "targets"
+   ],
+   "on_target": [
+    "actions",
+    "dones",
+    "gamma",
+    "next_a_expert",
+    "next_action",
+    "next_observations",
+    "observations",
+    "raw_next_observations",
+    "reward_scale",
+    "rewards"
+   ]
+  },
+  "pretrain_context": [
+   "buffer",
+   "env_args",
+   "update"
+  ],
+  "replays_transitions": true,
+  "stores_expert_actions": true,
+  "supported_buffer_fields": [
+   "raw_next_obs",
+   "return_to_go"
+  ],
+  "supported_extension_phases": [
+   "actor_loss",
+   "actuate",
+   "critic_loss",
+   "eval_metrics",
+   "observe",
+   "on_target",
+   "post_update",
+   "pretrain",
+   "transform_action"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": true,
+  "trains_batch_norm": false
+ },
+ "UDRL": {
+  "capabilities": [
+   "actor",
+   "obs_networks",
+   "off_policy",
+   "policy_density",
+   "replay",
+   "reward_learning"
+  ],
+  "extension_context": [],
+  "make_train": "ajax.agents.UDRL.train_UDRL:make_train",
+  "name": "UDRL",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "actions",
+    "actor_state",
+    "observations",
+    "pi_mean",
+    "raw_observations"
+   ]
+  },
+  "pretrain_context": [
+   "env_args"
+  ],
+  "replays_transitions": true,
+  "stores_expert_actions": false,
+  "supported_buffer_fields": [],
+  "supported_extension_phases": [
+   "actor_loss",
+   "actuate",
+   "eval_metrics",
+   "post_update",
+   "pretrain",
+   "transform_action"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": false,
+  "trains_batch_norm": false
+ }
+}

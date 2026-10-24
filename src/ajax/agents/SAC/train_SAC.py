@@ -7,6 +7,7 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
+from ajax.agents.critics import critic_loss_fn
 from ajax.agents.loop import TrainLoop, actor_step, critic_step, when
 from ajax.agents.recurrent import (
     RecurrentCarries,
@@ -192,7 +193,7 @@ def update_value_functions(
         )
 
     def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
-        return core.critic_loss_fn(
+        return critic_loss_fn(
             params,
             agent_state.critic_state,
             transition.obs,

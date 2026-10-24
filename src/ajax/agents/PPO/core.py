@@ -10,7 +10,7 @@ import jax.numpy as jnp
 from flax import struct
 
 from ajax.deprecation import moved_names
-from ajax.networks.distributions import entropy, latent, log_prob_from_raw
+from ajax.networks.distributions import entropy, log_prob_from_raw
 from ajax.schedule import at
 
 
@@ -81,31 +81,6 @@ def clipped_surrogate(
     return loss, (jnp.abs(ratio - 1) > clip_coef).mean()
 
 
-def approximate_kl(log_ratio: jax.Array) -> jax.Array:
-    """The mean of ``(r - 1) - log r``, ``r`` the probability ratio: an
-    estimate of KL(old || new) that is never negative (Schulman's "k3"), as
-    CleanRL's ``ppo.py`` and SB3's PPO log it."""
-    return jnp.mean((jnp.exp(log_ratio) - 1) - log_ratio)
-
-
-def explained_variance(predictions: jax.Array, targets: jax.Array) -> jax.Array:
-    """``1 - Var[targets - predictions] / Var[targets]``, as CleanRL and SB3
-    log it: 1 for a perfect critic, 0 for one no better than the targets'
-    mean; NaN when the targets do not vary."""
-    var_targets = jnp.var(targets)
-    return jnp.where(
-        var_targets == 0, jnp.nan, 1 - jnp.var(targets - predictions) / var_targets
-    )
-
-
-def mean_policy_std(pi: Any) -> jax.Array:
-    """The mean standard deviation of a continuous policy's Gaussian, before
-    any squashing; NaN for a discrete policy, which has none."""
-    if isinstance(pi, distrax.Categorical):
-        return jnp.asarray(jnp.nan)
-    return latent(pi).stddev().mean()
-
-
 def resolve_clip_coef(agent_config: Any, timestep: int | jax.Array) -> Any:
     """The clip range, a constant or a schedule of the timestep."""
     return at(agent_config.clip_range, timestep)
@@ -116,5 +91,9 @@ __getattr__ = moved_names(
     dict.fromkeys(
         ("resolve_num_minibatches", "run_epochs", "rollout_actions"),
         "ajax.agents.minibatch",
+    )
+    | dict.fromkeys(
+        ("approximate_kl", "explained_variance", "mean_policy_std"),
+        "ajax.agents.diagnostics",
     ),
 )

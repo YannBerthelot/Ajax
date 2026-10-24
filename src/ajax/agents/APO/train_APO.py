@@ -19,6 +19,7 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.APO.state import APOConfig, APOState
+from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
 from ajax.agents.loop import TrainLoop, extension_key
 from ajax.agents.minibatch import (
     get_minibatches_from_batch,
@@ -29,10 +30,7 @@ from ajax.agents.minibatch import (
 from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
-    approximate_kl,
     clipped_surrogate,
-    explained_variance,
-    mean_policy_std,
     policy_entropy,
     recompute_log_prob,
     resolve_clip_coef,

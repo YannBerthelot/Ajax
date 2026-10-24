@@ -31,6 +31,7 @@ src/ajax/
 ├── __init__.py          the 14 exported agents; configures the compile cache on import
 ├── agents/
 │   ├── base.py          ActorCritic: environment and network setup, extensions=, train(); run_config
+│   ├── families.py      declared agents (fields as hyperparameters) and the replay family's train function
 │   ├── loop.py          TrainLoop, the shared loop (brax's forced resets included)
 │   ├── steps.py         critic_step, actor_step, gradient_step, joint_step, when, the target update
 │   ├── minibatch.py     the on-policy geometry, minibatches and epochs
@@ -112,6 +113,7 @@ Every agent is importable from the top level, TD3 and UDRL included:
 ```text
 agent = SAC("Pendulum-v1", extensions=(...))     ActorCritic.__init__
   ├─ self.config = run_config(locals(), name)     what the loggers will record
+  │                                               (a declared agent, IQL: its fields, in DeclaredAgent.__post_init__)
   ├─ prepare_env                                  the env (episode_length, action_repeat), its params, Ajax's layers
   ├─ EnvironmentConfig, NetworkConfig, OptimizerConfig
   ├─ ExtensionStack(extensions) + checks          phases, buffer fields, experts, phi*: raise here
@@ -120,6 +122,7 @@ agent = SAC("Pendulum-v1", extensions=(...))     ActorCritic.__init__
 agent.train(seed=[0, 1], n_timesteps=..., logging_config=..., initial_state=...)
   ├─ get_make_train()(env_args, ..., total_timesteps, logging_config)
   │    └─ make_train                              train_<AGENT>.py, with train_kwargs and the extensions
+  │                                               (a declared agent: ReplayAgent.make_train over its init and update)
   │         ├─ TrainLoop.create(...)              budget, extensions, logging
   │         └─ loop.off_policy(init, update, ...) or loop.on_policy(...)
   │              └─ build_resumable_train(...)    jitted train(key, index, initial_state, ...)

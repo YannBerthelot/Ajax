@@ -19,6 +19,7 @@ These are the pieces every agent shares:
 ```
 src/ajax/
 ├── agents/base.py       ActorCritic: environment and network setup, extensions=, train()
+├── agents/families.py   declared agents: fields as hyperparameters, the replay family
 ├── agents/loop.py       TrainLoop, the shared loop (brax's forced resets included)
 ├── agents/steps.py      critic_step, actor_step, gradient_step, joint_step, when, the target update
 ├── agents/minibatch.py  the on-policy geometry, minibatches and epochs
@@ -34,9 +35,14 @@ src/ajax/
 └── checkpoint.py        save_checkpoint, restore_into
 ```
 
-**Agent anatomy.** Each folder `src/ajax/agents/<AGENT>/` holds `<AGENT>.py`,
-the public class (the paper's hyperparameters and `extensions=`; it names
-its `make_train` and fills `train_kwargs`, which `get_make_train()` binds);
+**Agent anatomy.** A declared agent (IQL, CrossQ, TD3) is one file,
+`src/ajax/agents/<AGENT>/<AGENT>.py`: its hyperparameters as dataclass
+fields, its `init` and `update`, its equations, its state and its
+`<AGENT>Config` view, on a family of `agents/families.py` that builds the
+rest (the constructor, the run config, the replay, the train function); its
+old modules are shims. The other agents' folders hold `<AGENT>.py`, the
+public class (the paper's hyperparameters and `extensions=`; it names its
+`make_train` and fills `train_kwargs`, which `get_make_train()` binds);
 `train_<AGENT>.py`, the algorithm and a `make_train` that hands its
 initialisation and update to `TrainLoop`; and `state.py`, `<AGENT>State` and
 `<AGENT>Config`. SAC, PPO and TDMPC2 also have a `core.py`: the maths their
@@ -165,134 +171,109 @@ equations, and fails on any other cross-agent import. Use `critic_step` (a
 replay critic step), `actor_step` (an actor step) and `gradient_step` (an
 optimiser step) from `agents/steps.py` rather than writing your own.
 
-These templates for an agent `FOO` follow the replay agents TD3 and REDQ; an
-on-policy agent follows APO instead (no buffer, `loop.on_policy`).
+A replay agent `FOO` declares itself on a family of `agents/families.py`, as
+IQL, CrossQ and TD3 do (read `agents/IQL/IQL.py` first). The other agents
+keep the older three-file form (`state.py`, `train_<AGENT>.py` with a
+`make_train`, `<AGENT>.py`) until their batch moves them; the on-policy family
+comes with PPO's.
 
-**1. `state.py`.** `BaseAgentState` already holds the random key, the actor,
-critic and collector states, the update count and the extensions' state. A
-replay agent's config extends `RecurrentReplayConfig`, a `BaseAgentConfig`
-for sequence replay; `kw_only` lets fields without defaults follow others.
+**1. `FOO/FOO.py`, the one file.** Its hyperparameters are the fields of a
+dataclass, declared once with the paper's defaults: the family generates the
+constructor (keyword-only after `env_id`), logs the run config, builds the
+optimisers, the replay and the train function (`ReplayAgent.make_train`, on
+`loop.off_policy`). The file reads top-down: the class, its equations in the
+order `update` calls them, then its state, metrics and `FOOConfig` view.
 
 ```python
-@partial(struct.dataclass, kw_only=True)  # Partial from jax.tree_util
+@dataclass(kw_only=True, eq=False, repr=False)  # literal: the API docs read it
+class FOO(GradientClipping, ExpertGuided, ReplayAgent):
+    """FOO (Author et al., year): the paper's algorithm box, each line one
+    function below."""
+
+    gamma: float = 0.99
+    tau: float = 0.005
+    reward_scale: float = 1.0
+    buffer_size: int = int(1e6)
+    batch_size: int = 256
+    learning_starts: int = int(1e4)
+
+    def init(self, key, ctx):
+        rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
+        actor_state, critic_state = ctx.actor_critic(
+            init_key, continuous=True, action_value=True, num_critics=2
+        )
+        return FOOState(
+            rng=rng, eval_rng=eval_rng, actor_state=actor_state,
+            critic_state=critic_state, collector_state=ctx.collector(collector_key),
+        )
+
+    def update(self, state, ctx):
+        state, sample_key, critic_key, actor_key = state.next_keys(3)
+        batch, _ = sample_replay(state, ctx.buffer, sample_key)
+        target = foo_target(state, batch, self.gamma, self.reward_scale)
+        critic_state, critic_aux, _, critic_metrics = steps.critic_step(
+            state, batch, target, partial(foo_value_loss, state.critic_state, batch),
+            ctx.stack, critic_key, ctx.total_timesteps,
+            rewards=batch.reward, dones=batch.terminated,
+            gamma=self.gamma, reward_scale=self.reward_scale,
+        )
+        actor_state, actor_aux, _, actor_metrics = steps.actor_step(
+            state, partial(foo_policy_loss, state), ctx.stack, actor_key,
+            ctx.total_timesteps, observations=batch.obs, actions=batch.action,
+        )
+        state = state.replace(
+            actor_state=actor_state,
+            critic_state=critic_state.soft_update(tau=self.tau),
+            n_updates=state.n_updates + 1,
+        )
+        metrics = merge_metrics(critic_metrics, actor_metrics)
+        return state, AuxiliaryLogs(critic=critic_aux, actor=actor_aux, extensions=metrics)
+
+    # The contract, unannotated (an annotation would make it a field).
+    name = "FOO"
+    capabilities = frozenset("actor discounted off_policy q_critic replay".split())
+
+
+# FOO's equations, in the order update calls them.
+def foo_target(state, batch, gamma, reward_scale): ...       # the paper's target
+def foo_value_loss(critic, batch, params, target): ...       # -> (loss, aux)
+def foo_policy_loss(state, params): ...                      # -> (loss, aux, pi_mean)
+
+
+@struct.dataclass(kw_only=True)
 class FOOState(BaseAgentState):
     """FOO carries only actor + critic + collector."""
 
 
-@partial(struct.dataclass, kw_only=True)
-class FOOConfig(RecurrentReplayConfig):
-    gamma: float
-    learning_starts: int = 100
-    reward_scale: float = 1.0
+FOOConfig = FOO.declare_config("gamma tau learning_starts reward_scale")
 ```
 
-**2. `train_FOO.py`.** The paper's maths, then `make_train`. The critic step
-goes through `critic_step`, which folds `on_target` and `critic_loss`; its
-keywords are what the target used (`dones`: where it cut the bootstrap, as
-TD3's `batch.terminated`). The actor step goes through `actor_step`, which
-folds `actor_loss`; its keywords are the rows the extensions read:
-
-```python
-def update_value_functions(agent_state, batch, agent_config, extension_stack, total_timesteps):
-    agent_state, key = agent_state.next_keys()  # key, rng = split(rng)
-    target_q = compute_foo_td_target(agent_state, key, batch, agent_config)  # the paper's target
-
-    def value_loss(params, target_q):  # -> (loss, aux)
-        return value_loss_function(params, agent_state.critic_state, batch.obs, batch.action, target_q)
-
-    critic_state, aux, grad_norm, metrics = critic_step(
-        agent_state, batch, target_q, value_loss, extension_stack, key, total_timesteps,
-        rewards=batch.reward, dones=batch.terminated,
-        gamma=agent_config.gamma, reward_scale=agent_config.reward_scale,
-    )
-    return agent_state.replace(critic_state=critic_state), aux, metrics
-
-
-def update_policy(agent_state, batch, extension_stack, total_timesteps):
-    agent_state, key = agent_state.next_keys()
-
-    def policy_loss(params):  # -> (loss, aux, pi_mean)
-        return foo_policy_loss(params, agent_state, batch.obs)  # the paper's actor loss
-
-    actor_state, aux, grad_norm, metrics = actor_step(
-        agent_state, policy_loss, extension_stack, key, total_timesteps,
-        observations=batch.obs, actions=batch.action,
-    )
-    return agent_state.replace(actor_state=actor_state), aux, metrics
-
-
-def make_train(
-    env_args, actor_optimizer_args, critic_optimizer_args, network_args, buffer,
-    agent_config, total_timesteps, num_episode_test,
-    run_ids=None, logging_config=None, start_timestep=0, extensions=(),
-):
-    loop = TrainLoop.create(
-        env_args, total_timesteps, num_episode_test, run_ids, logging_config, extensions,
-        start_timestep=start_timestep,
-    )
-
-    def init(key):
-        return init_FOO(key, env_args, actor_optimizer_args, critic_optimizer_args, network_args, buffer)
-
-    def update(agent_state, _transition):
-        # The step just collected is in the buffer: FOO samples it from there.
-        return update_agent(agent_state, buffer, agent_config, loop.stack, total_timesteps)
-
-    return loop.off_policy(
-        init, update, agent_config.learning_starts,
-        collect_kwargs={"buffer": buffer},
-    )
-```
-
-`update_agent` samples a batch (`sample_replay`), takes the critic step, then
-the actor step, and returns the state with an `AuxiliaryLogs` of both steps' metrics (the
-extensions' under `extensions`, `merge_metrics` of the two steps').
-`ActorCritic.train` calls `make_train` with the keyword names above
-(`start_timestep` when it resumes a run), so keep them. A step takes its
-key from the state with `agent_state.next_keys()`, which splits `rng` and
-writes the new one back; `critic_step` and `actor_step` derive the
-extensions' keys from it
-([Randomness](docs/developer/writing-an-extension.md#randomness)), so an
+`init` splits the run's key on the agent's own layout, which its pins hold.
+`steps.critic_step` folds `on_target` and `critic_loss`; its keywords are what
+the target used (`dones`: where it cut the bootstrap). `steps.actor_step`
+folds `actor_loss`; its keywords are the rows the extensions read. Both derive
+the extensions' keys from the step's
+([Randomness](docs/developer/writing-an-extension.md#randomness)), so the
 agent's own random stream is the same with or without extensions.
 
-**3. `FOO.py`.**
+The hooks an agent may add: `check()` refuses arguments before anything is
+built; `networks()` returns the `ActorCritic` arguments the paper fixes
+(initialisations, heads); `build()` builds what the fields derive (IQL's
+value optimiser); `behaviour(ctx)` replaces collection's action pipeline. A
+field named like an `ActorCritic` argument reaches it. The shared knobs an
+algorithm takes beyond those every agent takes are mixins
+(`GradientClipping`, `ObservationNormalization`, `RewardNormalization`,
+`ExpertGuided`), and `RecurrentReplayAgent` adds `memory=` with R2D2's
+sequence replay. Once built, an agent's fields and `agent_config` are fixed:
+`dataclasses.replace(agent, gamma=0.9)` builds another.
 
-```python
-class FOO(ActorCritic):
-    """FOO (Author et al., year) for continuous action spaces; defaults as in the paper."""
+Do **not** add a field for a feature (`use_critic_blend=True`, ...): it
+belongs on an extension.
 
-    name: str = "FOO"
-    # The phases the loop folds, plus those FOO's update folds.
-    supported_extension_phases: frozenset = LOOP_PHASES | {
-        "on_target", "critic_loss", "actor_loss"
-    }
-    # The keys critic_step and actor_step hand its extensions (ajax.agents.loop).
-    phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS
-    make_train = staticmethod(make_train)  # ActorCritic.get_make_train binds it
-
-    def __init__(
-        self, env_id: str | EnvType, n_envs: int = 1, gamma: float = 0.99,
-        buffer_size: int = int(1e6), batch_size: int = 100, learning_starts: int = int(1e4),
-        extensions: Sequence[Extension] = (),
-    ) -> None:
-        self.config = run_config(locals(), self.name)  # what train() logs with the run
-        super().__init__(env_id=env_id, n_envs=n_envs, extensions=extensions)
-        self.agent_config = FOOConfig(gamma=gamma, learning_starts=learning_starts)
-        self.buffer = make_replay_buffer(
-            self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
-        )
-        # make_train's own keywords, beyond those every agent's takes.
-        self.train_kwargs = {"buffer": self.buffer}
-```
-
-Do **not** add a keyword for a feature (`use_critic_blend=True`, ...): it
-belongs on an extension. Set `supports_memory = True` only once the agent
-trains with `memory=`; until then `ActorCritic` rejects it.
-
-**4. Export and document.** Import it in `src/ajax/__init__.py`, add it to
+**2. Export and document.** Import it in `src/ajax/__init__.py`, add it to
 `__all__`, and add a row to the README's agent table.
 
-**5. Tests and benchmark.** `tests/agents/FOO/`: the maths on hand-computed
+**3. Tests and benchmark.** `tests/agents/FOO/`: the maths on hand-computed
 values. `tests/agents/test_agent_contract.py`: a row, so FOO builds, refuses
 what it cannot act in and folds extensions on tiny runs. `tests/probing/`:
 presets in `agents.py`, then the

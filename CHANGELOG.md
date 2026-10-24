@@ -6,6 +6,27 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **IQL, CrossQ and TD3 are declared agents.** Each is one file,
+  `agents/<AGENT>/<AGENT>.py`, on the replay family of the new
+  `ajax.agents.families`: its hyperparameters are dataclass fields, declared
+  once with the paper's defaults. What changes for a caller:
+  - the constructor is keyword-only after `env_id`;
+  - an agent's fields and `agent_config` are fixed once built
+    (`dataclasses.replace(agent, gamma=0.9)` builds another), and
+    `agent_config` is a view of the fields;
+  - `TD3Config`'s `learning_starts` default (100) gives way to TD3's
+    (25 000), which TD3 always used;
+  - the old modules (`train_IQL`, `IQL.state`, `train_CrossQ`,
+    `CrossQ.state`, `train_TD3`, `TD3.state`) still import their names, with
+    a FutureWarning, until 0.5.0; their update functions became the agents'
+    `update` methods.
+
+  Training is unchanged: every final state is bitwise the same, and so is
+  the compiled program.
+- `checkpoint.py` reads PPO's and APO's restore rules off their state
+  classes (`joint_gradient_clip`, `restore_hint`); `PPOState` is a class of
+  its own, no longer an alias of `BaseAgentState`.
+
 - **ASAC** now does what the authors' code does (`darer/ASAC.py`): a
   termination drops the next value in the critic's target (it bootstrapped
   through it); the termination penalty follows their rule, `p_0` times the

@@ -3,7 +3,7 @@ Klimov, 2017), as its reference code, OpenAI Baselines' ppo2 (@ea25b9e),
 runs it.
 
 One iteration of the paper's Algorithm 1. The on-policy family runs the
-policy for ``n_steps`` in each of ``n_envs`` envs
+policy for n_steps in each of n_envs envs
 (:class:`~ajax.agents.families.OnPolicyAgent`); each line after that is a
 function below::
 
@@ -16,12 +16,12 @@ function below::
         one Adam step of each network down its own loss, the two
         gradients clipped together to max_grad_norm         PPO.minibatch_step
 
-How the rollout is cut into minibatches (``choose_rollout_split``): ppo2 shuffles
-single steps and computes GAE once, on the rollout; with ``unroll_length``
+How the rollout is cut into minibatches (choose_rollout_split): ppo2 shuffles
+single steps and computes GAE once, on the rollout; with unroll_length
 (brax's PPO) the minibatches are shuffled fragments of that many steps, each
 in time order, and GAE is computed again in each minibatch from the current
 critic; a recurrent policy (``memory``) trains on sequences of
-``bptt_length`` steps in time order, each replayed from the memory it
+bptt_length steps in time order, each replayed from the memory it
 started with, GAE once. Each network takes the gradient of its own loss,
 which is that of ppo2's summed loss (their parameters are apart).
 """
@@ -92,7 +92,7 @@ class PPO(
 
     Defaults are ppo2's (``ppo2/ppo2.py:22``, ``model.py:75``, ``:91``,
     ``:100-107``): Adam at 3e-4 with eps 1e-5, its gradient clipped to 0.5
-    over both networks at once, ``vf_coef`` 0.5 on half the squared value
+    over both networks at once, vf_coef 0.5 on half the squared value
     error, clip 0.2, gamma 0.99, lambda 0.95, the advantages normalised per
     minibatch; the Gaussian's log-std one learned parameter per action
     dimension starting at 0 (std 1), never clipped (the Actor in
@@ -211,8 +211,8 @@ class PPO(
         start: PPOState,
         context: TrainContext,
     ) -> tuple[PPOState, AuxiliaryLogs]:
-        """One PPO update on the ``(n_steps, n_envs)`` ``rollout`` collected
-        from ``start``: ``n_epochs`` passes over its minibatches."""
+        """One PPO update on the ``(n_steps, n_envs)`` rollout collected
+        from ``start``: n_epochs passes over its minibatches."""
         n_steps, n_envs = rollout.obs.shape[:2]
         # Cut the rollout into minibatches, in one of three ways the hyperparameters choose:
         # - shuffled single steps (ppo2): advantages computed once, on the whole rollout;
@@ -520,9 +520,9 @@ def value_loss_function(
     resets: Optional[jax.Array] = None,
     initial_hidden: Optional[Any] = None,
 ) -> Tuple[jax.Array, Tuple[ValueAuxiliaries, dict]]:
-    """``vf_coef * 0.5 * MSE(V(obs), targets)`` plus ``extra_loss_fn``'s
-    term, with the metrics and ``extra_loss_fn``'s (``{}`` without one). A
-    recurrent critic replays the sequence from ``initial_hidden``,
+    """``vf_coef * 0.5 * MSE(V(obs), targets)`` plus extra_loss_fn's
+    term, with the metrics and extra_loss_fn's (``{}`` without one). A
+    recurrent critic replays the sequence from initial_hidden,
     ``resets`` flagging the observations that start an episode."""
     if recurrent:
         assert resets is not None and initial_hidden is not None
@@ -575,10 +575,10 @@ def policy_loss_function(
     resets: Optional[jax.Array] = None,
     initial_hidden: Optional[Any] = None,
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, dict]]:
-    """The clipped surrogate minus ``ent_coef`` times the entropy bonus,
-    plus ``extra_loss_fn``'s term; with ``advantage_normalization`` the
+    """The clipped surrogate minus ent_coef times the entropy bonus,
+    plus extra_loss_fn's term; with advantage_normalization the
     advantages are normalised per minibatch. A recurrent actor replays the
-    sequence from ``initial_hidden`` (the live carry on ``actor_state`` has
+    sequence from initial_hidden (the live carry on actor_state has
     advanced past this rollout), ``resets`` flagging episode starts."""
     if recurrent:
         assert resets is not None
@@ -641,10 +641,10 @@ def _stack_critic_loss(
     total_timesteps: int,
 ) -> Optional[Callable]:
     """The extensions' additive critic-loss term on ``key`` as a
-    ``value_loss_function`` ``extra_loss_fn``: ``(critic_params,
+    value_loss_function extra_loss_fn: ``(critic_params,
     critic_states, observations, value_targets) -> (term, metrics)``;
-    ``None`` without extensions. The extensions read their state from
-    ``agent_state``.
+    None without extensions. The extensions read their state from
+    agent_state.
     """
     if not extension_stack:
         return None
@@ -675,9 +675,9 @@ def _stack_actor_loss(
     raw_observations: Optional[jax.Array] = None,
 ) -> Optional[Callable]:
     """The extensions' additive actor-loss term on ``key`` as a
-    ``policy_loss_function`` ``extra_loss_fn``: ``(actor_params,
+    policy_loss_function extra_loss_fn: ``(actor_params,
     actor_state, observations, pi_mean) -> (term, metrics)``, the minibatch's
-    ``raw_observations`` beside them; ``None`` without extensions."""
+    raw_observations beside them; None without extensions."""
     if not extension_stack:
         return None
 
@@ -741,7 +741,7 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-#: ``agent.agent_config``'s class: a view of the fields until 0.5.0.
+#: agent.agent_config's class: a view of the fields until 0.5.0.
 PPOConfig = PPO.declare_config(
     "gamma ent_coef clip_range n_steps batch_size n_epochs gae_lambda"
     " normalize_advantage num_minibatches vf_coef max_grad_norm unroll_length"

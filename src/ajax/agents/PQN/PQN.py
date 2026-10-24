@@ -3,7 +3,7 @@ Difference Learning"), as its reference code, purejaxql (mttga/purejaxql
 @47af6d7), runs it; its Q-network is :class:`PQNNetwork`.
 
 One iteration. The on-policy family runs the epsilon-greedy policy for
-``n_steps`` in each of ``n_envs`` envs
+n_steps in each of n_envs envs
 (:class:`~ajax.agents.families.OnPolicyAgent`, :meth:`PQN.behaviour`); each
 line after that is a function below::
 
@@ -190,8 +190,8 @@ class PQN(
     ) -> Tuple[PQNState, AuxiliaryLogs]:
         """One PQN update on an ``(n_steps, n_envs)`` rollout: Q(lambda)
         targets bootstrapped on the current network (no target network), then
-        ``n_epochs`` epochs of TD steps, the rollout reshuffled each epoch;
-        also logs the epsilon its rollout read (``epsilon_schedule`` once per
+        n_epochs epochs of TD steps, the rollout reshuffled each epoch;
+        also logs the epsilon its rollout read (epsilon_schedule once per
         update, as purejaxql reads it)."""
         del start  # a feedforward network replays nothing
         extensions, total_timesteps = context.extensions, context.total_timesteps
@@ -357,9 +357,9 @@ def half_mse_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
 class PQNState(BaseAgentState):
     """PQN carries a single Q-network -- no replay buffer, no target network.
 
-    The Q-network train state is stored in ``actor_state`` so the shared
-    evaluation loop (hard-wired to ``agent_state.actor_state``) works
-    unchanged; ``critic_state`` mirrors it at init and is left inert.
+    The Q-network train state is stored in actor_state so the shared
+    evaluation loop (hard-wired to agent_state.actor_state) works
+    unchanged; critic_state mirrors it at init and is left inert.
     """
 
 
@@ -377,7 +377,7 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-#: ``agent.agent_config``'s class: a view of the fields until 0.5.0.
+#: agent.agent_config's class: a view of the fields until 0.5.0.
 PQNConfig = PQN.declare_config(
     "gamma q_lambda n_steps n_epochs num_minibatches reward_scale expose_recent_rollout"
 )

@@ -7,9 +7,9 @@ so where its agent computes the advantages (GAE):
 * ``flat`` (feedforward default): GAE once on the whole rollout, then its
   ``n_steps * n_envs`` single steps shuffled into the minibatches (PPO's
   Algorithm 1, OpenAI Baselines' ppo2);
-* ``time`` (with ``unroll_length``): fragments of ``unroll_length`` steps,
+* ``time`` (with unroll_length): fragments of unroll_length steps,
   each in time order, shuffled into the minibatches, GAE recomputed in
-  every minibatch from the current critic (brax's ``compute_ppo_loss``);
+  every minibatch from the current critic (brax's compute_ppo_loss);
 * ``recurrent``: GAE once on the whole rollout, then whole sequences of
   ``length`` steps in time order shuffled into the minibatches, each
   replayed from the memory it started with.
@@ -31,7 +31,7 @@ from ajax.state import Transition
 class RolloutSplit:
     """How one rollout is cut into minibatches, chosen once per update from
     the hyperparameters: how many minibatches each epoch has
-    (``num_minibatches``), how many steps each piece holds (``length``) and
+    (num_minibatches), how many steps each piece holds (length) and
     whether the pieces keep time order (``kind``, the module docstring)."""
 
     kind: str  # "flat", "time" or "recurrent"
@@ -45,7 +45,7 @@ class RolloutSplit:
         return self.kind == "time"
 
     def minibatches(self, batch: dict, key: jax.Array, carries: Any = None) -> dict:
-        """One epoch's partition of the rollout ``batch`` on ``key``; a
+        """One epoch's partition of the rollout batch on ``key``; a
         recurrent split's sequences take their start ``carries`` along."""
         k, length = self.num_minibatches, self.length
         if self.kind == "time":
@@ -57,18 +57,18 @@ class RolloutSplit:
 
 def default_bptt_length(n_steps: int, n_envs: int, num_minibatches: int) -> int:
     """The longest sequences that cut every env's rollout evenly and split
-    exactly into ``num_minibatches``; an explicit ``bptt_length`` splits
+    exactly into num_minibatches; an explicit bptt_length splits
     only if it divides this one.
 
     Libraries disagree on a recurrent PPO's BPTT length (RLlib 20 steps,
     Sample Factory the rollout, Pleines et al., 2022, tuned per task), so the
-    minibatches set it. When ``n_envs`` is a multiple of ``num_minibatches``
+    minibatches set it. When n_envs is a multiple of num_minibatches
     it is the whole rollout, each minibatch a subset of the envs, as in
     Baselines' ppo2 (ea25b9e, ppo2.py:167-180), CleanRL's ppo_atari_lstm
     (fe8d8a0, :296-313) and PureJaxRL's ppo_rnn (31756b1, :258-291).
     Otherwise each rollout is cut into the fewest equal pieces that split:
     ``num_minibatches // gcd(n_envs, num_minibatches)`` of them, which must
-    divide ``n_steps`` (ValueError if not; no length would split then).
+    divide n_steps (ValueError if not; no length would split then).
     docs/guide/memory.md compares the libraries and says how to set it.
     """
     pieces = num_minibatches // math.gcd(n_envs, num_minibatches)
@@ -88,17 +88,17 @@ def choose_rollout_split(
 ) -> RolloutSplit:
     """The rollout's :class:`RolloutSplit`.
 
-    ``time`` only when ``unroll_length`` asks for it (``n_steps`` gives
+    ``time`` only when unroll_length asks for it (n_steps gives
     whole rollouts per env): with as many minibatches as envs, each
     minibatch is then one env's trajectory, its advantages normalised
     within it. It needs fragments that split evenly into more than one
     minibatch: recomputing GAE on a single minibatch, the whole rollout,
     with a critic that just stepped only makes the value targets oscillate
     (the flake of the one-env probing fixture). A recurrent rollout is a
-    pool of sequences of ``bptt_length`` steps (by default
+    pool of sequences of bptt_length steps (by default
     :func:`default_bptt_length`) that must split exactly into the
     minibatches, as Baselines' and CleanRL's recurrent PPO assert: a
-    ``bptt_length`` that does not divide the default raises ValueError.
+    bptt_length that does not divide the default raises ValueError.
     """
     num_minibatches = resolve_num_minibatches(agent_config)
     if recurrent:
@@ -126,8 +126,8 @@ def choose_rollout_split(
 
 
 def check_rollout_split(config: Any, n_envs: int, recurrent: bool) -> None:
-    """Refuse a ``bptt_length`` without memory or not dividing ``n_steps``,
-    an ``unroll_length`` the update could not use (it would fall back to
+    """Refuse a bptt_length without memory or not dividing n_steps,
+    an unroll_length the update could not use (it would fall back to
     the flat shuffle), and a recurrent rollout whose sequences do not split
     into the minibatches (:func:`choose_rollout_split` raises)."""
     bptt, n_steps = config.bptt_length, config.n_steps
@@ -156,7 +156,7 @@ def check_rollout_split(config: Any, n_envs: int, recurrent: bool) -> None:
 
 
 def resolve_num_minibatches(agent_config: Any) -> int:
-    """``num_minibatches`` when positive (brax); otherwise Ajax's legacy
+    """num_minibatches when positive (brax); otherwise Ajax's legacy
     ``max(batch_size, n_steps) // min(batch_size, n_steps)``."""
     if agent_config.num_minibatches > 0:
         return agent_config.num_minibatches
@@ -167,9 +167,9 @@ def resolve_num_minibatches(agent_config: Any) -> int:
 def split_fragments(
     batch: Any, perm: jax.Array, num_minibatches: int, length: int
 ) -> Any:
-    """Split a ``(T, n_envs, ...)`` rollout into ``num_minibatches``
+    """Split a ``(T, n_envs, ...)`` rollout into num_minibatches
     minibatches of whole fragments of ``length`` steps. Fragment ``c *
-    n_envs + e`` (chunk ``c`` of env ``e``) goes in the order of ``perm``;
+    n_envs + e`` (chunk ``c`` of env ``e``) goes in the order of perm;
     per leaf ``(num_minibatches, length, fragments_per_minibatch, ...)``,
     so a scan over the minibatches sees time-major fragments."""
     T, n_envs = jax.tree.leaves(batch)[0].shape[:2]
@@ -194,7 +194,7 @@ def get_minibatches_preserving_time(
     unroll_length: Optional[int] = None,
 ) -> Any:
     """Split a ``(T, n_envs, ...)`` rollout into minibatches that keep the
-    time axis (brax PPO): fragments of ``unroll_length`` steps (the whole
+    time axis (brax PPO): fragments of unroll_length steps (the whole
     rollout by default), shuffled and split evenly
     (:func:`split_fragments`). GAE in the loss then scans each fragment and
     bootstraps at its end, brax's per-minibatch ``(T=unroll_length,
@@ -212,13 +212,13 @@ def get_minibatches_preserving_time(
 
 
 def get_minibatches_from_batch(batch: Any, rng: jax.Array, num_minibatches: int):
-    """Split a ``(T, n_envs, ...)`` rollout batch into ``num_minibatches``
+    """Split a ``(T, n_envs, ...)`` rollout batch into num_minibatches
     minibatches of shape ``(num_minibatches, T*n_envs/num_minibatches, ...)``.
 
     The flatten step joins the leading ``(T, n_envs)`` dims into a single
     sample axis regardless of how many trailing feature dims a leaf has,
     so leaves with a feature dim (e.g. observations ``(T, n_envs, obs_dim)``)
-    and leaves without one (e.g. ``terminated``, ``truncated`` of shape
+    and leaves without one (e.g. terminated, truncated of shape
     ``(T, n_envs)``) are reshuffled with the same permutation and stay
     aligned across leaves.
     """
@@ -242,7 +242,7 @@ def get_minibatches_from_batch(batch: Any, rng: jax.Array, num_minibatches: int)
 
 def _split_carries(x: jax.Array, perm: jax.Array, num_minibatches: int) -> jax.Array:
     """``(S, B, ...)`` start carries to ``(k, S * B // k, ...)``, sequence
-    ``s * B + b`` in the order of ``perm`` (as :func:`split_fragments`)."""
+    ``s * B + b`` in the order of perm (as :func:`split_fragments`)."""
     x = x.reshape(-1, *x.shape[2:])
     x = jnp.take(x, perm, axis=0)
     return x.reshape(num_minibatches, -1, *x.shape[1:])
@@ -280,15 +280,15 @@ def run_epochs(
     step: Callable[[Any, Any], tuple[Any, Any]],
     n_epochs: int,
 ) -> tuple[Any, Any]:
-    """``n_epochs`` passes of ``step(agent_state, minibatch) -> (agent_state,
+    """n_epochs passes of ``step(agent_state, minibatch) -> (agent_state,
     aux)``, each over its own partition ``minibatches(epoch_key)`` of the
     rollout (minibatch axis leading); the metrics averaged over every epoch
     and minibatch.
 
     Each epoch reshuffles, as the PPO references do: OpenAI baselines' ppo2
-    and CleanRL's ``ppo.py`` shuffle the sample indices inside their epoch
+    and CleanRL's ppo.py shuffle the sample indices inside their epoch
     loop, and APO's official code (``xtma/apo``,
-    ``apo/algos/apg/appo.py``, ``APPO.optimize_agent``) draws
+    ``apo/algos/apg/appo.py``, APPO.optimize_agent) draws
     ``iterate_mb_idxs(..., shuffle=True)`` once per epoch.
     """
 

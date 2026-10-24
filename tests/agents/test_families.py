@@ -10,9 +10,11 @@ import inspect
 import textwrap
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 import pytest
 
+from ajax import TD3
 from ajax.agents import families
 from ajax.agents.families import (
     DeclaredAgent,
@@ -23,6 +25,7 @@ from ajax.agents.families import (
     ReplayAgent,
 )
 from ajax.evaluate import ValueEstimate
+from ajax.extensions.expert import ImitationLoss
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import action_value
 from ajax.types import Architecture
@@ -101,8 +104,10 @@ def test_the_run_config_is_the_call_and_the_knobs_reach_the_actor_critic() -> No
     )
     assert set(agent.config) == Toy.field_names() | {"algo_name"}
     assert agent.config["algo_name"] == "Toy" and agent.config["n_envs"] == 2
-    # Recorded before ActorCritic reads the expert in agent units.
-    assert agent.config["expert_policy"] is push is not agent.expert_policy
+    # The field and the run config keep the caller's expert; the agent reads
+    # it in agent units.
+    assert agent.config["expert_policy"] is push is agent.expert_policy
+    assert agent.expert is not push
     assert agent.env_args.n_envs == 2 and agent.env_args.normalize_obs_in_agent
     for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
         assert (args.max_grad_norm, args.weight_decay, args.eps) == (1.0, 0.1, 1e-8)
@@ -148,6 +153,40 @@ def test_the_fields_are_fixed_once_built_and_replace_builds_another() -> None:
             total_timesteps=8,
             num_episode_test=1,
         )
+
+
+class HalfUnit:
+    """A stateful expert (SAC's convention): half a unit of action."""
+
+    def init_state(self, n_envs: int) -> jax.Array:
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+        return jnp.full(obs.shape[:-1] + (1,), 0.5), state
+
+
+def test_replace_passes_the_callers_expert_to_an_agent_on_its_own_env() -> None:
+    """dataclasses.replace reads the expert_policy field back: the caller's
+    expert, which the new agent shares with its extensions and reads on its
+    own env's bounds, as a fresh agent does."""
+    expert = HalfUnit()
+    agent = TD3(
+        "Pendulum-v1",
+        expert_policy=expert,
+        extensions=(ImitationLoss(expert, coef=1.0),),
+    )
+    other = dataclasses.replace(agent, gamma=0.9)
+    (imitation,) = other.extension_stack.extensions
+    assert isinstance(imitation, ImitationLoss)
+    assert other.expert_policy is expert and other.config["expert_policy"] is expert
+    assert imitation.expert_policy is other.expert is not agent.expert
+    obs = jnp.zeros((1, 2))
+    moved = dataclasses.replace(
+        TD3("Pendulum-v1", expert_policy=push), env_id="MountainCarContinuous-v0"
+    )
+    fresh = TD3("MountainCarContinuous-v0", expert_policy=push)
+    # 0.5 on MountainCar's [-1, 1], not 0.25 as on Pendulum's [-2, 2].
+    assert float(moved.expert(obs)[0, 0]) == float(fresh.expert(obs)[0, 0]) == 0.5
 
 
 def test_checks_required_fields_and_action_spaces_refuse_at_construction() -> None:

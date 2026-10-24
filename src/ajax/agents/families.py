@@ -171,7 +171,14 @@ class DeclaredAgent(ActorCritic):
         } | {"algo_name": self.name}
         self.check()
         shared = {name: getattr(self, name) for name in SHARED & self.field_names()}
+        expert = getattr(self, "expert_policy", None)
         ActorCritic.__init__(self, **shared, **self.networks())
+        # ActorCritic writes the expert in agent units over the field: the
+        # wrapper moves to ``expert``, and the field keeps the caller's, which
+        # dataclasses.replace passes to the next agent (on its own env).
+        self._expert = getattr(self, "expert_policy", None)
+        if expert is not None:
+            self.expert_policy = expert
         if self.action_space != "any" and self.env_args.continuous != (
             self.action_space == "continuous"
         ):
@@ -223,8 +230,9 @@ class DeclaredAgent(ActorCritic):
 
     @property
     def expert(self) -> Any:
-        """The agent's expert in agent units (ActorCritic wraps it), if any."""
-        return getattr(self, "expert_policy", None)
+        """The agent's expert in agent units (ActorCritic wraps it), if any;
+        the ``expert_policy`` field holds the one passed in."""
+        return self._expert
 
     @classmethod
     def declare_config(cls, names: str) -> Any:

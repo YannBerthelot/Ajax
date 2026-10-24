@@ -249,18 +249,22 @@ class PPO(
             # The environment's own observations, which only an expert reads
             # (ImitationLoss, in actor_loss); jit drops them where none does.
             batch["raw_obs"] = rollout.raw_obs
+        # What GAE reads of each step beside its observation, on the rollout
+        # or in each minibatch.
+        outcomes = {
+            "next_obs": rollout.next_obs,
+            "terminated": rollout.terminated,
+            "truncated": rollout.truncated,
+            "rewards": rewards,
+        }
         rollout_metrics: dict = {}  # the extensions' on the rollout's targets
         carries = None  # a recurrent plan's sequences' start memories
 
         if plan.gae_per_minibatch:
             # GAE in each minibatch, with the critic of that step.
-            batch |= {
-                "next_obs": rollout.next_obs,
-                "terminated": rollout.terminated,
-                "truncated": rollout.truncated,
-                "rewards": rewards,
-            }
+            batch |= outcomes
         else:
+            # GAE once, on the rollout, with the critic that collected it.
             if ctx.recurrent:
                 state, values, next_values, resets, carries = rollout_sequence_values(
                     state, rollout, start, plan.length
@@ -277,35 +281,9 @@ class PPO(
                     critic_params=state.critic_state.params,
                     x=rollout.next_obs,
                 ).squeeze(0)
-            gae, value_targets = _compute_gae(
-                values=values,
-                next_values=next_values,
-                rewards=rewards,
-                terminateds=rollout.terminated,
-                truncateds=rollout.truncated,
-                gamma=self.gamma,
-                gae_lambda=self.gae_lambda,
+            gae, value_targets, rollout_metrics = self.advantages(
+                state, batch | outcomes, values, next_values, target_key, ctx
             )
-            if stack:
-                target_batch = {
-                    "observations": rollout.obs,
-                    "next_observations": rollout.next_obs,
-                    "rewards": rewards,
-                    "terminated": rollout.terminated,
-                    "truncated": rollout.truncated,
-                    "gae": gae,
-                    "values": values,
-                    "next_values": next_values,
-                    "gamma": self.gamma,
-                }
-                value_targets, rollout_metrics = stack.fold_on_target(
-                    state,
-                    target_batch,
-                    value_targets,
-                    state.collector_state.timestep,
-                    target_key,
-                    total_timesteps,
-                )
             batch |= {"targets": value_targets, "gae": gae}
 
         def minibatches(key: jax.Array) -> dict:
@@ -320,6 +298,51 @@ class PPO(
         )
         state = state.replace(n_updates=state.n_updates + 1)
         return state, aux
+
+    def advantages(
+        self,
+        state: PPOState,
+        steps: dict,
+        values: jax.Array,
+        next_values: jax.Array,
+        key: jax.Array,
+        ctx: TrainContext,
+        hold: bool = False,
+    ) -> tuple[jax.Array, jax.Array, dict]:
+        """GAE and the value targets ``A + V`` on ``steps`` (the rollout's or
+        a minibatch's obs, next_obs, rewards, terminated and truncated),
+        held constant with ``hold`` (brax's); the extensions' on_target
+        reshapes the targets on ``key``. Returns them and its metrics."""
+        gae, value_targets = _compute_gae(
+            values=values,
+            next_values=next_values,
+            rewards=steps["rewards"],
+            terminateds=steps["terminated"],
+            truncateds=steps["truncated"],
+            gamma=self.gamma,
+            gae_lambda=self.gae_lambda,
+        )
+        if hold:
+            gae = jax.lax.stop_gradient(gae)
+            value_targets = jax.lax.stop_gradient(value_targets)
+        if not ctx.stack:
+            return gae, value_targets, {}
+        target_batch = {
+            "observations": steps["obs"],
+            "next_observations": steps["next_obs"],
+            "rewards": steps["rewards"],
+            "terminated": steps["terminated"],
+            "truncated": steps["truncated"],
+            "gae": gae,
+            "values": values,
+            "next_values": next_values,
+            "gamma": self.gamma,
+        }
+        timestep, horizon = state.collector_state.timestep, ctx.total_timesteps
+        value_targets, metrics = ctx.stack.fold_on_target(
+            state, target_batch, value_targets, timestep, key, horizon
+        )
+        return gae, value_targets, metrics
 
     def minibatch_step(
         self, state: PPOState, mb: dict, plan: MinibatchPlan, ctx: TrainContext
@@ -351,37 +374,9 @@ class PPO(
                     x=mb["next_obs"],
                 ).squeeze(0)
             )
-            gae, value_targets = _compute_gae(
-                values=values,
-                next_values=next_values,
-                rewards=mb["rewards"],
-                terminateds=mb["terminated"],
-                truncateds=mb["truncated"],
-                gamma=self.gamma,
-                gae_lambda=self.gae_lambda,
+            gae, value_targets, target_metrics = self.advantages(
+                state, mb, values, next_values, target_key, ctx, hold=True
             )
-            gae = jax.lax.stop_gradient(gae)
-            value_targets = jax.lax.stop_gradient(value_targets)
-            if stack:
-                target_batch = {
-                    "observations": mb["obs"],
-                    "next_observations": mb["next_obs"],
-                    "rewards": mb["rewards"],
-                    "terminated": mb["terminated"],
-                    "truncated": mb["truncated"],
-                    "gae": gae,
-                    "values": values,
-                    "next_values": next_values,
-                    "gamma": self.gamma,
-                }
-                value_targets, target_metrics = stack.fold_on_target(
-                    state,
-                    target_batch,
-                    value_targets,
-                    state.collector_state.timestep,
-                    target_key,
-                    total_timesteps,
-                )
         else:
             gae, value_targets = mb["gae"], mb["targets"]
 

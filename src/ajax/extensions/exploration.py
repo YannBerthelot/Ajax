@@ -334,7 +334,7 @@ class EDGEExploration(Extension):
         ext_state: Any,
         obs: Any,
         rng: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> jax.Array | None:
         """Apply the configured EDGE gate to substitute the policy action.
 
@@ -380,7 +380,7 @@ class EDGEExploration(Extension):
         elif gate in ("lcb", "argmax_lcb"):
             beta = lcb_beta(
                 agent_state.collector_state.timestep,
-                ctx.total_steps,
+                context.total_steps,
                 self.lcb_beta_init,
                 self.lcb_beta_decay_k,
             )
@@ -403,7 +403,9 @@ class EDGEExploration(Extension):
                 )
         else:
             decay = edge_compute_decay(
-                agent_state.collector_state.timestep, ctx.total_steps, self.decay_frac
+                agent_state.collector_state.timestep,
+                context.total_steps,
+                self.decay_frac,
             )
             gap, q_policy = edge_compute_value_gap(
                 observations,
@@ -429,7 +431,11 @@ class EDGEExploration(Extension):
         return jnp.where(use_expert_edge, expert_action, post_warmup_action)
 
     def eval_metrics(
-        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
     ) -> dict:
         """The fraction of envs an expert drove on the last collection step,
         and the gate's schedule at the collector's timestep."""
@@ -439,13 +445,13 @@ class EDGEExploration(Extension):
         if self.gate in ("lcb", "argmax_lcb"):
             metrics["edge/beta"] = lcb_beta(
                 collector.timestep,
-                ctx.total_steps,
+                context.total_steps,
                 self.lcb_beta_init,
                 self.lcb_beta_decay_k,
             )
         elif self.gate != "thompson":
             metrics["edge/decay"] = edge_compute_decay(
-                collector.timestep, ctx.total_steps, self.decay_frac
+                collector.timestep, context.total_steps, self.decay_frac
             )
         return metrics
 

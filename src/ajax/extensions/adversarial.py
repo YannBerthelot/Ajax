@@ -88,7 +88,7 @@ class AdversarialReward(Extension):
         ext_state: TrainState,
         batch: Any,
         rewards: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> tuple[jax.Array, TrainState, dict]:
         del agent_state
         # A Gaussian sample outside [-1, 1] runs as the bound: as the expert's.
@@ -110,7 +110,7 @@ class AdversarialReward(Extension):
             (value, accs), grads = jax.value_and_grad(loss, has_aux=True)(state.params)
             return state.apply_gradients(grads=grads), (value, *accs)
 
-        keys = jax.random.split(ctx.rng, self.n_updates)
+        keys = jax.random.split(context.rng, self.n_updates)
         ext_state, (losses, expert_acc, policy_acc) = jax.lax.scan(
             step, ext_state, keys
         )

@@ -155,7 +155,7 @@ class OnlineBC(Extension):
         agent_state: Any,
         ext_state: Any,
         batch: Any,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> Any:
         del ext_state
         if "a_expert" not in batch:
@@ -166,7 +166,7 @@ class OnlineBC(Extension):
         a_expert = batch["a_expert"]
         if agent_state.expert_critic_params is None or self.critic_warmup_frac <= 0:
             return 0.0
-        train_frac = progress(ctx.step, ctx.total_steps)
+        train_frac = progress(context.step, context.total_steps)
         term = compute_online_bc_loss(
             batch["pi_mean"],
             a_expert,
@@ -379,7 +379,7 @@ class ImitationLoss(Extension):
         agent_state: Any,
         ext_state: Any,
         batch: Any,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> Any:
         del agent_state, ext_state
         pi_mean = batch.get("pi_mean")
@@ -416,7 +416,7 @@ class ImitationLoss(Extension):
                 jax.lax.stop_gradient(pi_mean),
             )
         if self.anneal_frac is not None:
-            sq = sq * anneal_weight(ctx.step, ctx.total_steps, self.anneal_frac)
+            sq = sq * anneal_weight(context.step, context.total_steps, self.anneal_frac)
         if self.alpha is None:
             term = self.coef * jnp.mean(sq) / 4.0
         else:
@@ -427,14 +427,18 @@ class ImitationLoss(Extension):
         return term, {"imitation/term": term, "imitation/mse": mse}
 
     def eval_metrics(
-        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
     ) -> dict:
         """``imitation/q_filter_frac``, the share of a replay batch the
         Q-filter keeps (an agent with a replay, which it binds)."""
         from ajax.buffers.utils import get_batch_from_buffer
         from ajax.environments.interaction import get_pi
 
-        del ext_state, ctx
+        del ext_state, context
         if self.buffer is None:
             return {}
         batch = get_batch_from_buffer(
@@ -554,14 +558,14 @@ class JSRLCurriculum(Extension):
         ext_state: Any,
         obs: Any,
         rng: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> jax.Array | None:
         """Substitute the expert action while ``step_in_episode < H_t``."""
         del ext_state, rng
         post_warmup_action = obs["post_warmup_action"]
         expert_action = obs["expert_action"]
 
-        H_t = self.horizon(agent_state.collector_state.timestep, ctx.total_steps)
+        H_t = self.horizon(agent_state.collector_state.timestep, context.total_steps)
         step_in_ep = agent_state.collector_state.step_in_episode
         use_expert_jsrl = step_in_ep.astype(jnp.float32) < H_t
         use_expert_jsrl = use_expert_jsrl.reshape(
@@ -579,12 +583,16 @@ class JSRLCurriculum(Extension):
         return self.episode_length * (1.0 - curriculum_progress)
 
     def eval_metrics(
-        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
     ) -> dict:
         del ext_state, rng
         collector = agent_state.collector_state
         return {
-            "jsrl/horizon": self.horizon(collector.timestep, ctx.total_steps),
+            "jsrl/horizon": self.horizon(collector.timestep, context.total_steps),
             "jsrl/expert_frac": collector.last_expert_frac,
         }
 
@@ -637,11 +645,15 @@ class ExpertValueMetrics(Extension):
         return dataclasses.replace(self, buffer=buffer, expert_policy=expert)
 
     def eval_metrics(
-        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
     ) -> dict:
         from ajax.buffers.utils import get_batch_from_buffer
 
-        del ext_state, ctx
+        del ext_state, context
         batch = get_batch_from_buffer(
             self.buffer, agent_state.collector_state.buffer_state, rng
         )

@@ -162,8 +162,8 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
     agent = APO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
-    _, ctx = agent.context(1)
-    state = agent.init(KEY, ctx).replace(average_reward=jnp.asarray(0.3))
+    _, context = agent.context(1)
+    state = agent.init(KEY, context).replace(average_reward=jnp.asarray(0.3))
     obs, actions, log_probs, gae, targets = _batch(agent)
     b = jnp.asarray(0.7)
     minibatch = {
@@ -177,7 +177,7 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
         "a_expert": None,
         "entropy_key": KEY,
     }
-    _, aux = agent.minibatch_step(state, minibatch, b, ctx)
+    _, aux = agent.minibatch_step(state, minibatch, b, context)
     v_aux, p_aux = cast(apo_module.ValueAuxiliaries, aux.value), aux.policy
 
     critic = state.critic_state
@@ -217,7 +217,9 @@ class _ZeroActorLoss(Extension):
 
     name: str = "zero_actor_loss"
 
-    def actor_loss(self, agent_state: Any, ext_state: Any, batch: Any, ctx: Any) -> Any:
+    def actor_loss(
+        self, agent_state: Any, ext_state: Any, batch: Any, context: Any
+    ) -> Any:
         return 0.0
 
 
@@ -274,8 +276,8 @@ def test_the_entropy_bonus_lowers_the_policy_loss() -> None:
         critic_architecture=NET,
     )
     assert agent.agent_config.ent_coef == 0.1
-    _, ctx = agent.context(1)
-    state = agent.init(KEY, ctx)
+    _, context = agent.context(1)
+    state = agent.init(KEY, context)
     actor = state.actor_state
     obs, actions, log_probs, gae, targets = _batch(agent)
 
@@ -290,5 +292,5 @@ def test_the_entropy_bonus_lowers_the_policy_loss() -> None:
     minibatch: dict[str, Any] = {"obs": obs, "actions": actions, "log_probs": log_probs}
     minibatch |= {"gae": gae, "targets": targets, "raw_actions": None, "raw_obs": None}
     split = choose_rollout_split(agent, agent.n_steps, agent.n_envs, False)
-    _, aux = agent.minibatch_step(state, minibatch, split, ctx)
+    _, aux = agent.minibatch_step(state, minibatch, split, context)
     np.testing.assert_allclose(aux.policy.policy_loss, with_bonus, rtol=1e-5)

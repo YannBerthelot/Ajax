@@ -11,8 +11,8 @@ the training loop's shape and the evaluation's value estimate::
         expectile: float = 0.7
         ...
 
-        def init(self, key, ctx): ...
-        def update(self, state, ctx): ...
+        def init(self, key, context): ...
+        def update(self, state, context): ...
 
 An agent learning from a replay of transitions is a :class:`ReplayAgent`,
 one learning from each rollout of its current policy an
@@ -80,9 +80,30 @@ DISCOUNT_FIELDS = ("gamma", "reward_scale")
 
 @dataclass(frozen=True, eq=False)
 class TrainContext:
-    """What one train function's ``init`` and ``update`` read beyond the
-    agent's fields: the run's configs, replay, bound extensions and horizon
-    (CLAUDE.md rule 7: passed in, never global)."""
+    """What one train() call gives the agent's init and update, beyond its
+    hyperparameters.
+
+    It holds:
+
+    - the run's environment config (env_args);
+    - the network and optimiser configs (network_args,
+      actor_optimizer_args, critic_optimizer_args);
+    - the extensions, bound to this run;
+    - the replay buffer, for a replay agent (None on-policy);
+    - how to build the collector (collector);
+    - the run's horizon (total_timesteps);
+    - whether the run is recurrent (its networks have memory);
+    - the residual-action hook (executed), None without a residual policy.
+
+    Why it exists: an agent's hyperparameters are its fields, fixed once it
+    is built. Everything that depends on one train() call (the env and the
+    configs it may override, the extensions bound to them, the horizon) is
+    passed explicitly to init and update, where SB3 keeps it as attributes
+    of the agent and PureJaxRL in closures inside its make_train. One agent
+    then trains any number of runs, and a test calls init or update alone
+    on agent.context(total_timesteps) (CLAUDE.md rule 7: passed in, never
+    global).
+    """
 
     env_args: EnvironmentConfig
     network_args: NetworkConfig
@@ -404,8 +425,8 @@ class DeclaredAgent(ActorCritic):
                 " which DeclaredAgent.context does not give its extensions (it"
                 f" gives {', '.join(sorted(given))})."
             )
-        context = {name: given[name] for name in sorted(self.extension_context)}
-        bound = ExtensionStack(extensions).bind_to_agent(**context).extensions
+        agent_context = {name: given[name] for name in sorted(self.extension_context)}
+        bound = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
         recurrent = network_args.memory is not None
         if recurrent:
             unsupported_recurrent_options(
@@ -423,7 +444,7 @@ class DeclaredAgent(ActorCritic):
             expert_policy=self.expert,
             offline_data=offline_data,
         )
-        ctx = TrainContext(
+        context = TrainContext(
             **configs,
             extensions=loop.stack,
             total_timesteps=total_timesteps,
@@ -432,7 +453,7 @@ class DeclaredAgent(ActorCritic):
             recurrent=recurrent,
             executed=executed_fn(env_args),
         )
-        return loop, ctx
+        return loop, context
 
     def collector(
         self, key: jax.Array, loop: TrainLoop, network_args: NetworkConfig, **options
@@ -497,18 +518,18 @@ class ReplayAgent(DeclaredAgent):
         "actor_optimizer_args buffer env_args expert_policy".split()
     )
 
-    def init(self, key: jax.Array, ctx: TrainContext) -> Any:
+    def init(self, key: jax.Array, context: TrainContext) -> Any:
         """A fresh agent state, on the agent's own key layout."""
         raise NotImplementedError
 
-    def update(self, state: Any, ctx: TrainContext) -> tuple[Any, Any]:
+    def update(self, state: Any, context: TrainContext) -> tuple[Any, Any]:
         """One update: ``(state, logged metrics)``."""
         raise NotImplementedError
 
-    def behaviour(self, ctx: TrainContext) -> Optional[Callable]:
+    def behaviour(self, context: TrainContext) -> Optional[Callable]:
         """The action pipeline collection runs; None: the policy's, uniform
         during the warm-up."""
-        del ctx
+        del context
         return None
 
     def _build_family(self) -> None:
@@ -566,7 +587,7 @@ class ReplayAgent(DeclaredAgent):
         """The train function :meth:`ActorCritic.train` builds: the loop
         over :meth:`init` and :meth:`update`."""
         self.check_agent_config(agent_config)
-        loop, ctx = self.context(
+        loop, context = self.context(
             total_timesteps,
             num_episode_test,
             env_args=env_args,
@@ -580,15 +601,15 @@ class ReplayAgent(DeclaredAgent):
             end_timestep=end_timestep,
             offline_data=offline_data,
         )
-        recurrent = ctx.recurrent
+        recurrent = context.recurrent
         return loop.off_policy(
-            partial(self.init, ctx=ctx),
-            lambda state, _transition: self.update(state, ctx),
+            partial(self.init, context=context),
+            lambda state, _transition: self.update(state, context),
             self.learning_starts,
             recurrent=recurrent,
             collect_kwargs={
                 "buffer": self.buffer,
-                "action_pipeline": self.behaviour(ctx),
+                "action_pipeline": self.behaviour(context),
                 "store_hidden": recurrent and self.stores_state(),
             },
             eval_kwargs={
@@ -666,21 +687,21 @@ class OnPolicyAgent(DeclaredAgent):
     num_minibatches: int
     expose_recent_rollout: bool = False
 
-    def init(self, key: jax.Array, ctx: TrainContext) -> Any:
+    def init(self, key: jax.Array, context: TrainContext) -> Any:
         """A fresh agent state, on the agent's own key layout."""
         raise NotImplementedError
 
     def update(
-        self, state: Any, rollout: Transition, start: Any, ctx: TrainContext
+        self, state: Any, rollout: Transition, start: Any, context: TrainContext
     ) -> tuple[Any, Any]:
         """One update on the ``(n_steps, n_envs)`` rollout collected from
         ``start`` (a recurrent agent replays it from start's memories):
         ``(state, logged metrics)``."""
         raise NotImplementedError
 
-    def behaviour(self, ctx: TrainContext) -> Optional[Callable]:
+    def behaviour(self, context: TrainContext) -> Optional[Callable]:
         """The action pipeline collection runs; None: the policy's sample."""
-        del ctx
+        del context
         return None
 
     def evaluation_options(self) -> dict[str, Any]:
@@ -721,7 +742,7 @@ class OnPolicyAgent(DeclaredAgent):
         on-policy agent learns from its own rollouts (``train_offline``
         refuses it)."""
         self.check_agent_config(agent_config)
-        loop, ctx = self.context(
+        loop, context = self.context(
             total_timesteps,
             num_episode_test,
             env_args=env_args,
@@ -735,16 +756,16 @@ class OnPolicyAgent(DeclaredAgent):
             end_timestep=end_timestep,
         )
         return loop.on_policy(
-            partial(self.init, ctx=ctx),
-            partial(self.update, ctx=ctx),
+            partial(self.init, context=context),
+            partial(self.update, context=context),
             self.n_steps,
-            recurrent=ctx.recurrent,
+            recurrent=context.recurrent,
             expose_rollout=self.expose_recent_rollout,
             forced_resets=(
                 getattr(self, "num_resets_per_eval", 0),
                 getattr(self, "num_evals", 1),
             ),
-            collect_kwargs={"action_pipeline": self.behaviour(ctx)},
+            collect_kwargs={"action_pipeline": self.behaviour(context)},
             eval_kwargs={
                 "expert_policy": self.expert,
                 "value_estimate": self.value_estimate(),

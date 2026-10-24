@@ -58,7 +58,7 @@ class _RecordTargets(Extension):
 
     name: str = "record-targets"
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         names = tuple(k for k in KEYS if batch.get(k) is not None)
         jax.debug.callback(lambda *v: _keep(names, *v), *(batch[k] for k in names))
         return target

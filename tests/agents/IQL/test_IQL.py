@@ -39,7 +39,7 @@ def test_the_actor_weighs_each_row_by_its_clipped_advantage() -> None:
     agent = IQL("Pendulum-v1", batch_size=8, actor_architecture=("8", "relu"))
     state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=16)[0])
     value = state.value_state.replace(params=_constant(state.value_state.params, 0.0))
-    ctx = TrainContext(  # what the update reads: the replay, the extensions
+    context = TrainContext(  # what the update reads: the replay, the extensions
         env_args=agent.env_args,
         network_args=agent.network_args,
         actor_optimizer_args=agent.actor_optimizer_args,
@@ -54,7 +54,7 @@ def test_the_actor_weighs_each_row_by_its_clipped_advantage() -> None:
         critic = state.critic_state
         critic = critic.replace(target_params=_constant(critic.target_params, q))
         _, aux = agent.update(
-            state.replace(critic_state=critic, value_state=value), ctx
+            state.replace(critic_state=critic, value_state=value), context
         )
         return float(aux.value.actor_loss)
 

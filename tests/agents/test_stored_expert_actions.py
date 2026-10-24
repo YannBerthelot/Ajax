@@ -161,7 +161,7 @@ class ActorBatchRecorder(Extension):
     def __init__(self) -> None:
         self.seen: list[tuple[np.ndarray, np.ndarray]] = []
 
-    def actor_loss(self, agent_state, ext_state, batch, ctx):
+    def actor_loss(self, agent_state, ext_state, batch, context):
         keep = lambda o, a: self.seen.append((np.asarray(o), np.asarray(a)))  # noqa: E731
         jax.debug.callback(keep, batch["raw_observations"], batch["a_expert"])
         return 0.0
@@ -194,7 +194,7 @@ class TargetBatchRecorder(Extension):
     def __init__(self) -> None:
         self.seen: list[tuple[np.ndarray, np.ndarray]] = []
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         keep = lambda o, a: self.seen.append((np.asarray(o), np.asarray(a)))  # noqa: E731
         jax.debug.callback(keep, batch["raw_next_observations"], batch["next_a_expert"])
         return target

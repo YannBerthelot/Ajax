@@ -26,8 +26,8 @@ def _phase(params: Any, coef: float = 1.0) -> tuple[jax.Array, dict]:
         "critic_params": params,
         "critic_state": SimpleNamespace(apply_fn=_apply),
     }
-    ctx = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
-    return KernelRepulsion(coef=coef).critic_loss(None, (), batch, ctx)
+    context = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
+    return KernelRepulsion(coef=coef).critic_loss(None, (), batch, context)
 
 
 def _term(params: Any, coef: float = 1.0) -> jax.Array:

@@ -40,7 +40,7 @@ class _PPOTargets(Extension):
     gae_lambda: float = 0.8
     name: str = "ppo-targets"
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         critic = agent_state.critic_state
         value = lambda x: predict_value(critic, critic.params, x).squeeze(0)  # noqa: E731
         values, next_values = (
@@ -70,7 +70,7 @@ class _PQNTargets(Extension):
     q_lambda: float = 0.5
     name: str = "pqn-targets"
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         actor = agent_state.actor_state
         next_q = predict_q(actor, actor.params, batch["next_observations"])
         want = compute_q_lambda_targets(

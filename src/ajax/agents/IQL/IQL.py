@@ -107,26 +107,26 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             learning_rate=self.value_learning_rate
         )
 
-    def behaviour(self, ctx: TrainContext) -> Optional[Callable]:
+    def behaviour(self, context: TrainContext) -> Optional[Callable]:
         # A residual policy acts on the chosen action, so the warm-up draws
         # residuals (and the replay keeps the one the actor fits, init).
-        if ctx.executed is None:
+        if context.executed is None:
             return None
         return partial(
             policy_pipeline,
             recurrent=False,
-            n_envs=ctx.env_args.n_envs,
-            transform=ctx.env_args.transforms[0],
+            n_envs=context.env_args.n_envs,
+            transform=context.env_args.transforms[0],
             after_choice=True,
         )
 
-    def init(self, key: jax.Array, ctx: TrainContext) -> IQLState:
+    def init(self, key: jax.Array, context: TrainContext) -> IQLState:
         """A Gaussian actor, two Q critics with their targets, and V(s)."""
         rng, init_key, value_key, collector_key, eval_rng = jax.random.split(key, 5)
-        actor_state, critic_state = ctx.actor_critic(
+        actor_state, critic_state = context.actor_critic(
             init_key, continuous=True, action_value=True, num_critics=2
         )
-        _, value_state = ctx.actor_critic(
+        _, value_state = context.actor_critic(
             value_key,
             critic_optimizer_args=self.value_optimizer_args,
             continuous=True,
@@ -138,17 +138,17 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             actor_state=actor_state,
             critic_state=critic_state,
             value_state=value_state,
-            collector_state=ctx.collector(
-                collector_key, include_policy_action=ctx.executed is not None
+            collector_state=context.collector(
+                collector_key, include_policy_action=context.executed is not None
             ),
         )
 
     def update(
-        self, state: IQLState, ctx: TrainContext
+        self, state: IQLState, context: TrainContext
     ) -> tuple[IQLState, AuxiliaryLogs]:
         """One IQL update (the module docstring)."""
         state, sample_key, critic_key, actor_key = state.draw_keys(3)
-        batch, _ = sample_replay(state, ctx.buffer, sample_key)
+        batch, _ = sample_replay(state, context.buffer, sample_key)
         critic = state.critic_state
         q = min_target_q(critic, batch)
         fit_v = partial(value_loss, state.value_state, batch.obs, q, self.expectile)
@@ -162,9 +162,9 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         actor_state, a_loss, _, actor_metrics = steps.actor_step(
             state,
             partial(awr_loss, state.actor_state, batch.obs, chosen, weight),
-            ctx.extensions,
+            context.extensions,
             actor_key,
-            ctx.total_timesteps,
+            context.total_timesteps,
             observations=batch.obs,
             raw_observations=batch.raw_obs,
             actions=batch.action,
@@ -176,9 +176,9 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             batch,
             target,
             partial(q_loss, critic, batch),
-            ctx.extensions,
+            context.extensions,
             critic_key,
-            ctx.total_timesteps,
+            context.total_timesteps,
             rewards=batch.reward,
             dones=batch.terminated,
             gamma=self.gamma,

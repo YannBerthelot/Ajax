@@ -58,21 +58,21 @@ class Nudge(Extension):
     def init_state(self, agent_state, rng):
         return jax.random.normal(rng)
 
-    def on_target(self, agent_state, ext_state, batch, target, ctx):
+    def on_target(self, agent_state, ext_state, batch, target, context):
         return target + 0.01 * ext_state
 
-    def critic_loss(self, agent_state, ext_state, batch, ctx):
+    def critic_loss(self, agent_state, ext_state, batch, context):
         params = batch.get("critic_params")
         return 0.0 if params is None else 1e-3 * tree_norm(params, squared=True)
 
-    def actor_loss(self, agent_state, ext_state, batch, ctx):
+    def actor_loss(self, agent_state, ext_state, batch, context):
         params = batch.get("actor_params")
         return 0.0 if params is None else 1e-3 * tree_norm(params, squared=True)
 
-    def post_update(self, agent_state, ext_state, ctx):
-        return agent_state, ext_state + 0.01 * jax.random.normal(ctx.rng)
+    def post_update(self, agent_state, ext_state, context):
+        return agent_state, ext_state + 0.01 * jax.random.normal(context.rng)
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {"nudge": ext_state}
 
 
@@ -102,10 +102,10 @@ class Drift(Extension):
     def init_state(self, agent_state, rng):
         return jax.random.normal(rng)
 
-    def post_update(self, agent_state, ext_state, ctx):
-        return agent_state, ext_state + 0.01 * jax.random.normal(ctx.rng)
+    def post_update(self, agent_state, ext_state, context):
+        return agent_state, ext_state + 0.01 * jax.random.normal(context.rng)
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx):
+    def eval_metrics(self, agent_state, ext_state, rng, context):
         return {"drift": ext_state}
 
 

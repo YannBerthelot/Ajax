@@ -7,7 +7,7 @@ from ajax.agents.TD3.TD3 import TD3, make_default_action_pipeline
 from ajax.controller import acting_state
 from ajax.environments.interaction import get_pi
 from ajax.networks.deterministic import get_initialized_td3_actor_critic
-from tests.agents.TD3.test_td3_metrics import KEY, NET, _batch, context
+from tests.agents.TD3.test_td3_metrics import KEY, NET, _batch, make_context
 
 
 def test_td3_networks_are_plain_mlps():
@@ -127,12 +127,12 @@ def test_an_old_signature_pipeline_is_adapted_with_a_warning():
 
     with pytest.warns(FutureWarning, match="ActingState"):
         agent = TD3(env_id="Pendulum-v1", action_pipeline=old)
-    adapted = agent.behaviour(context(agent))
+    adapted = agent.behaviour(make_context(agent))
     assert adapted("s", "acting", "o", "r", "u", "m", "a") == "result"
     assert seen == [("s", "o", "r", "u", "m", "a")]
     new = make_default_action_pipeline(False, 0.1)
     agent = TD3(env_id="Pendulum-v1", action_pipeline=new)
-    assert agent.behaviour(context(agent)) is new
+    assert agent.behaviour(make_context(agent)) is new
 
 
 def test_the_target_noise_clip_reaches_the_update():
@@ -146,10 +146,10 @@ def test_the_target_noise_clip_reaches_the_update():
         target_policy_noise=1.0,
         target_noise_clip=0.2,
     )
-    ctx = context(agent)
-    state = agent.init(KEY, ctx)
+    context = make_context(agent)
+    state = agent.init(KEY, context)
     batch = jax.tree.map(lambda x: jnp.tile(x, (16, 1)), _batch(agent))
-    _, aux, _ = agent.critic_update(state, batch, None, ctx)
+    _, aux, _ = agent.critic_update(state, batch, None, context)
     noise = jax.random.normal(state.draw_keys()[1], batch.action.shape)
     assert float(aux.target_noise_clip_frac) == float((jnp.abs(noise) > 0.2).mean())
     assert float(aux.target_noise_clip_frac) != float((jnp.abs(noise) > 0.5).mean())

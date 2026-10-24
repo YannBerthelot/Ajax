@@ -138,8 +138,8 @@ def test_APO_steps_its_whole_model_with_one_clipped_adam(options: dict) -> None:
     joint norm, down the summed loss computed by hand. Clipping each
     network on its own, or dropping ``vf_coef``, moves the parameters."""
     agent = APO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8, **options)
-    _, ctx = agent.context(1)
-    state = agent.init(jax.random.PRNGKey(0), ctx)
+    _, context = agent.context(1)
+    state = agent.init(jax.random.PRNGKey(0), context)
     actor, critic = state.actor_state, state.critic_state
     clip = cast(float, agent.max_grad_norm)
 
@@ -170,7 +170,9 @@ def test_APO_steps_its_whole_model_with_one_clipped_adam(options: dict) -> None:
         norms.append(float(optax.global_norm(grads)))
         updates, opt_state = tx.update(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
-        state, _ = agent.minibatch_step(state, minibatch, jnp.float32(VALUE_BIAS), ctx)
+        state, _ = agent.minibatch_step(
+            state, minibatch, jnp.float32(VALUE_BIAS), context
+        )
     assert min(norms) < clip < max(norms), norms  # the clip binds on some steps
     got = (state.actor_state.params, state.critic_state.params)
     moved = jax.tree.map(lambda p, s: p - s, got, start)

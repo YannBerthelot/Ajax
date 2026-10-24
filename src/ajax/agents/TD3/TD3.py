@@ -107,35 +107,35 @@ class TD3(
         # warning (a transitional shim, interaction.with_acting_state).
         self.pipeline = with_acting_state(self.action_pipeline)
 
-    def behaviour(self, ctx: TrainContext) -> Optional[Callable]:
+    def behaviour(self, context: TrainContext) -> Optional[Callable]:
         if self.pipeline is not None:
             return self.pipeline
-        transform = next(iter(ctx.env_args.transforms), None)
+        transform = next(iter(context.env_args.transforms), None)
         return make_default_action_pipeline(
-            ctx.recurrent, self.exploration_noise, transform
+            context.recurrent, self.exploration_noise, transform
         )
 
-    def init(self, key: jax.Array, ctx: TrainContext) -> TD3State:
+    def init(self, key: jax.Array, context: TrainContext) -> TD3State:
         """A deterministic actor and ``num_critics`` Q critics, with targets."""
         rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
-        actor_state, critic_state = ctx.actor_critic(
+        actor_state, critic_state = context.actor_critic(
             init_key,
             build=get_initialized_td3_actor_critic,
             num_critics=self.num_critics,
         )
         # sfujim/TD3's critics read max_action * tanh, the env's units: so do
         # TD3's (static, from the concrete env params).
-        units = critic_action_units(ctx.env_args)
+        units = critic_action_units(context.env_args)
         return TD3State(
             rng=rng,
             eval_rng=eval_rng,
             actor_state=actor_state,
             critic_state=critic_state.replace(action_units=units),
-            collector_state=ctx.collector(collector_key),
+            collector_state=context.collector(collector_key),
         )
 
     def update(
-        self, state: TD3State, ctx: TrainContext
+        self, state: TD3State, context: TrainContext
     ) -> tuple[TD3State, AuxiliaryLogs]:
         """A critic step on a replay batch and, every ``policy_delay``
         updates, an actor step and the targets' Polyak update."""
@@ -144,20 +144,24 @@ class TD3(
         # bootstrap action comes from it.
         batch, carries = sample_replay(
             state,
-            ctx.buffer,
+            context.buffer,
             sample_key,
-            ctx.recurrent,
+            context.recurrent,
             self.burn_in,
             self.stored_state,
             burn_target_actor=True,
         )
-        state, value_aux, value_metrics = self.critic_update(state, batch, carries, ctx)
+        state, value_aux, value_metrics = self.critic_update(
+            state, batch, carries, context
+        )
         # sfujim/TD3 counts the update first (total_it += 1), then steps the
         # actor when the count is a multiple of the delay: its first actor
         # step is the policy_delay-th update, not the first. Skipped, its
         # metrics are zeros.
         do_policy = ((state.n_updates + 1) % self.policy_delay) == 0
-        actor_update = partial(self.actor_update, batch=batch, carries=carries, ctx=ctx)
+        actor_update = partial(
+            self.actor_update, batch=batch, carries=carries, context=context
+        )
         state, (policy_aux, policy_metrics) = steps.when(
             do_policy, actor_update, state, fill=0.0
         )
@@ -169,7 +173,7 @@ class TD3(
         )
 
     def critic_update(
-        self, state: TD3State, batch: Transition, carries: Any, ctx: TrainContext
+        self, state: TD3State, batch: Transition, carries: Any, context: TrainContext
     ) -> tuple[TD3State, ValueAuxiliaries, dict]:
         """The critics' step on the smoothed, clipped double-Q target."""
         state, key = state.draw_keys()
@@ -186,7 +190,7 @@ class TD3(
             self.target_noise_clip,
             self.reward_scale,
             carries,
-            ctx.executed,
+            context.executed,
             batch.next_a_expert,
         )
         loss = partial(
@@ -197,9 +201,9 @@ class TD3(
             batch,
             target_q,
             loss,
-            ctx.extensions,
+            context.extensions,
             key,
-            ctx.total_timesteps,
+            context.total_timesteps,
             rewards=batch.reward,
             dones=batch.terminated,
             gamma=self.gamma,
@@ -212,7 +216,7 @@ class TD3(
         return state.replace(critic_state=critic_state), aux, metrics
 
     def actor_update(
-        self, state: TD3State, batch: Transition, carries: Any, ctx: TrainContext
+        self, state: TD3State, batch: Transition, carries: Any, context: TrainContext
     ) -> tuple[TD3State, tuple[PolicyAuxiliaries, dict]]:
         """The deterministic policy-gradient step on ``-Q1(s, mu(s))``, then
         both targets' Polyak update."""
@@ -225,7 +229,7 @@ class TD3(
                 state.critic_state,
                 batch.obs,
                 carries,
-                ctx.executed,
+                context.executed,
                 batch.a_expert,
             )
             return loss, aux, pi_mean
@@ -233,9 +237,9 @@ class TD3(
         actor_state, aux, grad_norm, metrics = steps.actor_step(
             state,
             policy_loss,
-            ctx.extensions,
+            context.extensions,
             key,
-            ctx.total_timesteps,
+            context.total_timesteps,
             observations=batch.obs,
             raw_observations=batch.raw_obs,
             a_expert=batch.a_expert,

@@ -76,17 +76,17 @@ class CounterExt(Extension):
             "carry_at_first": jnp.asarray(-1.0, jnp.float32),
         }
 
-    def pretrain(self, agent_state, ext_state, ctx: ExtensionContext):
+    def pretrain(self, agent_state, ext_state, context: ExtensionContext):
         return agent_state, {**ext_state, "pretrain": ext_state["pretrain"] + 1}
 
-    def post_update(self, agent_state, ext_state, ctx: ExtensionContext):
+    def post_update(self, agent_state, ext_state, context: ExtensionContext):
         first = ext_state["updates"] == 0
         carry = jnp.abs(agent_state.collector_state.policy_carry).sum()
         return agent_state, {
             **ext_state,
             "updates": ext_state["updates"] + 1,
-            "first_step": jnp.where(first, ctx.step, ext_state["first_step"]),
-            "last_step": jnp.asarray(ctx.step, jnp.int32),
+            "first_step": jnp.where(first, context.step, ext_state["first_step"]),
+            "last_step": jnp.asarray(context.step, jnp.int32),
             "carry_at_first": jnp.where(first, carry, ext_state["carry_at_first"]),
         }
 
@@ -95,7 +95,7 @@ class CounterExt(Extension):
 class MetricExt(Extension):
     name: str = "metric"
 
-    def eval_metrics(self, agent_state, ext_state, rng, ctx: ExtensionContext):
+    def eval_metrics(self, agent_state, ext_state, rng, context: ExtensionContext):
         return {"ext_smoke/x": jnp.asarray(1.0)}
 
 

@@ -305,13 +305,13 @@ class Extension:
         return ()
 
     def pretrain(
-        self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
+        self, agent_state: Any, ext_state: Any, context: ExtensionContext
     ) -> tuple[Any, Any]:
         """One-shot step before the training loop (e.g. MC/BC pre-train).
 
         Returns the (possibly updated) ``(agent_state, ext_state)``.
         """
-        del ctx
+        del context
         return agent_state, ext_state
 
     # -- per-iteration transforms (state-read-only) ----------------------
@@ -321,27 +321,27 @@ class Extension:
         ext_state: Any,
         batch: Any,
         target: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> Any:
         """Transform the TD / value target; or return ``(target, metrics)``
         (the module docstring)."""
-        del agent_state, ext_state, batch, ctx
+        del agent_state, ext_state, batch, context
         return target
 
     def critic_loss(
-        self, agent_state: Any, ext_state: Any, batch: Any, ctx: ExtensionContext
+        self, agent_state: Any, ext_state: Any, batch: Any, context: ExtensionContext
     ) -> Any:
         """Extra additive critic-loss term (summed across extensions); or
         ``(term, metrics)``."""
-        del agent_state, ext_state, batch, ctx
+        del agent_state, ext_state, batch, context
         return 0.0
 
     def actor_loss(
-        self, agent_state: Any, ext_state: Any, batch: Any, ctx: ExtensionContext
+        self, agent_state: Any, ext_state: Any, batch: Any, context: ExtensionContext
     ) -> Any:
         """Extra additive actor-loss term (summed across extensions); or
         ``(term, metrics)``."""
-        del agent_state, ext_state, batch, ctx
+        del agent_state, ext_state, batch, context
         return 0.0
 
     # -- action overrides (across a stack, the last non-None wins) -------
@@ -351,10 +351,10 @@ class Extension:
         ext_state: Any,
         obs: jax.Array,
         rng: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> jax.Array | None:
         """Override the collection-time action; ``None`` defers."""
-        del agent_state, ext_state, obs, rng, ctx
+        del agent_state, ext_state, obs, rng, context
         return None
 
     def eval_action(
@@ -363,10 +363,10 @@ class Extension:
         ext_state: Any,
         obs: jax.Array,
         rng: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> jax.Array | None:
         """Override the evaluation-time action; ``None`` defers."""
-        del agent_state, ext_state, obs, rng, ctx
+        del agent_state, ext_state, obs, rng, context
         return None
 
     def transform_action(self, actions: jax.Array, inputs: Any) -> jax.Array:
@@ -397,26 +397,30 @@ class Extension:
         ext_state: Any,
         batch: Any,
         rewards: jax.Array,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> tuple[jax.Array, Any, dict]:
         """Replace a rollout's ``rewards`` before the agent's targets read
         them. Returns ``(rewards, ext_state, metrics)``."""
-        del agent_state, batch, ctx
+        del agent_state, batch, context
         return rewards, ext_state, {}
 
     # -- state-threading + logging --------------------------------------
     def post_update(
-        self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
+        self, agent_state: Any, ext_state: Any, context: ExtensionContext
     ) -> tuple[Any, Any]:
         """Hook after the update step. Returns ``(agent_state, ext_state)``."""
-        del ctx
+        del context
         return agent_state, ext_state
 
     def eval_metrics(
-        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
     ) -> dict:
         """Extra metrics, merged into the eval log."""
-        del agent_state, ext_state, rng, ctx
+        del agent_state, ext_state, rng, context
         return {}
 
     # -- introspection ---------------------------------------------------
@@ -535,18 +539,18 @@ class ExtensionStack:
     # extensions traces nothing extra and never needs to guard a call.
 
     def fold_init(
-        self, agent_state: Any, rng: jax.Array, total_steps: int, **context: Any
+        self, agent_state: Any, rng: jax.Array, total_steps: int, **run_fields: Any
     ) -> Any:
         """A fresh run's extension setup: every extension's initial state,
         then its one-shot ``pretrain`` at step 0 (``rng`` split between the
-        two; ``context``: :meth:`fold_pretrain`'s). Skipped on resume, where
+        two; ``run_fields``: :meth:`fold_pretrain`'s). Skipped on resume, where
         the state already carries both."""
         if not self.extensions:
             return agent_state
         init_key, pretrain_key = jax.random.split(rng)
         agent_state = self.fold_init_states(agent_state, init_key)
         return self.fold_pretrain(
-            agent_state, jnp.asarray(0), pretrain_key, total_steps, **context
+            agent_state, jnp.asarray(0), pretrain_key, total_steps, **run_fields
         )
 
     def fold_init_states(self, agent_state: Any, rng: jax.Array) -> Any:
@@ -568,17 +572,21 @@ class ExtensionStack:
         step: Any,
         rng: jax.Array,
         total_steps: int,
-        **context: Any,
+        **run_fields: Any,
     ) -> Any:
         """One-shot pretrain fold; returns the updated ``agent_state``.
-        ``context``: the run's static :class:`ExtensionContext` fields
+        ``run_fields``: the run's static :class:`ExtensionContext` fields
         (``env_args``, ``update``, ``buffer``)."""
         if not self.extensions:
             return agent_state
-        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps, **context)
+        context = ExtensionContext(
+            step=step, rng=rng, total_steps=total_steps, **run_fields
+        )
         ext_states = list(agent_state.ext_state)
         for i, ext in enumerate(self.extensions):
-            agent_state, ext_states[i] = ext.pretrain(agent_state, ext_states[i], ctx)
+            agent_state, ext_states[i] = ext.pretrain(
+                agent_state, ext_states[i], context
+            )
         return agent_state.replace(ext_state=tuple(ext_states))
 
     def apply_post_update(
@@ -592,11 +600,11 @@ class ExtensionStack:
         ``agent_state``."""
         if not self.extensions:
             return agent_state
-        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
+        context = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         ext_states = list(agent_state.ext_state)
         for i, ext in enumerate(self.extensions):
             agent_state, ext_states[i] = ext.post_update(
-                agent_state, ext_states[i], ctx
+                agent_state, ext_states[i], context
             )
         return agent_state.replace(ext_state=tuple(ext_states))
 
@@ -618,9 +626,9 @@ class ExtensionStack:
         for i, (ext, key) in enumerate(
             zip(self.extensions, self._keys(rng), strict=True)
         ):
-            ctx = ExtensionContext(step=step, rng=key, total_steps=total_steps)
+            context = ExtensionContext(step=step, rng=key, total_steps=total_steps)
             rewards, ext_states[i], ext_metrics = ext.reward(
-                agent_state, ext_states[i], batch, rewards, ctx
+                agent_state, ext_states[i], batch, rewards, context
             )
             metrics = merge_metrics(metrics, ext_metrics)
         return agent_state.replace(ext_state=tuple(ext_states)), rewards, metrics
@@ -638,11 +646,11 @@ class ExtensionStack:
         target and the extensions' metrics."""
         if not self.extensions:
             return target, {}
-        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
+        context = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         metrics: dict = {}
         ext_states = agent_state.ext_state
         for i, ext in enumerate(self.extensions):
-            out = ext.on_target(agent_state, ext_states[i], batch, target, ctx)
+            out = ext.on_target(agent_state, ext_states[i], batch, target, context)
             target, ext_metrics = phase_output(out)
             metrics = merge_metrics(metrics, ext_metrics)
         return target, metrics
@@ -686,12 +694,12 @@ class ExtensionStack:
     ) -> tuple[jax.Array | float, dict]:
         if not self.extensions:
             return 0.0, {}
-        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
+        context = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         total: jax.Array | float = 0.0
         metrics: dict = {}
         ext_states = agent_state.ext_state
         for i, ext in enumerate(self.extensions):
-            out = getattr(ext, phase)(agent_state, ext_states[i], batch, ctx)
+            out = getattr(ext, phase)(agent_state, ext_states[i], batch, context)
             term, ext_metrics = phase_output(out)
             total = total + term
             metrics = merge_metrics(metrics, ext_metrics)
@@ -716,11 +724,11 @@ class ExtensionStack:
         extension gets its own key; the context carries ``rng``)."""
         if not self.extensions:
             return {}
-        ctx = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
+        context = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         out: dict = {}
         ext_states, keys = agent_state.ext_state, self._keys(rng)
         for i, ext in enumerate(self.extensions):
-            out.update(ext.eval_metrics(agent_state, ext_states[i], keys[i], ctx))
+            out.update(ext.eval_metrics(agent_state, ext_states[i], keys[i], context))
         return out
 
     def bind_to_agent(self, **agent_context: Any) -> "ExtensionStack":

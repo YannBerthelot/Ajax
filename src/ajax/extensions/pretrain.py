@@ -446,11 +446,11 @@ class CloningPretrain(Extension):
         return PretrainLosses.unknown()
 
     def pretrain(
-        self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
+        self, agent_state: Any, ext_state: Any, context: ExtensionContext
     ) -> tuple[Any, PretrainLosses]:
-        """Clone the actor on ``ctx.rng`` (:meth:`clone`) and keep its losses."""
+        """Clone the actor on ``context.rng`` (:meth:`clone`) and keep its losses."""
         del ext_state
-        return self.clone(agent_state, ctx.rng)
+        return self.clone(agent_state, context.rng)
 
     def clone(self, agent_state: Any, key: jax.Array) -> tuple[Any, PretrainLosses]:
         """``agent_state`` with its actor cloned on rollouts drawn with
@@ -517,9 +517,13 @@ class CloningPretrain(Extension):
         return seeded_state, losses
 
     def eval_metrics(
-        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
     ) -> dict:
-        del agent_state, rng, ctx
+        del agent_state, rng, context
         return {
             "cloning/first_loss": ext_state.first_loss,
             "cloning/last_loss": ext_state.last_loss,
@@ -610,7 +614,7 @@ class MCPretrain(Extension):
         self,
         agent_state: Any,
         ext_state: Any,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> tuple[Any, MCPretrainResults]:
         """Build the frozen expert critic ``φ*`` and persist it on ``agent_state``:
         a fresh critic regressed on unbiased MC returns sets
@@ -621,8 +625,8 @@ class MCPretrain(Extension):
         Raises ``ValueError`` when the agent did not bind its context.
         """
         del ext_state
-        context = ("env_args", "network_args", "critic_optimizer_args", "gamma")
-        unbound = [f for f in (*context, "reward_scale") if getattr(self, f) is None]
+        needed = ("env_args", "network_args", "critic_optimizer_args", "gamma")
+        unbound = [f for f in (*needed, "reward_scale") if getattr(self, f) is None]
         if unbound:
             raise ValueError(
                 f"MCPretrain needs the agent context {unbound} to build phi*;"
@@ -631,7 +635,7 @@ class MCPretrain(Extension):
 
         from ajax.networks.networks import get_initialized_critic
 
-        rng = ctx.rng
+        rng = context.rng
         # The online critic's input: the observation and its features.
         expert_critic_state = get_initialized_critic(
             key=rng,
@@ -697,9 +701,13 @@ class MCPretrain(Extension):
         )
 
     def eval_metrics(
-        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
     ) -> dict:
-        del rng, ctx
+        del rng, context
         return {
             "mc_pretrain/v_min": agent_state.expert_v_min,
             "mc_pretrain/v_max": agent_state.expert_v_max,
@@ -819,11 +827,11 @@ class BellmanPretrain(Extension):
         return PretrainLosses.unknown()
 
     def pretrain(
-        self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
+        self, agent_state: Any, ext_state: Any, context: ExtensionContext
     ) -> tuple[Any, PretrainLosses]:
         """Pre-train the critic and keep its losses; raises ``ValueError``
         when unbound."""
-        del ext_state, ctx
+        del ext_state, context
         if self.update_value_fn is None:
             raise ValueError(
                 "BellmanPretrain needs the agent's buffer and critic updates;"
@@ -843,9 +851,13 @@ class BellmanPretrain(Extension):
         return agent_state, _first_and_last(losses)
 
     def eval_metrics(
-        self, agent_state: Any, ext_state: Any, rng: jax.Array, ctx: ExtensionContext
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
     ) -> dict:
-        del agent_state, rng, ctx
+        del agent_state, rng, context
         return {
             "bellman_pretrain/first_loss": ext_state.first_loss,
             "bellman_pretrain/last_loss": ext_state.last_loss,
@@ -906,9 +918,9 @@ class PhiRefresh(Extension):
         self,
         agent_state: Any,
         ext_state: Any,
-        ctx: ExtensionContext,
+        context: ExtensionContext,
     ) -> tuple[Any, Any]:
-        del ctx
+        del context
         if self.buffer is None or self.gamma is None or self.reward_scale is None:
             raise ValueError(
                 "PhiRefresh needs the agent's buffer, gamma and reward_scale to"
@@ -966,15 +978,17 @@ class PriorData(Extension):
     pretrain_context: ClassVar[frozenset[str]] = frozenset({"buffer", "update"})
 
     def pretrain(
-        self, agent_state: Any, ext_state: Any, ctx: ExtensionContext
+        self, agent_state: Any, ext_state: Any, context: ExtensionContext
     ) -> tuple[Any, Any]:
-        agent_update = ctx.update
-        if ctx.buffer is None or agent_update is None:
+        agent_update = context.update
+        if context.buffer is None or agent_update is None:
             raise ValueError(
                 "PriorData adds its rows to the agent's replay: give it to an"
                 " agent replaying transitions (SAC, TD3, REDQ, ASAC, DQN)."
             )
-        agent_state = seed_replay(agent_state, ctx.buffer, self.dataset, ctx.env_args)
+        agent_state = seed_replay(
+            agent_state, context.buffer, self.dataset, context.env_args
+        )
 
         def update(agent_state: Any, _: None) -> tuple[Any, None]:
             return agent_update(agent_state, None)[0], None

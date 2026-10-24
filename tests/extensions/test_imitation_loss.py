@@ -39,7 +39,7 @@ from ajax.extensions.expert import ImitationLoss, ResidualPolicy, q_filter_weigh
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import Transition
 from ajax.types import NormalizationInfo
-from tests.agents.TD3.test_td3_metrics import context
+from tests.agents.TD3.test_td3_metrics import make_context
 
 NET = ("8", "relu")
 BATCH = 4
@@ -96,8 +96,8 @@ def test_the_annealed_term_reaches_zero_at_its_fraction_of_training() -> None:
     term = ImitationLoss(expert_policy=EXPERT, anneal_frac=0.5)
 
     def at(step: int) -> float:
-        ctx = ExtensionContext(step=jnp.asarray(step), rng=KEY, total_steps=1_000)
-        return float(term.actor_loss(None, (), batch, ctx)[0])
+        context = ExtensionContext(step=jnp.asarray(step), rng=KEY, total_steps=1_000)
+        return float(term.actor_loss(None, (), batch, context)[0])
 
     np.testing.assert_allclose(at(0), full, rtol=1e-6)
     np.testing.assert_allclose(at(250), full / 2, rtol=1e-6)
@@ -332,8 +332,8 @@ def _obs(agent: Any) -> jax.Array:
 
 def _td3_update(stack: ExtensionStack) -> Any:
     agent = TD3("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    ctx = context(agent, stack)
-    state = _ext_state(agent.init(KEY, ctx), stack)
+    context = make_context(agent, stack)
+    state = _ext_state(agent.init(KEY, context), stack)
     obs, zeros = _obs(agent), jnp.zeros((BATCH, 1))
     # The actor step reads the rows' observations, raw too (the expert's input).
     batch = Transition(
@@ -345,7 +345,7 @@ def _td3_update(stack: ExtensionStack) -> Any:
         next_obs=obs,
         raw_obs=obs,
     )
-    state, _ = agent.actor_update(state, batch, None, ctx)
+    state, _ = agent.actor_update(state, batch, None, context)
     return state.actor_state.params
 
 
@@ -411,8 +411,8 @@ def _apo_update(stack: ExtensionStack) -> Any:
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
     # The stack as given, unbound, as each test builds it.
-    ctx = dataclasses.replace(agent.context(1)[1], extensions=stack)
-    state = _ext_state(agent.init(KEY, ctx), stack)
+    context = dataclasses.replace(agent.context(1)[1], extensions=stack)
+    state = _ext_state(agent.init(KEY, context), stack)
     obs = _obs(agent)
     minibatch = {
         "obs": obs,
@@ -425,7 +425,7 @@ def _apo_update(stack: ExtensionStack) -> Any:
         "entropy_key": KEY,
         "a_expert": None,  # no expert: the update's minibatch without one
     }
-    state, _ = agent.minibatch_step(state, minibatch, jnp.float32(0.0), ctx)
+    state, _ = agent.minibatch_step(state, minibatch, jnp.float32(0.0), context)
     return state.actor_state.params
 
 

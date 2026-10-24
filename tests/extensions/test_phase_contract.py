@@ -46,18 +46,20 @@ PHASES = ("on_target", "critic_loss", "actor_loss", "post_update")
 SHIFT = 10.0  # what on_target adds to the target
 SLOPE = 1e6  # a loss term's gradient on each parameter of its network
 BATCH_KEYS: dict[str, set] = defaultdict(set)  # phase -> key sets, at trace time
-ROWS: list[tuple] = []  # (phase, step, ctx.rng, agent's rng, *values) per fold
+ROWS: list[tuple] = []  # (phase, step, context.rng, agent's rng, *values) per fold
 DRAWN: list[np.ndarray] = []  # every key the run hands jax.random's functions
 #: jax.random's functions the agents (and distrax, flax) draw or derive keys with.
 DRAWS = "split fold_in normal uniform randint permutation choice bernoulli"
 DRAWS += " categorical gumbel bits truncated_normal exponential"
 
 
-def _record(phase: str, agent_state: Any, batch: Any, ctx: Any, *values: Any) -> None:
+def _record(
+    phase: str, agent_state: Any, batch: Any, context: Any, *values: Any
+) -> None:
     if batch is not None:
         BATCH_KEYS[phase].add(frozenset(batch))
     row = lambda *a: ROWS.append((phase, *map(np.asarray, a)))  # noqa: E731
-    jax.debug.callback(row, ctx.step, ctx.rng, agent_state.rng, *values)
+    jax.debug.callback(row, context.step, context.rng, agent_state.rng, *values)
 
 
 def _spy(draw: Any) -> Any:
@@ -72,27 +74,27 @@ def _total(params: Any) -> Any:
     return sum(leaf.sum() for leaf in jax.tree.leaves(params))
 
 
-def on_target(self, agent_state, ext_state, batch, target, ctx):
+def on_target(self, agent_state, ext_state, batch, target, context):
     target = target + SHIFT
-    _record("on_target", agent_state, batch, ctx, target)
+    _record("on_target", agent_state, batch, context, target)
     return target
 
 
-def critic_loss(self, agent_state, ext_state, batch, ctx):
+def critic_loss(self, agent_state, ext_state, batch, context):
     targets = [batch["targets"]] if "targets" in batch else []
-    _record("critic_loss", agent_state, batch, ctx, *targets)
+    _record("critic_loss", agent_state, batch, context, *targets)
     q_state = batch.get("q_state")
     params = batch.get("critic_params") if q_state is None else q_state.params
     return SLOPE * _total(params)
 
 
-def actor_loss(self, agent_state, ext_state, batch, ctx):
-    _record("actor_loss", agent_state, batch, ctx)
+def actor_loss(self, agent_state, ext_state, batch, context):
+    _record("actor_loss", agent_state, batch, context)
     return -SLOPE * _total(batch.get("actor_params"))
 
 
-def post_update(self, agent_state, ext_state, ctx):
-    _record("post_update", agent_state, None, ctx)
+def post_update(self, agent_state, ext_state, context):
+    _record("post_update", agent_state, None, context)
     return agent_state, ext_state
 
 
@@ -233,7 +235,7 @@ ROLLOUT_IN_THE_ACTOR_LOSS = {"APG"}
 
 @pytest.mark.parametrize("name", [n for n in AGENTS if "post_update" in _phases(n)])
 def test_every_loss_term_sees_the_collectors_step(name: str) -> None:
-    """``ctx.step`` is the collector's env-step count at the update: the steps
+    """``context.step`` is the collector's env-step count at the update: the steps
     the loss terms see are among those ``post_update`` sees (one rollout
     earlier for an actor loss that runs the rollout)."""
     steps: dict[str, set] = defaultdict(set)
@@ -276,7 +278,7 @@ def _logging(phase: str) -> Any:
     """``phase`` leaving its value as it is and logging its constant."""
 
     def logged(self: Any, agent_state: Any, ext_state: Any, *args: Any) -> Any:
-        value = args[1] if phase == "on_target" else 0.0  # (batch, target, ctx)
+        value = args[1] if phase == "on_target" else 0.0  # (batch, target, context)
         return value, {f"logger/{phase}": jnp.asarray(LOGGED[phase])}
 
     return logged

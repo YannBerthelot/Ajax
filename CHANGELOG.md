@@ -80,6 +80,9 @@ PyPI as `ajax-rl`.
 - `ajax.agents.minibatch.rollout_actions` (`ajax.agents.PPO.core`'s
   before) is `get_actions_and_log_probs`; the old names import with a
   FutureWarning until 0.5.0.
+- The extension phases' `ExtensionContext` parameter is named `context`
+  (was `ctx`). The stack passes it positionally, so an extension that
+  still names it `ctx` keeps working.
 - Writing a name on a module it moved out of (`monkeypatch.setattr` on an
   old path) raises AttributeError naming its new home, where it is read:
   the write would have changed nothing.

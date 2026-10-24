@@ -133,20 +133,20 @@ class PQN(
         # action (the family's choice for a q_critic).
         return ValueEstimate(q_network_value, self.gamma, self.reward_scale)
 
-    def epsilon_schedule(self, ctx: TrainContext) -> Callable[[Any], jax.Array]:
+    def epsilon_schedule(self, context: TrainContext) -> Callable[[Any], jax.Array]:
         """The exploration rate at a timestep: linear over the first
         epsilon_decay_frac of the horizon, then flat."""
         return linear(
             self.epsilon_start,
             self.epsilon_end,
-            self.epsilon_decay_frac * ctx.total_timesteps,
+            self.epsilon_decay_frac * context.total_timesteps,
         )
 
-    def behaviour(self, ctx: TrainContext) -> Callable:
+    def behaviour(self, context: TrainContext) -> Callable:
         """Epsilon-greedy collection on the greedy Q-network."""
-        env_args = ctx.env_args
+        env_args = context.env_args
         n_actions = get_action_dim(env_args.env, env_args.env_params)
-        epsilon_schedule = self.epsilon_schedule(ctx)
+        epsilon_schedule = self.epsilon_schedule(context)
         # purejaxql reads epsilon once per update, at its update count
         # (pqn_gymnax.py:189): here at the first step of the rollout, update
         # count x rollout size.
@@ -159,15 +159,15 @@ class PQN(
             epsilon_greedy(rollout_epsilon, n_actions), False, n_actions, warmup=False
         )
 
-    def init(self, key: jax.Array, ctx: TrainContext) -> PQNState:
+    def init(self, key: jax.Array, context: TrainContext) -> PQNState:
         """The Q-network and the collector."""
         rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
-        env_args = ctx.env_args
+        env_args = context.env_args
         q_state = get_initialized_q_network(
             key=init_key,
             env_config=env_args,
-            optimizer_config=ctx.critic_optimizer_args,
-            network_config=ctx.network_args,
+            optimizer_config=context.critic_optimizer_args,
+            network_config=context.network_args,
             n_actions=get_action_dim(env_args.env, env_args.env_params),
             q_network_cls=PQNNetwork,
         )
@@ -178,11 +178,15 @@ class PQN(
             eval_rng=eval_rng,
             actor_state=q_state,
             critic_state=q_state,
-            collector_state=ctx.collector(collector_key),
+            collector_state=context.collector(collector_key),
         )
 
     def update(
-        self, state: PQNState, rollout: Transition, start: PQNState, ctx: TrainContext
+        self,
+        state: PQNState,
+        rollout: Transition,
+        start: PQNState,
+        context: TrainContext,
     ) -> Tuple[PQNState, AuxiliaryLogs]:
         """One PQN update on an ``(n_steps, n_envs)`` rollout: Q(lambda)
         targets bootstrapped on the current network (no target network), then
@@ -190,7 +194,7 @@ class PQN(
         also logs the epsilon its rollout read (``epsilon_schedule`` once per
         update, as purejaxql reads it)."""
         del start  # a feedforward network replays nothing
-        extensions, total_timesteps = ctx.extensions, ctx.total_timesteps
+        extensions, total_timesteps = context.extensions, context.total_timesteps
         next_q = predict_q(
             state.actor_state,
             state.actor_state.params,
@@ -268,7 +272,7 @@ class PQN(
             lambda x: x.mean().reshape((1,)), (value_aux, loss_metrics)
         )
         rollout_size = rollout.reward.shape[0] * rollout.reward.shape[1]
-        epsilon_schedule = self.epsilon_schedule(ctx)
+        epsilon_schedule = self.epsilon_schedule(context)
         epsilon = epsilon_schedule(state.n_updates * rollout_size).reshape((1,))
         state = state.replace(n_updates=state.n_updates + 1)
         return state, AuxiliaryLogs(

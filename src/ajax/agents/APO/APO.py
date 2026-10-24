@@ -178,19 +178,19 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
     def evaluation_options(self) -> dict[str, Any]:
         return {"avg_reward_mode": True}  # each evaluation measures rho too
 
-    def init(self, key: jax.Array, ctx: TrainContext) -> APOState:
+    def init(self, key: jax.Array, context: TrainContext) -> APOState:
         """PPO's initial actor, critic and collector, on PPO's key layout,
         and the reward rate and the value bias at 0."""
         rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
-        env_args = ctx.env_args
+        env_args = context.env_args
         continuous = check_if_environment_has_continuous_actions(
             env_args.env, env_params=env_args.env_params
         )
-        actor_state, critic_state = ctx.actor_critic(
+        actor_state, critic_state = context.actor_critic(
             init_key,
             continuous=continuous,
             action_value=False,
-            squash=ctx.network_args.squash,
+            squash=context.network_args.squash,
             num_critics=1,
         )
         return APOState(
@@ -198,14 +198,18 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             eval_rng=eval_rng,
             actor_state=actor_state,
             critic_state=critic_state,
-            collector_state=ctx.collector(collector_key),
+            collector_state=context.collector(collector_key),
             n_updates=0,
             average_reward=0.0,
             b=0.0,
         )
 
     def update(
-        self, state: APOState, rollout: Transition, start: APOState, ctx: TrainContext
+        self,
+        state: APOState,
+        rollout: Transition,
+        start: APOState,
+        context: TrainContext,
     ) -> tuple[APOState, AuxiliaryLogs]:
         """One APO update (the module docstring); with an expert, the
         rollout's ``a_expert`` reaches the actor-loss extensions.
@@ -220,7 +224,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         ``base.py:73-77``).
         """
         del start  # a feedforward policy: nothing to replay from it
-        extensions, total_timesteps = ctx.extensions, ctx.total_timesteps
+        extensions, total_timesteps = context.extensions, context.total_timesteps
         critic = state.critic_state
         values = predict_value(critic, critic.params, rollout.obs).squeeze(0)
         next_values = predict_value(critic, critic.params, rollout.next_obs).squeeze(0)
@@ -308,13 +312,13 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             keys = jax.random.split(jax.random.fold_in(key, 1), num_minibatches)
             return parts | {"entropy_key": keys}
 
-        step = partial(self.minibatch_step, b=b, ctx=ctx)
+        step = partial(self.minibatch_step, b=b, context=context)
         state, aux = run_epochs(state, shuffle_key, minibatches, step, self.n_epochs)
         aux = aux.replace(extensions=merge_metrics(target_metrics, aux.extensions))
         return state.replace(n_updates=state.n_updates + 1), aux
 
     def minibatch_step(
-        self, state: APOState, minibatch: dict, b: jax.Array, ctx: TrainContext
+        self, state: APOState, minibatch: dict, b: jax.Array, context: TrainContext
     ) -> tuple[APOState, AuxiliaryLogs]:
         """One step of both networks on the minibatch ``minibatch``, as APO's
         official code takes it (``xtma/apo``, ``apo/algos/apg/``): one Adam
@@ -334,7 +338,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             extension_key(minibatch["entropy_key"])
         )
         timestep = state.collector_state.timestep
-        extensions, total_timesteps = ctx.extensions, ctx.total_timesteps
+        extensions, total_timesteps = context.extensions, context.total_timesteps
 
         def loss_fn(params: tuple) -> Tuple[jax.Array, AuxiliaryLogs]:
             actor_params, critic_params = params

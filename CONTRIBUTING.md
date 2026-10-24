@@ -150,9 +150,16 @@ other.
 
 **Boilerplate goes in the shared code; the algorithm goes in one file**, so a
 reader can follow `train_<AGENT>.py` like the paper's pseudocode. **Lineage
-rule:** an agent descending from another (REDQ from SAC) imports the parent's
-maths from its `core.py`. Use `critic_step` (a replay critic step), `actor_step` (an actor step) and `gradient_step` (an
-optimiser step) from `agents/loop.py` rather than writing your own.
+rule:** an agent imports from another agent only when it is a variant of that
+agent's algorithm (REDQ of SAC, APO of PPO), and then only the parent's
+equations. Anything else two agents share (an init, a network, a loss
+helper, an exploration schedule) goes to a shared module: `agents/steps.py`,
+`agents/minibatch.py`, `agents/critics.py`, `agents/diagnostics.py`,
+`networks/`. A shared module imports no agent.
+`tests/agents/test_agent_imports.py` holds the lineages and each parent's
+equations, and fails on any other cross-agent import. Use `critic_step` (a
+replay critic step), `actor_step` (an actor step) and `gradient_step` (an
+optimiser step) from `agents/steps.py` rather than writing your own.
 
 These templates for an agent `FOO` follow the replay agents TD3 and REDQ; an
 on-policy agent follows APO instead (no buffer, `loop.on_policy`).

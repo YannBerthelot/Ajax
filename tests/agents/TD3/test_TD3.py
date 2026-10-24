@@ -2,11 +2,11 @@ import jax
 import numpy as np
 import pytest
 
-from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.TD3.train_TD3 import make_default_action_pipeline
 from ajax.controller import acting_state
 from ajax.environments.interaction import get_pi
+from ajax.networks.deterministic import get_initialized_td3_actor_critic
 
 
 def test_td3_networks_are_plain_mlps():

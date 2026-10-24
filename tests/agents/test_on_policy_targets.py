@@ -16,11 +16,11 @@ import numpy as np
 import pytest
 
 from ajax import PPO, PQN
-from ajax.agents.DQN.networks import predict_q
 from ajax.agents.PPO.utils import _compute_gae
 from ajax.agents.PQN.utils import compute_q_lambda_targets
 from ajax.extensions.base import Extension
 from ajax.networks.networks import predict_value
+from ajax.networks.q_networks import predict_q
 from tests.environments.identity_env import IdentityEnv, ends
 
 SEEN: list[dict] = []

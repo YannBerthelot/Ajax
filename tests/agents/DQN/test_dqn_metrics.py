@@ -10,7 +10,6 @@ import optax
 import pytest
 
 from ajax.agents.DQN.DQN import DQN
-from ajax.agents.DQN.networks import predict_q
 from ajax.agents.DQN.train_DQN import (
     init_DQN,
     mse_td_loss,
@@ -21,6 +20,7 @@ from ajax.agents.PQN.PQN import PQN
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.q_networks import predict_q
 from ajax.schedule import linear
 
 NET = ("16", "relu")

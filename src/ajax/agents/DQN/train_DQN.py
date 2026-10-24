@@ -29,11 +29,6 @@ import optax
 from flax import struct
 from jax.tree_util import Partial as partial
 
-from ajax.agents.DQN.networks import (
-    get_initialized_q_network,
-    predict_q,
-    q_network_value,
-)
 from ajax.agents.DQN.state import DQNConfig, DQNState
 from ajax.agents.loop import TrainLoop, extension_key, gradient_step, when
 from ajax.buffers.dataset import TransitionDataset
@@ -48,6 +43,11 @@ from ajax.environments.utils import get_action_dim
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.q_networks import (
+    get_initialized_q_network,
+    predict_q,
+    q_network_value,
+)
 from ajax.perf_utils import final_aux_scan
 from ajax.schedule import Schedule, at, linear
 from ajax.state import (

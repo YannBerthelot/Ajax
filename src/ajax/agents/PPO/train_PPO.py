@@ -3,21 +3,10 @@
 Each iteration collects an ``(n_steps, n_envs)`` rollout, then runs
 ``n_epochs`` passes of a critic and an actor step on every minibatch of it
 (the clipped surrogate: :mod:`ajax.agents.PPO.core`). The rollout's
-:class:`Geometry` decides how it is minibatched and where GAE is computed:
-
-* ``flat`` (feedforward default): GAE once on the whole rollout, then a flat
-  shuffle of its ``n_steps * n_envs`` samples (the paper's Algorithm 1,
-  OpenAI Baselines' ppo2);
-* ``time`` (with ``unroll_length``): fragments of ``unroll_length`` steps
-  shuffled into minibatches, GAE recomputed in every minibatch with the
-  current critic (brax's ``compute_ppo_loss``);
-* ``recurrent``: GAE once on the whole rollout, then a shuffle of whole
-  sequences of ``length`` steps, each replayed from the carry it started
-  from.
+geometry (:class:`ajax.agents.minibatch.Geometry`) decides how it is
+minibatched and where GAE is computed.
 """
 
-import dataclasses
-import math
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple
 
@@ -28,6 +17,14 @@ import optax
 from flax.core import FrozenDict
 
 from ajax.agents.loop import TrainLoop, extension_key
+from ajax.agents.minibatch import (
+    get_minibatches_from_batch,
+    get_minibatches_preserving_time,
+    minibatch_geometry,
+    rollout_actions,
+    run_epochs,
+    sequence_minibatches,
+)
 from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
@@ -39,17 +36,10 @@ from ajax.agents.PPO.core import (
     policy_entropy,
     recompute_log_prob,
     resolve_clip_coef,
-    resolve_num_minibatches,
-    rollout_actions,
-    run_epochs,
 )
 from ajax.agents.PPO.state import PPOConfig, PPOState
-from ajax.agents.PPO.utils import (
-    _compute_gae,
-    get_minibatches_from_batch,
-    get_minibatches_preserving_time,
-    split_fragments,
-)
+from ajax.agents.PPO.utils import _compute_gae
+from ajax.deprecation import moved_names
 from ajax.environments.interaction import (
     get_pi,
     get_pi_sequence,
@@ -300,85 +290,6 @@ def _stack_actor_loss(
     return actor_loss
 
 
-@dataclasses.dataclass(frozen=True)
-class Geometry:
-    """How an update minibatches its rollout (the module docstring)."""
-
-    kind: str  # "time", "flat" or "recurrent"
-    num_minibatches: int
-    length: int  # steps per fragment ("time") or sequence ("recurrent")
-
-
-def default_bptt_length(n_steps: int, n_envs: int, num_minibatches: int) -> int:
-    """The longest sequences that cut every env's rollout evenly and split
-    exactly into ``num_minibatches``; an explicit ``bptt_length`` splits
-    only if it divides this one.
-
-    Libraries disagree on a recurrent PPO's BPTT length (RLlib 20 steps,
-    Sample Factory the rollout, Pleines et al., 2022, tuned per task), so the
-    minibatches set it. When ``n_envs`` is a multiple of ``num_minibatches``
-    it is the whole rollout, each minibatch a subset of the envs, as in
-    Baselines' ppo2 (ea25b9e, ppo2.py:167-180), CleanRL's ppo_atari_lstm
-    (fe8d8a0, :296-313) and PureJaxRL's ppo_rnn (31756b1, :258-291).
-    Otherwise each rollout is cut into the fewest equal pieces that split:
-    ``num_minibatches // gcd(n_envs, num_minibatches)`` of them, which must
-    divide ``n_steps`` (ValueError if not; no length would split then).
-    docs/guide/memory.md compares the libraries and says how to set it.
-    """
-    pieces = num_minibatches // math.gcd(n_envs, num_minibatches)
-    if n_steps % pieces:
-        raise ValueError(
-            f"Recurrent PPO cannot split {n_envs} envs' rollouts of"
-            f" n_steps={n_steps} into {num_minibatches} minibatches of whole"
-            f" sequences: each rollout would need {pieces} equal pieces. Choose"
-            " n_steps, n_envs and num_minibatches (batch_size when it is 0) so"
-            " that they split (docs/guide/memory.md)."
-        )
-    return n_steps // pieces
-
-
-def minibatch_geometry(
-    agent_config: PPOConfig, n_steps: int, n_envs: int, recurrent: bool
-) -> Geometry:
-    """The rollout's :class:`Geometry`.
-
-    ``time`` only when ``unroll_length`` asks for it (``n_steps`` gives
-    whole rollouts per env): with as many minibatches as envs, each
-    minibatch is then one env's trajectory, its advantages normalised
-    within it. It needs fragments that split evenly into more than one
-    minibatch: recomputing GAE on a single minibatch, the whole rollout,
-    with a critic that just stepped only makes the value targets oscillate
-    (the flake of the one-env probing fixture). A recurrent rollout is a
-    pool of sequences of ``bptt_length`` steps (by default
-    :func:`default_bptt_length`) that must split exactly into the
-    minibatches, as Baselines' and CleanRL's recurrent PPO assert: a
-    ``bptt_length`` that does not divide the default raises ValueError.
-    """
-    num_minibatches = resolve_num_minibatches(agent_config)
-    if recurrent:
-        longest = default_bptt_length(n_steps, n_envs, num_minibatches)
-        length = agent_config.bptt_length or longest
-        if longest % length:
-            raise ValueError(
-                f"Recurrent PPO minibatches whole sequences: {n_envs} envs'"
-                f" rollouts of n_steps={n_steps} cut into sequences of"
-                f" bptt_length={length} steps do not split into"
-                f" {num_minibatches} minibatches. bptt_length must divide"
-                f" {longest}, the longest length that does; None picks it"
-                " (docs/guide/memory.md)."
-            )
-        return Geometry("recurrent", num_minibatches, length)
-    unroll = agent_config.unroll_length
-    if (
-        unroll is not None
-        and num_minibatches > 1
-        and n_steps % unroll == 0
-        and n_steps // unroll * n_envs % num_minibatches == 0
-    ):
-        return Geometry("time", num_minibatches, unroll)
-    return Geometry("flat", num_minibatches, n_steps)
-
-
 def _recurrent_values(
     agent_state: PPOState, rollout: Transition, start: PPOState, length: int
 ) -> tuple[PPOState, jax.Array, jax.Array, jax.Array, tuple]:
@@ -464,35 +375,6 @@ def _recurrent_values(
     )
     carries = jax.lax.stop_gradient((actor_starts, critic_starts))
     return agent_state, values, next_values, resets, carries
-
-
-def _split_carries(x: jax.Array, perm: jax.Array, num_minibatches: int) -> jax.Array:
-    """``(S, B, ...)`` start carries to ``(k, S * B // k, ...)``, sequence
-    ``s * B + b`` in the order of ``perm`` (as :func:`split_fragments`)."""
-    x = x.reshape(-1, *x.shape[2:])
-    x = jnp.take(x, perm, axis=0)
-    return x.reshape(num_minibatches, -1, *x.shape[1:])
-
-
-def _sequence_minibatches(
-    batch: dict, carries: tuple, rng: jax.Array, num_minibatches: int, length: int
-) -> dict:
-    """A recurrent rollout's minibatches of whole sequences, each with the
-    actor's and the critic's carry at its start (the critic's ensemble axis
-    second)."""
-    n_steps, n_envs = batch["obs"].shape[:2]
-    perm = jax.random.permutation(rng, n_steps // length * n_envs)
-
-    def split(x: jax.Array) -> jax.Array:
-        return _split_carries(x, perm, num_minibatches)
-
-    actor_starts, critic_starts = carries
-    return split_fragments(batch, perm, num_minibatches, length) | {
-        "actor_hidden": jax.tree.map(split, actor_starts),
-        "critic_hidden": jax.tree.map(
-            jax.vmap(split, in_axes=1, out_axes=1), critic_starts
-        ),
-    }
 
 
 def clip_global_norm(grads: Any, max_norm: Optional[float], eps: float = 0.0) -> Any:
@@ -707,7 +589,7 @@ def update_agent(
         if geometry.kind == "time":
             return get_minibatches_preserving_time(batch, key, k, length)
         if geometry.kind == "recurrent":
-            return _sequence_minibatches(batch, carries, key, k, length)
+            return sequence_minibatches(batch, carries, key, k, length)
         return get_minibatches_from_batch(batch, key, k)
 
     def minibatch_step(agent_state: PPOState, mb: dict) -> tuple[PPOState, Any]:
@@ -925,3 +807,9 @@ def make_train(
             "expert_policy": expert_policy,
         },
     )
+
+
+__getattr__ = moved_names(
+    __name__,
+    dict.fromkeys(("Geometry", "default_bptt_length"), "ajax.agents.minibatch"),
+)

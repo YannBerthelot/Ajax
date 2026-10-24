@@ -23,8 +23,8 @@ import jax.numpy as jnp
 import pytest
 
 from ajax import PPO
+from ajax.agents.minibatch import Geometry, minibatch_geometry
 from ajax.agents.PPO.state import PPOConfig
-from ajax.agents.PPO.train_PPO import Geometry, minibatch_geometry
 from ajax.networks.memory import MemoryConfig
 
 # Small CartPole config sized so one training iteration's rollout

@@ -13,6 +13,7 @@ import numpy as np
 import optax
 import pytest
 
+from ajax.agents import minibatch
 from ajax.agents.APO import train_APO
 from ajax.agents.APO.APO import APO
 from ajax.agents.PPO import train_PPO
@@ -144,7 +145,7 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
         gamma=config.gamma,
         gae_lambda=config.gae_lambda,
     )
-    actions, log_probs = train_PPO.rollout_actions(rollout)
+    actions, log_probs = minibatch.rollout_actions(rollout)
 
     def value_loss(p):
         return train_PPO.value_loss_function(

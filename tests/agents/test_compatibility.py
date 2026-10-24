@@ -86,6 +86,16 @@ OWN_ROLLOUT = (
 FEATURES = (
     "ExpertActionInput ExpertStateInput TrainingProgressInput PIDTermsInput".split()
 )
+# The expert features cannot reach a world model's imagined steps; training
+# progress and PID terms could, once its collector and imagination run them.
+IMAGINED = (
+    "imagination has no observation for the expert to read: inherent, refused"
+    " as unwired"
+)
+WORLD_FEATURES = (
+    "the world model's collector and its imagination have no feature stage yet"
+)
+WORLD_ROWS = "TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask"
 
 #: Module forms not written yet: a refusal for these capabilities alone is
 #: a gap, not inherent.
@@ -151,10 +161,9 @@ GAPS: dict[str, dict[str, str]] = {
             "CloningPretrain ImitationLoss".split(),
             "TDMPC2 DreamerV3 TDMPC2MultiTask",
         ),
-        **dict.fromkeys(
-            FEATURES, "TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask"
-        ),
     },
+    IMAGINED: dict.fromkeys(FEATURES[:2], WORLD_ROWS),
+    WORLD_FEATURES: dict.fromkeys(FEATURES[2:], WORLD_ROWS),
     OWN_ROLLOUT: dict.fromkeys(FEATURES, "APG UDRL UDRL/discrete"),
     CNN: {
         "cnn": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete"

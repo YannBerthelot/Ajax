@@ -18,13 +18,13 @@ from ajax.agents.recurrent import (
 from ajax.agents.SAC import core
 from ajax.agents.SAC.action_pipeline import make_action_pipeline
 from ajax.agents.SAC.core import TemperatureAuxiliaries, update_temperature
-from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.agents.steps import update_target_networks
 from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import executed_actions
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
+from ajax.extensions.pretrain import collect_and_store_expert_transitions
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import latent
 from ajax.networks.networks import action_value, predict_value

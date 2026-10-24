@@ -115,6 +115,7 @@ check.
 | APO | xtma/apo on xtma/rlpyt (PyTorch) | `tests/conformance/test_apo_original.py` |
 | CrossQ | adityab/CrossQ (JAX, its own versions) | `tests/conformance/test_crossq_original.py` |
 | TQC | bayesgroup/tqc_pytorch (PyTorch, from Software Heritage) | `tests/conformance/test_tqc_original.py` |
+| ReBRAC (TD3 with TD3+BC's term and `TargetBC`) | tinkoff-ai/ReBRAC (JAX, the oldest flax that runs) | `tests/conformance/test_rebrac_original.py` |
 
 The world models were checked against their originals before this kit
 existed, by parity tests that run with the other tests: TD-MPC2 against the
@@ -129,10 +130,14 @@ The originals are vendored under `benchmarks/reference/vendor`. A PyTorch
 original runs in its own environment (`benchmarks/reference/envs/torch`),
 as do ASAC's and CrossQ's, on the versions their authors pinned
 (`benchmarks/reference/envs/asac`: stable-baselines3 2.4 and gymnasium
-1.0; `benchmarks/reference/envs/crossq`: jax, flax and Stable-Baselines3).
+1.0; `benchmarks/reference/envs/crossq`: jax, flax and Stable-Baselines3;
+`benchmarks/reference/envs/jax_offline`: ReBRAC's flax).
 Each records its states to disk; CI keeps those records between runs while
 the original, its recorder and that environment's lock stay the same
-(`AJAX_CONFORMANCE_RECORDS`). `tests/conformance/kit.py` holds the seams
+(`AJAX_CONFORMANCE_RECORDS`). TQC's original runs as written only on torch
+before 1.5, which has no arm64 wheels: it is recorded locally in
+`benchmarks/reference/envs/torch14` (x86 Python 3.8) and its records are
+committed under `tests/conformance/records`. `tests/conformance/kit.py` holds the seams
 that make one step comparable without changing the code under test: a tape
 of the random draws, and the capture of an agent's update. A difference
 that is the original's convention or defect is registered with its reason

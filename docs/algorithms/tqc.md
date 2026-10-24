@@ -98,10 +98,11 @@ truncation, the quantile Huber loss and the authors' settings. The probes
 A conformance check (`tests/conformance/test_tqc_original.py`) runs one update
 of Ajax's TQC and of the authors' code from the same state, with the same
 batch and noises, and compares every parameter, Adam moment and the
-temperature. One change is made to their update: their actor's backward pass
-runs after the critics' step, which only their pinned torch (1.3.0) allowed,
-reading the stepped critics' weights; the check runs it before, where Ajax
-reads the critics too.
+temperature. Their update runs unchanged on torch 1.4, its records committed:
+their actor's backward pass runs after the critics' step, which torch before
+1.5 allows, and reads the stepped critics' weights. Ajax's actor still reads
+the critics from before their step, so the actor's Adam moments differ; the
+rest conforms.
 
 ## API
 

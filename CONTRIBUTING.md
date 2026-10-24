@@ -217,7 +217,7 @@ class FOO(GradientClipping, ExpertGuided, ReplayAgent):
         )
 
     def update(self, state, context):
-        state, sample_key, critic_key, actor_key = state.draw_keys(3)
+        sample_key, critic_key, actor_key, state = state.get_keys_and_new_state(3)
         batch, _ = sample_replay(state, context.buffer, sample_key)
         target = foo_target(state, batch, self.gamma, self.reward_scale)
         critic_state, critic_aux, _, critic_metrics = steps.critic_step(

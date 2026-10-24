@@ -141,7 +141,7 @@ class TD3(
     ) -> tuple[TD3State, AuxiliaryLogs]:
         """A critic step on a replay batch and, every policy_delay
         updates, an actor step and the targets' Polyak update."""
-        state, sample_key = state.draw_keys()
+        sample_key, state = state.get_keys_and_new_state()
         # Sequence replay burns the TARGET actor's carry in as well: TD3's
         # bootstrap action comes from it.
         batch, carries = sample_replay(
@@ -178,7 +178,7 @@ class TD3(
         self, state: TD3State, batch: Transition, carries: Any, context: TrainContext
     ) -> tuple[TD3State, ValueAuxiliaries, dict]:
         """The critics' step on the smoothed, clipped double-Q target."""
-        state, key = state.draw_keys()
+        key, state = state.get_keys_and_new_state()
         # A truncated row bootstraps on its final observation (bootstrap_obs).
         target_q, clip_frac, next_actions = compute_td3_td_target(
             state.actor_state,
@@ -222,7 +222,7 @@ class TD3(
     ) -> tuple[TD3State, tuple[PolicyAuxiliaries, dict]]:
         """The deterministic policy-gradient step on -Q1(s, mu(s)), then
         both targets' Polyak update."""
-        state, key = state.draw_keys()
+        key, state = state.get_keys_and_new_state()
 
         def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
             loss, (aux, pi_mean) = policy_loss_function(

@@ -1,5 +1,5 @@
-"""The keys an agent's steps draw on: ``BaseAgentState.draw_keys`` and the
-extensions' key a step derives (``ajax.agents.loop.extension_key``)."""
+"""The keys an agent's steps draw on: BaseAgentState.get_keys_and_new_state
+and the extensions' key a step derives (ajax.agents.loop.extension_key)."""
 
 from typing import Any
 
@@ -10,18 +10,24 @@ from ajax.agents.loop import extension_key
 from ajax.state import BaseAgentState
 
 
-def test_draw_keys_hands_out_keys_and_moves_the_state_past_them() -> None:
+def test_drawing_keys_hands_them_out_and_moves_the_new_state_past_them() -> None:
     key = jax.random.PRNGKey(0)
     nets: Any = None  # the networks play no part
-    state = BaseAgentState(
+    agent_state = BaseAgentState(
         rng=key, actor_state=nets, critic_state=nets, collector_state=nets, eval_rng=key
     )
-    state, a, b = state.draw_keys(2)
-    np.testing.assert_array_equal(np.stack([a, b, state.rng]), jax.random.split(key, 3))
-    state, c = state.draw_keys()
-    assert not (np.asarray(c) == np.asarray(b)).all()
-    # The former name, which the agents not yet declared call until 0.5.0.
-    assert BaseAgentState.next_keys is BaseAgentState.draw_keys
+    first_key, second_key, new_state = agent_state.get_keys_and_new_state(2)
+    drawn = np.stack([first_key, second_key, new_state.rng])
+    np.testing.assert_array_equal(drawn, jax.random.split(key, 3))
+    # The state drawn from is frozen: it still holds its key.
+    np.testing.assert_array_equal(agent_state.rng, key)
+    third_key, _ = new_state.get_keys_and_new_state()
+    assert not (np.asarray(third_key) == np.asarray(second_key)).all()
+    # The former method, which the agents not yet declared call until 0.5.0,
+    # hands out the same keys with the new state first.
+    old_order = agent_state.next_keys(2)
+    np.testing.assert_array_equal(np.stack(old_order[1:]), drawn[:2])
+    np.testing.assert_array_equal(old_order[0].rng, new_state.rng)
 
 
 def test_the_extensions_key_is_no_key_a_split_hands_out() -> None:

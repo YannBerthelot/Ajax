@@ -365,17 +365,11 @@ def update_temperature(
     return agent_state.replace(alpha=new_alpha_state), jax.lax.stop_gradient(aux)
 
 
-def update_target_networks(agent_state: S, tau: float) -> S:
-    """Polyak-average the target critics towards the critics."""
-    return agent_state.replace(
-        critic_state=agent_state.critic_state.soft_update(tau=tau)
-    )
-
-
 __getattr__ = moved_names(
     __name__,
     dict.fromkeys(
         ("CoreCriticAux", "critic_loss_fn", "q_regression_loss"),
         "ajax.agents.critics",
-    ),
+    )
+    | dict.fromkeys(("update_target_networks",), "ajax.agents.steps"),
 )

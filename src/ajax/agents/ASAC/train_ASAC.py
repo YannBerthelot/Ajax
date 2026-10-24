@@ -32,6 +32,7 @@ from ajax.agents.recurrent import (
 )
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.agents.steps import update_target_networks
 from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import executed_fn
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
@@ -403,7 +404,7 @@ def update_agent(
         log_probs,
         transition.action.shape[-1],
     )
-    agent_state = core.update_target_networks(agent_state, tau)
+    agent_state = update_target_networks(agent_state, tau)
     aux = AuxiliaryLogs(
         temperature=aux_temperature,
         policy=aux_policy,

@@ -27,6 +27,7 @@ from ajax.agents.recurrent import (
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.agents.steps import update_target_networks
 from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import critic_action_units, executed_fn
 from ajax.evaluate import ValueEstimate
@@ -361,7 +362,7 @@ def update_agent(
             carries,
             executed,
         )
-        agent_state = core.update_target_networks(agent_state, agent_config.tau)
+        agent_state = update_target_networks(agent_state, agent_config.tau)
         return agent_state, (aux_value, value_metrics, batch, carries, critics_before)
 
     # Carry-only scan: only the last critic step's metrics, batch and

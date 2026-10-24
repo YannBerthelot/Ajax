@@ -29,6 +29,7 @@ from ajax.agents.recurrent import (
 )
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.agents.steps import update_target_networks
 from ajax.agents.TQC.state import TQCConfig, TQCState
 from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import executed_fn
@@ -320,7 +321,7 @@ def update_agent(
         carries,
         executed,
     )
-    agent_state = core.update_target_networks(agent_state, agent_config.tau)
+    agent_state = update_target_networks(agent_state, agent_config.tau)
     critic_state = agent_state.critic_state
     agent_state, aux_policy, log_probs, policy_metrics = update_policy(
         agent_state.replace(critic_state=critic_state.replace(params=critics_before)),

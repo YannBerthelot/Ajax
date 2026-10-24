@@ -1,9 +1,10 @@
 """The steps an agent's update is written in: gradient steps with the
 extensions' loss terms folded in (:func:`critic_step`, :func:`actor_step`,
 :func:`joint_step` for two networks clipped together), the extensions'
-target and post-update folds, and the gates (:func:`when`) and keys
-(:func:`extension_key`) around them. :mod:`ajax.agents.loop` re-exports
-them.
+target and post-update folds, the gates (:func:`when`) and keys
+(:func:`extension_key`) around them, which :mod:`ajax.agents.loop`
+re-exports, and the target critics' Polyak update SAC, ASAC, REDQ and TQC
+share (:func:`update_target_networks`).
 """
 
 from __future__ import annotations
@@ -306,4 +307,11 @@ def joint_step(
     return (
         actor.apply_gradients(grads=actor_grads),
         critic.apply_gradients(grads=critic_grads),
+    )
+
+
+def update_target_networks(agent_state: Any, tau: float) -> Any:
+    """Polyak-average the target critics towards the critics."""
+    return agent_state.replace(
+        critic_state=agent_state.critic_state.soft_update(tau=tau)
     )

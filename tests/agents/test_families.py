@@ -12,6 +12,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from ajax import TD3
@@ -20,15 +21,18 @@ from ajax.agents.families import (
     DeclaredAgent,
     ExpertGuided,
     GradientClipping,
+    ImageObservations,
     ObservationNormalization,
+    OnPolicyAgent,
     RecurrentReplayAgent,
     ReplayAgent,
+    TrainContext,
 )
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.expert import ImitationLoss
 from ajax.networks.memory import MemoryConfig
-from ajax.networks.networks import action_value
-from ajax.state import OptimizerConfig
+from ajax.networks.networks import action_value, state_value
+from ajax.state import BaseAgentState, OptimizerConfig
 from ajax.types import Architecture
 from tests.agents.test_agent_surface import CONTRACT
 from tests.test_exports import library_agents
@@ -101,6 +105,44 @@ class RecurrentToy(RecurrentReplayAgent):
     batch_size: int = 4
 
     name = "RecurrentToy"
+
+
+@dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+class OnToy(ImageObservations, OnPolicyAgent):
+    """Counts its updates; discounted without a reward scale."""
+
+    actor_architecture: Architecture = NET
+    critic_architecture: Architecture = NET
+    gamma: float = 0.9
+    n_steps: int = 4
+    n_epochs: int = 1
+    num_minibatches: int = 1
+
+    def init(self, key: jax.Array, ctx: TrainContext) -> BaseAgentState:
+        rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
+        actor, critic = ctx.actor_critic(
+            init_key, continuous=False, action_value=False, num_critics=1
+        )
+        return BaseAgentState(
+            rng=rng,
+            eval_rng=eval_rng,
+            actor_state=actor,
+            critic_state=critic,
+            collector_state=ctx.collector(collector_key),
+        )
+
+    def update(self, state: Any, rollout: Any, start: Any, ctx: TrainContext) -> Any:
+        assert rollout.obs.shape[:2] == (self.n_steps, self.n_envs)
+        return state.replace(n_updates=state.n_updates + 1), {"r": rollout.reward}
+
+    name = "OnToy"
+    action_space = "discrete"
+    capabilities = frozenset({"discounted", "v_critic"})
+
+
+@dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+class Undeclared(OnPolicyAgent):  # no n_steps, n_epochs nor num_minibatches
+    name = "Undeclared"
 
 
 def test_the_constructor_is_the_fields_keyword_only_after_env_id() -> None:
@@ -235,9 +277,11 @@ def test_checks_required_fields_and_action_spaces_refuse_at_construction() -> No
 def test_the_value_estimate_reads_the_declared_discount_and_reward_scale() -> None:
     estimate = ValueEstimate(action_value, 0.9, 2.0)
     assert Toy("Pendulum-v1").value_estimate() == estimate
-    with pytest.raises(TypeError, match="declares the fields.*gamma and reward_s"):
+    with pytest.raises(TypeError, match="'discounted' capability.*declares gamma"):
         Undiscounted("Pendulum-v1")
     assert RecurrentToy("Pendulum-v1").value_estimate() is None  # not discounted
+    # No reward_scale field: the rewards unscaled.
+    assert OnToy("CartPole-v1").value_estimate() == ValueEstimate(state_value, 0.9)
 
 
 def test_make_train_refuses_an_extension_context_it_cannot_give() -> None:
@@ -256,6 +300,34 @@ def test_make_train_refuses_an_extension_context_it_cannot_give() -> None:
             total_timesteps=8,
             num_episode_test=1,
         )
+
+
+def test_an_on_policy_agent_runs_its_update_on_each_rollout() -> None:
+    params = inspect.signature(OnToy).parameters
+    assert {"n_steps", "n_epochs", "num_minibatches", "cnn_spec"} <= set(params)
+    assert params["expose_recent_rollout"].default is False
+    with pytest.raises(TypeError, match="n_steps"):
+        Undeclared("CartPole-v1")  # type: ignore[call-arg]
+    agent = OnToy("CartPole-v1", cnn_extra_obs_dim=0)
+    assert agent.network_args.cnn_image_shape is None  # ImageObservations'
+    # The context runs init alone, as the run's first state.
+    loop, ctx = agent.context(8)
+    assert ctx.stack is loop.stack and not ctx.recurrent and ctx.buffer is None
+    assert agent.init(jax.random.PRNGKey(0), ctx).collector_state.timestep == 0
+    state, _ = agent.train(seed=0, n_timesteps=4)  # 4 // 4 + 1 rollouts
+    assert np.asarray(state.n_updates).tolist() == [2]  # one seed
+    with pytest.raises(ValueError, match="trains on its fields"):
+        agent.make_train(
+            agent.env_args,
+            agent.actor_optimizer_args,
+            agent.critic_optimizer_args,
+            agent.network_args,
+            agent.agent_config.replace(),
+            total_timesteps=8,
+            num_episode_test=1,
+        )
+    with pytest.raises(ValueError, match="cannot train offline"):
+        agent.train_offline(dataset=None, n_updates=1)
 
 
 def test_a_recurrent_replay_agent_replays_windows_with_stored_carries() -> None:

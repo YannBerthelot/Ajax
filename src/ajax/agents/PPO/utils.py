@@ -1,8 +1,8 @@
-from typing import Any, Optional
-
 import jax
 import jax.numpy as jnp
 from jax.tree_util import Partial as partial
+
+from ajax.deprecation import moved_names
 
 
 @partial(jax.jit, static_argnames=["gamma", "gae_lambda"])
@@ -45,77 +45,14 @@ def _compute_gae(
     return advantages, returns
 
 
-def split_fragments(
-    batch: Any, perm: jax.Array, num_minibatches: int, length: int
-) -> Any:
-    """Split a ``(T, n_envs, ...)`` rollout into ``num_minibatches``
-    minibatches of whole fragments of ``length`` steps. Fragment ``c *
-    n_envs + e`` (chunk ``c`` of env ``e``) goes in the order of ``perm``;
-    per leaf ``(num_minibatches, length, fragments_per_minibatch, ...)``,
-    so a scan over the minibatches sees time-major fragments."""
-    T, n_envs = jax.tree.leaves(batch)[0].shape[:2]
-    n_chunks = T // length
-
-    def split(x: jax.Array) -> jax.Array:
-        # (T, n_envs, ...) -> (n_chunks * n_envs, length, ...)
-        x = x.reshape(n_chunks, length, n_envs, *x.shape[2:])
-        x = jnp.swapaxes(x, 1, 2).reshape(n_chunks * n_envs, length, *x.shape[3:])
-        x = jnp.take(x, perm, axis=0)
-        x = x.reshape(num_minibatches, -1, length, *x.shape[2:])
-        return jnp.swapaxes(x, 1, 2)
-
-    return jax.tree.map(split, batch)
-
-
-@partial(jax.jit, static_argnames=["num_minibatches", "unroll_length"])
-def get_minibatches_preserving_time(
-    batch: Any,
-    rng: jax.Array,
-    num_minibatches: int,
-    unroll_length: Optional[int] = None,
-) -> Any:
-    """Split a ``(T, n_envs, ...)`` rollout into minibatches that keep the
-    time axis (brax PPO): fragments of ``unroll_length`` steps (the whole
-    rollout by default), shuffled and split evenly
-    (:func:`split_fragments`). GAE in the loss then scans each fragment and
-    bootstraps at its end, brax's per-minibatch ``(T=unroll_length,
-    B=batch_size)``."""
-    T, n_envs = jax.tree.leaves(batch)[0].shape[:2]
-    length = unroll_length or T
-    assert T % length == 0, f"n_steps={T} must be a multiple of {length=}."
-    n_fragments = T // length * n_envs
-    assert n_fragments % num_minibatches == 0, (
-        f"{n_fragments} fragments (n_steps={T} / {length=} * n_envs={n_envs})"
-        f" do not split into {num_minibatches=}."
-    )
-    perm = jax.random.permutation(rng, n_fragments)
-    return split_fragments(batch, perm, num_minibatches, length)
-
-
-def get_minibatches_from_batch(batch: Any, rng: jax.Array, num_minibatches: int):
-    """Split a ``(T, n_envs, ...)`` rollout batch into ``num_minibatches``
-    minibatches of shape ``(num_minibatches, T*n_envs/num_minibatches, ...)``.
-
-    The flatten step joins the leading ``(T, n_envs)`` dims into a single
-    sample axis regardless of how many trailing feature dims a leaf has,
-    so leaves with a feature dim (e.g. observations ``(T, n_envs, obs_dim)``)
-    and leaves without one (e.g. ``terminated``, ``truncated`` of shape
-    ``(T, n_envs)``) are reshuffled with the same permutation and stay
-    aligned across leaves.
-    """
-    T, n_envs = jax.tree.leaves(batch)[0].shape[:2]
-    total = T * n_envs
-    assert total % num_minibatches == 0, (
-        "T * n_envs should be a multiple of num_minibatches, got "
-        f"T={T}, n_envs={n_envs}, total={total}, {num_minibatches=}"
-    )
-
-    # One permutation for every leaf: jax.random.permutation(rng, x, axis=0)
-    # per leaf draws the same one, but shuffles a 1-D leaf by sorting it.
-    perm = jax.random.permutation(rng, total)
-
-    def shuffle(x: jax.Array) -> jax.Array:
-        x = jnp.take(x.reshape((total,) + x.shape[2:]), perm, axis=0)
-        return x.reshape((num_minibatches, -1) + x.shape[1:])
-
-    return jax.tree.map(shuffle, batch)
+__getattr__ = moved_names(
+    __name__,
+    dict.fromkeys(
+        (
+            "split_fragments",
+            "get_minibatches_preserving_time",
+            "get_minibatches_from_batch",
+        ),
+        "ajax.agents.minibatch",
+    ),
+)

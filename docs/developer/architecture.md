@@ -31,7 +31,11 @@ src/ajax/
 ├── __init__.py          the 14 exported agents; configures the compile cache on import
 ├── agents/
 │   ├── base.py          ActorCritic: environment and network setup, extensions=, train(); run_config
-│   ├── loop.py          TrainLoop, the shared loop; critic_step, actor_step, gradient_step
+│   ├── loop.py          TrainLoop, the shared loop (brax's forced resets included)
+│   ├── steps.py         critic_step, actor_step, gradient_step, joint_step, when, the target update
+│   ├── minibatch.py     the on-policy geometry, minibatches and epochs
+│   ├── critics.py       the Q-critics' regression (continuous and discrete actions)
+│   ├── diagnostics.py   KL, explained variance, policy std
 │   ├── recurrent.py     replay buffers and R2D2-style sequence replay for memory=
 │   ├── cloning.py       the behaviour-cloning loss and fit that CloningPretrain runs
 │   └── <AGENT>/         one package per agent (below)
@@ -44,7 +48,7 @@ src/ajax/
 │   ├── row_collector.py the world models' collector: one row per env per tick
 │   ├── differentiable.py  closed-loop rollouts you can backpropagate through (APG)
 │   └── model_reference.py, system_class.py, pid_terms.py   tracking tasks, parameter distributions, PID error terms
-├── networks/            actor and critic networks, memory blocks, Squash, the world models' layers
+├── networks/            actor and critic networks (deterministic actors, Q-networks), memory blocks, Squash, the world models' layers
 ├── modules/             the PID actor and PID output head
 ├── buffers/             replay buffers (flashbax)
 ├── logging/             LoggingConfig; the W&B and TensorBoard worker
@@ -54,7 +58,7 @@ src/ajax/
 ├── state.py             BaseAgentState, CollectorState and the configuration dataclasses
 ├── checkpoint.py        save_checkpoint, restore_into
 ├── wrappers.py          env wrappers: normalisation, action clip, auto-reset, observation noise
-├── deprecation.py       warn_inert, for keywords on their way out
+├── deprecation.py       warn_inert and moved_names, for keywords and paths on their way out
 ├── schedule.py          a warm-up and cosine learning-rate schedule
 ├── distributional.py, normalizers.py   symlog, two-hot and return scales (DreamerV3, TD-MPC2)
 └── _compile_cache.py    the persistent JAX compile cache

@@ -1,16 +1,15 @@
-"""PPO's clipped-surrogate maths and minibatch epochs (Schulman et al.,
-2017), which its descendants (APO) import rather than copy."""
+"""PPO's clipped-surrogate maths (Schulman et al., 2017), which its
+descendants (APO) import rather than copy. Its minibatch epochs are
+:mod:`ajax.agents.minibatch`'s."""
 
-from typing import Any, Callable, Optional
+from typing import Any
 
-import distrax
 import jax
 import jax.numpy as jnp
 from flax import struct
 
-from ajax.networks.distributions import entropy, latent, log_prob_from_raw
+from ajax.deprecation import moved_names
 from ajax.schedule import at
-from ajax.state import Transition
 
 
 @struct.dataclass
@@ -43,46 +42,6 @@ class AuxiliaryLogs:
     extensions: dict  # the extensions' training metrics
 
 
-def rollout_actions(rollout: Transition) -> tuple[jax.Array, jax.Array]:
-    """The rollout's actions and their log-probabilities, each with a
-    trailing axis: a discrete action gains one, a continuous action's
-    per-dimension log-probabilities are summed."""
-    assert rollout.log_prob is not None  # an on-policy rollout carries it
-    action, log_prob = rollout.action, rollout.log_prob
-    actions = jnp.expand_dims(action, -1) if jnp.ndim(action) < 3 else action
-    log_probs = (
-        jnp.expand_dims(log_prob, -1)
-        if jnp.ndim(log_prob) < 3
-        else log_prob.sum(-1, keepdims=True)
-    )
-    return actions, log_probs
-
-
-def recompute_log_prob(
-    pi: Any, actions: jax.Array, raw_actions: Optional[jax.Array]
-) -> jax.Array:
-    """The current policy's log-probability of the stored actions, shaped
-    like :func:`rollout_actions`'s. A squashed policy recomputes it from the
-    stored pre-tanh sample, never through arctanh, which is unstable as
-    ``|action| -> 1`` (:func:`log_prob_from_raw`); an unsquashed one's
-    pre-tanh sample is its action."""
-    if isinstance(pi, distrax.Categorical):
-        return jnp.expand_dims(pi.log_prob(actions.squeeze(-1)), -1)
-    if raw_actions is not None:
-        return log_prob_from_raw(pi, raw_actions).sum(-1, keepdims=True)
-    return pi.log_prob(actions).sum(-1, keepdims=True)
-
-
-def policy_entropy(pi: Any, rng: Optional[jax.Array] = None) -> jax.Array:
-    """The per-sample entropy bonus: the joint action's entropy, summed over
-    the action dimensions as CleanRL's ``ppo_continuous_action.py`` and
-    baselines' ppo2 sum it (a mean would scale ``ent_coef`` by 1 / d). A
-    squashed policy's is sampled with ``rng`` (:meth:`Squash.entropy`)."""
-    if isinstance(pi, distrax.Categorical):
-        return pi.entropy()
-    return entropy(pi, rng).sum(-1)
-
-
 def clipped_surrogate(
     ratio: jax.Array, advantages: jax.Array, clip_coef: float
 ) -> tuple[jax.Array, jax.Array]:
@@ -95,67 +54,22 @@ def clipped_surrogate(
     return loss, (jnp.abs(ratio - 1) > clip_coef).mean()
 
 
-def approximate_kl(log_ratio: jax.Array) -> jax.Array:
-    """The mean of ``(r - 1) - log r``, ``r`` the probability ratio: an
-    estimate of KL(old || new) that is never negative (Schulman's "k3"), as
-    CleanRL's ``ppo.py`` and SB3's PPO log it."""
-    return jnp.mean((jnp.exp(log_ratio) - 1) - log_ratio)
-
-
-def explained_variance(predictions: jax.Array, targets: jax.Array) -> jax.Array:
-    """``1 - Var[targets - predictions] / Var[targets]``, as CleanRL and SB3
-    log it: 1 for a perfect critic, 0 for one no better than the targets'
-    mean; NaN when the targets do not vary."""
-    var_targets = jnp.var(targets)
-    return jnp.where(
-        var_targets == 0, jnp.nan, 1 - jnp.var(targets - predictions) / var_targets
-    )
-
-
-def mean_policy_std(pi: Any) -> jax.Array:
-    """The mean standard deviation of a continuous policy's Gaussian, before
-    any squashing; NaN for a discrete policy, which has none."""
-    if isinstance(pi, distrax.Categorical):
-        return jnp.asarray(jnp.nan)
-    return latent(pi).stddev().mean()
-
-
-def resolve_num_minibatches(agent_config: Any) -> int:
-    """``num_minibatches`` when positive (brax); otherwise Ajax's legacy
-    ``max(batch_size, n_steps) // min(batch_size, n_steps)``."""
-    if agent_config.num_minibatches > 0:
-        return agent_config.num_minibatches
-    sizes = (agent_config.batch_size, agent_config.n_steps)
-    return max(sizes) // min(sizes)
-
-
 def resolve_clip_coef(agent_config: Any, timestep: int | jax.Array) -> Any:
     """The clip range, a constant or a schedule of the timestep."""
     return at(agent_config.clip_range, timestep)
 
 
-def run_epochs(
-    agent_state: Any,
-    key: jax.Array,
-    minibatches: Callable[[jax.Array], Any],
-    step: Callable[[Any, Any], tuple[Any, Any]],
-    n_epochs: int,
-) -> tuple[Any, Any]:
-    """``n_epochs`` passes of ``step(agent_state, minibatch) -> (agent_state,
-    aux)``, each over its own partition ``minibatches(epoch_key)`` of the
-    rollout (minibatch axis leading); the metrics averaged over every epoch
-    and minibatch.
-
-    Each epoch reshuffles, as the PPO references do: OpenAI baselines' ppo2
-    and CleanRL's ``ppo.py`` shuffle the sample indices inside their epoch
-    loop, and APO's official code (``xtma/apo``,
-    ``apo/algos/apg/appo.py``, ``APPO.optimize_agent``) draws
-    ``iterate_mb_idxs(..., shuffle=True)`` once per epoch.
-    """
-
-    def epoch(agent_state: Any, epoch_key: jax.Array) -> tuple[Any, Any]:
-        return jax.lax.scan(step, agent_state, minibatches(epoch_key))
-
-    epoch_keys = jax.random.split(key, n_epochs)
-    agent_state, aux = jax.lax.scan(epoch, agent_state, epoch_keys)
-    return agent_state, jax.tree.map(jnp.mean, aux)
+__getattr__ = moved_names(
+    __name__,
+    dict.fromkeys(
+        ("resolve_num_minibatches", "run_epochs", "rollout_actions"),
+        "ajax.agents.minibatch",
+    )
+    | dict.fromkeys(
+        ("approximate_kl", "explained_variance", "mean_policy_std"),
+        "ajax.agents.diagnostics",
+    )
+    | dict.fromkeys(
+        ("policy_entropy", "recompute_log_prob"), "ajax.networks.distributions"
+    ),
+)

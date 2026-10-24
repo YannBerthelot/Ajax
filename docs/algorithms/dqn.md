@@ -41,8 +41,9 @@ The variants compose through three arguments:
 
 ```python
 from ajax import DQN
-from ajax.agents.DQN.networks import DuelingQNetwork
-from ajax.agents.DQN.train_DQN import compute_double_dqn_td_target, mse_td_loss
+from ajax.networks.q_networks import DuelingQNetwork
+from ajax.agents.critics import mse_td_loss
+from ajax.agents.DQN.train_DQN import compute_double_dqn_td_target
 
 agent = DQN(
     "CartPole-v1",
@@ -140,8 +141,8 @@ updates from step 1,000) DQN ran at 16,662 steps per second of execution
 
 ::: ajax.agents.DQN.DQN.DQN
 
-::: ajax.agents.DQN.networks.DuelingQNetwork
+::: ajax.networks.q_networks.DuelingQNetwork
 
 ::: ajax.agents.DQN.train_DQN.compute_double_dqn_td_target
 
-::: ajax.agents.DQN.train_DQN.make_huber_td_loss
+::: ajax.agents.critics.make_huber_td_loss

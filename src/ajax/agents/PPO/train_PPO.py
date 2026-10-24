@@ -3,21 +3,10 @@
 Each iteration collects an ``(n_steps, n_envs)`` rollout, then runs
 ``n_epochs`` passes of a critic and an actor step on every minibatch of it
 (the clipped surrogate: :mod:`ajax.agents.PPO.core`). The rollout's
-:class:`Geometry` decides how it is minibatched and where GAE is computed:
-
-* ``flat`` (feedforward default): GAE once on the whole rollout, then a flat
-  shuffle of its ``n_steps * n_envs`` samples (the paper's Algorithm 1,
-  OpenAI Baselines' ppo2);
-* ``time`` (with ``unroll_length``): fragments of ``unroll_length`` steps
-  shuffled into minibatches, GAE recomputed in every minibatch with the
-  current critic (brax's ``compute_ppo_loss``);
-* ``recurrent``: GAE once on the whole rollout, then a shuffle of whole
-  sequences of ``length`` steps, each replayed from the carry it started
-  from.
+geometry (:class:`ajax.agents.minibatch.Geometry`) decides how it is
+minibatched and where GAE is computed.
 """
 
-import dataclasses
-import math
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Tuple
 
@@ -27,45 +16,40 @@ import jax.numpy as jnp
 import optax
 from flax.core import FrozenDict
 
+from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
 from ajax.agents.loop import TrainLoop, extension_key
+from ajax.agents.minibatch import (
+    get_minibatches_from_batch,
+    get_minibatches_preserving_time,
+    minibatch_geometry,
+    rollout_actions,
+    run_epochs,
+    sequence_minibatches,
+)
 from ajax.agents.PPO.core import (
     AuxiliaryLogs,
     PolicyAuxiliaries,
     ValueAuxiliaries,
-    approximate_kl,
     clipped_surrogate,
-    explained_variance,
-    mean_policy_std,
-    policy_entropy,
-    recompute_log_prob,
     resolve_clip_coef,
-    resolve_num_minibatches,
-    rollout_actions,
-    run_epochs,
 )
 from ajax.agents.PPO.state import PPOConfig, PPOState
-from ajax.agents.PPO.utils import (
-    _compute_gae,
-    get_minibatches_from_batch,
-    get_minibatches_preserving_time,
-    split_fragments,
-)
+from ajax.agents.PPO.utils import _compute_gae
+from ajax.agents.recurrent import rollout_sequence_values
+from ajax.agents.steps import joint_step
+from ajax.deprecation import moved_names
 from ajax.environments.interaction import (
     get_pi,
     get_pi_sequence,
     init_collector_state,
-    reset,
-    reset_features,
 )
-from ajax.environments.obs_norm import normalized_obs
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
-    env_keys,
-    raw_obs_columns,
 )
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.distributions import policy_entropy, recompute_log_prob
 from ajax.networks.networks import (
     get_initialized_actor_critic,
     predict_value,
@@ -300,317 +284,17 @@ def _stack_actor_loss(
     return actor_loss
 
 
-@dataclasses.dataclass(frozen=True)
-class Geometry:
-    """How an update minibatches its rollout (the module docstring)."""
-
-    kind: str  # "time", "flat" or "recurrent"
-    num_minibatches: int
-    length: int  # steps per fragment ("time") or sequence ("recurrent")
-
-
-def default_bptt_length(n_steps: int, n_envs: int, num_minibatches: int) -> int:
-    """The longest sequences that cut every env's rollout evenly and split
-    exactly into ``num_minibatches``; an explicit ``bptt_length`` splits
-    only if it divides this one.
-
-    Libraries disagree on a recurrent PPO's BPTT length (RLlib 20 steps,
-    Sample Factory the rollout, Pleines et al., 2022, tuned per task), so the
-    minibatches set it. When ``n_envs`` is a multiple of ``num_minibatches``
-    it is the whole rollout, each minibatch a subset of the envs, as in
-    Baselines' ppo2 (ea25b9e, ppo2.py:167-180), CleanRL's ppo_atari_lstm
-    (fe8d8a0, :296-313) and PureJaxRL's ppo_rnn (31756b1, :258-291).
-    Otherwise each rollout is cut into the fewest equal pieces that split:
-    ``num_minibatches // gcd(n_envs, num_minibatches)`` of them, which must
-    divide ``n_steps`` (ValueError if not; no length would split then).
-    docs/guide/memory.md compares the libraries and says how to set it.
-    """
-    pieces = num_minibatches // math.gcd(n_envs, num_minibatches)
-    if n_steps % pieces:
-        raise ValueError(
-            f"Recurrent PPO cannot split {n_envs} envs' rollouts of"
-            f" n_steps={n_steps} into {num_minibatches} minibatches of whole"
-            f" sequences: each rollout would need {pieces} equal pieces. Choose"
-            " n_steps, n_envs and num_minibatches (batch_size when it is 0) so"
-            " that they split (docs/guide/memory.md)."
-        )
-    return n_steps // pieces
-
-
-def minibatch_geometry(
-    agent_config: PPOConfig, n_steps: int, n_envs: int, recurrent: bool
-) -> Geometry:
-    """The rollout's :class:`Geometry`.
-
-    ``time`` only when ``unroll_length`` asks for it (``n_steps`` gives
-    whole rollouts per env): with as many minibatches as envs, each
-    minibatch is then one env's trajectory, its advantages normalised
-    within it. It needs fragments that split evenly into more than one
-    minibatch: recomputing GAE on a single minibatch, the whole rollout,
-    with a critic that just stepped only makes the value targets oscillate
-    (the flake of the one-env probing fixture). A recurrent rollout is a
-    pool of sequences of ``bptt_length`` steps (by default
-    :func:`default_bptt_length`) that must split exactly into the
-    minibatches, as Baselines' and CleanRL's recurrent PPO assert: a
-    ``bptt_length`` that does not divide the default raises ValueError.
-    """
-    num_minibatches = resolve_num_minibatches(agent_config)
-    if recurrent:
-        longest = default_bptt_length(n_steps, n_envs, num_minibatches)
-        length = agent_config.bptt_length or longest
-        if longest % length:
-            raise ValueError(
-                f"Recurrent PPO minibatches whole sequences: {n_envs} envs'"
-                f" rollouts of n_steps={n_steps} cut into sequences of"
-                f" bptt_length={length} steps do not split into"
-                f" {num_minibatches} minibatches. bptt_length must divide"
-                f" {longest}, the longest length that does; None picks it"
-                " (docs/guide/memory.md)."
-            )
-        return Geometry("recurrent", num_minibatches, length)
-    unroll = agent_config.unroll_length
-    if (
-        unroll is not None
-        and num_minibatches > 1
-        and n_steps % unroll == 0
-        and n_steps // unroll * n_envs % num_minibatches == 0
-    ):
-        return Geometry("time", num_minibatches, unroll)
-    return Geometry("flat", num_minibatches, n_steps)
-
-
-def _recurrent_values(
-    agent_state: PPOState, rollout: Transition, start: PPOState, length: int
-) -> tuple[PPOState, jax.Array, jax.Array, jax.Array, tuple]:
-    """A recurrent rollout's values, next values and reset flags, and the
-    actor's and critic's carries at the start of each sequence of
-    ``length`` steps.
-
-    One critic pass gives the values and advances the critic carry, which
-    collection never steps: it ends as the next rollout's start carry. Run
-    as a scan over the sequences, it also yields their start carries. The
-    actor's are recomputed sequence by sequence with the current params (one
-    more pass, skipped for whole-rollout sequences, whose start carry is
-    exact): a sequence never starts from a zero carry mid-episode, the
-    variant that makes truncated BPTT worse than none. The pass runs step by
-    step (the memories' acting path, equal to the sequence one), and after
-    each step reads ``V(s_{t+1})`` from the carry that consumed ``obs[t]``,
-    on ``next_obs[t]``: the next observation, or the episode's final one
-    where it ended. A time limit thus bootstraps on its own episode, as
-    sb3-contrib's RecurrentPPO does (its pre-reset LSTM state on the
-    terminal observation), not on the reset observation with a fresh
-    carry; GAE masks terminal steps.
-
-    Returns the state (critic carry advanced), the values, the next values,
-    the reset flags (``resets[t]``: ``obs[t]`` starts an episode) and the
-    ``(actor, critic)`` start carries.
-    """
-    n_steps, n_envs = rollout.obs.shape[:2]
-    n_sequences = n_steps // length
-    initial_done = jnp.logical_or(
-        start.collector_state.last_terminated, start.collector_state.last_truncated
-    ).astype(bool)
-    dones_seq = jnp.logical_or(rollout.terminated, rollout.truncated).squeeze(-1)
-    resets = jnp.concatenate(
-        [initial_done[None], dones_seq[:-1].astype(bool)], axis=0
-    )  # (T, B)
-    obs_seqs = rollout.obs.reshape(n_sequences, length, *rollout.obs.shape[1:])
-    next_obs_seqs = rollout.next_obs.reshape(obs_seqs.shape)
-    resets_seqs = resets.reshape(n_sequences, length, n_envs)
-    critic, actor = agent_state.critic_state, agent_state.actor_state
-    going_on = jnp.zeros((1, n_envs), bool)
-
-    def critic_step(carry: Any, step: tuple) -> tuple[Any, tuple]:
-        obs, next_obs, step_resets = step
-        value, carry = predict_value_sequence(
-            critic, critic.params, obs[None], step_resets[None], carry
-        )
-        next_value, _ = predict_value_sequence(
-            critic, critic.params, next_obs[None], going_on, carry
-        )
-        # (num = 1, T = 1, B, 1) -> (B, 1)
-        return carry, (value.squeeze((0, 1)), next_value.squeeze((0, 1)))
-
-    def critic_chunk(carry: Any, seq: tuple) -> tuple[Any, tuple]:
-        carry_next, values = jax.lax.scan(critic_step, carry, seq)
-        return carry_next, (values, carry)
-
-    assert start.critic_state.hidden_state is not None
-    critic_end, ((seq_values, seq_next_values), critic_starts) = jax.lax.scan(
-        critic_chunk,
-        jax.lax.stop_gradient(start.critic_state.hidden_state),
-        (obs_seqs, next_obs_seqs, resets_seqs),
-    )
-    # (S, L, B, 1) -> (T, B, 1)
-    values = seq_values.reshape(n_steps, *seq_values.shape[2:])
-    next_values = seq_next_values.reshape(values.shape)
-
-    initial_actor_hidden = jax.lax.stop_gradient(start.actor_state.hidden_state)
-    if n_sequences > 1:
-
-        def actor_chunk(carry: Any, seq: tuple) -> tuple[Any, Any]:
-            obs, seq_resets = seq
-            _, carry_next = get_pi_sequence(actor, actor.params, obs, seq_resets, carry)
-            return carry_next, carry
-
-        _, actor_starts = jax.lax.scan(
-            actor_chunk, initial_actor_hidden, (obs_seqs, resets_seqs)
-        )
-    else:
-        actor_starts = jax.tree.map(lambda x: x[None], initial_actor_hidden)
-
-    agent_state = agent_state.replace(
-        critic_state=critic.replace(hidden_state=jax.lax.stop_gradient(critic_end))
-    )
-    carries = jax.lax.stop_gradient((actor_starts, critic_starts))
-    return agent_state, values, next_values, resets, carries
-
-
-def _split_carries(x: jax.Array, perm: jax.Array, num_minibatches: int) -> jax.Array:
-    """``(S, B, ...)`` start carries to ``(k, S * B // k, ...)``, sequence
-    ``s * B + b`` in the order of ``perm`` (as :func:`split_fragments`)."""
-    x = x.reshape(-1, *x.shape[2:])
-    x = jnp.take(x, perm, axis=0)
-    return x.reshape(num_minibatches, -1, *x.shape[1:])
-
-
-def _sequence_minibatches(
-    batch: dict, carries: tuple, rng: jax.Array, num_minibatches: int, length: int
-) -> dict:
-    """A recurrent rollout's minibatches of whole sequences, each with the
-    actor's and the critic's carry at its start (the critic's ensemble axis
-    second)."""
-    n_steps, n_envs = batch["obs"].shape[:2]
-    perm = jax.random.permutation(rng, n_steps // length * n_envs)
-
-    def split(x: jax.Array) -> jax.Array:
-        return _split_carries(x, perm, num_minibatches)
-
-    actor_starts, critic_starts = carries
-    return split_fragments(batch, perm, num_minibatches, length) | {
-        "actor_hidden": jax.tree.map(split, actor_starts),
-        "critic_hidden": jax.tree.map(
-            jax.vmap(split, in_axes=1, out_axes=1), critic_starts
-        ),
-    }
-
-
-def clip_global_norm(grads: Any, max_norm: Optional[float], eps: float = 0.0) -> Any:
-    """``grads`` (any tree) times ``min(1, max_norm / (norm + eps))``, their
-    global ``norm`` taken over every leaf at once; ``None`` leaves them.
-
-    With ``eps`` 0 it is ``tf.clip_by_global_norm``, ppo2's (baselines
-    ea25b9e ppo2/model.py:105-107); torch's ``clip_grad_norm_``, which APO's
-    reference code calls, adds 1e-6 to the norm (torch 1.5.1,
-    ``torch/nn/utils/clip_grad.py:33-37``)."""
-    if max_norm is None:
-        return grads
-    coef = jnp.minimum(1.0, max_norm / (optax.global_norm(grads) + eps))
-    return jax.tree.map(lambda g: g * coef, grads)
-
-
-def joint_step(
-    actor: Any,
-    critic: Any,
-    actor_grads: Any,
-    critic_grads: Any,
-    max_grad_norm: Optional[float],
-    norm_eps: float = 0.0,
-) -> tuple[Any, Any]:
-    """Both networks' Adam steps on their gradients clipped together
-    (:func:`clip_global_norm`), as ppo2's one optimiser, and APO's
-    reference code's, clip every parameter's gradient at once. Adam is per
-    coordinate, so the two Adams are one over the whole model."""
-    actor_grads, critic_grads = clip_global_norm(
-        (actor_grads, critic_grads), max_grad_norm, norm_eps
-    )
-    return (
-        actor.apply_gradients(grads=actor_grads),
-        critic.apply_gradients(grads=critic_grads),
-    )
-
-
-def _normalisation_info(env_state: Any, mode: str) -> Any:
-    """The running statistics an env normaliser keeps in ``env_state``
-    (``None`` without one)."""
-    if mode == "brax":
-        return (env_state.info or {}).get("normalization_info")
-    return getattr(env_state, "normalization_info", None)
-
-
-def _force_reset(
-    agent_state: PPOState,
-    env_args: EnvironmentConfig,
-    mode: str,
-    expert_policy: Any = None,
-) -> PPOState:
-    """Reset every env on a fresh key (brax's ``num_resets_per_eval``).
-
-    The reset observations get their features (from fresh observer states)
-    and are normalised with the agent's running statistics, which they do
-    not count in. A reward normaliser in the env
-    stack keeps its running statistics: its reset restarts them, so the
-    saved ones are put back. The cut episodes are abandoned, not finished:
-    the next return starts from zero, and they are flagged truncated, so a
-    recurrent actor and critic restart their memory on the reset
-    observation, as at any episode start, and so does a stateful tracked
-    expert (the features of the reset observations read its initial state).
-    """
-    agent_state, reset_key = agent_state.next_keys()
-    saved = _normalisation_info(agent_state.collector_state.env_state, mode)
-    reset_keys = env_keys(reset_key, mode, env_args.n_envs)
-    new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
-    if saved is not None:
-        if mode == "brax":
-            info = {**new_env_state.info, "normalization_info": saved}
-            new_env_state = new_env_state.replace(info=info)
-        else:
-            new_env_state = new_env_state.replace(normalization_info=saved)
-    collector = agent_state.collector_state
-    observer_states = collector.observer_states
-    if env_args.observers:
-        new_obs, observer_states = reset_features(
-            new_obs,
-            new_env_state,
-            env_args,
-            mode,
-            expert_policy,
-            collector.train_time_fraction,
-        )
-    if env_args.store_normalized_obs:
-        new_obs = normalized_obs(
-            new_obs, collector.obs_norm_info, raw_obs_columns(env_args.env)
-        )
-    returns = agent_state.collector_state.episodic_return_state
-    returns = returns.replace(
-        cumulative_reward=jnp.zeros_like(returns.cumulative_reward)
-    )
-    new_collector = collector.replace(
-        _env_state=new_env_state,
-        last_obs=new_obs,
-        observer_states=observer_states,
-        episodic_return_state=returns,
-        last_truncated=jnp.ones_like(collector.last_truncated),
-    )
-    return agent_state.replace(collector_state=new_collector)
-
-
 def update_agent(
     agent_state: PPOState,
     rollout: Transition,
     start: PPOState,
     agent_config: PPOConfig,
-    env_args: EnvironmentConfig,
-    mode: str,
     recurrent: bool,
     extension_stack: ExtensionStack,
     total_timesteps: int,
-    total_n_updates: int,
-    expert_policy: Optional[Callable] = None,
 ) -> tuple[PPOState, AuxiliaryLogs]:
     """One PPO update on the ``(n_steps, n_envs)`` ``rollout`` collected
-    from ``start``: ``n_epochs`` passes over its minibatches, then brax's
-    periodic forced reset (the features read the tracked ``expert_policy``)."""
+    from ``start``: ``n_epochs`` passes over its minibatches."""
     n_steps, n_envs = rollout.obs.shape[:2]
     geometry = minibatch_geometry(agent_config, n_steps, n_envs, recurrent)
     actions, log_probs = rollout_actions(rollout)
@@ -654,7 +338,7 @@ def update_agent(
         }
     else:
         if recurrent:
-            agent_state, values, next_values, resets, carries = _recurrent_values(
+            agent_state, values, next_values, resets, carries = rollout_sequence_values(
                 agent_state, rollout, start, geometry.length
             )
             batch["resets"] = resets
@@ -707,7 +391,7 @@ def update_agent(
         if geometry.kind == "time":
             return get_minibatches_preserving_time(batch, key, k, length)
         if geometry.kind == "recurrent":
-            return _sequence_minibatches(batch, carries, key, k, length)
+            return sequence_minibatches(batch, carries, key, k, length)
         return get_minibatches_from_batch(batch, key, k)
 
     def minibatch_step(agent_state: PPOState, mb: dict) -> tuple[PPOState, Any]:
@@ -825,29 +509,6 @@ def update_agent(
     )
     agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
 
-    # brax's num_resets_per_eval: every env reset every reset_every updates.
-    # Playground envs draw a fresh initial state at every episode end by
-    # default (build_env_from_id(fresh_reset=True)); with fresh_reset=False
-    # their auto-reset replays the first reset state, and without these
-    # resets a run sees only n_envs initial conditions.
-    if agent_config.num_resets_per_eval > 0:
-        num_evals_after_init = max(int(agent_config.num_evals) - 1, 1)
-        reset_every = jnp.maximum(
-            1,
-            jnp.ceil(
-                total_n_updates
-                / (num_evals_after_init * agent_config.num_resets_per_eval)
-            ).astype(jnp.int32),
-        )
-        should_reset = (agent_state.n_updates % reset_every == 0) & (
-            agent_state.n_updates > 0
-        )
-        agent_state = jax.lax.cond(
-            should_reset,
-            lambda s: _force_reset(s, env_args, mode, expert_policy),
-            lambda s: s,
-            agent_state,
-        )
     return agent_state, aux
 
 
@@ -903,15 +564,9 @@ def make_train(
             rollout,
             start,
             agent_config,
-            env_args,
-            loop.mode,
             recurrent,
             loop.stack,
             total_timesteps,
-            # brax's reset cadence divides the whole training: the updates
-            # of one call over the run, from 0 to its horizon.
-            loop.n_rollouts(agent_config.n_steps, total_timesteps),
-            expert_policy,
         )
 
     return loop.on_policy(
@@ -920,8 +575,16 @@ def make_train(
         agent_config.n_steps,
         recurrent=recurrent,
         expose_rollout=agent_config.expose_recent_rollout,
+        forced_resets=(agent_config.num_resets_per_eval, agent_config.num_evals),
         eval_kwargs={
             "value_estimate": ValueEstimate(state_value, agent_config.gamma),
             "expert_policy": expert_policy,
         },
     )
+
+
+__getattr__ = moved_names(
+    __name__,
+    dict.fromkeys(("Geometry", "default_bptt_length"), "ajax.agents.minibatch")
+    | {"clip_global_norm": "ajax.agents.steps"},
+)

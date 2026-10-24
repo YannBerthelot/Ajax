@@ -7,6 +7,7 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
+from ajax.agents.critics import critic_loss_fn
 from ajax.agents.loop import TrainLoop, actor_step, critic_step, when
 from ajax.agents.recurrent import (
     RecurrentCarries,
@@ -16,13 +17,10 @@ from ajax.agents.recurrent import (
 )
 from ajax.agents.SAC import core
 from ajax.agents.SAC.action_pipeline import make_action_pipeline
-from ajax.agents.SAC.core import (
-    TemperatureAuxiliaries,
-    update_target_networks,
-    update_temperature,
-)
+from ajax.agents.SAC.core import TemperatureAuxiliaries, update_temperature
 from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
+from ajax.agents.steps import update_target_networks
 from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import executed_actions
 from ajax.evaluate import ValueEstimate
@@ -192,7 +190,7 @@ def update_value_functions(
         )
 
     def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
-        return core.critic_loss_fn(
+        return critic_loss_fn(
             params,
             agent_state.critic_state,
             transition.obs,

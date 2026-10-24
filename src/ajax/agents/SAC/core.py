@@ -23,6 +23,7 @@ from ajax.agents.recurrent import (
     stored_actor_carry_dim,
 )
 from ajax.agents.SAC.state import SoftACState
+from ajax.deprecation import moved_names
 from ajax.environments.interaction import init_collector_state
 from ajax.extensions.base import ExtensionStack
 from ajax.networks.networks import get_initialized_actor_critic
@@ -30,14 +31,6 @@ from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import BufferType
 
 S = TypeVar("S", bound=SoftACState)
-
-
-@struct.dataclass
-class CoreCriticAux:
-    critic_loss: jax.Array
-    q_pred_min: jax.Array
-    var_preds: jax.Array
-    q_gap: jax.Array  # mean (max - min) over the critics: |Q1 - Q2| for two
 
 
 @struct.dataclass
@@ -200,49 +193,6 @@ def soft_bellman_target(
     joint pass."""
     rewards = rewards * reward_scale
     return rewards + gamma * (1.0 - dones) * (next_q - alpha * next_log_probs)
-
-
-def critic_loss_fn(
-    critic_params: FrozenDict,
-    critic_state,
-    observations: jax.Array,
-    actions: jax.Array,
-    target_q: jax.Array,
-    carries: Optional[RecurrentCarries] = None,
-) -> Tuple[jax.Array, CoreCriticAux]:
-    """MSE critic loss against a pre-computed target.
-
-    The target_q is computed by compute_td_target + optional modifiers,
-    and must already be stop_gradient'd.
-    """
-    q_preds = q_values(
-        critic_state,
-        critic_params,
-        observations,
-        jax.lax.stop_gradient(actions),
-        carries,
-    )
-    return q_regression_loss(q_preds, target_q)
-
-
-def q_regression_loss(
-    q_preds: jax.Array, target_q: jax.Array
-) -> Tuple[jax.Array, CoreCriticAux]:
-    """The critics' mean squared error to the held ``target_q`` and its
-    logs, from their predictions ``q_preds`` (the ensemble axis first),
-    however the agent computed them: :func:`critic_loss_fn`'s pass or
-    CrossQ's joint one."""
-    var_preds = q_preds.var(axis=0, keepdims=True)
-
-    total_loss = jnp.mean((q_preds - target_q) ** 2)
-    q_pred_min = jnp.min(q_preds, axis=0)
-
-    return total_loss, CoreCriticAux(
-        critic_loss=total_loss,
-        q_pred_min=q_pred_min.mean().flatten(),
-        var_preds=var_preds.mean().flatten(),
-        q_gap=(jnp.max(q_preds, axis=0) - q_pred_min).mean().flatten(),
-    )
 
 
 def soft_policy_loss(
@@ -415,8 +365,11 @@ def update_temperature(
     return agent_state.replace(alpha=new_alpha_state), jax.lax.stop_gradient(aux)
 
 
-def update_target_networks(agent_state: S, tau: float) -> S:
-    """Polyak-average the target critics towards the critics."""
-    return agent_state.replace(
-        critic_state=agent_state.critic_state.soft_update(tau=tau)
+__getattr__ = moved_names(
+    __name__,
+    dict.fromkeys(
+        ("CoreCriticAux", "critic_loss_fn", "q_regression_loss"),
+        "ajax.agents.critics",
     )
+    | dict.fromkeys(("update_target_networks",), "ajax.agents.steps"),
+)

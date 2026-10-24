@@ -25,21 +25,17 @@ from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-import optax
 from flax import struct
 from jax.tree_util import Partial as partial
 
-from ajax.agents.DQN.networks import (
-    get_initialized_q_network,
-    predict_q,
-    q_network_value,
-)
+from ajax.agents.critics import ValueAuxiliaries, huber_1_td_loss, q_gradient_step
 from ajax.agents.DQN.state import DQNConfig, DQNState
-from ajax.agents.loop import TrainLoop, extension_key, gradient_step, when
+from ajax.agents.loop import TrainLoop, extension_key, when
 from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
+from ajax.deprecation import moved_names
 from ajax.environments.interaction import (
-    Explore,
+    epsilon_greedy,
     explore_pipeline,
     init_collector_state,
     reward_statistics,
@@ -48,8 +44,13 @@ from ajax.environments.utils import get_action_dim
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.q_networks import (
+    get_initialized_q_network,
+    predict_q,
+    q_network_value,
+)
 from ajax.perf_utils import final_aux_scan
-from ajax.schedule import Schedule, at, linear
+from ajax.schedule import linear
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -57,17 +58,6 @@ from ajax.state import (
     OptimizerConfig,
 )
 from ajax.types import BufferType
-
-
-@struct.dataclass
-class ValueAuxiliaries:
-    critic_loss: jax.Array
-    target_q: jax.Array
-    q_pred_mean: jax.Array
-    abs_td_error: jax.Array
-    # The loss builds these metrics before the gradient exists; the step
-    # fills it in.
-    grad_norm: jax.Array | float = jnp.nan
 
 
 @struct.dataclass
@@ -82,22 +72,6 @@ class AuxiliaryLogs:
     value: ValueAuxiliaries
     policy: PolicyAuxiliaries
     extensions: dict  # the extensions' training metrics
-
-
-def epsilon_greedy(epsilon: Schedule, n_actions: int) -> Explore:
-    """DQN's behaviour policy: with probability ``epsilon`` (a schedule of
-    the timestep) a uniform action, else the greedy one."""
-
-    def explore(pi: Any, key: jax.Array, step: jax.Array) -> jax.Array:
-        greedy_action = pi.mode()  # argmax_a Q(s, a)
-        explore_key, random_key = jax.random.split(key)
-        random_action = jax.random.randint(
-            random_key, shape=greedy_action.shape, minval=0, maxval=n_actions
-        ).astype(jnp.int32)
-        explore = jax.random.uniform(explore_key, shape=greedy_action.shape)
-        return jnp.where(explore < at(epsilon, step), random_action, greedy_action)
-
-    return explore
 
 
 def init_DQN(
@@ -183,104 +157,6 @@ def compute_double_dqn_td_target(
     q_next = jnp.take_along_axis(q_next_target, next_actions, axis=-1)
     target = rewards + gamma * (1.0 - dones) * q_next
     return jax.lax.stop_gradient(target)
-
-
-def mse_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
-    """Mean-squared TD error."""
-    return jnp.mean((q_taken - target_q) ** 2)
-
-
-def make_huber_td_loss(delta: float = 1.0) -> Callable:
-    """Build a Huber TD-loss callable.
-
-    Huber loss is quadratic within ``delta`` of zero error and linear
-    beyond it: its gradient is the TD error clipped to ``[-delta, delta]``,
-    the original DQN's clip (google-deepmind/dqn @9d9b1d1
-    NeuralQLearner.lua:224-226, ``clip_delta=1`` in run_gpu:31), DQN's
-    default at ``delta = 1``.
-    """
-
-    def huber_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
-        return jnp.mean(optax.huber_loss(q_taken, target_q, delta=delta))
-
-    return huber_td_loss
-
-
-#: DQN's default TD loss; one function, so jit's static-argument cache hits
-#: across runs.
-huber_1_td_loss = make_huber_td_loss(1.0)
-
-
-def q_loss_fn(
-    q_params,
-    q_state: LoadedTrainState,
-    observations: jax.Array,
-    actions: jax.Array,
-    target_q: jax.Array,
-    loss_fn: Callable,
-) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """TD loss between Q(s, a) at the taken action and a pre-computed target.
-
-    ``loss_fn(q_taken, target_q) -> scalar`` selects the error norm
-    (``huber_1_td_loss``, DQN's default, or ``mse_td_loss``).
-    """
-    q_all = predict_q(q_state, q_params, observations)
-    # actions is (batch, 1) int32 -> gather one Q-value per row.
-    q_taken = jnp.take_along_axis(q_all, actions, axis=-1)
-    loss = loss_fn(q_taken, target_q)
-    aux = ValueAuxiliaries(
-        critic_loss=loss.flatten(),
-        target_q=target_q.mean().flatten(),
-        q_pred_mean=q_taken.mean().flatten(),
-        abs_td_error=jnp.abs(q_taken - target_q).mean().flatten(),
-    )
-    return loss, aux
-
-
-def q_gradient_step(
-    agent_state: Any,
-    observations: jax.Array,
-    actions: jax.Array,
-    targets: jax.Array,
-    td_loss_fn: Callable,
-    extension_stack: ExtensionStack,
-    key: Optional[jax.Array],
-    total_timesteps: int,
-) -> Tuple[LoadedTrainState, ValueAuxiliaries, dict]:
-    """One step of the Q-network (``agent_state.actor_state``) down the TD
-    loss plus the extensions' critic-loss terms, folded on ``key`` (drawn
-    for them alone; ``None`` without extensions). Returns the stepped
-    Q-network, the loss's metrics, with the gradients' norm, and the
-    extensions' metrics."""
-    q_state = agent_state.actor_state
-
-    def loss_fn(params: Any) -> Tuple[jax.Array, Any]:
-        loss, aux = q_loss_fn(
-            params, q_state, observations, actions, targets, td_loss_fn
-        )
-        metrics: dict = {}
-        if extension_stack:
-            assert key is not None
-            batch = {
-                "observations": observations,
-                "actions": actions,
-                "targets": targets,
-                # At the parameters being differentiated, so the term has a
-                # gradient.
-                "q_state": q_state.replace(params=params),
-            }
-            extra, metrics = extension_stack.fold_critic_loss(
-                agent_state,
-                batch,
-                agent_state.collector_state.timestep,
-                key,
-                total_timesteps,
-            )
-            loss = loss + extra
-        return loss, (aux, metrics)
-
-    q_state, (aux, metrics), grad_norm = gradient_step(q_state, loss_fn)
-    return q_state, aux.replace(grad_norm=grad_norm), metrics
 
 
 @partial(
@@ -473,3 +349,11 @@ def make_train(
             )
         },
     )
+
+
+__getattr__ = moved_names(
+    __name__,
+    dict.fromkeys(
+        ("make_huber_td_loss", "mse_td_loss", "q_loss_fn"), "ajax.agents.critics"
+    ),
+)

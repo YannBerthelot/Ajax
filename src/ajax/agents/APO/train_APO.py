@@ -19,28 +19,29 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.APO.state import APOConfig, APOState
+from ajax.agents.diagnostics import approximate_kl, explained_variance, mean_policy_std
 from ajax.agents.loop import TrainLoop, extension_key
-from ajax.agents.PPO.core import (
-    AuxiliaryLogs,
-    PolicyAuxiliaries,
-    approximate_kl,
-    clipped_surrogate,
-    explained_variance,
-    mean_policy_std,
-    policy_entropy,
-    recompute_log_prob,
-    resolve_clip_coef,
+from ajax.agents.minibatch import (
+    get_minibatches_from_batch,
     resolve_num_minibatches,
     rollout_actions,
     run_epochs,
 )
+from ajax.agents.PPO.core import (
+    AuxiliaryLogs,
+    PolicyAuxiliaries,
+    clipped_surrogate,
+)
 from ajax.agents.PPO.core import ValueAuxiliaries as PPOValueAuxiliaries
-from ajax.agents.PPO.train_PPO import init_PPO, joint_step
-from ajax.agents.PPO.utils import _compute_gae, get_minibatches_from_batch
+from ajax.agents.PPO.train_PPO import init_PPO
+from ajax.agents.PPO.utils import _compute_gae
+from ajax.agents.steps import joint_step
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.distributions import policy_entropy, recompute_log_prob
 from ajax.networks.networks import predict_value
+from ajax.schedule import at
 from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
@@ -202,7 +203,7 @@ def update_networks(
             actions=minibatch["actions"],
             log_probs=minibatch["log_probs"],
             gae=minibatch["gae"],
-            clip_coef=resolve_clip_coef(agent_config, timestep),
+            clip_coef=at(agent_config.clip_range, timestep),
             ent_coef=agent_config.ent_coef,
             raw_actions=minibatch["raw_actions"],
             entropy_key=minibatch["entropy_key"],

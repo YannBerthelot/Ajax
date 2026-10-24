@@ -5,9 +5,9 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES
-from ajax.agents.PPO.core import resolve_num_minibatches
+from ajax.agents.minibatch import minibatch_geometry, resolve_num_minibatches
 from ajax.agents.PPO.state import PPOConfig
-from ajax.agents.PPO.train_PPO import make_train, minibatch_geometry
+from ajax.agents.PPO.train_PPO import make_train
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import CNNSpec
@@ -228,7 +228,7 @@ class PPO(ActorCritic):
 
         # ppo2's optimiser (baselines ea25b9e ppo2/model.py:100-107): Adam
         # with eps 1e-5, its gradient clipped once over both networks (the
-        # config's max_grad_norm, train_PPO.joint_step), so neither
+        # config's max_grad_norm, steps.joint_step), so neither
         # network's own optimiser clips.
         joint = {"eps": adam_eps, "max_grad_norm": None}
         self.actor_optimizer_args = self.actor_optimizer_args.replace(**joint)

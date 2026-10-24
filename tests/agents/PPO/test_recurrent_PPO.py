@@ -123,6 +123,7 @@ def test_a_time_limit_bootstraps_on_its_own_episode():
     the values the sequence pass does."""
     import numpy as np
 
+    from ajax.agents import recurrent
     from ajax.agents.PPO import train_PPO
     from ajax.networks.networks import predict_value_sequence
     from ajax.state import Transition
@@ -158,7 +159,7 @@ def test_a_time_limit_bootstraps_on_its_own_episode():
         log_prob=zeros,
         raw_action=zeros,
     )
-    _, values, next_values, resets, _ = train_PPO._recurrent_values(
+    _, values, next_values, resets, _ = recurrent.rollout_sequence_values(
         state, rollout, state, length=4
     )
     critic, carry = state.critic_state, state.critic_state.hidden_state

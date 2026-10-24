@@ -373,7 +373,7 @@ class BiasVoreDecomposition(Extension):
         obs, act, reward, next_obs, done = transitions
         kind = _critic_kind(agent_state, obs, act, rng)
         if kind == "qnet":
-            from ajax.agents.DQN.networks import predict_q
+            from ajax.networks.q_networks import predict_q
 
             q_state = agent_state.actor_state
             q_values = predict_q(q_state, q_state.params, obs)
@@ -521,7 +521,7 @@ class BiasVorePenalty(Extension):
         if q_state is not None and actions is not None:
             # Reuse the agent's predict_q -> gather to keep numerics aligned
             # with the agent's q_taken.
-            from ajax.agents.DQN.networks import predict_q
+            from ajax.networks.q_networks import predict_q
 
             q_all = predict_q(q_state, q_state.params, obs)
             # Match q_loss_fn's gather convention: actions may carry a

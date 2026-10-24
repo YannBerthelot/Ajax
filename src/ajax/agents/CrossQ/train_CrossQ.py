@@ -17,6 +17,7 @@ import jax.numpy as jnp
 from flax import struct
 from flax.serialization import to_state_dict
 
+from ajax.agents.critics import CoreCriticAux, q_regression_loss
 from ajax.agents.CrossQ.state import CrossQConfig, CrossQState
 from ajax.agents.loop import (
     TrainLoop,
@@ -28,7 +29,7 @@ from ajax.agents.loop import (
 )
 from ajax.agents.recurrent import actor_dist_train, sample_replay
 from ajax.agents.SAC import core
-from ajax.agents.SAC.core import CoreCriticAux, TemperatureAuxiliaries
+from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import executed_fn
 from ajax.evaluate import ValueEstimate
@@ -147,7 +148,7 @@ def update_critics(
         target, target_metrics = fold_on_target(
             stack, agent_state, batch, target, key, total_timesteps, **target_args
         )
-        loss, aux = core.q_regression_loss(q_now, target)
+        loss, aux = q_regression_loss(q_now, target)
         extra, loss_metrics = fold_critic_loss(
             stack, agent_state, batch, params, target, key, total_timesteps
         )

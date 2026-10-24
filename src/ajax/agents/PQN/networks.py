@@ -15,8 +15,8 @@ import flax.linen as nn
 import jax
 from flax.linen.initializers import lecun_normal
 
-from ajax.agents.DQN.networks import GreedyQPolicy
 from ajax.networks.networks import CNNEncoder, CNNSpec
+from ajax.networks.q_networks import GreedyQPolicy
 from ajax.networks.utils import dense, parse_activation
 from ajax.types import ActivationFunction, InitializationFunction
 

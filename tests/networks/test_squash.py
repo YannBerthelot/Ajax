@@ -11,8 +11,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.TD3.networks import DeterministicActor
 from ajax.environments.create import prepare_env
+from ajax.networks.deterministic import DeterministicActor
 from ajax.networks.distributions import (
     Deterministic,
     Squash,

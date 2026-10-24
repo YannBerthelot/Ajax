@@ -27,7 +27,7 @@ import numpy as np
 from flax import serialization
 
 from ajax.agents.APO.state import APOState
-from ajax.agents.PPO.state import PPOState
+from ajax.state import BaseAgentState
 
 
 def _to_host_numpy(state: Any) -> Any:
@@ -240,11 +240,12 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
 def _took_a_joint_clip(skeleton: Any) -> bool:
     """Whether ``skeleton`` is a PPO's or an APO's state, the two agents
     whose networks each clipped their own gradient until one clip over both
-    took its place (``train_PPO.joint_step``). PPO's state is
-    ``BaseAgentState`` itself (``PPOState``); every other agent has its own
+    took its place (``steps.joint_step``). PPO's state is
+    ``BaseAgentState`` itself (``PPOState`` is an alias of it), so the base
+    class names it without importing an agent; every other agent has its own
     state class. Another agent's optimiser saved behind a clip is refused,
     as flax refuses any other optimiser layout."""
-    return type(skeleton) is PPOState or isinstance(skeleton, APOState)
+    return type(skeleton) is BaseAgentState or isinstance(skeleton, APOState)
 
 
 def _without_removed_fields(skeleton: Any, saved: Any) -> Any:
@@ -312,7 +313,7 @@ def _without_own_gradient_clip(skeleton: Any, saved: Any) -> Any:
     holds an empty state) the layout of the unclipped optimiser restoring
     it. The clip holds no data, so every moment and step count is kept.
     PPO's and APO's networks clipped their own gradients until each took its
-    reference code's one clip over both (``train_PPO.joint_step``); only
+    reference code's one clip over both (``steps.joint_step``); only
     their states take it (:func:`_took_a_joint_clip`).
 
     Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as

@@ -18,6 +18,7 @@ import jax.numpy as jnp
 from flax import struct
 from flax.core import FrozenDict
 
+from ajax.agents.critics import critic_loss_fn
 from ajax.agents.loop import TrainLoop, actor_step, critic_step, when
 from ajax.agents.recurrent import (
     RecurrentCarries,
@@ -27,8 +28,6 @@ from ajax.agents.recurrent import (
     stored_actor_carry_dim,
     unsupported_recurrent_options,
 )
-from ajax.agents.SAC.core import critic_loss_fn
-from ajax.agents.TD3.networks import get_initialized_td3_actor_critic
 from ajax.agents.TD3.state import TD3Config, TD3State
 from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import critic_action_units, executed_fn
@@ -40,6 +39,7 @@ from ajax.environments.interaction import (
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.networks.deterministic import get_initialized_td3_actor_critic
 from ajax.networks.networks import action_value
 from ajax.schedule import Schedule, at
 from ajax.state import (

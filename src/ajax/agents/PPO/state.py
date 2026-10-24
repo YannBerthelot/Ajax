@@ -39,7 +39,7 @@ class PPOConfig(BaseAgentConfig):
     # splits into (n_steps / bptt_length) contiguous sequences whose
     # start carries are recomputed chunk-wise with the current params
     # (never zero-initialized mid-episode — that variant demonstrably
-    # hurts). None derives it from the minibatches (train_PPO's
+    # hurts). None derives it from the minibatches (ajax.agents.minibatch's
     # default_bptt_length): whole rollouts when n_envs is a multiple of
     # num_minibatches. An explicit value must divide that default.
     # docs/guide/memory.md says why and how to set it. Ignored by

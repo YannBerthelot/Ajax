@@ -66,10 +66,10 @@ class DQN(ActorCritic):
         # (from train_DQN) for Double DQN.
         td_target_fn: Optional[Callable] = None,
         # TD loss: None -> huber_1_td_loss (the reference's TD-error clip).
-        # Pass mse_td_loss (from train_DQN) for the squared error.
+        # Pass mse_td_loss (from ajax.agents.critics) for the squared error.
         td_loss_fn: Optional[Callable] = None,
         # Q-network module: None -> QNetwork. Pass DuelingQNetwork
-        # (from DQN.networks) for the dueling architecture.
+        # (from ajax.networks.q_networks) for the dueling architecture.
         q_network_cls: Optional[type] = None,
         # CNN encoder for image observations -- see NetworkConfig.cnn_image_shape.
         cnn_image_shape: Optional[Tuple[int, int, int]] = None,

@@ -26,10 +26,10 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from ajax.agents.critics import critic_loss_fn
 from ajax.agents.IQL.state import IQLConfig, IQLState
 from ajax.agents.loop import TrainLoop, actor_step, critic_step, gradient_step
 from ajax.agents.recurrent import q_values, sample_replay
-from ajax.agents.SAC.core import critic_loss_fn
 from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import executed_fn
 from ajax.environments.interaction import (

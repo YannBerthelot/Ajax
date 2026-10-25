@@ -122,7 +122,9 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
         state along the trajectory (expert_collect_kwargs)."""
         continuous, n_envs = context.env_args.continuous, context.env_args.n_envs
 
-        def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
+        def pipeline(
+            agent_state, acting, raw_obs, collector_key, uniform, mix_key, action_key
+        ):
             del raw_obs, uniform, action_key
             actor = agent_state.actor_state
             pi = get_pi(actor, actor.params, acting.obs)[0]
@@ -140,7 +142,7 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
                 is_expert_flag=use_expert.astype(jnp.float32),
                 in_value_box=zeros,
                 entry_bonus=zeros,
-                rng=rng,
+                rng=collector_key,
                 buffer_action=action,
                 a_expert=a_expert,
             )

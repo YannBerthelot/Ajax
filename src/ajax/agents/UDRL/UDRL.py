@@ -199,7 +199,7 @@ class UDRL(
         env_args, n_envs = context.env_args, context.env_args.n_envs
         mode = env_args.mode
         collector = agent_state.collector_state
-        rng, action_key, step_key = jax.random.split(agent_state.rng, 3)
+        training_key, action_key, step_key = jax.random.split(agent_state.rng, 3)
         step_keys = env_keys(step_key, mode, n_envs)
         last_obs = collector.last_obs  # (n_envs, env's columns + 2)
         # The observation statistics take each observation once, when it is
@@ -254,7 +254,7 @@ class UDRL(
         done = done.astype(jnp.float32)
         # A fresh exploratory command per env at an episode's end
         # (Algorithm 5): d_r ~ U(R_target, R_target + R_std), d_h = H_target.
-        rng, explore_key = jax.random.split(rng)
+        training_key, explore_key = jax.random.split(training_key)
         explore_noise = jax.random.uniform(
             explore_key, shape=(n_envs,), minval=0.0, maxval=1.0
         )
@@ -298,7 +298,7 @@ class UDRL(
             collector.episodic_return_state, paid, done > 0
         )
         collector = collector.replace(
-            rng=rng,
+            rng=training_key,
             _env_state=new_env_state,
             last_obs=new_last_obs,
             timestep=collector.timestep + n_envs,
@@ -310,7 +310,7 @@ class UDRL(
         if expert_state is not None:
             collector = collector.replace(expert_state=expert_state)
         agent_state = agent_state.replace(
-            collector_state=collector, actor_state=new_actor_state, rng=rng
+            collector_state=collector, actor_state=new_actor_state, rng=training_key
         )
         return agent_state, transition
 
@@ -361,8 +361,8 @@ class UDRL(
         # A third key for the extensions: split(k, 3)[:2] is split(k) under
         # JAX's default partitionable threefry, so the agent's own draws are
         # unchanged.
-        rng, training_key, extensions_key = jax.random.split(agent_state.rng, 3)
-        agent_state = agent_state.replace(rng=rng)
+        next_key, fit_key, extensions_key = jax.random.split(agent_state.rng, 3)
+        agent_state = agent_state.replace(rng=next_key)
 
         def fit_batch(
             agent_state: UDRLState, keys: tuple[jax.Array, jax.Array]
@@ -410,7 +410,7 @@ class UDRL(
 
         n_updates = self.n_updates_per_iter
         keys = (
-            jax.random.split(training_key, n_updates),
+            jax.random.split(fit_key, n_updates),
             jax.random.split(extensions_key, n_updates),
         )
         agent_state, (losses, update_metrics) = jax.lax.scan(

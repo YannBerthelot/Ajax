@@ -471,6 +471,25 @@ def test_a_checkpoint_missing_a_data_field_still_fails(sac_run, tmp_path):
 
 
 @struct.dataclass
+class _WithExtensions:
+    params: jax.Array
+    ext_state: tuple = ()
+
+
+def test_a_checkpoint_saved_before_a_stateless_extension_joined_restores(tmp_path):
+    """A stateless extension appended to a stack (SAC's expert prefill, as
+    ExpertPrefill) has an empty entry in ext_state: a checkpoint saved
+    without it restores. An entry holding data stays required."""
+    path = str(tmp_path / "before.pkl")
+    save_checkpoint(_WithExtensions(jnp.ones(2)), path)
+    restored = restore_into(_WithExtensions(jnp.zeros(2), ext_state=((),)), path)
+    assert restored.ext_state == ((),)
+    np.testing.assert_array_equal(restored.params, 1.0)
+    with pytest.raises(ValueError, match="ext_state"):
+        restore_into(_WithExtensions(jnp.zeros(2), ext_state=(jnp.zeros(1),)), path)
+
+
+@struct.dataclass
 class _Slim:
     """A state class that deleted its field ``gone``."""
 

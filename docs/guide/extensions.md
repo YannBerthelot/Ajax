@@ -9,10 +9,11 @@ listed in the [catalogue](#catalogue) below.
 Why extensions instead of agent options? An agent's constructor takes its
 paper's hyperparameters plus `extensions=()`. The exceptions are
 `expert_policy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, DAgger), whose return each evaluation
-logs, and a few SAC options (its expert's prefill and warm-up mix,
-`store_policy_action`), kept because they change the
-collection or the action pipeline, which extensions do not reach yet
-([SAC](../algorithms/sac.md#expert-options)). Observation features (an
+logs, and a few SAC options (`store_policy_action`), kept because they
+change the collection or the action pipeline, which extensions do not reach
+yet ([SAC](../algorithms/sac.md#expert-options)). SAC's expert prefill and
+warm-up mix are the `ExpertPrefill` and `ExpertWarmup` extensions, which its
+deprecated keywords still build. Observation features (an
 expert's action or state, the training progress) are extensions too:
 `ajax.extensions.observe`, on every agent that collects with the shared
 collector. A feature written into
@@ -326,10 +327,10 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | --- | --- | --- | --- |
 | `CloningPretrain` | Rolls the expert out for `n_steps` steps per copy and trains the actor to reproduce its actions (`epochs` passes in batches of `batch_size`, at the actor's learning rate); the agent's observation statistics start from the dataset's. Logs the mean loss of its first and last epoch, `cloning/first_loss` and `cloning/last_loss`. | `pretrain`, `eval_metrics` | SAC, TD3, REDQ, ASAC, AVG, APO, DAgger (other agents refuse it when built) |
 | `MCPretrain` | Rolls the expert out, fits `φ*` to its Monte-Carlo returns, records its value range, and by default nudges the agent's own critic towards it. Logs the range, `mc_pretrain/v_min` and `mc_pretrain/v_max`, and the fit: its first and last loss, `mc_pretrain/first_loss` and `mc_pretrain/last_loss`, and `φ*`'s mean value at the expert's actions, `mc_pretrain/q_expert_mean`. | `pretrain`, `eval_metrics` | SAC (other agents refuse it when built) |
-| `BellmanPretrain` | Runs `n_steps` ordinary critic updates on the replay buffer, which holds the expert's prefill, before training. Its values bootstrap from an untrained critic; kept for ablations. Logs the critic loss of its first and last update, `bellman_pretrain/first_loss` and `bellman_pretrain/last_loss`. | `pretrain`, `eval_metrics` | SAC with an expert |
+| `BellmanPretrain` | Runs `n_steps` ordinary critic updates on the replay buffer before training, once `ExpertPrefill` or `PriorData` has filled it. Its values bootstrap from an untrained critic; kept for ablations. Logs the critic loss of its first and last update, `bellman_pretrain/first_loss` and `bellman_pretrain/last_loss`. | `pretrain`, `eval_metrics` | SAC with `ExpertPrefill` or `PriorData` |
 | `PhiRefresh` | Every `interval` steps, refits `φ*` for `steps` updates on the replay rows where the expert acted. | `post_update` | SAC with an expert and `MCPretrain` |
 | `PriorData` | Adds a transition dataset (`ajax.buffers.dataset`) to the replay, where it stays, and to the observation and reward statistics, then runs `offline_updates` of the agent's own update on it before acting. Pair it with `learning_starts=0`. | `pretrain` | SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN (other agents refuse it when built) |
-| `ExpertPrefill` | The agent's expert acts `n_steps` steps in every copy before training, and its transitions go to the replay as collection writes its own, flagged as expert rows. They count in no normaliser and no timestep. It runs before the other pre-training, which may read its rows. | `pretrain` | SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL with an `expert_policy` |
+| `ExpertPrefill` | The agent's expert acts `n_steps` steps in every copy before training, and its transitions go to the replay as collection writes its own, flagged as expert rows. They count once in the observation and reward statistics, as `PriorData`'s do, and in no timestep. It runs before the other pre-training, which may read its rows. | `pretrain` | SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL with an `expert_policy` |
 
 **Offline RL** (`ajax.extensions.offline`)
 

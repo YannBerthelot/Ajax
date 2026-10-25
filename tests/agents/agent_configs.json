@@ -687,7 +687,7 @@
    "env_params": null,
    "episode_length": null,
    "eval_expert_policy": null,
-   "expert_buffer_n_steps": 20000,
+   "expert_buffer_n_steps": null,
    "expert_fraction": null,
    "expert_policy": null,
    "extensions": [],

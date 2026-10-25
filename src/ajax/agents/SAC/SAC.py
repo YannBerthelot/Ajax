@@ -33,10 +33,10 @@ class SAC(ActorCritic):
     The extensions keyword is the sole surface for composing research
     features. A few keywords remain because they thread into collection or
     the action pipeline at a level the extension framework does not reach
-    (store_policy_action). The deprecated ones (the augmentation keywords,
-    use_pid_policy, normalize_obs_running, jsrl_curriculum,
-    skip_critic_pretrain) warn and build what replaces them, in
-    ajax.agents.SAC.deprecated_keywords.
+    (store_policy_action). The deprecated ones (expert_buffer_n_steps,
+    expert_fraction, the augmentation keywords, use_pid_policy,
+    normalize_obs_running, jsrl_curriculum, skip_critic_pretrain) warn and
+    build what replaces them, in ajax.agents.SAC.deprecated_keywords.
     """
 
     name: str = "SAC"
@@ -148,9 +148,11 @@ class SAC(ActorCritic):
         fixed_alpha: bool = False,
         num_critics: int = 2,
         num_critic_updates: int = 1,
-        # Expert prefill: steps of expert_policy per env written to the
-        # replay buffer before training.
-        expert_buffer_n_steps: int = 20_000,
+        # Deprecated: steps of expert_policy per env written to the replay
+        # before training, now ExpertPrefill(n_steps) in extensions. None,
+        # with an expert, is 20 000, until B7
+        # (deprecated_keywords.prefill_extension).
+        expert_buffer_n_steps: Optional[int] = None,
         # Obs augmentation: changes init_SAC / collect_experience
         # network input dim.
         augment_obs_with_expert_action: bool = False,
@@ -197,6 +199,7 @@ class SAC(ActorCritic):
             extensions=extensions,
             learning_starts=learning_starts,
             expert_fraction=expert_fraction,
+            expert_buffer_n_steps=expert_buffer_n_steps,
             normalize_observations=normalize_observations,
             normalize_obs_running=normalize_obs_running,
             use_train_frac=use_train_frac,
@@ -300,7 +303,6 @@ class SAC(ActorCritic):
             "fixed_alpha": fixed_alpha,
             "num_critics": num_critics,
             "num_critic_updates": num_critic_updates,
-            "expert_buffer_n_steps": expert_buffer_n_steps,
             "policy_update_start": policy_update_start,
             "alpha_update_start": alpha_update_start,
             "store_policy_action": store_policy_action,

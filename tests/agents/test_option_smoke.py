@@ -240,7 +240,9 @@ EXCLUSIVE = [
     # warm-up chooser yet.
     ({"use_pid_policy", "ExpertGains"}, {"ExpertWarmup"}),
     # A feature and the deprecated keyword making it would widen the
-    # observation twice under one name.
+    # observation twice under one name; SAC refuses a prefill next to the
+    # keyword building one.
+    ({"ExpertPrefill"}, {"expert_buffer_n_steps"}),
     ({"ExpertActionInput"}, {"augment_obs_with_expert_action"}),
     ({"ExpertStateInput"}, {"augment_obs_with_expert_state"}),
     ({"TrainingProgressInput"}, {"use_train_frac"}),
@@ -309,6 +311,8 @@ def _build(name: str, row: frozenset[str]) -> Any:
     case, params = TABLE[name], inspect.signature(TABLE[name].cls).parameters
     kw = dict(case.kwargs)
     kw.update({k: v for k, v in BASE.items() if k in params})
+    if "ExpertPrefill" in row:  # SAC refuses it next to its keyword, even 0
+        kw.pop("expert_buffer_n_steps", None)
     for option in sorted(row.intersection(OPTIONS)):
         kw.update(OPTIONS[option])
     env = kw.pop("env_id", None)

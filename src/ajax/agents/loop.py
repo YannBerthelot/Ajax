@@ -55,7 +55,6 @@ from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 from jax.tree_util import Partial as partial
 
 # The step verbs are steps.py's; the agents import them from here until
@@ -224,28 +223,61 @@ def seed_replay(
 ) -> Any:
     """``agent_state`` with ``data``'s rows in its replay, where they stay
     (:func:`ajax.buffers.dataset.fill_replay`), and in the normalisers it
-    has, each row counted once as collection counts its own: its own
-    observation statistics, mirrored on its networks, and the env's reward
-    statistics, of the reward or, with the normaliser's ``gamma``, of the
-    discounted return of the episode so far (its running return left as it
-    is)."""
+    has (count_in_normalisers)."""
     collector = agent_state.collector_state
     collector = collector.replace(
         buffer_state=fill_replay(buffer, collector.buffer_state, data)
     )
-    env = env_args.env
-    _, obs_stats = update_obs_norm(
-        jnp.asarray(data.obs), collector.obs_norm_info, raw_obs_columns(env)
+    agent_state = agent_state.replace(collector_state=collector)
+    return count_in_normalisers(
+        agent_state, data.obs, data.reward, data.terminated, data.truncated, env_args
     )
-    collector = collector.replace(obs_norm_info=obs_stats)
+
+
+def count_in_normalisers(
+    agent_state: Any,
+    obs: Any,
+    rewards: Any,
+    terminated: Any,
+    truncated: Any,
+    env_args: EnvironmentConfig,
+) -> Any:
+    """The agent state with rows written to its replay before training
+    counted in the normalisers it has, each row once, as collection counts
+    its own: their observations in its own observation statistics, mirrored
+    on its networks, and in the env's reward statistics the reward or, with
+    the normaliser's gamma, the discounted return of the episode so far (its
+    running return left as it is). Time runs along the first axis of the
+    rewards and the episode ends, the envs along the others; the
+    observations keep their columns last. A normaliser the agent lacks
+    costs nothing."""
+    collector = agent_state.collector_state
+    env = env_args.env
+    if collector.obs_norm_info is not None:
+        obs = jnp.asarray(obs)
+        _, obs_stats = update_obs_norm(
+            obs.reshape(-1, obs.shape[-1]),
+            collector.obs_norm_info,
+            raw_obs_columns(env),
+        )
+        collector = collector.replace(obs_norm_info=obs_stats)
     stats = reward_statistics(collector.env_state)
     if stats is not None:
         gamma = strip_ajax_wrappers(env)[1].get("gamma") or 0.0
-        returns, g = np.zeros_like(data.reward), 0.0
-        for t, end in enumerate(data.terminated | data.truncated):
-            g = data.reward[t] + gamma * g
-            returns[t], g = g, 0.0 if end else g
-        returns = jnp.asarray(returns)[:, None]
+        ends = jnp.logical_or(jnp.asarray(terminated), jnp.asarray(truncated))
+
+        # The reward normaliser's running return, as the env's normaliser
+        # steps through the rows: restarted after each episode's end.
+        def add_reward(running: jax.Array, row: tuple) -> tuple[jax.Array, jax.Array]:
+            reward, end = row
+            running = reward + gamma * running
+            return jnp.where(end, 0.0, running), running
+
+        rewards = jnp.asarray(rewards, jnp.float32)
+        _, returns = jax.lax.scan(
+            add_reward, jnp.zeros_like(rewards[0]), (rewards, ends)
+        )
+        returns = returns.reshape(-1, 1)
         _, count, mean, mean_2, var = online_normalize(
             returns,
             stats.count,
@@ -852,6 +884,7 @@ __all__ = [
     "apply_critic_loss",
     "apply_on_target",
     "apply_post_update",
+    "count_in_normalisers",
     "critic_step",
     "extension_key",
     "fold_critic_loss",

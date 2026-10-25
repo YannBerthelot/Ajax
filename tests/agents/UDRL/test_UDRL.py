@@ -5,10 +5,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.UDRL import train_UDRL
-from ajax.agents.UDRL.train_UDRL import init_UDRL
+from ajax.agents.UDRL import UDRL as udrl_file
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.environments.utils import get_state_action_shapes
+from ajax.extensions.capabilities import NotWired
+from ajax.networks.networks import CNNSpec
 
 
 def test_UDRL_train_updates_actor_params():
@@ -21,14 +22,8 @@ def test_UDRL_train_updates_actor_params():
     state, _ = agent.train(seed=42, n_timesteps=32)
     # The run initialises on the first half of its seed's key (TrainLoop's
     # fresh_state); train(n_timesteps=0) would still run one iteration.
-    initial = init_UDRL(
-        key=jax.random.split(jax.random.PRNGKey(42))[0],
-        env_args=agent.env_args,
-        actor_optimizer_args=agent.actor_optimizer_args,
-        critic_optimizer_args=agent.critic_optimizer_args,
-        network_args=agent.network_args,
-        agent_config=agent.agent_config,
-    )
+    key = jax.random.split(jax.random.PRNGKey(42))[0]
+    initial = agent.init(key, agent.make_context(32)[1])
 
     def any_diff(a, b):
         leaves_a = jax.tree_util.tree_leaves(a)
@@ -49,7 +44,7 @@ def test_the_actor_sees_the_command_scaled_once_when_acting_and_training(
     by (command_scale_r, command_scale_h) = (0.04, 0.01) at both of its
     sites, once (paper, appendix): acting on the first step and fitting a
     batch that holds the raw command."""
-    seen, get_pi = [], train_UDRL.get_pi
+    seen, get_pi = [], udrl_file.get_pi
     raw = np.array(
         [1.0, 0.5, -0.5, 3.0, 8.0], np.float32
     )  # Pendulum's obs, then (3, 8)
@@ -61,8 +56,8 @@ def test_the_actor_sees_the_command_scaled_once_when_acting_and_training(
     def batch(key, buffer, stream, size):
         return jnp.tile(jnp.asarray(raw), (size, 1)), jnp.zeros((size, 1))
 
-    monkeypatch.setattr(train_UDRL, "get_pi", recording)
-    monkeypatch.setattr(train_UDRL, "sample_training_batch", batch)
+    monkeypatch.setattr(udrl_file, "get_pi", recording)
+    monkeypatch.setattr(udrl_file, "sample_training_batch", batch)
     agent = UDRL(
         env_id="Pendulum-v1",
         n_envs=1,
@@ -174,3 +169,34 @@ def test_UDRL_gamma_discounts_only_its_diagnostic():
         np.asarray(discounted_logs["Train/mean_rtg"]),
     )
     assert np.isfinite(rtg[0]).any() and (rtg[1] < rtg[0])[np.isfinite(rtg[0])].all()
+
+
+def test_UDRL_reads_an_image_and_its_features_beside_the_command():
+    """A flat image (CartPole's first three observations as a 1 x 1 x 3
+    image), one feature after it (cnn_extra_obs_dim) and the (d_r, d_h)
+    command UDRL appends: the CNN reads the image, the feature and the
+    command join its embedding."""
+    spec = CNNSpec(channels=(4,), kernel_sizes=(1,), strides=(1,), feature_dim=8)
+    agent = UDRL(
+        env_id="CartPole-v1",
+        cnn_image_shape=(1, 1, 3),
+        cnn_extra_obs_dim=1,
+        cnn_spec=spec,
+        n_steps=4,
+        batch_size=4,
+        n_updates_per_iter=1,
+        buffer_capacity=2,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=8)
+    shapes = [leaf.shape[1:] for leaf in jax.tree.leaves(state.actor_state.params)]
+    assert (1, 1, 3, 4) in shapes  # the convolution reads the image's channels
+    assert state.collector_state.last_obs.shape[-1] == 4 + 2
+
+
+def test_UDRL_refuses_what_it_cannot_run():
+    """No dataset (its replay holds its own segments), and no
+    eval_expert_policy until its evaluation reads one."""
+    with pytest.raises(ValueError, match="cannot train offline"):
+        UDRL(env_id="Pendulum-v1").train_offline(dataset=None, n_updates=1)
+    with pytest.raises(NotWired, match="eval_expert_policy"):
+        UDRL(env_id="Pendulum-v1", eval_expert_policy=lambda obs: obs[..., :1])

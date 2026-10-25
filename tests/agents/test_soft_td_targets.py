@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from ajax import ASAC, REDQ, SAC
-from ajax.agents.ASAC.train_ASAC import compute_asac_td_target
+from ajax.agents.ASAC.ASAC import compute_asac_td_target
 from ajax.agents.REDQ.REDQ import compute_redq_td_target
 from ajax.agents.SAC.SAC import compute_td_target, sample_next_actions
 from ajax.networks.networks import action_value_input, predict_value

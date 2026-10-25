@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.ASAC import train_ASAC
+import ajax.agents.ASAC.ASAC as asac_module
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.networks.distributions import GuardedTanh
 from ajax.networks.networks import get_initialized_actor_critic, predict_value
@@ -68,13 +68,32 @@ def test_tau_theta_alone_moves_theta_and_the_penalty():
     assert np.all(moved[0].theta != 0.0)
 
 
+def test_the_penalty_reads_the_agents_p_0_and_tau_theta(monkeypatch):
+    """The termination penalty moves at ASAC's own tau_theta towards its own
+    p_0 times the rows' reward (a penalty dropping either still trains, on
+    the wrong values)."""
+    seen: list = []
+    penalty = asac_module.compute_episode_termination_penalty
+
+    def spy(previous, rewards, terminated, p_0, tau):
+        seen.append((p_0, tau))
+        return penalty(previous, rewards, terminated, p_0, tau)
+
+    monkeypatch.setattr(asac_module, "compute_episode_termination_penalty", spy)
+    net = ("8", "relu")
+    kw = {"actor_architecture": net, "critic_architecture": net, "batch_size": 4}
+    agent = ASAC("Pendulum-v1", learning_starts=4, p_0=3.0, tau_theta=0.5, **kw)
+    agent.train(seed=0, n_timesteps=8)
+    assert seen and set(seen) == {(3.0, 0.5)}
+
+
 def test_temperature_and_theta_read_the_actors_own_sample(monkeypatch):
     """The temperature and the reward-rate (theta) steps read the sample
     the actor's loss drew, before its step, as the authors' code
     (BobMak/asac @4b68862, darer/ASAC.py:146-213): no other draw."""
     seen, drawn = [], []
-    temperature, theta = train_ASAC.update_temperature, train_ASAC.update_theta
-    policy = train_ASAC.update_policy
+    temperature, theta = asac_module.update_temperature, asac_module.update_theta
+    policy = ASAC.update_actor
 
     def policy_spy(*args, **kwargs):
         out = policy(*args, **kwargs)
@@ -89,9 +108,9 @@ def test_temperature_and_theta_read_the_actors_own_sample(monkeypatch):
         seen.append(args[3])
         return theta(*args)
 
-    monkeypatch.setattr(train_ASAC, "update_policy", policy_spy)
-    monkeypatch.setattr(train_ASAC, "update_temperature", temperature_spy)
-    monkeypatch.setattr(train_ASAC, "update_theta", theta_spy)
+    monkeypatch.setattr(ASAC, "update_actor", policy_spy)
+    monkeypatch.setattr(asac_module, "update_temperature", temperature_spy)
+    monkeypatch.setattr(asac_module, "update_theta", theta_spy)
     net = ("8", "relu")
     agent = ASAC(
         "Pendulum-v1",
@@ -118,7 +137,7 @@ def test_a_termination_drops_the_next_value_and_keeps_the_shift():
     dones = jnp.array([[1.0], [0.0], [1.0], [0.0]])
 
     def target(d):
-        return train_ASAC.compute_asac_td_target(
+        return asac_module.compute_asac_td_target(
             state.actor_state,
             state.critic_state,
             jax.random.PRNGKey(2),
@@ -155,7 +174,7 @@ def test_the_entropy_terms_are_relative_to_a_uniform_policy_over_the_actions():
 
     def target(alpha):
         args = (state.actor_state, state.critic_state, jax.random.PRNGKey(2), next_obs)
-        return train_ASAC.compute_asac_td_target(
+        return asac_module.compute_asac_td_target(
             *args, dones, rewards, 0.5, jnp.asarray(alpha), 1.0
         )
 
@@ -164,7 +183,7 @@ def test_the_entropy_terms_are_relative_to_a_uniform_policy_over_the_actions():
     np.testing.assert_allclose(soft - hard, want, rtol=1e-5, atol=1e-6)
 
     log_probs = jnp.array([[-1.0], [0.5]])
-    moved = train_ASAC.update_theta(state, 1.0, jnp.ones((2, 1)), log_probs, 2)
+    moved = asac_module.update_theta(state, 1.0, jnp.ones((2, 1)), log_probs, 2)
     want_theta = 1.0 - 0.2 * (np.mean([-1.0, 0.5]) + np.log(2.0))
     np.testing.assert_allclose(moved.theta, want_theta, rtol=1e-6)
 
@@ -246,9 +265,9 @@ def test_a_terminated_rows_reward_is_charged_the_penalty_for_the_critics_alone(
     @4b68862, darer/ASAC.py:179-205). The identity task terminates some
     episodes; p_0 = 1 and tau_theta = 1 make p the batch's own."""
     seen, theta_rewards = [], []
-    update, update_theta = train_ASAC.update_value_functions, train_ASAC.update_theta
+    update, update_theta = ASAC.update_critic, asac_module.update_theta
 
-    def spy(agent_state, transition, rewards, *args, **kwargs):
+    def spy(agent, agent_state, transition, rewards, *args, **kwargs):
         jax.debug.callback(
             lambda *v: seen.append(tuple(map(np.asarray, v))),
             rewards,
@@ -256,14 +275,14 @@ def test_a_terminated_rows_reward_is_charged_the_penalty_for_the_critics_alone(
             transition.terminated,
             agent_state.episode_termination_penalty,
         )
-        return update(agent_state, transition, rewards, *args, **kwargs)
+        return update(agent, agent_state, transition, rewards, *args, **kwargs)
 
     def theta_spy(agent_state, tau, rewards, *args, **kwargs):
         jax.debug.callback(lambda r: theta_rewards.append(np.asarray(r)), rewards)
         return update_theta(agent_state, tau, rewards, *args, **kwargs)
 
-    monkeypatch.setattr(train_ASAC, "update_value_functions", spy)
-    monkeypatch.setattr(train_ASAC, "update_theta", theta_spy)
+    monkeypatch.setattr(ASAC, "update_critic", spy)
+    monkeypatch.setattr(asac_module, "update_theta", theta_spy)
     env = IdentityEnv()
     kw = {"learning_starts": 16, "batch_size": 16, "p_0": 1.0, "tau_theta": 1.0}
     agent = ASAC(env, env_params=env.default_params, n_envs=4, **kw)

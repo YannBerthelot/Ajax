@@ -11,7 +11,7 @@ import jax
 import numpy as np
 import pytest
 
-from ajax import IQL, REDQ, SAC, TD3, TQC, CrossQ
+from ajax import ASAC, IQL, REDQ, SAC, TD3, TQC, CrossQ
 
 TINY = {"env_id": "Pendulum-v1", "n_envs": 1, "buffer_size": 64, "batch_size": 8}
 TINY.update({"learning_starts": 8})
@@ -26,6 +26,12 @@ NETS: dict[type, dict[str, Any]] = {
         "actor_architecture": ("8", "relu"),
         "critic_architecture": ("8", "relu"),
         "num_critic_updates": 1,
+    },
+    # Its temperature learned (ASAC fixes it by default).
+    ASAC: {
+        "actor_architecture": ("8", "relu"),
+        "critic_architecture": ("8", "relu"),
+        "fixed_alpha": False,
     },
 }
 #: SAC waits 2000 steps by default; the others not at all.
@@ -47,7 +53,7 @@ def _same(first: object, second: object) -> bool:
 
 
 @pytest.mark.parametrize(
-    "cls", [TD3, IQL, CrossQ, SAC, TQC, REDQ], ids=lambda c: c.__name__
+    "cls", [TD3, IQL, CrossQ, SAC, TQC, REDQ, ASAC], ids=lambda c: c.__name__
 )
 def test_the_actor_is_kept_from_policy_update_start(cls: type) -> None:
     """Started after the run, the actor stays as initialised while the
@@ -60,7 +66,9 @@ def test_the_actor_is_kept_from_policy_update_start(cls: type) -> None:
     assert not _same(started.actor_state.params, untrained.actor_state.params)
 
 
-@pytest.mark.parametrize("cls", [CrossQ, SAC, TQC, REDQ], ids=lambda c: c.__name__)
+@pytest.mark.parametrize(
+    "cls", [CrossQ, SAC, TQC, REDQ, ASAC], ids=lambda c: c.__name__
+)
 def test_the_temperature_is_kept_from_alpha_update_start(cls: type) -> None:
     untrained = _train(cls, learning_starts=STEPS + 1)
     waiting = _train(cls, alpha_update_start=STEPS + 1)

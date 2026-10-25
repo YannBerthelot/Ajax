@@ -414,30 +414,6 @@ def apply_gradients_clipped_together(
     return actor, critic, actor_grad_norm, critic_grad_norm
 
 
-def joint_step(
-    actor: Any,
-    critic: Any,
-    actor_grads: Any,
-    critic_grads: Any,
-    max_grad_norm: Optional[float],
-    norm_eps: float = 0.0,
-) -> tuple[Any, Any]:
-    """The former name of apply_gradients_clipped_together, which returns the
-    stepped actor and critic alone, as it did in 0.4.0 (then
-    ajax.agents.PPO.train_PPO.joint_step); 0.5.0 removes it."""
-    actor, critic, _, _ = apply_gradients_clipped_together(
-        actor, critic, actor_grads, critic_grads, max_grad_norm, norm_eps
-    )
-    return actor, critic
-
-
-# The former names, which the agents not yet declared on a family call;
-# 0.5.0 removes them.
-fold_post_update = apply_post_update
-fold_on_target = apply_on_target
-fold_critic_loss = compute_extensions_critic_loss
-
-
 def update_target_networks(agent_state: Any, tau: float) -> Any:
     """Polyak-average the target critics towards the critics."""
     return agent_state.replace(

@@ -1,17 +1,17 @@
 """The agents' surface, pinned while their files are restructured: every
-public name an agent module defines still imports from its path (a moved
-name leaves a shim there until 0.5.0), every agent built on its defaults
-logs the run config and holds the ``agent_config`` it did, and every agent
-class keeps the contract the extensions and the loop read off it (a value
-a family base supplies is the one the agent declared).
+public name an agent module defines still imports from its path, every
+agent built on its defaults logs the run config and holds the agent_config
+it did, and every agent class keeps the contract the extensions and the
+loop read off it (a value a family base supplies is the one the agent
+declared).
 
 After a deliberate change (a default changed in its own pull request, a new
 name), rewrite the records::
 
     uv run python -m tests.agents.test_agent_surface
 
-The names a shim serves are no module's definitions: the rewrite keeps
-every recorded name, and a name removed at contract is struck by hand.
+The rewrite keeps every recorded name: a name removed on purpose is struck
+by hand.
 """
 
 from __future__ import annotations
@@ -130,10 +130,8 @@ def test_every_recorded_name_still_imports() -> None:
     missing = []
     for line in json.loads(SURFACE.read_text()):
         module, name = line.split(":")
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")  # a shim's deprecation
-            if not hasattr(importlib.import_module(module), name):
-                missing.append(line)
+        if not hasattr(importlib.import_module(module), name):
+            missing.append(line)
     assert not missing, missing
 
 

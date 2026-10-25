@@ -38,12 +38,13 @@ from typing import Any, Callable
 import jax
 import jax.numpy as jnp
 
-from ajax.agents.loop import fold_post_update, fresh_state
+from ajax.agents.loop import fresh_state
 from ajax.agents.TDMPC2 import core, multitask
 from ajax.agents.TDMPC2.dataset import MultiTaskDataset
 from ajax.agents.TDMPC2.multitask import TaskSet
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2MultiTaskState
 from ajax.agents.TDMPC2.train_TDMPC2 import update_metrics_zeros
+from ajax.agents.update_steps import apply_post_update
 from ajax.evaluate import evaluate_policy
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.perf_utils import build_resumable_train
@@ -105,10 +106,10 @@ def update_step(
     extension_stack: ExtensionStack,
     total_timesteps: int,
 ) -> TDMPC2MultiTaskState:
-    """One ``agent.update(buffer)`` on a fresh batch with fresh noise, then
-    the ``post_update`` fold (:func:`ajax.agents.loop.fold_post_update`;
-    ``step`` = updates done, ``total_steps`` = the run's updates when this
-    ``train`` call ends)."""
+    """One agent.update(buffer) on a fresh batch with fresh noise, then the
+    extensions' post_update (ajax.agents.update_steps.apply_post_update;
+    step = updates done, total_steps = the run's updates when this train
+    call ends)."""
     rng, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
     batch, task = dataset.sample(sample_key, config.batch_size, config.horizon)
     noise = core.draw_update_noise(
@@ -120,7 +121,7 @@ def update_step(
     agent_state = agent_state.replace(
         n_updates=agent_state.n_updates + 1, update_metrics=metrics
     )
-    return fold_post_update(
+    return apply_post_update(
         extension_stack, agent_state, agent_state.n_updates, total_timesteps
     )
 

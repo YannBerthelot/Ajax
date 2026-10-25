@@ -500,10 +500,6 @@ def row_positions_with_final_observations(cut_by_time_limit: jax.Array) -> jax.A
     return rows + jnp.cumsum(cut_by_time_limit, axis=0) - cut_by_time_limit
 
 
-# The former name, released in 0.4.0; 0.5.0 removes it.
-stream_positions = row_positions_with_final_observations
-
-
 def _insert_final_observations(
     carries: RecurrentCarries, rows: jax.Array, next_step_inputs: jax.Array
 ) -> Tuple[jax.Array, jax.Array]:

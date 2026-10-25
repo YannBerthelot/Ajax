@@ -23,7 +23,6 @@ import jax
 import jax.numpy as jnp
 from jax.tree_util import Partial as partial
 
-from ajax.deprecation import moved_names
 from ajax.state import Transition
 
 
@@ -336,13 +335,3 @@ def get_actions_and_log_probs(rollout: Transition) -> tuple[jax.Array, jax.Array
         else log_prob.sum(-1, keepdims=True)
     )
     return actions, log_probs
-
-
-__getattr__ = moved_names(
-    __name__,
-    {
-        "Geometry": "ajax.agents.minibatch:RolloutSplit",
-        "minibatch_geometry": "ajax.agents.minibatch:choose_rollout_split",
-        "rollout_actions": "ajax.agents.minibatch:get_actions_and_log_probs",
-    },
-)

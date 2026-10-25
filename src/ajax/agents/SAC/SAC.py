@@ -57,18 +57,12 @@ from ajax.agents.temperature import (
     update_temperature,
 )
 from ajax.controller import make_scored_action
-from ajax.deprecation import moved_names
 from ajax.extensions.base import merge_metrics
 from ajax.networks.distributions import latent
 from ajax.networks.networks import predict_value
 from ajax.perf_utils import final_aux_scan
 from ajax.state import LoadedTrainState, Transition
 from ajax.types import Architecture
-
-# Moved with SAC's other deprecated keywords; the old path goes in 0.5.0.
-__getattr__ = moved_names(
-    __name__, {"augmentation_features": "ajax.agents.SAC.deprecated_keywords"}
-)
 
 #: SAC's reference initialisation, Glorot-uniform kernels and zero biases in
 #: both networks (see SAC.actor_critic_args).

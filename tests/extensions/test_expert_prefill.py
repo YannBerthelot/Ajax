@@ -123,14 +123,6 @@ def test_a_row_names_the_field_it_cannot_fill():
         replay_row({"episode": zeros}, **dict.fromkeys(fields.split(), zeros))
 
 
-def test_the_old_path_of_the_prefill_warns_and_resolves():
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        from ajax.agents.SAC.expert import collect_and_store_expert_transitions as old
-    assert old is collect_and_store_expert_transitions
-    assert any("ajax.extensions.pretrain" in str(w.message) for w in caught)
-
-
 def run(name: str, extensions: tuple = (), **kwargs: Any) -> Any:
     """The agent, 2 envs on Pendulum with push as its expert, after two
     warm-up steps (no update yet): one seed's state."""

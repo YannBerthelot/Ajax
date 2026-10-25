@@ -318,7 +318,7 @@ def test_the_other_q_critic_agents_train_with_the_filter(name: str) -> None:
 
 def _ext_state(state: Any, stack: ExtensionStack) -> Any:
     """What make_train does before training: one ext_state per extension."""
-    return stack.fold_init_states(state, KEY)
+    return stack.apply_init_states(state, KEY)
 
 
 def _obs(agent: Any) -> jax.Array:

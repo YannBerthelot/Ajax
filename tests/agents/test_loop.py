@@ -23,17 +23,18 @@ from flax.training.train_state import TrainState
 
 from ajax.agents import loop as loop_module
 from ajax.agents.APO.APO import APO
-from ajax.agents.loop import (
-    TrainLoop,
+from ajax.agents.loop import TrainLoop
+from ajax.agents.SAC.SAC import SAC
+from ajax.agents.update_steps import (
     actor_step,
     apply_on_target,
     compute_extensions_critic_loss,
+    compute_gradients,
     critic_step,
     gradient_step,
+    run_actor_if,
     run_if,
 )
-from ajax.agents.SAC.SAC import SAC
-from ajax.agents.update_steps import compute_gradients, run_actor_if
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.evaluate import evaluate
 from ajax.extensions.base import Extension, ExtensionStack, merge_metrics

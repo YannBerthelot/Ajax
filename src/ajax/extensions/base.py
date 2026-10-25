@@ -784,18 +784,6 @@ class ExtensionStack:
             out.update(ext.eval_metrics(agent_state, ext_states[i], keys[i], context))
         return out
 
-    # The former names, which the agents not yet declared on a family call;
-    # 0.5.0 removes them.
-    fold_post_update = apply_post_update
-    fold_reward = apply_reward
-    fold_on_target = apply_on_target
-    fold_critic_loss = compute_extensions_critic_loss
-    fold_actor_loss = compute_extensions_actor_loss
-    fold_init = apply_init
-    fold_init_states = apply_init_states
-    fold_pretrain = apply_pretrain
-    fold_eval_metrics = apply_eval_metrics
-
     def bind_to_agent(self, **agent_context: Any) -> "ExtensionStack":
         """Return a new stack with every extension bound to ``agent_context``
         (each :meth:`Extension.bind_to_agent` picks the kwargs it needs);

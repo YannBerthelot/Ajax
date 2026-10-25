@@ -57,28 +57,7 @@ import jax
 import jax.numpy as jnp
 from jax.tree_util import Partial as partial
 
-# The step verbs are update_steps.py's; the agents import them from here
-# until each agent's file moves onto update_steps (0.5.0 drops these
-# re-exports).
-from ajax.agents.update_steps import (
-    ACTOR_STEP_KEYS,
-    CRITIC_LOSS_KEYS,
-    EXTENSIONS_KEY_TAG,
-    REPLAY_ACTOR_KEYS,
-    REPLAY_BATCH_KEYS,
-    TARGET_KEYS,
-    actor_step,
-    apply_on_target,
-    apply_post_update,
-    compute_extensions_critic_loss,
-    critic_step,
-    derive_extensions_key,
-    fold_critic_loss,
-    fold_on_target,
-    fold_post_update,
-    gradient_step,
-    run_if,
-)
+from ajax.agents.update_steps import apply_post_update, run_if
 from ajax.buffers.dataset import TransitionDataset, fill_replay
 from ajax.controller import Controller, make_run_controller, reads_progress
 from ajax.environments.create import strip_ajax_wrappers
@@ -932,27 +911,10 @@ class TrainLoop:
 
 
 __all__ = [
-    "ACTOR_STEP_KEYS",
-    "CRITIC_LOSS_KEYS",
-    "EXTENSIONS_KEY_TAG",
     "LOOP_PHASES",
-    "REPLAY_ACTOR_KEYS",
-    "REPLAY_BATCH_KEYS",
-    "TARGET_KEYS",
     "Evaluation",
     "TrainLoop",
-    "actor_step",
-    "apply_on_target",
-    "apply_post_update",
-    "compute_extensions_critic_loss",
     "count_in_normalisers",
-    "critic_step",
-    "derive_extensions_key",
-    "fold_critic_loss",
-    "fold_on_target",
-    "fold_post_update",
     "fresh_state",
-    "gradient_step",
-    "run_if",
     "seed_replay",
 ]

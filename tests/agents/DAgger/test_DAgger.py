@@ -9,8 +9,6 @@ import numpy as np
 import pytest
 
 from ajax import DAgger
-from ajax.agents.DAgger.state import DAggerConfig
-from ajax.agents.DAgger.train_DAgger import beta
 from ajax.environments.interaction import get_pi
 
 N_ENVS = 2
@@ -40,8 +38,10 @@ def replay(state, first: int = 0) -> dict:
 def test_beta_is_the_decay_to_the_iterations_done(decay):
     """beta_i = decay ** (i - 1) over iterations of iteration_steps
     timesteps; 0 ** 0 = 1: the paper's beta_i = I(i = 1) at decay 0."""
-    config = DAggerConfig(beta_decay=decay, iteration_steps=10)
-    got = [float(beta(jnp.asarray(t), config)) for t in (0, 9, 10, 25)]
+    agent = DAgger(
+        "Pendulum-v1", expert_policy=push, beta_decay=decay, iteration_steps=10
+    )
+    got = [float(agent.compute_beta(jnp.asarray(t))) for t in (0, 9, 10, 25)]
     np.testing.assert_allclose(got, [1.0, 1.0, decay, decay**2])
 
 

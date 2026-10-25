@@ -58,10 +58,8 @@ _SAC_STEPS = "B4 (update_steps.actor_step or gradient_step over SAC's equations)
 BORROWED = {
     # B3 declared PPO, APO and PQN on the on-policy family.
     **{
-        (agent, "SAC", "init_soft_actor_critic"): _SAC_FAMILY_INIT
-        for agent in ("ASAC", "AVG")
+        (agent, "SAC", "init_soft_actor_critic"): _SAC_FAMILY_INIT for agent in ("AVG",)
     },
-    **{(agent, "SAC", "soft_actor_step"): _SAC_STEPS for agent in ("ASAC",)},
     ("checkpoint.py", "UDRL", "SegmentBuffer"): "2026-11-17 (the shim's removal)",
 }
 

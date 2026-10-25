@@ -6,6 +6,16 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **ASAC is a declared agent**, `agents/ASAC/ASAC.py`, as SAC is:
+  keyword-only after `env_id`, fixed fields, `ASACConfig` a view of them;
+  `train_ASAC`, `ASAC.state` and `ASAC.utils` import their names with a
+  FutureWarning until 0.5.0 (`value_loss_function` is `compute_critic_loss`;
+  `init_ASAC`, `update_agent`, `update_value_functions`, `update_policy`
+  and `make_train` became methods). ASAC now takes `policy_update_start`,
+  `alpha_update_start`, `eval_expert_policy` and `StorePolicyAction`, and a
+  scheduled `target_entropy_per_dim`. A recurrent ASAC given extensions is
+  refused by the family's check, as every recurrent agent is, with its
+  message. Training is unchanged, bitwise.
 - **REDQ is a declared agent**, `agents/REDQ/REDQ.py`, as SAC is:
   keyword-only after `env_id`, fixed fields, `REDQConfig` a view of them
   (no longer a `SACConfig` subclass); `train_REDQ` and `REDQ.state` import

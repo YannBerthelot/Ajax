@@ -110,7 +110,7 @@
    "env_args",
    "expert_policy"
   ],
-  "make_train": "ajax.agents.ASAC.train_ASAC:make_train",
+  "make_train": "ajax.agents.families:ReplayAgent.make_train",
   "name": "ASAC",
   "per_seed_update_counts": false,
   "phase_batch_keys": {
@@ -161,6 +161,7 @@
   "supported_extension_phases": [
    "actor_loss",
    "actuate",
+   "choose_replay_action",
    "choose_warmup_action",
    "critic_loss",
    "eval_metrics",

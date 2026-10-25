@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from ajax import REDQ, SAC, TQC, CrossQ
+from ajax import ASAC, REDQ, SAC, TQC, CrossQ
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.schedule import linear
 
@@ -25,6 +25,12 @@ SOFT: dict[type, dict[str, Any]] = {
         "actor_architecture": ("8", "relu"),
         "critic_architecture": ("8", "relu"),
         "num_critic_updates": 1,
+    },
+    # Its temperature learned (ASAC fixes it by default).
+    ASAC: {
+        "actor_architecture": ("8", "relu"),
+        "critic_architecture": ("8", "relu"),
+        "fixed_alpha": False,
     },
 }
 

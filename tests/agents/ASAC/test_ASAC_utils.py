@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.ASAC.utils import (
+from ajax.agents.ASAC.ASAC import (
     compute_episode_termination_penalty,
     get_episode_termination_penalized_rewards,
 )

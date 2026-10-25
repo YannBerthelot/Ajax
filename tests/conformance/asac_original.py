@@ -20,7 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 
 import ajax
-import ajax.agents.ASAC.train_ASAC as train_ASAC
+import ajax.agents.ASAC.ASAC as asac_module
 from tests.conformance import kit
 from tests.probing import envs as probe_envs
 
@@ -126,7 +126,7 @@ def run(records: Any, precision: str, fault: str | None = None) -> dict[str, dic
     """Ajax's state after one update from each record, in ASAC's names, by record name."""
     dtype = np.float64 if precision == "f64" else np.float32
     given: dict = {}  # the update's batch, set while it is traced (an argument of the compiled update)
-    sample = train_ASAC.sample_replay
+    sample = asac_module.sample_replay
 
     def injected(
         agent_state: Any, buffer: Any, key: Any, *args: Any, **kwargs: Any
@@ -152,12 +152,12 @@ def run(records: Any, precision: str, fault: str | None = None) -> dict[str, dic
 
     envs = sorted({p.name.rsplit("_", 1)[0] for p in records.glob("*.npz")})
     out: dict = {}
-    train_ASAC.sample_replay = injected
+    asac_module.sample_replay = injected
     try:
         for env_id in envs:
             out.update(_env_updates(records, env_id, dtype, fault, given))
     finally:
-        train_ASAC.sample_replay = sample
+        asac_module.sample_replay = sample
     return out
 
 

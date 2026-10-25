@@ -187,7 +187,7 @@ GAPS: dict[str, dict[str, str]] = {
         "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO UDRL DAgger IQL DreamerV3"
         " TDMPC2 TDMPC2MultiTask"
     },
-    STORE: {"StorePolicyAction": "ASAC DQN DAgger DAgger/discrete"},
+    STORE: {"StorePolicyAction": "DQN DAgger DAgger/discrete"},
     OWN_STORE: {
         "StorePolicyAction": "UDRL UDRL/discrete DreamerV3 DreamerV3/discrete TDMPC2"
         " TDMPC2MultiTask"

@@ -80,6 +80,7 @@ BECAME_METHODS = {
     "init_IQL",
     "init_CrossQ",
     "init_TD3",
+    "init_TQC",
     "update_agent",
     "update_critics",
     "update_actor_and_temperature",
@@ -89,7 +90,7 @@ BECAME_METHODS = {
 }
 
 
-@pytest.mark.parametrize("agent", ["IQL", "CrossQ", "TD3", "PQN"])
+@pytest.mark.parametrize("agent", ["IQL", "CrossQ", "TD3", "PQN", "TQC"])
 def test_the_declared_agents_old_names_resolve_or_give_the_new_call(
     agent: str,
 ) -> None:

@@ -18,7 +18,7 @@ import jax.numpy as jnp
 import numpy as np
 
 import ajax
-import ajax.agents.TQC.train_TQC as train_TQC
+import ajax.agents.TQC.TQC as tqc_module
 from tests.conformance import kit
 
 WIDTH = 16  # the recorder's (benchmarks/reference/conformance_tqc.py)
@@ -112,7 +112,7 @@ def run(records: Any, precision: str, fault: str | None = None) -> dict[str, dic
     """Ajax's state after one update from each record, in the record's names, by record name."""
     dtype = np.float64 if precision == "f64" else np.float32
     given: dict = {}
-    sample = train_TQC.sample_replay
+    sample = tqc_module.sample_replay
 
     def injected(agent_state: Any, buffer: Any, key: Any, *args: Any, **kw: Any) -> Any:
         b, carries = sample(agent_state, buffer, key, *args, **kw)
@@ -136,12 +136,12 @@ def run(records: Any, precision: str, fault: str | None = None) -> dict[str, dic
 
     envs = sorted({p.name.rsplit("_", 1)[0] for p in records.glob("*.npz")})
     out: dict = {}
-    train_TQC.sample_replay = injected
+    tqc_module.sample_replay = injected
     try:
         for env_id in envs:
             out.update(_env_updates(records, env_id, dtype, fault, given))
     finally:
-        train_TQC.sample_replay = sample
+        tqc_module.sample_replay = sample
     return out
 
 

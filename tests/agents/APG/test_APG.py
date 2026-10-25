@@ -1,5 +1,6 @@
 """End-to-end tests for the APG agent and its contextual-controller configuration."""
 
+import importlib
 from types import SimpleNamespace
 
 import jax
@@ -14,15 +15,13 @@ from ajax.agents.APG import (
     Controller,
     CurriculumStage,
     PIDHeadConfig,
-    train_APG,
     train_curriculum,
 )
-from ajax.agents.APG.train_APG import (
-    evaluate_apg,
-    init_APG,
+from ajax.agents.APG.APG import (
+    compute_rollout_returns,
+    make_agent_state,
     make_policy_step,
     reset_optimizer,
-    rollout_returns,
 )
 from ajax.environments.model_reference import (
     LinearReferenceModel,
@@ -30,12 +29,15 @@ from ajax.environments.model_reference import (
     StepReference,
 )
 from ajax.environments.system_class import FixedSystem, UniformPerturbation
+from ajax.extensions.capabilities import NotWired
 from ajax.networks.memory import MemoryCell, MemoryConfig, init_carry
 from ajax.wrappers import InitialStateWrapper
 from tests.agents.extension_stubs import CounterExt
 
 HORIZON = 16
 N_ENVS = 4
+#: APG's module (the package's APG is the class).
+APG_FILE = importlib.import_module("ajax.agents.APG.APG")
 
 
 def angle(obs):
@@ -133,11 +135,11 @@ def test_an_update_logs_its_gradient_norm_before_the_clip(default_run):
     agent, sc, _, aux = default_run
     init_key = jax.random.split(jax.random.PRNGKey(0))[0]  # fresh_state's
     args = (agent.env_args, agent.actor_optimizer_args, agent.network_args)
-    state = init_APG(init_key, *args, agent.pid, agent.squash)
+    state = make_agent_state(init_key, *args, agent.pid, agent.squash)
     roll_key = jax.random.split(state.rng, 3)[1]
 
     def loss(params):
-        returns, _ = rollout_returns(
+        returns, _ = compute_rollout_returns(
             state, params, roll_key, agent.env_args, sc, HORIZON, N_ENVS
         )
         return -returns.mean()
@@ -220,7 +222,7 @@ def test_contextual_controller_configuration(env_and_class):
         init="nanogpt",
     )
     assert agent.pid == PIDHeadConfig()  # identity init, see APG._DEFAULT_PID
-    assert agent.train_kwargs["lr_schedule"] == "warmup_cosine"
+    assert agent.lr_schedule == "warmup_cosine"
     # The reference's AdamW: torch's eps, no gradient clipping.
     assert agent.actor_optimizer_args.max_grad_norm is None
     assert agent.actor_optimizer_args.eps == 1e-8
@@ -334,7 +336,7 @@ def test_the_validation_set_is_drawn_apart_from_training(env_and_class):
     env, sc = env_and_class
     agent = make_agent(env, sc)
     args = (agent.env_args, agent.actor_optimizer_args, agent.network_args)
-    state = init_APG(jax.random.PRNGKey(0), *args, agent.pid, agent.squash)
+    state = make_agent_state(jax.random.PRNGKey(0), *args, agent.pid, agent.squash)
     assert not jnp.array_equal(state.eval_rng, state.rng)
 
 
@@ -347,7 +349,7 @@ def test_reset_optimizer_keeps_the_parameters_and_restarts_adam(env_and_class):
     env, sc = env_and_class
     agent = make_agent(env, sc)
     args = (agent.env_args, agent.actor_optimizer_args, agent.network_args)
-    state = init_APG(jax.random.PRNGKey(0), *args, agent.pid, agent.squash)
+    state = make_agent_state(jax.random.PRNGKey(0), *args, agent.pid, agent.squash)
     actor = state.actor_state
     grads = jax.tree.map(jnp.ones_like, actor.params)
     state = state.replace(actor_state=actor.apply_gradients(grads=grads))
@@ -398,9 +400,7 @@ def test_curriculum_rejects_incompatible_stages(env_and_class):
 def test_evaluate_reports_m_rmse_on_fresh_systems(default_run):
     agent, sc, state, _ = default_run
     single = jax.tree.map(lambda x: x[0], state)
-    metrics = evaluate_apg(
-        single, jax.random.PRNGKey(0), agent.env_args, sc, HORIZON, 5
-    )
+    metrics = agent.evaluate(single, jax.random.PRNGKey(0), agent.make_context(1)[1], 5)
     assert set(metrics) == {"Eval/episodic mean reward", "Eval/m_rmse"}
     assert jnp.isfinite(metrics["Eval/m_rmse"]) and metrics["Eval/m_rmse"] >= 0
     assert jnp.allclose(
@@ -419,8 +419,9 @@ def test_extensions_fold_post_update(env_and_class):
 def test_the_downstream_training_and_evaluation_contract(env_and_class):
     """What TargetFoundation does (tmdp/experiments, tmdp/evaluate.py): a
     contextual controller from a factory, trained without a logging config,
-    returns every update's aux per seed; init_APG and rollout_returns rebuild
-    and evaluate it positionally, with ``stateful=True``."""
+    returns every update's aux per seed; make_agent_state and
+    compute_rollout_returns rebuild and evaluate it positionally, with
+    ``stateful=True``."""
     env, sc = env_and_class
 
     def factory(*, env_args, network_args, action_dim, pid, squash):
@@ -448,7 +449,7 @@ def test_the_downstream_training_and_evaluation_contract(env_and_class):
     curve = jax.device_get(-aux.matching_loss[0] / HORIZON).tolist()
     assert len(curve) == 3 and jnp.isfinite(aux.loss).all()
     single = jax.tree.map(lambda x: x[0], state)
-    fresh = init_APG(
+    fresh = make_agent_state(
         jax.random.PRNGKey(0),
         agent.env_args,
         agent.actor_optimizer_args,
@@ -460,7 +461,7 @@ def test_the_downstream_training_and_evaluation_contract(env_and_class):
     assert jax.tree.structure(fresh.actor_state.params) == jax.tree.structure(
         single.actor_state.params
     )
-    returns, _ = rollout_returns(
+    returns, _ = compute_rollout_returns(
         single,
         single.actor_state.params,
         jax.random.PRNGKey(1),
@@ -486,7 +487,9 @@ def test_the_controller_output_is_mapped_onto_the_torque_bounds(env_id):
     key = jax.random.PRNGKey(1)
 
     def executed(params):
-        _, rollout = rollout_returns(state, params, key, agent.env_args, None, 2, 4)
+        _, rollout = compute_rollout_returns(
+            state, params, key, agent.env_args, None, 2, 4
+        )
         return rollout.action[0, :, 0].sum(), rollout
 
     params = state.actor_state.params
@@ -531,12 +534,25 @@ def test_the_evaluation_rolls_out_the_training_horizon(monkeypatch):
     length the RMSE divides by."""
     seen = []
 
-    def rollout(agent_state, params, rng, env_args, system_class, horizon, n, **_):
+    def rollout(agent_state, params, key, env_args, system_class, horizon, n, **_):
         seen.append(horizon)
         return -jnp.full((n,), 4.0 * horizon), None
 
-    monkeypatch.setattr(train_APG, "rollout_returns", rollout)
+    monkeypatch.setattr(APG_FILE, "compute_rollout_returns", rollout)
     state = SimpleNamespace(actor_state=SimpleNamespace(params=None))
-    out = evaluate_apg(state, jax.random.PRNGKey(0), None, None, 16, 2)
+    agent = APG("Pendulum-v1", horizon=16)
+    context = SimpleNamespace(env_args=None)
+    out = agent.evaluate(state, jax.random.PRNGKey(0), context, 2)
     assert seen == [16]
     np.testing.assert_allclose(out["Eval/m_rmse"], 2.0)
+
+
+def test_apg_refuses_what_it_cannot_run():
+    """No dataset (it learns through its own differentiable rollouts), and no
+    eval_expert_policy until its evaluation rolls out an expert: refused, as
+    gain mode's unwired modules are, rather than ignored."""
+    with pytest.raises(ValueError, match="cannot train offline"):
+        APG("Pendulum-v1").train_offline(dataset=None, n_updates=1)
+    with pytest.raises(NotWired, match="does not roll out an expert") as refused:
+        APG("Pendulum-v1", eval_expert_policy=lambda obs: obs[..., :1])
+    assert set(refused.value.unwired) == {"eval_expert_policy"}

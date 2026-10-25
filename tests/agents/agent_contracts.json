@@ -6,7 +6,7 @@
    "reward_learning"
   ],
   "extension_context": [],
-  "make_train": "ajax.agents.APG.train_APG:make_train",
+  "make_train": "ajax.agents.families:OwnIterationAgent.make_train",
   "name": "APG",
   "per_seed_update_counts": false,
   "phase_batch_keys": {
@@ -19,7 +19,9 @@
     "rollout"
    ]
   },
-  "pretrain_context": [],
+  "pretrain_context": [
+   "env_args"
+  ],
   "replays_transitions": false,
   "stores_expert_actions": false,
   "supported_buffer_fields": [],

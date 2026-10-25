@@ -36,11 +36,11 @@ Every agent is also exported from `ajax` itself (`from ajax import SAC`).
 Every agent but DreamerV3 and TD-MPC2 is a declared agent: its
 hyperparameters are the fields of a dataclass on a family of
 `ajax.agents.families`, which builds its constructor (keyword-only after
-`env_id`), run config, `agent_config` view and train function: a replay
+`env_id`), run config and train function: a replay
 (SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL, DQN, DAgger: `ReplayAgent`), each
 step as it comes (AVG: `IncrementalAgent`), rollouts (PPO, APO, PQN:
 `OnPolicyAgent`) or an iteration of its own (UDRL, APG:
-`OwnIterationAgent`). Its fields and `agent_config` are fixed once built:
+`OwnIterationAgent`). Its fields are fixed once built:
 `dataclasses.replace(agent, gamma=0.9)` builds another.
 
 ::: ajax.agents.base.ActorCritic

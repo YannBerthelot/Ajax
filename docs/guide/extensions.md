@@ -10,9 +10,9 @@ Why extensions instead of agent options? An agent's constructor takes its
 paper's hyperparameters plus `extensions=()`. The exceptions are
 `expert_policy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, DAgger), whose return each evaluation
 logs, and `eval_expert_policy`, an expert used for that comparison alone.
-SAC's former options are deprecated keywords that build the extensions
-holding them now ([SAC](../algorithms/sac.md#expert-options)): its expert
-prefill and warm-up mix are `ExpertPrefill` and `ExpertWarmup`, its
+SAC's former options are extensions now
+([SAC](../algorithms/sac.md#expert-options)): its expert prefill and
+warm-up mix are `ExpertPrefill` and `ExpertWarmup`, its
 `store_policy_action` is `StorePolicyAction`. Observation features (an
 expert's action or state, the training progress) are extensions too:
 `ajax.extensions.observe`, on every agent that collects with the shared
@@ -303,7 +303,7 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `ExpertActionInput` | Appends the expert's action at each observation, from the state the agent tracks it in; raw (an action). | `observe` | agents with an expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, APO), SAC without `use_pid_policy`; not DAgger, which would read the label it learns |
+| `ExpertActionInput` | Appends the expert's action at each observation, from the state the agent tracks it in; raw (an action). | `observe` | agents with an expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, APO), not under gain mode (`ExpertGains`); not DAgger, which would read the label it learns |
 | `ExpertStateInput` | Appends a stateful expert's internal state before its call at the observation (`ExpertStateInput.for_expert(expert)` sizes it). | `observe` | agents with a stateful expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, APO, DAgger) |
 | `TrainingProgressInput` | Appends the fraction of training done (`ajax.schedule.progress`); an evaluation holds the collector's. | `observe` | every agent but APG, UDRL and the world models, which collect on their own |
 

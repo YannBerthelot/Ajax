@@ -38,10 +38,9 @@ src/ajax/
 **Agent anatomy.** A declared agent (SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL,
 AVG, PPO, APO, PQN) is one file,
 `src/ajax/agents/<AGENT>/<AGENT>.py`: its hyperparameters as dataclass
-fields, its `init` and `update`, its equations, its state and metrics (and,
-until 0.5.0, the `<AGENT>Config` view it had before), on a family of
-`agents/families.py` that builds the rest (the constructor, the run config,
-the replay or the rollouts, the train function); its old modules are shims.
+fields, its `init` and `update`, its equations, its state and metrics, on
+a family of `agents/families.py` that builds the rest (the constructor, the
+run config, the replay or the rollouts, the train function).
 The other agents' folders hold `<AGENT>.py`, the public class (the paper's
 hyperparameters and `extensions=`; it names its `make_train` and fills
 `train_kwargs`, which `get_make_train()` binds);
@@ -270,10 +269,7 @@ class FOOState(BaseAgentState):
     """FOO carries only actor + critic + collector."""
 ```
 
-A new agent declares no `<AGENT>Config`: its fields are its configuration,
-and `agent.agent_config` is a plain `BaseAgentConfig`. Only the agents that
-had a Config before their fields were declared (IQL, CrossQ, TD3, PPO, APO, PQN) keep one, a
-view of the fields (`declare_config`), until 0.5.0.
+A declared agent has no `<AGENT>Config`: its fields are its configuration.
 
 `init` splits the run's key on the agent's own layout, which its pins hold.
 `update_steps.critic_step` applies `on_target` and `critic_loss`; its
@@ -328,7 +324,7 @@ reaches nothing. The shared knobs an algorithm takes beyond those every agent
 takes are mixins
 (`GradientClipping`, `ObservationNormalization`, `RewardNormalization`,
 `ExpertGuided`), and `RecurrentReplayAgent` adds `memory=` with R2D2's
-sequence replay. Once built, an agent's fields and `agent_config` are fixed:
+sequence replay. Once built, an agent's fields are fixed:
 `dataclasses.replace(agent, gamma=0.9)` builds another.
 
 **The on-policy family.** `OnPolicyAgent.make_train` runs `loop.on_policy`:
@@ -447,7 +443,7 @@ default, a constant) is for code review, not for a test. *Pins* record what a
 tiny run produces today, so a restructuring can show it changed nothing:
 `tests/agents/test_agent_pins.py` (tiny runs' fingerprints),
 `tests/agents/test_agent_surface.py` (every public name the agent modules
-define, and each agent's run config and `agent_config`),
+define, and each agent's run config),
 `tests/extensions/test_sac_extensions_equivalence.py` and
 `tests/test_downstream_api.py` (the names downstream projects import). The
 fingerprints hold to 1e-3 across platforms; on one machine, `uv run python -m

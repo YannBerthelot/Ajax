@@ -434,6 +434,44 @@ PyPI as `ajax-rl`.
   The probes and every other training run in the slow tier, daily on main,
   on a labelled pull request and before a release.
 
+### Removed
+
+- **The 0.4.0 compatibility layer.** A project pinned to 0.4.0 moves to the
+  new forms when it upgrades:
+  - the modules that only served moved names: each agent's `train_<A>`,
+    `state`, `utils` and `core`, DQN's and TD3's `networks`, SAC's `expert`
+    and `action_pipeline`. Each name is in `ajax.agents.<A>.<A>` or in the
+    shared module it moved to; `init_<A>`, `update_agent` and `make_train`
+    are the agent's `init`, `update` and its family's `make_train`. SAC's
+    `core.soft_actor_step` and `init_soft_actor_critic` and the 0.4.0 loss
+    forms (`train_PPO.value_loss_function`, `policy_loss_function`,
+    `train_APO.value_loss_function`) have no replacement: call
+    `compute_value_loss` and `compute_policy_loss`;
+  - the former names `Geometry`, `minibatch_geometry`, `rollout_actions`,
+    `stream_positions`, `joint_step` and the `fold_<phase>` aliases (now
+    `RolloutSplit`, `choose_rollout_split`, `get_actions_and_log_probs`,
+    `row_positions_with_final_observations`,
+    `apply_gradients_clipped_together` and `apply_<phase>`), and the step
+    functions `ajax.agents.loop` re-exported (import them from
+    `ajax.agents.update_steps`);
+  - SAC's keywords `expert_buffer_n_steps`, `expert_fraction`,
+    `use_pid_policy`, `use_train_frac`, `augment_obs_with_expert_action`,
+    `augment_obs_with_expert_state`, `store_policy_action`,
+    `normalize_obs_running` and `target_entropy_initial_per_dim` with
+    `target_entropy_ramp_frac`: pass `ExpertPrefill`, `ExpertWarmup`,
+    `ExpertGains`, `TrainingProgressInput`, `ExpertActionInput`,
+    `ExpertStateInput.for_expert(expert)`, `StorePolicyAction`,
+    `normalize_observations=True` and `target_entropy_per_dim=linear(...)`.
+    `jsrl_curriculum` and `skip_critic_pretrain` had no effect. SAC with an
+    expert no longer adds `ExpertWarmup(fraction=0.7)` and
+    `ExpertPrefill(n_steps=20_000)` on its own: pass them to keep them;
+  - each declared agent's `<A>Config` view and `agent.agent_config`, and
+    the `agent_config` argument of their `make_train`: read the agent's
+    fields. DreamerV3 and TD-MPC2 keep their configs;
+  - the six-argument action pipeline TD3 adapted (a pipeline takes the
+    step's `ActingState` second), `LoggingConfig.horizon`,
+    `PIDTermsWrapper` (pass `PIDTermsInput`) and `ajax.deprecation`.
+
 ## 0.4.0
 
 The first release since 0.3.1 (April 2025), which held SAC alone. Ajax has

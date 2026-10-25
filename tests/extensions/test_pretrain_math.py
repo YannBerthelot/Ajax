@@ -20,6 +20,7 @@ import pytest
 from flax import struct
 
 from ajax.agents.SAC.SAC import SAC
+from ajax.agents.TD3.TD3 import TD3
 from ajax.extensions.base import ExtensionContext
 from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.observe import (
@@ -30,6 +31,7 @@ from ajax.extensions.observe import (
 from ajax.extensions.pretrain import (
     BellmanPretrain,
     CloningPretrain,
+    ExpertPrefill,
     MCPretrain,
     PhiRefresh,
     pretrain_critic_mc,
@@ -205,6 +207,33 @@ def test_bellman_pretrain_needs_the_agent_context_and_a_seeded_replay():
             expert_buffer_n_steps=0,
             extensions=bellman,
         )
+
+
+@pytest.mark.parametrize("cls", [TD3], ids=lambda c: c.__name__)
+def test_bellman_pretrain_steps_a_discounted_q_critic_with_targets(cls: Any):
+    """A replay agent with a discounted Q critic and target critics gives
+    BellmanPretrain its critic step (ReplayAgent.extension_values): trained
+    for no step, the run is init and pretraining alone, and the pretraining
+    moves the critics, not the actor."""
+    net = ("8", "relu")
+    kw = {"actor_architecture": net, "critic_architecture": net, "batch_size": 8}
+    kw.update({"buffer_size": 64, "learning_starts": 8})
+    kw.update({"expert_policy": lambda obs: obs[..., :1]})
+
+    def pretrained(*extensions: Any) -> Any:
+        agent = cls(
+            "Pendulum-v1", extensions=(ExpertPrefill(n_steps=8), *extensions), **kw
+        )
+        return agent.train(seed=0, n_timesteps=0)[0]
+
+    plain, stepped = pretrained(), pretrained(BellmanPretrain(n_steps=4))
+    same = jax.tree.map(
+        np.array_equal, plain.actor_state.params, stepped.actor_state.params
+    )
+    moved = jax.tree.map(
+        np.array_equal, plain.critic_state.params, stepped.critic_state.params
+    )
+    assert all(jax.tree.leaves(same)) and not any(jax.tree.leaves(moved))
 
 
 def test_cloning_pretrain_binds_the_agent_context():

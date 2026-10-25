@@ -32,6 +32,7 @@ from flax.core import FrozenDict
 from ajax.agents import update_steps
 from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
+    BELLMAN_CONTEXT,
     ExpertGuided,
     GradientClipping,
     ObservationNormalization,
@@ -304,6 +305,7 @@ class TD3(
         **update_steps.REPLAY_BATCH_KEYS,
         "on_target": update_steps.TARGET_KEYS.union({"next_actions"}),
     }
+    extension_context = RecurrentReplayAgent.extension_context.union(BELLMAN_CONTEXT)
     stores_expert_actions = True
     supported_buffer_fields = frozenset({"next_action", "raw_next_obs", "return_to_go"})
 

@@ -6,6 +6,11 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **BellmanPretrain runs on TD3**, as on SAC: a replay agent with a
+  discounted Q critic and target critics gives it its critic step without
+  extensions (`ReplayAgent.extension_values`); REDQ and TQC take it once
+  declared. It now requires target critics, so CrossQ and DreamerV3 refuse
+  it for that reason, as they refused it before for another.
 - **Every replay actor-critic takes policy_update_start**, SAC's knob:
   TD3, CrossQ and IQL keep the actor's steps from that timestep on, and
   CrossQ, as every soft actor-critic, takes alpha_update_start for its

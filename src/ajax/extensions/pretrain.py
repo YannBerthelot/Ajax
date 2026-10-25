@@ -791,7 +791,10 @@ class BellmanPretrain(Extension):
     (``bellman_pretrain/first_loss``, ``bellman_pretrain/last_loss``).
 
     The fields after ``n_steps`` are the agent's context, filled by
-    :meth:`bind_to_agent` (only SAC does).
+    :meth:`bind_to_agent`: a replay agent with a discounted Q critic and
+    target critics gives its critic step
+    (ajax.agents.families.ReplayAgent.extension_values). It needs the
+    target critics, which each step's Polyak update moves.
     """
 
     n_steps: int = 5_000
@@ -804,7 +807,7 @@ class BellmanPretrain(Extension):
     update_target_fn: Optional[Callable] = None
     name: str = "bellman_pretrain"
     requires: ClassVar[frozenset[str]] = frozenset(
-        {"seeded_replay", "critic", "replay"}
+        {"seeded_replay", "critic", "replay", "target_critic"}
     )
     context: ClassVar[frozenset[str]] = frozenset(
         {
@@ -847,7 +850,7 @@ class BellmanPretrain(Extension):
         if self.update_value_fn is None:
             raise ValueError(
                 "BellmanPretrain needs the agent's buffer and critic updates;"
-                " the agent did not bind them (only SAC supports BellmanPretrain)."
+                " the agent did not bind them."
             )
         agent_state, losses = pretrain_critic_bellman(
             agent_state,

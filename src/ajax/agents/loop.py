@@ -576,21 +576,27 @@ class TrainLoop:
         update: Optional[Update] = None,
         buffer: Any = None,
         one_update: Optional[Callable[[Any], Any]] = None,
+        resume: Optional[Callable[[Any], Any]] = None,
+        returns_iterations: bool = False,
     ) -> Callable:
-        """The resumable train function: ``init`` (fresh runs only), then
-        ``num_updates`` scan iterations ``iteration(agent_state, index,
-        tick)``, recording the evaluations when logging (see the module
-        docstring): :attr:`n_evaluations` rows, or ``evaluations``.
+        """The resumable train function: init (fresh runs only), then
+        num_updates scan iterations iteration(agent_state, index, tick),
+        recording the evaluations when logging (see the module docstring):
+        n_evaluations rows, or evaluations.
 
-        ``last_rollout``, ``(length, collect_kwargs)``, pre-allocates
-        ``agent_state.last_rollout`` for an agent exposing its rollouts.
-        The extensions' pretraining gets the env, ``update`` and the replay
-        ``buffer`` (:class:`ajax.extensions.base.ExtensionContext`).
-        ``one_update``, a state to the state after one update, is given by an
+        last_rollout, a (length, collect_kwargs) pair, pre-allocates
+        agent_state.last_rollout for an agent exposing its rollouts.
+        The extensions' pretraining gets the env, update and the replay
+        buffer (ajax.extensions.base.ExtensionContext).
+        one_update, a state to the state after one update, is given by an
         update keeping its actor's last metrics: a fresh or resumed state gets
-        their slot (:func:`with_actor_metrics_slot`).
+        their slot (with_actor_metrics_slot). resume transforms a resumed
+        state after continued (APG rebuilds its optimiser). With
+        returns_iterations the train function returns every iteration's
+        output, stacked, logging or not, instead of the rows.
         """
         rows = self.n_evaluations if evaluations is None else evaluations
+        records = self.log and not returns_iterations
 
         def with_slot(agent_state: Any) -> Any:
             if one_update is None:
@@ -612,6 +618,8 @@ class TrainLoop:
             return with_slot(agent_state)
 
         def make_scan_fn(_state: Any, _resume: bool, _key: Any, index: Any) -> Any:
+            if returns_iterations:
+                return lambda agent_state, tick: iteration(agent_state, index, tick)
             if not self.log:
                 return lambda agent_state, tick: (
                     iteration(agent_state, index, tick)[0],
@@ -632,16 +640,18 @@ class TrainLoop:
             )
             return unevaluated(shapes, (rows,)), jnp.asarray(0)
 
+        def resume_transform(agent_state: Any, _key: Any) -> Any:
+            agent_state = with_slot(self.continued(agent_state))
+            return agent_state if resume is None else resume(agent_state)
+
         train = build_resumable_train(
             init_fn=init_fn,
             make_scan_fn=make_scan_fn,
             num_updates=num_updates,
-            resume_transform=lambda agent_state, _key: with_slot(
-                self.continued(agent_state)
-            ),
-            carry_out=empty_rows if self.log else None,
+            resume_transform=resume_transform,
+            carry_out=empty_rows if records else None,
         )
-        if not self.log:
+        if not records:
             return train
 
         def train_with_evaluations(*args: Any, **kwargs: Any) -> tuple[Any, dict]:

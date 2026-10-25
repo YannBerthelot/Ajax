@@ -11,7 +11,7 @@ import pytest
 from brax.envs import create as create_brax_env
 from flax import struct
 
-from ajax.agents.UDRL.train_UDRL import EvalCommand
+from ajax.agents.UDRL.UDRL import EvalCommand
 from ajax.controller import Controller
 from ajax.evaluate import ValueEstimate, evaluate
 from ajax.extensions.expert import ExpertGains

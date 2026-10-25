@@ -559,5 +559,11 @@ class AuxiliaryLogs:
 
 #: agent.agent_config's class: a view of the fields until 0.5.0.
 AVGConfig = AVG.declare_config(
-    "gamma learning_starts reward_scale num_critics expose_recent_rollout"
+    (
+        "gamma",
+        "learning_starts",
+        "reward_scale",
+        "num_critics",
+        "expose_recent_rollout",
+    )
 )

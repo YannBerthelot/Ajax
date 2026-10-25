@@ -367,5 +367,11 @@ class AuxiliaryLogs:
 
 #: agent.agent_config's class: a view of the fields until 0.5.0.
 CrossQConfig = CrossQ.declare_config(
-    "gamma target_entropy learning_starts reward_scale policy_delay"
+    (
+        "gamma",
+        "target_entropy",
+        "learning_starts",
+        "reward_scale",
+        "policy_delay",
+    )
 )

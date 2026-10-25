@@ -693,6 +693,14 @@ class AuxiliaryLogs:
 
 #: agent.agent_config's class: a view of the fields until 0.5.0.
 SACConfig = SAC.declare_config(
-    "gamma target_entropy tau learning_starts reward_scale burn_in"
-    " sequence_length stored_state"
+    (
+        "gamma",
+        "target_entropy",
+        "tau",
+        "learning_starts",
+        "reward_scale",
+        "burn_in",
+        "sequence_length",
+        "stored_state",
+    )
 )

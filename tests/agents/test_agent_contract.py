@@ -27,8 +27,7 @@ from flashbax.buffers.trajectory_buffer import TrajectoryBuffer
 
 import ajax.agents
 from ajax.agents import base
-from ajax.agents.APG.APG import APG
-from ajax.agents.APG.train_APG import make_policy_step, rollout_returns
+from ajax.agents.APG.APG import APG, compute_rollout_returns, make_policy_step
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
@@ -46,9 +45,7 @@ from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.agents.TQC.TQC import TQC
-from ajax.agents.UDRL.state import UDRLConfig
-from ajax.agents.UDRL.train_UDRL import EvalCommand
-from ajax.agents.UDRL.UDRL import UDRL
+from ajax.agents.UDRL.UDRL import UDRL, EvalCommand, UDRLConfig
 from ajax.evaluate import evaluate, get_deterministic_action_and_entropy_fn
 from ajax.extensions.base import Extension
 from ajax.extensions.capabilities import MissingCapability
@@ -523,7 +520,7 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
         seeds, _ = apg.train(seed=0, n_timesteps=0)
         state: Any = jax.tree.map(lambda x: x[0], seeds)
         actor = state.actor_state
-        _, rollout = rollout_returns(
+        _, rollout = compute_rollout_returns(
             state, actor.params, jax.random.PRNGKey(1), apg.env_args, None, 1, 4
         )
         policy_step = make_policy_step(actor, actor.params, False)

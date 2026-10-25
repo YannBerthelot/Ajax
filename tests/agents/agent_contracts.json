@@ -6,7 +6,7 @@
    "reward_learning"
   ],
   "extension_context": [],
-  "make_train": "ajax.agents.APG.train_APG:make_train",
+  "make_train": "ajax.agents.families:OwnIterationAgent.make_train",
   "name": "APG",
   "per_seed_update_counts": false,
   "phase_batch_keys": {
@@ -19,7 +19,9 @@
     "rollout"
    ]
   },
-  "pretrain_context": [],
+  "pretrain_context": [
+   "env_args"
+  ],
   "replays_transitions": false,
   "stores_expert_actions": false,
   "supported_buffer_fields": [],
@@ -352,7 +354,7 @@
    "env_args",
    "expert_policy"
   ],
-  "make_train": "ajax.agents.DAgger.train_DAgger:make_train",
+  "make_train": "ajax.agents.families:ReplayAgent.make_train",
   "name": "DAgger",
   "per_seed_update_counts": false,
   "phase_batch_keys": {
@@ -395,7 +397,7 @@
    "warmup"
   ],
   "extension_context": [],
-  "make_train": "ajax.agents.DQN.train_DQN:make_train",
+  "make_train": "ajax.agents.families:ReplayAgent.make_train",
   "name": "DQN",
   "per_seed_update_counts": false,
   "phase_batch_keys": {
@@ -1089,7 +1091,7 @@
    "reward_learning"
   ],
   "extension_context": [],
-  "make_train": "ajax.agents.UDRL.train_UDRL:make_train",
+  "make_train": "ajax.agents.families:OwnIterationAgent.make_train",
   "name": "UDRL",
   "per_seed_update_counts": false,
   "phase_batch_keys": {

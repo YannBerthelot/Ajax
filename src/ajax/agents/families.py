@@ -16,7 +16,8 @@ the training loop's shape and the evaluation's value estimate::
 
 An agent learning from a replay of transitions is a ReplayAgent,
 one learning from each rollout of its current policy an
-OnPolicyAgent. The shared knobs an algorithm may take beyond the
+OnPolicyAgent, one whose iteration is its own (a differentiable rollout,
+a replay of segments) an OwnIterationAgent. The shared knobs an algorithm may take beyond the
 ones every agent takes (gradient clipping, normalisation, an expert, image
 observations) are field mixins. The family reads some fields by name
 (DeclaredAgent, ReplayAgent, OnPolicyAgent).
@@ -42,7 +43,7 @@ from gymnax import EnvParams
 
 from ajax.agents import update_steps
 from ajax.agents.base import ActorCritic
-from ajax.agents.loop import LOOP_PHASES, TrainLoop
+from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
 
 # Imported under another name: ReplayAgent's own hook is make_replay_buffer.
 from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_buffer
@@ -507,6 +508,14 @@ class DeclaredAgent(ActorCritic):
         are built: IQL's value optimiser, PPO's checks of its rollout split
         (they need n_envs)."""
 
+    def check_recurrent_options(self, extensions: Sequence[Extension]) -> None:
+        """Refuse what a run with memory cannot take: an expert or
+        extensions, which the shared collection does not carry through a
+        recurrent policy (APG's rollout does)."""
+        unsupported_recurrent_options(
+            self.name, expert_policy=self.expert, extensions=tuple(extensions) or None
+        )
+
     @property
     def expert(self) -> Any:
         """The agent's expert in agent units (ActorCritic wraps it), if any;
@@ -603,9 +612,7 @@ class DeclaredAgent(ActorCritic):
         agent_context = {name: given[name] for name in sorted(self.extension_context)}
         bound = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
         if recurrent:
-            unsupported_recurrent_options(
-                self.name, expert_policy=self.expert, extensions=tuple(bound) or None
-            )
+            self.check_recurrent_options(bound)
         loop = TrainLoop.create(
             env_args,
             total_timesteps,
@@ -646,7 +653,7 @@ class DeclaredAgent(ActorCritic):
         )
 
     @classmethod
-    def declare_config(cls, names: str) -> Any:
+    def declare_config(cls, names: tuple[str, ...]) -> Any:
         """agent_config's class, the agent's name then Config: the names it holds,
         typed and defaulted as the fields (a property, as CrossQ's target
         entropy, is a required entry). Only the agents that had a Config
@@ -655,7 +662,7 @@ class DeclaredAgent(ActorCritic):
         time, it is Any to a type checker."""
         declared = {field.name: field for field in dataclasses.fields(cls)}  # type: ignore[arg-type]
         spec: dict[str, Any] = {"__annotations__": {}, "__module__": cls.__module__}
-        for name in names.split():
+        for name in names:
             field = declared.get(name)
             spec["__annotations__"][name] = Any if field is None else field.type
             if field is not None and field.default is not dataclasses.MISSING:
@@ -664,7 +671,7 @@ class DeclaredAgent(ActorCritic):
         spec.update({"__qualname__": title})
         view = type(title, (BaseAgentConfig,), spec)
         cls.config_class = struct.dataclass(view, kw_only=True)
-        cls.agent_config_fields = tuple(names.split())
+        cls.agent_config_fields = names
         return cls.config_class
 
 
@@ -1089,4 +1096,138 @@ class OnPolicyAgent(DeclaredAgent):
             ),
             collect_kwargs={"action_pipeline": self.choose_behaviour(context)},
             eval_kwargs=self.evaluation_kwargs(),
+        )
+
+
+@dataclass(kw_only=True, eq=False, repr=False)
+class OwnIterationAgent(DeclaredAgent):
+    """An agent whose iteration is its own (TrainLoop.train): it acts and
+    learns its way, then the loop evaluates on its cadence, logs and
+    resumes. UDRL collects a segment and fits its replay of segments
+    (Schmidhuber, 2019); APG takes a gradient step through a differentiable
+    rollout.
+
+    An agent writes init, iterate (applying the extensions' post_update
+    where its order puts it), report (the training metrics an evaluation
+    logs), evaluate and count_iteration_steps. It may take options per train
+    call (configure_call), and return every iteration's output instead of
+    the evaluations (returns_iterations, make_iteration_output). It takes no
+    dataset: train_offline refuses it.
+    """
+
+    # The loop's phases but observe, which no shared collector or evaluation
+    # meets; an agent adds the phases its iteration applies.
+    supported_extension_phases = LOOP_PHASES.difference({"observe"})
+    #: Whether train returns every iteration's output (make_iteration_output),
+    #: stacked, logging or not, instead of the evaluations.
+    returns_iterations = False
+
+    def init(self, key: jax.Array, context: TrainContext) -> Any:
+        """A fresh agent state, on the agent's own key layout."""
+        raise NotImplementedError
+
+    def iterate(self, agent_state: Any, context: TrainContext) -> tuple[Any, Any]:
+        """One iteration, the extensions' post_update applied: (agent_state,
+        aux, which report and make_iteration_output read)."""
+        raise NotImplementedError
+
+    def report(self, agent_state: Any, aux: Any) -> dict:
+        """The training metrics an evaluation logs, timestep included."""
+        raise NotImplementedError
+
+    def evaluate(
+        self,
+        agent_state: Any,
+        key: jax.Array,
+        context: TrainContext,
+        num_episode_test: int,
+    ) -> dict:
+        """The policy's evaluation metrics, on num_episode_test episodes."""
+        raise NotImplementedError
+
+    def count_iteration_steps(self, context: TrainContext) -> tuple[int, str]:
+        """The env steps one iteration takes, and how a warning names them."""
+        raise NotImplementedError
+
+    def configure_call(
+        self, context: TrainContext, n_iterations: int
+    ) -> tuple[TrainContext, Optional[Callable[[Any], Any]]]:
+        """The context of one train call of n_iterations iterations, and how
+        a state it resumes from is transformed (None: as it is). An agent
+        taking options per call declares them as keywords here."""
+        del n_iterations
+        return context, None
+
+    def make_iteration_output(self, aux: Any, evaluations: Optional[dict]) -> Any:
+        """What an iteration returns: its evaluations, which the loop records
+        (None without logging); with returns_iterations, the agent's own."""
+        del aux
+        return evaluations
+
+    def make_train(
+        self,
+        env_args: EnvironmentConfig,
+        actor_optimizer_args: OptimizerConfig,
+        critic_optimizer_args: OptimizerConfig,
+        network_args: NetworkConfig,
+        agent_config: Any,
+        total_timesteps: int,
+        num_episode_test: int,
+        run_ids: Optional[Sequence[str]] = None,
+        logging_config: Any = None,
+        start_timestep: int = 0,
+        end_timestep: Optional[int] = None,
+        extensions: Sequence[Extension] = (),
+        **call_options: Any,
+    ) -> Callable:
+        """The train function ActorCritic.train builds: the loop over init
+        and iterate, call_options going to configure_call. It takes no
+        dataset (train_offline refuses it)."""
+        self.check_agent_config(agent_config)
+        # An option configure_call does not take is refused before
+        # make_context starts the logging worker.
+        options = set(inspect.signature(self.configure_call).parameters)
+        options = options.difference({"context", "n_iterations"})
+        unknown = sorted(set(call_options).difference(options))
+        if unknown:
+            raise TypeError(f"{self.name}.train takes no {', '.join(unknown)}.")
+        loop, context = self.make_context(
+            total_timesteps,
+            num_episode_test,
+            env_args=env_args,
+            actor_optimizer_args=actor_optimizer_args,
+            critic_optimizer_args=critic_optimizer_args,
+            network_args=network_args,
+            extensions=extensions,
+            run_ids=run_ids,
+            logging_config=logging_config,
+            start_timestep=start_timestep,
+            end_timestep=end_timestep,
+        )
+        steps, unit = self.count_iteration_steps(context)
+        loop.warn_if_partial(steps, unit)
+        n_iterations = max(loop.budget // steps, 1)
+        context, resume = self.configure_call(context, n_iterations, **call_options)
+        evaluation = Evaluation(
+            metrics=self.report,
+            every=loop.log_frequency and max(loop.log_frequency // steps, 1),
+            evaluate=partial(
+                self.evaluate, context=context, num_episode_test=num_episode_test
+            ),
+        )
+
+        def iteration(agent_state: Any, index: Any, tick: Any) -> tuple[Any, Any]:
+            agent_state, aux = self.iterate(agent_state, context)
+            agent_state, evaluations = loop.evaluate_every(
+                agent_state, aux, index, tick, evaluation
+            )
+            return agent_state, self.make_iteration_output(aux, evaluations)
+
+        return loop.train(
+            partial(self.init, context=context),
+            iteration,
+            n_iterations,
+            evaluations=evaluation.count(n_iterations),
+            resume=resume,
+            returns_iterations=self.returns_iterations,
         )

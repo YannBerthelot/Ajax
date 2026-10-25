@@ -112,7 +112,7 @@ EQUIVALENT = {
     # network rounded past the tolerance under JAX 0.11 (3.1 of it on macOS
     # ARM; 0.023 at 240 steps). Both legs still pass learning_starts.
     "IQL": Split(_make("IQL", RD, {**NETS, **IQL_KW}, None), 240, 120, 120),
-    # APG restarts its optimizer on resume by design (train_APG.reset_optimizer).
+    # APG restarts its optimizer on resume by design (APG.configure_call).
     "APG": Split(_apg, 256, 128, 128, {"reset_optimizer_on_resume": False}),
 }
 # Resumed on the bookkeeping preset, their counters checked: these agents'

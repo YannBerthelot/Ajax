@@ -221,9 +221,6 @@ def test_sacs_old_names_resolve_or_give_the_new_call() -> None:
 #: The functions 0.4.0 released that now carry a verb (compute_ for a loss):
 #: (old module, old name, new module, new name).
 RENAMED_BY_A_VERB = [
-    ("DQN.train_DQN", "huber_1_td_loss", "critics", "compute_huber_1_td_loss"),
-    ("DQN.train_DQN", "mse_td_loss", "critics", "compute_mse_td_loss"),
-    ("DQN.train_DQN", "q_loss_fn", "critics", "compute_q_loss"),
     ("IQL.train_IQL", "expectile_loss", "IQL.IQL", "compute_expectile_loss"),
     ("PQN.train_PQN", "half_mse_td_loss", "PQN.PQN", "compute_half_mse_td_loss"),
     ("SAC.core", "critic_loss_fn", "critics", "compute_mean_critic_loss"),

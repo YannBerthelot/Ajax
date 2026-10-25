@@ -6,6 +6,33 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **DQN, DAgger, UDRL and APG are declared agents**, each read from
+  `agents/<A>/<A>.py`: keyword-only after `env_id` (DAgger's
+  `expert_policy` included), fixed fields, `<A>Config` a view of them.
+  DQN and DAgger are on the replay family, UDRL and APG on a new one,
+  `OwnIterationAgent` (`ajax.agents.families`): the agent writes its
+  iteration, report and evaluation, the loop resumes and logs; a train
+  call's options (APG's `reset_optimizer_on_resume`) go to its
+  `configure_call`, and `train_offline` refuses it. Their old modules
+  are deleted, without a deprecation path (`train_DQN`, `train_DAgger`,
+  `train_UDRL`, `train_APG`, each agent's `state`, UDRL's `utils`): the
+  0.4.0 compatibility layer goes in the next release. Their names are in
+  the agent files, some renamed: APG's `make_controller`,
+  `make_agent_state`, `compute_rollout_returns` (its `key` and
+  `n_systems`), `make_step_through_expert`; UDRL's `scale_command` and
+  `compute_actor_loss`; DAgger's `compute_beta` and
+  `choose_learner_action`; init, update and evaluation are methods. UDRL
+  takes `cnn_extra_obs_dim` and `cnn_spec`; DAgger and UDRL take
+  `eval_expert_policy`, which APG refuses (`NotWired`) until its evaluation
+  rolls out an expert; APG refuses a bad `lr_schedule` when it is built.
+  Training is unchanged, bitwise, but for DAgger's replay, which now
+  stores the expert's next action (`next_a_expert`, unread): its pipeline
+  reads the expert's action collection computes, as every pipeline does.
+- **UDRL logs its eval_expert_policy's return.** UDRL takes
+  `eval_expert_policy`, as every agent with an expert does: each evaluation
+  logs that expert's return on its episodes (`Eval/episodic mean expert
+  reward` and `Eval/expert bias`), the expert taking no other part in the
+  run. Runs without one are unchanged, bitwise.
 - **The row collector and evaluate_policy observe features.** With
   observation features (`env_args.observers`), the world models' row
   collector appends them to every row, fresh at each episode's start, and

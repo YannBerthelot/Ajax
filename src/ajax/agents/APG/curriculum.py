@@ -20,9 +20,7 @@ from typing import Any, Optional, Sequence
 import jax
 import jax.numpy as jnp
 
-from ajax.agents.APG.APG import APG
-from ajax.agents.APG.state import APGState
-from ajax.agents.APG.train_APG import APGAuxiliaries
+from ajax.agents.APG.APG import APG, APGAuxiliaries, APGState
 from ajax.logging.wandb_logging import LoggingConfig
 
 

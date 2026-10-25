@@ -26,11 +26,14 @@ from optax.tree_utils import tree_norm
 
 from ajax import APO, ASAC, AVG, DQN, IQL, PPO, PQN, REDQ, SAC, TD3, TQC, CrossQ, DAgger
 from ajax.agents.APG.APG import APG
-from ajax.agents.critics import make_huber_td_loss
+from ajax.agents.APG.networks import PIDHeadConfig
+from ajax.agents.critics import compute_mse_td_loss, make_huber_td_loss
+from ajax.agents.DQN.DQN import compute_double_dqn_td_target
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.TD3.TD3 import make_default_action_pipeline
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.agents.UDRL.UDRL import UDRL
+from ajax.environments.system_class import UniformPerturbation
 from ajax.extensions.adversarial import AdversarialReward
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import (
@@ -46,6 +49,7 @@ from ajax.extensions.target_mods import ValueBox
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import MemoryConfig
+from ajax.networks.q_networks import DuelingQNetwork
 from ajax.schedule import linear
 from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
@@ -189,6 +193,7 @@ GAIL_DATA = episodes(3, discrete=False)  # Pendulum's observations
 #: online for ONLINE steps from that state (train_offline, then train).
 OFFLINE = {"IQL-offline", "TD3-offline"}
 OFFLINE.update({"SAC-offline", "ASAC-offline", "REDQ-offline", "TQC-offline"})
+OFFLINE.update({"DQN-offline"})
 ONLINE = 40
 #: Evaluated only in the last fifth of training (LoggingConfig.sweep).
 SWEEP = {"SAC-sweep"}
@@ -272,6 +277,68 @@ OWN_COLLECTOR_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "UDRL-keyed": (UDRL, {**UDRL_KW, "extensions": (ActorKeyed(),)}, 128),
     "DreamerV3": (DreamerV3, DREAMER, 80),
     "TDMPC2": (TDMPC2, TDMPC2_KW, 40),
+}
+# The paths B5's declaration of DQN, DAgger, UDRL and APG moves: DQN's
+# targets, networks, losses, target refresh, normalisers, offline training
+# and reference CNN; DAgger's expert mix, normalisers and a stateful expert
+# (its collector moves onto the replay family's); UDRL's normalisers and gain
+# mode; APG's memory, PID head, system class, gain mode and both resumes (its
+# optimiser rebuilt, then kept with the schedule spanning the run).
+DQN_KW = {**CART, "target_update_interval": 10}
+MINATAR = {"env_id": "Breakout-MinAtar", "n_envs": 2, "cnn_image_shape": (10, 10, 4)}
+MINATAR.update({"buffer_size": 200, "batch_size": 8, "learning_starts": 16})
+SYSTEMS = UniformPerturbation(
+    gymnax.make("Pendulum-v1")[1], fields=("m", "l"), scale=0.1
+)
+SCHEDULE = {"lr_schedule": "warmup_cosine", "warmup_steps": 2}
+B5_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "DQN-double": (DQN, {**DQN_KW, "td_target_fn": compute_double_dqn_td_target}, 240),
+    "DQN-dueling-mse": (
+        DQN,
+        {**DQN_KW, "q_network_cls": DuelingQNetwork, "td_loss_fn": compute_mse_td_loss},
+        240,
+    ),
+    "DQN-polyak": (
+        DQN,
+        {**CART, "tau": 0.5, "target_update_interval": 1, "n_gradient_steps": 2},
+        240,
+    ),
+    "DQN-norm-clip": (
+        DQN,
+        {**DQN_KW, **NORM, **REWARD_NORM, "max_grad_norm": 0.5, "weight_decay": 0.01},
+        240,
+    ),
+    "DQN-offline": (DQN, {**CART, "learning_starts": 0, "batch_size": 8}, 80),
+    "DQN-image": (DQN, MINATAR, 64),
+    "DAgger": (DAgger, DAGGER, 200),
+    "DAgger-mix": (DAgger, {**DAGGER, "beta_decay": 0.5, "iteration_steps": 40}, 200),
+    "DAgger-norm-clip": (
+        DAgger,
+        {**DAGGER, **NORM, "max_grad_norm": 0.5, "weight_decay": 0.01},
+        200,
+    ),
+    "DAgger-stateful": (DAgger, {**DAGGER, "expert_policy": GainExpert()}, 200),
+    "UDRL-norm": (UDRL, {**UDRL_KW, **NORM, **REWARD_NORM}, 128),
+    "UDRL-gain": (UDRL, {**UDRL_KW, **GAIN}, 128),
+    "APG-gru": (APG, {**APG_KW, "memory": MemoryConfig(kind="gru", hidden_size=8)}, 80),
+    "APG-pid": (APG, {**APG_KW, "pid": PIDHeadConfig()}, 80),
+    "APG-system": (
+        APG,
+        {**APG_KW, "system_class": SYSTEMS, "env_params": SYSTEMS.nominal},
+        80,
+    ),
+    "APG-gain": (APG, {**APG_KW, **GAIN}, 80),
+    "APG-resume": (APG, {**APG_KW, **SCHEDULE}, 80),
+    "APG-resume-kept": (APG, {**APG_KW, **SCHEDULE}, 80),
+}
+#: Trained for their steps, then for as many more from that state (a second
+#: train call): (both calls' options, the second call's steps).
+RESUMED: dict[str, tuple[dict[str, Any], int]] = {
+    "APG-resume": ({}, 80),
+    "APG-resume-kept": (
+        {"reset_optimizer_on_resume": False, "total_timesteps": 160},
+        80,
+    ),
 }
 CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "TD3": (TD3, {**S, **R}, 200),
@@ -449,17 +516,21 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     **SAC_FAMILY_CASES,
     **OWN_COLLECTOR_CASES,
+    **B5_CASES,
 }
 
 
 def run(name: str, agent: Any, logging: Any = None) -> tuple[Any, Any]:
-    """The case's training: ``train`` for its steps or, OFFLINE,
-    ``train_offline`` for as many updates on test_offline's dataset."""
+    """The case's training: ``train`` for its steps (with a RESUMED case's
+    options) or, OFFLINE, ``train_offline`` for as many updates on
+    test_offline's dataset (CartPole's observations for DQN)."""
     steps = CASES[name][2]
     if name in OFFLINE:
-        data = episodes(3, discrete=False)  # Pendulum's observations
+        discrete = name == "DQN-offline"  # CartPole's observations, else Pendulum's
+        data = episodes(4, discrete=True) if discrete else episodes(3, discrete=False)
         return agent.train_offline(data, steps, seed=SEEDS, logging_config=logging)
-    return agent.train(SEEDS, n_timesteps=steps, logging_config=logging)
+    options = RESUMED.get(name, ({}, 0))[0]
+    return agent.train(SEEDS, n_timesteps=steps, logging_config=logging, **options)
 
 
 def record(state: Any, evals: Any, tag: str = "") -> dict[str, np.ndarray]:
@@ -471,14 +542,20 @@ def record(state: Any, evals: Any, tag: str = "") -> dict[str, np.ndarray]:
         ):
             leaf = jax.random.key_data(leaf)
         out[f"{tag}state" + jax.tree_util.keystr(path)] = np.asarray(leaf)
-    # APG returns its evaluations inside its per-update auxiliaries.
-    evals = getattr(evals, "evaluations", evals)
+    # APG returns every update's auxiliaries, which TargetFoundation reads
+    # (matching_loss, m_rmse), its evaluations inside them.
+    if hasattr(evals, "evaluations"):
+        updates = evals.replace(evaluations=None)
+        for path, leaf in jax.tree_util.tree_flatten_with_path(updates)[0]:
+            out[f"{tag}aux" + jax.tree_util.keystr(path)] = np.asarray(leaf)
+        evals = evals.evaluations
     out.update({f"{tag}eval/" + k: np.asarray(v) for k, v in (evals or {}).items()})
     return out
 
 
 def leaves(name: str) -> dict[str, np.ndarray]:
-    """The case's :func:`record`, then an OFFLINE case's online one."""
+    """The case's :func:`record`, then an OFFLINE case's online one or a
+    RESUMED case's second call's."""
     cls, kwargs, _ = CASES[name]
     logging = LoggingConfig(
         config={}, log_frequency=40, use_wandb=False, sweep=name in SWEEP
@@ -491,6 +568,17 @@ def leaves(name: str) -> dict[str, np.ndarray]:
             SEEDS, n_timesteps=ONLINE, initial_state=state, logging_config=logging
         )
         out.update(record(state, evals, tag="online/"))
+    if name in RESUMED:
+        options, steps = RESUMED[name]
+        # A copy: the resume donates the state it is given.
+        state, evals = agent.train(
+            SEEDS,
+            n_timesteps=steps,
+            initial_state=jax.tree.map(jnp.copy, state),
+            logging_config=logging,
+            **options,
+        )
+        out.update(record(state, evals, tag="resumed/"))
     return out
 
 

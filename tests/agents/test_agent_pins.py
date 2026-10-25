@@ -1242,7 +1242,7 @@ _GOLDEN.update(
 )
 
 # Re-recorded on macOS ARM CPU once each step took its key from the state
-# (BaseAgentState.next_keys) and critic_step, actor_step and soft_actor_step
+# (BaseAgentState.get_keys_and_new_state) and critic_step, actor_step and soft_actor_step
 # derived the extensions' keys from it (update_steps.derive_extensions_key):
 # TD3's and AVG's actor steps now draw a key of their own, ASAC's and REDQ's
 # actor key is split first, and DQN with extensions no longer splits a key for
@@ -1279,7 +1279,7 @@ _GOLDEN.update(
 )
 
 # Re-recorded on macOS ARM CPU once SAC's actor step took its keys from the
-# state (next_keys) and its extensions' key from its policy key: relative
+# state (get_keys_and_new_state) and its extensions' key from its policy key: relative
 # shifts (actor, critic, alpha) SAC-mcc +2.2e-3, +1.1e-3, -1.3e-5; SAC-gru
 # -8.7e-5, -5.6e-4, -5.7e-5.
 _GOLDEN.update(

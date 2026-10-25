@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import ajax.agents.UDRL.train_UDRL as udrl
+import ajax.agents.UDRL.UDRL as udrl
 from ajax.evaluate import evaluate, setup_environment
 from ajax.extensions.base import Extension
 from ajax.networks.memory import MemoryConfig
@@ -390,7 +390,7 @@ def _p7_read(run: runs.Run) -> dict:
     def probs(n: R.Nets) -> dict:
         out = {}
         for k, c in P7_COMMANDS.items():
-            x = udrl._scale_obs_command(jnp.array([[0.0, *c]]), 1 / EP, 1 / EP)
+            x = udrl.scale_command(jnp.array([[0.0, *c]]), 1 / EP, 1 / EP)
             out[k] = R.pi(n, x).probs.reshape(-1)[1]
         return out
 

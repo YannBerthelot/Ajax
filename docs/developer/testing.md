@@ -339,7 +339,7 @@ A probe that has never caught a bug has not shown it can. Each scenario
 module has a catalogue, `faults/<module>.jsonl`, with one line per fault:
 
 ```json
-{"id": "P0a-D01-DQN", "path": "agents/DQN/train_DQN.py",
+{"id": "P0a-D01-DQN", "path": "agents/DQN/DQN.py",
  "old": "    max_q_next = jnp.max(q_next, axis=-1, keepdims=True)\n",
  "new": "    max_q_next = jnp.mean(q_next, axis=-1, keepdims=True)\n",
  "catches": ["test_value_chains.py::test_learns[p0a-DQN]"]}

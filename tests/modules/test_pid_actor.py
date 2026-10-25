@@ -275,7 +275,7 @@ def test_a_pid_actor_needs_continuous_actions():
 
 def test_apg_refuses_a_pid_policy():
     """APG's PID is its output head (PIDHeadConfig), not this option."""
-    from ajax.agents.APG.train_APG import build_controller
+    from ajax.agents.APG.APG import make_controller
 
     env, params = setpoint_env.make()
     env_config = EnvironmentConfig(
@@ -283,7 +283,7 @@ def test_apg_refuses_a_pid_policy():
     )
     net = NetworkConfig(actor_architecture=PIDPolicy(), critic_architecture=())
     with pytest.raises(TypeError, match="PIDHeadConfig"):
-        build_controller(env_config, net, pid=None, squash=True)
+        make_controller(env_config, net, pid=None, squash=True)
 
 
 _REPLAY = {"learning_starts": 16, "buffer_size": 256, "batch_size": 8}

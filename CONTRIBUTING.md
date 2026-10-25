@@ -19,7 +19,7 @@ These are the pieces every agent shares:
 ```
 src/ajax/
 ├── agents/base.py       ActorCritic: environment and network setup, extensions=, train()
-├── agents/families.py   declared agents: fields as hyperparameters, the replay and on-policy families
+├── agents/families.py   declared agents: fields as hyperparameters, the replay, incremental, on-policy and own-iteration families
 ├── agents/loop.py       TrainLoop, the shared loop (brax's forced resets included)
 ├── agents/update_steps.py  critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, run_if, the target update
 ├── agents/minibatch.py  the on-policy rollout split, minibatches and epochs
@@ -182,11 +182,13 @@ optimiser step), `compute_gradients` (a loss's gradients) and
 `agents/update_steps.py` rather than writing your own.
 
 A new agent `FOO` declares itself on a family of `agents/families.py`: a
-replay agent on `ReplayAgent`, as SAC, TQC, REDQ, ASAC, CrossQ, TD3 and IQL
-do (read `agents/IQL/IQL.py` first); an agent updating on each step as it
-comes, without a replay, on `IncrementalAgent`, as AVG does; an on-policy
-agent on `OnPolicyAgent`, as PPO, APO and PQN do (read `agents/PPO/PPO.py`
-first, and the on-policy family below). The other agents keep the older
+replay agent on `ReplayAgent`, as SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL,
+DQN and DAgger do (read `agents/IQL/IQL.py` first); an agent updating on
+each step as it comes, without a replay, on `IncrementalAgent`, as AVG
+does; an on-policy agent on `OnPolicyAgent`, as PPO, APO and PQN do (read
+`agents/PPO/PPO.py` first, and the on-policy family below); an agent whose
+iteration is its own on `OwnIterationAgent`, as UDRL and APG do (the
+own-iteration family below). DreamerV3 and TD-MPC2 keep the older
 three-file form (`state.py`, `train_<AGENT>.py` with a `make_train`,
 `<AGENT>.py`) until their batch moves them.
 
@@ -345,6 +347,18 @@ shuffle single steps. PPO never asks whether its networks have memory:
 in its losses) run a network with memory over its sequences and one
 without as an ordinary forward pass. `ImageObservations` adds the CNN encoder's fields;
 `train_offline` refuses an on-policy agent.
+
+**The own-iteration family.** `OwnIterationAgent.make_train` runs
+`loop.train` on the agent's own iteration: `iterate(agent_state, context)`
+acts and learns its way and applies the extensions' `post_update` where
+its order puts it, `report(agent_state, aux)` gives the training metrics an
+evaluation logs, `evaluate(agent_state, key, context, num_episode_test)` its
+policy's, and `steps_per_iteration(context)` the env steps one iteration
+takes. A train call's options go to `configure_call(context, n_iterations,
+...)`, which returns the call's context and how a resumed state is
+transformed (APG's schedule and optimiser rebuild); an agent returning
+every iteration's output (`returns_iterations`, APG's per-update metrics)
+says what it is in `iteration_output`. `train_offline` refuses it.
 
 Do **not** add a field for a feature (`use_critic_blend=True`, ...): it
 belongs on an extension.

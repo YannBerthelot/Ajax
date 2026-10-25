@@ -3,8 +3,7 @@ import jax.numpy as jnp
 import pytest
 
 from ajax.agents.critics import compute_huber_1_td_loss, make_huber_td_loss
-from ajax.agents.DQN.DQN import DQN
-from ajax.agents.DQN.train_DQN import compute_double_dqn_td_target
+from ajax.agents.DQN.DQN import DQN, compute_double_dqn_td_target
 from ajax.networks.networks import MINATAR_CNN, MNIH_CNN, CNNEncoder, CNNSpec
 from ajax.networks.q_networks import (
     DuelingQNetwork,

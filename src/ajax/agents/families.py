@@ -73,6 +73,11 @@ from ajax.types import BufferType, EnvType
 ACTOR_CRITIC_ARGS = frozenset(
     inspect.signature(ActorCritic.__init__).parameters
 ).difference({"self"})
+#: What an agent gives BellmanPretrain: its discount, its memory flag and
+#: its family's critic step without extensions (ReplayAgent.extension_values).
+BELLMAN_CONTEXT = frozenset(
+    {"gamma", "recurrent", "reward_scale", "update_target_fn", "update_value_fn"}
+)
 #: The fields the value estimate of an agent claiming the "discounted"
 #: capability reads: its gamma, which it declares, and its
 #: reward_scale, 1 (the rewards unscaled) where it declares none (PPO).

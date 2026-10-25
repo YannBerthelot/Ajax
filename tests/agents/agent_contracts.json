@@ -848,7 +848,12 @@
    "actor_optimizer_args",
    "buffer",
    "env_args",
-   "expert_policy"
+   "expert_policy",
+   "gamma",
+   "recurrent",
+   "reward_scale",
+   "update_target_fn",
+   "update_value_fn"
   ],
   "make_train": "ajax.agents.families:ReplayAgent.make_train",
   "name": "TD3",

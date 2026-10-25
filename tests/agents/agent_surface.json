@@ -547,6 +547,7 @@
 "ajax.agents.diagnostics:explained_variance",
 "ajax.agents.diagnostics:mean_policy_std",
 "ajax.agents.families:ACTOR_CRITIC_ARGS",
+"ajax.agents.families:BELLMAN_CONTEXT",
 "ajax.agents.families:DISCOUNT_FIELDS",
 "ajax.agents.families:DeclaredAgent",
 "ajax.agents.families:EntropyTemperature",

@@ -127,7 +127,7 @@ GAPS: dict[str, dict[str, str]] = {
         "PhiRefresh": "TD3 REDQ TQC CrossQ DQN IQL",
     },
     CONTEXT: {
-        "BellmanPretrain": "TD3 REDQ TQC CrossQ ASAC DQN IQL",
+        "BellmanPretrain": "REDQ TQC ASAC DQN IQL",
         "CloningPretrain": "APG PPO UDRL",
     },
     EXPERT: {
@@ -158,10 +158,10 @@ GAPS: dict[str, dict[str, str]] = {
             "TDMPC2 TDMPC2MultiTask",
         ),
         **dict.fromkeys(
-            "EDGEExploration JSRLCurriculum MCPretrain BellmanPretrain"
-            " BiasVorePenalty cnn".split(),
+            "EDGEExploration JSRLCurriculum MCPretrain BiasVorePenalty cnn".split(),
             "TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask",
         ),
+        "BellmanPretrain": "TDMPC2 TDMPC2MultiTask",
         **dict.fromkeys(
             "CloningPretrain ImitationLoss".split(),
             "TDMPC2 DreamerV3 TDMPC2MultiTask",

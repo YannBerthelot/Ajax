@@ -133,35 +133,27 @@ def compute_td_target(
     rng: jax.Array,
     recurrent: bool,
     reward_scale: float = 1.0,
-    next_action_transform=None,
+    executed: Optional[Callable[[jax.Array, Any], jax.Array]] = None,
     next_a_expert: Optional[jax.Array] = None,
     carries: Optional[RecurrentCarries] = None,
 ) -> jax.Array:
     """Pure SAC Bellman target: r + γ(1-d)(min Q_target(s', π(s')) - α log π).
 
-    ``next_action_transform`` is an optional callable applied to the
-    sampled next action before the target critic sees it. Used by
-    residual RL so the bootstrap is queried at the same residual-
-    transformed action distribution the critic was trained on:
-    ``a_target = clip(a_expert(s_{t+1}) + scale * pi(s_{t+1}), -1, 1)``.
-    Without this the target Q is OOD and training diverges.
+    With a residual policy, executed maps the sampled next actions to the
+    executed ones, from the expert's stored next actions next_a_expert
+    (ajax.controller.executed_fn): the bootstrap is queried where the
+    critic was trained, clip(a_expert(s') + scale * pi(s'), -1, 1). Without
+    it the target Q is out of distribution and training diverges.
 
-    ``carries`` (sequence replay) is set exactly when ``recurrent``.
-    Returns stop-gradient'd target. Expert modules can further modify
-    this (IBRL, critic blend, MC correction) before it enters the
-    critic loss.
+    The carries (sequence replay) are set exactly when recurrent. Returns
+    the target with no gradient; the target extensions (IBRL, CriticBlend,
+    MCVarianceCorrection) may change it before the critic loss reads it.
     """
     del recurrent
     sample_key, rng = jax.random.split(rng)
     next_actions, log_probs = sample_next_actions(
-        actor_state, next_observations, sample_key, carries
+        actor_state, next_observations, sample_key, carries, executed, next_a_expert
     )
-    if next_action_transform is not None:
-        next_actions = next_action_transform(
-            next_actions,
-            next_observations,
-            next_a_expert,
-        )
     q_targets = q_values(
         critic_state,
         critic_state.target_params,

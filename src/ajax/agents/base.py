@@ -9,16 +9,17 @@ import jax.numpy as jnp
 import numpy as np
 from gymnax import EnvParams
 
-from ajax.controller import observers_of, transforms_of
+from ajax.controller import observers_of, transforms_of, warmups_of
 from ajax.environments.create import prepare_env
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import ExpertInAgentUnits
 from ajax.extensions.base import (
+    CONTROLLER_PHASES,
     Extension,
     ExtensionStack,
     check_extensions,
 )
-from ajax.extensions.capabilities import run_capabilities
+from ajax.extensions.capabilities import NotWired, run_capabilities
 from ajax.logging.wandb_logging import (
     LoggingConfig,
     init_logging,
@@ -377,16 +378,42 @@ class ActorCritic:
             expert = getattr(self, "expert_policy", None)
             with_features = self.env_args.replace(observers=observers)
             dim = transforms[0].policy_action_dim(with_features, expert)
+        # What the warm-up acts with (ExpertWarmup), also the controller's.
+        warmups = warmups_of(self.extension_stack)
+        if len(warmups) > 1:
+            raise ValueError(
+                f"An agent takes one warm-up, got {[warmup.name for warmup in warmups]}."
+            )
         self.env_args = self.env_args.replace(
-            observers=observers, transforms=transforms, policy_action_dim=dim
+            observers=observers,
+            transforms=transforms,
+            warmups=warmups,
+            policy_action_dim=dim,
         )
+        # Under gain mode the policy chooses gains, and an expert's actions,
+        # stored (a_expert) or called again, are env actions: an extension
+        # using them as the policy's would mix the two spaces.
+        mixers = [
+            extension
+            for extension in self.extension_stack
+            if extension.uses_expert_actions_as_policy_actions()
+        ]
+        if dim is not None and mixers:
+            reason = "uses the expert's env actions where the policy's gains go"
+            unwired = {type(mixer).__name__: reason for mixer in mixers}
+            raise NotWired(
+                f"{type(self).__name__} cannot run {sorted(unwired)} under gain"
+                f" mode yet: each {reason}.",
+                unwired,
+            )
 
-        # An extension acting only in the controller (a feature, gain mode)
-        # takes no part in the learner's folds: no state, no key of its own.
-        # A residual policy stays: the learner scores its executed actions.
+        # An extension acting only in the controller (a feature, gain mode, a
+        # warm-up) takes no part in the learner's folds: no state, no key of
+        # its own. A residual policy stays: the learner scores its executed
+        # actions.
         def controller_only(extension: Any) -> bool:
             phases = extension.implemented_phases()
-            return bool(phases) and phases <= {"observe", "actuate"}
+            return bool(phases) and phases.issubset(CONTROLLER_PHASES)
 
         if any(controller_only(e) for e in self.extension_stack):
             self.extension_stack = ExtensionStack(
@@ -416,6 +443,7 @@ class ActorCritic:
             # Set before this initialiser by the agents that take one.
             has_expert=getattr(self, "expert_policy", None) is not None,
             num_critics=self.config.get("num_critics"),
+            learning_starts=self.config.get("learning_starts"),
         )
 
     def _check_extension_phases(self) -> None:

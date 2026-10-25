@@ -4,6 +4,7 @@
 * :class:`ImitationLoss`         — plain BC loss term towards the expert.
 * :class:`ResidualPolicy`        — execute ``clip(a_expert + scale·a_pi)``.
 * :class:`ExpertGains`           — the action sets the expert's gains (gain mode).
+* ExpertWarmup                  — the expert acts on a share of the warm-up steps.
 * :class:`JSRLCurriculum`        — per-episode expert→learner handoff.
 * :class:`ExpertValueMetrics`    — the critic at the expert's actions, logged.
 
@@ -149,6 +150,9 @@ class OnlineBC(Extension):
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "actor_loss": frozenset({"a_expert", "observations", "pi_mean"})
     }
+
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        return True
 
     def actor_loss(
         self,
@@ -323,6 +327,10 @@ class ImitationLoss(Extension):
     def experts(self) -> tuple:
         return () if self.expert_policy is None else (self.expert_policy,)
 
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        # The replayed target clones the stored actions, the policy's own.
+        return self.target == "expert"
+
     def needs(self) -> frozenset[str]:
         """The filter and ``alpha`` also read the Q critic; the replayed
         target needs a replay."""
@@ -486,6 +494,10 @@ class ResidualPolicy(Extension):
             actions, inputs.expert_action, scale=self.scale
         )
 
+    def policy_action_for_expert(self, policy_actions: jax.Array) -> jax.Array:
+        # A residual of 0 executes clip(a_expert), the expert's own action.
+        return jnp.zeros_like(policy_actions)
+
 
 @dataclass(frozen=True)
 class ExpertGains(Extension):
@@ -522,6 +534,33 @@ class ExpertGains(Extension):
         expert = inputs.expert
         gains = expert.anchor_gains * jnp.exp(jnp.log(10.0) * actions)
         return expert.step_with_gains(inputs.expert_state, inputs.raw_obs, gains)
+
+    def policy_action_for_expert(self, policy_actions: jax.Array) -> jax.Array:
+        # An action of 0 sets the anchor gains: the expert's own behaviour.
+        return jnp.zeros_like(policy_actions)
+
+
+@dataclass(frozen=True)
+class ExpertWarmup(Extension):
+    """During the warm-up, the agent's expert acts on a share fraction of the
+    steps and uniform random actions on the others (SAC's former
+    expert_fraction). One draw decides each step for every env, as SAC drew
+    it. It acts in the controller only: no state and no key in the learner.
+    The replay flags the steps the expert took, where it keeps is_expert."""
+
+    fraction: float
+    name: str = "expert_warmup"
+    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert"})
+
+    def choose_warmup_action(
+        self, uniform_actions: jax.Array, inputs: Any
+    ) -> tuple[jax.Array, jax.Array]:
+        # Its own key: on the uniform actions' key the decision would reuse
+        # their first draw (env 0, dimension 0).
+        decision_key = jax.random.fold_in(inputs.key, 1)
+        expert_took = jax.random.uniform(decision_key) < self.fraction
+        actions = jnp.where(expert_took, inputs.expert_action, uniform_actions)
+        return actions, expert_took
 
 
 @dataclass(frozen=True)
@@ -600,6 +639,7 @@ class JSRLCurriculum(Extension):
 
 __all__ = [
     "ExpertGains",
+    "ExpertWarmup",
     "ImitationLoss",
     "JSRLCurriculum",
     "OnlineBC",
@@ -632,6 +672,9 @@ class ExpertValueMetrics(Extension):
     )
     context: ClassVar[frozenset[str]] = frozenset({"buffer", "expert_policy"})
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "ExpertValueMetrics":
         if self.buffer is not None:

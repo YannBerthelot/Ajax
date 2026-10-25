@@ -303,6 +303,7 @@ class CrossQ(
             "q_critic",
             "replay",
             "reward_learning",
+            "warmup",
         }
     )
     trains_batch_norm = True

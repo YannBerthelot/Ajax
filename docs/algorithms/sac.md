@@ -27,7 +27,7 @@ Algorithms and Applications*, 2018.
 | Vectorised environments (`n_envs`) | Yes |
 | Recurrent memory (`memory=`) | Yes, without extensions or `expert_policy` |
 | PID policy (`actor_architecture=PIDPolicy(...)`) | Yes |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `action`, `transform_action`, `actuate` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `action`, `transform_action`, `actuate`, `choose_warmup_action` |
 
 The `action` phase runs only when the agent has an `expert_policy` and no
 gain mode (`ExpertGains`); SAC raises at construction otherwise. See
@@ -94,7 +94,7 @@ expert is written in the environment's units and receives the raw
 | `expert_policy` | `None` | the expert used in training; `None` is plain SAC |
 | `eval_expert_policy` | `None` | an expert used only for the evaluation's comparison metrics |
 | `expert_buffer_n_steps` | `20_000` | expert steps per env written to the buffer before training |
-| `expert_fraction` | `0.7` | during warm-up, the chance a step takes the expert's action instead of a uniform one |
+| `expert_fraction` | `None` | deprecated: builds `ExpertWarmup(fraction)` (`ajax.extensions.expert`: during warm-up, the chance a step takes the expert's action instead of a uniform one), which pass instead; `None` with an expert builds `ExpertWarmup(fraction=0.7)` and warns that this default will go |
 | `use_pid_policy` | `False` | deprecated: builds `ExpertGains()` (`ajax.extensions.expert`, gain mode: the actor outputs the gains of the expert's PID), which pass instead |
 | `augment_obs_with_expert_action`, `augment_obs_with_expert_state` | `False` | deprecated: build `ExpertActionInput()`, `ExpertStateInput.for_expert(expert)` (`ajax.extensions.observe`), which pass instead |
 | `use_train_frac` | `False` | deprecated: builds `TrainingProgressInput()`, which pass instead |

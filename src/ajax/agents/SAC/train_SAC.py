@@ -18,13 +18,16 @@ from ajax.agents.recurrent import (
 from ajax.agents.SAC import core
 from ajax.agents.SAC.action_pipeline import make_action_pipeline
 from ajax.agents.SAC.core import TemperatureAuxiliaries, update_temperature
-from ajax.agents.SAC.expert import collect_and_store_expert_transitions
 from ajax.agents.SAC.state import SACConfig, SACState
 from ajax.agents.steps import update_target_networks
 from ajax.buffers.dataset import TransitionDataset
-from ajax.controller import executed_actions
+from ajax.controller import executed_fn
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
+from ajax.extensions.pretrain import (
+    ExpertPrefill,
+    collect_and_store_expert_transitions,
+)
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import latent
 from ajax.networks.networks import action_value, predict_value
@@ -149,13 +152,13 @@ def update_value_functions(
     extension_stack: ExtensionStack,
     reward_scale: float = 1.0,
     total_timesteps: int = 1,
-    next_action_transform: Optional[Callable] = None,
+    executed: Optional[Callable] = None,
     carries: Optional[RecurrentCarries] = None,
 ) -> Tuple[SACState, ValueAuxiliaries, dict]:
-    """The critic step on SAC's soft target. ``next_action_transform``
-    (residual RL) evaluates the bootstrap at the transformed next action,
-    from the expert's stored action at s', so the critic is queried where
-    it was trained."""
+    """The critic step on SAC's soft target. Under a residual policy,
+    executed (ajax.controller.executed_fn) evaluates the bootstrap at the
+    executed next action, from the expert's stored action at s', so the
+    critic is queried where it was trained."""
     agent_state, key = agent_state.next_keys()
     # A truncated row bootstraps on its final observation (bootstrap_obs).
     dones = transition.terminated
@@ -170,10 +173,8 @@ def update_value_functions(
         rng=key,
         recurrent=recurrent,
         reward_scale=reward_scale,
-        next_action_transform=next_action_transform,
-        next_a_expert=(
-            transition.next_a_expert if next_action_transform is not None else None
-        ),
+        executed=executed,
+        next_a_expert=transition.next_a_expert if executed is not None else None,
         carries=carries,
     )
     # The target extensions (MCVarianceCorrection's variance) read the
@@ -230,40 +231,27 @@ def update_policy(
     observations: jax.Array,
     raw_observations: Optional[jax.Array],
     extension_stack: ExtensionStack,
-    expert_policy: Optional[Callable] = None,
-    a_expert_precomputed: Optional[jax.Array] = None,
-    policy_action_transform: Optional[Callable] = None,
+    a_expert: Optional[jax.Array] = None,
+    executed: Optional[Callable] = None,
     total_timesteps: int = 1,
     carries: Optional[RecurrentCarries] = None,
     replay_actions: Optional[jax.Array] = None,
 ) -> Tuple[SACState, PolicyAuxiliaries, jax.Array, dict]:
-    """The actor step on SAC's soft policy loss (core.soft_policy_loss),
-    the critics scoring ``policy_action_transform``'s executed actions with
-    a residual policy. Returns the state, ``aux``, the log-probs of a fresh
-    sample of the stepped actor for update_temperature (CleanRL's SAC order;
-    cited from memory, unverified) and the extensions' metrics."""
+    """The actor step on SAC's soft policy loss (core.soft_policy_loss).
+    Under a residual policy the critics score the executed actions
+    (executed, ajax.controller.executed_fn) from the expert's stored actions
+    a_expert, which the actor-loss extensions (OnlineBC, ImitationLoss) read
+    as their clone target. Returns the state, the auxiliaries, the
+    log-probs of a fresh sample of the stepped actor for update_temperature
+    (CleanRL's SAC order; cited from memory, unverified) and the extensions'
+    metrics."""
     agent_state, key, sample_key = agent_state.next_keys(2)
     alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
-    # The env's own observations, what the expert reads (a run with an
-    # expert stores them).
-    raw = raw_observations
     transform = None
-    if policy_action_transform is not None:
+    if executed is not None:
 
         def transform(actions: jax.Array) -> jax.Array:
-            return policy_action_transform(actions, raw, a_expert_precomputed)
-
-    # The actor-loss extensions get the expert's action as collection stored
-    # it, from its tracked state (the clone target of OnlineBC and
-    # ImitationLoss).
-    a_expert = None
-    if (
-        expert_policy is not None
-        and "actor_loss" in extension_stack.implemented_phases()
-    ):
-        a_expert = a_expert_precomputed
-        if a_expert is None:
-            a_expert = jax.lax.stop_gradient(expert_policy(raw))
+            return executed(actions, a_expert)
 
     def policy_loss(params: FrozenDict) -> Tuple[jax.Array, Any, jax.Array]:
         loss, (log_probs, q, pi) = core.soft_policy_loss(
@@ -318,12 +306,11 @@ def update_agent(
     extension_stack: ExtensionStack,
     num_critic_updates: int = 1,
     reward_scale: float = 1.0,
-    expert_policy: Optional[Callable] = None,
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
     fixed_alpha: bool = False,
     total_timesteps: int = 1,
-    policy_action_transform: Optional[Callable] = None,
+    executed: Optional[Callable] = None,
     burn_in: int = 8,
     stored_state: bool = False,
 ) -> Tuple[SACState, AuxiliaryLogs]:
@@ -339,26 +326,13 @@ def update_agent(
         jnp.zeros(()) if transition.is_expert is None else transition.is_expert.mean()
     )
 
-    a_expert_precomputed = None
-    # The actor-loss extensions (OnlineBC) take the expert action from
-    # here, phi* or not.
+    # The expert's actions as collection stored them, from its state along
+    # the trajectory (a run with an expert always stores them), for the
+    # residual's executed actions and the actor-loss extensions.
+    a_expert = None
     has_actor_loss = "actor_loss" in extension_stack.implemented_phases()
-    needs_expert = expert_policy is not None and (
-        policy_action_transform is not None or has_actor_loss
-    )
-    if needs_expert:
-        assert expert_policy is not None
-        # Prefer the a_expert stored in the buffer at collection time
-        # (computed with the correct stateful expert internal state).
-        # Fall back to a fresh stateless expert call only if the buffer
-        # transition predates the schema change (legacy run).
-        if transition.a_expert is not None:
-            a_expert_precomputed = jax.lax.stop_gradient(transition.a_expert)
-        else:
-            # The env's own observations, which a run with an expert stores.
-            a_expert_precomputed = jax.lax.stop_gradient(
-                expert_policy(transition.raw_obs)
-            )
+    if transition.a_expert is not None and (executed is not None or has_actor_loss):
+        a_expert = jax.lax.stop_gradient(transition.a_expert)
 
     # See ajax.perf_utils.final_aux_scan: carry-only scan that exposes
     # last-step aux without materialising the full ys axis.
@@ -371,7 +345,7 @@ def update_agent(
             extension_stack,
             reward_scale=reward_scale,
             total_timesteps=total_timesteps,
-            next_action_transform=policy_action_transform,
+            executed=executed,
             carries=carries,
         )
         return state, (aux, metrics)
@@ -386,9 +360,8 @@ def update_agent(
         observations=transition.obs,
         agent_state=agent_state,
         raw_observations=transition.raw_obs,
-        expert_policy=expert_policy,
-        a_expert_precomputed=a_expert_precomputed,
-        policy_action_transform=policy_action_transform,
+        a_expert=a_expert,
+        executed=executed,
         extension_stack=extension_stack,
         total_timesteps=total_timesteps,
         carries=carries,
@@ -443,7 +416,6 @@ def make_train(
     num_critic_updates: int = 1,
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
-    expert_fraction: float = 0.7,
     target_entropy_initial: Optional[float] = None,
     target_entropy_ramp_frac: float = 0.5,
     store_policy_action: bool = False,
@@ -505,6 +477,16 @@ def make_train(
         offline_data=offline_data,
     )
 
+    # Deliberate workaround, a bridge while both prefills exist: SAC's
+    # built-in prefill (expert_buffer_n_steps) gives way to an ExpertPrefill
+    # in its stack, so the replay is filled once. Naming the extension here
+    # breaks the rule that an agent knows no extension; the prefill-shim
+    # change (expand, then contract) turns expert_buffer_n_steps into an
+    # ExpertPrefill and deletes this check with init_SAC's prefill.
+    builtin_prefill = expert_policy is not None and not any(
+        isinstance(extension, ExpertPrefill) for extension in stack
+    )
+
     def init(key: jax.Array) -> SACState:
         return init_SAC(
             key=key,
@@ -517,9 +499,7 @@ def make_train(
             buffer=buffer,
             expert_policy=expert_policy,
             num_critics=num_critics,
-            expert_buffer_n_steps=(
-                expert_buffer_n_steps if expert_policy is not None else 0
-            ),
+            expert_buffer_n_steps=expert_buffer_n_steps if builtin_prefill else 0,
             count_episode_steps=any(e.reads_step_in_episode for e in stack),
             # Kept only for an extension that declares it reads it.
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),
@@ -527,25 +507,10 @@ def make_train(
             store_return_to_go="return_to_go" in stack.buffer_fields(),
         )
 
-    # A residual policy (``transform_action``) makes the executed action
-    # residual: in collection (the action pipeline), the actor loss and TD
-    # target (the critics score executed actions) and evaluation (the loop's
-    # controller). Gain mode (``actuate``) acts through the default
-    # pipeline, which the shared collector actuates.
-    residual: Any = next(
-        (
-            t
-            for t in env_args.transforms
-            if "transform_action" in t.implemented_phases()
-        ),
-        None,
-    )
-    policy_action_transform = None
-    if residual is not None:
-
-        def policy_action_transform(actions, raw_obs, a_expert):
-            del raw_obs
-            return executed_actions(env_args, actions, a_expert)
+    # A residual policy makes the executed action residual, which the TD
+    # target and the actor loss score, as every soft actor-critic does
+    # (executed_fn); collection and evaluation apply it themselves.
+    executed = executed_fn(env_args)
 
     # A ramp from target_entropy_initial (low: a BC-warmed policy mean rolls
     # out near-deterministically and stays alive on brittle envs) to the
@@ -570,30 +535,27 @@ def make_train(
             target_entropy=target_entropy,
             tau=agent_config.tau,
             reward_scale=agent_config.reward_scale,
-            expert_policy=expert_policy,
             policy_update_start=policy_update_start,
             alpha_update_start=alpha_update_start,
             fixed_alpha=fixed_alpha,
             num_critic_updates=num_critic_updates,
             total_timesteps=total_timesteps,
             extension_stack=loop.extensions,
-            policy_action_transform=policy_action_transform,
+            executed=executed,
             burn_in=agent_config.burn_in,
             stored_state=agent_config.stored_state,
         )
 
-    # The pipeline carries the SAC-side bookkeeping (warmup mix,
-    # ``is_expert_flag``, ``buffer_action``, expert-state threading) and
-    # the gain-policy short-circuit; the EDGE / ValueBox / JSRL gates run
-    # through the extension stack.
+    # The pipeline carries the SAC-side bookkeeping (the warm-up chooser,
+    # the expert flags, the stored action); the EDGE, ValueBox and JSRL
+    # gates run through the extension stack. Gain mode acts through the
+    # shared collector's pipeline.
     gain_mode = env_args.policy_action_dim is not None
     action_pipeline = make_action_pipeline(
         expert_policy=None if gain_mode else expert_policy,
         recurrent=recurrent,
         env_args=env_args,
         extension_stack=loop.extensions,
-        expert_fraction=expert_fraction,
-        residual=residual,
         store_policy_action=store_policy_action,
         total_timesteps=total_timesteps,
     )

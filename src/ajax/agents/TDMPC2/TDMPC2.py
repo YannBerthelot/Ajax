@@ -133,6 +133,7 @@ class TDMPC2(ActorCritic):
             "replay",
             "target_critic",
             "reward_learning",
+            "warmup",
         }
     )
     # Its own collector and encoder: no observation features yet.
@@ -307,6 +308,13 @@ class TDMPC2(ActorCritic):
                 **self.agent_config.resolved(self.action_dim),
             }
         )
+
+    def run_capabilities(self) -> frozenset[str]:
+        """The shared run's capabilities, with warmup_steps: whatever
+        seed_steps, its seed phase acts uniformly for at least one episode
+        (both schedules' seed tick is at least the episode length), where
+        the shared rule reads learning_starts."""
+        return super().run_capabilities().union({"warmup_steps"})
 
     def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:
         """The absolute tick a resumed run starts at, equal across seeds

@@ -15,6 +15,8 @@ refreshes MCPretrain's critic during training.
   frozen expert critic during training (the ``post_update`` phase).
 * :class:`PriorData`           — a transition dataset in the replay, and the
   agent's own updates on it before acting.
+* ExpertPrefill                — the agent's expert's transitions in the
+  replay before training.
 """
 
 from __future__ import annotations
@@ -33,9 +35,10 @@ from ajax.agents.cloning import cloning_columns, pre_train
 from ajax.agents.loop import seed_replay
 from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
-from ajax.controller import reads_agent_expert
+from ajax.controller import policy_action_dim, reads_agent_expert
 from ajax.environments.interaction import (
     collect_experience_from_expert_policy,
+    replay_row,
     reward_statistics,
 )
 from ajax.environments.utils import raw_obs_columns
@@ -409,6 +412,9 @@ class CloningPretrain(Extension):
     context: ClassVar[frozenset[str]] = frozenset({"actor_optimizer_args", "env_args"})
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
 
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        return True
+
     def bind_to_agent(self, **agent_context: Any) -> "CloningPretrain":
         """Copy the agent's ``env_args`` (its observation features
         included) and ``actor_optimizer_args``. Raises ``ValueError`` when
@@ -575,6 +581,9 @@ class MCPretrain(Extension):
         {"critic_optimizer_args", "env_args", "gamma", "network_args", "reward_scale"}
     )
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "MCPretrain":
         """Copy the agent's context (``env_args``, ``network_args``,
@@ -898,6 +907,9 @@ class PhiRefresh(Extension):
     def experts(self) -> tuple:
         return (self.expert_policy,)
 
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        return True
+
     def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
         """Copy the agent's ``buffer``, ``gamma`` and ``reward_scale``, and
         whether its expert is the agent's (:func:`reads_stored_expert_actions`)."""
@@ -952,30 +964,172 @@ class PhiRefresh(Extension):
         return new_state, ext_state
 
 
+def collect_and_store_expert_transitions(
+    expert_policy: Callable,
+    env_args: EnvironmentConfig,
+    buffer: BufferType,
+    buffer_state: Any,
+    rng: jax.Array,
+    n_steps: int,
+) -> Any:
+    """Collect n_steps expert steps per env and store them in the replay row
+    by row as the live collector does (replay_row): one step of every env per
+    add (the buffer's add batch is the env axis), with the expert's actions
+    at s and s' as a_expert and next_a_expert, is_expert 1, and the
+    observations with the agent's features (the training progress holds 0
+    before training)."""
+    schema = buffer_state.experience
+    if "actor_carry" in schema:
+        raise ValueError(
+            "The expert prefill cannot store a recurrent actor's carry"
+            " (actor_carry, stored_state=True): that carry exists only along"
+            " the agent's own rollouts."
+        )
+    # The next observations the live collector stores: after a termination
+    # the reset one, which ASAC's differential target continues from.
+    transitions = collect_experience_from_expert_policy(
+        expert_policy=expert_policy,
+        rng=rng,
+        mode=env_args.mode,
+        env_args=env_args,
+        n_timesteps=n_steps,
+        bootstrap_next_obs=True,
+    )
+    # A row stores what collection stores when the expert acts. Under an
+    # action transform, the policy's action is the one at which it executes
+    # the expert's own (policy_action_for_expert); gain mode stores it as
+    # the action too, residual RL stores the executed action, the expert's.
+    transform = next(iter(env_args.transforms), None)
+    stores_choice = (
+        transform is not None and "actuate" in transform.implemented_phases()
+    )
+    choose_for_expert = None
+    if transform is not None and (stores_choice or "policy_action" in schema):
+        choose_for_expert = transform.policy_action_for_expert
+
+    def add_step(buffer_state: Any, step: Any) -> tuple[Any, None]:
+        chosen = step.action
+        if choose_for_expert is not None:
+            # Shaped like the policy's actions at this step.
+            policy_actions = jnp.zeros(
+                (*step.reward.shape[:-1], policy_action_dim(env_args))
+            )
+            chosen = choose_for_expert(policy_actions)
+        row = replay_row(
+            schema,
+            obs=step.obs,
+            action=chosen if stores_choice else step.action,
+            reward=step.reward,
+            terminated=step.terminated,
+            truncated=step.truncated,
+            next_obs=step.next_obs,
+            raw_obs=step.raw_obs,
+            is_expert=jnp.ones_like(step.reward),
+            a_expert=step.a_expert,
+            next_a_expert=step.next_a_expert,
+            raw_next_obs=step.raw_next_obs,
+            policy_action=chosen,
+        )
+        # The replay's dtypes: the expert collector keeps the env's.
+        row = {name: value.astype(schema[name].dtype) for name, value in row.items()}
+        return buffer.add(buffer_state, row), None
+
+    buffer_state, _ = jax.lax.scan(add_step, buffer_state, transitions)
+    return buffer_state
+
+
+#: The prefill's own stream off the pretrain key. CloningPretrain and
+#: MCPretrain roll the expert out on split(key, n), and under the
+#: partitionable threefry split(key, n)[i] equals fold_in(key, i): a small
+#: tag would reuse one of their keys, a 32-bit one no realistic n reaches.
+EXPERT_PREFILL_KEY_TAG = 0x70726566
+
+
+@dataclass(frozen=True)
+class ExpertPrefill(Extension):
+    """The agent's expert acts n_steps steps in every env before training,
+    and its transitions go to the replay as collection writes its own
+    (collect_and_store_expert_transitions): with the agent's features at
+    training progress 0, is_expert 1, and under an action transform the
+    policy action that executes the expert's own. The rows count in no
+    normaliser and no timestep, as SAC's built-in prefill never counted
+    them, so learning_starts counts live steps.
+
+    It needs the agent's expert, a replay and an update that stays correct
+    on actions the policy did not choose: SAC, REDQ, ASAC, TQC, TD3, CrossQ
+    and IQL take it. It runs before the other pretraining, which may read
+    its rows (ExtensionStack.apply_pretrain)."""
+
+    n_steps: int
+    # The agent's expert, in agent units, bound by bind_to_agent.
+    expert: Any = None
+    name: str = "expert_prefill"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"agent_expert", "off_policy", "replay"}
+    )
+    provides: ClassVar[frozenset[str]] = frozenset({"seeded_replay"})
+    context: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+    pretrain_context: ClassVar[frozenset[str]] = frozenset({"buffer", "env_args"})
+
+    def bind_to_agent(self, **agent_context: Any) -> "ExpertPrefill":
+        if self.expert is not None or "expert_policy" not in agent_context:
+            return self
+        return dataclasses.replace(self, expert=agent_context["expert_policy"])
+
+    def replay_rows(self, n_envs: int) -> int:
+        return self.n_steps * n_envs
+
+    def pretrain(
+        self, agent_state: Any, ext_state: Any, context: ExtensionContext
+    ) -> tuple[Any, Any]:
+        if self.expert is None:
+            raise ValueError(
+                "ExpertPrefill rolls out the agent's expert_policy, which the"
+                " agent did not bind."
+            )
+        key = jax.random.fold_in(context.rng, EXPERT_PREFILL_KEY_TAG)
+        collector = agent_state.collector_state
+        buffer_state = collect_and_store_expert_transitions(
+            self.expert,
+            context.env_args,
+            context.buffer,
+            collector.buffer_state,
+            key,
+            self.n_steps,
+        )
+        collector = collector.replace(buffer_state=buffer_state)
+        return agent_state.replace(collector_state=collector), ext_state
+
+
 @dataclass(frozen=True)
 class PriorData(Extension):
     """Prior data in the replay, and the agent's own updates on it before
     acting (offline-to-online RL).
 
-    Adds ``dataset``'s rows to the agent's replay, where they stay
-    (:func:`ajax.buffers.dataset.fill_replay`), and to its observation and
-    reward normalisers, each row counted once as collection counts its own;
-    then runs ``offline_updates`` of the agent's update on that replay: its
-    critic, actor and target steps and its extensions' loss terms, but no
-    ``post_update`` between them. ``offline_updates=0`` is RLPD's prior
-    data in the replay (Ball et al. 2023) without its symmetric sampling.
-    Ajax's warm-up acts uniformly: pair it with ``learning_starts=0``.
+    Adds the dataset's rows to the agent's replay, where they stay
+    (ajax.buffers.dataset.fill_replay), and to its observation and reward
+    normalisers, each row counted once as collection counts its own; then
+    runs offline_updates of the agent's update on that replay: its critic,
+    actor and target steps and its extensions' loss terms, but no
+    post_update between them. offline_updates=0 is RLPD's prior data in the
+    replay (Ball et al. 2023) without its symmetric sampling. Ajax's warm-up
+    acts uniformly: pair it with learning_starts=0.
 
-    Needs the replay and update an off-policy loop hands the ``pretrain``
-    phase (``pretrain_context``): any agent but SAC, TD3, REDQ, ASAC and DQN
-    refuses it when built.
+    Needs the replay and update an off-policy loop hands the pretrain phase
+    (pretrain_context): SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL and DQN take
+    it, every other agent refuses it when built.
     """
 
     dataset: TransitionDataset
     offline_updates: int = 0
     name: str = "prior_data"
     requires: ClassVar[frozenset[str]] = frozenset({"off_policy", "replay"})
+    provides: ClassVar[frozenset[str]] = frozenset({"seeded_replay"})
     pretrain_context: ClassVar[frozenset[str]] = frozenset({"buffer", "update"})
+
+    def replay_rows(self, n_envs: int) -> int:
+        del n_envs
+        return len(self.dataset.reward)
 
     def pretrain(
         self, agent_state: Any, ext_state: Any, context: ExtensionContext
@@ -984,7 +1138,8 @@ class PriorData(Extension):
         if context.buffer is None or agent_update is None:
             raise ValueError(
                 "PriorData adds its rows to the agent's replay: give it to an"
-                " agent replaying transitions (SAC, TD3, REDQ, ASAC, DQN)."
+                " agent replaying transitions (SAC, TD3, REDQ, ASAC, TQC,"
+                " CrossQ, IQL, DQN)."
             )
         agent_state = seed_replay(
             agent_state, context.buffer, self.dataset, context.env_args
@@ -1002,6 +1157,7 @@ class PriorData(Extension):
 __all__ = [
     "BellmanPretrain",
     "CloningPretrain",
+    "ExpertPrefill",
     "MCPretrain",
     "PhiRefresh",
     "PriorData",

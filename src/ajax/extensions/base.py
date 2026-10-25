@@ -45,6 +45,8 @@ Phases
 ``eval_metrics`` extra metrics, merged into the eval log
 ``observe``      columns appended to every observation (an expert's action,
                  the training progress), stored with it
+``choose_warmup_action`` the actions of a warm-up step (ExpertWarmup's
+                 expert mix), uniform by default
 
 ``on_target``, ``critic_loss`` and ``actor_loss`` may return ``(value,
 metrics)`` instead of their value: ``metrics``, a dict of scalars named
@@ -116,9 +118,15 @@ PHASES: tuple[str, ...] = (
     "eval_action",
     "transform_action",
     "actuate",
+    "choose_warmup_action",
     "post_update",
     "eval_metrics",
 )
+
+#: The phases the controller alone runs, in collection and evaluation: an
+#: extension implementing only these holds no state and draws no key in the
+#: learner (ActorCritic lifts it out of the learner's stack).
+CONTROLLER_PHASES = frozenset({"observe", "choose_warmup_action", "actuate"})
 
 #: The keys of each phase's ``batch`` every agent folding it passes ("Phase
 #: batches" above); an agent declares the others its folds pass in its
@@ -315,6 +323,12 @@ class Extension:
         del context
         return agent_state, ext_state
 
+    def replay_rows(self, n_envs: int) -> int:
+        """The rows its pretrain writes into a replay of n_envs envs
+        (ExpertPrefill, PriorData); none by default."""
+        del n_envs
+        return 0
+
     # -- per-iteration transforms (state-read-only) ----------------------
     def on_target(
         self,
@@ -392,6 +406,23 @@ class Extension:
         del env_args, expert
         return None
 
+    def choose_warmup_action(
+        self, uniform_actions: jax.Array, inputs: Any
+    ) -> tuple[jax.Array, jax.Array]:
+        """The actions a warm-up step takes instead of uniform_actions, and
+        whether the expert took them, one boolean for the step
+        (ajax.controller.WarmupInputs); by default the uniform ones."""
+        del inputs
+        return uniform_actions, jnp.zeros((), dtype=jnp.bool_)
+
+    def policy_action_for_expert(self, policy_actions: jax.Array) -> jax.Array:
+        """For an action transform: the policy action, shaped like
+        policy_actions, at which it executes its expert's own action. The
+        rows the expert acts in (its prefill) store it as the policy's."""
+        raise NotImplementedError(
+            f"{self.name} names no policy action that executes its expert's action."
+        )
+
     def reward(
         self,
         agent_state: Any,
@@ -429,6 +460,13 @@ class Extension:
         """The experts this extension calls itself, on the observations it
         is given (without a state); none by default."""
         return ()
+
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        """Whether it puts an expert's actions where the policy's actions go:
+        as the actor's target, or as an action its critics score. Gain mode
+        refuses it, since there the expert's actions are env actions and the
+        policy's are gains. None does by default."""
+        return False
 
     def needs(self) -> frozenset[str]:
         """The capabilities it needs: those its phases imply and those it
@@ -532,11 +570,12 @@ class ExtensionStack:
         """One sub-key per extension (an empty stack splits nothing)."""
         return tuple(jax.random.split(rng, len(self.extensions)))
 
-    # Each ``apply_<phase>`` builds the phase's ExtensionContext and
-    # reads (and, for state-threading phases, writes)
-    # ``agent_state.ext_state``, in list order. On an empty stack it returns
-    # its input unchanged without building a context, so an agent without
-    # extensions traces nothing extra and never needs to guard a call.
+    # Each apply method builds its phase's ExtensionContext and reads (and,
+    # for state-threading phases, writes) agent_state.ext_state, in list
+    # order (the pretraining runs the replay's seeders first,
+    # apply_pretrain). On an empty stack it returns its input unchanged
+    # without building a context, so an agent without extensions traces
+    # nothing extra and never needs to guard a call.
 
     def apply_init(
         self, agent_state: Any, rng: jax.Array, total_steps: int, **run_fields: Any
@@ -583,9 +622,15 @@ class ExtensionStack:
             step=step, rng=rng, total_steps=total_steps, **run_fields
         )
         ext_states = list(agent_state.ext_state)
-        for i, ext in enumerate(self.extensions):
-            agent_state, ext_states[i] = ext.pretrain(
-                agent_state, ext_states[i], context
+        # The replay's seeders (ExpertPrefill, PriorData) run first, in stack
+        # order, since the other pretraining (BellmanPretrain) reads what
+        # they write. Each keeps its place in the stack, and so its state.
+        seeds = ["seeded_replay" in extension.provides for extension in self.extensions]
+        order = [index for index, seed in enumerate(seeds) if seed]
+        order.extend(index for index, seed in enumerate(seeds) if not seed)
+        for index in order:
+            agent_state, ext_states[index] = self.extensions[index].pretrain(
+                agent_state, ext_states[index], context
             )
         return agent_state.replace(ext_state=tuple(ext_states))
 

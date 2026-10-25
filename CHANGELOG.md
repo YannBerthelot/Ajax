@@ -83,6 +83,13 @@ PyPI as `ajax-rl`.
 - `ajax.agents.minibatch.rollout_actions` (`ajax.agents.PPO.core`'s
   before) is `get_actions_and_log_probs`; the old names import with a
   FutureWarning until 0.5.0.
+- `ajax.agents.SAC.SAC.augmentation_features` lives in
+  `ajax.agents.SAC.deprecated_keywords`, with SAC's other deprecated
+  keywords; the old path imports with a FutureWarning until 0.5.0.
+- `ajax.agents.SAC.expert.collect_and_store_expert_transitions` lives in
+  `ajax.extensions.pretrain`, for every replay agent, and writes its rows as
+  the live collector does (`policy_action` and `next_action` too); the old
+  path imports with a FutureWarning until 0.5.0.
 - The extension phases' `ExtensionContext` parameter is named `context`
   (was `ctx`). The stack passes it positionally, so an extension that
   still names it `ctx` keeps working.
@@ -124,6 +131,44 @@ PyPI as `ajax-rl`.
 - **IQL** sums its two critics' squared errors, as the reference does
   (`ikostrikov/implicit_q_learning`, `update_q`): it averaged them, which
   halved the critics' gradient against Adam's eps and `max_grad_norm`.
+- **`ExpertWarmup(fraction)`** (`ajax.extensions.expert`): during the
+  warm-up the agent's expert takes a share of the steps, uniform actions the
+  others, through a new controller phase, `choose_warmup_action` (no state
+  and no key in the learner). SAC runs it; the other agents with a uniform
+  warm-up (TD3, REDQ, ASAC, CrossQ, IQL, DQN, TD-MPC2) refuse it as not
+  wired yet, until they follow. **Deprecated**: SAC's `expert_fraction` builds it and warns. Its
+  default is now `None`, which with an expert and warm-up steps still builds
+  `ExpertWarmup(fraction=0.7)`, with a warning that this default will go;
+  passing both raises. Runs are unchanged.
+- **`ExpertPrefill(n_steps)`** (`ajax.extensions.pretrain`): the agent's
+  expert acts `n_steps` steps in every env before training and its
+  transitions go to the replay as collection writes its own, on SAC, REDQ,
+  ASAC, TQC, TD3, CrossQ and IQL. The rows count in no normaliser and no
+  timestep. SAC's `expert_buffer_n_steps` gives way to it when both are
+  set. The pretraining now runs the replay's seeders (`ExpertPrefill`,
+  `PriorData`) first, in stack order; `train_offline` refuses a prefill
+  that would overwrite the dataset's rows.
+- **Fixed: gain mode's expert columns.** Under `ExpertGains` the replay's
+  `a_expert` and `next_a_expert` took the width of the gains, while they
+  hold the expert's env action: an expert with fewer gains than action
+  dimensions crashed collection, and one with more had its action copied
+  into every column. They now take the env's action width. Gain mode
+  refuses an extension that uses an expert's actions where the policy's go
+  (`Extension.uses_expert_actions_as_policy_actions`: ImitationLoss cloning
+  its expert, OnlineBC, IBRL, LCBGatedBootstrap, CriticBlend, PhiRefresh,
+  ExpertValueMetrics, CloningPretrain, MCPretrain): those are env actions,
+  the policy's are gains.
+- **Fixed: the expert prefill under an action transform.** SAC's prefill
+  (`expert_buffer_n_steps`) wrote the expert's env action into the action
+  column, which gain mode keeps for the gains. A prefill row now stores what
+  collection stores when the expert acts as itself, the policy action each
+  transform names (`policy_action_for_expert`): the anchor gains (0) under
+  `ExpertGains`, and under `ResidualPolicy` a residual of 0 as the policy's
+  action (IQL fits those) beside the expert's executed action. SAC runs in
+  gain mode with a prefill learn other values. A prefill row ending in a
+  termination keeps the reset observation as its next one, as collection
+  does (ASAC's differential target continues from it); it kept the final
+  one.
 - `NetworkConfig.squash_log_det_eps` sets the guard inside the `tanh`
   log-det, `log(1 - tanh(u)^2 + eps)`, for an agent whose reference uses
   one; 0, the exact log-det, by default. `NetworkConfig.log_variance_head`

@@ -175,7 +175,9 @@ thousands of steps for a real run (its defaults collect about a million).
 1. **Replay prefill.** SAC runs the expert for `expert_buffer_n_steps` steps
    in each environment (default 20,000) and writes them to the replay buffer,
    flagged as expert rows. Every row also stores the expert's action at `s`
-   and `s′`, which several extensions read later. Set it to 0 to skip.
+   and `s′`, which several extensions read later. Under gain mode a row
+   stores the anchor gains (action 0) as the action, as collection does
+   when the expert acts as itself. Set it to 0 to skip.
 2. **Cloning**, by extension. `CloningPretrain(expert, n_steps=...)` rolls
    the expert out for `n_steps` steps per environment, in the observation
    layout the agent sees, and trains the actor to reproduce its actions for
@@ -198,10 +200,14 @@ thousands of steps for a real run (its defaults collect about a million).
 
 ### Warm-up
 
-Until `learning_starts`, SAC does not use its policy. At each step, with
-probability `expert_fraction` (default 0.7), every environment takes the
-expert's action; otherwise, a uniform random one. With `ResidualPolicy`, the
-warm-up is uniform only.
+Until `learning_starts`, SAC does not use its policy. With
+`ExpertWarmup(fraction)` (`ajax.extensions.expert`), at each step, with
+probability `fraction`, every environment takes the expert's action;
+otherwise, a uniform random one. The replay flags the rows the expert took.
+SAC's `expert_fraction` builds it and warns; left unset with an expert, it
+stands for `ExpertWarmup(fraction=0.7)`, with a warning that this default
+will go. Without warm-up steps (`learning_starts=0`), with `ResidualPolicy`
+or under gain mode, SAC builds none and the warm-up is uniform.
 
 ### Collection
 
@@ -302,7 +308,7 @@ Ajax" marks a feature with no external reference.
 
 | You want to | Use | Method |
 | --- | --- | --- |
-| Start the replay with good experience | `expert_buffer_n_steps` (SAC, on by default); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
+| Start the replay with good experience | `ExpertPrefill(n_steps)` (SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL; SAC's `expert_buffer_n_steps`, on by default, until it goes); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
 | Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, ASAC, DQN, IQL) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
 | Keep the actor near the dataset's actions | `ImitationLoss(None, target="replay", alpha=2.5)` (SAC, TD3, REDQ, ASAC) | TD3+BC (Fujimoto and Gu, 2021) on TD3 |
 | Keep the critic's target near the dataset's actions too | `TargetBC` with TD3+BC's term (TD3) | ReBRAC (Tarasov et al., 2023) |
@@ -399,9 +405,12 @@ applied is `anchor · 10^a`, between a tenth and ten times the expert's own.
 The PID computes the action. The replay, or the rollout, holds the gains
 (the agent's actions, as many as the learnable gains), so the critics score
 them and the warm-up draws uniform gains; the expert's own action is stored
-as `a_expert`. An agent refuses this mode, when it is built, with
-`ResidualPolicy` (one transform a run) and `ExpertActionInput` (the
-expert's action does not exist before the actor has chosen the gains), and
+as `a_expert`, as wide as the env's action. An agent refuses this mode, when
+it is built, with `ResidualPolicy` (one transform a run), `ExpertActionInput`
+(the expert's action does not exist before the actor has chosen the gains),
+the extensions using an expert's actions where the policy's go
+(`ImitationLoss` cloning its expert, `OnlineBC`, `IBRL`, `CloningPretrain`,
+`MCPretrain` and the like: env actions against gains, not wired yet), and
 SAC with its collection extensions (their `action` phase never runs in it).
 
 It is different from the [PID policy](networks.md#the-pid-policy), in which

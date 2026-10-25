@@ -73,14 +73,12 @@ def _instantiate(agent_cls, **kwargs):
 
 
 def _hooks(agent):
-    """The hooks training receives: make_train's keywords, TD3's pipeline
-    (its family's make_train collects with what ``behaviour`` returns) or
-    PQN's TD loss (a field its update reads)."""
+    """The hooks training receives: TD3's pipeline (its family's make_train
+    collects with what ``behaviour`` returns), or DQN's and PQN's TD target
+    and loss (fields their updates read)."""
     if isinstance(agent, TD3):
         return {"action_pipeline": agent.pipeline}
-    if isinstance(agent, PQN):
-        return {"td_loss_fn": agent.td_loss_fn}
-    return agent.get_make_train().keywords
+    return {hook: getattr(agent, hook) for hook in AGENT_HOOKS[type(agent)]}
 
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
@@ -94,9 +92,9 @@ def test_default_hooks_are_none(agent_cls):
 
 
 @pytest.mark.parametrize("agent_cls", list(AGENT_HOOKS), ids=lambda c: c.__name__)
-def test_get_make_train_forwards_hooks(agent_cls):
-    """Each hook reaches training: get_make_train's partial carries it,
-    TD3's behaviour hands its pipeline to collection, or PQN holds it."""
+def test_each_hook_reaches_training(agent_cls):
+    """Each hook reaches training: TD3's behaviour hands its pipeline to
+    collection, DQN and PQN hold theirs."""
     hook_kwargs = dict.fromkeys(AGENT_HOOKS[agent_cls], _identity_hook)
     agent = _instantiate(agent_cls, **hook_kwargs)
     keywords = _hooks(agent)

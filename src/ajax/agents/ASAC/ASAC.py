@@ -452,17 +452,19 @@ def compute_asac_td_target(
     )
     # The origin shift Q(0, 0): one zero input; in sequence mode at an
     # episode start (a batch of 1, a fresh carry, no previous action).
-    zero_obs = jnp.zeros((1, next_observations.shape[-1]))
+    zero_observation = jnp.zeros((1, next_observations.shape[-1]))
     zero_action = jnp.zeros((1, next_actions.shape[-1]))
     assert critic_states.target_params is not None
     if carries is None:
-        zero_x = action_value_input(zero_obs, zero_action)
-        shift_value = predict_value(critic_states, critic_states.target_params, zero_x)
+        zero_input = action_value_input(zero_observation, zero_action)
+        shift_value = predict_value(
+            critic_states, critic_states.target_params, zero_input
+        )
     else:
         shift_value, _ = predict_value_sequence(
             critic_state=critic_states,
             critic_params=critic_states.target_params,
-            x=action_value_input(zero_obs, zero_action, zero_action)[None],
+            x=action_value_input(zero_observation, zero_action, zero_action)[None],
             resets=jnp.zeros((1, 1), dtype=bool),
             initial_hidden=zeros_carry_like(
                 carries.target_critic_hidden, 1, batch_axis=1
@@ -511,8 +513,10 @@ def update_theta(
     """Track the entropy-regularised reward rate: an exponential average of
     mean(r - alpha (log pi(a|s) - log(1 / nA))) over the batch, a ~ pi(.|s)."""
     alpha = get_alpha(agent_state)
-    log_pi = log_probs.sum(-1, keepdims=True) - uniform_log_prob(action_dim)
-    new_theta = jnp.mean(rewards - alpha * log_pi)
+    log_probs_above_uniform = log_probs.sum(-1, keepdims=True) - uniform_log_prob(
+        action_dim
+    )
+    new_theta = jnp.mean(rewards - alpha * log_probs_above_uniform)
     theta = agent_state.theta * (1 - tau) + tau * new_theta
     return agent_state.replace(theta=theta)
 

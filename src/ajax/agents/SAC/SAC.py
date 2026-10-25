@@ -482,10 +482,10 @@ def sample_next_actions(
     """The bootstrap actions a' ~ pi(.|s') and their log-probabilities,
     summed over the action dimensions; with a residual policy, the executed
     ones the critics score, executed(a', next_a_expert)."""
-    next_pi = actor_dist(
+    next_policy = actor_dist(
         actor_state, actor_state.params, next_observations, carries, bootstrap=True
     )
-    next_actions, log_probs = next_pi.sample_and_log_prob(seed=key)
+    next_actions, log_probs = next_policy.sample_and_log_prob(seed=key)
     if executed is not None:
         next_actions = executed(next_actions, next_a_expert)
     return next_actions, log_probs.sum(-1, keepdims=True)
@@ -539,7 +539,7 @@ def compute_td_target(
 
 
 def compute_soft_bellman_target(
-    next_q: jax.Array,
+    next_q_values: jax.Array,
     next_log_probs: jax.Array,
     rewards: jax.Array,
     dones: jax.Array,
@@ -548,11 +548,11 @@ def compute_soft_bellman_target(
     reward_scale: float = 1.0,
 ) -> jax.Array:
     """SAC's Bellman target r + gamma (1 - d)(Q' - alpha log pi(a'|s')) from
-    the bootstrap value next_q (the critics' reduced value at (s', a')) and
+    the bootstrap value next_q_values (the critics' reduced value at (s', a')) and
     a''s log-probabilities, however the agent computed them: a target
     critic's pass (compute_td_target) or CrossQ's joint pass."""
     rewards = rewards * reward_scale
-    return rewards + gamma * (1.0 - dones) * (next_q - alpha * next_log_probs)
+    return rewards + gamma * (1.0 - dones) * (next_q_values - alpha * next_log_probs)
 
 
 def compute_soft_policy_loss(
@@ -570,18 +570,25 @@ def compute_soft_policy_loss(
     values reduced by q_reduce over the ensemble axis, at action_transform(a)
     when given (residual RL scores the executed action).
 
-    Returns the loss and (log_probs, q, pi). In sequence mode the fresh
+    Returns the loss and (log_probs, q_values, policy). In sequence mode the fresh
     actions are queried at the critic's head, its memory reading the actions
     taken (ajax.agents.recurrent.q_values).
     """
-    pi = actor_dist(actor_state, actor_params, observations, carries)
+    policy = actor_dist(actor_state, actor_params, observations, carries)
     return compute_soft_policy_objective(
-        pi, critic_state, observations, alpha, rng, carries, q_reduce, action_transform
+        policy,
+        critic_state,
+        observations,
+        alpha,
+        rng,
+        carries,
+        q_reduce,
+        action_transform,
     )
 
 
 def compute_soft_policy_objective(
-    pi: Any,
+    policy: Any,
     critic_state: LoadedTrainState,
     observations: jax.Array,
     alpha: jax.Array,
@@ -590,19 +597,25 @@ def compute_soft_policy_objective(
     q_reduce: Callable[..., jax.Array] = jnp.min,
     action_transform: Optional[Callable[[jax.Array], jax.Array]] = None,
 ) -> tuple[jax.Array, tuple[jax.Array, jax.Array, Any]]:
-    """compute_soft_policy_loss on the policy pi at observations, however
+    """compute_soft_policy_loss on the policy at observations, however
     the agent computed it (CrossQ's actor in training)."""
     sample_key, rng = jax.random.split(rng)
-    actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
+    actions, log_probs = policy.sample_and_log_prob(seed=sample_key)
     if action_transform is not None:
         actions = action_transform(actions)
-    q = q_reduce(
+    reduced_q_values = q_reduce(
         q_values(critic_state, critic_state.params, observations, actions, carries),
         axis=0,
     )
     log_probs = log_probs.sum(-1, keepdims=True)
-    assert log_probs.shape == q.shape, f"{log_probs.shape} != {q.shape}"
-    return (alpha * log_probs - q).mean(), (log_probs, q, pi)
+    assert log_probs.shape == reduced_q_values.shape, (
+        f"{log_probs.shape} != {reduced_q_values.shape}"
+    )
+    return (alpha * log_probs - reduced_q_values).mean(), (
+        log_probs,
+        reduced_q_values,
+        policy,
+    )
 
 
 def compute_temperature_loss(

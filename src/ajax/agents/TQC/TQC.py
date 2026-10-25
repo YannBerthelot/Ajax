@@ -433,8 +433,11 @@ def quantile_huber_loss(quantiles: jax.Array, targets: jax.Array) -> jax.Array:
     delta = targets[None, ..., None, :] - quantiles[..., :, None]
     abs_delta = jnp.abs(delta)
     huber = jnp.where(abs_delta > 1.0, abs_delta - 0.5, 0.5 * delta**2)
-    n = quantiles.shape[-1]
-    tau = jnp.arange(n, dtype=jnp.float32) / n + 1 / 2 / n
+    quantile_count = quantiles.shape[-1]
+    tau = (
+        jnp.arange(quantile_count, dtype=jnp.float32) / quantile_count
+        + 1 / 2 / quantile_count
+    )
     return jnp.mean(jnp.abs(tau[:, None] - (delta < 0)) * huber)
 
 

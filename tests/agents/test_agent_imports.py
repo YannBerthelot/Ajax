@@ -59,16 +59,13 @@ BORROWED = {
     # B3 declared PPO, APO and PQN on the on-policy family.
     **{
         (agent, "SAC", "SACConfig"): "B4 (declared hyperparameters)"
-        for agent in ("REDQ", "TQC")
+        for agent in ("REDQ",)
     },
     **{
         (agent, "SAC", "init_soft_actor_critic"): _SAC_FAMILY_INIT
-        for agent in ("ASAC", "AVG", "REDQ", "TQC")
+        for agent in ("ASAC", "AVG", "REDQ")
     },
-    **{
-        (agent, "SAC", "soft_actor_step"): _SAC_STEPS
-        for agent in ("ASAC", "REDQ", "TQC")
-    },
+    **{(agent, "SAC", "soft_actor_step"): _SAC_STEPS for agent in ("ASAC", "REDQ")},
     ("checkpoint.py", "UDRL", "SegmentBuffer"): "2026-11-17 (the shim's removal)",
 }
 

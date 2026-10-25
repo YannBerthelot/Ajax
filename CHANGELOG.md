@@ -6,6 +6,14 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **TQC is a declared agent**, `agents/TQC/TQC.py`, as SAC is: keyword-only
+  after `env_id`, fixed fields, `TQCConfig` a view of them (no longer a
+  `SACConfig` subclass); `train_TQC` and `TQC.state` import their names
+  with a FutureWarning until 0.5.0 (`init_TQC`, `update_agent`,
+  `update_value_functions`, `update_policy` and `make_train` became
+  methods). TQC now takes `policy_update_start`, `alpha_update_start`,
+  `eval_expert_policy`, `BellmanPretrain` and `StorePolicyAction`, and
+  a scheduled `target_entropy_per_dim`. Training is unchanged, bitwise.
 - **SAC is a declared agent**, `agents/SAC/SAC.py` on the replay family, as
   IQL, CrossQ and TD3 are. What changes for a caller:
   - the constructor is keyword-only after `env_id`; its fields and

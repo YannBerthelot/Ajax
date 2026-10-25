@@ -32,9 +32,11 @@ from flax.core import FrozenDict
 from ajax.agents import update_steps
 from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
+    BELLMAN_CONTEXT,
     ExpertGuided,
     GradientClipping,
     ObservationNormalization,
+    PolicyUpdateStart,
     RecurrentReplayAgent,
     RewardNormalization,
     TrainContext,
@@ -52,6 +54,7 @@ from ajax.types import Architecture
 
 @dataclass(kw_only=True, eq=False, repr=False)
 class TD3(
+    PolicyUpdateStart,
     GradientClipping,
     ObservationNormalization,
     RewardNormalization,
@@ -128,6 +131,10 @@ class TD3(
             context.env_args.warmups,
         )
 
+    def keeps_actor_metrics(self) -> bool:
+        """The policy delay skips the actor on some updates."""
+        return True
+
     def init(self, key: jax.Array, context: TrainContext) -> TD3State:
         """A deterministic actor and num_critics Q critics, with targets."""
         training_key, init_key, collector_key, evaluation_key = jax.random.split(key, 4)
@@ -169,14 +176,16 @@ class TD3(
         )
         # sfujim/TD3 counts the update first (total_it += 1), then steps the
         # actor when the count is a multiple of the delay: its first actor
-        # step is the policy_delay-th update, not the first. Skipped, its
-        # metrics are zeros.
-        do_policy = ((agent_state.n_updates + 1) % self.policy_delay) == 0
+        # step is the policy_delay-th update, not the first.
+        do_policy = update_steps.all_of(
+            ((agent_state.n_updates + 1) % self.policy_delay) == 0,
+            self.policy_update_due(agent_state.collector_state.timestep),
+        )
         update_actor_on_batch = partial(
             self.update_actor, batch=batch, carries=carries, context=context
         )
-        agent_state, (policy_aux, policy_metrics) = update_steps.run_if(
-            do_policy, update_actor_on_batch, agent_state, fill=0.0
+        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
+            do_policy, update_actor_on_batch, agent_state
         )
         agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
         return agent_state, AuxiliaryLogs(
@@ -299,6 +308,7 @@ class TD3(
         **update_steps.REPLAY_BATCH_KEYS,
         "on_target": update_steps.TARGET_KEYS.union({"next_actions"}),
     }
+    extension_context = RecurrentReplayAgent.extension_context.union(BELLMAN_CONTEXT)
     stores_expert_actions = True
     supported_buffer_fields = frozenset({"next_action", "raw_next_obs", "return_to_go"})
 

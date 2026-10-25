@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 import ajax.extensions
-from ajax.agents.SAC.action_pipeline import _dispatch_actions
+from ajax.agents.action_pipeline import _dispatch_actions
 from ajax.controller import ActingState
 from ajax.extensions.base import (
     PHASES,

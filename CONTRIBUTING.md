@@ -35,7 +35,8 @@ src/ajax/
 └── checkpoint.py        save_checkpoint, restore_into
 ```
 
-**Agent anatomy.** A declared agent (IQL, CrossQ, TD3, PPO, APO, PQN) is one file,
+**Agent anatomy.** A declared agent (SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL,
+AVG, PPO, APO, PQN) is one file,
 `src/ajax/agents/<AGENT>/<AGENT>.py`: its hyperparameters as dataclass
 fields, its `init` and `update`, its equations, its state and metrics (and,
 until 0.5.0, the `<AGENT>Config` view it had before), on a family of
@@ -46,11 +47,11 @@ hyperparameters and `extensions=`; it names its `make_train` and fills
 `train_kwargs`, which `get_make_train()` binds);
 `train_<AGENT>.py`, the algorithm and a `make_train` that hands its
 initialisation and update to `TrainLoop`; and `state.py`, `<AGENT>State` and
-`<AGENT>Config`. SAC and TDMPC2 also have a `core.py`: the maths their
-descendants import instead of copying (ASAC, AVG, CrossQ, REDQ and TQC from
-SAC; TDMPC2MultiTask from TDMPC2), under the lineage rule below. A declared
+`<AGENT>Config`. TDMPC2 also has a `core.py`: the maths TDMPC2MultiTask
+imports instead of copying, under the lineage rule below. A declared
 parent's equations are in its one file: APO imports PPO's from
-`PPO/PPO.py`.
+`PPO/PPO.py`; TQC, REDQ, ASAC, CrossQ and AVG import SAC's from
+`SAC/SAC.py`.
 
 ## The shared training loop
 
@@ -128,9 +129,9 @@ and never guards a call.
 | --- | --- | --- |
 | `init_state(agent_state, rng)` | returns the extension's state (`()`: none) | every agent, fresh runs only |
 | `pretrain(agent_state, ext_state, context)` | one-shot step before training | every agent, fresh runs only |
-| `on_target(agent_state, ext_state, batch, target, context)` | transforms the TD or value target | SAC, REDQ, ASAC, AVG, TD3, DQN, PQN, PPO, APO |
-| `critic_loss(agent_state, ext_state, batch, context)` | adds a term to the critic loss | SAC, REDQ, ASAC, AVG, TD3, DQN, PQN, PPO, APO |
-| `actor_loss(agent_state, ext_state, batch, context)` | adds a term to the actor loss | SAC, REDQ, ASAC, AVG, TD3, PPO, APO, APG, UDRL |
+| `on_target(agent_state, ext_state, batch, target, context)` | transforms the TD or value target | SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, DQN, PQN, PPO, APO |
+| `critic_loss(agent_state, ext_state, batch, context)` | adds a term to the critic loss | SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, DQN, PQN, PPO, APO |
+| `actor_loss(agent_state, ext_state, batch, context)` | adds a term to the actor loss | SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, PPO, APO, APG, UDRL |
 | `action(agent_state, ext_state, obs, rng, context)` | overrides the collection action (`None` defers) | SAC with an `expert_policy`, for extensions with an `action_slot` |
 | `eval_action(agent_state, ext_state, obs, rng, context)` | overrides the evaluation action | no agent yet |
 | `post_update(agent_state, ext_state, context)` | runs after each update | every agent |
@@ -181,12 +182,13 @@ optimiser step), `compute_gradients` (a loss's gradients) and
 `agents/update_steps.py` rather than writing your own.
 
 A new agent `FOO` declares itself on a family of `agents/families.py`: a
-replay agent on `ReplayAgent`, as IQL, CrossQ and TD3 do (read
-`agents/IQL/IQL.py` first); an on-policy agent on `OnPolicyAgent`, as PPO,
-APO and PQN do (read `agents/PPO/PPO.py` first, and the on-policy family
-below). The other agents keep the older three-file form (`state.py`,
-`train_<AGENT>.py` with a `make_train`, `<AGENT>.py`) until their batch
-moves them.
+replay agent on `ReplayAgent`, as SAC, TQC, REDQ, ASAC, CrossQ, TD3 and IQL
+do (read `agents/IQL/IQL.py` first); an agent updating on each step as it
+comes, without a replay, on `IncrementalAgent`, as AVG does; an on-policy
+agent on `OnPolicyAgent`, as PPO, APO and PQN do (read `agents/PPO/PPO.py`
+first, and the on-policy family below). The other agents keep the older
+three-file form (`state.py`, `train_<AGENT>.py` with a `make_train`,
+`<AGENT>.py`) until their batch moves them.
 
 **1. `FOO/FOO.py`, the one file.** Its hyperparameters are the fields of a
 dataclass, declared once with the paper's defaults: the family generates the

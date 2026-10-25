@@ -32,7 +32,11 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.cloning import cloning_columns, pre_train
-from ajax.agents.loop import count_in_normalisers, seed_replay
+from ajax.agents.loop import (
+    count_in_normalisers,
+    seed_replay,
+    with_actor_metrics_slot,
+)
 from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.controller import policy_action_dim, reads_agent_expert
@@ -791,7 +795,10 @@ class BellmanPretrain(Extension):
     (``bellman_pretrain/first_loss``, ``bellman_pretrain/last_loss``).
 
     The fields after ``n_steps`` are the agent's context, filled by
-    :meth:`bind_to_agent` (only SAC does).
+    :meth:`bind_to_agent`: a replay agent with a discounted Q critic and
+    target critics gives its critic step
+    (ajax.agents.families.ReplayAgent.extension_values). It needs the
+    target critics, which each step's Polyak update moves.
     """
 
     n_steps: int = 5_000
@@ -804,7 +811,7 @@ class BellmanPretrain(Extension):
     update_target_fn: Optional[Callable] = None
     name: str = "bellman_pretrain"
     requires: ClassVar[frozenset[str]] = frozenset(
-        {"seeded_replay", "critic", "replay"}
+        {"seeded_replay", "critic", "replay", "target_critic"}
     )
     context: ClassVar[frozenset[str]] = frozenset(
         {
@@ -847,7 +854,7 @@ class BellmanPretrain(Extension):
         if self.update_value_fn is None:
             raise ValueError(
                 "BellmanPretrain needs the agent's buffer and critic updates;"
-                " the agent did not bind them (only SAC supports BellmanPretrain)."
+                " the agent did not bind them."
             )
         agent_state, losses = pretrain_critic_bellman(
             agent_state,
@@ -1180,6 +1187,11 @@ class PriorData(Extension):
         def update(agent_state: Any, _: None) -> tuple[Any, None]:
             return agent_update(agent_state, None)[0], None
 
+        # The scan's carry holds, from the first update, the slot an update
+        # keeping its actor's last metrics writes.
+        agent_state = with_actor_metrics_slot(
+            agent_state, lambda state: agent_update(state, None)[0]
+        )
         agent_state, _ = jax.lax.scan(
             update, agent_state, None, length=self.offline_updates
         )

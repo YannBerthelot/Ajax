@@ -37,7 +37,10 @@ AGENTS = "APG APO ASAC AVG DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL".split
 RESIDUAL = {"SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG"}
 RESIDUAL.update({"PPO", "APO", "IQL", "APG", "UDRL"})
 #: The agents whose collection runs the warm-up's chooser (ExpertWarmup).
-WARMUP = {"SAC", "TD3", "REDQ", "ASAC", "DQN"}
+WARMUP = {"SAC", "TD3", "REDQ", "ASAC", "AVG", "DQN"}
+#: The agents whose replay the replay family's collector writes, which runs
+#: the stored action's chooser (StorePolicyAction).
+REPLAY_FAMILY = {"ASAC", "REDQ", "SAC", "TD3", "TQC"}
 
 
 @dataclass(frozen=True)
@@ -108,6 +111,9 @@ class EveryPhase(Extension):
 
     def choose_warmup_action(self, uniform_actions, inputs):
         return uniform_actions, jnp.zeros((), dtype=bool)
+
+    def choose_replay_action(self, executed_actions, policy_actions):
+        return executed_actions
 
     def post_update(self, agent_state, ext_state, context):
         return agent_state, ext_state
@@ -259,7 +265,8 @@ def test_agents_accept_only_the_phases_they_fold():
     it collects on its own, no agent ``eval_action``, only SAC ``action``
     (its pipeline's slots), ``transform_action`` (a residual policy) the
     agents whose critics score executed actions, and choose_warmup_action
-    those whose collection has a uniform warm-up."""
+    those whose collection has a uniform warm-up, choose_replay_action those
+    whose replay the replay family writes."""
     assert ActorCritic.supported_extension_phases == frozenset()
     assert EveryPhase().implemented_phases() == frozenset(PHASES)
     # PPO, on policy, lacks what replacing the executed action needs.
@@ -277,6 +284,7 @@ def test_agents_accept_only_the_phases_they_fold():
         # The warm-up chooser reaches the agents with a uniform warm-up, but
         # TD-MPC2, whose own collector does not run it yet.
         assert ("choose_warmup_action" in phases) == (name in WARMUP), name
+        assert ("choose_replay_action" in phases) == (name in REPLAY_FAMILY), name
 
 
 @dataclass(frozen=True)

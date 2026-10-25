@@ -24,7 +24,7 @@ follows the code.
 | Learning | Off-policy, replay buffer |
 | Vectorised environments (`n_envs`) | Yes |
 | Recurrent memory (`memory=`) | Yes: trains on replayed sequences (R2D2-style burn-in) |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate`, `choose_replay_action` |
 
 ## Example
 
@@ -86,7 +86,7 @@ Defaults are read from `TQC.__init__`, the authors' `main.py` and `tqc/`.
   kernels and biases uniform in ±1/sqrt(fan_in) on every layer. Recurrent
   TQC keeps Ajax's initialisation, as recurrent SAC and REDQ do.
 - **Shared maths.** The target is SAC's soft Bellman target
-  (`ajax.agents.SAC.core`) on the kept quantiles, the actor step is SAC's on
+  (`ajax.agents.SAC.SAC`) on the kept quantiles, the actor step is SAC's on
   the critics' mean, and the critic step is the shared one.
 
 ## Results

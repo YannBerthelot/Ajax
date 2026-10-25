@@ -32,6 +32,7 @@ from ajax.agents.families import (
     ExpertGuided,
     GradientClipping,
     ObservationNormalization,
+    PolicyUpdateStart,
     ReplayAgent,
     TrainContext,
 )
@@ -49,7 +50,13 @@ NUM_CRITICS = 2
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
-class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent):
+class IQL(
+    PolicyUpdateStart,
+    GradientClipping,
+    ObservationNormalization,
+    ExpertGuided,
+    ReplayAgent,
+):
     """Implicit Q-Learning: a state value fitted as an expectile of the
     critic over the data's actions, and an actor fitted by
     advantage-weighted regression (the module's equations). Train it on a
@@ -175,22 +182,31 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         # The actor fits the actions it chose: a residual policy's residuals,
         # which the replay keeps apart from the executed actions.
         chosen = batch.action if batch.policy_action is None else batch.policy_action
-        actor_state, actor_loss, _, actor_metrics = update_steps.actor_step(
+
+        def step_actor(state: IQLState) -> tuple[IQLState, tuple]:
+            actor_state, actor_loss, _, actor_metrics = update_steps.actor_step(
+                state,
+                partial(
+                    compute_weighted_regression_loss,
+                    agent_state.actor_state,
+                    batch.obs,
+                    chosen,
+                    advantage_weights,
+                ),
+                context.extensions,
+                actor_key,
+                context.total_timesteps,
+                observations=batch.obs,
+                raw_observations=batch.raw_obs,
+                actions=batch.action,
+                critic_state=critic,
+            )
+            return state.replace(actor_state=actor_state), (actor_loss, actor_metrics)
+
+        stepped, (actor_loss, actor_metrics) = update_steps.run_actor_if(
+            self.policy_update_due(agent_state.collector_state.timestep),
+            step_actor,
             agent_state,
-            partial(
-                compute_weighted_regression_loss,
-                agent_state.actor_state,
-                batch.obs,
-                chosen,
-                advantage_weights,
-            ),
-            context.extensions,
-            actor_key,
-            context.total_timesteps,
-            observations=batch.obs,
-            raw_observations=batch.raw_obs,
-            actions=batch.action,
-            critic_state=critic,
         )
         target = compute_bellman_target(
             value_state, batch, self.gamma, self.reward_scale
@@ -208,8 +224,8 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             gamma=self.gamma,
             reward_scale=self.reward_scale,
         )
-        agent_state = agent_state.replace(
-            actor_state=actor_state,
+        # The critic's step read the state from before the actor's.
+        agent_state = stepped.replace(
             critic_state=critic_state.soft_update(tau=self.tau),
             value_state=value_state,
             n_updates=agent_state.n_updates + 1,

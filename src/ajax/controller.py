@@ -199,6 +199,16 @@ def warmups_of(extensions: Any) -> tuple[Any, ...]:
     )
 
 
+def replay_action_choosers_of(extensions: Any) -> tuple[Any, ...]:
+    """The extensions choosing the action a replay row stores
+    (StorePolicyAction)."""
+    return tuple(
+        extension
+        for extension in extensions
+        if "choose_replay_action" in extension.implemented_phases()
+    )
+
+
 def choose_warmup_actions(
     warmups: Any, uniform_actions: jax.Array, inputs: WarmupInputs
 ) -> tuple[jax.Array, jax.Array]:
@@ -254,6 +264,22 @@ def executed_fn(env_args: Any) -> Optional[Callable[[jax.Array, Any], jax.Array]
     if any("transform_action" in t.implemented_phases() for t in env_args.transforms):
         return partial(executed_actions, env_args)
     return None
+
+
+def make_scored_action(
+    executed: Optional[Callable[[jax.Array, Any], jax.Array]], a_expert: Any
+) -> Optional[Callable[[jax.Array], jax.Array]]:
+    """actions -> the actions the critics score at rows whose expert's stored
+    actions are a_expert: a residual policy's executed ones (executed,
+    executed_fn's); None without a residual policy, so the learner traces
+    nothing extra."""
+    if executed is None:
+        return None
+
+    def scored_action(actions: jax.Array) -> jax.Array:
+        return executed(actions, a_expert)
+
+    return scored_action
 
 
 def policy_action_dim(env_args: Any) -> int:

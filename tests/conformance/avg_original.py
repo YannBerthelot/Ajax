@@ -19,7 +19,6 @@ import jax.numpy as jnp
 import numpy as np
 
 import ajax
-import ajax.agents.AVG.train_AVG as train_AVG
 from ajax.environments.interaction import get_pi
 from ajax.state import Transition
 from tests.conformance import kit
@@ -121,7 +120,7 @@ def _env_updates(records: Any, env_id: str, dtype: Any, fault: str | None) -> di
     step = kit.capture_step(agent, 2_000)
     template, update = step.fresh(jax.random.PRNGKey(0)), step.update
     assert update is not None, "AVG passes its update to its train loop"
-    config = agent.agent_config
+    context = agent.make_context(2_000)[1]
     arrays = {p.stem: dict(np.load(p)) for p in sorted(records.glob(f"{env_id}_*.npz"))}
 
     def transition(state: Any, a: dict, dt: Any) -> Transition:
@@ -142,7 +141,7 @@ def _env_updates(records: Any, env_id: str, dtype: Any, fault: str | None) -> di
         )
 
     def one_step(state: Any, t: Transition) -> Any:
-        return update(train_AVG.update_AVG_values(state, t, config), t)[0]
+        return update(agent.update_step_statistics(state, t, context), t)[0]
 
     # The next action's noise key, record by record, in float32 (keys do not depend on the precision;
     # the tape logs on a callback thread, outside jax.enable_x64).

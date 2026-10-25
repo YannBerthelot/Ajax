@@ -31,9 +31,11 @@ src/ajax/
 ├── __init__.py          the 14 exported agents; configures the compile cache on import
 ├── agents/
 │   ├── base.py          ActorCritic: environment and network setup, extensions=, train(); run_config
-│   ├── families.py      declared agents (fields as hyperparameters); the replay and on-policy families' train functions
+│   ├── families.py      declared agents (fields as hyperparameters); the replay, incremental and on-policy families' train functions
 │   ├── loop.py          TrainLoop, the shared loop (brax's forced resets included)
-│   ├── update_steps.py  critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, run_if, the target update
+│   ├── update_steps.py  critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, run_if, run_actor_if, the target update
+│   ├── temperature.py   the entropy temperature every soft actor-critic shares (SoftActorCriticState, update_temperature)
+│   ├── action_pipeline.py  the collection-time action pipeline SAC runs (expert flags, warm-up choice, action-slot extensions)
 │   ├── minibatch.py     the on-policy rollout split (RolloutSplit), minibatches and epochs
 │   ├── critics.py       the Q-critics' regression (continuous and discrete actions)
 │   ├── diagnostics.py   KL, explained variance, policy std
@@ -65,27 +67,33 @@ src/ajax/
 └── _compile_cache.py    the persistent JAX compile cache
 ```
 
-A declared agent (IQL, CrossQ, TD3, PPO, APO, PQN) is one file, `<AGENT>/<AGENT>.py`: its
-hyperparameters as dataclass fields, its `init`, `update` and equations, its
-state and metrics, on a family of `agents/families.py` that builds its
-constructor, run config, replay (IQL, CrossQ, TD3: `ReplayAgent`) or
-rollouts (PPO, APO, PQN: `OnPolicyAgent`) and train function
-([Contributing](contributing.md#adding-an-agent)); its old modules serve
-their names until 0.5.0. Every other agent package
-`src/ajax/agents/<AGENT>/` holds:
+A declared agent (SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL, AVG, PPO, APO,
+PQN) is one file, `<AGENT>/<AGENT>.py`: its hyperparameters as dataclass
+fields, its `init`, `update` and equations, its state and metrics, on a
+family of `agents/families.py` that builds its constructor, run config,
+collection and train function
+([Contributing](contributing.md#adding-an-agent)): a replay
+(`ReplayAgent`: SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL), one update on each
+step as it comes (`IncrementalAgent`: AVG) or rollouts (`OnPolicyAgent`:
+PPO, APO, PQN). Knobs several agents share are mixins of fields
+(`EntropyTemperature`, `PolicyUpdateStart`, `ExpertGuided`, ...), and an
+agent changes what its family does by overriding a few hooks
+(`network_settings`, `evaluation_kwargs`, `uniform_steps`,
+`keeps_actor_metrics`, ...). Its old modules serve their names until 0.5.0.
+Every other agent package `src/ajax/agents/<AGENT>/` holds:
 
 | File | What it holds |
 | --- | --- |
 | `<AGENT>.py` | the public class: the paper's hyperparameters and `extensions=`; its `make_train` and `train_kwargs` |
 | `train_<AGENT>.py` | the algorithm, and a `make_train` that hands its initialisation and update to `TrainLoop` |
 | `state.py` | `<AGENT>State` and `<AGENT>Config` |
-| `core.py` | (SAC, TDMPC2) the maths that descendants import instead of copying |
+| `core.py` | (TDMPC2) the maths that descendants import instead of copying |
 
-The lineage is explicit: ASAC, REDQ and AVG import SAC's `core.py`; APO
-imports PPO's equations from `PPO/PPO.py`; the multi-task TD-MPC2 imports
-TD-MPC2's. A fix to the parent's
-maths reaches every descendant. Some agents keep further modules of their own
-(SAC's `action_pipeline.py`, TD-MPC2's `planner.py`).
+The lineage is explicit: TQC, REDQ, ASAC, CrossQ and AVG import SAC's
+equations from `SAC/SAC.py`; APO imports PPO's from `PPO/PPO.py`; the
+multi-task TD-MPC2 imports TD-MPC2's. A fix to the parent's maths reaches
+every descendant. Some agents keep further modules of their own (TD-MPC2's
+`planner.py`).
 
 ### Names that moved, keywords that went
 
@@ -96,7 +104,7 @@ once no downstream project used them rather than kept as aliases.
 | --- | --- |
 | `ajax.agents.obs_norm` | `ajax.environments.obs_norm` |
 | `ajax.agents.SAC.utils.SquashedNormal`, then `ajax.networks.distributions.SquashedNormal(loc, scale)` | `ajax.networks.distributions.Squash(distrax.Normal(loc, scale))` |
-| `NormalizationInfo` in `ajax.agents.AVG.utils` and `.state` | `RunningMoments` in `ajax.agents.AVG.state` |
+| `NormalizationInfo` in `ajax.agents.AVG.utils` and `.state` | `RunningMoments` in `ajax.agents.AVG.AVG` |
 | `ajax.plane.get_mode` | `jax.default_backend()` |
 | the `_obs_noise_sigma` hook on an env | `ObservationNoiseWrapper` in `ajax.wrappers` |
 
@@ -179,7 +187,7 @@ rollout more than the budget holds (see [the loop shapes](#three-iteration-shape
 
 Every agent but the declared ones builds its run config the same way, as
 the first line of its constructor: `self.config = run_config(locals(),
-self.name)`. A declared agent (IQL, CrossQ, TD3, PPO, APO, PQN) builds it from its fields,
+self.name)`. A declared agent builds it from its fields,
 first thing in `DeclaredAgent.__post_init__`: each field as passed, and
 `algo_name`.
 [`run_config`](../../src/ajax/agents/base.py) keeps the constructor's
@@ -240,7 +248,7 @@ agent at once. The probes check it end to end: a planted fault that runs
 
 | Shape | Agents | One iteration | Budget |
 | --- | --- | --- | --- |
-| `loop.off_policy(init, update, learning_starts, ...)` | SAC, TD3, REDQ, ASAC, AVG, DQN | one step per env (a *tick*); from `learning_starts` on, one `update(state, transition)` | `budget // n_envs` ticks |
+| `loop.off_policy(init, update, learning_starts, ...)` | SAC, TD3, TQC, REDQ, ASAC, CrossQ, IQL, AVG, DQN | one step per env (a *tick*); from `learning_starts` on, one `update(state, transition)` | `budget // n_envs` ticks |
 | `loop.on_policy(init, update, n_steps, ...)` | PPO, APO, PQN | an `n_steps` rollout per env from the agent state `agent_state_at_rollout_start`, then `update(agent_state, rollout, agent_state_at_rollout_start)` | `budget // (n_envs * n_steps) + 1` rollouts |
 | `loop.off_policy(..., collect=, n_updates=, evaluation=)` | DreamerV3, TDMPC2 | the agent's own `collect(state, tick)`, then `n_updates(tick, state)` updates (a train ratio, a burst), then the agent's own `Evaluation` | `budget // n_envs` ticks, or `num_ticks` |
 
@@ -270,17 +278,20 @@ Three helpers serve the replay agents: `gradient_step(train_state, loss_fn)`,
 one optimiser step; `actor_step(...)`, an actor step that folds the
 extensions' `actor_loss` phase; and `critic_step(...)`, a replay critic step that folds
 the extensions' `on_target` and `critic_loss` phases. All three return the
-gradients' global norm, before the optimiser clips them. SAC, TD3, REDQ, ASAC,
-AVG and IQL use `critic_step`. Its two halves are public too:
+gradients' global norm, before the optimiser clips them. SAC, TD3, TQC, REDQ,
+ASAC, AVG and IQL use `critic_step`. Its two halves are public too:
 `apply_on_target` and `compute_extensions_critic_loss`. An agent whose target
 comes out of its own critic pass calls them inside its loss.
-SAC, TD3, AVG, DAgger and IQL use `actor_step`; ASAC and REDQ use
-`soft_actor_step` in `SAC/core.py`, on the same `soft_policy_loss` as SAC.
+SAC, TQC, REDQ, ASAC, CrossQ, TD3, AVG, DAgger and IQL use `actor_step`,
+SAC's descendants on SAC's soft policy objective.
 
 Two more keep control flow out of the updates. `run_if(condition, update,
 state)` runs `update` where `condition` holds and leaves the state as it is
-elsewhere, its metrics then NaN (or `fill`): TD3's policy delay, DQN's target
-refresh, SAC's warm-ups and the loop's own `learning_starts` gate. A `Schedule`
+elsewhere, its metrics then NaN: DQN's target refresh, SAC's warm-ups and the
+loop's own `learning_starts` gate. An actor's step goes through
+`run_actor_if` instead (a policy delay, `policy_update_start`): a skipped
+step returns the metrics of the last one that ran, which the state keeps in
+`last_actor_metrics`, so the logs show the last real step. A `Schedule`
 (`ajax.schedule`) is a hyperparameter given as a constant or a function of the
 timestep, read with `at(schedule, timestep)`; `linear(start, end, steps)` is a
 ramp. TD3's exploration noise and PPO's and APO's clip range take one, and
@@ -313,9 +324,11 @@ gains a leading axis), and makes a checkpoint a matter of saving that pytree.
 | `n_updates`, `n_logs` | counters; `n_logs` gates the evaluations and numbers them |
 | `ext_state` | one entry per extension, `()` without extensions |
 | `last_rollout` | the latest rollout, kept only when the agent is asked to expose it |
+| `last_actor_metrics` | the metrics of the actor's last step, kept only by an agent whose actor skips updates (`run_actor_if`), for the skipped updates to log |
 
-Agents subclass it: `SoftACState` adds SAC's temperature and is shared by
-SAC, ASAC, REDQ and AVG; the world models carry their model and replay.
+Agents subclass it: `SoftActorCriticState` (`agents/temperature.py`) adds
+the entropy temperature and is shared by SAC, TQC, REDQ, ASAC, CrossQ and
+AVG; the world models carry their model and replay.
 `collector_state.timestep` counts environment steps over all parallel
 environments (one collection step on four environments adds four). The
 `learning_starts` gate, the logging cadence and the training fraction all

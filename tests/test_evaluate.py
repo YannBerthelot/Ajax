@@ -11,14 +11,12 @@ import pytest
 from brax.envs import create as create_brax_env
 from flax import struct
 
-from ajax.agents.SAC.train_SAC import init_SAC
 from ajax.agents.UDRL.train_UDRL import EvalCommand
-from ajax.buffers.utils import get_buffer
 from ajax.controller import Controller
 from ajax.evaluate import ValueEstimate, evaluate
 from ajax.extensions.expert import ExpertGains
+from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import (
-    AlphaConfig,
     EnvironmentConfig,
     NetworkConfig,
     OptimizerConfig,
@@ -28,24 +26,29 @@ from ajax.wrappers import InitialStateWrapper
 from tests.environments.identity_env import IdentityEnv
 
 
-def _sac_state(env_config: EnvironmentConfig):
-    """A freshly initialised SAC (64-wide nets) on ``env_config``."""
+def _sac_actor(env_config: EnvironmentConfig):
+    """A freshly initialised squashed Gaussian actor (64-wide nets) on
+    env_config, on the key SAC's init drew it from before B4 (the second of
+    five): the regression values below are its."""
     optimizer_args = OptimizerConfig(learning_rate=3e-4)
     network_args = NetworkConfig(
         actor_architecture=("64", "relu", "64"),
         critic_architecture=("64", "relu", "64"),
         squash=True,
     )
-    buffer = get_buffer(buffer_size=1000, batch_size=32, n_envs=env_config.n_envs)
-    return init_SAC(
-        key=jax.random.PRNGKey(0),
-        env_args=env_config,
-        actor_optimizer_args=optimizer_args,
-        critic_optimizer_args=optimizer_args,
-        network_args=network_args,
-        alpha_args=AlphaConfig(learning_rate=3e-4, alpha_init=1.0),
-        buffer=buffer,
+    _, init_key, *_ = jax.random.split(jax.random.PRNGKey(0), 5)
+    actor_state, _ = get_initialized_actor_critic(
+        init_key,
+        env_config,
+        optimizer_args,
+        optimizer_args,
+        network_args,
+        continuous=True,
+        action_value=True,
+        squash=True,
+        num_critics=2,
     )
+    return actor_state
 
 
 @pytest.mark.parametrize("env_id", ["fast", "Pendulum-v1"])
@@ -59,7 +62,7 @@ def test_evaluate_returns_scalar_metrics(env_id):
     )
     rewards, avg_entropy, *_ = evaluate(
         env=env,
-        actor_state=_sac_state(env_config).actor_state,
+        actor_state=_sac_actor(env_config),
         num_episodes=3,
         rng=jax.random.PRNGKey(42),
         env_params=env_params,
@@ -74,16 +77,16 @@ def _eval_pendulum():
     env_cfg = EnvironmentConfig(
         env=env, env_params=env_params, n_envs=1, continuous=True
     )
-    return env, env_params, _sac_state(env_cfg)
+    return env, env_params, _sac_actor(env_cfg)
 
 
 def test_evaluate_regression_pendulum():
     """Pins eval numerical output on Pendulum-v1 so refactors (e.g. while_loop -> scan)
     don't silently change the reward computation."""
-    env, env_params, state = _eval_pendulum()
+    env, env_params, actor = _eval_pendulum()
     rewards, entropy, _, _, length, _ = evaluate(
         env=env,
-        actor_state=state.actor_state,
+        actor_state=actor,
         num_episodes=5,
         rng=jax.random.PRNGKey(42),
         env_params=env_params,
@@ -101,10 +104,10 @@ def test_evaluate_done_masking_no_accumulation_past_done():
     same reward as running it for exactly 200 steps — this is the scan
     equivalent of while_loop's early exit, and the correctness condition the
     while_loop->scan conversion must preserve."""
-    env, env_params, state = _eval_pendulum()
+    env, env_params, actor = _eval_pendulum()
     kwargs = {
         "env": env,
-        "actor_state": state.actor_state,
+        "actor_state": actor,
         "num_episodes": 4,
         "rng": jax.random.PRNGKey(7),
         "env_params": env_params,
@@ -136,10 +139,10 @@ def test_the_expert_rollout_calls_an_expert_in_its_own_convention():
     """A stateless expert is called ``expert(obs)``, a stateful one
     ``expert(state, obs)``, as in the agent's rollout: one expert written
     both ways earns one return."""
-    env, env_params, state = _eval_pendulum()
+    env, env_params, actor = _eval_pendulum()
     kwargs = {
         "env": env,
-        "actor_state": state.actor_state,
+        "actor_state": actor,
         "num_episodes": 2,
         "rng": jax.random.PRNGKey(3),
         "env_params": env_params,
@@ -157,10 +160,10 @@ def _full_torque(obs):
 def test_the_baseline_return_is_the_evaluation_experts():
     """evaluate rolls out eval_expert_policy for the baseline,
     expert_policy building only the actor's input."""
-    env, env_params, state = _eval_pendulum()
+    env, env_params, actor = _eval_pendulum()
     kwargs = {
         "env": env,
-        "actor_state": state.actor_state,
+        "actor_state": actor,
         "num_episodes": 2,
         "rng": jax.random.PRNGKey(3),
         "env_params": env_params,

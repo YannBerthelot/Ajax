@@ -14,7 +14,9 @@ import pytest
 from ajax import APG, UDRL
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC import core
+from ajax.agents.SAC.SAC import compute_soft_policy_loss, sample_next_actions
 from ajax.agents.TD3.TD3 import compute_td3_td_target
+from ajax.controller import make_scored_action
 from ajax.extensions.base import ExtensionStack
 from ajax.extensions.expert import ResidualPolicy
 from tests.agents.test_agent_contract import CASES
@@ -167,21 +169,29 @@ def _put(a: jax.Array, a_expert: Any) -> jax.Array:
 
 
 def test_the_soft_core_scores_executed_actions():
-    """The SAC core (REDQ, TQC, ASAC, CrossQ, AVG read it): its bootstrap's
-    next actions and its actor's objective are the executed ones."""
+    """SAC's equations (REDQ, TQC, ASAC, CrossQ, AVG read them): the
+    bootstrap's next actions and the actor's objective, at the scored
+    actions make_scored_action gives, are the executed ones; so is the
+    0.4.0 actor step SAC's core keeps."""
     state = _initial("REDQ")
     obs, key = jnp.ones((4, 3)), jax.random.PRNGKey(0)
     a_expert = jnp.full((4, 1), 0.25)
-    next_actions, _ = core.sample_next_actions(
+    next_actions, _ = sample_next_actions(
         state.actor_state, obs, key, executed=_put, next_a_expert=a_expert
     )
     np.testing.assert_array_equal(next_actions, 0.25)
-    _, (_, _, q), _ = core.soft_actor_step(
-        state, obs, None, ExtensionStack(()), 1, a_expert=a_expert, executed=_put
+    actor, critic = state.actor_state, state.critic_state
+    transform = make_scored_action(_put, a_expert)
+    alpha = jnp.asarray(1.0)
+    _, (_, q, _) = compute_soft_policy_loss(
+        actor.params, actor, critic, obs, alpha, key, None, jnp.min, transform
     )
-    critic = state.critic_state
     at_expert = jnp.min(q_values(critic, critic.params, obs, a_expert), axis=0)
     np.testing.assert_allclose(q, at_expert, rtol=1e-6)
+    _, (_, _, legacy_q), _ = core.soft_actor_step(
+        state, obs, None, ExtensionStack(()), 1, a_expert=a_expert, executed=_put
+    )
+    np.testing.assert_allclose(legacy_q, at_expert, rtol=1e-6)
 
 
 def test_td3s_target_scores_the_executed_next_action():

@@ -33,6 +33,7 @@ from typing import Any, Callable, ClassVar, Optional, Tuple
 import jax
 import jax.numpy as jnp
 
+from ajax.agents.recurrent import actor_dist
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.networks.networks import action_value_input, predict_value
 from ajax.state import with_batch_stats
@@ -388,11 +389,14 @@ class BiasVoreDecomposition(Extension):
                 return predict_value(critic_state, critic_state.params, x)
 
             if kind == "q":
-                from ajax.agents.SAC.core import sample_next_actions
-
-                next_act, log_prob = sample_next_actions(
-                    agent_state.actor_state, next_obs, rng
+                # a' ~ pi(.|s') and its log-probability, summed over the
+                # action's dimensions.
+                actor_state = agent_state.actor_state
+                next_pi = actor_dist(
+                    actor_state, actor_state.params, next_obs, None, bootstrap=True
                 )
+                next_act, log_prob = next_pi.sample_and_log_prob(seed=rng)
+                log_prob = log_prob.sum(-1, keepdims=True)
                 alpha = getattr(agent_state, "alpha", None)
                 temperature = (
                     0.0 if alpha is None else jnp.exp(alpha.params["log_alpha"])

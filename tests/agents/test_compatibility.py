@@ -83,6 +83,11 @@ WARMUP = (
     "TD-MPC2's own collector does not run the choose_warmup_action phase in its"
     " seed phase yet, and it takes no expert_policy"
 )
+STORE = (
+    "the agent's replay is not written through the replay family yet (its"
+    " declaration on the family)"
+)
+OWN_STORE = "the agent's own collector does not run choose_replay_action yet"
 OWN_ROLLOUT = (
     "the agent's own collector does not observe features yet (APG's differentiable"
     " rollout, UDRL's command)"
@@ -127,7 +132,7 @@ GAPS: dict[str, dict[str, str]] = {
         "PhiRefresh": "TD3 REDQ TQC CrossQ DQN IQL",
     },
     CONTEXT: {
-        "BellmanPretrain": "TD3 REDQ TQC CrossQ ASAC DQN IQL",
+        "BellmanPretrain": "ASAC DQN IQL",
         "CloningPretrain": "APG PPO UDRL",
     },
     EXPERT: {
@@ -158,10 +163,10 @@ GAPS: dict[str, dict[str, str]] = {
             "TDMPC2 TDMPC2MultiTask",
         ),
         **dict.fromkeys(
-            "EDGEExploration JSRLCurriculum MCPretrain BellmanPretrain"
-            " BiasVorePenalty cnn".split(),
+            "EDGEExploration JSRLCurriculum MCPretrain BiasVorePenalty cnn".split(),
             "TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask",
         ),
+        "BellmanPretrain": "TDMPC2 TDMPC2MultiTask",
         **dict.fromkeys(
             "CloningPretrain ImitationLoss".split(),
             "TDMPC2 DreamerV3 TDMPC2MultiTask",
@@ -181,6 +186,11 @@ GAPS: dict[str, dict[str, str]] = {
     REWARD: {
         "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO UDRL DAgger IQL DreamerV3"
         " TDMPC2 TDMPC2MultiTask"
+    },
+    STORE: {"StorePolicyAction": "DQN DAgger DAgger/discrete"},
+    OWN_STORE: {
+        "StorePolicyAction": "UDRL UDRL/discrete DreamerV3 DreamerV3/discrete TDMPC2"
+        " TDMPC2MultiTask"
     },
     PRIOR: dict.fromkeys(
         ("PriorData", "ExpertPrefill"),

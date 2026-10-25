@@ -318,18 +318,9 @@ def test_penultimate_normalization_with_memory_keeps_envs_apart(real_env_config)
     assert jnp.allclose(logits(obs)[:, :1], logits(obs[:, :1]), atol=1e-6)
 
 
-def _soft_nets(agent_cls, init, **n_critics):
+def _declared_nets(agent_cls):
     def build(a, key):
-        state = init(
-            key,
-            a.env_args,
-            a.actor_optimizer_args,
-            a.critic_optimizer_args,
-            a.network_args,
-            a.alpha_args,
-            a.buffer,
-            **n_critics,
-        )
+        state = a.init(key, a.make_context(1)[1])
         return state.actor_state.params, state.critic_state.params
 
     agent = agent_cls("Pendulum-v1", buffer_size=64, batch_size=8, learning_starts=8)
@@ -338,16 +329,14 @@ def _soft_nets(agent_cls, init, **n_critics):
 
 def _sac_nets():
     from ajax.agents.SAC.SAC import SAC
-    from ajax.agents.SAC.train_SAC import init_SAC
 
-    return _soft_nets(SAC, init_SAC, num_critics=2)
+    return _declared_nets(SAC)
 
 
 def _redq_nets():
     from ajax.agents.REDQ.REDQ import REDQ
-    from ajax.agents.REDQ.train_REDQ import init_REDQ
 
-    return _soft_nets(REDQ, init_REDQ, number_of_critics=10)
+    return _declared_nets(REDQ)
 
 
 def _ppo_nets():

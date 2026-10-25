@@ -2,6 +2,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    ClassVar,
     Optional,
     Tuple,
     Union,
@@ -117,6 +118,10 @@ class EnvironmentConfig(Replaceable):
     # The extension choosing the warm-up's actions (ajax.controller.warmups_of):
     # ExpertWarmup's expert mix; none, the uniform ones.
     warmups: tuple = struct.field(pytree_node=False, default=())
+    # The extension choosing the action a replay row stores
+    # (ajax.controller.replay_action_choosers_of): StorePolicyAction's, the
+    # policy's; none, the executed one.
+    replay_action_choosers: tuple = struct.field(pytree_node=False, default=())
     # The dimension of the actions the policy chooses where it is not the
     # env's (gain mode: the expert's learnable gains); None: the env's.
     policy_action_dim: Optional[int] = struct.field(pytree_node=False, default=None)
@@ -283,6 +288,15 @@ class BaseAgentState(Replaceable):
     # rollout of memory), pre-allocated at ``make_train`` time so the scan
     # carry's structure is stable from iteration zero.
     last_rollout: Optional[Any] = None
+    # The metrics of the actor's last step that ran, which an update whose
+    # actor steps only on some updates (TD3's and CrossQ's policy delay, a
+    # policy_update_start) logs on the others (update_steps.run_actor_if):
+    # None for every other agent; the training loop gives it its structure,
+    # NaN, before the first update (TrainLoop.off_policy).
+    last_actor_metrics: Optional[Any] = None
+    # A checkpoint saved before the field was added restores it as NaN
+    # (ajax.checkpoint).
+    added_fields: ClassVar[frozenset[str]] = frozenset({"last_actor_metrics"})
 
     def get_keys_and_new_state(self, n: int = 1) -> tuple:
         """Draw n fresh random keys from the training key (rng).

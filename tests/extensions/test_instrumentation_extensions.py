@@ -239,3 +239,39 @@ def test_a_cnn_critic_reads_the_observation_alone():
         key, env_config, adam, adam, network, continuous=False, num_critics=1
     )
     assert not _takes_action(critic, jnp.zeros((2, 4)), jnp.zeros((2, 1)), key)
+
+
+def test_the_q_residual_bootstraps_on_sacs_next_action_sample():
+    """BiasVoreDecomposition's Q-critic residual: prediction minus scale r +
+    gamma (1 - d)(min_i Q_i(s', a') - alpha log pi(a' | s')), its a' and
+    log-probability SAC's sample_next_actions on the residual's key, with
+    a two-dimensional action (Reacher)."""
+    env, params = gymnax.make("Reacher-misc")
+    env_config = EnvironmentConfig(env, params, n_envs=1, continuous=True)
+    network = NetworkConfig(("8", "relu"), ("8", "relu"), squash=True)
+    adam = OptimizerConfig(learning_rate=1e-3)
+    init_key, data_key, key = jax.random.split(jax.random.PRNGKey(0), 3)
+    actor, critic = get_initialized_actor_critic(
+        init_key, env_config, adam, adam, network, True, True, True, num_critics=2
+    )
+    alpha = SimpleNamespace(params={"log_alpha": jnp.log(0.3)})
+    agent_state = SimpleNamespace(actor_state=actor, critic_state=critic, alpha=alpha)
+    keys = jax.random.split(data_key, 5)
+    obs, next_obs = (jax.random.normal(k, (6, 8)) for k in keys[:2])
+    act = jax.random.uniform(keys[2], (6, 2), minval=-1.0, maxval=1.0)
+    reward = jax.random.normal(keys[3], (6, 1))
+    done = (jax.random.uniform(keys[4], (6, 1)) < 0.5).astype(jnp.float32)
+    ext = BiasVoreDecomposition(gamma=0.9, reward_scale=2.0)
+    residual = ext._td_residual(agent_state, (obs, act, reward, next_obs, done), key)
+
+    from ajax.agents.SAC.SAC import sample_next_actions
+
+    next_act, log_prob = sample_next_actions(actor, next_obs, key)
+
+    def value(x: jax.Array) -> jax.Array:
+        return critic.apply_fn(critic.params, x)
+
+    next_q = value(jnp.concatenate([next_obs, next_act], -1)).min(0)
+    target = 2.0 * reward + 0.9 * (1.0 - done) * (next_q - 0.3 * log_prob)
+    expected = value(jnp.concatenate([obs, act], -1)) - target
+    assert jnp.allclose(residual, expected, atol=1e-6)

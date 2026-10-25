@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from ajax import TQC
-from ajax.agents.TQC.train_TQC import quantile_huber_loss, truncated_quantiles
+from ajax.agents.TQC.TQC import quantile_huber_loss, truncated_quantiles
 from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.instrumentation import BiasVorePenalty
 

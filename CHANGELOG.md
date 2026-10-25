@@ -6,6 +6,114 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **A skipped actor step logs the last one that ran.** On the updates whose
+  actor step is skipped (TD3's and CrossQ's `policy_delay`, any agent's
+  `policy_update_start`), the actor's logged metrics are now those of its
+  last real step, NaN before its first (`update_steps.run_actor_if`; the
+  state keeps them in `last_actor_metrics`). TD3 logged zeros there,
+  CrossQ and IQL NaN, and SAC, TQC, REDQ, ASAC and AVG the metrics of the
+  step they computed and dropped before `policy_update_start`. Training
+  is unchanged; only the logs move. A checkpoint saved without the field
+  restores it as NaN. `run_if` lost its `fill` option, which TD3 alone
+  used.
+- **AVG is a declared agent**, `agents/AVG/AVG.py`, on a new family,
+  `IncrementalAgent` (`ajax.agents.families`): one update on each step as
+  it comes, no replay. Keyword-only after `env_id`, fixed fields,
+  `AVGConfig` a view of them; `train_AVG`, `AVG.state` and `AVG.utils`
+  import their names with a FutureWarning until 0.5.0
+  (`value_loss_function` and `policy_loss_function` are
+  `compute_critic_loss` and `compute_policy_loss`; `init_AVG`,
+  `update_AVG_values` (`update_step_statistics`), `update_agent`,
+  `update_value_functions`, `update_policy` and `make_train` became
+  methods). AVG claims the warm-up it always had before a positive
+  `learning_starts`, so `ExpertWarmup` reaches it, and it takes
+  `policy_update_start` and `eval_expert_policy`. Training is unchanged,
+  bitwise.
+- **ASAC is a declared agent**, `agents/ASAC/ASAC.py`, as SAC is:
+  keyword-only after `env_id`, fixed fields, `ASACConfig` a view of them;
+  `train_ASAC`, `ASAC.state` and `ASAC.utils` import their names with a
+  FutureWarning until 0.5.0 (`value_loss_function` is `compute_critic_loss`;
+  `init_ASAC`, `update_agent`, `update_value_functions`, `update_policy`
+  and `make_train` became methods). ASAC now takes `policy_update_start`,
+  `alpha_update_start`, `eval_expert_policy` and `StorePolicyAction`, and a
+  scheduled `target_entropy_per_dim`. A recurrent ASAC given extensions is
+  refused by the family's check, as every recurrent agent is, with its
+  message. Training is unchanged, bitwise.
+- **REDQ is a declared agent**, `agents/REDQ/REDQ.py`, as SAC is:
+  keyword-only after `env_id`, fixed fields, `REDQConfig` a view of them
+  (no longer a `SACConfig` subclass); `train_REDQ` and `REDQ.state` import
+  their names with a FutureWarning until 0.5.0 (`value_loss_function` is
+  `compute_critic_loss`; `init_REDQ`, `update_agent`,
+  `update_value_functions`, `update_policy` and `make_train` became
+  methods). REDQ now takes `policy_update_start`, `alpha_update_start`,
+  `eval_expert_policy`, `BellmanPretrain` and `StorePolicyAction`, and
+  `target_entropy_per_dim` takes a schedule besides a number and
+  `"mbpo"`. Training is unchanged, bitwise.
+- **TQC is a declared agent**, `agents/TQC/TQC.py`, as SAC is: keyword-only
+  after `env_id`, fixed fields, `TQCConfig` a view of them (no longer a
+  `SACConfig` subclass); `train_TQC` and `TQC.state` import their names
+  with a FutureWarning until 0.5.0 (`init_TQC`, `update_agent`,
+  `update_value_functions`, `update_policy` and `make_train` became
+  methods). TQC now takes `policy_update_start`, `alpha_update_start`,
+  `eval_expert_policy`, `BellmanPretrain` and `StorePolicyAction`, and
+  a scheduled `target_entropy_per_dim`. Training is unchanged, bitwise.
+- **SAC is a declared agent**, `agents/SAC/SAC.py` on the replay family, as
+  IQL, CrossQ and TD3 are. What changes for a caller:
+  - the constructor is keyword-only after `env_id`; its fields and
+    `agent_config` are fixed once built; `SACConfig` is a view of the
+    fields, untyped (`Any`) to mypy until 0.5.0;
+  - `train_kwargs` is empty: read the fields (`agent.policy_update_start`);
+    `expert_policy` holds the expert as passed, `agent.expert` the one in
+    agent units;
+  - SAC's equations are in `SAC.py`, renamed by their verb:
+    `compute_soft_bellman_target`, `compute_soft_policy_loss`,
+    `compute_soft_policy_objective`, `compute_temperature_loss`,
+    `compute_alpha_temperature_loss` (`compute_td_target` and
+    `sample_next_actions` keep their names); the temperature is in
+    `ajax.agents.temperature`, the action pipeline in
+    `ajax.agents.action_pipeline`;
+  - the old modules (`train_SAC`, `SAC.state`, `SAC.core`,
+    `SAC.action_pipeline`) import their names with a FutureWarning until
+    0.5.0; the functions that became methods (`init_SAC`, `update_agent`,
+    `update_value_functions`, `update_policy`, `make_train`) raise
+    TypeError with the method's call form; `SAC.core` keeps
+    `init_soft_actor_critic`, `soft_actor_step` and the 0.4.0
+    `update_temperature`;
+  - the deprecated keywords are fields of `SACDeprecatedKeywords`:
+    `store_policy_action` builds `StorePolicyAction` where it acted (with
+    an expert, outside gain mode), and `target_entropy_initial_per_dim`
+    with `target_entropy_ramp_frac` builds the ramp `target_entropy_per_dim`
+    now takes as a schedule; both warn.
+
+  Training is unchanged: every final state is bitwise the same, and so is
+  the training program's text.
+- **StorePolicyAction** (`ajax.extensions.expert`), SAC's
+  `store_policy_action` as an extension for every replay agent on the
+  family: the replay stores the action the policy chose, not the one
+  executed. It acts in the controller alone, through a new controller
+  phase, `choose_replay_action`; TD3, CrossQ and IQL take it now, the SAC
+  family once declared, where SAC's keyword builds it until 0.5.0.
+- **A soft actor-critic's target entropy may be a schedule**:
+  `target_entropy_per_dim` takes a function of the timestep
+  (`ajax.schedule`, as TD3's `exploration_noise`) on every agent with the
+  shared entropy temperature (`EntropyTemperature`): CrossQ now, the SAC
+  family as each is declared. SAC's `target_entropy_initial_per_dim` and
+  `target_entropy_ramp_frac` build that ramp until 0.5.0.
+- **Every agent with an expert takes eval_expert_policy**, SAC's option:
+  the expert whose return each evaluation logs, if not the training one
+  (`ExpertGuided`). **Every agent on the shared loop reads
+  LoggingConfig.sweep**, which only SAC read: a sweep evaluates only in the
+  last fifth of training. Runs without either are unchanged.
+- **BellmanPretrain runs on TD3**, as on SAC: a replay agent with a
+  discounted Q critic and target critics gives it its critic step without
+  extensions (`ReplayAgent.extension_values`); REDQ and TQC take it once
+  declared. It now requires target critics, so CrossQ and DreamerV3 refuse
+  it for that reason, as they refused it before for another.
+- **Every replay actor-critic takes policy_update_start**, SAC's knob:
+  TD3, CrossQ and IQL keep the actor's steps from that timestep on, and
+  CrossQ, as every soft actor-critic, takes alpha_update_start for its
+  temperature. Both default to 0, no wait: runs that leave them unset are
+  bitwise the same.
 - **IQL, CrossQ and TD3 are declared agents.** Each is one file,
   `agents/<AGENT>/<AGENT>.py`, on the replay family of the new
   `ajax.agents.families`: its hyperparameters are dataclass fields, declared

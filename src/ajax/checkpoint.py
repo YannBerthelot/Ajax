@@ -254,10 +254,11 @@ def _without_removed_fields(skeleton: Any, saved: Any) -> Any:
 def _with_added_fields(skeleton: Any, saved: Any) -> Any:
     """Give a checkpoint saved before a state class gained the fields it
     lists in ``added_fields`` (a ``ClassVar[frozenset[str]]``) those fields,
-    at any depth, as NaN: the run that saved it never computed them. The
-    listed fields hold floats. A missing field the class does not list
-    still fails, so a checkpoint of another agent or layout stays a
-    mismatch.
+    at any depth, in the skeleton's structure, as NaN (-1 in integer
+    leaves, as ajax.log.unevaluated): the run that saved it never computed
+    them. A field the skeleton holds as None stays for
+    _with_new_empty_fields. A missing field the class does not list still
+    fails, so a checkpoint of another agent or layout stays a mismatch.
 
     Expand-then-contract shim (CLAUDE.md, refactoring rule 10): a class
     drops a name from ``added_fields`` once no checkpoint without that
@@ -272,8 +273,16 @@ def _with_added_fields(skeleton: Any, saved: Any) -> Any:
     }
     added: frozenset[str] = getattr(skeleton, "added_fields", frozenset())
     for name in added.difference(out.keys()):
-        out[name] = np.full_like(np.asarray(children[name]), np.nan)
+        if children.get(name) is not None:
+            never_computed = jax.tree.map(_never_computed, children[name])
+            out[name] = serialization.to_state_dict(never_computed)
     return out
+
+
+def _never_computed(leaf: Any) -> np.ndarray:
+    """NaN in leaf's shape and type; -1 in an integer leaf."""
+    leaf = np.asarray(leaf)
+    return np.full_like(leaf, -1 if np.issubdtype(leaf.dtype, np.integer) else np.nan)
 
 
 def _children(node: Any) -> Iterator[tuple[str, Any]]:

@@ -20,7 +20,7 @@ import numpy as np
 from jax.experimental import io_callback
 
 import ajax
-import ajax.agents.REDQ.train_REDQ as train_REDQ
+import ajax.agents.REDQ.REDQ as redq_module
 from tests.conformance import kit
 
 #: REDQSACAgent's defaults (target entropy 'auto'), in Ajax's names.
@@ -128,7 +128,7 @@ def run(
     # The 20 batches and their keys, set while the update is traced: arguments of the compiled
     # update, so each env compiles once.
     given: dict = {}
-    sample = train_REDQ.sample_replay
+    sample = redq_module.sample_replay
 
     def injected(
         agent_state: Any, buffer: Any, key: Any, *args: Any, **kwargs: Any
@@ -161,12 +161,12 @@ def run(
 
     envs = sorted({p.name.rsplit("_", 1)[0] for p in records.glob("*.npz")})
     out: dict = {}
-    train_REDQ.sample_replay = injected
+    redq_module.sample_replay = injected
     try:
         for env_id in envs:
             out.update(_env_updates(records, env_id, dtype, fault, given))
     finally:
-        train_REDQ.sample_replay = sample
+        redq_module.sample_replay = sample
     return out
 
 

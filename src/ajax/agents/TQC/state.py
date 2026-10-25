@@ -1,17 +1,8 @@
-from flax import struct
+"""TQC's state and config, now in :mod:`ajax.agents.TQC.TQC`; their old
+path imports them with a FutureWarning until 0.5.0."""
 
-from ajax.agents.SAC.state import SACConfig, SoftACState
+from ajax.deprecation import moved_names
 
-
-@struct.dataclass(kw_only=True)
-class TQCState(SoftACState):
-    """TQC's state: a soft actor-critic's, nothing more."""
-
-
-@struct.dataclass(kw_only=True)
-class TQCConfig(SACConfig):
-    """SAC's hyperparameters plus TQC's quantile critics'."""
-
-    num_critics: int = 5
-    n_quantiles: int = 25
-    top_quantiles_to_drop_per_net: int = 2
+__getattr__ = moved_names(
+    __name__, dict.fromkeys(("TQCConfig", "TQCState"), "ajax.agents.TQC.TQC")
+)

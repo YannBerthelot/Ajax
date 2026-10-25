@@ -8,8 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.AVG.state import RunningMoments
-from ajax.agents.AVG.utils import compute_td_error_scaling
+from ajax.agents.AVG.AVG import RunningMoments, compute_td_error_scaling
 
 NAN = float("nan")
 

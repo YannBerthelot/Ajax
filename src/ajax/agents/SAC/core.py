@@ -1,28 +1,22 @@
-"""Soft Actor-Critic's maths: the one source for SAC and its descendants.
-
-SAC (train_SAC.py) layers its expert features on top of these functions;
-ASAC, REDQ and AVG import them rather than keep copies (the lineage rule,
-CONTRIBUTING.md). Functions take pre-computed values (e.g. ``target_q``),
-not feature flags.
-"""
+"""SAC's former core module. SAC's equations moved to
+:mod:`ajax.agents.SAC.SAC`, renamed by the verb rule (compute_ for a loss or
+a target), and the temperature to :mod:`ajax.agents.temperature`; their old
+names resolve from here with a FutureWarning until 0.5.0. The functions
+with no new home stay, as 0.4.0 released them, until then:
+init_soft_actor_critic, soft_actor_step and update_temperature (SAC's loss
+by default)."""
 
 from typing import Any, Callable, Optional, Tuple, TypeVar
 
 import jax
 import jax.numpy as jnp
-import optax
-from flax import struct
 from flax.core import FrozenDict
-from flax.training.train_state import TrainState
 
-from ajax.agents.loop import derive_extensions_key, gradient_step
-from ajax.agents.recurrent import (
-    RecurrentCarries,
-    actor_dist,
-    q_values,
-    stored_actor_carry_dim,
-)
-from ajax.agents.SAC.state import SoftACState
+from ajax.agents import temperature
+from ajax.agents.recurrent import RecurrentCarries, stored_actor_carry_dim
+from ajax.agents.SAC.SAC import compute_soft_policy_loss, compute_temperature_loss
+from ajax.agents.update_steps import actor_step
+from ajax.controller import make_scored_action
 from ajax.deprecation import moved_names
 from ajax.environments.interaction import init_collector_state
 from ajax.extensions.base import ExtensionStack
@@ -30,36 +24,9 @@ from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import BufferType
 
-S = TypeVar("S", bound=SoftACState)
-
-
-@struct.dataclass
-class TemperatureAuxiliaries:
-    alpha: jax.Array
-    log_alpha: jax.Array
-    effective_target_entropy: jax.Array | float
-
-
-def create_alpha_train_state(
-    learning_rate: float = 3e-4,
-    alpha_init: float = 1.0,
-) -> TrainState:
-    log_alpha = jnp.log(alpha_init)
-    params: FrozenDict[str, Any] = FrozenDict({"log_alpha": log_alpha})
-    # No gradient clipping on the dual variable. log_alpha's gradient is
-    # the scalar (H_target - H_pi); clipping it to a constant norm erases
-    # the magnitude (and hence the target) from the update whenever the
-    # policy entropy is more than the clip away from the target, turning
-    # the step into pure sign-descent at ``learning_rate`` per update.
-    # Reference SAC uses unclipped Adam here. Nor does the agent's
-    # weight_decay reach it: decaying log_alpha towards 0 would pull the
-    # temperature towards 1, a bias no entropy target asks for.
-    tx = optax.adam(learning_rate)
-    return TrainState.create(
-        apply_fn=lambda params: jnp.exp(params["log_alpha"]),
-        params=params,
-        tx=tx,
-    )
+# S keeps its one-letter name because 0.4.0 released it from this module;
+# both go in 0.5.0.
+S = TypeVar("S", bound=temperature.SoftActorCriticState)
 
 
 def init_soft_actor_critic(
@@ -76,9 +43,9 @@ def init_soft_actor_critic(
     stored_state: bool = False,
     collector_extras: Optional[dict] = None,
 ) -> Tuple[Any, Any, Any]:
-    """A soft actor-critic's squashed-Gaussian actor, ``num_critics``
-    Q-critics and collector (writing to ``buffer`` when given); the
-    ``collector_extras`` reach the collector's builder."""
+    """A soft actor-critic's squashed-Gaussian actor, num_critics Q critics
+    and collector (writing to buffer when given); the collector_extras reach
+    the collector's builder."""
     actor_state, critic_state = get_initialized_actor_critic(
         key=init_key,
         env_config=env_args,
@@ -102,142 +69,6 @@ def init_soft_actor_critic(
     return actor_state, critic_state, collector_state
 
 
-def sample_next_actions(
-    actor_state: Any,
-    next_observations: jax.Array,
-    key: jax.Array,
-    carries: Optional[RecurrentCarries] = None,
-    executed: Optional[Callable[[jax.Array, Any], jax.Array]] = None,
-    next_a_expert: Optional[jax.Array] = None,
-) -> Tuple[jax.Array, jax.Array]:
-    """The bootstrap actions ``a' ~ pi(.|s')`` and their log-probabilities,
-    summed over the action dimensions; with a residual policy, the executed
-    ones the critics score, ``executed(a', next_a_expert)``."""
-    next_pi = actor_dist(
-        actor_state, actor_state.params, next_observations, carries, bootstrap=True
-    )
-    next_actions, log_probs = next_pi.sample_and_log_prob(seed=key)
-    if executed is not None:
-        next_actions = executed(next_actions, next_a_expert)
-    return next_actions, log_probs.sum(-1, keepdims=True)
-
-
-def compute_td_target(
-    actor_state,
-    critic_state,
-    next_observations: jax.Array,
-    dones: jax.Array,
-    rewards: jax.Array,
-    gamma: float,
-    alpha: jax.Array,
-    rng: jax.Array,
-    recurrent: bool,
-    reward_scale: float = 1.0,
-    executed: Optional[Callable[[jax.Array, Any], jax.Array]] = None,
-    next_a_expert: Optional[jax.Array] = None,
-    carries: Optional[RecurrentCarries] = None,
-) -> jax.Array:
-    """Pure SAC Bellman target: r + γ(1-d)(min Q_target(s', π(s')) - α log π).
-
-    With a residual policy, executed maps the sampled next actions to the
-    executed ones, from the expert's stored next actions next_a_expert
-    (ajax.controller.executed_fn): the bootstrap is queried where the
-    critic was trained, clip(a_expert(s') + scale * pi(s'), -1, 1). Without
-    it the target Q is out of distribution and training diverges.
-
-    The carries (sequence replay) are set exactly when recurrent. Returns
-    the target with no gradient; the target extensions (IBRL, CriticBlend,
-    MCVarianceCorrection) may change it before the critic loss reads it.
-    """
-    del recurrent
-    sample_key, rng = jax.random.split(rng)
-    next_actions, log_probs = sample_next_actions(
-        actor_state, next_observations, sample_key, carries, executed, next_a_expert
-    )
-    q_targets = q_values(
-        critic_state,
-        critic_state.target_params,
-        next_observations,
-        next_actions,
-        carries,
-        bootstrap=True,
-    )
-    min_q_target = jnp.min(q_targets, axis=0, keepdims=False)
-    target = soft_bellman_target(
-        min_q_target, log_probs, rewards, dones, gamma, alpha, reward_scale
-    )
-    return jax.lax.stop_gradient(target)
-
-
-def soft_bellman_target(
-    next_q: jax.Array,
-    next_log_probs: jax.Array,
-    rewards: jax.Array,
-    dones: jax.Array,
-    gamma: float,
-    alpha: jax.Array,
-    reward_scale: float = 1.0,
-) -> jax.Array:
-    """SAC's Bellman target ``r + gamma (1 - d)(Q' - alpha log pi(a'|s'))``
-    from the bootstrap value ``next_q`` (the critics' reduced value at
-    ``(s', a')``) and ``a'``'s log-probabilities, however the agent computed
-    them: a target critic's pass (:func:`compute_td_target`) or CrossQ's
-    joint pass."""
-    rewards = rewards * reward_scale
-    return rewards + gamma * (1.0 - dones) * (next_q - alpha * next_log_probs)
-
-
-def soft_policy_loss(
-    actor_params: FrozenDict,
-    actor_state,
-    critic_state,
-    observations: jax.Array,
-    alpha: jax.Array,
-    rng: jax.Array,
-    carries: Optional[RecurrentCarries] = None,
-    q_reduce: Callable[..., jax.Array] = jnp.min,
-    action_transform: Optional[Callable[[jax.Array], jax.Array]] = None,
-) -> Tuple[jax.Array, Tuple[jax.Array, jax.Array, Any]]:
-    """``mean(alpha log pi(a|s) - Q(s, a))``, ``a ~ pi(.|s)``, ``Q`` the
-    critics' values reduced by ``q_reduce`` over the ensemble axis, at
-    ``action_transform(a)`` when given (residual RL scores the executed
-    action).
-
-    Returns the loss and ``(log_probs, q, pi)``. In sequence mode the
-    fresh actions are queried at the critic's head, its memory reading the
-    actions taken (:func:`~ajax.agents.recurrent.q_values`).
-    """
-    pi = actor_dist(actor_state, actor_params, observations, carries)
-    return soft_policy_objective(
-        pi, critic_state, observations, alpha, rng, carries, q_reduce, action_transform
-    )
-
-
-def soft_policy_objective(
-    pi: Any,
-    critic_state,
-    observations: jax.Array,
-    alpha: jax.Array,
-    rng: jax.Array,
-    carries: Optional[RecurrentCarries] = None,
-    q_reduce: Callable[..., jax.Array] = jnp.min,
-    action_transform: Optional[Callable[[jax.Array], jax.Array]] = None,
-) -> Tuple[jax.Array, Tuple[jax.Array, jax.Array, Any]]:
-    """:func:`soft_policy_loss` on the policy ``pi`` at ``observations``,
-    however the agent computed it (CrossQ's actor in training)."""
-    sample_key, rng = jax.random.split(rng)
-    actions, log_probs = pi.sample_and_log_prob(seed=sample_key)
-    if action_transform is not None:
-        actions = action_transform(actions)
-    q = q_reduce(
-        q_values(critic_state, critic_state.params, observations, actions, carries),
-        axis=0,
-    )
-    log_probs = log_probs.sum(-1, keepdims=True)
-    assert log_probs.shape == q.shape, f"{log_probs.shape} != {q.shape}"
-    return (alpha * log_probs - q).mean(), (log_probs, q, pi)
-
-
 def soft_actor_step(
     agent_state: S,
     observations: jax.Array,
@@ -250,116 +81,72 @@ def soft_actor_step(
     actions: Optional[jax.Array] = None,
     executed: Optional[Callable[[jax.Array, Any], jax.Array]] = None,
 ) -> Tuple[S, Tuple[jax.Array, jax.Array, jax.Array], dict]:
-    """One actor step on :func:`soft_policy_loss` plus the extensions'
-    actor-loss terms, which also read ``a_expert``, the expert's stored
-    actions at the rows (None without an expert), and ``actions``, the
-    rows' own. With a residual policy the critics score ``executed(a,
-    a_expert)`` (:func:`ajax.controller.executed_actions`). Returns the state,
-    ``(loss, log_probs, q)``, the SAC loss before the extensions' terms,
-    and the extensions' metrics."""
-    agent_state, policy_key = agent_state.next_keys()
-    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
-    actor_state = agent_state.actor_state
-    transform = None
-    if executed is not None:
-        score = executed
+    """The 0.4.0 actor step of a soft actor-critic (0.5.0 removes it):
+    update_steps.actor_step on SAC's soft policy loss, the critics' values
+    reduced by q_reduce and scored at executed(a, a_expert) under a residual
+    policy. Returns the state, (loss, log_probs, q_values), the loss before the
+    extensions' terms, and the extensions' metrics."""
+    policy_key, agent_state = agent_state.get_keys_and_new_state()
+    alpha = temperature.get_alpha(agent_state)
+    transform = make_scored_action(executed, a_expert)
 
-        def transform(actions: jax.Array) -> jax.Array:
-            return score(actions, a_expert)
-
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, Any]:
-        loss, (log_probs, q, pi) = soft_policy_loss(
+    def policy_loss(params: FrozenDict) -> Tuple[jax.Array, Any, jax.Array]:
+        loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
             params,
-            actor_state,
+            agent_state.actor_state,
             agent_state.critic_state,
             observations,
             alpha,
             policy_key,
             carries,
             q_reduce,
-            transform,
+            action_transform=transform,
         )
-        actor_batch = {
-            "observations": observations,
-            "raw_observations": raw_observations,
-            "pi_mean": pi.mean(),
-            "actor_params": params,
-            "actor_state": actor_state,
-            "a_expert": a_expert,
-            "actions": actions,
-            "critic_state": agent_state.critic_state,
-            "agent_loss": loss,
-        }
-        extra, metrics = extension_stack.compute_extensions_actor_loss(
-            agent_state,
-            actor_batch,
-            agent_state.collector_state.timestep,
-            derive_extensions_key(policy_key),
-            total_timesteps,
-        )
-        return loss + extra, ((loss, log_probs, q), metrics)
+        return loss, (loss, log_probs, q_values), policy.mean()
 
-    actor_state, (out, metrics), _ = gradient_step(actor_state, loss_fn)
-    return agent_state.replace(actor_state=actor_state), out, metrics
-
-
-def temperature_loss_fn(
-    log_alpha_params: FrozenDict,
-    log_probs: jax.Array,
-    target_entropy: jax.Array,
-) -> Tuple[jax.Array, TemperatureAuxiliaries]:
-    """Standard SAC temperature loss: log(α) · (-log π - H_target)."""
-    log_alpha = log_alpha_params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
-    loss = (log_alpha * jax.lax.stop_gradient(-log_probs - target_entropy)).mean()
-    return loss, TemperatureAuxiliaries(
-        alpha=alpha,
-        log_alpha=log_alpha,
-        effective_target_entropy=target_entropy,
+    actor_state, policy_outputs, _, metrics = actor_step(
+        agent_state,
+        policy_loss,
+        extension_stack,
+        policy_key,
+        total_timesteps,
+        observations=observations,
+        raw_observations=raw_observations,
+        a_expert=a_expert,
+        actions=actions,
+        critic_state=agent_state.critic_state,
     )
-
-
-def alpha_temperature_loss_fn(
-    log_alpha_params: FrozenDict,
-    log_probs: jax.Array,
-    target_entropy: jax.Array,
-) -> Tuple[jax.Array, TemperatureAuxiliaries]:
-    """``alpha (H - H_target)``, ``H = -mean log pi``: the temperature's loss
-    in CrossQ's authors' SBX fork (adityab/CrossQ@a318a26,
-    ``sbx/sac/sac.py:414-416``), alpha in place of log alpha, so its gradient
-    is alpha times :func:`temperature_loss_fn`'s (SBX later took the log)."""
-    log_alpha = log_alpha_params["log_alpha"]
-    alpha = jnp.exp(log_alpha)
-    loss = alpha * jax.lax.stop_gradient(-log_probs.mean() - target_entropy)
-    return loss, TemperatureAuxiliaries(
-        alpha=alpha,
-        log_alpha=log_alpha,
-        effective_target_entropy=target_entropy,
-    )
+    return agent_state.replace(actor_state=actor_state), policy_outputs, metrics
 
 
 def update_temperature(
     agent_state: S,
     log_probs: jax.Array,
     target_entropy: jax.Array,
-    loss_fn: Callable[..., Tuple[jax.Array, TemperatureAuxiliaries]] = (
-        temperature_loss_fn
+    loss_fn: Callable[..., Tuple[jax.Array, temperature.TemperatureAuxiliaries]] = (
+        compute_temperature_loss
     ),
-) -> Tuple[S, TemperatureAuxiliaries]:
-    """One dual-gradient step of ``log_alpha`` towards ``target_entropy``,
-    ``log_probs`` per action dimension (summed here), down ``loss_fn``."""
-    (_, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-        agent_state.alpha.params,
-        log_probs.sum(-1),
-        target_entropy,
+) -> Tuple[S, temperature.TemperatureAuxiliaries]:
+    """The 0.4.0 form of ajax.agents.temperature.update_temperature, SAC's
+    temperature loss by default (0.5.0 removes it)."""
+    return temperature.update_temperature(
+        agent_state, log_probs, target_entropy, loss_fn
     )
-    new_alpha_state = agent_state.alpha.apply_gradients(grads=grads)
-    return agent_state.replace(alpha=new_alpha_state), jax.lax.stop_gradient(aux)
 
 
+_SAC = "ajax.agents.SAC.SAC"
 _new_homes = {
     "CoreCriticAux": "ajax.agents.critics",
+    "TemperatureAuxiliaries": "ajax.agents.temperature",
+    "create_alpha_train_state": "ajax.agents.temperature",
     "critic_loss_fn": "ajax.agents.critics:compute_mean_critic_loss",
     "update_target_networks": "ajax.agents.update_steps",
+    "sample_next_actions": _SAC,
+    "compute_td_target": _SAC,
+    "soft_bellman_target": f"{_SAC}:compute_soft_bellman_target",
+    "soft_policy_loss": f"{_SAC}:compute_soft_policy_loss",
+    "soft_policy_objective": f"{_SAC}:compute_soft_policy_objective",
+    "temperature_loss_fn": f"{_SAC}:compute_temperature_loss",
+    "alpha_temperature_loss_fn": f"{_SAC}:compute_alpha_temperature_loss",
 }
 __getattr__ = moved_names(__name__, _new_homes)

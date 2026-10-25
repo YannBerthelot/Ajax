@@ -110,7 +110,7 @@
    "env_args",
    "expert_policy"
   ],
-  "make_train": "ajax.agents.ASAC.train_ASAC:make_train",
+  "make_train": "ajax.agents.families:ReplayAgent.make_train",
   "name": "ASAC",
   "per_seed_update_counts": false,
   "phase_batch_keys": {
@@ -161,6 +161,7 @@
   "supported_extension_phases": [
    "actor_loss",
    "actuate",
+   "choose_replay_action",
    "choose_warmup_action",
    "critic_loss",
    "eval_metrics",
@@ -183,14 +184,15 @@
    "off_policy",
    "policy_density",
    "q_critic",
-   "reward_learning"
+   "reward_learning",
+   "warmup"
   ],
   "extension_context": [
    "actor_optimizer_args",
    "env_args",
    "expert_policy"
   ],
-  "make_train": "ajax.agents.AVG.train_AVG:make_train",
+  "make_train": "ajax.agents.families:IncrementalAgent.make_train",
   "name": "AVG",
   "per_seed_update_counts": false,
   "phase_batch_keys": {
@@ -239,6 +241,7 @@
   "supported_extension_phases": [
    "actor_loss",
    "actuate",
+   "choose_warmup_action",
    "critic_loss",
    "eval_metrics",
    "observe",
@@ -322,6 +325,7 @@
   "supported_extension_phases": [
    "actor_loss",
    "actuate",
+   "choose_replay_action",
    "choose_warmup_action",
    "critic_loss",
    "eval_metrics",
@@ -534,6 +538,7 @@
   "supported_extension_phases": [
    "actor_loss",
    "actuate",
+   "choose_replay_action",
    "choose_warmup_action",
    "critic_loss",
    "eval_metrics",
@@ -666,9 +671,14 @@
    "actor_optimizer_args",
    "buffer",
    "env_args",
-   "expert_policy"
+   "expert_policy",
+   "gamma",
+   "recurrent",
+   "reward_scale",
+   "update_target_fn",
+   "update_value_fn"
   ],
-  "make_train": "ajax.agents.REDQ.train_REDQ:make_train",
+  "make_train": "ajax.agents.families:ReplayAgent.make_train",
   "name": "REDQ",
   "per_seed_update_counts": false,
   "phase_batch_keys": {
@@ -720,6 +730,7 @@
   "supported_extension_phases": [
    "actor_loss",
    "actuate",
+   "choose_replay_action",
    "choose_warmup_action",
    "critic_loss",
    "eval_metrics",
@@ -762,7 +773,7 @@
    "update_target_fn",
    "update_value_fn"
   ],
-  "make_train": "ajax.agents.SAC.train_SAC:make_train",
+  "make_train": "ajax.agents.families:ReplayAgent.make_train",
   "name": "SAC",
   "per_seed_update_counts": false,
   "phase_batch_keys": {
@@ -818,6 +829,7 @@
    "action",
    "actor_loss",
    "actuate",
+   "choose_replay_action",
    "choose_warmup_action",
    "critic_loss",
    "eval_metrics",
@@ -848,7 +860,12 @@
    "actor_optimizer_args",
    "buffer",
    "env_args",
-   "expert_policy"
+   "expert_policy",
+   "gamma",
+   "recurrent",
+   "reward_scale",
+   "update_target_fn",
+   "update_value_fn"
   ],
   "make_train": "ajax.agents.families:ReplayAgent.make_train",
   "name": "TD3",
@@ -904,6 +921,7 @@
   "supported_extension_phases": [
    "actor_loss",
    "actuate",
+   "choose_replay_action",
    "choose_warmup_action",
    "critic_loss",
    "eval_metrics",
@@ -989,9 +1007,14 @@
    "actor_optimizer_args",
    "buffer",
    "env_args",
-   "expert_policy"
+   "expert_policy",
+   "gamma",
+   "recurrent",
+   "reward_scale",
+   "update_target_fn",
+   "update_value_fn"
   ],
-  "make_train": "ajax.agents.TQC.train_TQC:make_train",
+  "make_train": "ajax.agents.families:ReplayAgent.make_train",
   "name": "TQC",
   "per_seed_update_counts": false,
   "phase_batch_keys": {
@@ -1043,6 +1066,7 @@
   "supported_extension_phases": [
    "actor_loss",
    "actuate",
+   "choose_replay_action",
    "critic_loss",
    "eval_metrics",
    "observe",

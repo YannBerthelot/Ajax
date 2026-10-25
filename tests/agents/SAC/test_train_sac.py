@@ -17,23 +17,16 @@ from flax.training.train_state import TrainState
 
 from ajax.agents.critics import compute_q_regression_loss
 from ajax.agents.recurrent import actor_dist
-from ajax.agents.SAC.core import (
-    alpha_temperature_loss_fn,
-    create_alpha_train_state,
-    soft_bellman_target,
-    soft_policy_loss,
-    soft_policy_objective,
-    temperature_loss_fn,
-    update_temperature,
+from ajax.agents.SAC.SAC import (
+    SAC,
+    compute_alpha_temperature_loss,
+    compute_soft_bellman_target,
+    compute_soft_policy_loss,
+    compute_soft_policy_objective,
+    compute_temperature_loss,
 )
-from ajax.agents.SAC.train_SAC import init_SAC
+from ajax.agents.temperature import create_alpha_train_state, update_temperature
 from ajax.agents.update_steps import update_target_networks
-from ajax.buffers.utils import get_buffer
-from ajax.state import (
-    AlphaConfig,
-    NetworkConfig,
-    OptimizerConfig,
-)
 
 
 def _allclose(a, b) -> bool:
@@ -41,30 +34,18 @@ def _allclose(a, b) -> bool:
 
 
 @pytest.fixture
-def buffer(env_config):
-    return get_buffer(buffer_size=1000, batch_size=32, n_envs=env_config.n_envs)
-
-
-@pytest.fixture
-def SAC_state(env_config, buffer):
-    key = jax.random.PRNGKey(0)
-    optimizer_args = OptimizerConfig(learning_rate=3e-4)
-    network_args = NetworkConfig(
-        actor_architecture=["64", "relu", "64"],
-        critic_architecture=["64", "relu", "64"],
-        squash=True,
+def SAC_state(env_config):
+    """A fresh SAC state on the env's config (SAC.init alone)."""
+    agent = SAC(
+        env_config.env,
+        env_params=env_config.env_params,
+        actor_architecture=("64", "relu", "64"),
+        critic_architecture=("64", "relu", "64"),
+        buffer_size=1000,
+        batch_size=32,
     )
-    alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
-
-    return init_SAC(
-        key=key,
-        env_args=env_config,
-        actor_optimizer_args=optimizer_args,
-        critic_optimizer_args=optimizer_args,
-        network_args=network_args,
-        alpha_args=alpha_args,
-        buffer=buffer,
-    )
+    _, context = agent.make_context(1)
+    return agent.init(jax.random.PRNGKey(0), context)
 
 
 def test_create_alpha_train_state():
@@ -94,7 +75,7 @@ def test_create_alpha_train_state():
 def test_temperature_loss_function(log_alpha, target_entropy, log_probs, grad):
     """``log_alpha * mean(-log_probs - target_entropy)``, the bracket held
     constant: its gradient in ``log_alpha`` is the bracket."""
-    (loss, aux), grads = jax.value_and_grad(temperature_loss_fn, has_aux=True)(
+    (loss, aux), grads = jax.value_and_grad(compute_temperature_loss, has_aux=True)(
         FrozenDict({"log_alpha": jnp.array(log_alpha)}),
         log_probs=jnp.array(log_probs),
         target_entropy=target_entropy,
@@ -117,6 +98,7 @@ def test_update_temperature(env_config, SAC_state):
         agent_state=SAC_state,
         log_probs=log_probs,
         target_entropy=target_entropy,
+        loss=compute_temperature_loss,
     )
     aux = to_state_dict(aux)
     assert not _allclose(updated_state.alpha.params, original_alpha_params)
@@ -153,8 +135,8 @@ def test_update_target_networks(env_config, SAC_state):
 def test_the_soft_bellman_target_from_a_bootstrap_value():
     """r scaled by 2, then 0.9 (1 - d)(Q' - 0.5 log pi): a terminal row
     keeps its reward alone."""
-    target = soft_bellman_target(
-        next_q=jnp.array([[2.0], [2.0]]),
+    target = compute_soft_bellman_target(
+        next_q_values=jnp.array([[2.0], [2.0]]),
         next_log_probs=jnp.array([[-1.0], [-1.0]]),
         rewards=jnp.array([[1.0], [1.0]]),
         dones=jnp.array([[0.0], [1.0]]),
@@ -177,10 +159,10 @@ def test_the_soft_policy_objective_is_the_loss_on_a_given_policy(SAC_state):
     obs = SAC_state.collector_state.last_obs
     key, alpha = jax.random.PRNGKey(1), jnp.asarray(0.2)
     pi = actor_dist(actor, actor.params, obs)
-    loss, (log_probs, q, _) = soft_policy_loss(
+    loss, (log_probs, q, _) = compute_soft_policy_loss(
         actor.params, actor, critic, obs, alpha, key
     )
-    same, (same_log_probs, same_q, _) = soft_policy_objective(
+    same, (same_log_probs, same_q, _) = compute_soft_policy_objective(
         pi, critic, obs, alpha, key
     )
     assert float(loss) == float(same)
@@ -192,8 +174,8 @@ def test_the_alpha_temperature_loss_scales_sacs_gradient_by_alpha():
     is alpha times SAC's, (H - H_target)."""
     params = FrozenDict({"log_alpha": jnp.log(0.5)})
     log_probs, target = jnp.array([-1.0, -3.0]), jnp.asarray(-1.0)
-    grad = jax.grad(lambda p: alpha_temperature_loss_fn(p, log_probs, target)[0])
-    sac_grad = jax.grad(lambda p: temperature_loss_fn(p, log_probs, target)[0])
+    grad = jax.grad(lambda p: compute_alpha_temperature_loss(p, log_probs, target)[0])
+    sac_grad = jax.grad(lambda p: compute_temperature_loss(p, log_probs, target)[0])
     entropy_gap = 2.0 - (-1.0)
     assert float(grad(params)["log_alpha"]) == pytest.approx(0.5 * entropy_gap)
     assert float(sac_grad(params)["log_alpha"]) == pytest.approx(entropy_gap)

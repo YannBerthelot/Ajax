@@ -21,14 +21,10 @@ import pytest
 
 import ajax.agents.PPO.PPO as ppo_module
 from ajax.agents.APO.APO import APO
-from ajax.agents.ASAC import train_ASAC
 from ajax.agents.ASAC.ASAC import ASAC
-from ajax.agents.AVG import train_AVG
 from ajax.agents.AVG.AVG import AVG
 from ajax.agents.PPO.PPO import PPO
-from ajax.agents.REDQ import train_REDQ
 from ajax.agents.REDQ.REDQ import REDQ
-from ajax.agents.SAC import train_SAC
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.buffers.utils import get_batch_from_buffer
@@ -266,7 +262,7 @@ def test_sac_logs_the_filtered_fraction_on_a_replay_batch() -> None:
     state = jax.tree.map(lambda x: x[0], state)
     held = agent.extension_stack.extensions[0]  # its expert in agent units
     assert isinstance(held, ImitationLoss)
-    ext = held.bind_to_agent(buffer=agent.buffer, expert_policy=agent.expert_policy)
+    ext = held.bind_to_agent(buffer=agent.buffer, expert_policy=agent.expert)
     assert ext.reads_stored_expert
     got = ext.eval_metrics(state, (), KEY, CTX)["imitation/q_filter_frac"]
     batch = get_batch_from_buffer(agent.buffer, state.collector_state.buffer_state, KEY)
@@ -349,60 +345,32 @@ def _td3_update(stack: ExtensionStack) -> Any:
     return state.actor_state.params
 
 
-def _sac_family_update(agent_cls: type, module: Any, init: Callable) -> Callable:
+def _declared_soft_update(agent_cls: type) -> Callable:
+    """A declared soft actor-critic's actor step on BATCH random rows, its
+    own observations raw too (the expert's input)."""
+
     def update(stack: ExtensionStack) -> Any:
         agent = agent_cls(
             "Pendulum-v1", actor_architecture=NET, critic_architecture=NET
         )
-        state = _ext_state(init(agent), stack)
-        obs = _obs(agent)
-        out = module.update_policy(state, obs, obs, stack, total_timesteps=1)
-        return out[0].actor_state.params
+        context = make_context(agent, stack)
+        state = _ext_state(agent.init(KEY, context), stack)
+        obs, column = _obs(agent), jnp.zeros((BATCH, 1))
+        batch = Transition(obs, column, column, column, column, obs, raw_obs=obs)
+        return agent.update_actor(state, batch, None, context)[0].actor_state.params
 
     return update
 
 
-def _init_redq(agent: REDQ) -> Any:
-    return train_REDQ.init_REDQ(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.alpha_args,
-        agent.buffer,
-        number_of_critics=agent.agent_config.num_critics,
-    )
-
-
-def _init_asac(agent: ASAC) -> Any:
-    return train_ASAC.init_ASAC(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.alpha_args,
-        agent.buffer,
-    )
-
-
 def _sac_update(stack: ExtensionStack) -> Any:
     agent = SAC("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    state = train_SAC.init_SAC(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.alpha_args,
-        agent.buffer,
-    )
-    state = _ext_state(state, stack)
+    # The stack as given, unbound, as each test builds it.
+    context = dataclasses.replace(agent.make_context(1)[1], extensions=stack)
+    state = _ext_state(agent.init(KEY, context), stack)
     obs = _obs(agent)
-    state, *_ = train_SAC.update_policy(
-        state, obs, obs, extension_stack=stack, total_timesteps=1
-    )
+    column = jnp.zeros((obs.shape[0], 1))
+    batch = Transition(obs, column, column, column, column, obs, raw_obs=obs)
+    state, *_ = agent.update_actor(state, batch, None, None, context)
     return state.actor_state.params
 
 
@@ -466,27 +434,21 @@ def _ppo_update(stack: ExtensionStack) -> Any:
 
 def _avg_update(stack: ExtensionStack) -> Any:
     agent = AVG("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    state = train_AVG.init_AVG(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.alpha_args,
-    )
-    state = _ext_state(state, stack)
-    obs = _obs(agent)
-    raw_actions = jnp.zeros((BATCH, 1))  # the pre-squash sample AVG steps through
-    state, *_ = train_AVG.update_policy(
-        state, obs, raw_actions, stack, total_timesteps=1, raw_observations=obs
-    )
+    # The stack as given, unbound, as each test builds it.
+    context = dataclasses.replace(agent.make_context(1)[1], extensions=stack)
+    state = _ext_state(agent.init(KEY, context), stack)
+    obs, column = _obs(agent), jnp.zeros((BATCH, 1))
+    # The pre-squash sample AVG steps through: zeros.
+    batch = Transition(obs, column, column, column, column, obs, raw_obs=obs)
+    batch = batch.replace(raw_action=column)
+    state, *_ = agent.update_actor(state, batch, None, context)
     return state.actor_state.params
 
 
 UPDATES: dict[str, Callable[[ExtensionStack], Any]] = {
     "TD3": _td3_update,
-    "REDQ": _sac_family_update(REDQ, train_REDQ, _init_redq),
-    "ASAC": _sac_family_update(ASAC, train_ASAC, _init_asac),
+    "REDQ": _declared_soft_update(REDQ),
+    "ASAC": _declared_soft_update(ASAC),
     "APO": _apo_update,
     "SAC": _sac_update,
     "PPO": _ppo_update,

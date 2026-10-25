@@ -42,55 +42,18 @@ EQUATIONS = {
     "SAC": {
         "sample_next_actions",
         "compute_td_target",
-        "soft_bellman_target",
-        "soft_policy_loss",
-        "soft_policy_objective",
-        "temperature_loss_fn",
-        "alpha_temperature_loss_fn",
+        "compute_soft_bellman_target",
+        "compute_soft_policy_loss",
+        "compute_soft_policy_objective",
+        "compute_temperature_loss",
+        "compute_alpha_temperature_loss",
     },
 }
-# B2 declared the replay family on IQL, CrossQ and TD3 only: SAC's descendants
-# join it, and leave its state and init, when B4 declares them.
-_SAC_FAMILY_INIT = "B4 (the replay family's init, each agent's networks)"
-_SAC_STEPS = "B4 (update_steps.actor_step or gradient_step over SAC's equations)"
-_SAC_METRICS = "B4 (the agent's own metrics)"
 #: (importer, agent, name) -> the batch that ends the import. An importer is
 #: an agent, or a shared module's path under src/ajax.
 BORROWED = {
-    # B3 declared PPO, APO and PQN on the on-policy family.
-    **{
-        (agent, "SAC", "SoftACState"): "B4 (the replay family's state)"
-        for agent in ("ASAC", "AVG", "REDQ", "TQC")
-    },
-    **{
-        (agent, "SAC", "SACConfig"): "B4 (declared hyperparameters)"
-        for agent in ("REDQ", "TQC")
-    },
-    **{
-        (agent, "SAC", name): _SAC_FAMILY_INIT
-        for agent in ("ASAC", "AVG", "REDQ", "TQC")
-        for name in ("init_soft_actor_critic", "create_alpha_train_state")
-    },
-    **{
-        (agent, "SAC", name): _SAC_STEPS
-        for agent in ("ASAC", "REDQ", "TQC")
-        for name in ("soft_actor_step", "update_temperature")
-    },
-    # CrossQ, declared in B2, keeps SAC's temperature until B4 moves it to a
-    # shared module: update_steps.gradient_step would add optax.global_norm to
-    # its program, so B2 has no behaviour-neutral switch.
-    **{
-        ("CrossQ", "SAC", name): "B4 (the temperature and its state, shared)"
-        for name in ("SoftACState", "create_alpha_train_state", "update_temperature")
-    },
-    **{
-        (agent, "SAC", "TemperatureAuxiliaries"): _SAC_METRICS
-        for agent in ("ASAC", "AVG", "CrossQ", "REDQ", "TQC")
-    },
+    # B4 declared the SAC family: no agent borrows from another any more.
     ("checkpoint.py", "UDRL", "SegmentBuffer"): "2026-11-17 (the shim's removal)",
-    ("extensions/instrumentation.py", "SAC", "sample_next_actions"): (
-        "B4 (the agent supplies its TD target)"
-    ),
 }
 
 

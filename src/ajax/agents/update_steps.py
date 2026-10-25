@@ -2,14 +2,14 @@
 (compute_gradients), gradient steps with the extensions' loss terms added
 (critic_step, actor_step, apply_gradients_clipped_together for two networks
 clipped together), the extensions' target and post-update phases, the gates
-(run_if) and keys (derive_extensions_key) around them, which ajax.agents.loop
-re-exports, and the target critics' Polyak update SAC, ASAC, REDQ and TQC
-share (update_target_networks).
+(run_if, run_actor_if) and keys (derive_extensions_key) around them, which
+ajax.agents.loop re-exports, and the target critics' Polyak update SAC,
+ASAC, REDQ and TQC share (update_target_networks).
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -82,21 +82,23 @@ def apply_post_update(
     )
 
 
-def run_if(
-    condition: Any, update: Callable[[Any], Any], state: Any, fill: Any = None
-) -> Any:
+def run_if(condition: Any, update: Callable[[Any], Any], state: Any) -> Any:
     """update(state) where condition holds, else state unchanged: a policy
     delay, a target refresh, a warm-up. state is any tree: an agent's
     state, or one network's (DQN's target refresh).
 
     update returns the new state, or the new state and its metrics.
     Skipped, the metrics have update's structure, read from its trace (with
-    the names the extensions log), filled with fill: by default NaN, -1 in
-    integer leaves (ajax.log.unevaluated), which the logger drops. Under
+    the names the extensions log): NaN, -1 in integer leaves
+    (ajax.log.unevaluated), which the logger drops; an actor's step keeps
+    its last metrics instead (run_actor_if). A
+    condition that is the Python True runs update with no gate. Under
     the seed vmap a condition read from per-seed state runs update every
     time and selects; one from unbatched counters runs it only where it
     holds.
     """
+    if condition is True:  # no gate (all_of's, reached's): nothing traced
+        return update(state)
     # The branches close over state rather than take it as an operand:
     # with state an operand, SAC's warm-ups (an update returning a state
     # computed outside) compiled to other float rounding than the
@@ -105,14 +107,58 @@ def run_if(
     # PyTreeDef compares by structure; its stub does not declare __eq__.
     if jax.tree.structure(output_shape) == jax.tree.structure(state):  # type: ignore[operator]
         return jax.lax.cond(condition, lambda: update(state), lambda: state)
-    metrics = (
-        unevaluated(output_shape[1])
-        if fill is None
-        else jax.tree.map(
-            lambda leaf: jnp.full(leaf.shape, fill, leaf.dtype), output_shape[1]
-        )
-    )
+    metrics = unevaluated(output_shape[1])
     return jax.lax.cond(condition, lambda: update(state), lambda: (state, metrics))
+
+
+def reached(start: int, timestep: Any) -> Union[bool, jax.Array]:
+    """Whether timestep has reached start, the env steps an update step
+    waits for (policy_update_start): the Python True, with nothing traced,
+    when start is 0 or less, so an agent without the wait runs the program
+    it ran before it had one."""
+    if start <= 0:
+        return True
+    return timestep >= start
+
+
+def all_of(*conditions: Union[bool, jax.Array]) -> Union[bool, jax.Array]:
+    """Whether every condition holds; the Python Trues among them (no gate)
+    add nothing to the program, and with nothing else left it is True."""
+    gates = [condition for condition in conditions if condition is not True]
+    if not gates:
+        return True
+    combined = gates[0]
+    for gate in gates[1:]:
+        combined = jnp.logical_and(combined, gate)
+    return combined
+
+
+def run_actor_if(
+    condition: Any, update: Callable[[Any], tuple[Any, Any]], agent_state: Any
+) -> tuple[Any, Any]:
+    """update(agent_state) -> (agent_state, metrics), an actor's step, where
+    condition holds (a policy delay, policy_update_start). Skipped,
+    agent_state is unchanged and the metrics are those of the actor's last
+    step that ran, which the state keeps (last_actor_metrics, whose slot
+    the training loop gives it): a skipped update logs the last real step,
+    not NaN or zeros (owner, 2026-10-24), and NaN, which the logger drops,
+    before the first. Without a gate (condition the Python True) update
+    runs as it is and nothing is kept."""
+    if condition is True:
+        return update(agent_state)
+    kept = agent_state.last_actor_metrics
+    if kept is None:  # a state the loop gave no slot (a direct call)
+        kept = unevaluated(jax.eval_shape(update, agent_state)[1])
+
+    def step_and_keep() -> tuple[Any, Any]:
+        stepped, metrics = update(agent_state)
+        return stepped.replace(last_actor_metrics=metrics), metrics
+
+    def skip() -> tuple[Any, Any]:
+        return agent_state.replace(last_actor_metrics=kept), kept
+
+    # The branches close over the state, as run_if's do.
+    return jax.lax.cond(condition, step_and_keep, skip)
 
 
 #: The tag a step's key is folded with to derive its extensions' key. Under

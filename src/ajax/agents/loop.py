@@ -191,6 +191,19 @@ def fresh_state(
     return extensions.apply_init(state, extension_key, total_steps, **context)
 
 
+def with_actor_metrics_slot(agent_state: Any, one_update: Callable[[Any], Any]) -> Any:
+    """agent_state with the slot its update keeps the actor's last metrics
+    in (BaseAgentState.last_actor_metrics, update_steps.run_actor_if):
+    their structure, read from the trace of one_update (a state to the
+    state after one update), NaN until the actor's first step, so the scan
+    carry keeps one structure from the first update. A state that has the
+    slot keeps it."""
+    if agent_state.last_actor_metrics is not None:
+        return agent_state
+    kept = jax.eval_shape(one_update, agent_state).last_actor_metrics
+    return agent_state.replace(last_actor_metrics=unevaluated(kept))
+
+
 def with_horizon(agent_state: Any, env_args: Any, total_steps: int) -> Any:
     """A state whose collector keeps the run's horizon ``total_steps``,
     which a feature reading the training progress needs
@@ -320,6 +333,9 @@ class TrainLoop:
     expert_policy: Any = None
     #: A transition dataset to train on alone (:meth:`offline`).
     offline_data: Optional[TransitionDataset] = None
+    #: Evaluate only in the last fifth of training (LoggingConfig.sweep, for
+    #: hyperparameter sweeps).
+    sweep: bool = False
 
     @classmethod
     def create(
@@ -354,6 +370,7 @@ class TrainLoop:
             end_timestep=end_timestep,
             expert_policy=expert_policy,
             offline_data=offline_data,
+            sweep=logging_config is not None and logging_config.sweep,
         )
 
     @property
@@ -490,9 +507,10 @@ class TrainLoop:
         """Evaluate and log every ``log_frequency`` steps
         (:func:`ajax.log.evaluate_and_log`), the extensions' eval metrics
         included; returns the state and the metrics (``None`` without
-        logging). An agent storing normalised observations evaluates with
-        them normalised by its running statistics, unless its own
-        ``controller`` says how it acts."""
+        logging), only in the last fifth of training in a sweep. An agent
+        storing normalised observations evaluates with them normalised by its
+        running statistics, unless its own ``controller`` says how it
+        acts."""
         controller = kwargs.get("controller") or Controller()
         if self.env_args.store_normalized_obs:
             columns = raw_obs_columns(self.env_args.env)
@@ -509,6 +527,8 @@ class TrainLoop:
             )
         if controller != Controller():
             kwargs.update({"controller": controller})
+        if self.sweep:
+            kwargs.setdefault("sweep", True)
         return evaluate_and_log(
             agent_state,
             aux,
@@ -568,6 +588,7 @@ class TrainLoop:
         evaluations: Optional[int] = None,
         update: Optional[Update] = None,
         buffer: Any = None,
+        one_update: Optional[Callable[[Any], Any]] = None,
     ) -> Callable:
         """The resumable train function: ``init`` (fresh runs only), then
         ``num_updates`` scan iterations ``iteration(agent_state, index,
@@ -578,8 +599,17 @@ class TrainLoop:
         ``agent_state.last_rollout`` for an agent exposing its rollouts.
         The extensions' pretraining gets the env, ``update`` and the replay
         ``buffer`` (:class:`ajax.extensions.base.ExtensionContext`).
+        ``one_update``, a state to the state after one update, is given by an
+        update keeping its actor's last metrics: a fresh or resumed state gets
+        their slot (:func:`with_actor_metrics_slot`).
         """
         rows = self.n_evaluations if evaluations is None else evaluations
+
+        def with_slot(agent_state: Any) -> Any:
+            if one_update is None:
+                return agent_state
+            return with_actor_metrics_slot(agent_state, one_update)
+
         context = {"env_args": self.env_args, "update": update, "buffer": buffer}
 
         def init_fn(key: jax.Array, index: Any) -> Any:
@@ -592,7 +622,7 @@ class TrainLoop:
                 agent_state = preallocate_last_rollout(
                     agent_state, length, **collect_kwargs
                 )
-            return agent_state
+            return with_slot(agent_state)
 
         def make_scan_fn(_state: Any, _resume: bool, _key: Any, index: Any) -> Any:
             if not self.log:
@@ -619,7 +649,9 @@ class TrainLoop:
             init_fn=init_fn,
             make_scan_fn=make_scan_fn,
             num_updates=num_updates,
-            resume_transform=lambda agent_state, _key: self.continued(agent_state),
+            resume_transform=lambda agent_state, _key: with_slot(
+                self.continued(agent_state)
+            ),
             carry_out=empty_rows if self.log else None,
         )
         if not self.log:
@@ -647,6 +679,7 @@ class TrainLoop:
         n_updates: Optional[Callable[[Any, Any], Any]] = None,
         evaluation: Optional[Evaluation] = None,
         num_ticks: Optional[int] = None,
+        keeps_actor_metrics: bool = False,
     ) -> Callable:
         """Train on one environment step per env per iteration (a tick).
 
@@ -668,6 +701,8 @@ class TrainLoop:
         replaces the actor's evaluation (:meth:`evaluate_every`);
         ``num_ticks`` the budget.
 
+        ``keeps_actor_metrics``: the update keeps its actor's last metrics on
+        the state (update_steps.run_actor_if), which then gets their slot.
         With :attr:`offline_data` it trains offline instead (:meth:`offline`).
         """
         collect_args = self.collect_kwargs(recurrent, **(collect_kwargs or {}))
@@ -678,7 +713,12 @@ class TrainLoop:
                     " dataset; an agent collecting its own way has no such loop."
                 )
             return self.offline(
-                init, update, collect_args["buffer"], recurrent, eval_kwargs
+                init,
+                update,
+                collect_args["buffer"],
+                recurrent,
+                eval_kwargs,
+                keeps_actor_metrics,
             )
 
         def collect_step(agent_state: Any, tick: Any) -> tuple[Any, Any]:
@@ -729,6 +769,11 @@ class TrainLoop:
             evaluations=None if evaluation is None else evaluation.count(num_ticks),
             update=update,
             buffer=collect_args.get("buffer"),
+            one_update=(
+                (lambda state: update(*collect_step(state, jnp.asarray(0)))[0])
+                if keeps_actor_metrics
+                else None
+            ),
         )
 
     def offline(
@@ -738,6 +783,7 @@ class TrainLoop:
         buffer: Any,
         recurrent: bool = False,
         eval_kwargs: Optional[dict] = None,
+        keeps_actor_metrics: bool = False,
     ) -> Callable:
         """Train on :attr:`offline_data` alone, with no environment step.
 
@@ -785,7 +831,16 @@ class TrainLoop:
                 agent_state, aux, index, recurrent, **(eval_kwargs or {})
             )
 
-        return self.train(seeded, iteration, self.budget, update=update, buffer=buffer)
+        return self.train(
+            seeded,
+            iteration,
+            self.budget,
+            update=update,
+            buffer=buffer,
+            one_update=(
+                (lambda state: update(state, None)[0]) if keeps_actor_metrics else None
+            ),
+        )
 
     def forced_reset(
         self, agent_state: Any, n_steps: int, resets_per_eval: int, num_evals: int

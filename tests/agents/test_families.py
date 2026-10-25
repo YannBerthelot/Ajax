@@ -14,6 +14,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import struct
 
 from ajax import TD3
 from ajax.agents import families
@@ -22,6 +23,7 @@ from ajax.agents.families import (
     ExpertGuided,
     GradientClipping,
     ImageObservations,
+    IncrementalAgent,
     ObservationNormalization,
     OnPolicyAgent,
     RecurrentReplayAgent,
@@ -29,6 +31,7 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.evaluate import ValueEstimate
+from ajax.extensions.base import Extension
 from ajax.extensions.expert import ImitationLoss
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import action_value, state_value
@@ -289,10 +292,10 @@ def test_the_value_estimate_reads_the_declared_discount_and_reward_scale() -> No
 def test_make_train_refuses_an_extension_context_it_cannot_give() -> None:
     @dataclasses.dataclass(kw_only=True, eq=False, repr=False)
     class Asking(Toy):
-        extension_context = Toy.extension_context.union({"gamma"})
+        extension_context = Toy.extension_context.union({"num_critics"})
 
     agent = Asking("Pendulum-v1")
-    with pytest.raises(ValueError, match="extension_context names gamma, which"):
+    with pytest.raises(ValueError, match="extension_context names num_critics, whi"):
         agent.get_make_train()(
             agent.env_args,
             agent.actor_optimizer_args,
@@ -302,6 +305,109 @@ def test_make_train_refuses_an_extension_context_it_cannot_give() -> None:
             total_timesteps=8,
             num_episode_test=1,
         )
+
+
+@dataclasses.dataclass(frozen=True)
+class Recorder(Extension):
+    """Keeps the agent context it is bound to."""
+
+    seen: tuple = ()
+    name: str = "recorder"
+
+    def bind_to_agent(self, **agent_context: Any) -> "Recorder":
+        return dataclasses.replace(self, seen=tuple(sorted(agent_context.items())))
+
+
+def test_the_extensions_get_the_declared_values_and_what_only_the_agent_has():
+    """make_context gives the unbound extensions, the memory flag and the
+    declared gamma and reward_scale; a discounted Q critic with targets and
+    an update_critic gives BellmanPretrain its critic step and the targets'
+    update (extension_values)."""
+
+    @dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+    class Targeted(Toy):
+        extension_context = Toy.extension_context.union(
+            {"extensions", "gamma", "recurrent", "reward_scale", "update_value_fn"}
+        )
+        capabilities = Toy.capabilities.union({"target_critic"})
+
+        def update_critic(self, agent_state, batch, carries, context):
+            return agent_state, context, {}
+
+    loop, _ = Targeted("Pendulum-v1").make_context(8, extensions=(Recorder(),))
+    seen = dict(loop.extensions.extensions[0].seen)
+    assert (seen["gamma"], seen["reward_scale"], seen["recurrent"]) == (0.9, 2.0, False)
+    assert isinstance(seen["extensions"][0], Recorder)
+    _, context, _ = seen["update_value_fn"]("state", "batch", False, 0.9, ())
+    assert (context.extensions, context.executed, context.total_timesteps) == (
+        (),
+        None,
+        1,
+    )
+    assert not ReplayAgent.extension_values(Toy("Pendulum-v1"), {})  # no targets
+
+
+@struct.dataclass(kw_only=True)
+class CountingState(BaseAgentState):
+    seen: Any = 0  # the steps update_step_statistics saw
+
+
+@dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+class IncrementalToy(IncrementalAgent):
+    """Counts the steps it saw and its updates; its critic's settings."""
+
+    actor_architecture: Architecture = NET
+    critic_architecture: Architecture = NET
+    learning_starts: int = 4
+
+    def network_settings(self) -> dict[str, Any]:
+        return {"penultimate_normalization": True}
+
+    def init(self, key: jax.Array, context: TrainContext) -> CountingState:
+        rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
+        actor, critic = context.make_actor_critic(
+            init_key, continuous=True, action_value=True, squash=True, num_critics=1
+        )
+        collector = context.make_collector(collector_key)
+        return CountingState(
+            rng=rng,
+            eval_rng=eval_rng,
+            actor_state=actor,
+            critic_state=critic,
+            collector_state=collector,
+        )
+
+    def update_step_statistics(self, agent_state, transition, context):
+        return agent_state.replace(seen=agent_state.seen + 1)
+
+    def update(self, agent_state, transition, context):
+        assert transition.obs.shape[0] == self.n_envs  # the step alone
+        return agent_state.replace(n_updates=agent_state.n_updates + 1), {}
+
+    name = "IncrementalToy"
+
+
+def test_an_incremental_agent_updates_on_each_step_after_learning_starts():
+    """Six ticks of two envs: the statistics see every step, the update
+    runs from learning_starts (4) on, five times; the warm-up acts
+    uniformly only for an agent claiming the warmup capability; the
+    reference's network settings reach the networks; no offline training."""
+    agent = IncrementalToy("Pendulum-v1", n_envs=2)
+    assert agent.network_args.penultimate_normalization
+    assert agent.uniform_steps() == 0 and Toy("Pendulum-v1").uniform_steps() == 0
+    state, _ = agent.train(seed=0, n_timesteps=12)
+    assert (np.asarray(state.seen).tolist(), np.asarray(state.n_updates).tolist()) == (
+        [6],
+        [5],
+    )
+    with pytest.raises(ValueError, match="cannot train offline"):
+        agent.train_offline(dataset=None, n_updates=1)
+
+    @dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+    class WarmingUp(IncrementalToy):
+        capabilities = frozenset({"warmup"})
+
+    assert WarmingUp("Pendulum-v1").uniform_steps() is None
 
 
 def test_an_on_policy_agent_runs_its_update_on_each_rollout() -> None:

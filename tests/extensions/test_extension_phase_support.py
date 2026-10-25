@@ -26,7 +26,12 @@ from ajax.extensions.capabilities import (
     run_capabilities,
 )
 from ajax.extensions.ensemble import KernelRepulsion
-from ajax.extensions.expert import JSRLCurriculum, OnlineBC, ResidualPolicy
+from ajax.extensions.expert import (
+    ExpertGains,
+    JSRLCurriculum,
+    OnlineBC,
+    ResidualPolicy,
+)
 from ajax.extensions.instrumentation import BiasVorePenalty
 from ajax.extensions.pretrain import MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import CriticBlend, MCVarianceCorrection, ValueBox
@@ -315,9 +320,10 @@ def test_sac_applies_a_residual_policy_only_through_its_pipeline():
     without the gain policy; otherwise it is rejected at construction."""
     residual = ResidualPolicy(scale=0.5)
     assert residual.implemented_phases() == {"transform_action"}
-    for kwargs in ({}, {"expert_policy": _expert, "use_pid_policy": True}):
+    gain_mode = {"expert_policy": _expert, "extensions": [residual, ExpertGains()]}
+    for kwargs in ({"extensions": [residual]}, gain_mode):
         with pytest.raises(ValueError, match="'residual_policy'"):
-            SAC("Pendulum-v1", extensions=[residual], **kwargs)
+            SAC("Pendulum-v1", **kwargs)
     SAC("Pendulum-v1", expert_policy=_expert, extensions=[residual])
 
 

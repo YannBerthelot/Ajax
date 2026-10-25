@@ -3,7 +3,6 @@ actions: collection executes ``clip(a_expert + scale·a_pi)`` and stores it,
 the critics and the actor score it (that the agents learn the residual is
 tests/probing's)."""
 
-import inspect
 from typing import Any
 
 import jax
@@ -32,16 +31,12 @@ def _one(obs: jax.Array) -> jax.Array:
 def _residual_run(name: str, n_timesteps: int, **extra: Any) -> tuple:
     case = CASES[name]
     cls: Any = case.cls  # each agent's own keywords
-    # No expert prefill (SAC's, TQC's): the replay holds collection's rows.
-    takes = inspect.signature(cls).parameters
-    prefill = {"expert_buffer_n_steps": 0} if "expert_buffer_n_steps" in takes else {}
     agent = cls(
         env_id="Pendulum-v1",
         n_envs=2,
         expert_policy=_one,
         extensions=(ResidualPolicy(scale=0.0),),
         **case.kwargs,
-        **prefill,
         **extra,
     )
     return agent.train(seed=0, n_timesteps=n_timesteps)[0], case

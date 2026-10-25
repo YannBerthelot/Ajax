@@ -253,7 +253,6 @@ def test_sac_logs_the_filtered_fraction_on_a_replay_batch() -> None:
         learning_starts=16,
         batch_size=8,
         expert_policy=expert,
-        expert_buffer_n_steps=0,
         extensions=(ImitationLoss(expert_policy=expert, q_filter=True),),
     )
     state, rows = agent.train(seed=0, n_timesteps=64, logging_config=logged)

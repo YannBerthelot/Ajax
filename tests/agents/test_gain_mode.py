@@ -3,7 +3,6 @@ agent acts in the expert's gain space, as wide as its learnable gains, and
 its replay or rollout holds the gains (that the agents learn them is
 tests/probing's)."""
 
-import inspect
 from typing import Any
 
 import jax
@@ -42,8 +41,6 @@ class TwoGains:
 def test_an_agent_in_gain_mode_acts_and_stores_in_the_gain_space(name):
     case = CASES[name]
     cls: Any = case.cls  # each agent's own keywords
-    takes = inspect.signature(cls).parameters
-    prefill = {"expert_buffer_n_steps": 0} if "expert_buffer_n_steps" in takes else {}
     rollout = {"expose_recent_rollout": True} if case.rollout is not None else {}
     agent = cls(
         env_id="Pendulum-v1",
@@ -51,7 +48,6 @@ def test_an_agent_in_gain_mode_acts_and_stores_in_the_gain_space(name):
         expert_policy=TwoGains(),
         extensions=(ExpertGains(),),
         **case.kwargs,
-        **prefill,
         **rollout,
     )
     assert agent.env_args.policy_action_dim == 2
@@ -131,7 +127,6 @@ def test_the_replay_keeps_the_experts_env_action_beside_the_gains(expert):
         n_envs=2,
         expert_policy=expert,
         extensions=(ExpertGains(),),
-        expert_buffer_n_steps=0,
         learning_starts=8,
         batch_size=8,
         buffer_size=64,

@@ -579,7 +579,7 @@ P1_CELLS: dict[str, tuple[str, str, int, dict]] = {  # agent, chain, budget, ove
     "TD3": ("TD3", "continuous", 2500, _ON),
     "REDQ": ("REDQ", "continuous", 2500, _ON | {"num_critic_updates": 2}),
     "ASAC": ("ASAC", "continuous", 5000, _ON | {"p_0": 0.0}),
-    "SAC-running": ("SAC", "continuous", 5000, {"normalize_obs_running": True}),
+    "SAC-running": ("SAC", "continuous", 5000, {"normalize_observations": True}),
 }
 
 

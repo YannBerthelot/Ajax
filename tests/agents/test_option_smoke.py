@@ -90,19 +90,20 @@ def prior_data() -> Extension:
 EXPERT, GRU = Expert(), MemoryConfig(kind="gru", hidden_size=8)
 #: Every row's keywords an agent takes: one replay window per env, then updates.
 BASE = {"learning_starts": 16, "burn_in": 2, "sequence_length": 4}
-BASE.update(
-    {"expert_buffer_n_steps": 0, "policy_update_start": 8, "alpha_update_start": 8}
+BASE.update({"policy_update_start": 8, "alpha_update_start": 8})
+FLAGS = (
+    "normalize_observations",
+    "normalize_rewards",
+    "fixed_alpha",
+    "expose_recent_rollout",
+    "encoder_layer_norm",
 )
-FLAGS = "normalize_observations normalize_rewards normalize_obs_running use_train_frac"
-FLAGS += " fixed_alpha store_policy_action"
-FLAGS += " expose_recent_rollout encoder_layer_norm"
-FLAGS += " augment_obs_with_expert_action augment_obs_with_expert_state use_pid_policy"
 ENVS = ("Pendulum-v1", "fast", "CartPole-v1")
 MEMORY = {"memory", "stored_state", "bptt_length"}
 NEGATED = ("squash", "log_std_state_independent")
 #: Each option's keywords, taken by an agent whose signature (env ids) takes them;
 #: NEGATED options negate the default, the CNN fits the env.
-OPTIONS: dict[str, dict] = {k: {k: True} for k in FLAGS.split()}
+OPTIONS: dict[str, dict] = {k: {k: True} for k in FLAGS}
 OPTIONS.update({env: {"env_id": env} for env in ENVS})
 OPTIONS.update(
     {
@@ -121,8 +122,6 @@ OPTIONS.update(
         **{k: {k: None} for k in NEGATED},
         "expert_policy": {"expert_policy": EXPERT},
         "eval_expert_policy": {"eval_expert_policy": EXPERT},
-        "expert_buffer_n_steps": {"expert_buffer_n_steps": 16},  # the expert prefill
-        "target_entropy_initial_per_dim": {"target_entropy_initial_per_dim": 0.0},
         "action_pipeline": {"action_pipeline": None},  # TD3's, for the row's actor
         "n_gradient_steps": {"n_gradient_steps": 2},
         "n_epochs": {"n_epochs": 2},
@@ -141,9 +140,6 @@ CNN = {"Pendulum-v1": (1, 3, 1), "fast": (1, 2, 1), "CartPole-v1": (2, 2, 1)}
 #: The switches other tests run (tests/...).
 ELSEWHERE = {
     "env_params": "agents/test_agent_contract.py",
-    "skip_critic_pretrain": "agents/SAC/test_sac.py",
-    "expert_fraction": "extensions/test_expert_warmup.py",  # deprecated
-    "jsrl_curriculum": "agents/SAC/test_sac.py",  # deprecated
     "td_target_fn": "agents/DQN/test_DQN.py",
     "td_loss_fn": "agents/PQN/test_PQN.py",
     "q_network_cls": "agents/DQN/test_DQN.py",
@@ -202,16 +198,24 @@ ACTING = {"ValueBox", "EDGEExploration", "JSRLCurriculum", "ResidualPolicy"}
 PHI_STAR = (
     "OnlineBC ValueBox CriticBlend MCVarianceCorrection PhiRefresh EDGEExploration"
 )
-NEEDS_EXPERT = "augment_obs_with_expert_action augment_obs_with_expert_state"
-NEEDS_EXPERT += " use_pid_policy expert_buffer_n_steps IBRL LCBGatedBootstrap"
-NEEDS_EXPERT += " ExpertValueMetrics CloningPretrain ResidualPolicy JSRLCurriculum"
-NEEDS_EXPERT += " ExpertActionInput ExpertStateInput ExpertGains ExpertPrefill"
-NEEDS_EXPERT += " ExpertWarmup"
+NEEDS_EXPERT = (
+    "IBRL",
+    "LCBGatedBootstrap",
+    "ExpertValueMetrics",
+    "CloningPretrain",
+    "ResidualPolicy",
+    "JSRLCurriculum",
+    "ExpertActionInput",
+    "ExpertStateInput",
+    "ExpertGains",
+    "ExpertPrefill",
+    "ExpertWarmup",
+)
 #: What an option or extension needs on in its row: phi* is MCPretrain's,
 #: BellmanPretrain reads its prefilled replay.
 REQUIRES = {o: {"MCPretrain"} for o in (*PHI_STAR.split(), "BellmanPretrain")}
-REQUIRES.update({o: {"expert_policy"} for o in NEEDS_EXPERT.split()})
-REQUIRES.update({"MCPretrain": {"expert_policy", "expert_buffer_n_steps"}})
+REQUIRES.update({o: {"expert_policy"} for o in NEEDS_EXPERT})
+REQUIRES.update({"MCPretrain": {"expert_policy", "ExpertPrefill"}})
 REQUIRES.update(
     {
         o: {"expose_recent_rollout"}
@@ -229,29 +233,16 @@ EXCLUSIVE = [
     # Recurrent agents refuse experts and extensions (recurrent.py), PPO
     # its feedforward fragments.
     (MEMORY, EXPERTS.union(EXTENSIONS, {"unroll_length"})),
-    # The gain policy bypasses SAC's action slots, and the expert acts on its
-    # output (SAC refuses its action in the observation).
-    ({"use_pid_policy"}, ACTING.union({"augment_obs_with_expert_action"})),
-    ({"use_pid_policy"}, {"ExpertActionInput"}),
-    # ExpertGains is gain mode (use_pid_policy builds it): one transform a run.
-    (
-        {"ExpertGains"},
-        ACTING.union({"use_pid_policy", "augment_obs_with_expert_action"}),
-    ),
+    # ExpertGains is gain mode, one transform a run; the expert acts on the
+    # policy's output (SAC refuses its action in the observation).
+    ({"ExpertGains"}, ACTING),
     ({"ExpertGains"}, {"ExpertActionInput"}),
     # Under gain mode the policy chooses gains, and these use the expert's
     # env actions where the gains go: refused, not wired yet.
-    ({"use_pid_policy", "ExpertGains"}, USES_EXPERT_ACTIONS),
+    ({"ExpertGains"}, USES_EXPERT_ACTIONS),
     # SAC's gain mode acts through the shared pipeline, which has no
     # warm-up chooser yet.
-    ({"use_pid_policy", "ExpertGains"}, {"ExpertWarmup"}),
-    # A feature and the deprecated keyword making it would widen the
-    # observation twice under one name; SAC refuses a prefill next to the
-    # keyword building one.
-    ({"ExpertPrefill"}, {"expert_buffer_n_steps"}),
-    ({"ExpertActionInput"}, {"augment_obs_with_expert_action"}),
-    ({"ExpertStateInput"}, {"augment_obs_with_expert_state"}),
-    ({"TrainingProgressInput"}, {"use_train_frac"}),
+    ({"ExpertGains"}, {"ExpertWarmup"}),
     # ImitationLoss reads a mean action.
     ({"CartPole-v1"}, {"ImitationLoss"}),
     # The rows are Pendulum's own observations: the replay's of another env,
@@ -260,7 +251,7 @@ EXCLUSIVE = [
     # Pendulum's (s, a) only.
     (
         {"PriorData"},
-        {"fast", "CartPole-v1", "use_train_frac", "TrainingProgressInput"}.union(
+        {"fast", "CartPole-v1", "TrainingProgressInput"}.union(
             {"PIDTermsInput"}, EXPERTS
         ),
     ),
@@ -322,8 +313,6 @@ def _build(name: str, row: frozenset[str]) -> Any:
     case, params = TABLE[name], inspect.signature(TABLE[name].cls).parameters
     kw = dict(case.kwargs)
     kw.update({k: v for k, v in BASE.items() if k in params})
-    if "ExpertPrefill" in row:  # SAC refuses it next to its keyword, even 0
-        kw.pop("expert_buffer_n_steps", None)
     for option in sorted(row.intersection(OPTIONS)):
         kw.update(OPTIONS[option])
     env = kw.pop("env_id", None)

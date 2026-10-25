@@ -48,7 +48,6 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.agents.recurrent import RecurrentCarries, actor_dist, q_values, sample_replay
-from ajax.agents.SAC.deprecated_keywords import SACDeprecatedKeywords
 from ajax.agents.temperature import (
     SoftActorCriticState,
     TemperatureAuxiliaries,
@@ -71,7 +70,6 @@ GLOROT = "xavier_uniform"
 
 @dataclass(kw_only=True, eq=False, repr=False)
 class SAC(
-    SACDeprecatedKeywords,
     EntropyTemperature,
     PolicyUpdateStart,
     GradientClipping,
@@ -261,7 +259,7 @@ class SAC(
         tempered, temperature_aux = update_temperature(
             agent_state,
             log_probs,
-            self.target_entropy_at(timestep, context.total_timesteps),
+            self.target_entropy_at(timestep),
             compute_temperature_loss,
         )
         temperature_due = jnp.logical_and(

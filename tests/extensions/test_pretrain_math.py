@@ -206,7 +206,6 @@ def test_bellman_pretrain_needs_the_agent_context_and_a_seeded_replay():
         SAC(
             "Pendulum-v1",
             expert_policy=lambda obs: obs[..., :1],
-            expert_buffer_n_steps=0,
             extensions=bellman,
         )
 
@@ -221,8 +220,6 @@ def test_bellman_pretrain_steps_a_discounted_q_critic_with_targets(cls: Any):
     kw = {"actor_architecture": net, "critic_architecture": net, "batch_size": 8}
     kw.update({"buffer_size": 64, "learning_starts": 8})
     kw.update({"expert_policy": lambda obs: obs[..., :1]})
-    if cls is SAC:
-        kw.update({"expert_fraction": 0.0})  # no warm-up mix by default
 
     def pretrained(*extensions: Any) -> Any:
         agent = cls(

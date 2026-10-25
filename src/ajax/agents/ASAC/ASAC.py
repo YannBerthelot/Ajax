@@ -231,7 +231,7 @@ class ASAC(
         tempered, temperature_aux = update_temperature(
             agent_state,
             log_probs,
-            self.target_entropy_at(timestep, context.total_timesteps),
+            self.target_entropy_at(timestep),
             compute_temperature_loss,
         )
         if not self.fixed_alpha:

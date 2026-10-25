@@ -1,5 +1,3 @@
-import warnings
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -8,48 +6,30 @@ import pytest
 import ajax.agents.SAC.SAC as sac_module
 from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.expert import ExpertGains, JSRLCurriculum
-from ajax.extensions.observe import (
-    ExpertActionInput,
-    ExpertStateInput,
-    TrainingProgressInput,
-)
+from ajax.extensions.observe import ExpertActionInput, ExpertStateInput
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import Transition
 from tests.agents.test_option_smoke import Expert, stateless_expert
 from tests.environments import paid_action
 
 
-def test_skip_critic_pretrain_is_a_transitional_no_op():
-    """AjaxExperiments still passes True; False asks for the critic
-    pretraining that was removed, so it raises instead of being ignored."""
-    SAC(env_id="Pendulum-v1", skip_critic_pretrain=True)
-    with pytest.raises(ValueError, match="MCPretrain"):
-        SAC(env_id="Pendulum-v1", skip_critic_pretrain=False)
-
-
 def test_the_gain_policy_refuses_the_experts_action_in_the_observation():
-    """With use_pid_policy the actor's output sets the expert's gains, so the
+    """Under ExpertGains the actor's output sets the expert's gains, so the
     expert's action cannot be in the observation the actor reads."""
-    kw = {"expert_policy": Expert(), "use_pid_policy": True}
-    SAC(env_id="Pendulum-v1", augment_obs_with_expert_state=True, **kw)
+    expert = Expert()
+    state = ExpertStateInput.for_expert(expert)
+    SAC(env_id="Pendulum-v1", expert_policy=expert, extensions=(state, ExpertGains()))
     with pytest.raises(ValueError, match="ExpertActionInput"):
-        SAC(env_id="Pendulum-v1", augment_obs_with_expert_action=True, **kw)
+        gains = (ExpertActionInput(), ExpertGains())
+        SAC(env_id="Pendulum-v1", expert_policy=expert, extensions=gains)
 
 
-def test_use_pid_policy_builds_gain_mode_and_warns():
-    """use_pid_policy stands for ExpertGains: the agent acts in the expert's
-    gain space; gain mode takes no part in the learner's folds and refuses
-    an expert without learnable gains."""
-    with pytest.warns(FutureWarning, match="ExpertGains"):
-        old = SAC(env_id="Pendulum-v1", expert_policy=Expert(), use_pid_policy=True)
-    # No expert prefill, which SAC adds by default with an expert.
-    new = SAC(
-        env_id="Pendulum-v1",
-        expert_policy=Expert(),
-        expert_buffer_n_steps=0,
-        extensions=(ExpertGains(),),
-    )
-    assert old.env_args.transforms == new.env_args.transforms == (ExpertGains(),)
+def test_gain_mode_acts_in_the_experts_gain_space():
+    """ExpertGains makes the agent act in the expert's gain space; gain mode
+    takes no part in the learner's folds and refuses an expert without
+    learnable gains."""
+    new = SAC(env_id="Pendulum-v1", expert_policy=Expert(), extensions=(ExpertGains(),))
+    assert new.env_args.transforms == (ExpertGains(),)
     assert new.env_args.policy_action_dim == 1 and not new.extension_stack
     with pytest.raises(ValueError, match="learnable_fields"):
         SAC(
@@ -110,20 +90,15 @@ def test_fixed_alpha_keeps_temperature_at_alpha_init():
 def test_jsrl_curriculum_counts_the_episode_steps_it_reads():
     """JSRLCurriculum reads each env's step within its episode, which SAC
     counts because the extension declares it reads it: no SAC flag is
-    needed. The deprecated ``jsrl_curriculum`` flag warns, and leaving it
-    out stays quiet."""
-    kw = {"expert_policy": stateless_expert, "expert_buffer_n_steps": 0}
-    kw.update({"learning_starts": 8, "batch_size": 8, "buffer_size": 64})
+    needed."""
+    kw = {"expert_policy": stateless_expert, "learning_starts": 8}
+    kw.update({"batch_size": 8, "buffer_size": 64})
     jsrl = (JSRLCurriculum(episode_length=8, decay_frac=0.5),)
-    with warnings.catch_warnings():
-        warnings.filterwarnings("error", ".*jsrl_curriculum", FutureWarning)
-        agent = SAC(env_id="Pendulum-v1", extensions=jsrl, **kw)
+    agent = SAC(env_id="Pendulum-v1", extensions=jsrl, **kw)
     state, _ = agent.train(seed=0, n_timesteps=12)
     np.testing.assert_array_equal(state.collector_state.step_in_episode, [[12]])
     plain, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=0, n_timesteps=12)
     assert plain.collector_state.step_in_episode is None
-    with pytest.warns(FutureWarning, match="jsrl_curriculum"):
-        SAC(env_id="Pendulum-v1", jsrl_curriculum=True, extensions=jsrl, **kw)
 
 
 def test_jsrl_flags_the_steps_its_expert_takes():
@@ -131,9 +106,8 @@ def test_jsrl_flags_the_steps_its_expert_takes():
     those steps hold the expert's action and are flagged is_expert, as
     EDGE's and the value box's are; the warm-up rows (uniform here) are not.
     """
-    kw = {"expert_policy": stateless_expert, "expert_buffer_n_steps": 0}
-    kw.update({"learning_starts": 4, "batch_size": 4, "buffer_size": 64})
-    kw.update({"expert_fraction": 0.0, "policy_update_start": 100})
+    kw = {"expert_policy": stateless_expert, "learning_starts": 4}
+    kw.update({"batch_size": 4, "buffer_size": 64, "policy_update_start": 100})
     jsrl = (JSRLCurriculum(episode_length=1000, decay_frac=1.0),)
     agent = SAC(env_id="Pendulum-v1", n_envs=1, extensions=jsrl, **kw)
     state, _ = agent.train(seed=0, n_timesteps=12)
@@ -149,12 +123,11 @@ def test_jsrl_flags_the_steps_its_expert_takes():
 def test_the_warmup_draws_each_action_dimension_on_its_own():
     """Before learning_starts the action is uniform on the box, one draw per
     dimension (softlearning's uniform policy), also when an expert could take
-    the step instead (the expert-aware pipeline, here at expert_fraction 0):
+    the step instead (the expert-aware pipeline, here with no ExpertWarmup):
     the two columns of a 2-D box's warm-up rows differ, and each spans it."""
     env, params = paid_action.make((-1.0, 1.0), length=8, dim=2)
     kw = {"learning_starts": 64, "batch_size": 8, "buffer_size": 128}
     kw.update({"expert_policy": lambda obs: jnp.zeros(obs.shape[:-1] + (2,))})
-    kw.update({"expert_buffer_n_steps": 0, "expert_fraction": 0.0})
     agent = SAC(env, env_params=params, n_envs=1, **kw)
     state, _ = agent.train(seed=0, n_timesteps=32)
     actions = np.asarray(state.collector_state.buffer_state.experience["action"])
@@ -229,26 +202,6 @@ def test_recurrent_sac_keeps_its_previous_initialisation():
     np.testing.assert_allclose(mean.T @ mean, 1e-4 * np.eye(1), atol=1e-8)
     np.testing.assert_array_equal(actor["log_std"]["kernel"], 0.0)
     np.testing.assert_array_equal(actor["log_std"]["bias"], -1.0)
-
-
-def test_the_augmentation_keywords_build_their_features_in_column_order():
-    """use_train_frac, augment_obs_with_expert_state and
-    augment_obs_with_expert_action build the features they stand for (with
-    a warning) in their old columns' order: the progress, the expert's
-    state, its action; they leave the learner's extension stack alone."""
-    with pytest.warns(FutureWarning, match="TrainingProgressInput"):
-        agent = SAC(
-            env_id="Pendulum-v1",
-            expert_policy=Expert(),
-            use_train_frac=True,
-            augment_obs_with_expert_state=True,
-            augment_obs_with_expert_action=True,
-            expert_buffer_n_steps=0,  # no expert prefill, a learner extension
-        )
-    kinds = [type(o) for o in agent.env_args.observers]
-    assert kinds == [TrainingProgressInput, ExpertStateInput, ExpertActionInput]
-    assert agent.env_args.observers[1].width == 1  # the expert's state
-    assert not agent.extension_stack  # observe-only: the controller's
 
 
 def test_the_critic_step_reads_the_agents_discount_and_reward_scale(monkeypatch):

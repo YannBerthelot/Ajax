@@ -634,7 +634,6 @@ def _expert_rows(normalize_observations: bool) -> tuple[Any, Any, np.ndarray]:
         learning_starts=16,
         batch_size=8,
         expert_policy=_HalfTorque(),
-        expert_buffer_n_steps=0,
         normalize_observations=normalize_observations,
     )
     state, rows = agent.train(

@@ -269,16 +269,9 @@ class EntropyTemperature:
             return lambda timestep: per_dim(timestep) * width
         return per_dim * width
 
-    def target_entropy_over(self, total_timesteps: int) -> Schedule:
-        """The target entropy over a run of total_timesteps steps:
-        target_entropy (SAC's deprecated ramp reads the run's length)."""
-        del total_timesteps
-        return self.target_entropy
-
-    def target_entropy_at(self, timestep: Any, total_timesteps: int) -> jax.Array:
-        """The target entropy at timestep, in a run of total_timesteps
-        steps."""
-        return jnp.asarray(at(self.target_entropy_over(total_timesteps), timestep))
+    def target_entropy_at(self, timestep: Any) -> jax.Array:
+        """The target entropy at timestep."""
+        return jnp.asarray(at(self.target_entropy, timestep))
 
     def temperature_update_due(self, timestep: Any) -> Union[bool, jax.Array]:
         """Whether the temperature's step counts at timestep: from
@@ -384,9 +377,6 @@ class DeclaredAgent(ActorCritic):
         expert = getattr(self, "expert_policy", None)
         arguments = dict(shared)
         arguments.update(derived)
-        # A deliberate workaround, deleted with SAC's deprecated keywords in
-        # B7: the arguments they stand for may replace given ones.
-        arguments.update(self.translate_deprecated_arguments())
         ActorCritic.__init__(self, **arguments)
         # ActorCritic writes the expert in agent units over the field: the
         # wrapper moves to expert, and the field keeps the caller's, which
@@ -459,12 +449,6 @@ class DeclaredAgent(ActorCritic):
     def network_settings(self) -> dict[str, Any]:
         """NetworkConfig settings the reference fixes beyond ActorCritic's
         arguments (REDQ's squash_log_det_eps, TQC's critic_quantiles)."""
-        return {}
-
-    def translate_deprecated_arguments(self) -> dict[str, Any]:
-        """ActorCritic arguments the agent's deprecated keywords stand for
-        (SAC's: extensions, normalize_observations), which may replace the
-        given ones; B7 deletes the hook with those keywords."""
         return {}
 
     def extension_values(self, configs: dict[str, Any]) -> dict[str, Any]:

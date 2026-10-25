@@ -24,6 +24,7 @@ import pytest
 import ajax
 import ajax.extensions.pretrain
 from ajax.environments.utils import env_action_to_agent
+from ajax.extensions.observe import TrainingProgressInput
 from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.test_agent_contract import CASES
@@ -78,15 +79,15 @@ def test_an_agent_gives_its_expert_raw_observations_and_its_state(name, monkeypa
         return pre_train(dataset=dataset, **kwargs)
 
     monkeypatch.setattr(ajax.extensions.pretrain, "pre_train", recording)
-    options = {
-        k: True for k in ("normalize_observations", "use_train_frac") if k in takes
-    }
+    options = {k: True for k in ("normalize_observations",) if k in takes}
     cloning = (CloningPretrain(expert, n_steps=8, epochs=1, batch_size=8),)
+    # SAC's observation also holds the training progress.
+    progress = (TrainingProgressInput(),) if name == "SAC" else ()
     agent = case.cls(
         env_id=env,
         env_params=env.default_params,
         n_envs=N_ENVS,
-        extensions=cloning if clones else (),
+        extensions=(*(cloning if clones else ()), *progress),
         **options,
         **{**case.kwargs, "expert_policy": expert},
     )

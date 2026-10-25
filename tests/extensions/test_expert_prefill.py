@@ -3,7 +3,6 @@
 under an action transform what collection stores when the expert acts.
 ExpertPrefill runs it before training on every replay agent."""
 
-import warnings
 from typing import Any, ClassVar
 
 import jax
@@ -17,7 +16,7 @@ from ajax.buffers.utils import get_buffer, init_buffer
 from ajax.environments.interaction import replay_row, reward_statistics
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.extensions.capabilities import MissingCapability, NotWired
-from ajax.extensions.expert import ExpertGains, ImitationLoss, ResidualPolicy
+from ajax.extensions.expert import ExpertGains, ResidualPolicy
 from ajax.extensions.pretrain import (
     EXPERT_PREFILL_KEY_TAG,
     ExpertPrefill,
@@ -160,9 +159,7 @@ def test_the_prefill_counts_in_the_normalisers_and_no_timestep(name):
     reward statistics (each env's copy of them), as PriorData's do, beside
     the live steps; the timestep counts the live steps alone."""
     norm = {"normalize_observations": True, "normalize_rewards": True}
-    # SAC adds a prefill of its own by default beside an expert.
-    no_prefill = {"expert_buffer_n_steps": 0} if name == "SAC" else {}
-    plain = run(name, **norm, **no_prefill).collector_state
+    plain = run(name, **norm).collector_state
     prefilled = run(name, (ExpertPrefill(n_steps=4),), **norm).collector_state
     assert int(prefilled.timestep) == int(plain.timestep) == 4
     rows = 4 * 2  # four prefill steps in each of two envs
@@ -174,62 +171,6 @@ def test_the_prefill_counts_in_the_normalisers_and_no_timestep(name):
         ),
     ):
         np.testing.assert_array_equal(counts[1], counts[0] + rows)
-
-
-def test_sac_with_expert_prefill_fills_its_replay_once():
-    """Beside an ExpertPrefill, SAC's expert_buffer_n_steps left unset builds
-    no prefill of its own."""
-    state = run("SAC", (ExpertPrefill(n_steps=4),), expert_fraction=0.0)
-    assert int(state.collector_state.buffer_state.current_index) == 4 + 2
-
-
-def quiet_sac(**kwargs: Any) -> SAC:
-    """2-env SAC on Pendulum with push as its expert, its deprecation
-    warnings silenced."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", FutureWarning)
-        return SAC("Pendulum-v1", **{**CASES["SAC"].kwargs, "n_envs": 2, **kwargs})
-
-
-def test_sacs_keyword_builds_the_prefill_last_and_trains_the_same():
-    """expert_buffer_n_steps builds ExpertPrefill(n_steps) after the
-    caller's extensions, so they keep their keys: the same run, bitwise, as
-    the extension passed there, through eight updates. Left unset with an
-    expert, it builds a prefill of 20 000 steps."""
-    imitation = ImitationLoss(push, coef=1.0)
-    by_keyword = quiet_sac(
-        expert_policy=push, extensions=(imitation,), expert_buffer_n_steps=4
-    )
-    by_extension = quiet_sac(
-        expert_policy=push, extensions=(imitation, ExpertPrefill(n_steps=4))
-    )
-    states = [
-        agent.train(seed=0, n_timesteps=24)[0] for agent in (by_keyword, by_extension)
-    ]
-    for old, new in zip(*(jax.tree.leaves(state) for state in states), strict=True):
-        np.testing.assert_array_equal(old, new)
-    built = quiet_sac(expert_policy=push).extension_stack.extensions
-    assert built == (ExpertPrefill(n_steps=20_000),)
-    assert not quiet_sac(expert_buffer_n_steps=4).extension_stack  # no expert
-
-
-def test_sacs_keyword_warns_and_raises_beside_the_extension():
-    """Built from the default it warns that the default will go, a value
-    passed warns that the keyword will go, the extension alone stays quiet
-    and a value next to it raises."""
-    with pytest.warns(FutureWarning, match=r"adds ExpertPrefill\(n_steps=20000\)"):
-        SAC("Pendulum-v1", expert_policy=push)
-    with pytest.warns(FutureWarning, match="expert_buffer_n_steps will be removed"):
-        SAC("Pendulum-v1", expert_policy=push, expert_buffer_n_steps=0)
-    prefill = (ExpertPrefill(n_steps=4),)
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "error", ".*(ExpertPrefill|expert_buffer_n_steps)", FutureWarning
-        )
-        SAC("Pendulum-v1", expert_policy=push, extensions=prefill)
-    both = {"expert_buffer_n_steps": 0, "extensions": prefill}
-    with pytest.raises(ValueError, match="not both"):
-        SAC("Pendulum-v1", expert_policy=push, **both)
 
 
 def test_the_prefill_key_is_no_split_of_the_pretrain_key():

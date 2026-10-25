@@ -37,7 +37,6 @@ NORMALISATION = {
     "normalize_observations": True,
     "normalize_rewards": True,
     "reward_normalization_gamma": 0.9,
-    "normalize_obs_running": True,
 }
 MEMORY: dict[str, Any] = {"memory": MemoryConfig(kind="gru", hidden_size=8)}
 # Sequence replay: windows of 2 + 4 + 1 steps, one per env before the first update.

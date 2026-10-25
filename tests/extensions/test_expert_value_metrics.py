@@ -37,7 +37,6 @@ def _sac(*extensions: Any, expert: Any = None) -> SAC:
         learning_starts=16,
         batch_size=8,
         expert_policy=expert or _HalfTorque(),
-        expert_buffer_n_steps=0,
         extensions=extensions,
     )
 

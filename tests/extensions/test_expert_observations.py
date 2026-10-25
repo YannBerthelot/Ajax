@@ -21,10 +21,16 @@ import ajax.extensions.pretrain
 import ajax.extensions.target_mods
 from ajax import SAC
 from ajax.environments.obs_norm import apply_obs_norm, init_agent_obs_norm
-from ajax.extensions.expert import ExpertValueMetrics
+from ajax.extensions.expert import ExpertValueMetrics, ExpertWarmup
+from ajax.extensions.observe import (
+    ExpertActionInput,
+    ExpertStateInput,
+    TrainingProgressInput,
+)
 from ajax.extensions.pretrain import (
     BellmanPretrain,
     CloningPretrain,
+    ExpertPrefill,
     MCPretrain,
     PhiRefresh,
 )
@@ -158,7 +164,7 @@ def train(env: Any = "Pendulum-v1", log: bool = False, **kw: Any) -> Any:
         critic_architecture=("8", "relu"),
         learning_starts=16,
         batch_size=8,
-        **{"expert_buffer_n_steps": 0, **kw},
+        **kw,
     )
     logged = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
     out = agent.train(
@@ -194,13 +200,10 @@ def test_every_actor_input_carries_its_own_rows_expert_state_and_action(
     row's own observation, so s' carries a_E(s'), not a_E(s); with the
     state, state then action, as collection stores them."""
     seen = actor_inputs(monkeypatch)
-    train(
-        CounterEnv(),
-        log=True,
-        expert_policy=CountingExpert(),
-        augment_obs_with_expert_action=True,
-        augment_obs_with_expert_state=with_state,
-    )
+    expert = CountingExpert()
+    state = (ExpertStateInput.for_expert(expert),) if with_state else ()
+    features = (*state, ExpertActionInput())
+    train(CounterEnv(), log=True, expert_policy=expert, extensions=features)
     assert {x.shape[0] for x in seen} == {2, 3, 8}
     for x in seen:
         t = x[..., 0]
@@ -217,8 +220,7 @@ def test_expert_value_metrics_query_the_critic_in_the_training_layout(monkeypatc
         CounterEnv(),
         log=True,
         expert_policy=CountingExpert(),
-        augment_obs_with_expert_action=True,
-        extensions=(ExpertValueMetrics(),),
+        extensions=(ExpertValueMetrics(), ExpertActionInput()),
     )
     assert seen
     for x in seen:
@@ -233,9 +235,7 @@ def test_mc_pretraining_fits_phi_star_in_the_training_layout(monkeypatch):
     train(
         CounterEnv(),
         expert_policy=expert,
-        augment_obs_with_expert_action=True,
-        use_train_frac=True,
-        extensions=(_mc(expert),),
+        extensions=(_mc(expert), TrainingProgressInput(), ExpertActionInput()),
     )
     assert seen
     for x in seen:
@@ -251,9 +251,8 @@ def test_mc_pretraining_reads_the_experts_stored_actions():
     expert = RecordingExpert(stateful_only=True)
     train(
         expert_policy=expert,
-        augment_obs_with_expert_action=True,
         normalize_observations=True,
-        extensions=(_mc(expert),),
+        extensions=(_mc(expert), ExpertActionInput()),
     )
     assert expert.seen
     for seen in expert.seen:
@@ -275,13 +274,10 @@ def test_extensions_querying_critics_train_with_augmentation(stack):
     replay) and BellmanPretrain (the critic on replay) give the critics
     the augmented observation they were built for."""
     expert = RecordingExpert(action=-0.9)
-    kw = {"expert_buffer_n_steps": 16} if "Bellman" in repr(stack(expert)) else {}
-    state = train(
-        expert_policy=expert,
-        augment_obs_with_expert_action=True,
-        extensions=stack(expert),
-        **kw,
-    )
+    bellman = "Bellman" in repr(stack(expert))
+    prefill = (ExpertPrefill(n_steps=16),) if bellman else ()
+    extensions = (*stack(expert), ExpertActionInput(), *prefill)
+    state = train(expert_policy=expert, extensions=extensions)
     assert np.isfinite(np.asarray(jax.tree.leaves(state.critic_state.params)[0])).all()
 
 
@@ -315,7 +311,7 @@ def own_statistics(kind: str, expert: Any, *extensions: Any) -> dict:
     """The agent's own observation statistics: running, or seeded by
     cloning (CloningPretrain, ahead of the other pretraining)."""
     if kind == "running":
-        return {"normalize_obs_running": True, "extensions": extensions}
+        return {"normalize_observations": True, "extensions": extensions}
     return {"extensions": (CloningPretrain(expert, n_steps=64), *extensions)}
 
 
@@ -327,12 +323,8 @@ def test_normalised_agents_train_with_augmentation(monkeypatch, kind):
     in agent units (its -0.9 torque of Pendulum's [-2, 2]: -0.45)."""
     seen = actor_inputs(monkeypatch)
     expert = RecordingExpert(action=-0.9)
-    train(
-        expert_policy=expert,
-        augment_obs_with_expert_action=True,
-        use_train_frac=True,
-        **own_statistics(kind, expert),
-    )
+    features = (TrainingProgressInput(), ExpertActionInput())
+    train(expert_policy=expert, **own_statistics(kind, expert, *features))
     for x in seen:
         np.testing.assert_allclose(x[..., -1], -0.45)
 
@@ -408,7 +400,10 @@ def phi_star_readers() -> dict:
         for module in modules:
             patch.setattr(module, "phi_star_critic_state", recording)
         train(
-            log=True, expert_policy=expert, normalize_obs_running=True, extensions=stack
+            log=True,
+            expert_policy=expert,
+            normalize_observations=True,
+            extensions=stack,
         )
     return readers
 
@@ -433,7 +428,7 @@ def test_the_actor_is_evaluated_with_the_training_experts_column(monkeypatch):
         log=True,
         expert_policy=RecordingExpert(action=-0.9),
         eval_expert_policy=baseline,
-        augment_obs_with_expert_action=True,
+        extensions=(ExpertActionInput(),),
     )
     evaluated = [x for x in seen if len(x) == 3]
     assert evaluated and baseline.seen
@@ -458,13 +453,9 @@ def test_replay_readers_augment_each_observation_with_its_own_expert_action(
         ),
         "BellmanPretrain": (BellmanPretrain(n_steps=4),),
     }[name]
-    train(
-        CounterEnv(),
-        expert_policy=expert,
-        expert_buffer_n_steps=16,
-        augment_obs_with_expert_action=True,
-        extensions=stack,
-    )
+    prefill = ExpertPrefill(n_steps=16)
+    extensions = (*stack, ExpertActionInput(), prefill)
+    train(CounterEnv(), expert_policy=expert, extensions=extensions)
     assert sac and (phi_star or name == "BellmanPretrain")  # phi*: PhiRefresh's
     for x in sac + phi_star:
         np.testing.assert_allclose(x[..., 1], x[..., 0] / LIMIT)
@@ -482,8 +473,7 @@ def test_raw_next_observations_are_each_rows_successor(monkeypatch):
     state = train(
         CounterEnv(),
         expert_policy=RecordingExpert(action=0.5),
-        expert_buffer_n_steps=8,
-        extensions=(IBRL(expert_policy=ibrl_expert),),
+        extensions=(IBRL(expert_policy=ibrl_expert), ExpertPrefill(n_steps=8)),
     )
     rows = state.collector_state.buffer_state.experience
     raw, raw_next = (np.asarray(rows[k])[..., 0] for k in ("raw_obs", "raw_next_obs"))
@@ -549,7 +539,7 @@ def test_an_extension_reads_a_stateful_agent_experts_stored_actions(monkeypatch,
     )
 
 
-SETTINGS = "expert_buffer_n_steps=0 .no expert prefill. and expert_fraction=0.0"
+SETTINGS = "the same expert as its expert_policy"
 
 
 @pytest.mark.parametrize("agent", ["SAC", "TD3"])
@@ -590,11 +580,7 @@ def test_the_named_settings_keep_only_the_extensions_use_of_the_expert():
 
     alone = train(extensions=(IBRL(expert_policy=act),))
     expert = Stateful()
-    stored = train(
-        expert_policy=expert,
-        expert_fraction=0.0,
-        extensions=(IBRL(expert_policy=expert),),
-    )  # train() sets expert_buffer_n_steps=0
+    stored = train(expert_policy=expert, extensions=(IBRL(expert_policy=expert),))
     for name in ("actor_state", "critic_state"):
         a, b = (jax.tree.leaves(getattr(s, name).params) for s in (alone, stored))
         for x, y in zip(a, b, strict=True):
@@ -641,17 +627,16 @@ def test_an_extensions_expert_reads_the_raw_next_observation_of_each_row(
 def test_the_expert_prefill_stores_the_experts_state_as_collection_does(
     state_dim, train_frac
 ):
-    """With augment_obs_with_expert_state, every stored row, the expert
-    prefill's (its first LIMIT per env) and collection's, is [t, (the
-    training fraction,) the expert's state t] at s and [t + 1, (...), t + 1]
-    at s', the episode's last s' included (the state before the reset)."""
-    state = train(
-        CounterEnv(),
-        expert_policy=CountingExpert(state_dim=state_dim),
-        expert_buffer_n_steps=LIMIT,
-        augment_obs_with_expert_state=True,
-        use_train_frac=train_frac,
-    )
+    """With ExpertStateInput, every stored row, the expert prefill's (its
+    first LIMIT per env) and collection's, is [t, (the training fraction,)
+    the expert's state t] at s and [t + 1, (...), t + 1] at s', the
+    episode's last s' included (the state before the reset)."""
+    expert = CountingExpert(state_dim=state_dim)
+    progress = (TrainingProgressInput(),) if train_frac else ()
+    features = (*progress, ExpertStateInput.for_expert(expert))
+    expert_steps = (ExpertWarmup(fraction=0.7), ExpertPrefill(n_steps=LIMIT))
+    extensions = (*features, *expert_steps)
+    state = train(CounterEnv(), expert_policy=expert, extensions=extensions)
     rows = state.collector_state.buffer_state.experience
     obs, nxt = (np.asarray(rows[k]) for k in ("obs", "next_obs"))
     obs, nxt = (x.reshape(-1, *x.shape[-2:]) for x in (obs, nxt))  # (envs, rows, .)
@@ -689,9 +674,8 @@ def test_stored_expert_actions_come_from_the_experts_tracked_state():
     the integrating expert took at s from its state there, a_E = A(s), and
     at s' from its state after the step, A(s + 1): a zero, reset or
     pre-call state stores another."""
-    state = train(
-        CounterEnv(), expert_policy=IntegratingExpert(), expert_buffer_n_steps=LIMIT
-    )
+    prefill = (ExpertPrefill(n_steps=LIMIT),)
+    state = train(CounterEnv(), expert_policy=IntegratingExpert(), extensions=prefill)
     rows = state.collector_state.buffer_state.experience
     s, s_next, a, a_next = (
         np.asarray(rows[k])[..., 0].reshape(-1)
@@ -706,8 +690,8 @@ def test_stored_expert_actions_come_from_the_experts_tracked_state():
 
 
 def test_mc_pretraining_fits_phi_star_with_the_experts_state_columns(monkeypatch):
-    """With augment_obs_with_expert_state (and the action, and ValueBox
-    querying phi* at acting time), phi*'s inputs are the online critic's:
+    """With ExpertStateInput (and ExpertActionInput, and ValueBox querying
+    phi* at acting time), phi*'s inputs are the online critic's:
     [t, 0 (the fraction), the integrating expert's state t (t - 1) / 2, its
     action A(t), action]."""
     seen = _record(monkeypatch, ajax.extensions.pretrain, "predict_value")
@@ -715,10 +699,13 @@ def test_mc_pretraining_fits_phi_star_with_the_experts_state_columns(monkeypatch
     train(
         CounterEnv(),
         expert_policy=expert,
-        augment_obs_with_expert_state=True,
-        augment_obs_with_expert_action=True,
-        use_train_frac=True,
-        extensions=(_mc(expert), ValueBox()),
+        extensions=(
+            _mc(expert),
+            ValueBox(),
+            TrainingProgressInput(),
+            ExpertStateInput.for_expert(expert),
+            ExpertActionInput(),
+        ),
     )
     assert seen
     for x in seen:
@@ -733,13 +720,10 @@ def test_mc_pretraining_fits_phi_star_with_the_experts_state_columns(monkeypatch
 def test_mc_pretraining_refuses_another_expert_under_state_augmentation(own):
     """phi*'s state columns are the agent's expert's: MCPretrain rolling out
     another expert (a stateless one, or another stateful one of the same
-    width) is refused with augment_obs_with_expert_state."""
+    width) is refused under ExpertStateInput."""
     stateless = lambda obs: jnp.full((*obs.shape[:-1], 1), 0.5)  # noqa: E731
     expert = stateless if own == "stateless" else IntegratingExpert()
+    agent_expert = IntegratingExpert()
+    extensions = (_mc(expert), ExpertStateInput.for_expert(agent_expert))
     with pytest.raises(ValueError, match="MC rollout must be that expert's"):
-        train(
-            CounterEnv(),
-            expert_policy=IntegratingExpert(),
-            augment_obs_with_expert_state=True,
-            extensions=(_mc(expert),),
-        )
+        train(CounterEnv(), expert_policy=agent_expert, extensions=extensions)

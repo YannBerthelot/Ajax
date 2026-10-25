@@ -20,6 +20,8 @@ import pytest
 import ajax.agents.UDRL.UDRL as udrl
 from ajax.evaluate import evaluate, setup_environment
 from ajax.extensions.base import Extension
+from ajax.extensions.expert import ExpertWarmup
+from ajax.extensions.observe import ExpertStateInput
 from ajax.networks.memory import MemoryConfig
 from ajax.wrappers import InitialStateWrapper
 
@@ -604,16 +606,17 @@ class CountingExpert:
 SCALAR = dataclasses.replace(counter(0, True, (0, 0)), obs=envs.index_obs, obs_dim=1)
 SCALAR = dataclasses.replace(SCALAR, obs_box=(0.0, float(L)), box=(-1.0, 1.0, 2))
 Q4_SAC: dict[str, Any] = {"n_envs": 2, "gamma": agents.GAMMA, "learning_starts": 10**9}
-Q4_SAC |= {"actor_architecture": ("16", "relu"), "critic_architecture": ("16", "relu")}
-Q4_SAC |= {"buffer_size": 32_064, "batch_size": 64, "expert_buffer_n_steps": 0}
-Q4_SAC |= {"expert_fraction": 0.7}
-Q4_SAC |= {"augment_obs_with_expert_state": True}
+Q4_SAC.update({"actor_architecture": ("16", "relu")})
+Q4_SAC.update({"critic_architecture": ("16", "relu")})
+Q4_SAC.update({"buffer_size": 32_064, "batch_size": 64})
 Q4_KEYS = ("obs", "action", "is_expert", "reward", "terminated", "truncated")
 CELLS = [(e, d) for e in range(2) for d in range(2)]
 
 
 def _q4_sac() -> Any:
-    kw = Q4_SAC | {"expert_policy": CountingExpert()}
+    expert = CountingExpert()
+    features = (ExpertStateInput.for_expert(expert), ExpertWarmup(fraction=0.7))
+    kw = dict(Q4_SAC, expert_policy=expert, extensions=features)
     return agents.make("SAC", *SCALAR.make(), preset=None, **kw)
 
 

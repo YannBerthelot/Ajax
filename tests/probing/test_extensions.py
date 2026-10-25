@@ -24,8 +24,13 @@ from scipy import optimize
 from ajax import PPO, PQN
 from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions.base import PHASES, Extension
-from ajax.extensions.expert import ImitationLoss, OnlineBC
-from ajax.extensions.pretrain import CloningPretrain, MCPretrain, PriorData
+from ajax.extensions.expert import ExpertWarmup, ImitationLoss, OnlineBC
+from ajax.extensions.pretrain import (
+    CloningPretrain,
+    ExpertPrefill,
+    MCPretrain,
+    PriorData,
+)
 from ajax.extensions.target_mods import IBRL, CriticBlend
 
 from . import agents, envs, oracles, runs
@@ -431,6 +436,10 @@ class AgentExpert:
         return (a, args[0]) if len(args) == 2 else a
 
 
+#: SAC's share of expert actions in its warm-up, which it took by default with
+#: an expert (outside an action transform) when these cells were certified.
+SAC_MIX = ExpertWarmup(fraction=0.7)
+MIXES = {"SAC": (SAC_MIX,)}
 EXPERTS = [pytest.param(constant_expert, id="stateless")]
 EXPERTS += [pytest.param(AgentExpert(constant_expert), id="stateful")]
 PREFILLED = ("action", "a_expert", "next_a_expert", "is_expert")
@@ -441,7 +450,8 @@ PREFILLED = ("action", "a_expert", "next_a_expert", "is_expert")
 def test_p3_e11_sac_expert_prefill_trains(expert: Any, n_envs: int) -> None:
     """SAC with a constant expert (0.3) and a 64-step expert prefill trains;
     each env's first 64 rows are the expert's, its actions at s and s'."""
-    kw: dict = {"expert_policy": expert, "expert_buffer_n_steps": 64}
+    prefill = (SAC_MIX, ExpertPrefill(n_steps=64))
+    kw: dict = {"expert_policy": expert, "extensions": prefill}
     run = runs.train(
         agents.make("SAC", *envs.package(VALUE_C), n_envs=n_envs, **kw), (0,), 500
     )
@@ -607,9 +617,8 @@ CASES["q7-online_bc-SAC"] = Case(
         "SAC",
         CHAIN,
         _bc,
-        (mc(), OnlineBC(bc_coef=100.0, critic_warmup_frac=ONE)),
+        (mc(), OnlineBC(bc_coef=100.0, critic_warmup_frac=ONE), SAC_MIX),
         expert_policy=AgentExpert(EXPERT),  # the clone's target (train_SAC.py:597-603)
-        expert_buffer_n_steps=0,
         policy_update_start=200,
     ),
     625,
@@ -648,8 +657,7 @@ def _held(alpha: float | None, a_e: float) -> float:
 # 1e-3, not 6.3e-3 and 8.7e-3, at which its filtered policy wanders by 0.05.
 _LR0 = {"alpha_learning_rate": 0.0}
 PINNED: dict[str, dict[str, Any]] = {
-    "SAC": {"fixed_alpha": True, "policy_update_start": 200}
-    | {"expert_buffer_n_steps": 0},
+    "SAC": {"fixed_alpha": True, "policy_update_start": 200},
     "TD3": {},
     "REDQ": _LR0 | {"num_critic_updates": 5},
     "ASAC": _LR0,
@@ -664,7 +672,8 @@ def imitation(agent: str, alpha: float | None, a_e: float, q_filter: bool) -> An
     kw = PINNED[agent] | ({} if alpha is None else {"alpha_init": alpha})
     read = lambda n: {f"a({x})": R.action(n, float(x)) for x in (0, 1)}  # noqa: E731
     kw |= {"expert_policy": expert}
-    return q7_readings(agent, ActionChainEnv, read, (clone,), **kw)
+    extensions = (clone, *MIXES.get(agent, ()))
+    return q7_readings(agent, ActionChainEnv, read, extensions, **kw)
 
 
 # kind: alpha (TD3: none), a_E, q_filter.
@@ -712,9 +721,9 @@ for cid, (budget, tol, cert) in IMITATION.items():
 def cloning(agent: str, shift: float) -> Any:
     """1000 expert steps, 10 epochs, budget 0: APO still takes one update
     (TrainLoop.on_policy), kept to one step at its own actor learning rate,
-    3e-4; SAC's expert prefill off (E11)."""
+    3e-4."""
     apo: dict[str, Any] = {"n_epochs": 1, "actor_learning_rate": 3e-4}
-    kw = {"SAC": {"expert_buffer_n_steps": 0}, "APO": apo}.get(agent, {})
+    kw = {"APO": apo}.get(agent, {})
     env_cls = ShiftedSignedEnv if shift else envs.SignedActionEnv
 
     def read(n: R.Nets) -> dict:
@@ -722,7 +731,8 @@ def cloning(agent: str, shift: float) -> Any:
 
     expert = AgentExpert(ShiftedHalfExpert(shift))
     clone = CloningPretrain(expert, n_steps=1000, epochs=10)
-    return q7_readings(agent, env_cls, read, (clone,), expert_policy=expert, **kw)
+    extensions = (clone, *MIXES.get(agent, ()))
+    return q7_readings(agent, env_cls, read, extensions, expert_policy=expert, **kw)
 
 
 _SKIP = {"cloning pre-training skipped": 0.0}

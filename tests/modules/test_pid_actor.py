@@ -295,7 +295,7 @@ _SAC = {**_REPLAY, "policy_update_start": 16, "alpha_update_start": 16}
 # normalise them agent-side.
 AGENTS = {
     "SAC": ("SAC", _SAC, 64),
-    "SAC-norm": ("SAC", {**_SAC, "normalize_obs_running": True}, 64),
+    "SAC-norm": ("SAC", {**_SAC, "normalize_observations": True}, 64),
     "TD3": ("TD3", _REPLAY, 64),
     "REDQ": ("REDQ", {**_REPLAY, "num_critic_updates": 2}, 64),
     "ASAC": ("ASAC", _REPLAY, 64),

@@ -40,6 +40,7 @@ from ajax.environments.interaction import (
     get_pi,
     init_collector_state,
 )
+from ajax.environments.utils import flatten_action_column
 from ajax.extensions.base import ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.deterministic import get_initialized_td3_actor_critic
@@ -98,8 +99,7 @@ def make_action_pipeline(
         action = jnp.where(use_expert, a_expert, own)
         zeros = jnp.zeros((n_envs, 1))
         return ActionPipelineResult(
-            # The env takes a discrete action as an (n_envs,) vector.
-            env_action=action if continuous else action[:, 0],
+            env_action=flatten_action_column(action, continuous),
             policy_action=own,
             log_probs=zeros,
             is_expert_flag=use_expert.astype(jnp.float32),

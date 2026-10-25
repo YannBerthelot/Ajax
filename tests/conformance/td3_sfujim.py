@@ -126,6 +126,8 @@ def run(
         agent_state: Any, buffer: Any, key: Any, *args: Any, **kwargs: Any
     ) -> Any:
         b, carries = sample(agent_state, buffer, key, *args, **kwargs)
+        if not given:  # outside a record: the fresh state's slot reads shapes alone
+            return b, carries
         values = {
             "obs": given["state"],
             "action": given["action"] / given["max_action"],  # sfujim's: env units
@@ -166,6 +168,7 @@ def _env_updates(
     settings = dict(SETTINGS)
     settings.update(FAULTS.get(fault or "", {}))
     step = kit.capture_step(ajax.TD3(env_id, **settings, extensions=extensions), 2_000)
+    given.clear()  # no record's batch while the fresh state is traced
     template, update = step.fresh(jax.random.PRNGKey(0)), updater(step)
     paths = sorted(records.glob(f"{env_id}_*.npz"))
     arrays = {p.stem: dict(np.load(p)) for p in paths}

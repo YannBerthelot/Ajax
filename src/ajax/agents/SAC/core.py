@@ -24,7 +24,7 @@ from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import BufferType
 
-S = TypeVar("S", bound=temperature.SoftActorCriticState)
+AgentStateType = TypeVar("AgentStateType", bound=temperature.SoftActorCriticState)
 
 
 def init_soft_actor_critic(
@@ -68,7 +68,7 @@ def init_soft_actor_critic(
 
 
 def soft_actor_step(
-    agent_state: S,
+    agent_state: AgentStateType,
     observations: jax.Array,
     raw_observations: Optional[jax.Array],
     extension_stack: ExtensionStack,
@@ -78,18 +78,18 @@ def soft_actor_step(
     a_expert: Optional[jax.Array] = None,
     actions: Optional[jax.Array] = None,
     executed: Optional[Callable[[jax.Array, Any], jax.Array]] = None,
-) -> Tuple[S, Tuple[jax.Array, jax.Array, jax.Array], dict]:
+) -> Tuple[AgentStateType, Tuple[jax.Array, jax.Array, jax.Array], dict]:
     """The 0.4.0 actor step of a soft actor-critic (0.5.0 removes it):
     update_steps.actor_step on SAC's soft policy loss, the critics' values
     reduced by q_reduce and scored at executed(a, a_expert) under a residual
-    policy. Returns the state, (loss, log_probs, q), the loss before the
+    policy. Returns the state, (loss, log_probs, q_values), the loss before the
     extensions' terms, and the extensions' metrics."""
     policy_key, agent_state = agent_state.get_keys_and_new_state()
     alpha = temperature.get_alpha(agent_state)
     transform = make_scored_action(executed, a_expert)
 
     def policy_loss(params: FrozenDict) -> Tuple[jax.Array, Any, jax.Array]:
-        loss, (log_probs, q, pi) = compute_soft_policy_loss(
+        loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
             params,
             agent_state.actor_state,
             agent_state.critic_state,
@@ -100,9 +100,9 @@ def soft_actor_step(
             q_reduce,
             action_transform=transform,
         )
-        return loss, (loss, log_probs, q), pi.mean()
+        return loss, (loss, log_probs, q_values), policy.mean()
 
-    actor_state, out, _, metrics = actor_step(
+    actor_state, policy_outputs, _, metrics = actor_step(
         agent_state,
         policy_loss,
         extension_stack,
@@ -114,17 +114,17 @@ def soft_actor_step(
         actions=actions,
         critic_state=agent_state.critic_state,
     )
-    return agent_state.replace(actor_state=actor_state), out, metrics
+    return agent_state.replace(actor_state=actor_state), policy_outputs, metrics
 
 
 def update_temperature(
-    agent_state: S,
+    agent_state: AgentStateType,
     log_probs: jax.Array,
     target_entropy: jax.Array,
     loss_fn: Callable[..., Tuple[jax.Array, temperature.TemperatureAuxiliaries]] = (
         compute_temperature_loss
     ),
-) -> Tuple[S, temperature.TemperatureAuxiliaries]:
+) -> Tuple[AgentStateType, temperature.TemperatureAuxiliaries]:
     """The 0.4.0 form of ajax.agents.temperature.update_temperature, SAC's
     temperature loss by default (0.5.0 removes it)."""
     return temperature.update_temperature(

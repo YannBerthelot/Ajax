@@ -467,7 +467,7 @@ def compute_redq_td_target(
     Returns the target, no gradient flowing back through it, and the next
     actions' log-probs."""
     rewards = rewards * reward_scale
-    sample_key, idx_sample_key = jax.random.split(rng)
+    sample_key, subset_key = jax.random.split(rng)
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, executed, next_a_expert
     )
@@ -482,7 +482,7 @@ def compute_redq_td_target(
         bootstrap=True,
     )
     sampled_indexes = jax.random.choice(
-        idx_sample_key, q_targets.shape[0], shape=(subset_size,), replace=False
+        subset_key, q_targets.shape[0], shape=(subset_size,), replace=False
     )
     min_q_target = jnp.min(q_targets[sampled_indexes], axis=0)
 
@@ -524,16 +524,16 @@ def q_ensemble_divergence(q_preds: jax.Array) -> tuple[jax.Array, jax.Array]:
     each (s, a) value, averaged over the batch (ensemble_q_std), and the mean
     L2 distance between the critics' flattened values over all off-diagonal
     pairs (mean_pairwise_q_dist)."""
-    q = jax.lax.stop_gradient(q_preds)
-    n = q.shape[0]
-    q_std = jnp.std(q, axis=0).mean()
+    ensemble_values = jax.lax.stop_gradient(q_preds)
+    ensemble_size = ensemble_values.shape[0]
+    ensemble_std = jnp.std(ensemble_values, axis=0).mean()
 
-    feats = q.reshape(n, -1)
-    diffs = feats[:, None, :] - feats[None, :, :]
-    dists = jnp.sqrt(jnp.sum(diffs**2, axis=-1) + 1e-12)
-    off_diag_sum = dists.sum() - jnp.trace(dists)
-    mean_pairwise = off_diag_sum / (n * (n - 1))
-    return q_std, mean_pairwise
+    flat_values = ensemble_values.reshape(ensemble_size, -1)
+    differences = flat_values[:, None, :] - flat_values[None, :, :]
+    distances = jnp.sqrt(jnp.sum(differences**2, axis=-1) + 1e-12)
+    off_diagonal_sum = distances.sum() - jnp.trace(distances)
+    mean_pairwise = off_diagonal_sum / (ensemble_size * (ensemble_size - 1))
+    return ensemble_std, mean_pairwise
 
 
 # -- State, logged metrics and the legacy view --------------------------------

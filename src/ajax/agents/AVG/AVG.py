@@ -169,14 +169,14 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
         del context
         alpha = get_alpha(agent_state)
         assert transition.log_prob is not None
-        r_ent = transition.reward - alpha * jax.lax.stop_gradient(
+        soft_reward = transition.reward - alpha * jax.lax.stop_gradient(
             transition.log_prob
         ).sum(-1, keepdims=True)
-        reward = agent_state.reward.replace(value=r_ent)
+        reward = agent_state.reward.replace(value=soft_reward)
         gamma = agent_state.gamma.replace(
             value=self.gamma * (1 - transition.terminated)
         )
-        new_G = agent_state.G_return.value + r_ent
+        new_return = agent_state.G_return.value + soft_reward
         ended = transition.terminated.astype(bool)
         # The statistics read the returns of the episodes that ended (NaN
         # marks the others); those restart at 0, the others accumulate.
@@ -184,10 +184,10 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             reward,
             gamma,
             G_return=agent_state.G_return.replace(
-                value=jnp.where(ended, new_G, jnp.nan)
+                value=jnp.where(ended, new_return, jnp.nan)
             ),
         )
-        G_return = G_return.replace(value=jnp.where(ended, 0.0, new_G))
+        G_return = G_return.replace(value=jnp.where(ended, 0.0, new_return))
         return agent_state.replace(
             reward=reward, gamma=gamma, G_return=G_return, scaling_coef=scaling_coef
         )
@@ -393,22 +393,26 @@ def compute_td_error_scaling(
     return scaling, reward, gamma, G_return
 
 
-def _add_to_moments(moments: RunningMoments, x: jax.Array) -> RunningMoments:
-    """Add the entries of x (one per env) to the moments' running count,
+def _add_to_moments(moments: RunningMoments, values: jax.Array) -> RunningMoments:
+    """Add the entries of values (one per env) to the moments' running count,
     mean and sum of squared deviations (Chan et al.'s parallel update). A
     NaN entry is absent: it neither moves the mean nor counts."""
-    valid = ~jnp.isnan(x)
-    k = jnp.sum(valid)
-    x = jnp.where(valid, x, 0.0)
-    batch_mean = jnp.sum(x) / jnp.maximum(k, 1)
-    batch_m2 = jnp.sum(jnp.where(valid, jnp.square(x - batch_mean), 0.0))
-    total = moments.count + k
-    share = k / jnp.maximum(total, 1)
+    valid = ~jnp.isnan(values)
+    valid_count = jnp.sum(valid)
+    values = jnp.where(valid, values, 0.0)
+    batch_mean = jnp.sum(values) / jnp.maximum(valid_count, 1)
+    batch_squared_deviations = jnp.sum(
+        jnp.where(valid, jnp.square(values - batch_mean), 0.0)
+    )
+    total = moments.count + valid_count
+    share = valid_count / jnp.maximum(total, 1)
     delta = batch_mean - moments.mean
     return moments.replace(
         count=total,
         mean=moments.mean + delta * share,
-        mean_2=moments.mean_2 + batch_m2 + jnp.square(delta) * moments.count * share,
+        mean_2=moments.mean_2
+        + batch_squared_deviations
+        + jnp.square(delta) * moments.count * share,
     )
 
 
@@ -495,11 +499,11 @@ def compute_policy_loss(
     sigma(s). The actor has not changed since it sampled u, so a is the
     action executed and the gradient flows through it, as in AVG's update.
     """
-    pi, _ = get_pi(actor_state, actor_params, observations)
-    loc, scale = pi.distribution.loc, pi.distribution.scale
+    policy, _ = get_pi(actor_state, actor_params, observations)
+    loc, scale = policy.distribution.loc, policy.distribution.scale
     eps = jax.lax.stop_gradient((raw_actions - loc) / scale)
     raw = loc + scale * eps
-    log_probs = pi.log_prob_from_raw(raw).sum(-1, keepdims=True)
+    log_probs = policy.log_prob_from_raw(raw).sum(-1, keepdims=True)
     action = jnp.tanh(raw)
     if executed is not None:
         action = executed(action, a_expert)

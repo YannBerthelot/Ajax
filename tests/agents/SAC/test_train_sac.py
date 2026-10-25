@@ -136,7 +136,7 @@ def test_the_soft_bellman_target_from_a_bootstrap_value():
     """r scaled by 2, then 0.9 (1 - d)(Q' - 0.5 log pi): a terminal row
     keeps its reward alone."""
     target = compute_soft_bellman_target(
-        next_q=jnp.array([[2.0], [2.0]]),
+        next_q_values=jnp.array([[2.0], [2.0]]),
         next_log_probs=jnp.array([[-1.0], [-1.0]]),
         rewards=jnp.array([[1.0], [1.0]]),
         dones=jnp.array([[0.0], [1.0]]),

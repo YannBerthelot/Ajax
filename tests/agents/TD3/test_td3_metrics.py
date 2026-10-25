@@ -4,6 +4,7 @@ norm equal their definitions."""
 
 from __future__ import annotations
 
+import dataclasses
 from functools import partial
 
 import jax
@@ -14,9 +15,7 @@ import optax
 from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import TrainContext
 from ajax.agents.recurrent import q_values
-from ajax.agents.SAC import core as sac_core
-from ajax.agents.SAC import train_SAC
-from ajax.agents.SAC.SAC import SAC
+from ajax.agents.SAC.SAC import SAC, compute_soft_policy_loss, compute_td_target
 from ajax.agents.TD3.TD3 import TD3, compute_policy_loss, compute_td3_td_target
 from ajax.environments.interaction import init_collector_state
 from ajax.environments.utils import get_state_action_shapes
@@ -132,20 +131,13 @@ def test_the_clip_share_counts_the_noise_samples_the_clip_changes() -> None:
 
 def test_sac_steps_report_each_networks_gradient_norm() -> None:
     agent = SAC("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    state = train_SAC.init_SAC(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.alpha_args,
-        agent.buffer,
-    )
+    context = dataclasses.replace(agent.make_context(1)[1], extensions=EMPTY)
+    state = agent.init(KEY, context)
     batch = _batch(agent)
-    _, v_aux, _ = train_SAC.update_value_functions(state, batch, False, 0.99, EMPTY)
+    _, v_aux, _ = agent.update_critic(state, batch, None, context)
     critic, actor = state.critic_state, state.actor_state
     alpha = jnp.exp(state.alpha.params["log_alpha"])
-    target = sac_core.compute_td_target(
+    target = compute_td_target(
         actor,
         critic,
         batch.next_obs,
@@ -163,10 +155,10 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 
-    _, p_aux, *_ = train_SAC.update_policy(state, batch.obs, None, EMPTY)
+    _, p_aux, *_ = agent.update_actor(state, batch, None, None, context)
     policy_key = state.get_keys_and_new_state(2)[0]  # the step's policy key
     p_grads = jax.grad(
-        lambda p: sac_core.soft_policy_loss(
+        lambda p: compute_soft_policy_loss(
             p, actor, critic, batch.obs, alpha, policy_key
         )[0]
     )(actor.params)

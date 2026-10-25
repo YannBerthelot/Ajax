@@ -28,7 +28,6 @@ from ajax.agents.AVG.AVG import AVG
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.REDQ import train_REDQ
 from ajax.agents.REDQ.REDQ import REDQ
-from ajax.agents.SAC import train_SAC
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.buffers.utils import get_batch_from_buffer
@@ -266,7 +265,7 @@ def test_sac_logs_the_filtered_fraction_on_a_replay_batch() -> None:
     state = jax.tree.map(lambda x: x[0], state)
     held = agent.extension_stack.extensions[0]  # its expert in agent units
     assert isinstance(held, ImitationLoss)
-    ext = held.bind_to_agent(buffer=agent.buffer, expert_policy=agent.expert_policy)
+    ext = held.bind_to_agent(buffer=agent.buffer, expert_policy=agent.expert)
     assert ext.reads_stored_expert
     got = ext.eval_metrics(state, (), KEY, CTX)["imitation/q_filter_frac"]
     batch = get_batch_from_buffer(agent.buffer, state.collector_state.buffer_state, KEY)
@@ -389,20 +388,13 @@ def _init_asac(agent: ASAC) -> Any:
 
 def _sac_update(stack: ExtensionStack) -> Any:
     agent = SAC("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    state = train_SAC.init_SAC(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.alpha_args,
-        agent.buffer,
-    )
-    state = _ext_state(state, stack)
+    # The stack as given, unbound, as each test builds it.
+    context = dataclasses.replace(agent.make_context(1)[1], extensions=stack)
+    state = _ext_state(agent.init(KEY, context), stack)
     obs = _obs(agent)
-    state, *_ = train_SAC.update_policy(
-        state, obs, obs, extension_stack=stack, total_timesteps=1
-    )
+    column = jnp.zeros((obs.shape[0], 1))
+    batch = Transition(obs, column, column, column, column, obs, raw_obs=obs)
+    state, *_ = agent.update_actor(state, batch, None, None, context)
     return state.actor_state.params
 
 

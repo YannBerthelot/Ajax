@@ -14,7 +14,7 @@ import pytest
 from ajax import ASAC, REDQ, SAC
 from ajax.agents.ASAC.train_ASAC import compute_asac_td_target
 from ajax.agents.REDQ.train_REDQ import compute_redq_td_target
-from ajax.agents.SAC.core import compute_td_target, sample_next_actions
+from ajax.agents.SAC.SAC import compute_td_target, sample_next_actions
 from ajax.networks.networks import action_value_input, predict_value
 from tests.environments import paid_action
 

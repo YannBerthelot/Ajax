@@ -31,6 +31,7 @@ from ajax.agents.recurrent import (
     unsupported_recurrent_options,
 )
 from ajax.agents.SAC import core
+from ajax.agents.SAC.SAC import compute_temperature_loss, sample_next_actions
 from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
@@ -166,7 +167,7 @@ def compute_asac_td_target(
     """
     rewards = rewards * reward_scale
     sample_key, _ = jax.random.split(rng)
-    next_actions, log_probs = core.sample_next_actions(
+    next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, executed, next_a_expert
     )
     q_targets = q_values(
@@ -398,7 +399,7 @@ def update_agent(
         agent_state,
         log_probs,
         jnp.asarray(agent_config.target_entropy),
-        core.temperature_loss_fn,
+        compute_temperature_loss,
     )
     if not fixed_alpha:
         agent_state = tempered

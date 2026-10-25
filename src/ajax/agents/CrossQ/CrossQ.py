@@ -3,18 +3,18 @@ continuous actions.
 
 One update on a replay batch, in the order of the reference
 (adityab/CrossQ@a318a26, sbx/sac/sac.py:195-400), each line one method
-below or one of SAC's equations (core, ajax.agents.SAC.core)::
+below or one of SAC's equations (ajax.agents.SAC.SAC)::
 
-    a' ~ pi(. | s'), log pi(a' | s')                     core.sample_next_actions
+    a' ~ pi(. | s'), log pi(a' | s')                          sample_next_actions
     Q(s, a), Q(s', a') in one training pass over both               update_critic
     y = sg(scale r + gamma (1 - d) (min_i Q_i(s', a') - alpha log pi(a' | s')))
-                                                         core.soft_bellman_target
+                                                  compute_soft_bellman_target
     Q <- argmin E[(Q(s, a) - y)^2], its running statistics kept
     every policy_delay-th update, on the same batch:                 update_actor
       actor <- argmin E[alpha log pi(a | s) - min_i Q_i(s, a)]
-                                                       core.soft_policy_objective
+                                                compute_soft_policy_objective
       alpha <- argmin alpha sg(-log pi(a | s) - H_target)
-                                                   core.alpha_temperature_loss_fn
+                                               compute_alpha_temperature_loss
 
 Batch Renormalization in the actor and the critics, and one training pass of
 the critics over the rows (s, a) and their next states (s', a')
@@ -48,7 +48,12 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.agents.recurrent import sample_replay
-from ajax.agents.SAC import core
+from ajax.agents.SAC.SAC import (
+    compute_alpha_temperature_loss,
+    compute_soft_bellman_target,
+    compute_soft_policy_objective,
+    sample_next_actions,
+)
 from ajax.agents.temperature import (
     SoftActorCriticState,
     TemperatureAuxiliaries,
@@ -167,7 +172,7 @@ class CrossQ(
         )
         due = update_steps.all_of(
             (agent_state.n_updates + 1) % self.policy_delay == 0,
-            self.policy_update_due(agent_state),
+            self.policy_update_due(agent_state.collector_state.timestep),
         )
         update_actor_on_batch = partial(self.update_actor, batch=batch, context=context)
         agent_state, (policy_aux, temperature, policy_metrics) = update_steps.run_if(
@@ -189,7 +194,7 @@ class CrossQ(
         a' is executed (a residual policy's)."""
         critic_key, next_key, agent_state = agent_state.get_keys_and_new_state(2)
         alpha = get_alpha(agent_state)
-        next_actions, next_log_probs = core.sample_next_actions(
+        next_actions, next_log_probs = sample_next_actions(
             agent_state.actor_state,
             batch.next_obs,
             next_key,
@@ -209,7 +214,7 @@ class CrossQ(
                 critic_state, params, rows
             )
             current_q_values, next_q_values = jnp.split(q_values, 2, axis=1)
-            target = core.soft_bellman_target(
+            target = compute_soft_bellman_target(
                 jnp.min(next_q_values, axis=0),
                 next_log_probs,
                 batch.reward,
@@ -264,7 +269,7 @@ class CrossQ(
             policy, batch_stats = get_policy_updating_batch_statistics(
                 actor_state, params, batch.obs
             )
-            loss, (log_probs, q_values, policy) = core.soft_policy_objective(
+            loss, (log_probs, q_values, policy) = compute_soft_policy_objective(
                 policy,
                 critic_state,
                 batch.obs,
@@ -294,14 +299,15 @@ class CrossQ(
         actor_state = actor_state.replace(batch_stats=batch_stats)
         # The authors' temperature loss: alpha, not log alpha, times the gap.
         agent_state = agent_state.replace(actor_state=actor_state)
+        timestep = agent_state.collector_state.timestep
         tempered, temperature = update_temperature(
             agent_state,
             jax.lax.stop_gradient(log_probs),
-            self.target_entropy_at(agent_state, context.total_timesteps),
-            core.alpha_temperature_loss_fn,
+            self.target_entropy_at(timestep, context.total_timesteps),
+            compute_alpha_temperature_loss,
         )
         agent_state = update_steps.run_if(
-            self.temperature_update_due(agent_state), lambda _: tempered, agent_state
+            self.temperature_update_due(timestep), lambda _: tempered, agent_state
         )
         return agent_state, (aux, temperature, metrics)
 
@@ -326,7 +332,7 @@ class CrossQ(
     supported_buffer_fields = frozenset({"raw_next_obs", "return_to_go"})
 
 
-# -- CrossQ's own helpers; its equations are SAC.core's ----------------------
+# -- CrossQ's own helpers; its equations are SAC's ---------------------------
 def make_batch_renorm_mlp(width: int) -> tuple[str, ...]:
     """The authors' MLP: Batch Renorm on the input and after each of two
     ReLU layers of width units (sbx/sac/policies.py:199-231)."""

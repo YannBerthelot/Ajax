@@ -6,6 +6,36 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **SAC is a declared agent**, `agents/SAC/SAC.py` on the replay family, as
+  IQL, CrossQ and TD3 are. What changes for a caller:
+  - the constructor is keyword-only after `env_id`; its fields and
+    `agent_config` are fixed once built; `SACConfig` is a view of the
+    fields, untyped (`Any`) to mypy until 0.5.0;
+  - `train_kwargs` is empty: read the fields (`agent.policy_update_start`);
+    `expert_policy` holds the expert as passed, `agent.expert` the one in
+    agent units;
+  - SAC's equations are in `SAC.py`, renamed by their verb:
+    `compute_soft_bellman_target`, `compute_soft_policy_loss`,
+    `compute_soft_policy_objective`, `compute_temperature_loss`,
+    `compute_alpha_temperature_loss` (`compute_td_target` and
+    `sample_next_actions` keep their names); the temperature is in
+    `ajax.agents.temperature`, the action pipeline in
+    `ajax.agents.action_pipeline`;
+  - the old modules (`train_SAC`, `SAC.state`, `SAC.core`,
+    `SAC.action_pipeline`) import their names with a FutureWarning until
+    0.5.0; the functions that became methods (`init_SAC`, `update_agent`,
+    `update_value_functions`, `update_policy`, `make_train`) raise
+    TypeError with the method's call form; `SAC.core` keeps
+    `init_soft_actor_critic`, `soft_actor_step` and the 0.4.0
+    `update_temperature`;
+  - the deprecated keywords are fields of `SACDeprecatedKeywords`:
+    `store_policy_action` builds `StorePolicyAction` where it acted (with
+    an expert, outside gain mode), and `target_entropy_initial_per_dim`
+    with `target_entropy_ramp_frac` builds the ramp `target_entropy_per_dim`
+    now takes as a schedule; both warn.
+
+  Training is unchanged: every final state is bitwise the same, and so is
+  the training program's text.
 - **StorePolicyAction** (`ajax.extensions.expert`), SAC's
   `store_policy_action` as an extension for every replay agent on the
   family: the replay stores the action the policy chose, not the one

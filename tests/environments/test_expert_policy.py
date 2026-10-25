@@ -267,8 +267,9 @@ def test_the_extensions_read_the_expert_in_agent_units():
         (ext,) = owner.extension_stack.extensions
         np.testing.assert_array_equal(ext.expert_policy(obs), [[0.75]])
     (ibrl,) = sac.extension_stack.extensions
-    assert ibrl.expert_policy is sac.expert_policy is sac.eval_expert_policy
-    assert reads_stored_expert_actions(ibrl, {"expert_policy": sac.expert_policy})
+    eval_expert = sac.evaluation_kwargs()["eval_expert_policy"]
+    assert ibrl.expert_policy is sac.expert is eval_expert
+    assert reads_stored_expert_actions(ibrl, {"expert_policy": sac.expert})
 
 
 def test_evaluate_reads_an_env_unit_expert_as_a_wrapped_one():

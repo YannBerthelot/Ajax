@@ -26,6 +26,7 @@ from ajax.agents.recurrent import (
 )
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
+from ajax.agents.SAC.SAC import compute_temperature_loss, sample_next_actions
 from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
@@ -170,7 +171,7 @@ def compute_redq_td_target(
     """
     rewards = rewards * reward_scale
     sample_key, idx_sample_key = jax.random.split(rng)
-    next_actions, log_probs = core.sample_next_actions(
+    next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, executed, next_a_expert
     )
     # The ensemble axis stays leading in sequence mode too, so the subset
@@ -395,7 +396,7 @@ def update_agent(
         agent_state,
         log_probs,
         jnp.asarray(agent_config.target_entropy),
-        core.temperature_loss_fn,
+        compute_temperature_loss,
     )
     aux = AuxiliaryLogs(
         temperature=aux_temperature,

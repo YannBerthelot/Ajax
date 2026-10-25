@@ -166,6 +166,41 @@ def test_apos_old_names_resolve_or_give_the_new_call() -> None:
             setattr(module, name, found)
 
 
+#: The old SAC modules' names that stay defined there until 0.5.0, without a
+#: new home: core's legacy functions and its type variable.
+SAC_KEPT = {"init_soft_actor_critic", "soft_actor_step", "update_temperature", "S"}
+SAC_METHODS = {
+    "init_SAC",
+    "update_agent",
+    "update_value_functions",
+    "update_policy",
+    "make_train",
+}
+
+
+def test_sacs_old_names_resolve_or_give_the_new_call() -> None:
+    """SAC's old modules serve every name the surface record holds for them
+    from SAC.py or a shared home; its init, update steps and make_train
+    became methods; core keeps its legacy functions."""
+    modules = ("train_SAC", "state", "core", "action_pipeline", "expert")
+    olds = tuple(f"ajax.agents.SAC.{m}" for m in modules)
+    recorded = json.loads(SURFACE.read_text())
+    lines = [line.split(":") for line in recorded if line.startswith(olds)]
+    assert len(lines) > 25
+    for path, name in lines:
+        module = importlib.import_module(path)
+        if name in SAC_KEPT:
+            assert name in vars(module), name
+            continue
+        with pytest.warns(FutureWarning, match=f"{path}.{name} moved to"):
+            found = getattr(module, name)
+        if name in SAC_METHODS:
+            with pytest.raises(TypeError, match=f"{path}.{name} became .*self"):
+                found()
+        with pytest.raises(AttributeError, match=f"{path}.{name} moved to"):
+            setattr(module, name, found)
+
+
 #: The functions 0.4.0 released that now carry a verb (compute_ for a loss):
 #: (old module, old name, new module, new name).
 RENAMED_BY_A_VERB = [
@@ -175,6 +210,8 @@ RENAMED_BY_A_VERB = [
     ("IQL.train_IQL", "expectile_loss", "IQL.IQL", "compute_expectile_loss"),
     ("PQN.train_PQN", "half_mse_td_loss", "PQN.PQN", "compute_half_mse_td_loss"),
     ("SAC.core", "critic_loss_fn", "critics", "compute_mean_critic_loss"),
+    ("SAC.core", "soft_policy_loss", "SAC.SAC", "compute_soft_policy_loss"),
+    ("SAC.core", "temperature_loss_fn", "SAC.SAC", "compute_temperature_loss"),
     ("TD3.train_TD3", "policy_loss_function", "TD3.TD3", "compute_policy_loss"),
 ]
 

@@ -14,6 +14,7 @@ import pytest
 from ajax import APG, UDRL
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC import core
+from ajax.agents.SAC.SAC import sample_next_actions
 from ajax.agents.TD3.TD3 import compute_td3_td_target
 from ajax.extensions.base import ExtensionStack
 from ajax.extensions.expert import ResidualPolicy
@@ -172,7 +173,7 @@ def test_the_soft_core_scores_executed_actions():
     state = _initial("REDQ")
     obs, key = jnp.ones((4, 3)), jax.random.PRNGKey(0)
     a_expert = jnp.full((4, 1), 0.25)
-    next_actions, _ = core.sample_next_actions(
+    next_actions, _ = sample_next_actions(
         state.actor_state, obs, key, executed=_put, next_a_expert=a_expert
     )
     np.testing.assert_array_equal(next_actions, 0.25)

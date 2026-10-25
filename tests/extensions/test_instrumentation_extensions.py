@@ -264,7 +264,7 @@ def test_the_q_residual_bootstraps_on_sacs_next_action_sample():
     ext = BiasVoreDecomposition(gamma=0.9, reward_scale=2.0)
     residual = ext._td_residual(agent_state, (obs, act, reward, next_obs, done), key)
 
-    from ajax.agents.SAC.core import sample_next_actions
+    from ajax.agents.SAC.SAC import sample_next_actions
 
     next_act, log_prob = sample_next_actions(actor, next_obs, key)
 

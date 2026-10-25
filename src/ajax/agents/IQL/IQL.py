@@ -205,7 +205,9 @@ class IQL(
             return actor_state, (actor_loss, actor_metrics)
 
         actor_state, (actor_loss, actor_metrics) = update_steps.run_if(
-            self.policy_update_due(agent_state), step_actor, agent_state.actor_state
+            self.policy_update_due(agent_state.collector_state.timestep),
+            step_actor,
+            agent_state.actor_state,
         )
         target = compute_bellman_target(
             value_state, batch, self.gamma, self.reward_scale

@@ -176,7 +176,7 @@ class TD3(
         # metrics are zeros.
         do_policy = update_steps.all_of(
             ((agent_state.n_updates + 1) % self.policy_delay) == 0,
-            self.policy_update_due(agent_state),
+            self.policy_update_due(agent_state.collector_state.timestep),
         )
         update_actor_on_batch = partial(
             self.update_actor, batch=batch, carries=carries, context=context

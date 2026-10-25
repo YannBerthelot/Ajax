@@ -274,16 +274,15 @@ class EntropyTemperature:
         del total_timesteps
         return self.target_entropy
 
-    def target_entropy_at(self, agent_state: Any, total_timesteps: int) -> jax.Array:
-        """The target entropy at agent_state's timestep, in a run of
-        total_timesteps steps."""
-        schedule = self.target_entropy_over(total_timesteps)
-        return jnp.asarray(at(schedule, agent_state.collector_state.timestep))
+    def target_entropy_at(self, timestep: Any, total_timesteps: int) -> jax.Array:
+        """The target entropy at timestep, in a run of total_timesteps
+        steps."""
+        return jnp.asarray(at(self.target_entropy_over(total_timesteps), timestep))
 
-    def temperature_update_due(self, agent_state: Any) -> Union[bool, jax.Array]:
-        """Whether the temperature's step counts at this update: from
+    def temperature_update_due(self, timestep: Any) -> Union[bool, jax.Array]:
+        """Whether the temperature's step counts at timestep: from
         alpha_update_start on (update_steps.reached)."""
-        return reached(self.alpha_update_start, agent_state)
+        return reached(self.alpha_update_start, timestep)
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -298,10 +297,10 @@ class PolicyUpdateStart:
 
     policy_update_start: int = 0
 
-    def policy_update_due(self, agent_state: Any) -> Union[bool, jax.Array]:
-        """Whether the actor's step counts at this update: from
+    def policy_update_due(self, timestep: Any) -> Union[bool, jax.Array]:
+        """Whether the actor's step counts at timestep: from
         policy_update_start on (update_steps.reached)."""
-        return reached(self.policy_update_start, agent_state)
+        return reached(self.policy_update_start, timestep)
 
 
 @dataclass(eq=False, repr=False)

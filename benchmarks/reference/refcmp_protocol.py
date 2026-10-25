@@ -4,6 +4,10 @@ Ajax arm learns like its reference (docs/reproduction/protocol.md).
 usage, from the repository root:
     uv run python benchmarks/reference/refcmp_protocol.py run NAME [ARM ...]
     uv run python benchmarks/reference/refcmp_protocol.py report [NAME ...]
+    uv run python benchmarks/reference/refcmp_protocol.py in LIBRARY [UV RUN ARGUMENT ...]
+
+``in`` runs a command in envs/LIBRARY's shared environment, as the tests do:
+how the recorders CI cannot run (envs/torch14) are run by hand.
 
 ``--cache DIR`` keeps the records in DIR instead of ``results/protocol``:
 ``run NAME --cache DIR`` with an empty DIR reproduces a comparison from
@@ -179,6 +183,13 @@ def subproject_env(project: pathlib.Path, **extra: str) -> dict[str, str]:
         env["UV_PROJECT_ENVIRONMENT"] = str(reference_environment(project))
     env.update(extra)
     return env
+
+
+def run_in(library: str, *arguments: str) -> int:
+    """uv run arguments in the reference subproject envs/library, in its shared environment."""
+    project = HERE / "envs" / library
+    command = ["uv", "run", "--locked", "--project", str(project), *arguments]
+    return subprocess.run(command, env=subproject_env(project)).returncode
 
 
 def train(name: str, side: str, seeds: list) -> dict:
@@ -406,6 +417,8 @@ if __name__ == "__main__":
     if command == "run":
         test, scores = decide(names[0], tuple(names[1:]) or ("matched",))
         print(test.decisions, {side: len(x) for side, x in scores.items()})
+    elif command == "in":
+        sys.exit(run_in(*names))
     elif command == "report":
         for name in names or sorted(p.stem for p in CACHE.glob("*.jsonl")):
             for row in summary(name):

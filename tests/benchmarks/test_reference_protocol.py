@@ -6,6 +6,7 @@ stub runner stands in for the libraries."""
 import dataclasses
 import json
 import re
+import subprocess
 import sys
 
 import numpy as np
@@ -252,6 +253,22 @@ def test_checkouts_on_one_lock_share_a_reference_environment(tmp_path, monkeypat
     )
     assert one == two and two != three
     assert one.startswith(str(tmp_path / "shared" / "torch-"))
+
+
+def test_a_hand_run_goes_through_the_shared_environment(tmp_path, monkeypatch):
+    """refcmp_protocol.py in LIBRARY ...: how the torch14 recorders are run by hand."""
+    monkeypatch.setenv("AJAX_REFERENCE_ENVS", str(tmp_path))
+    calls = []
+
+    def run(command, env):
+        calls.append((command, env["UV_PROJECT_ENVIRONMENT"]))
+        return subprocess.CompletedProcess(command, 3)
+
+    monkeypatch.setattr(protocol.subprocess, "run", run)
+    assert protocol.run_in("torch14", "python", "recorder.py") == 3
+    project = protocol.HERE / "envs" / "torch14"
+    uv = ["uv", "run", "--locked", "--project", str(project), "python", "recorder.py"]
+    assert calls == [(uv, str(protocol.reference_environment(project)))]
 
 
 def test_ajax_s_own_project_keeps_the_callers_resolution_mode(monkeypatch):

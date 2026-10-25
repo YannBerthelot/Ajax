@@ -1,6 +1,8 @@
 """bayesgroup/tqc_pytorch's update, recorded for the conformance check (tests/conformance/test_tqc_original.py).
 
-usage: python conformance_tqc.py ENV_ID OUT_DIR   (in envs/torch14: torch 1.4 on x86 Python 3.8)
+usage, from the repository root, in envs/torch14's shared environment (torch 1.4 on x86 Python 3.8; on
+an Apple-silicon Mac, add --python cpython-3.8-macos-x86_64 after torch14 to run it under Rosetta):
+    uv run python benchmarks/reference/refcmp_protocol.py in torch14 python benchmarks/reference/conformance_tqc.py ENV_ID OUT_DIR
 
 Imports nothing from Ajax. The authors' repository is no longer on GitHub: vendor/bayesgroup_tqc_pytorch
 is Software Heritage's archive of it (SOURCE below), unmodified. Their Actor, Critic and Trainer train

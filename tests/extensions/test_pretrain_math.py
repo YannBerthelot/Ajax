@@ -19,6 +19,7 @@ import optax
 import pytest
 from flax import struct
 
+from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.TQC.TQC import TQC
@@ -210,7 +211,7 @@ def test_bellman_pretrain_needs_the_agent_context_and_a_seeded_replay():
         )
 
 
-@pytest.mark.parametrize("cls", [SAC, TD3, TQC], ids=lambda c: c.__name__)
+@pytest.mark.parametrize("cls", [SAC, TD3, TQC, REDQ], ids=lambda c: c.__name__)
 def test_bellman_pretrain_steps_a_discounted_q_critic_with_targets(cls: Any):
     """A replay agent with a discounted Q critic and target critics gives
     BellmanPretrain its critic step (ReplayAgent.extension_values): trained

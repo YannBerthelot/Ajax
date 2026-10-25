@@ -81,6 +81,7 @@ BECAME_METHODS = {
     "init_CrossQ",
     "init_TD3",
     "init_TQC",
+    "init_REDQ",
     "update_agent",
     "update_critics",
     "update_actor_and_temperature",
@@ -90,7 +91,7 @@ BECAME_METHODS = {
 }
 
 
-@pytest.mark.parametrize("agent", ["IQL", "CrossQ", "TD3", "PQN", "TQC"])
+@pytest.mark.parametrize("agent", ["IQL", "CrossQ", "TD3", "PQN", "TQC", "REDQ"])
 def test_the_declared_agents_old_names_resolve_or_give_the_new_call(
     agent: str,
 ) -> None:
@@ -112,8 +113,11 @@ def test_the_declared_agents_old_names_resolve_or_give_the_new_call(
                 found()
         else:
             home = inspect.getmodule(found)
-            assert home is not None
-            assert home.__name__ == f"ajax.agents.{agent}.{agent}"
+            if home is None:  # a constant (REDQ's FIRST_ALPHA)
+                own = importlib.import_module(f"ajax.agents.{agent}.{agent}")
+                assert found == getattr(own, name)
+            else:
+                assert home.__name__ == f"ajax.agents.{agent}.{agent}"
         with pytest.raises(AttributeError, match=f"{path}.{name} moved to"):
             setattr(module, name, found)
 
@@ -213,6 +217,7 @@ RENAMED_BY_A_VERB = [
     ("SAC.core", "critic_loss_fn", "critics", "compute_mean_critic_loss"),
     ("SAC.core", "soft_policy_loss", "SAC.SAC", "compute_soft_policy_loss"),
     ("SAC.core", "temperature_loss_fn", "SAC.SAC", "compute_temperature_loss"),
+    ("REDQ.train_REDQ", "value_loss_function", "REDQ.REDQ", "compute_critic_loss"),
     ("TD3.train_TD3", "policy_loss_function", "TD3.TD3", "compute_policy_loss"),
 ]
 

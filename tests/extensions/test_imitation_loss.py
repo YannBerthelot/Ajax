@@ -26,7 +26,6 @@ from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG import train_AVG
 from ajax.agents.AVG.AVG import AVG
 from ajax.agents.PPO.PPO import PPO
-from ajax.agents.REDQ import train_REDQ
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
@@ -361,17 +360,21 @@ def _sac_family_update(agent_cls: type, module: Any, init: Callable) -> Callable
     return update
 
 
-def _init_redq(agent: REDQ) -> Any:
-    return train_REDQ.init_REDQ(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.alpha_args,
-        agent.buffer,
-        number_of_critics=agent.agent_config.num_critics,
-    )
+def _declared_soft_update(agent_cls: type) -> Callable:
+    """A declared soft actor-critic's actor step on BATCH random rows, its
+    own observations raw too (the expert's input)."""
+
+    def update(stack: ExtensionStack) -> Any:
+        agent = agent_cls(
+            "Pendulum-v1", actor_architecture=NET, critic_architecture=NET
+        )
+        context = make_context(agent, stack)
+        state = _ext_state(agent.init(KEY, context), stack)
+        obs, column = _obs(agent), jnp.zeros((BATCH, 1))
+        batch = Transition(obs, column, column, column, column, obs, raw_obs=obs)
+        return agent.update_actor(state, batch, None, context)[0].actor_state.params
+
+    return update
 
 
 def _init_asac(agent: ASAC) -> Any:
@@ -473,7 +476,7 @@ def _avg_update(stack: ExtensionStack) -> Any:
 
 UPDATES: dict[str, Callable[[ExtensionStack], Any]] = {
     "TD3": _td3_update,
-    "REDQ": _sac_family_update(REDQ, train_REDQ, _init_redq),
+    "REDQ": _declared_soft_update(REDQ),
     "ASAC": _sac_family_update(ASAC, train_ASAC, _init_asac),
     "APO": _apo_update,
     "SAC": _sac_update,

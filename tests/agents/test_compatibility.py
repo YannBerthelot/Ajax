@@ -132,7 +132,7 @@ GAPS: dict[str, dict[str, str]] = {
         "PhiRefresh": "TD3 REDQ TQC CrossQ DQN IQL",
     },
     CONTEXT: {
-        "BellmanPretrain": "REDQ ASAC DQN IQL",
+        "BellmanPretrain": "ASAC DQN IQL",
         "CloningPretrain": "APG PPO UDRL",
     },
     EXPERT: {
@@ -187,7 +187,7 @@ GAPS: dict[str, dict[str, str]] = {
         "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO UDRL DAgger IQL DreamerV3"
         " TDMPC2 TDMPC2MultiTask"
     },
-    STORE: {"StorePolicyAction": "REDQ ASAC DQN DAgger DAgger/discrete"},
+    STORE: {"StorePolicyAction": "ASAC DQN DAgger DAgger/discrete"},
     OWN_STORE: {
         "StorePolicyAction": "UDRL UDRL/discrete DreamerV3 DreamerV3/discrete TDMPC2"
         " TDMPC2MultiTask"

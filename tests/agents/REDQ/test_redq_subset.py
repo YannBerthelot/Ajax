@@ -13,36 +13,22 @@ import numpy as np
 import pytest
 
 from ajax.agents.recurrent import q_values
-from ajax.agents.REDQ.train_REDQ import (
-    compute_redq_td_target,
-    init_REDQ,
-    value_loss_function,
-)
-from ajax.buffers.utils import get_buffer
+from ajax.agents.REDQ.REDQ import REDQ, compute_critic_loss, compute_redq_td_target
 from ajax.environments.utils import get_state_action_shapes
-from ajax.state import AlphaConfig, NetworkConfig, OptimizerConfig
 
 
 @pytest.fixture
 def REDQ_state(gymnax_env_config):
-    key = jax.random.PRNGKey(0)
-    optimizer_args = OptimizerConfig(learning_rate=3e-4)
-    network_args = NetworkConfig(
-        actor_architecture=["32", "relu"],
-        critic_architecture=["32", "relu"],
-        squash=True,
+    """A fresh REDQ state (ten 32-unit critics) from the agent's init."""
+    agent = REDQ(
+        gymnax_env_config.env,
+        env_params=gymnax_env_config.env_params,
+        actor_architecture=("32", "relu"),
+        critic_architecture=("32", "relu"),
+        buffer_size=256,
+        batch_size=16,
     )
-    alpha_args = AlphaConfig(learning_rate=3e-4, alpha_init=1.0)
-    return init_REDQ(
-        key=key,
-        env_args=gymnax_env_config,
-        actor_optimizer_args=optimizer_args,
-        critic_optimizer_args=optimizer_args,
-        network_args=network_args,
-        alpha_args=alpha_args,
-        buffer=get_buffer(buffer_size=256, batch_size=16, n_envs=1),
-        number_of_critics=10,
-    )
+    return agent.init(jax.random.PRNGKey(0), agent.make_context(1)[1])
 
 
 def _call_target(REDQ_state, env_config, subset_size, seed=1):
@@ -91,7 +77,7 @@ def test_the_critic_loss_sums_each_critics_mean_squared_error(
     actions = jax.random.uniform(action_key, (16, *action_shape), minval=-1)
     target = jnp.linspace(-1.0, 1.0, 16)[:, None]
     critic = REDQ_state.critic_state
-    loss, _ = value_loss_function(
+    loss, _ = compute_critic_loss(
         critic.params, critic, obs, actions, target, jnp.zeros((16, 1))
     )
     q = np.asarray(q_values(critic, critic.params, obs, actions, None))

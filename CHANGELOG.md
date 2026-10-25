@@ -6,6 +6,16 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **REDQ is a declared agent**, `agents/REDQ/REDQ.py`, as SAC is:
+  keyword-only after `env_id`, fixed fields, `REDQConfig` a view of them
+  (no longer a `SACConfig` subclass); `train_REDQ` and `REDQ.state` import
+  their names with a FutureWarning until 0.5.0 (`value_loss_function` is
+  `compute_critic_loss`; `init_REDQ`, `update_agent`,
+  `update_value_functions`, `update_policy` and `make_train` became
+  methods). REDQ now takes `policy_update_start`, `alpha_update_start`,
+  `eval_expert_policy`, `BellmanPretrain` and `StorePolicyAction`, and
+  `target_entropy_per_dim` takes a schedule besides a number and
+  `"mbpo"`. Training is unchanged, bitwise.
 - **TQC is a declared agent**, `agents/TQC/TQC.py`, as SAC is: keyword-only
   after `env_id`, fixed fields, `TQCConfig` a view of them (no longer a
   `SACConfig` subclass); `train_TQC` and `TQC.state` import their names

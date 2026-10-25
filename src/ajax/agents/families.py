@@ -302,6 +302,11 @@ class PolicyUpdateStart:
         policy_update_start on (update_steps.reached)."""
         return reached(self.policy_update_start, timestep)
 
+    def keeps_actor_metrics(self) -> bool:
+        """An actor waiting for policy_update_start skips the updates before
+        it, which log its last step's metrics (update_steps.run_actor_if)."""
+        return self.policy_update_start > 0
+
 
 @dataclass(eq=False, repr=False)
 class DeclaredAgent(ActorCritic):
@@ -490,6 +495,12 @@ class DeclaredAgent(ActorCritic):
         warmup capability; none otherwise (TQC's authors act with the policy
         from the first step)."""
         return None if "warmup" in self.capabilities else 0
+
+    def keeps_actor_metrics(self) -> bool:
+        """Whether the update keeps its actor's last metrics on the state, for
+        the updates whose actor step it skips to log
+        (update_steps.run_actor_if): the loop gives the state their slot."""
+        return False
 
     def setup(self) -> None:
         """What the agent derives or checks once its env, networks and family
@@ -804,6 +815,7 @@ class ReplayAgent(DeclaredAgent):
                 "store_hidden": recurrent and self.stores_state(),
             },
             eval_kwargs=self.evaluation_kwargs(),
+            keeps_actor_metrics=self.keeps_actor_metrics(),
         )
 
     def extension_values(self, configs: dict[str, Any]) -> dict[str, Any]:
@@ -977,6 +989,7 @@ class IncrementalAgent(DeclaredAgent):
             after_collect=partial(self.update_step_statistics, context=context),
             collect_kwargs={"store_raw_next_obs": stores_raw_next_obs},
             eval_kwargs=self.evaluation_kwargs(),
+            keeps_actor_metrics=self.keeps_actor_metrics(),
         )
 
 

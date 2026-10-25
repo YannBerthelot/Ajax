@@ -33,7 +33,7 @@ from ajax.agents.loop import (
     run_if,
 )
 from ajax.agents.SAC.SAC import SAC
-from ajax.agents.update_steps import compute_gradients
+from ajax.agents.update_steps import compute_gradients, run_actor_if
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.evaluate import evaluate
 from ajax.extensions.base import Extension, ExtensionStack, merge_metrics
@@ -464,7 +464,7 @@ def test_run_if_runs_the_update_only_where_the_condition_holds() -> None:
 
 def test_run_if_fills_a_skipped_updates_metrics() -> None:
     """Skipped, the metrics keep the update's structure: NaN, and -1 in integer
-    leaves, by default; ``fill`` otherwise."""
+    leaves."""
 
     def step(x):
         return x + 1.0, {"loss": x * 2, "count": jnp.asarray(1)}
@@ -474,8 +474,26 @@ def test_run_if_fills_a_skipped_updates_metrics() -> None:
     x, metrics = run_if(jnp.asarray(False), step, jnp.asarray(3.0))
     assert float(x) == 3.0 and np.isnan(metrics["loss"])
     assert int(metrics["count"]) == -1
-    _, metrics = run_if(jnp.asarray(False), step, jnp.asarray(3.0), fill=0.0)
-    assert float(metrics["loss"]) == 0.0 and int(metrics["count"]) == 0
+
+
+@struct.dataclass
+class ActorState(Replaceable):
+    value: jax.Array
+    last_actor_metrics: Any = None
+
+
+def test_a_skipped_actor_step_logs_the_last_step_that_ran() -> None:
+    """run_actor_if: NaN before the actor's first step, then each skipped
+    update logs the last real step's metrics, which the state keeps; with
+    no gate (the Python True) the step runs and nothing is kept."""
+    state, logged = ActorState(value=jnp.asarray(1.0)), []
+    for due in (False, True, False, True):
+        state, metrics = run_actor_if(jnp.asarray(due), _update, state)
+        logged.append(float(metrics.loss))
+    assert np.isnan(logged[0]) and logged[1:] == [1.0, 1.0, 2.0]
+    assert float(state.value) == 3.0 and float(state.last_actor_metrics.loss) == 2.0
+    ungated, metrics = run_actor_if(True, _update, ActorState(value=jnp.asarray(1.0)))
+    assert ungated.last_actor_metrics is None and float(metrics.loss) == 1.0
 
 
 # --- Evaluations without a logging backend -----------------------------------

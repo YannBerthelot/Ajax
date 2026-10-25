@@ -592,6 +592,30 @@ def test_a_checkpoint_saved_before_fields_were_added_reads_them_as_nan(tmp_path)
         restore_into(skeleton, path)
 
 
+@struct.dataclass
+class _Logging:
+    """A state class that gained two fields holding trees, as
+    BaseAgentState.last_actor_metrics: one filled, one held as None."""
+
+    added_fields: ClassVar[frozenset[str]] = frozenset({"metrics", "unset"})
+    kept: jax.Array
+    metrics: dict
+    unset: object = None
+
+
+def test_an_added_tree_reads_as_nan_and_an_added_none_stays_none(tmp_path):
+    """A tree listed in added_fields restores in the skeleton's structure,
+    NaN (-1 in an integer leaf); one the skeleton holds as None stays None."""
+    metrics = {"loss": jnp.zeros(()), "step": jnp.zeros((), jnp.int32)}
+    skeleton = _Logging(kept=jnp.zeros(2), metrics=metrics)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint({"kept": jnp.ones(2)}, path)
+    restored = restore_into(skeleton, path)
+    np.testing.assert_array_equal(restored.kept, jnp.ones(2))
+    assert np.isnan(restored.metrics["loss"]) and int(restored.metrics["step"]) == -1
+    assert restored.unset is None
+
+
 def test_a_checkpoint_of_another_agent_still_fails(sac_run, tmp_path):
     """No class lists another agent's fields: SAC's state, holding the
     expert critic REDQ's lacks, does not restore into REDQ's."""

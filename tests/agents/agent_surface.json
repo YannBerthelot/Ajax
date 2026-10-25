@@ -649,6 +649,7 @@
 "ajax.agents.loop:record",
 "ajax.agents.loop:run_if",
 "ajax.agents.loop:seed_replay",
+"ajax.agents.loop:with_actor_metrics_slot",
 "ajax.agents.loop:with_horizon",
 "ajax.agents.loop:with_obs_norm",
 "ajax.agents.minibatch:Geometry",
@@ -707,6 +708,7 @@
 "ajax.agents.update_steps:gradient_step",
 "ajax.agents.update_steps:joint_step",
 "ajax.agents.update_steps:reached",
+"ajax.agents.update_steps:run_actor_if",
 "ajax.agents.update_steps:run_if",
 "ajax.agents.update_steps:update_target_networks"
 ]

@@ -131,6 +131,10 @@ class TD3(
             context.env_args.warmups,
         )
 
+    def keeps_actor_metrics(self) -> bool:
+        """The policy delay skips the actor on some updates."""
+        return True
+
     def init(self, key: jax.Array, context: TrainContext) -> TD3State:
         """A deterministic actor and num_critics Q critics, with targets."""
         training_key, init_key, collector_key, evaluation_key = jax.random.split(key, 4)
@@ -172,8 +176,7 @@ class TD3(
         )
         # sfujim/TD3 counts the update first (total_it += 1), then steps the
         # actor when the count is a multiple of the delay: its first actor
-        # step is the policy_delay-th update, not the first. Skipped, its
-        # metrics are zeros.
+        # step is the policy_delay-th update, not the first.
         do_policy = update_steps.all_of(
             ((agent_state.n_updates + 1) % self.policy_delay) == 0,
             self.policy_update_due(agent_state.collector_state.timestep),
@@ -181,8 +184,8 @@ class TD3(
         update_actor_on_batch = partial(
             self.update_actor, batch=batch, carries=carries, context=context
         )
-        agent_state, (policy_aux, policy_metrics) = update_steps.run_if(
-            do_policy, update_actor_on_batch, agent_state, fill=0.0
+        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
+            do_policy, update_actor_on_batch, agent_state
         )
         agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
         return agent_state, AuxiliaryLogs(

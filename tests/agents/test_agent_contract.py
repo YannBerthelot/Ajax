@@ -131,7 +131,15 @@ CASES = {
         critic=False,
         required=DAGGER_REQUIRED,
     ),
-    "SAC": Case(SAC, OFF_POLICY, CONTINUOUS, alpha=True, buffer=True),
+    # Its actor steps from the first update, as the others' do: by default
+    # SAC waits 2000 steps, and logs no actor step before (DIAGNOSTICS).
+    "SAC": Case(
+        SAC,
+        {**OFF_POLICY, "policy_update_start": 0},
+        CONTINUOUS,
+        alpha=True,
+        buffer=True,
+    ),
     "ASAC": Case(ASAC, OFF_POLICY, CONTINUOUS, alpha=True, buffer=True),
     "REDQ": Case(
         REDQ,

@@ -279,8 +279,11 @@ SAC, TD3, AVG, DAgger and IQL use `actor_step`; ASAC and REDQ use
 
 Two more keep control flow out of the updates. `run_if(condition, update,
 state)` runs `update` where `condition` holds and leaves the state as it is
-elsewhere, its metrics then NaN (or `fill`): TD3's policy delay, DQN's target
-refresh, SAC's warm-ups and the loop's own `learning_starts` gate. A `Schedule`
+elsewhere, its metrics then NaN: DQN's target refresh, SAC's warm-ups and the
+loop's own `learning_starts` gate. An actor's step goes through
+`run_actor_if` instead (a policy delay, `policy_update_start`): a skipped
+step returns the metrics of the last one that ran, which the state keeps in
+`last_actor_metrics`, so the logs show the last real step. A `Schedule`
 (`ajax.schedule`) is a hyperparameter given as a constant or a function of the
 timestep, read with `at(schedule, timestep)`; `linear(start, end, steps)` is a
 ramp. TD3's exploration noise and PPO's and APO's clip range take one, and
@@ -313,6 +316,7 @@ gains a leading axis), and makes a checkpoint a matter of saving that pytree.
 | `n_updates`, `n_logs` | counters; `n_logs` gates the evaluations and numbers them |
 | `ext_state` | one entry per extension, `()` without extensions |
 | `last_rollout` | the latest rollout, kept only when the agent is asked to expose it |
+| `last_actor_metrics` | the metrics of the actor's last step, kept only by an agent whose actor skips updates (`run_actor_if`), for the skipped updates to log |
 
 Agents subclass it: `SoftACState` adds SAC's temperature and is shared by
 SAC, ASAC, REDQ and AVG; the world models carry their model and replay.

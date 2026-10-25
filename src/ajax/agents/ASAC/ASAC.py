@@ -221,8 +221,10 @@ class ASAC(
         stepped, policy_aux, log_probs, policy_metrics = self.update_actor(
             agent_state, batch, carries, context
         )
-        agent_state = update_steps.run_if(
-            self.policy_update_due(timestep), lambda _: stepped, agent_state
+        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
+            self.policy_update_due(timestep),
+            lambda _: (stepped, (policy_aux, policy_metrics)),
+            agent_state,
         )
         # fixed_alpha drops the temperature's step but keeps its logs, as
         # SAC's does.

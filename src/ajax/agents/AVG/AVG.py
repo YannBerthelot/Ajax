@@ -219,9 +219,9 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
         stepped = critic_updated.replace(
             actor_state=policy_updated.actor_state, rng=policy_updated.rng
         )
-        agent_state = update_steps.run_if(
+        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
             self.policy_update_due(agent_state.collector_state.timestep),
-            lambda _: stepped,
+            lambda _: (stepped, (policy_aux, policy_metrics)),
             critic_updated,
         )
         log_alpha = agent_state.alpha.params["log_alpha"]

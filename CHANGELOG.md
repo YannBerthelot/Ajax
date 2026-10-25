@@ -6,6 +6,16 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **A skipped actor step logs the last one that ran.** On the updates whose
+  actor step is skipped (TD3's and CrossQ's `policy_delay`, any agent's
+  `policy_update_start`), the actor's logged metrics are now those of its
+  last real step, NaN before its first (`update_steps.run_actor_if`; the
+  state keeps them in `last_actor_metrics`). TD3 logged zeros there,
+  CrossQ and IQL NaN, and SAC, TQC, REDQ, ASAC and AVG the metrics of the
+  step they computed and dropped before `policy_update_start`. Training
+  is unchanged; only the logs move. A checkpoint saved without the field
+  restores it as NaN. `run_if` lost its `fill` option, which TD3 alone
+  used.
 - **AVG is a declared agent**, `agents/AVG/AVG.py`, on a new family,
   `IncrementalAgent` (`ajax.agents.families`): one update on each step as
   it comes, no replay. Keyword-only after `env_id`, fixed fields,

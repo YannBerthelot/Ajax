@@ -66,6 +66,16 @@ def test_the_actor_is_kept_from_policy_update_start(cls: type) -> None:
     assert _same(waiting.actor_state.params, untrained.actor_state.params)
     assert not _same(waiting.critic_state.params, untrained.critic_state.params)
     assert not _same(started.actor_state.params, untrained.actor_state.params)
+    # The updates the actor skips log its last step's metrics
+    # (update_steps.run_actor_if): none yet while it waits.
+    assert all(np.isnan(leaf).all() for leaf in _actor_logs(waiting))
+    assert all(np.isfinite(leaf).all() for leaf in _actor_logs(started))
+
+
+def _actor_logs(state: Any) -> list:
+    leaves = jax.tree.leaves(state.last_actor_metrics)
+    assert leaves  # the loop gave the state the slot
+    return leaves
 
 
 @pytest.mark.parametrize(

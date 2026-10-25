@@ -30,6 +30,7 @@ from ajax.extensions.adversarial import AdversarialReward
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import (
     ExpertGains,
+    ExpertWarmup,
     ImitationLoss,
     JSRLCurriculum,
     ResidualPolicy,
@@ -152,6 +153,8 @@ RESIDUAL = {"expert_policy": push, "extensions": (ResidualPolicy(), Keyed())}
 BC = {"expert_policy": push, "extensions": (ImitationLoss(push, coef=1.0),)}
 GAIN = {"expert_policy": GainExpert(), "extensions": (ExpertGains(),)}
 EXPERT_PREFILL = {"expert_policy": push, "extensions": (ExpertPrefill(n_steps=40),)}
+# The warm-up's expert mix through TD3's explore pipeline and the default one.
+WARMUP = {"expert_policy": push, "extensions": (ExpertWarmup(fraction=0.5),)}
 OBSERVE: dict[str, Any] = {"expert_policy": push}
 OBSERVE.update({"extensions": (ExpertActionInput(), TrainingProgressInput())})
 REWARD_NORM = {"normalize_rewards": True, "reward_normalization_gamma": 0.99}
@@ -197,6 +200,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "TD3-offline": (TD3, OFFLINE_KW, 80),
     "TD3-prefill": (TD3, {**S, **R, **EXPERT_PREFILL}, 200),
+    "TD3-warmup": (TD3, {**S, **R, **WARMUP}, 200),
     "AVG": (AVG, {**S, "learning_starts": 20}, 200),
     "AVG-keyed": (AVG, {**S, "learning_starts": 20, "extensions": (Keyed(),)}, 200),
     "DAgger-keyed": (DAgger, {**DAGGER, "extensions": (ActorKeyed(),)}, 200),
@@ -291,6 +295,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "SAC-expert-bellman": (SAC, {**PREFILL, "extensions": BELLMAN}, 160),
     "SAC-residual-bc": (SAC, {**NO_PREFILL, "extensions": RESIDUAL_BC}, 160),
     "REDQ": (REDQ, {**S, **R}, 120),
+    "REDQ-warmup": (REDQ, {**S, **R, **WARMUP}, 120),
     "ASAC": (ASAC, {**S, **R}, 160),
     "ASAC-prefill": (ASAC, {**S, **R, **EXPERT_PREFILL}, 160),
     "CrossQ": (CrossQ, CROSSQ, 160),
@@ -300,6 +305,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "CrossQ-gain": (CrossQ, {**CROSSQ, **GAIN}, 160),
     "CrossQ-observe": (CrossQ, {**CROSSQ, **OBSERVE}, 160),
     "CrossQ-norm": (CrossQ, {**CROSSQ, **NORM, **REWARD_NORM}, 160),
+    "CrossQ-warmup": (CrossQ, {**CROSSQ, **WARMUP}, 160),
     "PPO-keyed": (PPO, {**ON, "extensions": (Keyed(),)}, 128),
     "PPO-norm": (PPO, {**ON, **NORM}, 128),
     "PPO-norm-brax": (PPO, {**ON, **NORM, "env_id": "fast"}, 128),

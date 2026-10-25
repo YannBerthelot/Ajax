@@ -37,7 +37,7 @@ src/ajax/
 │   ├── minibatch.py     the on-policy rollout split (RolloutSplit), minibatches and epochs
 │   ├── critics.py       the Q-critics' regression (continuous and discrete actions)
 │   ├── diagnostics.py   KL, explained variance, policy std
-│   ├── recurrent.py     replay buffers and R2D2-style sequence replay for memory=
+│   ├── recurrent.py     replay buffers and R2D2-style sequence replay for memory=, and PPO's networks with or without memory
 │   ├── cloning.py       the behaviour-cloning loss and fit that CloningPretrain runs
 │   └── <AGENT>/         one package per agent (below)
 ├── extensions/          Extension, ExtensionStack and the shipped extensions

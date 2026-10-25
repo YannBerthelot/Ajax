@@ -236,6 +236,7 @@ which the agent reads when it is built:
 | `expert_fields` | the fields holding an expert. The agent converts each one to [agent units](expert-guidance.md#the-expert), and a run whose extensions hold an expert keeps the replay fields only experts read. |
 | `experts()` | the experts the extension calls itself, without a state, on the observations it is given. |
 | `reads_agent_expert_actions` | the extension reads the expert's actions the agent stored at collection when its expert is the agent's own `expert_policy` (SAC, TD3, REDQ, ASAC, AVG and APO store them). |
+| `uses_expert_actions_as_policy_actions()` | the extension puts an expert's actions where the policy's go: as the actor's target, or as an action its critics score. Gain mode refuses it, since there the policy chooses gains. |
 | `requires` | the capabilities it needs beyond those its phases imply (`needs()` returns them all; an extension whose needs depend on its options overrides it). |
 | `provides` | the capabilities it gives the rest of its stack: `MCPretrain` provides `phi_star`. |
 | `context` | the agent-context keys it cannot work without (`bind_to_agent`); an agent's `extension_context` lists those it binds. |

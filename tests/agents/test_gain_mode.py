@@ -14,6 +14,7 @@ import pytest
 from ajax import APG, SAC, UDRL
 from ajax.extensions.capabilities import NotWired
 from ajax.extensions.expert import ExpertGains, ImitationLoss
+from ajax.extensions.pretrain import CloningPretrain, MCPretrain
 from tests.agents.test_agent_contract import CASES
 from tests.environments import paid_action
 
@@ -147,12 +148,28 @@ def test_the_replay_keeps_the_experts_env_action_beside_the_gains(expert):
     np.testing.assert_allclose(stored, np.broadcast_to(anchor_action / 2, stored.shape))
 
 
-def test_gain_mode_refuses_an_extension_reading_the_experts_actions():
-    """Its expert's actions are env actions, the policy's are gains."""
-    imitation = ImitationLoss(lambda obs: jnp.zeros(obs.shape[:-1] + (1,)))
-    with pytest.raises(NotWired, match="ImitationLoss"):
+def zero_expert(obs: jax.Array) -> jax.Array:
+    return jnp.zeros(obs.shape[:-1] + (1,))
+
+
+@pytest.mark.parametrize(
+    "extension",
+    [ImitationLoss(zero_expert), CloningPretrain(zero_expert), MCPretrain(zero_expert)],
+    ids=["ImitationLoss", "CloningPretrain", "MCPretrain"],
+)
+def test_gain_mode_refuses_an_extension_using_expert_actions_as_the_policys(extension):
+    """An expert's actions are env actions, the policy's are gains: cloning
+    them into the actor or scoring them with a critic mixes the two."""
+    with pytest.raises(NotWired, match=type(extension).__name__):
         SAC(
             "Pendulum-v1",
             expert_policy=TwoGains(),
-            extensions=(ExpertGains(), imitation),
+            extensions=(ExpertGains(), extension),
         )
+
+
+def test_gain_mode_takes_imitation_of_the_replayed_gains():
+    """ImitationLoss's replayed target clones the stored actions, which are
+    the policy's own gains."""
+    imitation = ImitationLoss(None, target="replay")
+    SAC("Pendulum-v1", expert_policy=TwoGains(), extensions=(ExpertGains(), imitation))

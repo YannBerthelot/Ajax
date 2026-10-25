@@ -409,6 +409,9 @@ class CloningPretrain(Extension):
     context: ClassVar[frozenset[str]] = frozenset({"actor_optimizer_args", "env_args"})
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
 
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        return True
+
     def bind_to_agent(self, **agent_context: Any) -> "CloningPretrain":
         """Copy the agent's ``env_args`` (its observation features
         included) and ``actor_optimizer_args``. Raises ``ValueError`` when
@@ -575,6 +578,9 @@ class MCPretrain(Extension):
         {"critic_optimizer_args", "env_args", "gamma", "network_args", "reward_scale"}
     )
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "MCPretrain":
         """Copy the agent's context (``env_args``, ``network_args``,
@@ -897,6 +903,9 @@ class PhiRefresh(Extension):
 
     def experts(self) -> tuple:
         return (self.expert_policy,)
+
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "PhiRefresh":
         """Copy the agent's ``buffer``, ``gamma`` and ``reward_scale``, and

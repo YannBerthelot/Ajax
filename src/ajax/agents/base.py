@@ -380,17 +380,17 @@ class ActorCritic:
         self.env_args = self.env_args.replace(
             observers=observers, transforms=transforms, policy_action_dim=dim
         )
-        # Under gain mode the policy chooses gains, and its expert's actions,
+        # Under gain mode the policy chooses gains, and an expert's actions,
         # stored (a_expert) or called again, are env actions: an extension
-        # reading them beside the policy's would compare the two spaces.
-        readers = [
+        # using them as the policy's would mix the two spaces.
+        mixers = [
             extension
             for extension in self.extension_stack
-            if extension.reads_agent_expert_actions
+            if extension.uses_expert_actions_as_policy_actions()
         ]
-        if dim is not None and readers:
-            reason = "reads the expert's env actions beside the policy's gains"
-            unwired = {type(reader).__name__: reason for reader in readers}
+        if dim is not None and mixers:
+            reason = "uses the expert's env actions where the policy's gains go"
+            unwired = {type(mixer).__name__: reason for mixer in mixers}
             raise NotWired(
                 f"{type(self).__name__} cannot run {sorted(unwired)} under gain"
                 f" mode yet: each {reason}.",

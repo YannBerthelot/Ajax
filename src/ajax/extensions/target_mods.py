@@ -197,6 +197,9 @@ class IBRL(Extension):
     def experts(self) -> tuple:
         return (self.expert_policy,)
 
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        return True
+
     def bind_to_agent(self, **agent_context: Any) -> "IBRL":
         """Read the expert's stored actions when it is the agent's."""
         stored = reads_stored_expert_actions(self, agent_context)
@@ -255,6 +258,9 @@ class LCBGatedBootstrap(Extension):
 
     def experts(self) -> tuple:
         return (self.expert_policy,)
+
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "LCBGatedBootstrap":
         """Read the expert's stored actions when it is the agent's."""
@@ -339,6 +345,9 @@ class CriticBlend(Extension):
 
     def experts(self) -> tuple:
         return (self.expert_policy,)
+
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "CriticBlend":
         """Read the expert's stored actions when it is the agent's."""

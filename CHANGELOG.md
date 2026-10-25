@@ -129,10 +129,11 @@ PyPI as `ajax-rl`.
   hold the expert's env action: an expert with fewer gains than action
   dimensions crashed collection, and one with more had its action copied
   into every column. They now take the env's action width. Gain mode
-  refuses an extension that reads the expert's stored actions beside the
-  policy's (ImitationLoss, OnlineBC, IBRL, LCBGatedBootstrap, CriticBlend,
-  PhiRefresh, ExpertValueMetrics): those are env actions, the policy's are
-  gains.
+  refuses an extension that uses an expert's actions where the policy's go
+  (`Extension.uses_expert_actions_as_policy_actions`: ImitationLoss cloning
+  its expert, OnlineBC, IBRL, LCBGatedBootstrap, CriticBlend, PhiRefresh,
+  ExpertValueMetrics, CloningPretrain, MCPretrain): those are env actions,
+  the policy's are gains.
 - `NetworkConfig.squash_log_det_eps` sets the guard inside the `tanh`
   log-det, `log(1 - tanh(u)^2 + eps)`, for an agent whose reference uses
   one; 0, the exact log-det, by default. `NetworkConfig.log_variance_head`

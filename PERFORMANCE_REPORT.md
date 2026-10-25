@@ -507,6 +507,31 @@ gradient of the summed loss over both networks (were a critic step, then an
 actor step, each its own backward pass). The 2026-10-12 baseline row
 (16,390) is not replaced: this run was under load.
 
+## DQN, DAgger, UDRL and APG declared (batch/agent-dqn-dagger-udrl-apg, 2026-10-25)
+
+`benchmarks/agent_bench.py --only DQN UDRL APG` (CartPole for DQN and
+UDRL, Pendulum for APG, 4 environments, 8,000 steps, 1 seed), CPU
+(`JAX_PLATFORMS=cpu`), the batch's base and its tip run in turn. UDRL and
+APG compile the same programs as before (their jaxprs are the same text):
++1.6% and -1.8% exec steps/s, noise. DQN, 5 trials a run, three rounds
+alternating:
+
+| DQN | exec steps/s (medians of the three rounds) |
+|---|---|
+| base | 21,820, 22,008, 21,911 |
+| batch `e372d69` | 20,079, 20,150, 19,925 |
+
+Exec steps/s -8.5%, under the 10% guardrail. The cause is the removed
+inner jit around DQN's update (the batch's "DQN's update is traced once"
+commit): the trees just before and just after it alone give 21,819 and
+21,930 against 20,347 and 19,822. Its outputs are bitwise the same; JAX
+lowers a nested jit to a call of its own computation, which XLA's CPU
+pipeline compiled into a faster schedule than the same operations inlined
+in the scan body (the compiled HLO differs in instruction order and
+computation boundaries, as critique H1 found). Restoring the jit would
+recover it, with that reason, not its earlier one (a configurable scan
+length).
+
 ## JAX 0.11 and flax 0.12 (PR #199, 2026-10-19)
 
 The lock moves from JAX 0.7.2 / flax 0.10.7 to JAX 0.11.2 / flax 0.12.10;

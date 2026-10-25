@@ -759,6 +759,7 @@ def evaluate_policy(
     init_carry_fn: Callable[[int], Any],
     num_episodes: int,
     key: jax.Array,
+    agent_state: Any = None,
 ) -> tuple[jax.Array, jax.Array]:
     """Mean return and mean length of one episode in each of ``num_episodes`` envs.
 
@@ -779,7 +780,9 @@ def evaluate_policy(
       with ``is_first`` set on the first step only;
     * every env runs exactly one episode: a scan over the episode length in
       agent steps (:func:`ajax.environments.utils.agent_episode_length`)
-      with rewards and lengths masked after each env's first ``done``.
+      with rewards and lengths masked after each env's first ``done``;
+    * every observation carries its features (env_args.observers) at the
+      progress the collector of agent_state holds, frozen as evaluate holds it.
 
     Preconditions (they raise): the training env does not normalise
     observations or rewards (the rebuild is the raw env, see
@@ -811,9 +814,28 @@ def evaluate_policy(
     horizon = agent_episode_length(env, env_params, env_args.action_repeat)
 
     key, obs, env_state = _reset_envs(env, mode, env_params, num_episodes, key)
+    observers, progress_now = env_args.observers, _frozen_progress(agent_state)
+
+    def observe(obs: jax.Array, states: Any) -> tuple[jax.Array, Any]:
+        inputs = ObserveInputs(obs.astype(jnp.float32), progress=progress_now)
+        return observe_features(obs, inputs, observers, states)
+
+    observer_states = None
+    if observers:
+        obs, observer_states = observe(obs, init_observers(observers, num_episodes))
 
     def body(carry, _):
-        obs, env_state, policy_carry, is_first, done, ret, length, key = carry
+        (
+            obs,
+            env_state,
+            policy_carry,
+            is_first,
+            done,
+            ret,
+            length,
+            key,
+            observer_states,
+        ) = carry
         key, policy_key, step_key = jax.random.split(key, 3)
         action, policy_carry, _ = policy_fn(policy_carry, obs, is_first, policy_key)
         obs, env_state, reward, terminated, truncated, _ = step(
@@ -828,6 +850,9 @@ def evaluate_policy(
         ret = ret + jnp.where(running, reward, 0.0)
         length = length + running.astype(jnp.float32)
         done = done | (terminated > 0) | (truncated > 0)
+        # Each env runs one episode, masked after its end: its features need no restart.
+        if observers:
+            obs, observer_states = observe(obs, observer_states)
         return (
             obs,
             env_state,
@@ -837,6 +862,7 @@ def evaluate_policy(
             ret,
             length,
             key,
+            observer_states,
         ), None
 
     init = (
@@ -848,6 +874,7 @@ def evaluate_policy(
         jnp.zeros(num_episodes, jnp.float32),
         jnp.zeros(num_episodes, jnp.float32),
         key,
+        observer_states,
     )
     final, _ = jax.lax.scan(body, init, None, length=horizon)
     return final[5].mean(), final[6].mean()

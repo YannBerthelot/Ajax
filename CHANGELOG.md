@@ -6,6 +6,11 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **The row collector and evaluate_policy observe features.** With
+  observation features (`env_args.observers`), the world models' row
+  collector appends them to every row, fresh at each episode's start, and
+  `evaluate_policy` takes `agent_state` for the frozen training progress, as
+  `evaluate` does. Runs without features are unchanged, bitwise.
 - **Discrete experts outside DAgger.** A discrete expert's action index, an
   int `(n, 1)` column, now steps the env in the expert's own rollouts (the
   replay prefill, the cloning and Monte-Carlo rollouts), enters

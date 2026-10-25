@@ -12,10 +12,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax.controller import ObserveInputs
 from ajax.environments.create import build_env_from_id, prepare_env
 from ajax.environments.row_collector import collect_row, init_row_collector_state
 from ajax.environments.system_class import broadcast_env_params
 from ajax.environments.utils import agent_episode_length
+from ajax.extensions.observe import PIDTermsInput, TrainingProgressInput
 from ajax.networks.memory import MEMORY_KINDS, MemoryCell, MemoryConfig, init_carry
 from ajax.state import EnvironmentConfig
 
@@ -50,11 +52,14 @@ def run_collector(
     timestep_unit="rows",
     carry=None,
     seed=0,
+    horizon=None,
 ):
-    """Scan ``n_ticks`` ticks of the collector."""
+    """Scan ``n_ticks`` ticks of the collector, which keeps the horizon."""
     state = init_row_collector_state(
         jax.random.PRNGKey(seed), env_args, policy_carry=carry
     )
+    if horizon is not None:
+        state = state.replace(max_timesteps=jnp.asarray(horizon, jnp.int32))
 
     def body(state, tick):
         # Copied into fresh containers before the tick: if the tick mutated
@@ -669,3 +674,29 @@ def test_dynamic_mode_on_a_fresh_reset_playground_env_does_not_warn():
             ),
             state,
         )
+
+
+@pytest.mark.parametrize("mode", ["dynamic", "static"])
+def test_each_row_observes_its_features_from_its_episodes_start(mode):
+    """A row's observation ends with the training progress the collector
+    held when it arrived and the PID terms of its env columns, which restart
+    at is_first and continue through is_last."""
+    pid, static = PIDTermsInput((0,), (1,)), mode == "static"
+    env_args = env_args_for("Pendulum-v1" if static else "CartPole-v1", 2)
+    env_args = env_args.replace(observers=(TrainingProgressInput(), pid))
+    policy, length = (hold_half, 4) if static else (push_right, None)
+    options = {"episode_length": length, "carry": jnp.zeros((), jnp.int32)}
+    run = run_collector(env_args, policy, 24, reset_mode=mode, horizon=100, **options)
+    obs, first = np.asarray(run.rows.obs), np.asarray(run.rows.is_first)
+    assert np.asarray(run.rows.is_last).any() and first[1:].any()
+    arrived = np.maximum(np.arange(24) - 1, 0) * 2  # rows before the tick
+    np.testing.assert_allclose(obs[:, :, -4], np.tile(arrived[:, None] / 100, 2))
+    assert run.state.reset_obs.shape[-1] == obs.shape[-1] - 4
+    for env in range(2):
+        state = pid.init_observer(1)
+        for tick in range(24):
+            if first[tick, env]:
+                state = pid.init_observer(1)
+            row = jnp.asarray(obs[tick, env : env + 1, :-4])
+            terms, state = pid.observe(ObserveInputs(row), state)
+            np.testing.assert_allclose(obs[tick, env : env + 1, -3:], terms, 1e-5)

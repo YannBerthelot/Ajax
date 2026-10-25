@@ -308,6 +308,34 @@ def test_warmup_cosine_schedule_is_wired_and_validated(env_and_class):
     )
 
 
+def test_the_schedule_steps_the_matrices_and_the_vectors_keep_the_peak(env_and_class):
+    """As in the reference, which sets its first parameter group's rate alone
+    (buswayne/in-context-controller at 7eb094ce17: train_onestep_lin_CL.py:241).
+    Under a constant gradient each Adam step is its rate."""
+    env, sc = env_and_class
+    agent = make_agent(
+        env, sc, lr_schedule="warmup_cosine", warmup_steps=2, max_grad_norm=None
+    )
+    peak = agent.actor_optimizer_args.learning_rate
+    context = agent.make_context(4 * N_ENVS * HORIZON)[1]
+    context, _ = agent.configure_call(context, n_iterations=4)
+    optimizer_args = context.actor_optimizer_args
+    args = (agent.env_args, optimizer_args, agent.network_args)
+    state = make_agent_state(
+        jax.random.PRNGKey(0), *args, PIDHeadConfig(), agent.squash
+    )
+    params = state.actor_state.params
+    tx, gradients = state.actor_state.tx, jax.tree.map(jnp.ones_like, params)
+    opt_state = tx.init(params)
+    for count in range(4):
+        updates, opt_state = tx.update(gradients, opt_state, params)
+        schedule = optimizer_args.learning_rate(count)
+        for update in jax.tree.leaves(updates):
+            rate = schedule if update.ndim >= 2 else peak
+            np.testing.assert_allclose(update, -rate, rtol=1e-4)
+    assert optimizer_args.learning_rate(0) == 0.0  # the schedule moves
+
+
 def test_resume_keeps_params_and_resets_optimizer(env_and_class):
     env, sc = env_and_class
     agent = make_agent(env, sc)

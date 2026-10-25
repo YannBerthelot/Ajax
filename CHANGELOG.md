@@ -6,6 +6,11 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **APG's schedule steps its matrices alone**, as its reference does: with
+  `lr_schedule="warmup_cosine"` (`contextual_controller`'s default) the
+  biases, LayerNorm scales and PID gains keep `learning_rate`. Scheduled
+  APG runs train differently from before. The shared optimiser takes the
+  option as `OptimizerConfig.vector_learning_rate`.
 - **DQN, DAgger, UDRL and APG are declared agents**, each read from
   `agents/<A>/<A>.py`: keyword-only after `env_id` (DAgger's
   `expert_policy` included), fixed fields, `<A>Config` a view of them.

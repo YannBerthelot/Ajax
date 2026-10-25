@@ -222,18 +222,18 @@ def test_every_file_keeps_to_its_cap() -> None:
 
 
 def test_the_directory_keeps_to_its_budget() -> None:
-    """The harness (not the trainings moved to tests/probing/<area>/), every file
-    git tracks or would track: 7,000, plus 400 for the offline-learning and
-    imitation probes (2026-10-20: DAgger, offline mode, TD3+BC, IQL, CQL/Cal-QL,
-    ReBRAC, GAIL), 12 for PQN's and APO's original rules, 17 for CrossQ's cells, 15
-    for TQC's, 160 for residual RL and gain mode, 1 for the context rename."""
+    """The harness (not the trainings moved to tests/probing/<area>/), every file git
+    tracks or would track: 7,000, plus 400 for the offline-learning and imitation probes
+    (2026-10-20: DAgger, offline mode, TD3+BC, IQL, CQL/Cal-QL, ReBRAC, GAIL), 12 for
+    PQN's and APO's original rules, 17 for CrossQ's cells, 15 for TQC's, 160 for
+    residual RL and gain mode, 1 each for the context rename and APG's vector rate."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 7605, total
+    assert total <= 7606, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

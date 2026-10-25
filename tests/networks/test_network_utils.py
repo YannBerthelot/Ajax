@@ -68,6 +68,20 @@ def test_get_adam_tx_clips_iff_given_a_norm():
     np.testing.assert_allclose(clipped, -1e-6 / (1e-6 + 1e-5), rtol=1e-4)
 
 
+def test_a_vector_rate_steps_the_vectors_and_keeps_a_scheduled_state_layout():
+    """A checkpoint of a scheduled optimiser restores into one with a vector
+    rate: the same state tree."""
+    params = {"w": jnp.zeros((2, 2)), "b": jnp.zeros(2)}
+    grads = jax.tree.map(jnp.ones_like, params)
+    new = _one_step(get_adam_tx(1.0, eps=1e-8, vector_learning_rate=0.5), params, grads)
+    np.testing.assert_allclose(new["w"], -1.0, rtol=1e-4)
+    np.testing.assert_allclose(new["b"], -0.5, rtol=1e-4)
+    schedule = optax.linear_schedule(1.0, 0.0, 4)
+    split = get_adam_tx(schedule, vector_learning_rate=0.5).init(params)
+    plain = get_adam_tx(schedule).init(params)
+    assert jax.tree.structure(split) == jax.tree.structure(plain)
+
+
 def _members(key: jax.Array) -> dict:
     """Two members, the first's norm 30x the second's."""
     k1, k2 = jax.random.split(key)

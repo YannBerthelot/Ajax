@@ -564,6 +564,15 @@ class AuxiliaryLogs:
 
 #: agent.agent_config's class: a view of the fields until 0.5.0.
 ASACConfig = ASAC.declare_config(
-    "target_entropy tau tau_theta learning_starts reward_scale p_0 burn_in"
-    " sequence_length stored_state"
+    (
+        "target_entropy",
+        "tau",
+        "tau_theta",
+        "learning_starts",
+        "reward_scale",
+        "p_0",
+        "burn_in",
+        "sequence_length",
+        "stored_state",
+    )
 )

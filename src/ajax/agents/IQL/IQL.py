@@ -363,5 +363,12 @@ class AuxiliaryLogs:
 
 #: agent.agent_config's class: a view of the fields until 0.5.0.
 IQLConfig = IQL.declare_config(
-    "expectile temperature gamma tau learning_starts reward_scale"
+    (
+        "expectile",
+        "temperature",
+        "gamma",
+        "tau",
+        "learning_starts",
+        "reward_scale",
+    )
 )

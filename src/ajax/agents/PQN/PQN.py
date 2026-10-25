@@ -401,5 +401,13 @@ class AuxiliaryLogs:
 
 #: agent.agent_config's class: a view of the fields until 0.5.0.
 PQNConfig = PQN.declare_config(
-    "gamma q_lambda n_steps n_epochs num_minibatches reward_scale expose_recent_rollout"
+    (
+        "gamma",
+        "q_lambda",
+        "n_steps",
+        "n_epochs",
+        "num_minibatches",
+        "reward_scale",
+        "expose_recent_rollout",
+    )
 )

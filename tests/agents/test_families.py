@@ -82,7 +82,13 @@ class Toy(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
     capabilities = frozenset({"discounted", "q_critic"})
 
 
-ToyConfig = Toy.declare_config("gamma lam scaled")
+ToyConfig = Toy.declare_config(
+    (
+        "gamma",
+        "lam",
+        "scaled",
+    )
+)
 
 
 @dataclasses.dataclass(kw_only=True, eq=False, repr=False)

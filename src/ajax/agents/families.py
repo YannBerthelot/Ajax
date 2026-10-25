@@ -653,7 +653,7 @@ class DeclaredAgent(ActorCritic):
         )
 
     @classmethod
-    def declare_config(cls, names: str) -> Any:
+    def declare_config(cls, names: tuple[str, ...]) -> Any:
         """agent_config's class, the agent's name then Config: the names it holds,
         typed and defaulted as the fields (a property, as CrossQ's target
         entropy, is a required entry). Only the agents that had a Config
@@ -662,7 +662,7 @@ class DeclaredAgent(ActorCritic):
         time, it is Any to a type checker."""
         declared = {field.name: field for field in dataclasses.fields(cls)}  # type: ignore[arg-type]
         spec: dict[str, Any] = {"__annotations__": {}, "__module__": cls.__module__}
-        for name in names.split():
+        for name in names:
             field = declared.get(name)
             spec["__annotations__"][name] = Any if field is None else field.type
             if field is not None and field.default is not dataclasses.MISSING:
@@ -671,7 +671,7 @@ class DeclaredAgent(ActorCritic):
         spec.update({"__qualname__": title})
         view = type(title, (BaseAgentConfig,), spec)
         cls.config_class = struct.dataclass(view, kw_only=True)
-        cls.agent_config_fields = tuple(names.split())
+        cls.agent_config_fields = names
         return cls.config_class
 
 

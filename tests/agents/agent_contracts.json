@@ -101,7 +101,8 @@
    "q_critic",
    "replay",
    "reward_learning",
-   "target_critic"
+   "target_critic",
+   "warmup"
   ],
   "extension_context": [
    "actor_optimizer_args",
@@ -259,7 +260,8 @@
    "policy_density",
    "q_critic",
    "replay",
-   "reward_learning"
+   "reward_learning",
+   "warmup"
   ],
   "extension_context": [
    "actor_optimizer_args",
@@ -383,7 +385,8 @@
    "q_critic",
    "replay",
    "reward_learning",
-   "target_critic"
+   "target_critic",
+   "warmup"
   ],
   "extension_context": [],
   "make_train": "ajax.agents.DQN.train_DQN:make_train",
@@ -468,7 +471,8 @@
    "replay",
    "reward_learning",
    "target_critic",
-   "v_critic"
+   "v_critic",
+   "warmup"
   ],
   "extension_context": [
    "actor_optimizer_args",
@@ -651,7 +655,8 @@
    "q_critic",
    "replay",
    "reward_learning",
-   "target_critic"
+   "target_critic",
+   "warmup"
   ],
   "extension_context": [
    "actor_optimizer_args",
@@ -831,7 +836,8 @@
    "q_critic",
    "replay",
    "reward_learning",
-   "target_critic"
+   "target_critic",
+   "warmup"
   ],
   "extension_context": [
    "actor_optimizer_args",
@@ -915,7 +921,8 @@
    "q_critic",
    "replay",
    "reward_learning",
-   "target_critic"
+   "target_critic",
+   "warmup"
   ],
   "extension_context": [],
   "make_train": "ajax.agents.TDMPC2.train_TDMPC2:make_train",

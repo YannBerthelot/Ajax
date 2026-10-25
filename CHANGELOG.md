@@ -134,8 +134,9 @@ PyPI as `ajax-rl`.
 - **`ExpertWarmup(fraction)`** (`ajax.extensions.expert`): during the
   warm-up the agent's expert takes a share of the steps, uniform actions the
   others, through a new controller phase, `choose_warmup_action` (no state
-  and no key in the learner). SAC runs it; the other agents with a warm-up
-  follow. **Deprecated**: SAC's `expert_fraction` builds it and warns. Its
+  and no key in the learner). SAC runs it; the other agents with a uniform
+  warm-up (TD3, REDQ, ASAC, CrossQ, IQL, DQN, TD-MPC2) refuse it as not
+  wired yet, until they follow. **Deprecated**: SAC's `expert_fraction` builds it and warns. Its
   default is now `None`, which with an expert and warm-up steps still builds
   `ExpertWarmup(fraction=0.7)`, with a warning that this default will go;
   passing both raises. Runs are unchanged.

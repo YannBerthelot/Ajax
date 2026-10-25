@@ -11,8 +11,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax import PPO, SAC
-from ajax.extensions.capabilities import MissingCapability
+from ajax import PPO, SAC, TD3
+from ajax.extensions.capabilities import MissingCapability, NotWired
 from ajax.extensions.expert import ExpertGains, ExpertWarmup, ResidualPolicy
 from ajax.extensions.pretrain import PriorData
 from tests.agents.test_gain_mode import TwoGains
@@ -112,6 +112,9 @@ def test_the_warmup_is_refused_where_it_cannot_act():
         sac(expert_policy=None, extensions=(warmup,))
     with pytest.raises(MissingCapability, match="warmup"):
         PPO("Pendulum-v1", extensions=(warmup,))
+    # TD3 has a uniform warm-up; its collector does not run the phase yet.
+    with pytest.raises(NotWired, match="choose_warmup_action"):
+        TD3("Pendulum-v1", expert_policy=push, extensions=(warmup,))
     with pytest.raises(ValueError, match="one warm-up"):
         sac(extensions=(warmup, ExpertWarmup(fraction=0.2)))
     # SAC's gain mode acts through the shared pipeline, without a chooser yet.

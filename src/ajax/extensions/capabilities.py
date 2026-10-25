@@ -41,8 +41,8 @@ ALGORITHM_CAPABILITIES: Mapping[str, str] = {
     ),
     "reward_learning": "it learns from the reward, not from an expert's labels alone",
     "warmup": (
-        "it acts uniformly at random for its first learning_starts steps, and"
-        " later learns from their stored transitions"
+        "it acts uniformly at random for its first steps (learning_starts;"
+        " TD-MPC2's seed phase), and later learns from their stored transitions"
     ),
 }
 

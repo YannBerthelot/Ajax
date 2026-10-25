@@ -265,6 +265,7 @@ class TD3(
             "replay",
             "target_critic",
             "reward_learning",
+            "warmup",
         }
     )
     # Its smoothed next actions join the shared step's on_target keys.

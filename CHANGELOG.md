@@ -6,6 +6,11 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **Every agent with an expert takes eval_expert_policy**, SAC's option:
+  the expert whose return each evaluation logs, if not the training one
+  (`ExpertGuided`). **Every agent on the shared loop reads
+  LoggingConfig.sweep**, which only SAC read: a sweep evaluates only in the
+  last fifth of training. Runs without either are unchanged.
 - **BellmanPretrain runs on TD3**, as on SAC: a replay agent with a
   discounted Q critic and target critics gives it its critic step without
   extensions (`ReplayAgent.extension_values`); REDQ and TQC take it once

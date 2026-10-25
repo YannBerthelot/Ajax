@@ -77,7 +77,7 @@ def _hooks(agent):
     collects with what ``behaviour`` returns), or DQN's and PQN's TD target
     and loss (fields their updates read)."""
     if isinstance(agent, TD3):
-        return {"action_pipeline": agent.pipeline}
+        return {"action_pipeline": agent.action_pipeline}
     return {hook: getattr(agent, hook) for hook in AGENT_HOOKS[type(agent)]}
 
 

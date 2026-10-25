@@ -1,44 +1,41 @@
 """PID policies: an actor that is a PID controller with learned gains.
 
-The actor acts on the error terms ``(e, I, D)`` that
-:class:`ajax.extensions.observe.PIDTermsInput` appends to the observation
-(or a deprecated :class:`ajax.environments.pid_terms.PIDTermsWrapper` puts
-first); its pre-squash action, per action dimension ``a``, is::
+The actor acts on the error terms (e, I, D) that
+ajax.extensions.observe.PIDTermsInput appends to the observation; its
+pre-squash action, per action dimension a, is::
 
     u_a = sum_j Kp[a, j] e_j + Ki[a, j] I_j + Kd[a, j] D_j
 
-Passing a :class:`PIDPolicy` as ``actor_architecture`` selects it in any
+Passing a PIDPolicy as actor_architecture selects it in any
 continuous-action agent (SAC, TD3, REDQ, ASAC, AVG, PPO, APO). Two kinds
 of gains:
 
-* ``gains="fixed"``: the gains are the actor's parameters, a linear map
+* gains="fixed": the gains are the actor's parameters, a linear map
   with no bias and no hidden layer, so the trained policy deploys as a
-  plain (saturated) PID with the gains :func:`pid_gains` reads off it, in
+  plain (saturated) PID with the gains pid_gains reads off it, in
   normalised units (below) (Lawrence et al. 2022, "Deep reinforcement
   learning with shallow controllers: an experimental application to PID
   tuning", cited from memory, unverified).
-* ``gains="observation"``: an MLP predicts the gains from the observation
+* gains="observation": an MLP predicts the gains from the observation
   (gain scheduling); with a constant network it is the fixed policy.
 
-Each agent's own output rules apply to ``u`` as to any actor's mean: SAC,
-REDQ, ASAC and AVG squash it with ``tanh``, TD3 too (deterministic); APO
-takes ``tanh(u)`` as its mean (its ``tanh_mean``) and samples around it
-unsquashed, PPO around ``u`` (unless ``squash=True``). Like every action,
-``u`` is in agent units, ``[-1, 1]``, mapped onto the env's box ``[low,
-high]`` (:func:`ajax.environments.utils.agent_action_to_env`): the deployed
-controller is ``c + h * sat(u)``, with centre ``c = (high + low) / 2``,
-half-range ``h = (high - low) / 2`` and ``sat`` the agent's ``tanh`` or clip
-to ``[-1, 1]``. The gains are therefore normalised: they map the
-error terms to agent units, and a PID in the env's units has gains ``h *
-K`` (small-signal, ``tanh`` near 0) and offset ``c``; zero gains command
-the box's centre (no control on a symmetric box). The stochastic agents
-explore with a learned, state-independent log-std, which starts at -1 in
-every agent and is clipped to the agent's ``log_std_bounds`` (PPO's and
-APO's default: no clip). Gains start at zero.
+Each agent's own output rules apply to u as to any actor's mean: SAC,
+REDQ, ASAC and AVG squash it with tanh, TD3 too (deterministic); APO takes
+tanh(u) as its mean (its tanh_mean) and samples around it unsquashed, PPO
+around u (unless squash=True). Like every action, u is in agent units,
+[-1, 1], mapped onto the env's box [low, high]
+(ajax.environments.utils.agent_action_to_env): the deployed controller is
+c + h * sat(u), with centre c = (high + low) / 2, half-range
+h = (high - low) / 2 and sat the agent's tanh or clip to [-1, 1]. The gains are
+therefore normalised: they map the error terms to agent units, and a PID
+in the env's units has gains h * K (small-signal, tanh near 0) and offset
+c; zero gains command the box's centre (no control on a symmetric box).
+The stochastic agents explore with a learned, state-independent log-std,
+which starts at -1 in every agent and is clipped to the agent's
+log_std_bounds (PPO's and APO's default: no clip). Gains start at zero.
 Observation normalisation (env- or agent-side) leaves the terms raw, as
-the feature and the wrapper declare them, so the gains act on the errors in
-the env's units; the gain network of ``gains="observation"`` reads the rest
-normalised.
+the feature declares them, so the gains act on the errors in the env's
+units; the gain network of gains="observation" reads the rest normalised.
 """
 
 from __future__ import annotations

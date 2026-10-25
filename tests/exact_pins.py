@@ -28,7 +28,7 @@ from ajax import APO, ASAC, AVG, DQN, IQL, PPO, PQN, REDQ, SAC, TD3, TQC, CrossQ
 from ajax.agents.APG.APG import APG
 from ajax.agents.APG.networks import PIDHeadConfig
 from ajax.agents.critics import compute_mse_td_loss, make_huber_td_loss
-from ajax.agents.DQN.train_DQN import compute_double_dqn_td_target
+from ajax.agents.DQN.DQN import compute_double_dqn_td_target
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.TD3.TD3 import make_default_action_pipeline
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2

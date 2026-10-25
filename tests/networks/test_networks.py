@@ -351,11 +351,9 @@ def _ppo_nets():
 
 def _dqn_nets():
     from ajax.agents.DQN.DQN import DQN
-    from ajax.agents.DQN.train_DQN import init_DQN
 
     def build(a, key):
-        state = init_DQN(key, a.env_args, a.critic_optimizer_args, a.network_args, 2)
-        return state.actor_state.params
+        return a.init(key, a.make_context(1)[1]).actor_state.params
 
     return DQN("CartPole-v1"), build
 

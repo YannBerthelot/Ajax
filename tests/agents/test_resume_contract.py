@@ -24,7 +24,7 @@ import pytest
 
 import ajax
 from ajax.agents.APG.APG import APG
-from ajax.agents.DQN import train_DQN
+from ajax.agents.DQN import DQN as dqn_file
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.networks.memory import MemoryConfig
 from tests.agents.test_agent_contract import CASES
@@ -126,7 +126,7 @@ def _epsilon_trace(legs: tuple[int, ...], horizon: int) -> list[tuple[int, float
     """(timestep, epsilon) at every collected step of a DQN run trained in
     ``legs`` calls, each told the run's horizon."""
     trace: list[tuple[int, float]] = []
-    behaviour = train_DQN.epsilon_greedy
+    behaviour = dqn_file.epsilon_greedy
 
     def recorded(epsilon: Any, n_actions: int) -> Any:
         # The schedule the behaviour policy acts with, recorded at each read
@@ -141,7 +141,7 @@ def _epsilon_trace(legs: tuple[int, ...], horizon: int) -> list[tuple[int, float
         return behaviour(acted, n_actions)
 
     agent, state = _dqn(), None
-    with mock.patch.object(train_DQN, "epsilon_greedy", recorded):
+    with mock.patch.object(dqn_file, "epsilon_greedy", recorded):
         for steps in legs:
             state, _ = agent.train(
                 seed=0, n_timesteps=steps, initial_state=state, total_timesteps=horizon

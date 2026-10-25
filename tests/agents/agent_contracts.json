@@ -395,7 +395,7 @@
    "warmup"
   ],
   "extension_context": [],
-  "make_train": "ajax.agents.DQN.train_DQN:make_train",
+  "make_train": "ajax.agents.families:ReplayAgent.make_train",
   "name": "DQN",
   "per_seed_update_counts": false,
   "phase_batch_keys": {

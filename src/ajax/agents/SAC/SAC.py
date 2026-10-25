@@ -1,4 +1,3 @@
-import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional, Union
 
@@ -8,68 +7,36 @@ from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES, REPLAY_BATCH_KEYS, TARGET_KEYS
 from ajax.agents.recurrent import make_replay_buffer
 from ajax.agents.SAC.action_pipeline import check_action_extensions
+from ajax.agents.SAC.deprecated_keywords import translate_deprecated_keywords
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train
 from ajax.controller import policy_action_dim
-from ajax.deprecation import warn_inert
+from ajax.deprecation import moved_names
 from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
 )
 from ajax.extensions.base import Extension
-from ajax.extensions.expert import ExpertGains
-from ajax.extensions.observe import (
-    ExpertActionInput,
-    ExpertStateInput,
-    TrainingProgressInput,
-)
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import MemoryConfig
 from ajax.state import AlphaConfig
 from ajax.types import EnvType
 
-
-def augmentation_features(
-    expert: Any, *, progress: bool, state: bool, action: bool
-) -> tuple:
-    """The observation features SAC's augmentation keywords stand for, in
-    their columns' order: the training progress (``use_train_frac``), the
-    expert's state (``augment_obs_with_expert_state``, a stateful expert's)
-    and its action (``augment_obs_with_expert_action``, with an expert).
-    Expand-then-contract (CLAUDE.md rule 10): the keywords warn, and go
-    once AjaxExperiments passes the features."""
-    if progress or state or action:
-        warnings.warn(
-            "SAC's use_train_frac, augment_obs_with_expert_state and"
-            " augment_obs_with_expert_action will be removed: pass"
-            " TrainingProgressInput(), ExpertStateInput.for_expert(expert) and"
-            " ExpertActionInput() (ajax.extensions.observe) in extensions.",
-            FutureWarning,
-            stacklevel=3,
-        )
-    stateful = expert is not None and hasattr(expert, "init_state")
-    return (
-        *([TrainingProgressInput()] if progress else []),
-        *([ExpertStateInput.for_expert(expert)] if state and stateful else []),
-        *([ExpertActionInput()] if action and expert is not None else []),
-    )
+# Moved with SAC's other deprecated keywords; the old path goes in 0.5.0.
+__getattr__ = moved_names(
+    __name__, {"augmentation_features": "ajax.agents.SAC.deprecated_keywords"}
+)
 
 
 class SAC(ActorCritic):
     """Soft Actor-Critic agent for continuous action spaces.
 
-    ``extensions=`` is the sole surface for composing research features.
-
-    Several kwargs remain because they thread into collection or the
-    action pipeline at a level the extension framework doesn't reach
-    (``store_policy_action``). ``augment_obs_with_expert_action``,
-    ``augment_obs_with_expert_state`` and ``use_train_frac`` build the
-    observation features they stand for (:mod:`ajax.extensions.observe`),
-    and ``use_pid_policy`` gain mode's
-    :class:`~ajax.extensions.expert.ExpertGains`; they warn: pass those
-    instead.
-    ``normalize_obs_running`` is ``normalize_observations`` under its old
-    name, kept with a FutureWarning until the downstream projects pass the
-    new one.
+    The extensions keyword is the sole surface for composing research
+    features. A few keywords remain because they thread into collection or
+    the action pipeline at a level the extension framework does not reach
+    (store_policy_action). The deprecated ones (the augmentation keywords,
+    use_pid_policy, normalize_obs_running, jsrl_curriculum,
+    skip_critic_pretrain) warn and build what replaces them, in
+    ajax.agents.SAC.deprecated_keywords.
     """
 
     name: str = "SAC"
@@ -222,14 +189,17 @@ class SAC(ActorCritic):
 
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy
-        if normalize_obs_running:
-            warnings.warn(
-                "SAC's normalize_obs_running is normalize_observations, which a"
-                " replay agent applies itself; pass normalize_observations=True:"
-                " normalize_obs_running will be removed.",
-                FutureWarning,
-                stacklevel=2,
-            )
+        features, normalize_observations = translate_deprecated_keywords(
+            expert_policy,
+            normalize_observations=normalize_observations,
+            normalize_obs_running=normalize_obs_running,
+            use_train_frac=use_train_frac,
+            augment_obs_with_expert_state=augment_obs_with_expert_state,
+            augment_obs_with_expert_action=augment_obs_with_expert_action,
+            use_pid_policy=use_pid_policy,
+            jsrl_curriculum=jsrl_curriculum,
+            skip_critic_pretrain=skip_critic_pretrain,
+        )
         # The initialisation of SAC's reference code, Glorot-uniform
         # kernels and zero biases in both: haarnoja/sac @8258e33
         # (sac/misc/mlp.py:24-25, :41-49: tf.contrib's
@@ -259,20 +229,6 @@ class SAC(ActorCritic):
                         "log_std_init": 0.0,
                     }
                 )
-        features = augmentation_features(
-            expert_policy,
-            progress=use_train_frac,
-            state=augment_obs_with_expert_state,
-            action=augment_obs_with_expert_action,
-        )
-        if use_pid_policy:
-            warnings.warn(
-                "SAC's use_pid_policy will be removed: pass ExpertGains()"
-                " (ajax.extensions.expert) in extensions.",
-                FutureWarning,
-                stacklevel=2,
-            )
-            features = (*features, ExpertGains())
         super().__init__(
             env_id=env_id,
             n_envs=n_envs,
@@ -284,7 +240,7 @@ class SAC(ActorCritic):
             max_grad_norm=max_grad_norm,
             weight_decay=weight_decay,
             memory=memory,
-            normalize_observations=normalize_observations or normalize_obs_running,
+            normalize_observations=normalize_observations,
             normalize_rewards=normalize_rewards,
             reward_normalization_gamma=reward_normalization_gamma,
             squash=True,
@@ -328,18 +284,7 @@ class SAC(ActorCritic):
         self.buffer = make_replay_buffer(
             self.agent_config, n_envs, self.network_args.memory, buffer_size, batch_size
         )
-        if not skip_critic_pretrain:
-            raise ValueError(
-                "SAC no longer pretrains its critic on the cloning dataset; "
-                "use the MCPretrain extension."
-            )
         self.eval_expert_policy = self._in_agent_units(eval_expert_policy)
-        warn_inert(
-            "SAC",
-            "SAC counts each env's steps in its episode when an extension reads"
-            " them (JSRLCurriculum).",
-            jsrl_curriculum=jsrl_curriculum,
-        )
         self.train_kwargs = {
             "buffer": self.buffer,
             "alpha_args": self.alpha_args,

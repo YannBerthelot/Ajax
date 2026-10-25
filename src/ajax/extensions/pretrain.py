@@ -45,7 +45,7 @@ from ajax.environments.utils import raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
 from ajax.networks.networks import phi_star_critic_state, predict_value
-from ajax.state import EnvironmentConfig, LoadedTrainState
+from ajax.state import EnvironmentConfig, LoadedTrainState, Transition
 from ajax.types import BufferType, NormalizationInfo
 
 
@@ -975,22 +975,21 @@ def collect_and_store_expert_transitions(
     rng: jax.Array,
     n_steps: int,
 ) -> Any:
-    """Collect n_steps expert steps per env and store them in the replay row
-    by row as the live collector does (replay_row): one step of every env per
-    add (the buffer's add batch is the env axis), with the expert's actions
-    at s and s' as a_expert and next_a_expert, is_expert 1, and the
-    observations with the agent's features (the training progress holds 0
-    before training)."""
-    schema = buffer_state.experience
-    if "actor_carry" in schema:
-        raise ValueError(
-            "The expert prefill cannot store a recurrent actor's carry"
-            " (actor_carry, stored_state=True): that carry exists only along"
-            " the agent's own rollouts."
-        )
+    """Collect n_steps expert steps per env (collect_prefill_transitions)
+    and store them in the replay (store_expert_transitions)."""
+    transitions = collect_prefill_transitions(expert_policy, env_args, rng, n_steps)
+    return store_expert_transitions(transitions, env_args, buffer, buffer_state)
+
+
+def collect_prefill_transitions(
+    expert_policy: Callable, env_args: EnvironmentConfig, rng: jax.Array, n_steps: int
+) -> Transition:
+    """n_steps expert steps per env, as the replay keeps them: with the
+    observations' features (the training progress holds 0 before
+    training)."""
     # The next observations the live collector stores: after a termination
     # the reset one, which ASAC's differential target continues from.
-    transitions = collect_experience_from_expert_policy(
+    return collect_experience_from_expert_policy(
         expert_policy=expert_policy,
         rng=rng,
         mode=env_args.mode,
@@ -998,6 +997,26 @@ def collect_and_store_expert_transitions(
         n_timesteps=n_steps,
         bootstrap_next_obs=True,
     )
+
+
+def store_expert_transitions(
+    transitions: Transition,
+    env_args: EnvironmentConfig,
+    buffer: BufferType,
+    buffer_state: Any,
+) -> Any:
+    """Store the expert's transitions, time along their first axis, in the
+    replay row by row as the live collector does (replay_row): one step of
+    every env per add (the buffer's add batch is the env axis), with the
+    expert's actions at s and s' as a_expert and next_a_expert, and
+    is_expert 1."""
+    schema = buffer_state.experience
+    if "actor_carry" in schema:
+        raise ValueError(
+            "The expert prefill cannot store a recurrent actor's carry"
+            " (actor_carry, stored_state=True): that carry exists only along"
+            " the agent's own rollouts."
+        )
     # A row stores what collection stores when the expert acts. Under an
     # action transform, the policy's action is the one at which it executes
     # the expert's own (policy_action_for_expert); gain mode stores it as
@@ -1052,7 +1071,7 @@ EXPERT_PREFILL_KEY_TAG = 0x70726566
 class ExpertPrefill(Extension):
     """The agent's expert acts n_steps steps in every env before training,
     and its transitions go to the replay as collection writes its own
-    (collect_and_store_expert_transitions): with the agent's features at
+    (store_expert_transitions): with the agent's features at
     training progress 0, is_expert 1, and under an action transform the
     policy action that executes the expert's own. The rows count in no
     normaliser and no timestep, as SAC's built-in prefill never counted
@@ -1092,14 +1111,13 @@ class ExpertPrefill(Extension):
                 " agent did not bind."
             )
         key = jax.random.fold_in(context.rng, EXPERT_PREFILL_KEY_TAG)
+        env_args = context.env_args
+        transitions = collect_prefill_transitions(
+            self.expert, env_args, key, self.n_steps
+        )
         collector = agent_state.collector_state
-        buffer_state = collect_and_store_expert_transitions(
-            self.expert,
-            context.env_args,
-            context.buffer,
-            collector.buffer_state,
-            key,
-            self.n_steps,
+        buffer_state = store_expert_transitions(
+            transitions, env_args, context.buffer, collector.buffer_state
         )
         collector = collector.replace(buffer_state=buffer_state)
         return agent_state.replace(collector_state=collector), ext_state

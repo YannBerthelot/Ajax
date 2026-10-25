@@ -338,9 +338,12 @@ def _soft_nets(agent_cls, init, **n_critics):
 
 def _sac_nets():
     from ajax.agents.SAC.SAC import SAC
-    from ajax.agents.SAC.train_SAC import init_SAC
 
-    return _soft_nets(SAC, init_SAC, num_critics=2)
+    def build(a, key):
+        state = a.init(key, a.make_context(1)[1])
+        return state.actor_state.params, state.critic_state.params
+
+    return SAC("Pendulum-v1", buffer_size=64, batch_size=8, learning_starts=8), build
 
 
 def _redq_nets():

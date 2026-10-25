@@ -11,7 +11,7 @@ import jax
 import numpy as np
 import pytest
 
-from ajax import IQL, TD3, CrossQ
+from ajax import IQL, SAC, TD3, CrossQ
 
 TINY = {"env_id": "Pendulum-v1", "n_envs": 1, "buffer_size": 64, "batch_size": 8}
 TINY.update({"learning_starts": 8})
@@ -19,12 +19,16 @@ NETS: dict[type, dict[str, Any]] = {
     TD3: {"actor_architecture": ("8", "relu"), "critic_architecture": ("8", "relu")},
     IQL: {"actor_architecture": ("8", "relu"), "critic_architecture": ("8", "relu")},
     CrossQ: {"actor_width": 8, "critic_width": 8, "policy_delay": 1},
+    SAC: {"actor_architecture": ("8", "relu"), "critic_architecture": ("8", "relu")},
 }
+#: SAC waits 2000 steps by default; the others not at all.
+NO_WAIT = {"policy_update_start": 0, "alpha_update_start": 0}
 STEPS = 24
 
 
 def _train(cls: type, **kwargs: Any) -> Any:
-    agent = cls(**{**TINY, **NETS[cls], **kwargs})
+    waits = {key: 0 for key in NO_WAIT if cls is SAC and key not in kwargs}
+    agent = cls(**{**TINY, **NETS[cls], **waits, **kwargs})
     return agent.train(seed=0, n_timesteps=STEPS)[0]
 
 
@@ -35,7 +39,7 @@ def _same(first: object, second: object) -> bool:
     )
 
 
-@pytest.mark.parametrize("cls", [TD3, IQL, CrossQ], ids=lambda c: c.__name__)
+@pytest.mark.parametrize("cls", [TD3, IQL, CrossQ, SAC], ids=lambda c: c.__name__)
 def test_the_actor_is_kept_from_policy_update_start(cls: type) -> None:
     """Started after the run, the actor stays as initialised while the
     critics learn; started at learning_starts, it moves."""
@@ -47,9 +51,10 @@ def test_the_actor_is_kept_from_policy_update_start(cls: type) -> None:
     assert not _same(started.actor_state.params, untrained.actor_state.params)
 
 
-def test_crossqs_temperature_is_kept_from_alpha_update_start() -> None:
-    untrained = _train(CrossQ, learning_starts=STEPS + 1)
-    waiting = _train(CrossQ, alpha_update_start=STEPS + 1)
+@pytest.mark.parametrize("cls", [CrossQ, SAC], ids=lambda c: c.__name__)
+def test_the_temperature_is_kept_from_alpha_update_start(cls: type) -> None:
+    untrained = _train(cls, learning_starts=STEPS + 1)
+    waiting = _train(cls, alpha_update_start=STEPS + 1)
     assert _same(waiting.alpha.params, untrained.alpha.params)
     assert not _same(waiting.actor_state.params, untrained.actor_state.params)
-    assert not _same(_train(CrossQ).alpha.params, untrained.alpha.params)
+    assert not _same(_train(cls).alpha.params, untrained.alpha.params)

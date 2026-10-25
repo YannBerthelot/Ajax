@@ -1,6 +1,6 @@
 from flax import struct
 
-from ajax.agents.SAC.state import SACConfig
+from ajax.agents.SAC.SAC import SACConfig
 from ajax.agents.temperature import SoftActorCriticState
 
 

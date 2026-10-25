@@ -42,11 +42,11 @@ EQUATIONS = {
     "SAC": {
         "sample_next_actions",
         "compute_td_target",
-        "soft_bellman_target",
-        "soft_policy_loss",
-        "soft_policy_objective",
-        "temperature_loss_fn",
-        "alpha_temperature_loss_fn",
+        "compute_soft_bellman_target",
+        "compute_soft_policy_loss",
+        "compute_soft_policy_objective",
+        "compute_temperature_loss",
+        "compute_alpha_temperature_loss",
     },
 }
 # B2 declared the replay family on IQL, CrossQ and TD3 only: SAC's descendants

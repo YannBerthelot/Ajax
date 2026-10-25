@@ -764,7 +764,7 @@
    "update_target_fn",
    "update_value_fn"
   ],
-  "make_train": "ajax.agents.SAC.train_SAC:make_train",
+  "make_train": "ajax.agents.families:ReplayAgent.make_train",
   "name": "SAC",
   "per_seed_update_counts": false,
   "phase_batch_keys": {
@@ -820,6 +820,7 @@
    "action",
    "actor_loss",
    "actuate",
+   "choose_replay_action",
    "choose_warmup_action",
    "critic_loss",
    "eval_metrics",

@@ -22,6 +22,7 @@ from ajax.agents.AVG.utils import compute_td_error_scaling
 from ajax.agents.loop import TrainLoop, actor_step, critic_step
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC import core
+from ajax.agents.SAC.SAC import sample_next_actions
 from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
@@ -160,7 +161,7 @@ def compute_avg_td_target(
     at the next action executed (``executed``, a residual policy's)."""
     rewards = rewards * reward_scale
     sample_key, _ = jax.random.split(rng)
-    next_actions, next_log_probs = core.sample_next_actions(
+    next_actions, next_log_probs = sample_next_actions(
         actor_state,
         next_observations,
         sample_key,

@@ -82,10 +82,6 @@ def make_action_pipeline(
     recurrent,
     env_args,
     extension_stack: ExtensionStack,
-    # Off-policy correctness ablation: when True, the pipeline returns
-    # the policy's sampled action as buffer_action (instead of letting
-    # collect_experience fall back to env_action = the executed action).
-    store_policy_action=False,
     total_timesteps=1,
 ):
     """Compose the SAC action pipeline for collect_experience.
@@ -239,13 +235,9 @@ def make_action_pipeline(
             uniform, lambda: _warmup_expert, lambda: _post_expert
         )
 
-        # Off-policy correctness ablation hook: write the policy's would-
-        # be action to the buffer when the flag is set. Default behaviour
-        # (None) leaves buffer_action falling back to env_action — i.e.,
-        # the action that actually generated (s', r). Storing the policy
-        # action breaks this contract on steps where the gate selected
-        # the expert; used to justify the design choice.
-        _buffer_action_field = action if store_policy_action else None
+        # The replay stores the executed action, which generated (s', r),
+        # unless the run's StorePolicyAction stores the policy's
+        # (collect_experience).
         return ActionPipelineResult(
             env_action=env_action,
             policy_action=action,
@@ -255,7 +247,6 @@ def make_action_pipeline(
             entry_bonus=entry_bonus,
             box_entry=box_entry,
             rng=rng,
-            buffer_action=_buffer_action_field,
         )
 
     return pipeline

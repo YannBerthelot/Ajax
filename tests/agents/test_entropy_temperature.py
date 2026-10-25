@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from ajax import CrossQ
+from ajax import SAC, CrossQ
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.schedule import linear
 
@@ -18,6 +18,7 @@ TINY: dict[str, Any] = {"env_id": "Reacher-misc", "n_envs": 2, "buffer_size": 64
 TINY.update({"batch_size": 8, "learning_starts": 8})
 SOFT: dict[type, dict[str, Any]] = {
     CrossQ: {"actor_width": 8, "critic_width": 8, "policy_delay": 1},
+    SAC: {"actor_architecture": ("8", "relu"), "critic_architecture": ("8", "relu")},
 }
 
 

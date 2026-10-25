@@ -28,6 +28,11 @@ from ajax.agents.recurrent import (
     unsupported_recurrent_options,
 )
 from ajax.agents.SAC import core
+from ajax.agents.SAC.SAC import (
+    compute_soft_bellman_target,
+    compute_temperature_loss,
+    sample_next_actions,
+)
 from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
@@ -165,7 +170,7 @@ def compute_tqc_td_target(
     quantile ``z`` at ``a' ~ pi(.|s')`` (trainer.py:45-53), executed
     (``executed``, a residual policy's). Returns the held target atoms and
     the next actions' log-probs."""
-    next_actions, log_probs = core.sample_next_actions(
+    next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, rng, carries, executed, next_a_expert
     )
     next_quantiles = q_values(
@@ -177,7 +182,7 @@ def compute_tqc_td_target(
         bootstrap=True,
         quantiles=True,
     )
-    target = core.soft_bellman_target(
+    target = compute_soft_bellman_target(
         truncated_quantiles(next_quantiles, n_drop),
         log_probs,
         rewards,
@@ -344,7 +349,7 @@ def update_agent(
         agent_state,
         log_probs,
         jnp.asarray(agent_config.target_entropy),
-        core.temperature_loss_fn,
+        compute_temperature_loss,
     )
     return agent_state, AuxiliaryLogs(
         temperature=aux_temperature,

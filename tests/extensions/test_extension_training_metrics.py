@@ -11,7 +11,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ajax.agents.SAC import train_SAC
 from ajax.agents.SAC.SAC import SAC
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionContext
@@ -36,15 +35,7 @@ def _setup() -> tuple[Any, dict, jax.Array]:
     """A fresh SAC state with phi* = its critic, the batch SAC's critic step
     hands ``on_target`` and a target."""
     agent = SAC("Pendulum-v1", actor_architecture=("16", "relu"))
-    state = train_SAC.init_SAC(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.alpha_args,
-        agent.buffer,
-    )
+    state = agent.init(KEY, agent.make_context(1)[1])
     critic = state.critic_state
     state = state.replace(
         expert_critic_params=critic.params,

@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import ajax.agents.SAC.SAC as sac_module
 from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.expert import ExpertGains, JSRLCurriculum
 from ajax.extensions.observe import (
@@ -13,6 +14,7 @@ from ajax.extensions.observe import (
     TrainingProgressInput,
 )
 from ajax.networks.networks import get_initialized_actor_critic
+from ajax.state import Transition
 from tests.agents.test_option_smoke import Expert, stateless_expert
 from tests.environments import paid_action
 
@@ -247,3 +249,33 @@ def test_the_augmentation_keywords_build_their_features_in_column_order():
     assert kinds == [TrainingProgressInput, ExpertStateInput, ExpertActionInput]
     assert agent.env_args.observers[1].width == 1  # the expert's state
     assert not agent.extension_stack  # observe-only: the controller's
+
+
+def test_the_critic_step_reads_the_agents_discount_and_reward_scale(monkeypatch):
+    """SAC's critic step builds its target on its own gamma and
+    reward_scale fields (a target dropping either still trains, on the wrong
+    values)."""
+    seen: dict = {}
+    target = sac_module.compute_td_target
+
+    def spy(**kwargs):
+        seen.update({key: kwargs[key] for key in ("gamma", "reward_scale")})
+        return target(**kwargs)
+
+    monkeypatch.setattr(sac_module, "compute_td_target", spy)
+    net = ("8", "relu")
+    agent = SAC(
+        "Pendulum-v1",
+        actor_architecture=net,
+        critic_architecture=net,
+        gamma=0.5,
+        reward_scale=3.0,
+        buffer_size=64,
+        batch_size=8,
+    )
+    _, context = agent.make_context(1)
+    state = agent.init(jax.random.PRNGKey(0), context)
+    rows, column = jnp.zeros((8, 3)), jnp.zeros((8, 1))
+    batch = Transition(rows, column, column, column, column, rows)
+    agent.update_critic(state, batch, None, context)
+    assert seen == {"gamma": 0.5, "reward_scale": 3.0}

@@ -66,7 +66,6 @@ from ajax.environments.interaction import (
 from ajax.environments.obs_norm import update_obs_norm
 from ajax.environments.utils import agent_action_to_env, env_keys, raw_obs_columns
 from ajax.evaluate import evaluate
-from ajax.extensions.capabilities import NotWired
 from ajax.log import eval_norm_info
 from ajax.networks.distributions import Squash
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
@@ -121,11 +120,6 @@ class UDRL(
     #: The gradient steps per iteration, each on a batch from the replay
     #: (Algorithm 3).
     n_updates_per_iter: int = 64
-
-    def check(self) -> None:
-        if self.eval_expert_policy is not None:
-            reason = "UDRL's evaluation does not read eval_expert_policy yet"
-            raise NotWired(f"{reason}.", {"eval_expert_policy": reason})
 
     def actor_critic_args(self) -> dict[str, Any]:
         # The critic built beside the actor is never trained. The LayerNorm
@@ -473,7 +467,9 @@ class UDRL(
         """The deterministic policy's return, entropy and length on
         num_episode_test episodes of the shared evaluation, commanded by
         EvalCommand (acting through the run's transform and the expert), and
-        the return and horizon each episode is commanded with at its start."""
+        the return and horizon each episode is commanded with at its start;
+        the expert's return on the same episodes, eval_expert_policy's when
+        given (read in agent units, as the family evaluation reads it)."""
         env_args = context.env_args
         returns, entropy, _, _, length, expert_returns = evaluate(
             env_args.env,
@@ -485,6 +481,7 @@ class UDRL(
             agent_state=agent_state,
             command=EvalCommand(self.command_scale_r, self.command_scale_h),
             expert_policy=self.expert,
+            eval_expert_policy=self._in_agent_units(self.eval_expert_policy),
             controller=Controller(transforms=env_args.transforms),
         )
         return {

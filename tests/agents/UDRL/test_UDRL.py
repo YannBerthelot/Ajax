@@ -1,5 +1,7 @@
 """End-to-end tests for the UDRL agent."""
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -8,7 +10,6 @@ import pytest
 from ajax.agents.UDRL import UDRL as udrl_file
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.environments.utils import get_state_action_shapes
-from ajax.extensions.capabilities import NotWired
 from ajax.networks.networks import CNNSpec
 
 
@@ -193,10 +194,32 @@ def test_UDRL_reads_an_image_and_its_features_beside_the_command():
     assert state.collector_state.last_obs.shape[-1] == 4 + 2
 
 
-def test_UDRL_refuses_what_it_cannot_run():
-    """No dataset (its replay holds its own segments), and no
-    eval_expert_policy until its evaluation reads one."""
+def test_UDRL_refuses_a_dataset():
+    """Its replay holds its own segments: no offline training."""
     with pytest.raises(ValueError, match="cannot train offline"):
         UDRL(env_id="Pendulum-v1").train_offline(dataset=None, n_updates=1)
-    with pytest.raises(NotWired, match="eval_expert_policy"):
-        UDRL(env_id="Pendulum-v1", eval_expert_policy=lambda obs: obs[..., :1])
+
+
+def push(obs):
+    return jnp.full(obs.shape[:-1] + (1,), 0.5)
+
+
+def test_UDRL_logs_the_return_of_its_eval_expert_policy():
+    """Each evaluation logs eval_expert_policy's return on its episodes,
+    which takes no other part in the run: the one the same expert logs as
+    the run's expert_policy (without a transform it only rides along), NaN
+    without either."""
+    from ajax.logging.wandb_logging import LoggingConfig
+
+    logging = LoggingConfig(config={}, log_frequency=16, use_wandb=False)
+    key = "Eval/episodic mean expert reward"
+    kwargs = {"n_steps": 8, "batch_size": 8, "n_updates_per_iter": 2}
+
+    def logged(**expert: Any) -> np.ndarray:
+        agent = UDRL(env_id="Pendulum-v1", **kwargs, **expert)
+        return np.asarray(agent.train(0, 32, logging_config=logging)[1][key])
+
+    watched = logged(eval_expert_policy=push)
+    assert np.isfinite(watched).all()
+    np.testing.assert_array_equal(watched, logged(expert_policy=push))
+    assert np.isnan(logged()).all()

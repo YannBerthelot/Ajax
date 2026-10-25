@@ -17,7 +17,7 @@ import optax
 import pytest
 
 from ajax.agents import update_steps
-from ajax.agents.APO.APO import APO, TORCH_CLIP_EPS, policy_loss_function
+from ajax.agents.APO.APO import APO, TORCH_CLIP_EPS, compute_policy_loss
 from ajax.environments.interaction import get_pi
 from ajax.networks.distributions import recompute_log_prob
 from ajax.networks.networks import predict_value
@@ -61,7 +61,7 @@ def test_APO_entropy_bonus_is_its_reference_codes(env_id: str) -> None:
     old = recompute_log_prob(pi, actions, actions)
 
     def loss(p: Any) -> jax.Array:
-        return policy_loss_function(
+        return compute_policy_loss(
             p,
             actor,
             obs,
@@ -144,7 +144,7 @@ def test_APO_steps_its_whole_model_with_one_clipped_adam(options: dict) -> None:
     clip = cast(float, agent.max_grad_norm)
 
     def loss(params: tuple, minibatch: dict) -> jax.Array:
-        policy, _ = policy_loss_function(
+        policy, _ = compute_policy_loss(
             params[0],
             actor,
             minibatch["obs"],

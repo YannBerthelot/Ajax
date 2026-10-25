@@ -1,8 +1,8 @@
 """Warnings for public keywords and names on their way out (CLAUDE.md rule
 10, expand then contract): a keyword that no longer has an effect stays
-accepted, and a name moved to another module still imports from its old
-one, each with a FutureWarning, until the downstream projects stop using
-it."""
+accepted, a name moved to another module still imports from its old one,
+and a function whose parameters changed keeps its old form there, each with
+a FutureWarning, until the downstream projects stop using it."""
 
 import importlib
 import inspect
@@ -24,6 +24,17 @@ def warn_inert(owner: str, reason: str, stacklevel: int = 3, **values: Any) -> N
                 FutureWarning,
                 stacklevel=stacklevel,
             )
+
+
+def warn_former_parameters(old: str, new: str, stacklevel: int = 3) -> None:
+    """A FutureWarning for a call of old, the 0.4.0 form of new, which takes
+    other parameters; old stays until the downstream projects stop calling
+    it."""
+    warnings.warn(
+        f"{old} is {new} with its 0.4.0 parameters; it will be removed in 0.5.0",
+        FutureWarning,
+        stacklevel=stacklevel,
+    )
 
 
 def moved_names(old: str, homes: dict[str, str]) -> Callable[[str], Any]:

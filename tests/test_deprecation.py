@@ -131,7 +131,8 @@ def test_ppos_old_names_resolve_or_give_the_new_call() -> None:
     """PPO's old modules serve every name the surface record holds for them
     (and _compute_gae, which downstream reads) from PPO.py or a shared
     module; its init, update and make_train became methods. core keeps one
-    legacy definition, resolve_clip_coef."""
+    legacy definition, resolve_clip_coef, and train_PPO two, the losses'
+    0.4.0 forms (tests/agents/PPO/test_ppo_former_losses.py)."""
     olds = tuple(
         f"ajax.agents.PPO.{m}" for m in ("train_PPO", "state", "core", "utils")
     )
@@ -141,8 +142,8 @@ def test_ppos_old_names_resolve_or_give_the_new_call() -> None:
     assert len(lines) > 20
     for path, name in lines:
         module = importlib.import_module(path)
-        if name == "resolve_clip_coef":
-            assert inspect.getmodule(module.resolve_clip_coef) is module
+        if name in {"resolve_clip_coef", "value_loss_function", "policy_loss_function"}:
+            assert inspect.getmodule(getattr(module, name)) is module
             continue
         with pytest.warns(FutureWarning, match=f"{path}.{name} moved to"):
             found = getattr(module, name)
@@ -155,23 +156,29 @@ def test_ppos_old_names_resolve_or_give_the_new_call() -> None:
 
 def test_apos_old_names_resolve_or_give_the_new_call() -> None:
     """APO's old modules serve every name the surface record holds for them
-    from APO.py, the same object; its init, update, minibatch step and
-    make_train became methods."""
+    from APO.py, the same object (policy_loss_function is compute_policy_loss);
+    its init, update, minibatch step and make_train became methods.
+    train_APO keeps one legacy definition, value_loss_function
+    (tests/agents/APO/test_apo_former_losses.py)."""
     olds = ("ajax.agents.APO.train_APO", "ajax.agents.APO.state")
     recorded = json.loads(SURFACE.read_text())
     lines = [line.split(":") for line in recorded if line.startswith(olds)]
     assert len(lines) == 11
     home = importlib.import_module("ajax.agents.APO.APO")
     methods = {"init_APO", "update_agent", "update_networks", "make_train"}
+    renamed = {"policy_loss_function": "compute_policy_loss"}
     for path, name in lines:
         module = importlib.import_module(path)
+        if name == "value_loss_function":
+            assert inspect.getmodule(module.value_loss_function) is module
+            continue
         with pytest.warns(FutureWarning, match=f"{path}.{name} moved to"):
             found = getattr(module, name)
         if name in methods:
             with pytest.raises(TypeError, match=f"{path}.{name} became .*self"):
                 found()
         else:
-            assert found is getattr(home, name)
+            assert found is getattr(home, renamed.get(name, name))
         with pytest.raises(AttributeError, match=f"{path}.{name} moved to"):
             setattr(module, name, found)
 
@@ -227,6 +234,7 @@ RENAMED_BY_A_VERB = [
     ("AVG.train_AVG", "value_loss_function", "AVG.AVG", "compute_critic_loss"),
     ("AVG.train_AVG", "policy_loss_function", "AVG.AVG", "compute_policy_loss"),
     ("TD3.train_TD3", "policy_loss_function", "TD3.TD3", "compute_policy_loss"),
+    ("APO.train_APO", "policy_loss_function", "APO.APO", "compute_policy_loss"),
 ]
 
 

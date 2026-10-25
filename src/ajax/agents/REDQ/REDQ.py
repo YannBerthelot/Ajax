@@ -61,7 +61,6 @@ from ajax.agents.temperature import (
 )
 from ajax.controller import critic_action_units, make_scored_action, policy_action_dim
 from ajax.extensions.base import merge_metrics
-from ajax.modules.pid_actor import PIDPolicy
 from ajax.perf_utils import final_aux_scan
 from ajax.schedule import Schedule
 from ajax.state import LoadedTrainState, Transition
@@ -153,17 +152,15 @@ class REDQ(
         args: dict[str, Any] = {"squash": True}
         if self.memory is not None:
             return args
-        args.update({"encoder_kernel_init": GLOROT, "value_kernel_init": GLOROT})
-        # The Gaussian head's settings are the MLP actor's: a PID actor in
-        # its place keeps its own log-std start (PID_LOG_STD_INIT).
-        if not isinstance(self.actor_architecture, PIDPolicy):
-            args.update(
-                {
-                    "mean_kernel_init": GLOROT,
-                    "log_std_kernel_init": GLOROT,
-                    "log_std_init": 0.0,
-                }
-            )
+        args.update(
+            {
+                "encoder_kernel_init": GLOROT,
+                "value_kernel_init": GLOROT,
+                "mean_kernel_init": GLOROT,
+                "log_std_kernel_init": GLOROT,
+                "log_std_init": 0.0,
+            }
+        )
         return args
 
     def optimizer_settings(self) -> dict[str, Any]:

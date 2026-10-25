@@ -235,24 +235,23 @@ def test_the_factory_gives_the_pid_actor_its_tanh_mean():
 
 
 @pytest.mark.parametrize(
-    "log_std_init, log_std_kernel_init, start",
+    "log_std_init, log_std_kernel_init",
     [
-        (-0.5, None, -0.5),
-        (0.0, "xavier_uniform", 0.0),  # SAC's and REDQ's Gaussian head
-        (None, "torch_linear", PID_LOG_STD_INIT),  # ASAC's: the head draws it
+        (-0.5, None),
+        (0.0, "xavier_uniform"),  # SAC's and REDQ's reference Gaussian head
+        (None, "torch_linear"),  # ASAC's: the head's layer draws the start
     ],
 )
 def test_the_pid_actor_starts_its_log_std_whatever_head_the_agent_sets(
-    log_std_init, log_std_kernel_init, start
+    log_std_init, log_std_kernel_init
 ):
     """An agent's log-std head settings are for its Gaussian MLP actor: a
-    PID actor in its place ignores the kernel init and starts its one
-    parameter at log_std_init, or at its own default when the head's layer
-    would have drawn it."""
+    PID actor in its place ignores them and starts its one parameter at
+    PID_LOG_STD_INIT."""
     actor, _ = _build(
         log_std_init=log_std_init, log_std_kernel_init=log_std_kernel_init
     )
-    np.testing.assert_allclose(actor.params["params"]["log_std"], start)
+    np.testing.assert_allclose(actor.params["params"]["log_std"], PID_LOG_STD_INIT)
 
 
 @pytest.mark.parametrize("td3", [False, True])
@@ -366,11 +365,14 @@ def test_the_gains_are_normalised_on_a_wider_box():
     np.testing.assert_allclose(paid, paid_action.HIGH * jnp.tanh(u), rtol=1e-6)
 
 
-@pytest.mark.parametrize("name", ["SAC", "REDQ", "AVG"])
+@pytest.mark.parametrize(
+    "name", ["SAC", "REDQ", "AVG", "ASAC", "TQC", "PPO", "APO", "IQL"]
+)
 def test_an_agents_gaussian_head_settings_leave_its_pid_actor_alone(name):
-    """SAC, REDQ and AVG start their Gaussian heads as their reference code
-    does (a log-std bias of 0); a PID policy in that actor's place keeps the
-    PID actor's own log-std start, PID_LOG_STD_INIT."""
+    """Every agent with a Gaussian actor sets its head's log-std start, often
+    its reference code's (0 for SAC, REDQ, AVG, PPO, APO and IQL, drawn by the
+    layer for ASAC and TQC); a PID policy in that actor's place keeps the PID
+    actor's own start, PID_LOG_STD_INIT."""
     import ajax
 
     env, params = setpoint_env.make()
@@ -387,8 +389,5 @@ def test_an_agents_gaussian_head_settings_leave_its_pid_actor_alone(name):
         agent.critic_optimizer_args,
         agent.network_args,
         continuous=True,
-        action_value=True,
-        squash=True,
-        num_critics=1,
     )
     np.testing.assert_allclose(actor.params["params"]["log_std"], PID_LOG_STD_INIT)

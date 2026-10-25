@@ -167,7 +167,7 @@ class CrossQ(
         )
         due = update_steps.all_of(
             (agent_state.n_updates + 1) % self.policy_delay == 0,
-            self.policy_update_due(agent_state),
+            self.policy_update_due(agent_state.collector_state.timestep),
         )
         update_actor_on_batch = partial(self.update_actor, batch=batch, context=context)
         agent_state, (policy_aux, temperature, policy_metrics) = update_steps.run_if(
@@ -294,14 +294,15 @@ class CrossQ(
         actor_state = actor_state.replace(batch_stats=batch_stats)
         # The authors' temperature loss: alpha, not log alpha, times the gap.
         agent_state = agent_state.replace(actor_state=actor_state)
+        timestep = agent_state.collector_state.timestep
         tempered, temperature = update_temperature(
             agent_state,
             jax.lax.stop_gradient(log_probs),
-            self.target_entropy_at(agent_state, context.total_timesteps),
+            self.target_entropy_at(timestep, context.total_timesteps),
             core.alpha_temperature_loss_fn,
         )
         agent_state = update_steps.run_if(
-            self.temperature_update_due(agent_state), lambda _: tempered, agent_state
+            self.temperature_update_due(timestep), lambda _: tempered, agent_state
         )
         return agent_state, (aux, temperature, metrics)
 

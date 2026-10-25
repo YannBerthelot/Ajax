@@ -118,14 +118,14 @@ def run_if(
     return jax.lax.cond(condition, lambda: update(state), lambda: (state, metrics))
 
 
-def reached(start: int, agent_state: Any) -> Union[bool, jax.Array]:
-    """Whether the collector's timestep has reached start, the env steps an
-    update step waits for (policy_update_start): the Python True, with
-    nothing traced, when start is 0 or less, so an agent without the wait
-    runs the program it ran before it had one."""
+def reached(start: int, timestep: Any) -> Union[bool, jax.Array]:
+    """Whether timestep has reached start, the env steps an update step
+    waits for (policy_update_start): the Python True, with nothing traced,
+    when start is 0 or less, so an agent without the wait runs the program
+    it ran before it had one."""
     if start <= 0:
         return True
-    return agent_state.collector_state.timestep >= start
+    return timestep >= start
 
 
 def all_of(*conditions: Union[bool, jax.Array]) -> Union[bool, jax.Array]:

@@ -1193,6 +1193,7 @@ def collect_experience(
         "mode",
         "env_args",
         "n_timesteps",
+        "bootstrap_next_obs",
     ],
 )
 def collect_experience_from_expert_policy(
@@ -1201,8 +1202,15 @@ def collect_experience_from_expert_policy(
     mode: str,
     env_args: EnvironmentConfig,
     n_timesteps: int = int(1e5),
+    bootstrap_next_obs: bool = False,
 ) -> Transition:
     """Collect experience by running an expert policy in the environment.
+
+    A transition's next observation is the final one at every episode end;
+    with bootstrap_next_obs, the one the live collector's replay keeps
+    (bootstrap_obs): the final one at a time limit, the reset one after a
+    termination. Returns and episodes (record, MCPretrain, CloningPretrain)
+    need the final one.
 
     Stateful experts (those with an ``init_state`` attribute, e.g. PID) are
     called as ``expert_policy(state, obs) -> (action, new_state)`` and the
@@ -1314,6 +1322,8 @@ def collect_experience_from_expert_policy(
             )
             obsv = jnp.concatenate([obsv, next_columns], axis=-1)
             next_obs = jnp.concatenate([next_obs, final_columns], axis=-1)
+        if bootstrap_next_obs:
+            next_obs = bootstrap_obs(obsv, next_obs, terminated, truncated)
 
         transition = Transition(
             obs=last_obs,

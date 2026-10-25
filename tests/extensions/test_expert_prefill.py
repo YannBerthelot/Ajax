@@ -17,6 +17,7 @@ from ajax.extensions.expert import ExpertGains, ResidualPolicy
 from ajax.extensions.pretrain import collect_and_store_expert_transitions
 from tests.agents.test_gain_mode import OneGainTwoActions, TwoGains
 from tests.environments import paid_action
+from tests.environments.identity_env import LIMIT, IdentityEnv
 
 
 def push(obs: jax.Array) -> jax.Array:
@@ -77,6 +78,24 @@ def test_a_residual_prefill_stores_a_zero_residual_and_the_experts_action():
     rows = prefill(agent, include_policy_action=True)
     assert (rows["policy_action"] == 0).all()
     np.testing.assert_allclose(rows["action"], 0.25)
+
+
+def test_a_terminated_prefill_row_keeps_the_next_observation_collection_keeps():
+    """After a termination the replay keeps the reset observation, the next
+    row's (ASAC's target continues from it), and after a time limit the
+    final one, as the live collector does (bootstrap_obs)."""
+    agent = SAC(IdentityEnv(), n_envs=2, expert_policy=lambda obs: obs[..., 1:])
+    rows = prefill(agent, n_steps=20)
+    terminated, truncated = (
+        rows["terminated"][..., 0] > 0,
+        rows["truncated"][..., 0] > 0,
+    )
+    assert terminated.any() and truncated.any()
+    continuing = ~truncated[:, :-1]
+    np.testing.assert_array_equal(
+        rows["next_obs"][:, :-1][continuing], rows["obs"][:, 1:][continuing]
+    )
+    assert (rows["next_obs"][truncated][:, 0] == LIMIT).all()
 
 
 def test_the_prefill_refuses_a_recurrent_actors_stored_carry():

@@ -85,10 +85,12 @@ import jax.numpy as jnp
 import numpy as np
 from flax import struct
 
+from ajax.controller import ObserveInputs, observe_features, restart_observers
 from ajax.environments.interaction import (
     get_final_obs,
     init_rolling_mean,
     reset,
+    reset_features,
     step,
     update_episodic_return,
 )
@@ -145,16 +147,19 @@ class Row:
 class RowCollectorState(CollectorState):
     """:class:`CollectorState` plus the row collector's bookkeeping.
 
-    ``last_obs`` is the observation the next row emits; ``reward`` /
-    ``is_first`` / ``is_last`` / ``is_terminal`` are that row's flags.
+    ``last_obs`` is the observation the next row emits, with its features
+    (observer_states their states); reset_obs holds the env columns.
+    ``reward`` / ``is_first`` / ``is_last`` / ``is_terminal`` are that
+    row's flags.
     ``timestep`` advances by the unit the caller chose (``"rows"``:
     ``n_envs`` per tick, held ticks included; ``"env_steps"``: the number of
     envs actually stepped). ``episodic_return_state`` /
     ``episodic_mean_return`` follow the house rolling-mean convention
     (``Train/episodic mean reward``); ``step_in_episode`` counts the agent
     steps of each env's current episode and ``last_episode_length`` keeps
-    the length of its last finished one. ``max_timesteps`` stays None: the
-    env state is used as is (no ``train_time_fraction`` view).
+    the length of its last finished one. max_timesteps is the run's
+    horizon where a feature reads the training progress (set by the
+    training loop's with_horizon), else None.
     """
 
     reward: jax.Array  # [n_envs] f32
@@ -196,7 +201,8 @@ def init_row_collector_state(
     policy_carry: Any = None,
     window_size: int = 10,
 ) -> RowCollectorState:
-    """Reset the envs; the first row of every env is ``is_first``.
+    """Reset the envs; the first row of every env is ``is_first``, its
+    features (env_args.observers) those before training (progress 0).
 
     Raises if the env stack normalises observations or rewards (module
     docstring).
@@ -208,6 +214,11 @@ def init_row_collector_state(
     obs, env_state = reset(
         env_keys(reset_key, mode, n_envs), env, mode, env_args.env_params
     )
+    first_obs, observer_states = obs, None
+    if env_args.observers:
+        first_obs, observer_states = reset_features(
+            obs, env_state, env_args, mode, None, progress=0.0
+        )
     zeros_f = jnp.zeros(n_envs, jnp.float32)
     zeros_b = jnp.zeros(n_envs, bool)
     zeros_i = jnp.zeros(n_envs, jnp.int32)
@@ -215,7 +226,7 @@ def init_row_collector_state(
     return RowCollectorState(
         rng=rng,
         _env_state=env_state,
-        last_obs=obs,
+        last_obs=first_obs,
         last_terminated=zeros_f,
         last_truncated=zeros_f,
         episodic_return_state=init_rolling_mean(
@@ -236,6 +247,7 @@ def init_row_collector_state(
         step_in_episode=zeros_i,
         last_episode_length=zeros_i,
         policy_carry=policy_carry,
+        observer_states=observer_states,
     )
 
 
@@ -347,6 +359,20 @@ def collect_row(
             )
         nxt = _dynamic_transition(cs, env_action, step_keys, env_args, mode)
 
+    next_obs, observer_states = nxt.obs, cs.observer_states
+    if env_args.observers:
+        assert observer_states is not None  # set by init_row_collector_state
+        # The next row's features, fresh where its episode starts, at this
+        # tick's progress as in the live collector; the stack is unnormalised.
+        observer_states, _ = restart_observers(
+            nxt.is_first, env_args.observers, observer_states, None, None, n_envs
+        )
+        inputs = ObserveInputs(
+            nxt.obs.astype(jnp.float32), timestep=cs.timestep, horizon=cs.max_timesteps
+        )
+        next_obs, observer_states = observe_features(
+            nxt.obs, inputs, env_args.observers, observer_states
+        )
     ended = nxt.is_last & nxt.stepped
     step_reward = jnp.where(nxt.stepped, nxt.reward, 0.0)
     # Episode returns: the house rolling mean, over the steps actually taken.
@@ -362,7 +388,7 @@ def collect_row(
     new_state = cs.replace(
         rng=rng,
         _env_state=nxt.env_state,
-        last_obs=nxt.obs,
+        last_obs=next_obs,
         last_terminated=nxt.is_terminal.astype(jnp.float32),
         last_truncated=(nxt.is_last & ~nxt.is_terminal).astype(jnp.float32),
         episodic_return_state=episodic_return_state,
@@ -379,6 +405,7 @@ def collect_row(
         step_in_episode=jnp.where(ended, 0, length),
         last_episode_length=jnp.where(ended, length, cs.last_episode_length),
         policy_carry=policy_carry,
+        observer_states=observer_states,
     )
     return new_state, row
 

@@ -20,7 +20,7 @@ termination a learned penalty.
 | Vectorised environments (`n_envs`) | Yes |
 | Recurrent memory (`memory=`) | Yes, without extensions or `expert_policy` |
 | PID policy (`actor_architecture=PIDPolicy(...)`) | Yes |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate`, `choose_warmup_action` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate`, `choose_warmup_action`, `choose_replay_action` |
 
 ## Example
 

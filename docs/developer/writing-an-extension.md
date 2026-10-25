@@ -71,13 +71,15 @@ extensions were given.
 | `init_state(agent_state, rng)` | the extension's state (`()`: none) | one entry each | every agent, fresh runs only |
 | `pretrain(agent_state, ext_state, context)` | `(agent_state, ext_state)` | in order, each sees the last one's agent state | every agent, fresh runs only |
 | `reward(agent_state, ext_state, batch, rewards, context)` | `(rewards, ext_state, metrics)`: the rollout's new rewards | in order, each transforms the last one's rewards | PPO, after each rollout, before its targets |
-| `on_target(agent_state, ext_state, batch, target, context)` | the new target, or `(target, metrics)` (below) | in order, each transforms the last one's target | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, PPO, APO |
-| `critic_loss(agent_state, ext_state, batch, context)` | a term added to the critic loss, or `(term, metrics)` | summed | SAC, TD3, REDQ, ASAC, AVG, DQN, PQN, PPO, APO |
-| `actor_loss(agent_state, ext_state, batch, context)` | a term added to the actor loss, or `(term, metrics)` | summed | SAC, TD3, REDQ, ASAC, AVG, PPO, APO, APG, UDRL |
+| `on_target(agent_state, ext_state, batch, target, context)` | the new target, or `(target, metrics)` (below) | in order, each transforms the last one's target | SAC, TD3, TQC, REDQ, ASAC, CrossQ, IQL, AVG, DQN, PQN, PPO, APO |
+| `critic_loss(agent_state, ext_state, batch, context)` | a term added to the critic loss, or `(term, metrics)` | summed | SAC, TD3, TQC, REDQ, ASAC, CrossQ, IQL, AVG, DQN, PQN, PPO, APO |
+| `actor_loss(agent_state, ext_state, batch, context)` | a term added to the actor loss, or `(term, metrics)` | summed | SAC, TD3, TQC, REDQ, ASAC, CrossQ, IQL, AVG, PPO, APO, APG, UDRL |
 | `action(agent_state, ext_state, obs, rng, context)` | an action, or `None` to defer | the last non-`None` wins | SAC with an expert policy (below) |
 | `eval_action(agent_state, ext_state, obs, rng, context)` | an action, or `None` | the last non-`None` wins | no agent yet |
 | `transform_action(actions, inputs)` | the executed action, from the policy's and the expert's (`ajax.controller.TransformInputs`): before the action is chosen; the replay stores it and the critics score it | one per agent | SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with an expert policy, in collection, their losses and evaluation |
 | `actuate(actions, inputs)` | `(env_actions, expert_state)`: the chosen action executed through the expert; the replay stores the chosen one, and `policy_action_dim(env_args, expert)` gives its width where it is not the env's | one per agent | SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with an expert policy (gain mode), in collection and evaluation |
+| `choose_warmup_action(uniform_actions, inputs)` | `(actions, expert_took)`: the actions a warm-up step takes instead of the uniform ones, and whether the expert took them (`ajax.controller.WarmupInputs`) | one per agent | the agents with a uniform warm-up (SAC, TD3, REDQ, ASAC, CrossQ, IQL, AVG), before `learning_starts` |
+| `choose_replay_action(executed_actions, policy_actions)` | the actions the replay row stores: by default the executed ones | one per agent | the replay agents (SAC, TD3, TQC, REDQ, ASAC, CrossQ and IQL), at each collection step |
 | `post_update(agent_state, ext_state, context)` | `(agent_state, ext_state)` | in order | every agent, after each update |
 | `eval_metrics(agent_state, ext_state, rng, context)` | a dict of metrics | merged | every agent, at each evaluation |
 | `observe(inputs, state)` | `(columns, state)`: the `(n_envs, observation_width(env_args))` columns appended to the observation `inputs` (`ajax.controller.ObserveInputs`) describes | in column order (`observes_normalised` first) | the shared collector and evaluation, whenever an observation arrives |
@@ -85,7 +87,8 @@ extensions were given.
 Each phase the stack folds is one `ExtensionStack` method, `fold_<phase>`
 (`apply_init` runs `init_state` then `pretrain`), and an agent calls it once
 where the phase applies; the controller dispatches `action`,
-`transform_action` and `actuate` itself.
+`transform_action`, `actuate`, `choose_warmup_action` and
+`choose_replay_action` itself.
 Each agent lists the phases it folds in
 `supported_extension_phases`. An extension implementing any other phase is
 rejected when the agent is built, instead of being silently ignored.

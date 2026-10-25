@@ -85,7 +85,7 @@ Defaults are read from CrossQ's fields, the authors' `train.py -algo crossq`.
   (`ajax.agents.SAC.core`), the critics' regression is the one every
   Q-critic agent shares (`ajax.agents.critics`), and the extensions apply
   through the shared critic step's two halves (`apply_on_target`,
-  `apply_critic_loss`).
+  `compute_extensions_critic_loss`).
 - **Cost.** The critics' pass doubles its batch, and the default critics are
   2048 wide. On a CPU, narrower critics (`critic_width=256`) are much
   cheaper.

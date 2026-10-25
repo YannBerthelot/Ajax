@@ -35,8 +35,8 @@ import jax.numpy as jnp
 from flax import struct
 from flax.serialization import to_state_dict
 
-from ajax.agents import steps
-from ajax.agents.critics import CoreCriticAux, q_regression_loss
+from ajax.agents import update_steps
+from ajax.agents.critics import CoreCriticAux, compute_q_regression_loss
 from ajax.agents.families import (
     ExpertGuided,
     GradientClipping,
@@ -106,8 +106,8 @@ class CrossQ(
         return {
             "actor_learning_rate": self.learning_rate,
             "critic_learning_rate": self.learning_rate,
-            "actor_architecture": batch_renorm_mlp(self.actor_width),
-            "critic_architecture": batch_renorm_mlp(self.critic_width),
+            "actor_architecture": make_batch_renorm_mlp(self.actor_width),
+            "critic_architecture": make_batch_renorm_mlp(self.critic_width),
             "squash": True,
             "encoder_kernel_init": LECUN,
             "value_kernel_init": LECUN,
@@ -139,14 +139,14 @@ class CrossQ(
         """A squashed Gaussian actor, num_critics Q critics without
         targets, and the temperature."""
         training_key, init_key, collector_key, evaluation_key = jax.random.split(key, 4)
-        actor_state, critic_state = context.actor_critic(
+        actor_state, critic_state = context.make_actor_critic(
             init_key,
             continuous=True,
             action_value=True,
             squash=True,
             num_critics=self.num_critics,
         )
-        collector_state = context.collector(collector_key)
+        collector_state = context.make_collector(collector_key)
         return CrossQState(
             rng=training_key,
             eval_rng=evaluation_key,
@@ -171,7 +171,7 @@ class CrossQ(
         )
         due = (agent_state.n_updates + 1) % self.policy_delay == 0
         update_actor_on_batch = partial(self.update_actor, batch=batch, context=context)
-        agent_state, (policy_aux, temperature, policy_metrics) = steps.run_if(
+        agent_state, (policy_aux, temperature, policy_metrics) = update_steps.run_if(
             due, update_actor_on_batch, agent_state
         )
         agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
@@ -217,7 +217,7 @@ class CrossQ(
                 alpha,
                 self.reward_scale,
             )
-            target, target_metrics = steps.apply_on_target(
+            target, target_metrics = update_steps.apply_on_target(
                 context.extensions,
                 agent_state,
                 batch,
@@ -229,8 +229,8 @@ class CrossQ(
                 gamma=self.gamma,
                 reward_scale=self.reward_scale,
             )
-            loss, aux = q_regression_loss(current_q_values, target)
-            extra, loss_metrics = steps.apply_critic_loss(
+            loss, aux = compute_q_regression_loss(current_q_values, target)
+            extra, loss_metrics = update_steps.compute_extensions_critic_loss(
                 context.extensions,
                 agent_state,
                 batch,
@@ -242,7 +242,7 @@ class CrossQ(
             metrics = merge_metrics(target_metrics, loss_metrics)
             return loss + extra, (aux, batch_stats, metrics)
 
-        critic_state, (aux, batch_stats, metrics), _ = steps.gradient_step(
+        critic_state, (aux, batch_stats, metrics), _ = update_steps.gradient_step(
             critic_state, critic_loss
         )
         critic_state = critic_state.replace(batch_stats=batch_stats)
@@ -276,17 +276,19 @@ class CrossQ(
             )
             return loss, (aux, log_probs, batch_stats), policy.mean()
 
-        actor_state, (aux, log_probs, batch_stats), _, metrics = steps.actor_step(
-            agent_state,
-            policy_loss,
-            context.extensions,
-            actor_key,
-            context.total_timesteps,
-            observations=batch.obs,
-            raw_observations=batch.raw_obs,
-            a_expert=batch.a_expert,
-            actions=batch.action,
-            critic_state=critic_state,
+        actor_state, (aux, log_probs, batch_stats), _, metrics = (
+            update_steps.actor_step(
+                agent_state,
+                policy_loss,
+                context.extensions,
+                actor_key,
+                context.total_timesteps,
+                observations=batch.obs,
+                raw_observations=batch.raw_obs,
+                a_expert=batch.a_expert,
+                actions=batch.action,
+                critic_state=critic_state,
+            )
         )
         actor_state = actor_state.replace(batch_stats=batch_stats)
         # The authors' temperature loss: alpha, not log alpha, times the gap.
@@ -320,7 +322,7 @@ class CrossQ(
 
 
 # -- CrossQ's own helpers; its equations are SAC.core's ----------------------
-def batch_renorm_mlp(width: int) -> tuple[str, ...]:
+def make_batch_renorm_mlp(width: int) -> tuple[str, ...]:
     """The authors' MLP: Batch Renorm on the input and after each of two
     ReLU layers of width units (sbx/sac/policies.py:199-231)."""
     layer = (str(width), "relu", "batchrenorm")

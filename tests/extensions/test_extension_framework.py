@@ -121,7 +121,7 @@ def test_stack_folds_transforms_and_sums_losses():
         agent, None, jnp.asarray(0.0), step, rng, 100
     )
     assert float(target) == 11.0 and metrics == {}
-    total, metrics = stack.apply_critic_loss(agent, None, step, rng, 100)
+    total, metrics = stack.compute_extensions_critic_loss(agent, None, step, rng, 100)
     assert float(total) == 1.0 and metrics == {}
 
 
@@ -152,8 +152,8 @@ def test_a_phase_may_return_its_metrics_beside_its_value():
         "b/target": 11.0,
     }
     for fold, name, total in (
-        (stack.apply_critic_loss, "critic", 1.0),
-        (stack.apply_actor_loss, "actor", 0.5),
+        (stack.compute_extensions_critic_loss, "critic", 1.0),
+        (stack.compute_extensions_actor_loss, "actor", 0.5),
     ):
         term, metrics = fold(agent, None, step, rng, 9)
         assert float(term) == total and sorted(metrics) == [f"a/{name}", f"b/{name}"]
@@ -161,7 +161,7 @@ def test_a_phase_may_return_its_metrics_beside_its_value():
     twice = ExtensionStack([Logged("a"), Logged("a")])
     agent = _FakeAgentState(ext_state=((),) * 2)
     with pytest.raises(ValueError, match="a/critic"):
-        twice.apply_critic_loss(agent, None, step, rng, 9)
+        twice.compute_extensions_critic_loss(agent, None, step, rng, 9)
 
 
 def test_eval_metrics_merge_with_a_key_per_extension():
@@ -293,8 +293,9 @@ def test_apply_helpers_empty_stack_zero_cost():
     assert stack.apply_post_update(agent, step, rng, 100) is agent
     folded, metrics = stack.apply_on_target(agent, batch, target, step, rng, 100)
     assert folded is target and metrics == {}
-    assert stack.apply_critic_loss(agent, batch, step, rng, 100) == (0.0, {})
-    assert stack.apply_actor_loss(agent, batch, step, rng, 100) == (0.0, {})
+    critic_term = stack.compute_extensions_critic_loss(agent, batch, step, rng, 100)
+    actor_term = stack.compute_extensions_actor_loss(agent, batch, step, rng, 100)
+    assert critic_term == actor_term == (0.0, {})
     assert stack.apply_eval_metrics(agent, step, rng, 100) == {}
 
 
@@ -325,7 +326,7 @@ def test_apply_helpers_route_through_phase():
     # actor_loss fold returns the additive scalar.
     stack3 = ExtensionStack([ConstActorLoss()])
     agent3 = _FakeAgentState(ext_state=((),))
-    val, _ = stack3.apply_actor_loss(
+    val, _ = stack3.compute_extensions_actor_loss(
         agent3, batch=None, step=step, rng=rng, total_steps=10
     )
     assert float(val) == 0.25
@@ -491,20 +492,26 @@ def test_with_experts_converts_each_held_expert_and_keeps_identity():
 
 def test_the_former_fold_names_still_apply_the_phases():
     """The agents not yet declared on a family call fold_<phase>, kept as
-    aliases of apply_<phase> until 0.5.0, on the stack, steps and loop."""
-    from ajax.agents import loop, steps
+    aliases of the phase's current name until 0.5.0, on the stack, the update
+    steps and the loop: apply_<phase>, or compute_extensions_<phase> for the
+    two loss terms."""
+    from ajax.agents import loop, update_steps
 
-    stack_phases = "reward on_target critic_loss actor_loss post_update".split()
-    stack_phases.extend(["init", "init_states", "pretrain", "eval_metrics"])
-    for phase in stack_phases:
-        apply = getattr(ExtensionStack, f"apply_{phase}")
-        assert getattr(ExtensionStack, f"fold_{phase}") is apply
+    phases = "reward on_target post_update init init_states pretrain eval_metrics"
+    current = {phase: f"apply_{phase}" for phase in phases.split()}
+    current.update(
+        {
+            "critic_loss": "compute_extensions_critic_loss",
+            "actor_loss": "compute_extensions_actor_loss",
+        }
+    )
+    for phase, name in current.items():
+        assert getattr(ExtensionStack, f"fold_{phase}") is getattr(ExtensionStack, name)
     for phase in ("on_target", "critic_loss", "post_update"):
-        apply = getattr(steps, f"apply_{phase}")
-        assert getattr(steps, f"fold_{phase}") is apply
-        assert (
-            getattr(loop, f"fold_{phase}") is getattr(loop, f"apply_{phase}") is apply
-        )
+        function = getattr(update_steps, current[phase])
+        assert getattr(update_steps, f"fold_{phase}") is function
+        assert getattr(loop, f"fold_{phase}") is function
+        assert getattr(loop, current[phase]) is function
 
 
 @dataclass(frozen=True)
@@ -549,8 +556,8 @@ def test_a_phase_naming_its_context_ctx_still_runs():
     assert float(agent.ext_state[0]) == 100.0  # pretrain read ctx.total_steps
     _, rewards, _ = stack.apply_reward(agent, None, jnp.zeros(3), step, rng, 100)
     target, _ = stack.apply_on_target(agent, None, jnp.asarray(1.0), step, rng, 100)
-    critic, _ = stack.apply_critic_loss(agent, None, step, rng, 100)
-    actor, _ = stack.apply_actor_loss(agent, None, step, rng, 100)
+    critic, _ = stack.compute_extensions_critic_loss(agent, None, step, rng, 100)
+    actor, _ = stack.compute_extensions_actor_loss(agent, None, step, rng, 100)
     after = stack.apply_post_update(agent, step, rng, 100)
     metrics = stack.apply_eval_metrics(agent, step, rng, 100)
     assert (rewards == 2.0).all() and float(target) == 3.0

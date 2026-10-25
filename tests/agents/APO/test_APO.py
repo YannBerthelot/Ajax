@@ -35,7 +35,7 @@ def test_APO_builds_its_reference_codes_actor_head():
     mean layer; a large layer output (kernel 0, bias 5) stays inside
     [-1, 1]."""
     agent = APO(env_id="Pendulum-v1", n_envs=2)
-    state = agent.init(jax.random.PRNGKey(0), agent.context(1)[1])
+    state = agent.init(jax.random.PRNGKey(0), agent.make_context(1)[1])
     actor = state.actor_state
     params = actor.params["params"]
     np.testing.assert_array_equal(params["log_std_param"], 0.0)
@@ -57,7 +57,7 @@ def test_APO_builds_its_reference_codes_hidden_layers():
     equal the mean and the value computed by hand from their parameters.
     PPO keeps its own default."""
     agent = APO(env_id="Pendulum-v1", n_envs=2)
-    state = agent.init(jax.random.PRNGKey(0), agent.context(1)[1])
+    state = agent.init(jax.random.PRNGKey(0), agent.make_context(1)[1])
     obs = jax.random.normal(jax.random.PRNGKey(1), (5, 3))
 
     def hidden(params):

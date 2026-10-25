@@ -354,7 +354,7 @@ def _ppo_nets():
     from ajax.agents.PPO.PPO import PPO
 
     def build(a, key):
-        state = a.init(key, a.context(1)[1])
+        state = a.init(key, a.make_context(1)[1])
         return state.actor_state.params, state.critic_state.params
 
     return PPO("Pendulum-v1"), build

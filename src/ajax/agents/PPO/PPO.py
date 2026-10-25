@@ -56,7 +56,7 @@ from ajax.agents.minibatch import (
     run_epochs,
 )
 from ajax.agents.recurrent import compute_rollout_sequence_values
-from ajax.agents.steps import (
+from ajax.agents.update_steps import (
     apply_gradients_clipped_together,
     compute_gradients,
     derive_extensions_key,
@@ -173,7 +173,7 @@ class PPO(
 
     def optimizer_settings(self) -> dict[str, Any]:
         # ppo2's Adam (model.py:100-107) with eps 1e-5; its one clip over both
-        # networks is minibatch_step's (steps.apply_gradients_clipped_together),
+        # networks is minibatch_step's (update_steps.apply_gradients_clipped_together),
         # so neither network's own optimiser clips.
         return {"eps": self.adam_eps, "max_grad_norm": None}
 
@@ -191,7 +191,7 @@ class PPO(
         continuous = check_if_environment_has_continuous_actions(
             env_args.env, env_params=env_args.env_params
         )
-        actor_state, critic_state = context.actor_critic(
+        actor_state, critic_state = context.make_actor_critic(
             init_key,
             continuous=continuous,
             action_value=False,
@@ -203,7 +203,7 @@ class PPO(
             eval_rng=evaluation_key,
             actor_state=actor_state,
             critic_state=critic_state,
-            collector_state=context.collector(collector_key),
+            collector_state=context.make_collector(collector_key),
             n_updates=0,
         )
 
@@ -697,7 +697,7 @@ def _make_extensions_critic_loss(
             "critic_params": critic_params,
             "critic_state": critic_states,
         }
-        return extensions.apply_critic_loss(
+        return extensions.compute_extensions_critic_loss(
             agent_state,
             critic_batch,
             agent_state.collector_state.timestep,
@@ -730,7 +730,7 @@ def _make_extensions_actor_loss(
             "actor_params": actor_params,
             "actor_state": actor_state,
         }
-        return extensions.apply_actor_loss(
+        return extensions.compute_extensions_actor_loss(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
@@ -747,7 +747,7 @@ class PPOState(BaseAgentState):
     """PPO's state: the base state's fields."""
 
     #: Its networks' gradients are clipped together
-    #: (steps.apply_gradients_clipped_together): a checkpoint from when each
+    #: (update_steps.apply_gradients_clipped_together): a checkpoint from when each
     #: clipped its own restores (ajax.checkpoint).
     #: A ClassVar: a flag on the class, shared by every PPO state, not stored in its arrays.
     joint_gradient_clip: ClassVar[bool] = True

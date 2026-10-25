@@ -42,14 +42,14 @@ The variants compose through three arguments:
 ```python
 from ajax import DQN
 from ajax.networks.q_networks import DuelingQNetwork
-from ajax.agents.critics import mse_td_loss
+from ajax.agents.critics import compute_mse_td_loss
 from ajax.agents.DQN.train_DQN import compute_double_dqn_td_target
 
 agent = DQN(
     "CartPole-v1",
     td_target_fn=compute_double_dqn_td_target,  # Double DQN
     q_network_cls=DuelingQNetwork,               # dueling heads
-    td_loss_fn=mse_td_loss,                      # squared error instead of Huber
+    td_loss_fn=compute_mse_td_loss,              # squared error instead of Huber
 )
 state, _ = agent.train(seed=0, n_timesteps=2_000)
 ```
@@ -77,7 +77,7 @@ Defaults are read from `DQN.__init__`.
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
 | `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
 | `td_target_fn` | `None` | the target; `None` is vanilla DQN, `compute_double_dqn_td_target` is Double DQN |
-| `td_loss_fn` | `None` | the loss; `None` is the Huber loss with delta 1, `mse_td_loss` the squared error |
+| `td_loss_fn` | `None` | the loss; `None` is the Huber loss with delta 1, `compute_mse_td_loss` the squared error |
 | `q_network_cls` | `None` | the network; `None` is `QNetwork`, `DuelingQNetwork` the dueling one |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations; `None` builds the reference network (see Notes) |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
@@ -101,7 +101,7 @@ Defaults are read from `DQN.__init__`.
   observation; only a termination stops the bootstrap.
 - **Loss.** The default is the Huber loss with delta 1, whose gradient is
   the TD error clipped to [-1, 1], as the original DQN clips it.
-  `make_huber_td_loss(delta)` sets another delta; `mse_td_loss` is the
+  `make_huber_td_loss(delta)` sets another delta; `compute_mse_td_loss` is the
   squared error.
 - **Optimiser.** The authors' centered RMSProp (Graves 2013): each step is
   the gradient over `sqrt(E[g^2] - E[g]^2 + eps)`, both averages decaying

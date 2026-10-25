@@ -13,7 +13,7 @@ import numpy as np
 import optax
 import pytest
 
-from ajax.agents import steps
+from ajax.agents import update_steps
 from ajax.agents.PPO.PPO import PPO, PPOConfig
 
 
@@ -34,7 +34,7 @@ def test_the_clipped_together_step_is_one_clipped_adam_over_both_networks() -> N
     network on its own would move them differently. Each network's norm
     returned is that of its gradients before the clip."""
     agent = PPO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
-    state = agent.init(jax.random.PRNGKey(0), agent.context(8)[1])
+    state = agent.init(jax.random.PRNGKey(0), agent.make_context(8)[1])
     actor, critic = state.actor_state, state.critic_state
     tx = optax.chain(optax.clip_by_global_norm(0.5), optax.adam(3e-4, eps=1e-5))
     params = start = (actor.params, critic.params)
@@ -51,8 +51,10 @@ def test_the_clipped_together_step_is_one_clipped_adam_over_both_networks() -> N
         norms.append(float(optax.global_norm(grads)))
         updates, opt_state = tx.update(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
-        actor, critic, actor_norm, critic_norm = steps.apply_gradients_clipped_together(
-            actor, critic, *grads, max_grad_norm=0.5
+        actor, critic, actor_norm, critic_norm = (
+            update_steps.apply_gradients_clipped_together(
+                actor, critic, *grads, max_grad_norm=0.5
+            )
         )
         np.testing.assert_allclose(actor_norm, optax.global_norm(grads[0]), rtol=1e-6)
         np.testing.assert_allclose(critic_norm, optax.global_norm(grads[1]), rtol=1e-6)
@@ -71,14 +73,14 @@ def test_joint_step_still_returns_the_two_stepped_networks() -> None:
     from ajax.agents.PPO import train_PPO
 
     agent = PPO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
-    agent_state = agent.init(jax.random.PRNGKey(0), agent.context(8)[1])
+    agent_state = agent.init(jax.random.PRNGKey(0), agent.make_context(8)[1])
     actor, critic = agent_state.actor_state, agent_state.critic_state
     actor_grads = jax.tree.map(jax.numpy.ones_like, actor.params)
     critic_grads = jax.tree.map(jax.numpy.ones_like, critic.params)
     with pytest.warns(FutureWarning, match="train_PPO.joint_step moved to"):
         joint_step = train_PPO.joint_step
     old = joint_step(actor, critic, actor_grads, critic_grads, 0.5)
-    new = steps.apply_gradients_clipped_together(
+    new = update_steps.apply_gradients_clipped_together(
         actor, critic, actor_grads, critic_grads, 0.5
     )
     assert len(old) == 2

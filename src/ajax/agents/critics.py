@@ -12,7 +12,7 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.recurrent import RecurrentCarries, q_values
-from ajax.agents.steps import gradient_step
+from ajax.agents.update_steps import gradient_step
 from ajax.extensions.base import ExtensionStack
 from ajax.networks.q_networks import predict_q
 from ajax.state import LoadedTrainState
@@ -37,7 +37,7 @@ class ValueAuxiliaries:
     grad_norm: jax.Array | float = jnp.nan
 
 
-def critic_loss_fn(
+def compute_mean_critic_loss(
     critic_params: FrozenDict,
     critic_state,
     observations: jax.Array,
@@ -57,16 +57,16 @@ def critic_loss_fn(
         jax.lax.stop_gradient(actions),
         carries,
     )
-    return q_regression_loss(q_preds, target_q)
+    return compute_q_regression_loss(q_preds, target_q)
 
 
-def q_regression_loss(
+def compute_q_regression_loss(
     q_preds: jax.Array, target_q: jax.Array
 ) -> Tuple[jax.Array, CoreCriticAux]:
     """The critics' mean squared error to target_q, which no gradient
     flows back through (the callers stop it), and its logs, from their
     predictions q_preds (the ensemble axis first),
-    however the agent computed them: critic_loss_fn's pass or
+    however the agent computed them: compute_mean_critic_loss's pass or
     CrossQ's joint one."""
     prediction_variance = q_preds.var(axis=0, keepdims=True)
 
@@ -81,7 +81,7 @@ def q_regression_loss(
     )
 
 
-def mse_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
+def compute_mse_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
     """Mean-squared TD error."""
     return jnp.mean((q_taken - target_q) ** 2)
 
@@ -96,18 +96,18 @@ def make_huber_td_loss(delta: float = 1.0) -> Callable:
     default at delta = 1.
     """
 
-    def huber_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
+    def compute_huber_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
         return jnp.mean(optax.huber_loss(q_taken, target_q, delta=delta))
 
-    return huber_td_loss
+    return compute_huber_td_loss
 
 
 #: DQN's default TD loss; one function, so jit's static-argument cache hits
 #: across runs.
-huber_1_td_loss = make_huber_td_loss(1.0)
+compute_huber_1_td_loss = make_huber_td_loss(1.0)
 
 
-def q_loss_fn(
+def compute_q_loss(
     q_params,
     q_state: LoadedTrainState,
     observations: jax.Array,
@@ -118,7 +118,7 @@ def q_loss_fn(
     """TD loss between Q(s, a) at the taken action and a pre-computed target.
 
     loss_fn(q_taken, target_q) -> scalar selects the error norm
-    (huber_1_td_loss, DQN's default, or mse_td_loss).
+    (compute_huber_1_td_loss, DQN's default, or compute_mse_td_loss).
     """
     q_all = predict_q(q_state, q_params, observations)
     # actions is (batch, 1) int32 -> gather one Q-value per row.
@@ -151,7 +151,7 @@ def q_gradient_step(
     q_state = agent_state.actor_state
 
     def total_td_loss(params: Any) -> Tuple[jax.Array, Any]:
-        loss, aux = q_loss_fn(
+        loss, aux = compute_q_loss(
             params, q_state, observations, actions, targets, td_loss_fn
         )
         metrics: dict = {}
@@ -165,7 +165,7 @@ def q_gradient_step(
                 # gradient.
                 "q_state": q_state.replace(params=params),
             }
-            extra, metrics = extension_stack.apply_critic_loss(
+            extra, metrics = extension_stack.compute_extensions_critic_loss(
                 agent_state,
                 batch,
                 agent_state.collector_state.timestep,

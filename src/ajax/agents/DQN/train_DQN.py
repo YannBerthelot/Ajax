@@ -28,7 +28,11 @@ import jax.numpy as jnp
 from flax import struct
 from jax.tree_util import Partial as partial
 
-from ajax.agents.critics import ValueAuxiliaries, huber_1_td_loss, q_gradient_step
+from ajax.agents.critics import (
+    ValueAuxiliaries,
+    compute_huber_1_td_loss,
+    q_gradient_step,
+)
 from ajax.agents.DQN.state import DQNConfig, DQNState
 from ajax.agents.loop import TrainLoop, derive_extensions_key, run_if
 from ajax.buffers.dataset import TransitionDataset
@@ -296,7 +300,7 @@ def make_train(
     )
     n_actions = get_action_dim(env_args.env, env_args.env_params)
     td_target_fn = td_target_fn if td_target_fn is not None else compute_dqn_td_target
-    td_loss_fn = td_loss_fn if td_loss_fn is not None else huber_1_td_loss
+    td_loss_fn = td_loss_fn if td_loss_fn is not None else compute_huber_1_td_loss
     # Linear over the first epsilon_decay_frac of the horizon, then flat.
     epsilon_schedule = linear(
         epsilon_start, epsilon_end, epsilon_decay_frac * total_timesteps
@@ -351,7 +355,10 @@ def make_train(
 
 __getattr__ = moved_names(
     __name__,
-    dict.fromkeys(
-        ("make_huber_td_loss", "mse_td_loss", "q_loss_fn"), "ajax.agents.critics"
-    ),
+    {
+        "make_huber_td_loss": "ajax.agents.critics",
+        "huber_1_td_loss": "ajax.agents.critics:compute_huber_1_td_loss",
+        "mse_td_loss": "ajax.agents.critics:compute_mse_td_loss",
+        "q_loss_fn": "ajax.agents.critics:compute_q_loss",
+    },
 )

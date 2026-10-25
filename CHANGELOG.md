@@ -70,15 +70,16 @@ PyPI as `ajax-rl`.
   the rollout (`minibatches`). The old names, also on `train_PPO`, import
   with a FutureWarning until 0.5.0.
 - **Extension phases are applied.** `ExtensionStack.fold_reward`,
-  `fold_on_target`, `fold_critic_loss`, `fold_actor_loss` and
-  `fold_post_update` are now `apply_reward`, `apply_on_target`,
-  `apply_critic_loss`, `apply_actor_loss` and `apply_post_update`, and
-  `fold_init`, `fold_init_states`, `fold_pretrain` and `fold_eval_metrics`
-  are `apply_init`, `apply_init_states`, `apply_pretrain` and
-  `apply_eval_metrics`, as
-  are `ajax.agents.loop`'s `fold_on_target`, `fold_critic_loss` and
-  `fold_post_update` (also in `ajax.agents.steps`): same arguments. The
-  old names stay as aliases until 0.5.0. `TrainContext.stack` is
+  `fold_on_target` and `fold_post_update` are now `apply_reward`,
+  `apply_on_target` and `apply_post_update`, `fold_init`,
+  `fold_init_states`, `fold_pretrain` and `fold_eval_metrics` are
+  `apply_init`, `apply_init_states`, `apply_pretrain` and
+  `apply_eval_metrics`, and the two loss terms, `fold_critic_loss` and
+  `fold_actor_loss`, are computed: `compute_extensions_critic_loss` and
+  `compute_extensions_actor_loss`. So are `ajax.agents.loop`'s
+  `fold_on_target`, `fold_critic_loss` and `fold_post_update` (also in
+  `ajax.agents.update_steps`): same arguments. The old names stay as
+  aliases until 0.5.0. `TrainContext.stack` is
   `TrainContext.extensions`, and so is `TrainLoop.stack`.
 - `ajax.agents.minibatch.rollout_actions` (`ajax.agents.PPO.core`'s
   before) is `get_actions_and_log_probs`; the old names import with a
@@ -104,10 +105,10 @@ PyPI as `ajax-rl`.
   `shuffle_key, agent_state = agent_state.get_keys_and_new_state()`.
   `next_keys` returns the same, the state first, until the agents still
   calling it are converted.
-- `ajax.agents.steps.compute_gradients(loss, params)` returns the gradients
+- `ajax.agents.update_steps.compute_gradients(loss, params)` returns the gradients
   of a loss of the parameters alone, and its aux; `gradient_step` and PPO's
   and APO's minibatch steps take their gradients with it.
-- `steps.joint_step` is now `apply_gradients_clipped_together`, which also
+- `update_steps.joint_step` is now `apply_gradients_clipped_together`, which also
   returns each network's gradient norm before the clip. `joint_step` (also
   `train_PPO.joint_step`) returns the two networks alone, as before, until
   0.5.0.
@@ -129,6 +130,28 @@ PyPI as `ajax-rl`.
   `actor_dist_train` and `rollout_sequence_values` are
   `get_policy_in_training` and `compute_rollout_sequence_values`, and
   PQN's `epsilon_schedule` method is `make_epsilon_schedule`.
+- **Verb names.** `ajax.agents.steps` is `ajax.agents.update_steps`. A
+  function returning a loss or a target value starts with `compute_`, one
+  building a function or a network with `make_`: `critics`'
+  `critic_loss_fn`, `q_regression_loss`, `q_loss_fn`, `mse_td_loss` and
+  `huber_1_td_loss` are `compute_mean_critic_loss`,
+  `compute_q_regression_loss`, `compute_q_loss`, `compute_mse_td_loss` and
+  `compute_huber_1_td_loss`; IQL's `expectile_loss` is
+  `compute_expectile_loss`; PQN's `half_mse_td_loss` is
+  `compute_half_mse_td_loss`; TD3's `critic_loss` and `policy_loss_function`
+  are `compute_critic_loss` and `compute_policy_loss`, and
+  `gaussian_exploration` is `make_gaussian_exploration`; CrossQ's
+  `batch_renorm_mlp` is `make_batch_renorm_mlp`. The 0.4.0 paths
+  (`train_DQN.huber_1_td_loss`, `train_DQN.mse_td_loss`,
+  `train_DQN.q_loss_fn`, `train_IQL.expectile_loss`,
+  `train_PQN.half_mse_td_loss`, `SAC.core.critic_loss_fn`,
+  `train_TD3.policy_loss_function`) serve the renamed functions with a
+  FutureWarning until 0.5.0. A declared agent's hooks that build an object
+  start with `make_`: `make_context(total_timesteps)` (was `context`),
+  `make_collector` (was `collector`, also the `TrainContext` field),
+  `make_replay_buffer` (was `replay_buffer`) and
+  `TrainContext.make_actor_critic` (was `actor_critic`); `behaviour` is
+  `choose_behaviour`. The hooks that declare settings keep their names.
 
 - **ASAC** now does what the authors' code does (`darer/ASAC.py`): a
   termination drops the next value in the critic's target (it bootstrapped

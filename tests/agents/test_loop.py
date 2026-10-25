@@ -26,14 +26,14 @@ from ajax.agents.APO.APO import APO
 from ajax.agents.loop import (
     TrainLoop,
     actor_step,
-    apply_critic_loss,
     apply_on_target,
+    compute_extensions_critic_loss,
     critic_step,
     gradient_step,
     run_if,
 )
 from ajax.agents.SAC.SAC import SAC
-from ajax.agents.steps import compute_gradients
+from ajax.agents.update_steps import compute_gradients
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.evaluate import evaluate
 from ajax.extensions.base import Extension, ExtensionStack, merge_metrics
@@ -398,7 +398,7 @@ def test_the_critic_steps_halves_compose_to_the_step() -> None:
             stack, state, _ENDS, jnp.ones((4, 1)), key, 100, **target_args
         )
         loss, _ = value_loss(params, target_q)
-        extra, loss_metrics = apply_critic_loss(
+        extra, loss_metrics = compute_extensions_critic_loss(
             stack, state, _ENDS, params, target_q, key, 100
         )
         return loss + extra, merge_metrics(target_metrics, loss_metrics)

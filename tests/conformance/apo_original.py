@@ -156,7 +156,7 @@ def _env_updates(records: Any, env_id: str, dtype: Any, fault: str | None) -> di
     settings.update(FAULTS.get(fault or "", {}))
     agent = ajax.APO(env_id, **settings)
     template = kit.capture_step(agent, 8 * T * B).fresh(jax.random.PRNGKey(0))
-    _, context = agent.context(8 * T * B)
+    _, context = agent.make_context(8 * T * B)
 
     def update(state: Any, roll: Transition) -> Any:
         return agent.update(state, roll, state, context)[0]

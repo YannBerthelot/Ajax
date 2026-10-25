@@ -21,7 +21,7 @@ src/ajax/
 ├── agents/base.py       ActorCritic: environment and network setup, extensions=, train()
 ├── agents/families.py   declared agents: fields as hyperparameters, the replay and on-policy families
 ├── agents/loop.py       TrainLoop, the shared loop (brax's forced resets included)
-├── agents/steps.py      critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, when, the target update
+├── agents/update_steps.py  critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, run_if, the target update
 ├── agents/minibatch.py  the on-policy rollout split, minibatches and epochs
 ├── agents/critics.py    the Q-critics' regression (continuous and discrete actions)
 ├── agents/diagnostics.py  KL, explained variance, policy std
@@ -116,8 +116,9 @@ An extension is a frozen dataclass subclassing `Extension`. It holds its own
 settings and overrides only the *phases* it touches; the other phases keep
 their defaults, which change nothing. An agent applies a phase of its
 `ExtensionStack` in list order with one helper per phase (`apply_reward`,
-`apply_on_target`, `apply_critic_loss`, `apply_actor_loss`,
-`apply_post_update`; the loop calls `apply_init` and `apply_eval_metrics`)
+`apply_on_target`, `compute_extensions_critic_loss`,
+`compute_extensions_actor_loss`, `apply_post_update`; the loop calls
+`apply_init` and `apply_eval_metrics`)
 that builds the `ExtensionContext` (`step`, `rng`, `total_steps`) and
 threads the extensions' state. On an empty stack a helper changes nothing
 (a loss term is `0.0`), so an agent without extensions traces nothing extra
@@ -169,7 +170,7 @@ agent) like the paper's pseudocode. **Lineage rule:** an agent imports from
 another agent only when it is a variant of that agent's algorithm (REDQ of
 SAC, APO of PPO), and then only the parent's equations. Anything else two
 agents share (an init, a network, a loss helper, an exploration schedule)
-goes to a shared module: `agents/steps.py`, `agents/minibatch.py`,
+goes to a shared module: `agents/update_steps.py`, `agents/minibatch.py`,
 `agents/critics.py`, `agents/diagnostics.py`, `networks/`. A shared module
 imports no agent.
 `tests/agents/test_agent_imports.py` holds the lineages and each parent's
@@ -177,7 +178,7 @@ equations, and fails on any other cross-agent import. Use `critic_step` (a
 replay critic step), `actor_step` (an actor step), `gradient_step` (an
 optimiser step), `compute_gradients` (a loss's gradients) and
 `apply_gradients_clipped_together` (two networks stepped on one clip) from
-`agents/steps.py` rather than writing your own.
+`agents/update_steps.py` rather than writing your own.
 
 A new agent `FOO` declares itself on a family of `agents/families.py`: a
 replay agent on `ReplayAgent`, as IQL, CrossQ and TD3 do (read
@@ -211,12 +212,13 @@ class FOO(GradientClipping, ExpertGuided, ReplayAgent):
 
     def init(self, key, context):
         training_key, init_key, collector_key, evaluation_key = jax.random.split(key, 4)
-        actor_state, critic_state = context.actor_critic(
+        actor_state, critic_state = context.make_actor_critic(
             init_key, continuous=True, action_value=True, num_critics=2
         )
         return FOOState(
             rng=training_key, eval_rng=evaluation_key, actor_state=actor_state,
-            critic_state=critic_state, collector_state=context.collector(collector_key),
+            critic_state=critic_state,
+            collector_state=context.make_collector(collector_key),
         )
 
     def update(self, agent_state, context):
@@ -224,18 +226,18 @@ class FOO(GradientClipping, ExpertGuided, ReplayAgent):
             agent_state.get_keys_and_new_state(3)
         )
         batch, _ = sample_replay(agent_state, context.buffer, sample_key)
-        target = foo_target(agent_state, batch, self.gamma, self.reward_scale)
-        critic_state, critic_aux, _, critic_metrics = steps.critic_step(
+        target = compute_foo_target(agent_state, batch, self.gamma, self.reward_scale)
+        critic_state, critic_aux, _, critic_metrics = update_steps.critic_step(
             agent_state, batch, target,
-            partial(foo_value_loss, agent_state.critic_state, batch),
+            partial(compute_foo_value_loss, agent_state.critic_state, batch),
             context.extensions, critic_key, context.total_timesteps,
             rewards=batch.reward, dones=batch.terminated,
             gamma=self.gamma, reward_scale=self.reward_scale,
         )
-        actor_state, actor_aux, _, actor_metrics = steps.actor_step(
-            agent_state, partial(foo_policy_loss, agent_state), context.extensions,
-            actor_key, context.total_timesteps, observations=batch.obs,
-            actions=batch.action,
+        actor_state, actor_aux, _, actor_metrics = update_steps.actor_step(
+            agent_state, partial(compute_foo_policy_loss, agent_state),
+            context.extensions, actor_key, context.total_timesteps,
+            observations=batch.obs, actions=batch.action,
         )
         agent_state = agent_state.replace(
             actor_state=actor_state,
@@ -252,10 +254,11 @@ class FOO(GradientClipping, ExpertGuided, ReplayAgent):
     capabilities = frozenset({"actor", "discounted", "off_policy", "q_critic", "replay"})
 
 
-# FOO's equations, in the order update calls them.
-def foo_target(agent_state, batch, gamma, reward_scale): ... # the paper's target
-def foo_value_loss(critic, batch, params, target): ...       # -> (loss, aux)
-def foo_policy_loss(agent_state, params): ...                # -> (loss, aux, pi_mean)
+# FOO's equations, in the order update calls them; a function returning a
+# loss or a target value starts with compute_.
+def compute_foo_target(agent_state, batch, gamma, reward_scale): ...  # -> target
+def compute_foo_value_loss(critic, batch, params, target): ...  # -> (loss, aux)
+def compute_foo_policy_loss(agent_state, params): ...  # -> (loss, aux, pi_mean)
 
 
 @struct.dataclass(kw_only=True)
@@ -269,9 +272,10 @@ had a Config before their fields were declared (IQL, CrossQ, TD3, PPO, APO, PQN)
 view of the fields (`declare_config`), until 0.5.0.
 
 `init` splits the run's key on the agent's own layout, which its pins hold.
-`steps.critic_step` applies `on_target` and `critic_loss`; its keywords are
-what the target used (`dones`: where it cut the bootstrap). `steps.actor_step`
-applies `actor_loss`; its keywords are the rows the extensions read. Both derive
+`update_steps.critic_step` applies `on_target` and `critic_loss`; its
+keywords are what the target used (`dones`: where it cut the bootstrap).
+`update_steps.actor_step` applies `actor_loss`; its keywords are the rows the
+extensions read. Both derive
 the extensions' keys from the step's
 ([Randomness](docs/developer/writing-an-extension.md#randomness)), so the
 agent's own random stream is the same with or without extensions.
@@ -279,18 +283,22 @@ agent's own random stream is the same with or without extensions.
 **The train context.** `init` and `update` take a `TrainContext`
 (`agents/families.py`) as `context`: what one `train()` call gives the agent
 beyond its fields, which are fixed once it is built. It holds the env and the
-network and optimiser configs, the extensions bound to the run, the replay
-buffer, how to build the collector, the horizon, whether the run is recurrent
-and the residual-action hook. Other libraries keep these as attributes of the
+network and optimiser configs (make_actor_critic builds the networks on
+them), the extensions bound to the run, the replay buffer, how to build the
+collector (make_collector), the horizon, whether the run is recurrent and the
+residual-action hook. Other libraries keep these as attributes of the
 agent (SB3) or in closures (PureJaxRL); here they are passed explicitly, so one
 agent trains any number of runs and a test calls `init` or `update` alone on
-`agent.context(n)`.
+`agent.make_context(n)`.
 
 An agent writes `init(key, context)` and `update(agent_state, context)` (an
 on-policy agent's `update(agent_state, rollout, agent_state_at_rollout_start,
 context)`), and may add these hooks; each
 is a no-op on the family, which does its own part outside them, so none
-calls `super()`:
+calls `super()`. A hook that builds an object is named make_ (the family's
+own: make_context, make_collector, make_replay_buffer), one that declares
+settings is a noun read as a property of the agent (actor_critic_args,
+optimizer_settings), and the others say what they do:
 
 - `check()` refuses arguments before anything is built;
 - `actor_critic_args()` returns `ActorCritic` arguments the paper fixes or
@@ -303,7 +311,7 @@ calls `super()`:
 - `setup()` derives or checks what needs the built env and networks (IQL's
   value optimiser, PPO's rollout split checks), after the family has built
   the replay;
-- `behaviour(context)` replaces collection's action pipeline.
+- `choose_behaviour(context)` replaces collection's action pipeline.
 
 The family reads some fields by name. `ReplayAgent` requires `buffer_size`,
 `batch_size` and `learning_starts`; an agent claiming the `discounted`

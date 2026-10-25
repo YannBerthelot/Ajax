@@ -135,7 +135,8 @@ The stack passes it positionally, so an extension written when Ajax named it
 declares the others in its `phase_batch_keys` (`ajax.PPO.phase_batch_keys`,
 for instance), and `tests/extensions/test_phase_contract.py` checks every
 agent's batches against its declaration. The replay agents on the shared
-steps (`critic_step`, `actor_step`) pass the sets `ajax.agents.steps` lists:
+steps (`critic_step`, `actor_step`) pass the sets `ajax.agents.update_steps`
+lists:
 
 | Phase | Every agent folding it | The shared replay steps add |
 | --- | --- | --- |
@@ -451,13 +452,13 @@ every `action` extension too.
 Each fold's key is one no other fold gets and one the agent draws nothing
 else on (`tests/extensions/test_phase_contract.py` checks both on every
 agent). `critic_step` and `actor_step` derive their folds' keys from the
-step's key with `derive_extensions_key(key)` (`ajax.agents.steps`), so an agent hands
-them the key its step draws on and never splits one for the extensions. When
-you add a fold to an agent outside them, fold on `derive_extensions_key` of a key the
-step holds, never a split of it: under JAX's partitionable threefry
-`fold_in(k, i)` is `split(k, n)[i]`, which is why `derive_extensions_key` folds in a
-tag far past any split's length. An agent's own random stream is then the
-same with or without extensions.
+step's key with `derive_extensions_key(key)` (`ajax.agents.update_steps`),
+so an agent hands them the key its step draws on and never splits one for
+the extensions. When you add a fold to an agent outside them, fold on
+`derive_extensions_key` of a key the step holds, never a split of it: under
+JAX's partitionable threefry `fold_in(k, i)` is `split(k, n)[i]`, which is why
+`derive_extensions_key` folds in a tag far past any split's length. An agent's
+own random stream is then the same with or without extensions.
 
 ## Pitfalls
 

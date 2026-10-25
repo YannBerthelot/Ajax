@@ -6,11 +6,10 @@ raise TypeError with the method's call form."""
 
 from ajax.deprecation import moved_names
 
-_new_homes = dict.fromkeys(
-    ("Auxiliaries", "AuxiliaryLogs", "expectile_loss"), "ajax.agents.IQL.IQL"
-)
+_new_homes = dict.fromkeys(("Auxiliaries", "AuxiliaryLogs"), "ajax.agents.IQL.IQL")
 _new_homes.update(
     {
+        "expectile_loss": "ajax.agents.IQL.IQL:compute_expectile_loss",
         "init_IQL": "ajax.agents.IQL.IQL:IQL.init",
         "update_agent": "ajax.agents.IQL.IQL:IQL.update",
         "make_train": "ajax.agents.families:ReplayAgent.make_train",

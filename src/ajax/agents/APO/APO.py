@@ -49,7 +49,7 @@ from ajax.agents.minibatch import (
     run_epochs,
 )
 from ajax.agents.PPO.PPO import _compute_gae, clipped_surrogate
-from ajax.agents.steps import (
+from ajax.agents.update_steps import (
     apply_gradients_clipped_together,
     compute_gradients,
     derive_extensions_key,
@@ -174,7 +174,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
     def optimizer_settings(self) -> dict[str, Any]:
         # Adam's eps: 1e-8, torch's default the official code keeps, not
         # ActorCritic's 1e-5. Its one clip over both networks is
-        # minibatch_step's (steps.apply_gradients_clipped_together), so
+        # minibatch_step's (update_steps.apply_gradients_clipped_together), so
         # neither network's own optimiser clips.
         return {"eps": self.adam_eps, "max_grad_norm": None}
 
@@ -189,7 +189,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         continuous = check_if_environment_has_continuous_actions(
             env_args.env, env_params=env_args.env_params
         )
-        actor_state, critic_state = context.actor_critic(
+        actor_state, critic_state = context.make_actor_critic(
             init_key,
             continuous=continuous,
             action_value=False,
@@ -201,7 +201,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             eval_rng=evaluation_key,
             actor_state=actor_state,
             critic_state=critic_state,
-            collector_state=context.collector(collector_key),
+            collector_state=context.make_collector(collector_key),
             n_updates=0,
             average_reward=0.0,
             b=0.0,
@@ -399,10 +399,10 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 "actor_state": actor_state,
                 "a_expert": minibatch["a_expert"],
             }
-            critic_extra, critic_metrics = extensions.apply_critic_loss(
+            critic_extra, critic_metrics = extensions.compute_extensions_critic_loss(
                 agent_state, critic_batch, timestep, critic_key, total_timesteps
             )
-            actor_extra, actor_metrics = extensions.apply_actor_loss(
+            actor_extra, actor_metrics = extensions.compute_extensions_actor_loss(
                 agent_state, actor_batch, timestep, actor_key, total_timesteps
             )
             loss = policy_loss + value_loss + critic_extra + actor_extra
@@ -555,7 +555,7 @@ class APOState(BaseAgentState):
     b: float
 
     #: Its networks' gradients are clipped together
-    #: (steps.apply_gradients_clipped_together): a checkpoint from when each
+    #: (update_steps.apply_gradients_clipped_together): a checkpoint from when each
     #: clipped its own restores (ajax.checkpoint).
     #: A ClassVar: a flag on the class, shared by every APO state, not stored in its arrays.
     joint_gradient_clip: ClassVar[bool] = True

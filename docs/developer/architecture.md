@@ -33,7 +33,7 @@ src/ajax/
 │   ├── base.py          ActorCritic: environment and network setup, extensions=, train(); run_config
 │   ├── families.py      declared agents (fields as hyperparameters); the replay and on-policy families' train functions
 │   ├── loop.py          TrainLoop, the shared loop (brax's forced resets included)
-│   ├── steps.py         critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, when, the target update
+│   ├── update_steps.py  critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, run_if, the target update
 │   ├── minibatch.py     the on-policy rollout split (RolloutSplit), minibatches and epochs
 │   ├── critics.py       the Q-critics' regression (continuous and discrete actions)
 │   ├── diagnostics.py   KL, explained variance, policy std
@@ -271,9 +271,9 @@ one optimiser step; `actor_step(...)`, an actor step that folds the
 extensions' `actor_loss` phase; and `critic_step(...)`, a replay critic step that folds
 the extensions' `on_target` and `critic_loss` phases. All three return the
 gradients' global norm, before the optimiser clips them. SAC, TD3, REDQ, ASAC,
-AVG and IQL use `critic_step`. Its two halves are public too: `apply_on_target`
-and `apply_critic_loss`. An agent whose target comes out of its own critic
-pass calls them inside its loss.
+AVG and IQL use `critic_step`. Its two halves are public too:
+`apply_on_target` and `compute_extensions_critic_loss`. An agent whose target
+comes out of its own critic pass calls them inside its loss.
 SAC, TD3, AVG, DAgger and IQL use `actor_step`; ASAC and REDQ use
 `soft_actor_step` in `SAC/core.py`, on the same `soft_policy_loss` as SAC.
 
@@ -292,7 +292,7 @@ policy at the last observations, a key and the timestep, the action to take.
 `explore_pipeline(explore, recurrent, n_actions)` turns it into the action
 pipeline collection calls, which owns the uniform warm-up actions, a recurrent
 actor's carry and a discrete action's stored column. TD3's Gaussian noise
-(`gaussian_exploration`) and DQN's and PQN's epsilon-greedy
+(`make_gaussian_exploration`) and DQN's and PQN's epsilon-greedy
 (`epsilon_greedy`) are such functions.
 
 ## Agent state
@@ -343,16 +343,16 @@ agent without extensions traces nothing extra and never guards a fold.
 | `apply_init` (each `init_state`, then each `pretrain`) | `fresh_state`, fresh runs only (a resumed state already carries both) |
 | `apply_post_update` | after every update: the loop's `maybe_update`, `repeat_update` and `on_policy`; APG, UDRL and `TDMPC2MultiTask` in their own iterations |
 | `apply_eval_metrics` | at every evaluation, merged into the logged metrics (`compose_eval_metrics` in `log.py`) |
-| `apply_on_target`, `apply_critic_loss` | in the agent's critic step; `critic_step` for SAC, TD3, REDQ, ASAC, AVG and IQL |
-| `apply_actor_loss` | in the agent's actor step; `actor_step` for SAC, TD3, AVG, DAgger and IQL |
+| `apply_on_target`, `compute_extensions_critic_loss` | in the agent's critic step; `critic_step` for SAC, TD3, REDQ, ASAC, AVG and IQL |
+| `compute_extensions_actor_loss` | in the agent's actor step; `actor_step` for SAC, TD3, AVG, DAgger and IQL |
 | the `action` phase | SAC's action pipeline only, with an expert policy |
 | `transform_action`, `actuate` | the controller (`env_args.transforms`): the action pipeline before the choice, the shared collector after it (`expert_collect_kwargs`), evaluation, and `executed_actions` where the critics score executed actions |
 | the `observe` phase | the observers the agent lifts out of its stack (`env_args.observers`): the shared collector, at reset and after each step, PPO's forced reset, the expert prefill and evaluation |
 
-`apply_on_target`, `apply_critic_loss` and `apply_actor_loss` return their
-value and the metrics the phases returned beside theirs; the agent carries
-them out of its loss as an aux and logs them, in its `AuxiliaryLogs`'
-`extensions` field, under their own names.
+`apply_on_target`, `compute_extensions_critic_loss` and
+`compute_extensions_actor_loss` return their value and the metrics the phases
+returned beside theirs; the agent carries them out of its loss as an aux and
+logs them, in its `AuxiliaryLogs`' `extensions` field, under their own names.
 
 The loop's own phases are `LOOP_PHASES`: `pretrain`, `post_update`,
 `eval_metrics` and `observe`, which an agent collecting on its own (APG,

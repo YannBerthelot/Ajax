@@ -290,7 +290,7 @@ def soft_actor_step(
             "critic_state": agent_state.critic_state,
             "agent_loss": loss,
         }
-        extra, metrics = extension_stack.apply_actor_loss(
+        extra, metrics = extension_stack.compute_extensions_actor_loss(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
@@ -357,9 +357,9 @@ def update_temperature(
     return agent_state.replace(alpha=new_alpha_state), jax.lax.stop_gradient(aux)
 
 
-_new_homes = dict.fromkeys(
-    ("CoreCriticAux", "critic_loss_fn", "q_regression_loss"),
-    "ajax.agents.critics",
-)
-_new_homes.update(dict.fromkeys(("update_target_networks",), "ajax.agents.steps"))
+_new_homes = {
+    "CoreCriticAux": "ajax.agents.critics",
+    "critic_loss_fn": "ajax.agents.critics:compute_mean_critic_loss",
+    "update_target_networks": "ajax.agents.update_steps",
+}
 __getattr__ = moved_names(__name__, _new_homes)

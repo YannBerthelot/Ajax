@@ -71,7 +71,7 @@ def test_ppo_losses_report_kl_std_and_explained_variance() -> None:
     agent = PPO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
-    state = agent.init(KEY, agent.context(1)[1])
+    state = agent.init(KEY, agent.make_context(1)[1])
     actor, critic = state.actor_state, state.critic_state
     obs, actions, log_probs, gae, targets = _batch(agent)
 
@@ -112,7 +112,7 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
         state = jax.tree.map(lambda x: x[0], state)
     rollout, config = state.last_rollout, agent.agent_config
     assert rollout is not None and isinstance(state, PPOState)
-    _, aux = agent.update(state, rollout, state, agent.context(8)[1])
+    _, aux = agent.update(state, rollout, state, agent.make_context(8)[1])
 
     actor, critic = state.actor_state, state.critic_state
     values = predict_value(critic, critic.params, rollout.obs).squeeze(0)
@@ -162,7 +162,7 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
     agent = APO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
-    _, context = agent.context(1)
+    _, context = agent.make_context(1)
     state = agent.init(KEY, context).replace(average_reward=jnp.asarray(0.3))
     obs, actions, log_probs, gae, targets = _batch(agent)
     b = jnp.asarray(0.7)
@@ -276,7 +276,7 @@ def test_the_entropy_bonus_lowers_the_policy_loss() -> None:
         critic_architecture=NET,
     )
     assert agent.agent_config.ent_coef == 0.1
-    _, context = agent.context(1)
+    _, context = agent.make_context(1)
     state = agent.init(KEY, context)
     actor = state.actor_state
     obs, actions, log_probs, gae, targets = _batch(agent)

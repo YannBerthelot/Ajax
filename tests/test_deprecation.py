@@ -164,3 +164,28 @@ def test_apos_old_names_resolve_or_give_the_new_call() -> None:
             assert found is getattr(home, name)
         with pytest.raises(AttributeError, match=f"{path}.{name} moved to"):
             setattr(module, name, found)
+
+
+#: The functions 0.4.0 released that now carry a verb (compute_ for a loss):
+#: (old module, old name, new module, new name).
+RENAMED_BY_A_VERB = [
+    ("DQN.train_DQN", "huber_1_td_loss", "critics", "compute_huber_1_td_loss"),
+    ("DQN.train_DQN", "mse_td_loss", "critics", "compute_mse_td_loss"),
+    ("DQN.train_DQN", "q_loss_fn", "critics", "compute_q_loss"),
+    ("IQL.train_IQL", "expectile_loss", "IQL.IQL", "compute_expectile_loss"),
+    ("PQN.train_PQN", "half_mse_td_loss", "PQN.PQN", "compute_half_mse_td_loss"),
+    ("SAC.core", "critic_loss_fn", "critics", "compute_mean_critic_loss"),
+    ("TD3.train_TD3", "policy_loss_function", "TD3.TD3", "compute_policy_loss"),
+]
+
+
+@pytest.mark.parametrize(("old", "name", "new", "new_name"), RENAMED_BY_A_VERB)
+def test_a_function_renamed_by_a_verb_serves_the_new_one_from_its_old_path(
+    old: str, name: str, new: str, new_name: str
+) -> None:
+    """Its old name on its 0.4.0 module is the renamed function itself, with
+    a warning naming it, until 0.5.0."""
+    old, new = f"ajax.agents.{old}", f"ajax.agents.{new}"
+    with pytest.warns(FutureWarning, match=f"{old}.{name} moved to {new}.{new_name}"):
+        found = getattr(importlib.import_module(old), name)
+    assert found is getattr(importlib.import_module(new), new_name)

@@ -41,12 +41,11 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic
 from ajax.agents.loop import LOOP_PHASES, TrainLoop
-from ajax.agents.recurrent import (
-    make_replay_buffer,
-    stored_actor_carry_dim,
-    unsupported_recurrent_options,
-)
-from ajax.agents.steps import REPLAY_BATCH_KEYS
+
+# Imported under another name: ReplayAgent's own hook is make_replay_buffer.
+from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_buffer
+from ajax.agents.recurrent import stored_actor_carry_dim, unsupported_recurrent_options
+from ajax.agents.update_steps import REPLAY_BATCH_KEYS
 from ajax.buffers.utils import get_buffer
 from ajax.controller import executed_fn
 from ajax.environments.interaction import init_collector_state
@@ -90,7 +89,7 @@ class TrainContext:
       actor_optimizer_args, critic_optimizer_args);
     - the extensions, bound to this run;
     - the replay buffer, for a replay agent (None on-policy);
-    - how to build the collector (collector);
+    - how to build the collector (make_collector);
     - the run's horizon (total_timesteps);
     - whether the run is recurrent (its networks have memory);
     - the residual-action hook (executed), None without a residual policy.
@@ -101,7 +100,7 @@ class TrainContext:
     passed explicitly to init and update, where SB3 keeps it as attributes
     of the agent and PureJaxRL in closures inside its make_train. One agent
     then trains any number of runs, and a test calls init or update alone
-    on agent.context(total_timesteps) (CLAUDE.md rule 7: passed in, never
+    on agent.make_context(total_timesteps) (CLAUDE.md rule 7: passed in, never
     global).
     """
 
@@ -111,16 +110,16 @@ class TrainContext:
     critic_optimizer_args: OptimizerConfig
     extensions: ExtensionStack
     total_timesteps: int
-    #: collector(key, **options): the collector state, its replay storing
+    #: make_collector(key, **options): the collector state, its replay storing
     #: what the run needs (options: init_collector_state's, an agent's).
-    collector: Callable[..., Any]
+    make_collector: Callable[..., Any]
     buffer: Optional[BufferType] = None
     recurrent: bool = False
     #: (actions, a_expert) -> actions the critics score under a residual
     #: policy (controller.executed_fn); None otherwise.
     executed: Optional[Callable] = None
 
-    def actor_critic(
+    def make_actor_critic(
         self,
         key: jax.Array,
         build: Callable = get_initialized_actor_critic,
@@ -394,7 +393,7 @@ class DeclaredAgent(ActorCritic):
                 " passing another agent_config."
             )
 
-    def context(
+    def make_context(
         self,
         total_timesteps: int,
         num_episode_test: int = 1,
@@ -414,7 +413,7 @@ class DeclaredAgent(ActorCritic):
         own configs and extensions unless others are given: the extensions
         bound to the keys of its extension_context. Its family's
         make_train builds the run on them; a test calls
-        agent.context(n) to call init or update alone."""
+        agent.make_context(n) to call init or update alone."""
         configs: dict[str, Any] = {
             "env_args": env_args,
             "actor_optimizer_args": actor_optimizer_args,
@@ -435,7 +434,7 @@ class DeclaredAgent(ActorCritic):
         if unknown:
             raise ValueError(
                 f"{self.name}'s extension_context names {', '.join(unknown)},"
-                " which DeclaredAgent.context does not give its extensions (it"
+                " which DeclaredAgent.make_context does not give its extensions (it"
                 f" gives {', '.join(sorted(given))})."
             )
         agent_context = {name: given[name] for name in sorted(self.extension_context)}
@@ -461,14 +460,16 @@ class DeclaredAgent(ActorCritic):
             **configs,
             extensions=loop.extensions,
             total_timesteps=total_timesteps,
-            collector=partial(self.collector, loop=loop, network_args=network_args),
+            make_collector=partial(
+                self.make_collector, loop=loop, network_args=network_args
+            ),
             buffer=buffer,
             recurrent=recurrent,
             executed=executed_fn(env_args),
         )
         return loop, context
 
-    def collector(
+    def make_collector(
         self, key: jax.Array, loop: TrainLoop, network_args: NetworkConfig, **options
     ) -> Any:
         """The collector state (init_collector_state), holding a
@@ -509,7 +510,7 @@ class ReplayAgent(DeclaredAgent):
     buffer_size, batch_size and learning_starts, which every
     member declares with its paper's values. An agent writes init
     and update, and may replace collection's action pipeline
-    (behaviour).
+    (choose_behaviour).
 
     Args:
         buffer_size: The replay's capacity, in transitions.
@@ -540,16 +541,16 @@ class ReplayAgent(DeclaredAgent):
         """One update: (agent_state, logged metrics)."""
         raise NotImplementedError
 
-    def behaviour(self, context: TrainContext) -> Optional[Callable]:
+    def choose_behaviour(self, context: TrainContext) -> Optional[Callable]:
         """The action pipeline collection runs; None: the policy's, uniform
         during the warm-up."""
         del context
         return None
 
     def _build_family(self) -> None:
-        self.buffer = self.replay_buffer()
+        self.buffer = self.make_replay_buffer()
 
-    def replay_buffer(self) -> BufferType:
+    def make_replay_buffer(self) -> BufferType:
         return get_buffer(self.buffer_size, self.batch_size, self.n_envs)
 
     def stores_state(self) -> bool:
@@ -557,7 +558,7 @@ class ReplayAgent(DeclaredAgent):
         stored state)."""
         return False
 
-    def collector(
+    def make_collector(
         self, key: jax.Array, loop: TrainLoop, network_args: NetworkConfig, **options
     ) -> Any:
         """The collector state, its replay storing what the run reads: the
@@ -603,7 +604,7 @@ class ReplayAgent(DeclaredAgent):
         """The train function ActorCritic.train builds: the loop
         over init and update."""
         self.check_agent_config(agent_config)
-        loop, context = self.context(
+        loop, context = self.make_context(
             total_timesteps,
             num_episode_test,
             env_args=env_args,
@@ -625,7 +626,7 @@ class ReplayAgent(DeclaredAgent):
             recurrent=recurrent,
             collect_kwargs={
                 "buffer": self.buffer,
-                "action_pipeline": self.behaviour(context),
+                "action_pipeline": self.choose_behaviour(context),
                 "store_hidden": recurrent and self.stores_state(),
             },
             eval_kwargs={
@@ -660,8 +661,8 @@ class RecurrentReplayAgent(ReplayAgent):
 
     supports_memory = True
 
-    def replay_buffer(self) -> BufferType:
-        return make_replay_buffer(
+    def make_replay_buffer(self) -> BufferType:
+        return make_recurrent_replay_buffer(
             self,
             self.n_envs,
             self.network_args.memory,
@@ -686,7 +687,7 @@ class OnPolicyAgent(DeclaredAgent):
     which every member declares with its paper's values, and brax's
     num_resets_per_eval and num_evals where an agent declares them.
     An agent writes init and update, and may replace
-    collection's action pipeline (behaviour) and add to each
+    collection's action pipeline (choose_behaviour) and add to each
     evaluation (evaluation_options).
 
     Args:
@@ -719,7 +720,7 @@ class OnPolicyAgent(DeclaredAgent):
         from that state's memories): (agent_state, logged metrics)."""
         raise NotImplementedError
 
-    def behaviour(self, context: TrainContext) -> Optional[Callable]:
+    def choose_behaviour(self, context: TrainContext) -> Optional[Callable]:
         """The action pipeline collection runs; None: the policy's sample."""
         del context
         return None
@@ -730,7 +731,7 @@ class OnPolicyAgent(DeclaredAgent):
         avg_reward_mode)."""
         return {}
 
-    def collector(
+    def make_collector(
         self, key: jax.Array, loop: TrainLoop, network_args: NetworkConfig, **options
     ) -> Any:
         del network_args
@@ -762,7 +763,7 @@ class OnPolicyAgent(DeclaredAgent):
         on-policy agent learns from its own rollouts (train_offline
         refuses it)."""
         self.check_agent_config(agent_config)
-        loop, context = self.context(
+        loop, context = self.make_context(
             total_timesteps,
             num_episode_test,
             env_args=env_args,
@@ -790,6 +791,6 @@ class OnPolicyAgent(DeclaredAgent):
                 getattr(self, "num_resets_per_eval", 0),
                 getattr(self, "num_evals", 1),
             ),
-            collect_kwargs={"action_pipeline": self.behaviour(context)},
+            collect_kwargs={"action_pipeline": self.choose_behaviour(context)},
             eval_kwargs=eval_kwargs,
         )

@@ -52,7 +52,7 @@ EQUATIONS = {
 # B2 declared the replay family on IQL, CrossQ and TD3 only: SAC's descendants
 # join it, and leave its state and init, when B4 declares them.
 _SAC_FAMILY_INIT = "B4 (the replay family's init, each agent's networks)"
-_SAC_STEPS = "B4 (steps.actor_step or gradient_step over SAC's equations)"
+_SAC_STEPS = "B4 (update_steps.actor_step or gradient_step over SAC's equations)"
 _SAC_METRICS = "B4 (the agent's own metrics)"
 #: (importer, agent, name) -> the batch that ends the import. An importer is
 #: an agent, or a shared module's path under src/ajax.
@@ -77,8 +77,8 @@ BORROWED = {
         for name in ("soft_actor_step", "update_temperature")
     },
     # CrossQ, declared in B2, keeps SAC's temperature until B4 moves it to a
-    # shared module: steps.gradient_step would add optax.global_norm to its
-    # program, so B2 has no behaviour-neutral switch.
+    # shared module: update_steps.gradient_step would add optax.global_norm to
+    # its program, so B2 has no behaviour-neutral switch.
     **{
         ("CrossQ", "SAC", name): "B4 (the temperature and its state, shared)"
         for name in ("SoftACState", "create_alpha_train_state", "update_temperature")

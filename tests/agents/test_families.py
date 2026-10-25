@@ -120,7 +120,7 @@ class OnToy(ImageObservations, OnPolicyAgent):
 
     def init(self, key: jax.Array, context: TrainContext) -> BaseAgentState:
         rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
-        actor, critic = context.actor_critic(
+        actor, critic = context.make_actor_critic(
             init_key, continuous=False, action_value=False, num_critics=1
         )
         return BaseAgentState(
@@ -128,7 +128,7 @@ class OnToy(ImageObservations, OnPolicyAgent):
             eval_rng=eval_rng,
             actor_state=actor,
             critic_state=critic,
-            collector_state=context.collector(collector_key),
+            collector_state=context.make_collector(collector_key),
         )
 
     def update(
@@ -313,7 +313,7 @@ def test_an_on_policy_agent_runs_its_update_on_each_rollout() -> None:
     agent = OnToy("CartPole-v1", cnn_extra_obs_dim=0)
     assert agent.network_args.cnn_image_shape is None  # ImageObservations'
     # The context runs init alone, as the run's first state.
-    loop, context = agent.context(8)
+    loop, context = agent.make_context(8)
     assert (
         context.extensions is loop.extensions
         and not context.recurrent

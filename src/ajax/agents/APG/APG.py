@@ -125,7 +125,9 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         beta_2: AdamW's second-moment decay.
         lr_schedule: None (constant) or "warmup_cosine": linear warmup over
             warmup_steps updates, then cosine decay to learning_rate *
-            lr_end_fraction at the call's last update. When train keeps the
+            lr_end_fraction at the call's last update, for the parameters of
+            two or more dimensions; the others keep learning_rate, as in the
+            reference (see contextual_controller). When train keeps the
             optimiser (reset_optimizer_on_resume=False), a resumed call runs
             the schedule of the call that built it, the run's first or a
             checkpoint's skeleton: given that flag, that call decays to the
@@ -252,12 +254,14 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         each backed by runs on the pendulum tracking test bed: actions are
         tanh-bounded (Ajax convention; the reference leaves u unbounded),
         and the PID head starts at the identity rather than the reference's
-        all-ones coefficients (see _DEFAULT_PID). Not reproduced: the
-        reference (buswayne/in-context-controller at 7eb094ce17) sets its
+        all-ones coefficients (see _DEFAULT_PID). As in the reference
+        (buswayne/in-context-controller at 7eb094ce17), which sets its
         scheduled rate on its first parameter group only
-        (train_onestep_lin_CL.py:241), so its LayerNorm weights keep the
-        peak rate, and decays only tensors of two or more dimensions
-        (transformer_onestep_CL.py:72-77; moot at weight_decay=0). Not
+        (train_onestep_lin_CL.py:241), the schedule steps the matrices
+        alone: the biases, LayerNorm scales and PID gains keep the peak
+        rate. Not reproduced: the reference decays only tensors of two or
+        more dimensions (transformer_onestep_CL.py:72-77; moot at
+        weight_decay=0). Not
         backed by runs: the LayerNorms, ln_f included, keep a bias and
         flax's epsilon 1e-6, where the reference's have no bias and epsilon
         1e-5 (buswayne/in-context-controller at 7eb094ce17:
@@ -332,7 +336,11 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
                 total_steps=schedule_updates,
                 end_value_fraction=self.lr_end_fraction,
             )
-            optimizer = context.actor_optimizer_args.replace(learning_rate=schedule)
+            # The 1-D parameters keep the peak rate, as in the reference (see
+            # contextual_controller).
+            optimizer = context.actor_optimizer_args.replace(
+                learning_rate=schedule, vector_learning_rate=float(peak)
+            )
             context = dataclasses.replace(context, actor_optimizer_args=optimizer)
         if not reset_optimizer_on_resume:
             return context, None

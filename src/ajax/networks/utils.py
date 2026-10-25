@@ -52,6 +52,7 @@ def get_adam_tx(
     weight_decay: float = 0.0,
     per_member: bool = False,
     optimizer: str = "adam",
+    vector_learning_rate: Optional[float] = None,
 ) -> GradientTransformationExtraArgs:
     """Return the optimizer ``optimizer`` names, Adam by default, clipping
     the gradients' global norm to ``max_grad_norm`` when one is given; with
@@ -71,6 +72,9 @@ def get_adam_tx(
             it out, so ``"adam"`` is ``optax.adam``.
         optimizer: The update rule (``OptimizerConfig.optimizer``):
             ``"adam"``, ``"radam"`` or ``"centered_rmsprop"``.
+        vector_learning_rate: A fixed rate for the parameters of fewer than
+            two dimensions (OptimizerConfig.vector_learning_rate); None steps
+            them at learning_rate.
     """
     if weight_decay < 0:
         raise ValueError(f"weight_decay must be non-negative, got {weight_decay}")
@@ -82,13 +86,44 @@ def get_adam_tx(
     if optimizer not in rules:
         raise ValueError(f"optimizer must be one of {sorted(rules)}, got {optimizer!r}")
     decay = [optax.add_decayed_weights(weight_decay)] if weight_decay > 0 else []
-    tx = optax.chain(
-        rules[optimizer](), *decay, optax.scale_by_learning_rate(learning_rate)
-    )
+    if vector_learning_rate is None:
+        scale = optax.scale_by_learning_rate(learning_rate)
+    else:
+        scale = scale_by_learning_rate_per_rank(learning_rate, vector_learning_rate)
+    tx = optax.chain(rules[optimizer](), *decay, scale)
     if max_grad_norm is not None:
         clip = clip_by_member_norm if per_member else optax.clip_by_global_norm
         return optax.chain(clip(max_grad_norm), tx)
     return tx
+
+
+def scale_by_learning_rate_per_rank(
+    learning_rate: Union[float, Callable[[int], float]], vector_learning_rate: float
+) -> optax.GradientTransformation:
+    """optax.scale_by_learning_rate for the parameters of two or more
+    dimensions; those of fewer (biases, norm scales, scalar gains) take
+    vector_learning_rate, never scheduled. Its state is scale_by_schedule's
+    step count, so the optimiser's state keeps the layout of a scheduled
+    rate's, as a checkpoint saved it."""
+
+    def update_fn(
+        updates: optax.Updates, state: optax.ScaleByScheduleState, params=None
+    ):
+        del params
+        rate = learning_rate(state.count) if callable(learning_rate) else learning_rate
+
+        def scale(update: jax.Array) -> jax.Array:
+            step = rate if update.ndim >= 2 else vector_learning_rate
+            return jnp.asarray(-step, update.dtype) * update
+
+        count = optax.safe_increment(state.count)
+        return jax.tree.map(scale, updates), optax.ScaleByScheduleState(count=count)
+
+    def init_fn(params: optax.Params) -> optax.ScaleByScheduleState:
+        del params
+        return optax.ScaleByScheduleState(count=jnp.zeros([], jnp.int32))
+
+    return optax.GradientTransformation(init_fn, update_fn)
 
 
 _ACTIVATIONS: dict[str, ActivationFunction] = {

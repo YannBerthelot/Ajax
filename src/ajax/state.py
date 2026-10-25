@@ -425,6 +425,10 @@ class OptimizerConfig(Replaceable):
     # centered=True): the gradient over sqrt(E[g^2] - E[g]^2 + eps), both
     # averages decaying at beta_2, no bias correction, beta_1 unused.
     optimizer: str = "adam"
+    # A fixed rate for the parameters of fewer than two dimensions (biases,
+    # norm scales, scalar gains) while learning_rate, possibly a schedule,
+    # steps the others; None steps every parameter at learning_rate.
+    vector_learning_rate: Optional[float] = None
 
 
 @struct.dataclass

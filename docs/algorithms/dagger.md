@@ -59,6 +59,7 @@ at the last step (`dagger/expert_frac`).
 | Argument | Default | What it does |
 | --- | --- | --- |
 | `expert_policy` | required | the expert to imitate, as in [Expert guidance](../guide/expert-guidance.md#the-expert) |
+| `eval_expert_policy` | None | another expert whose return each evaluation logs in place of `expert_policy`'s |
 | `beta_decay` | 0.0 | the expert acts with probability `beta_i = beta_decay ** (i - 1)` in iteration `i`; 0 lets it act in the first iteration only |
 | `iteration_steps` | 500 | timesteps (over all environments) per iteration |
 | `n_envs` | 1 | environments stepped in parallel |

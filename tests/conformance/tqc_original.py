@@ -205,6 +205,8 @@ def _roles(draws: dict) -> list:
     normal = {r[1]: r for r in draws if r[0] == "normal"}
     [nxt] = [r for site, r in normal.items() if site.endswith(":sample_next_actions")]
     [actor] = [
-        r for site, r in normal.items() if site.endswith(":soft_policy_objective")
+        r
+        for site, r in normal.items()
+        if site.endswith(":compute_soft_policy_objective")
     ]
     return [nxt, actor]

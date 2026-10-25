@@ -93,7 +93,7 @@ expert is written in the environment's units and receives the raw
 | --- | --- | --- |
 | `expert_policy` | `None` | the expert used in training; `None` is plain SAC |
 | `eval_expert_policy` | `None` | an expert used only for the evaluation's comparison metrics |
-| `expert_buffer_n_steps` | `20_000` | expert steps per env written to the buffer before training |
+| `expert_buffer_n_steps` | `None` | deprecated: builds `ExpertPrefill(n_steps)` (`ajax.extensions.pretrain`: the expert's steps per env written to the replay before training), which pass instead; `None` with an expert builds `ExpertPrefill(n_steps=20_000)` and warns that this default will go |
 | `expert_fraction` | `None` | deprecated: builds `ExpertWarmup(fraction)` (`ajax.extensions.expert`: during warm-up, the chance a step takes the expert's action instead of a uniform one), which pass instead; `None` with an expert builds `ExpertWarmup(fraction=0.7)` and warns that this default will go |
 | `use_pid_policy` | `False` | deprecated: builds `ExpertGains()` (`ajax.extensions.expert`, gain mode: the actor outputs the gains of the expert's PID), which pass instead |
 | `augment_obs_with_expert_action`, `augment_obs_with_expert_state` | `False` | deprecated: build `ExpertActionInput()`, `ExpertStateInput.for_expert(expert)` (`ajax.extensions.observe`), which pass instead |
@@ -170,7 +170,6 @@ agent = SAC(
     policy_update_start=0,  # the offline mode counts updates: start at once
     alpha_update_start=0,
     learning_starts=0,
-    expert_buffer_n_steps=0,
     extensions=(ConservativeQ(alpha=5.0),),  # or CalQL(alpha=5.0)
 )
 # state, evaluations = agent.train_offline(dataset, n_updates=1_000_000)

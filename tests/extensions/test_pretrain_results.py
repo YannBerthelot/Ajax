@@ -18,7 +18,12 @@ from ajax import SAC
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions import pretrain
 from ajax.extensions.base import ExtensionContext
-from ajax.extensions.pretrain import BellmanPretrain, CloningPretrain, MCPretrain
+from ajax.extensions.pretrain import (
+    BellmanPretrain,
+    CloningPretrain,
+    ExpertPrefill,
+    MCPretrain,
+)
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.probing import readouts
 
@@ -44,6 +49,7 @@ def _stack() -> tuple:
         CloningPretrain(expert_policy=expert, n_steps=64, epochs=3, batch_size=16),
         MCPretrain(expert, 200, 4, 20, online_light_steps=5),
         BellmanPretrain(n_steps=4),
+        ExpertPrefill(n_steps=16),  # BellmanPretrain's replay
     )
 
 
@@ -57,7 +63,6 @@ def _agent() -> SAC:
         learning_starts=16,
         batch_size=8,
         expert_policy=expert,
-        expert_buffer_n_steps=16,  # BellmanPretrain's replay
         extensions=_stack(),
     )
 

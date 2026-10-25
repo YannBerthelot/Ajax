@@ -9,10 +9,11 @@ listed in the [catalogue](#catalogue) below.
 Why extensions instead of agent options? An agent's constructor takes its
 paper's hyperparameters plus `extensions=()`. The exceptions are
 `expert_policy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, DAgger), whose return each evaluation
-logs, and a few SAC options (its expert's prefill and warm-up mix,
-`store_policy_action`), kept because they change the
-collection or the action pipeline, which extensions do not reach yet
-([SAC](../algorithms/sac.md#expert-options)). Observation features (an
+logs, and a few SAC options (`store_policy_action`), kept because they
+change the collection or the action pipeline, which extensions do not reach
+yet ([SAC](../algorithms/sac.md#expert-options)). SAC's expert prefill and
+warm-up mix are the `ExpertPrefill` and `ExpertWarmup` extensions, which its
+deprecated keywords still build. Observation features (an
 expert's action or state, the training progress) are extensions too:
 `ajax.extensions.observe`, on every agent that collects with the shared
 collector. A feature written into

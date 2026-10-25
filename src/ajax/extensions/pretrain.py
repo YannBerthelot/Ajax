@@ -1057,8 +1057,9 @@ class ExpertPrefill(Extension):
 
     It needs the agent's expert, a replay and an update that stays correct
     on actions the policy did not choose: SAC, REDQ, ASAC, TQC, TD3, CrossQ
-    and IQL take it. It runs before the other pretraining, which may read
-    its rows (ExtensionStack.apply_pretrain)."""
+    and IQL take it (SAC's deprecated expert_buffer_n_steps builds it). It
+    runs before the other pretraining, which may read its rows
+    (ExtensionStack.apply_pretrain)."""
 
     n_steps: int
     # The agent's expert, in agent units, bound by bind_to_agent.

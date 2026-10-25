@@ -111,7 +111,7 @@ import jax.numpy as jnp
 
 from ajax import SAC, TD3
 from ajax.extensions.expert import ImitationLoss
-from ajax.extensions.pretrain import CloningPretrain
+from ajax.extensions.pretrain import CloningPretrain, ExpertPrefill
 from ajax.logging.wandb_logging import LoggingConfig
 
 
@@ -123,8 +123,8 @@ def pd_expert(obs):
 
 
 # SAC writes 1,000 expert steps to its replay buffer before training.
-sac = SAC("Pendulum-v1", expert_policy=pd_expert, expert_buffer_n_steps=1_000,
-          learning_starts=1_000)
+sac = SAC("Pendulum-v1", expert_policy=pd_expert, learning_starts=1_000,
+          extensions=(ExpertPrefill(n_steps=1_000),))
 logging = LoggingConfig(config={}, log_frequency=1_000, use_wandb=False)
 state, evaluations = sac.train(seed=0, n_timesteps=2_000, logging_config=logging)
 print(evaluations["Eval/expert bias"])  # the agent's return minus the expert's

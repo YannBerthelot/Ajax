@@ -1438,6 +1438,21 @@ _GOLDEN.update(
     }
 )
 
+# Re-recorded on macOS ARM CPU once SAC's expert prefill
+# (expert_buffer_n_steps) became the ExpertPrefill extension, run in the
+# pretraining: it draws the extension's key, and the run, its learner stack
+# no longer empty, draws one more key per update. The same algorithm on
+# other random numbers: actor +0.13%, critic +0.28%, alpha -0.18%.
+_GOLDEN.update(
+    {
+        "SAC-expert": {
+            "actor": 10.573466300964355,
+            "critic": 17.890953063964844,
+            "alpha": 0.9749777317047119,
+        },
+    }
+)
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

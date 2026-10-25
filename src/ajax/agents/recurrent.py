@@ -6,8 +6,10 @@ Two kinds of agent use it:
   on windows of consecutive steps from one environment, as R2D2 does
   (Kapturowski et al. 2019): sample_and_burnin_sequences draws the windows,
   and actor_dist and q_values run the networks over them.
-- PPO computes its values on a rollout with compute_rollout_values, for a
-  critic with or without memory (the on-policy section).
+- PPO computes its values on a rollout with compute_rollout_values, and its
+  losses run its networks with get_policy_on_minibatch and
+  predict_values_on_minibatch, each for a network with or without memory
+  (the on-policy section).
 
 How an off-policy agent trains its memory:
 1. Sample, for each environment, a window of burn_in + sequence_length + 1
@@ -569,7 +571,8 @@ def _read_outputs_at_next_observations(
 
 
 # ----------------------------------------------------------------------------
-# On-policy agents (PPO): the critic's values on a rollout.
+# On-policy agents (PPO): the critic's values on a rollout, and each network
+# over a minibatch.
 #
 # Each call here serves a network with or without memory, so the agent's own
 # file never asks which.
@@ -717,6 +720,49 @@ def compute_values_from_rollout_sequence(
     )
     carries = jax.lax.stop_gradient((actor_starts, critic_starts))
     return agent_state, values, next_values, resets, carries
+
+
+def get_policy_on_minibatch(
+    actor_state: LoadedTrainState, actor_params: Any, minibatch: dict
+) -> Any:
+    """The actor's action distribution at the minibatch's observations (obs),
+    for an on-policy loss.
+
+    An actor without memory reads each observation on its own. An actor with
+    memory replays each of the minibatch's sequences from its memory at the
+    sequence's start (actor_hidden, from compute_rollout_values: the live
+    memory on actor_state has moved past this rollout), resets flagging the
+    observations that start an episode."""
+    if actor_state.hidden_state is None:
+        return get_pi(actor_state, actor_params, minibatch["obs"])[0]
+    return get_pi_sequence(
+        actor_state=actor_state,
+        actor_params=actor_params,
+        obs=minibatch["obs"],
+        resets=minibatch["resets"],
+        initial_hidden=minibatch["actor_hidden"],
+    )[0]
+
+
+def predict_values_on_minibatch(
+    critic_state: LoadedTrainState, critic_params: Any, minibatch: dict
+) -> jax.Array:
+    """The critic's value predictions at the minibatch's observations (obs),
+    for an on-policy loss: one critic, so without the ensemble's axis.
+
+    A critic with memory replays the minibatch's sequences from critic_hidden,
+    as get_policy_on_minibatch replays the actor's."""
+    if critic_state.hidden_state is None:
+        value_preds = predict_value(critic_state, critic_params, minibatch["obs"])
+    else:
+        value_preds, _ = predict_value_sequence(
+            critic_state,
+            critic_params,
+            minibatch["obs"],
+            minibatch["resets"],
+            minibatch["critic_hidden"],
+        )
+    return value_preds.squeeze(0)
 
 
 # ----------------------------------------------------------------------------

@@ -11,8 +11,8 @@ function below::
     for each of n_epochs, for each minibatch of the rollout:      PPO.update
         r_t = pi(a_t | s_t) / pi_old(a_t | s_t)
         L_clip = -mean min(r_t A_t, clip(r_t, 1 - eps, 1 + eps) A_t)
-                 - ent_coef mean H(pi(. | s_t))             policy_loss_function
-        L_V = vf_coef mean (V(s_t) - V_targ)^2 / 2           value_loss_function
+                 - ent_coef mean H(pi(. | s_t))              compute_policy_loss
+        L_V = vf_coef mean (V(s_t) - V_targ)^2 / 2            compute_value_loss
         one Adam step of each network down its own loss, the two
         gradients clipped together to max_grad_norm         PPO.minibatch_step
 
@@ -55,18 +55,21 @@ from ajax.agents.minibatch import (
     get_actions_and_log_probs,
     run_epochs,
 )
-from ajax.agents.recurrent import compute_rollout_values
+from ajax.agents.recurrent import (
+    compute_rollout_values,
+    get_policy_on_minibatch,
+    predict_values_on_minibatch,
+)
 from ajax.agents.update_steps import (
     apply_gradients_clipped_together,
     compute_gradients,
     derive_extensions_key,
 )
-from ajax.environments.interaction import get_pi, get_pi_sequence
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.networks.distributions import policy_entropy, recompute_log_prob
 from ajax.networks.memory import MemoryConfig
-from ajax.networks.networks import predict_value, predict_value_sequence
+from ajax.networks.networks import predict_value
 from ajax.schedule import Schedule, at
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import Architecture, FloatOrCallable, InitializationFunction
@@ -404,42 +407,27 @@ class PPO(
         else:
             gae, value_targets = minibatch["gae"], minibatch["targets"]
 
-        # Only a recurrent split's minibatches carry resets and start memories,
-        # which the two losses below replay their networks from.
-        resets = minibatch["resets"] if context.recurrent else None
-        critic_hidden = minibatch["critic_hidden"] if context.recurrent else None
-        actor_hidden = minibatch["actor_hidden"] if context.recurrent else None
-
         def value_loss(critic_params: FrozenDict) -> tuple:
-            return value_loss_function(
+            return compute_value_loss(
                 critic_params,
                 critic,
-                minibatch["obs"],
+                minibatch,
                 value_targets,
-                context.recurrent,
                 vf_coef=self.vf_coef,
-                extra_loss_fn=compute_extensions_critic_loss,
-                resets=resets,
-                initial_hidden=critic_hidden,
+                compute_extensions_loss=compute_extensions_critic_loss,
             )
 
         def policy_loss(actor_params: FrozenDict) -> tuple:
-            return policy_loss_function(
+            return compute_policy_loss(
                 actor_params,
                 actor,
-                minibatch["obs"],
-                minibatch["actions"],
-                minibatch["log_probs"],
+                minibatch,
                 gae,
-                context.recurrent,
                 clip_coef=at(self.clip_range, agent_state.collector_state.timestep),
                 ent_coef=self.ent_coef,
-                advantage_normalization=self.normalize_advantage,
-                extra_loss_fn=compute_extensions_actor_loss,
-                raw_actions=minibatch["raw_actions"],
-                entropy_rng=entropy_key,
-                resets=resets,
-                initial_hidden=actor_hidden,
+                normalize_advantage=self.normalize_advantage,
+                compute_extensions_loss=compute_extensions_actor_loss,
+                entropy_key=entropy_key,
             )
 
         value_grads, (value_aux, value_metrics) = compute_gradients(
@@ -538,45 +526,26 @@ def _compute_gae(
     return advantages, returns
 
 
-def value_loss_function(
+def compute_value_loss(
     critic_params: FrozenDict,
-    critic_states: LoadedTrainState,
-    observations: jax.Array,
+    critic_state: LoadedTrainState,
+    minibatch: dict,
     value_targets: jax.Array,
-    recurrent: bool,
     vf_coef: float = 1.0,
-    extra_loss_fn: Optional[Callable] = None,
-    resets: Optional[jax.Array] = None,
-    initial_hidden: Optional[Any] = None,
+    compute_extensions_loss: Optional[Callable] = None,
 ) -> Tuple[jax.Array, Tuple[ValueAuxiliaries, dict]]:
-    """vf_coef * 0.5 * MSE(V(obs), targets) plus extra_loss_fn's
-    term, with the metrics and extra_loss_fn's ({} without one). A
-    recurrent critic replays the sequence from initial_hidden,
-    resets flagging the observations that start an episode."""
-    if recurrent:
-        assert resets is not None and initial_hidden is not None
-        value_preds, _ = predict_value_sequence(
-            critic_state=critic_states,
-            critic_params=critic_params,
-            x=observations,
-            resets=resets,
-            initial_hidden=initial_hidden,
-        )
-    else:
-        value_preds = predict_value(
-            critic_state=critic_states,
-            critic_params=critic_params,
-            x=observations,
-        )
-    value_preds = value_preds.squeeze(0)  # the single critic keeps the ensemble axis
-
+    """vf_coef * 0.5 * MSE(V(s), value_targets) over the minibatch's
+    observations (obs), plus the extensions' term (compute_extensions_loss),
+    with the metrics and the extensions' ({} without them). A critic with
+    memory replays the minibatch's sequences (predict_values_on_minibatch)."""
+    value_preds = predict_values_on_minibatch(critic_state, critic_params, minibatch)
     loss = vf_coef * 0.5 * jnp.mean((value_preds - value_targets) ** 2)
     metrics: dict = {}
-    if extra_loss_fn is not None:
-        extra, metrics = extra_loss_fn(
-            critic_params, critic_states, observations, value_targets
+    if compute_extensions_loss is not None:
+        extensions_loss, metrics = compute_extensions_loss(
+            critic_params, critic_state, minibatch["obs"], value_targets
         )
-        loss = loss + extra
+        loss = loss + extensions_loss
 
     aux = ValueAuxiliaries(
         critic_loss=loss,
@@ -587,56 +556,44 @@ def value_loss_function(
     return loss, (aux, metrics)
 
 
-def policy_loss_function(
+def compute_policy_loss(
     actor_params: FrozenDict,
     actor_state: LoadedTrainState,
-    observations: jax.Array,
-    actions: jax.Array,
-    log_probs: jax.Array,
+    minibatch: dict,
     gae: jax.Array,
-    recurrent: bool,
     clip_coef: float,
     ent_coef: float,
-    advantage_normalization: bool,
-    extra_loss_fn: Optional[Callable] = None,
-    raw_actions: Optional[jax.Array] = None,
-    entropy_rng: Optional[jax.Array] = None,
-    resets: Optional[jax.Array] = None,
-    initial_hidden: Optional[Any] = None,
+    normalize_advantage: bool,
+    compute_extensions_loss: Optional[Callable] = None,
+    entropy_key: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, dict]]:
-    """The clipped surrogate minus ent_coef times the entropy bonus,
-    plus extra_loss_fn's term; with advantage_normalization the
-    advantages are normalised per minibatch. A recurrent actor replays the
-    sequence from initial_hidden (the live memory on actor_state has moved
-    past this rollout), resets flagging episode starts."""
-    if recurrent:
-        assert resets is not None
-        policy, _ = get_pi_sequence(
-            actor_state=actor_state,
-            actor_params=actor_params,
-            obs=observations,
-            resets=resets,
-            initial_hidden=initial_hidden,
-        )
-    else:
-        policy, _ = get_pi(actor_state, actor_params, observations)
-
-    new_log_probs = recompute_log_prob(policy, actions, raw_actions)
+    """The clipped surrogate minus ent_coef times the entropy bonus, plus the
+    extensions' term (compute_extensions_loss); with normalize_advantage the
+    advantages are normalised per minibatch. The minibatch holds the
+    observations (obs), the actions taken, their log-probabilities when
+    collected, and a squashed policy's actions before the squash
+    (raw_actions). An actor with memory replays the minibatch's sequences
+    (get_policy_on_minibatch)."""
+    policy = get_policy_on_minibatch(actor_state, actor_params, minibatch)
+    actions, log_probs = minibatch["actions"], minibatch["log_probs"]
+    new_log_probs = recompute_log_prob(policy, actions, minibatch["raw_actions"])
     ratio = jnp.exp(new_log_probs - log_probs)
 
-    if advantage_normalization:
+    if normalize_advantage:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
     surrogate, clip_fraction = clipped_surrogate(ratio, gae, clip_coef)
     loss_actor = surrogate.mean()
-    entropy = policy_entropy(policy, entropy_rng).mean()
+    entropy = policy_entropy(policy, entropy_key).mean()
 
     total_loss = loss_actor - ent_coef * entropy
     metrics: dict = {}
-    if extra_loss_fn is not None:
+    if compute_extensions_loss is not None:
         # A discrete policy has no mean action.
         pi_mean = None if isinstance(policy, distrax.Categorical) else policy.mean()
-        extra, metrics = extra_loss_fn(actor_params, actor_state, observations, pi_mean)
-        total_loss = total_loss + extra
+        extensions_loss, metrics = compute_extensions_loss(
+            actor_params, actor_state, minibatch["obs"], pi_mean
+        )
+        total_loss = total_loss + extensions_loss
 
     aux = PolicyAuxiliaries(
         policy_loss=total_loss,
@@ -662,16 +619,16 @@ def clipped_surrogate(
     return loss, (jnp.abs(ratio - 1) > clip_coef).mean()
 
 
-# -- The extensions' loss terms, as the losses' extra_loss_fn ----------------
+# -- The extensions' loss terms, as the losses' compute_extensions_loss -------
 def _make_extensions_critic_loss(
     extensions: ExtensionStack,
     agent_state: PPOState,
     key: jax.Array,
     total_timesteps: int,
 ) -> Optional[Callable]:
-    """The extensions' additive critic-loss term on key as a
-    value_loss_function extra_loss_fn: (critic_params,
-    critic_states, observations, value_targets) -> (term, metrics);
+    """The extensions' additive critic-loss term on key, as
+    compute_value_loss's compute_extensions_loss: (critic_params,
+    critic_state, observations, value_targets) -> (term, metrics);
     None without extensions. The extensions read their state from
     agent_state.
     """
@@ -679,13 +636,13 @@ def _make_extensions_critic_loss(
         return None
 
     def compute_extensions_critic_loss(
-        critic_params, critic_states, observations, value_targets
+        critic_params, critic_state, observations, value_targets
     ):
         critic_batch = {
             "observations": observations,
             "targets": value_targets,
             "critic_params": critic_params,
-            "critic_state": critic_states,
+            "critic_state": critic_state,
         }
         return extensions.compute_extensions_critic_loss(
             agent_state,
@@ -705,8 +662,8 @@ def _make_extensions_actor_loss(
     total_timesteps: int,
     raw_observations: Optional[jax.Array] = None,
 ) -> Optional[Callable]:
-    """The extensions' additive actor-loss term on key as a
-    policy_loss_function extra_loss_fn: (actor_params,
+    """The extensions' additive actor-loss term on key, as
+    compute_policy_loss's compute_extensions_loss: (actor_params,
     actor_state, observations, pi_mean) -> (term, metrics), the minibatch's
     raw_observations beside them; None without extensions."""
     if not extensions:
@@ -779,3 +736,63 @@ PPOConfig = PPO.declare_config(
     " normalize_advantage num_minibatches vf_coef max_grad_norm unroll_length"
     " bptt_length num_resets_per_eval num_evals expose_recent_rollout"
 )
+
+
+# -- The losses' 0.4.0 forms (also on train_PPO), until 0.5.0 -----------------
+def value_loss_function(
+    critic_params: FrozenDict,
+    critic_states: LoadedTrainState,
+    observations: jax.Array,
+    value_targets: jax.Array,
+    recurrent: bool,
+    vf_coef: float = 1.0,
+    extra_loss_fn: Optional[Callable] = None,
+    resets: Optional[jax.Array] = None,
+    initial_hidden: Optional[Any] = None,
+) -> Tuple[jax.Array, Tuple[ValueAuxiliaries, dict]]:
+    """compute_value_loss with its 0.4.0 parameters; 0.5.0 removes it."""
+    minibatch: dict[str, Any] = {"obs": observations}
+    if recurrent:
+        minibatch.update({"resets": resets, "critic_hidden": initial_hidden})
+    return compute_value_loss(
+        critic_params, critic_states, minibatch, value_targets, vf_coef, extra_loss_fn
+    )
+
+
+def policy_loss_function(
+    actor_params: FrozenDict,
+    actor_state: LoadedTrainState,
+    observations: jax.Array,
+    actions: jax.Array,
+    log_probs: jax.Array,
+    gae: jax.Array,
+    recurrent: bool,
+    clip_coef: float,
+    ent_coef: float,
+    advantage_normalization: bool,
+    extra_loss_fn: Optional[Callable] = None,
+    raw_actions: Optional[jax.Array] = None,
+    entropy_rng: Optional[jax.Array] = None,
+    resets: Optional[jax.Array] = None,
+    initial_hidden: Optional[Any] = None,
+) -> Tuple[jax.Array, Tuple[PolicyAuxiliaries, dict]]:
+    """compute_policy_loss with its 0.4.0 parameters; 0.5.0 removes it."""
+    minibatch: dict[str, Any] = {
+        "obs": observations,
+        "actions": actions,
+        "log_probs": log_probs,
+        "raw_actions": raw_actions,
+    }
+    if recurrent:
+        minibatch.update({"resets": resets, "actor_hidden": initial_hidden})
+    return compute_policy_loss(
+        actor_params,
+        actor_state,
+        minibatch,
+        gae,
+        clip_coef,
+        ent_coef,
+        advantage_normalization,
+        extra_loss_fn,
+        entropy_rng,
+    )

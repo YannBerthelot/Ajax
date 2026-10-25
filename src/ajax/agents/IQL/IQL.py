@@ -32,6 +32,7 @@ from ajax.agents.families import (
     ExpertGuided,
     GradientClipping,
     ObservationNormalization,
+    PolicyUpdateStart,
     ReplayAgent,
     TrainContext,
 )
@@ -49,7 +50,13 @@ NUM_CRITICS = 2
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
-class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent):
+class IQL(
+    PolicyUpdateStart,
+    GradientClipping,
+    ObservationNormalization,
+    ExpertGuided,
+    ReplayAgent,
+):
     """Implicit Q-Learning: a state value fitted as an expectile of the
     critic over the data's actions, and an actor fitted by
     advantage-weighted regression (the module's equations). Train it on a
@@ -175,22 +182,30 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         # The actor fits the actions it chose: a residual policy's residuals,
         # which the replay keeps apart from the executed actions.
         chosen = batch.action if batch.policy_action is None else batch.policy_action
-        actor_state, actor_loss, _, actor_metrics = update_steps.actor_step(
-            agent_state,
-            partial(
-                compute_weighted_regression_loss,
-                agent_state.actor_state,
-                batch.obs,
-                chosen,
-                advantage_weights,
-            ),
-            context.extensions,
-            actor_key,
-            context.total_timesteps,
-            observations=batch.obs,
-            raw_observations=batch.raw_obs,
-            actions=batch.action,
-            critic_state=critic,
+
+        def step_actor(actor_state: Any) -> tuple[Any, tuple]:
+            del actor_state  # the step reads agent_state's
+            actor_state, actor_loss, _, actor_metrics = update_steps.actor_step(
+                agent_state,
+                partial(
+                    compute_weighted_regression_loss,
+                    agent_state.actor_state,
+                    batch.obs,
+                    chosen,
+                    advantage_weights,
+                ),
+                context.extensions,
+                actor_key,
+                context.total_timesteps,
+                observations=batch.obs,
+                raw_observations=batch.raw_obs,
+                actions=batch.action,
+                critic_state=critic,
+            )
+            return actor_state, (actor_loss, actor_metrics)
+
+        actor_state, (actor_loss, actor_metrics) = update_steps.run_if(
+            self.policy_update_due(agent_state), step_actor, agent_state.actor_state
         )
         target = compute_bellman_target(
             value_state, batch, self.gamma, self.reward_scale

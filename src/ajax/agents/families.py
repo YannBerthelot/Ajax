@@ -46,7 +46,7 @@ from ajax.agents.loop import LOOP_PHASES, TrainLoop
 # Imported under another name: ReplayAgent's own hook is make_replay_buffer.
 from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_buffer
 from ajax.agents.recurrent import stored_actor_carry_dim, unsupported_recurrent_options
-from ajax.agents.update_steps import REPLAY_BATCH_KEYS
+from ajax.agents.update_steps import REPLAY_BATCH_KEYS, reached
 from ajax.buffers.utils import get_buffer
 from ajax.controller import executed_fn, policy_action_dim
 from ajax.environments.interaction import init_collector_state
@@ -231,11 +231,14 @@ class EntropyTemperature:
         alpha_init: The temperature's initial value.
         target_entropy_per_dim: The target entropy per dimension of the
             policy's actions (gain mode's gains).
+        alpha_update_start: The env steps collected before the
+            temperature's steps are kept (0: from the first update).
     """
 
     alpha_learning_rate: Optional[float] = 3e-4
     alpha_init: float = 1.0
     target_entropy_per_dim: float = -1.0
+    alpha_update_start: int = 0
 
     @property
     def alpha_args(self: Any) -> AlphaConfig:
@@ -250,6 +253,29 @@ class EntropyTemperature:
         """target_entropy_per_dim times the policy's action width (gain
         mode's gains)."""
         return self.target_entropy_per_dim * policy_action_dim(self.env_args)
+
+    def temperature_update_due(self, agent_state: Any) -> Union[bool, jax.Array]:
+        """Whether the temperature's step counts at this update: from
+        alpha_update_start on (update_steps.reached)."""
+        return reached(self.alpha_update_start, agent_state)
+
+
+@dataclass(kw_only=True, eq=False, repr=False)
+class PolicyUpdateStart:
+    """An actor-critic whose actor's steps count from a timestep on, every
+    replay actor-critic's knob (SAC's, kept for its probes and its users).
+
+    Args:
+        policy_update_start: The env steps collected before the actor's
+            steps are kept (0: from the first update).
+    """
+
+    policy_update_start: int = 0
+
+    def policy_update_due(self, agent_state: Any) -> Union[bool, jax.Array]:
+        """Whether the actor's step counts at this update: from
+        policy_update_start on (update_steps.reached)."""
+        return reached(self.policy_update_start, agent_state)
 
 
 @dataclass(eq=False, repr=False)

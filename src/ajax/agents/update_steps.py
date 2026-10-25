@@ -9,7 +9,7 @@ share (update_target_networks).
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -92,11 +92,14 @@ def run_if(
     update returns the new state, or the new state and its metrics.
     Skipped, the metrics have update's structure, read from its trace (with
     the names the extensions log), filled with fill: by default NaN, -1 in
-    integer leaves (ajax.log.unevaluated), which the logger drops. Under
+    integer leaves (ajax.log.unevaluated), which the logger drops. A
+    condition that is the Python True runs update with no gate. Under
     the seed vmap a condition read from per-seed state runs update every
     time and selects; one from unbatched counters runs it only where it
     holds.
     """
+    if condition is True:  # no gate (all_of's, reached's): nothing traced
+        return update(state)
     # The branches close over state rather than take it as an operand:
     # with state an operand, SAC's warm-ups (an update returning a state
     # computed outside) compiled to other float rounding than the
@@ -113,6 +116,28 @@ def run_if(
         )
     )
     return jax.lax.cond(condition, lambda: update(state), lambda: (state, metrics))
+
+
+def reached(start: int, agent_state: Any) -> Union[bool, jax.Array]:
+    """Whether the collector's timestep has reached start, the env steps an
+    update step waits for (policy_update_start): the Python True, with
+    nothing traced, when start is 0 or less, so an agent without the wait
+    runs the program it ran before it had one."""
+    if start <= 0:
+        return True
+    return agent_state.collector_state.timestep >= start
+
+
+def all_of(*conditions: Union[bool, jax.Array]) -> Union[bool, jax.Array]:
+    """Whether every condition holds; the Python Trues among them (no gate)
+    add nothing to the program, and with nothing else left it is True."""
+    gates = [condition for condition in conditions if condition is not True]
+    if not gates:
+        return True
+    combined = gates[0]
+    for gate in gates[1:]:
+        combined = jnp.logical_and(combined, gate)
+    return combined
 
 
 #: The tag a step's key is folded with to derive its extensions' key. Under

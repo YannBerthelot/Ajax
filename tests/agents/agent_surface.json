@@ -556,6 +556,7 @@
 "ajax.agents.families:IncrementalAgent",
 "ajax.agents.families:ObservationNormalization",
 "ajax.agents.families:OnPolicyAgent",
+"ajax.agents.families:PolicyUpdateStart",
 "ajax.agents.families:RecurrentReplayAgent",
 "ajax.agents.families:ReplayAgent",
 "ajax.agents.families:RewardNormalization",
@@ -632,6 +633,7 @@
 "ajax.agents.update_steps:REPLAY_BATCH_KEYS",
 "ajax.agents.update_steps:TARGET_KEYS",
 "ajax.agents.update_steps:actor_step",
+"ajax.agents.update_steps:all_of",
 "ajax.agents.update_steps:apply_gradients_clipped_together",
 "ajax.agents.update_steps:apply_on_target",
 "ajax.agents.update_steps:apply_post_update",
@@ -645,6 +647,7 @@
 "ajax.agents.update_steps:fold_post_update",
 "ajax.agents.update_steps:gradient_step",
 "ajax.agents.update_steps:joint_step",
+"ajax.agents.update_steps:reached",
 "ajax.agents.update_steps:run_if",
 "ajax.agents.update_steps:update_target_networks"
 ]

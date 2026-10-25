@@ -181,7 +181,66 @@ GAIL_DATA = episodes(3, discrete=False)  # Pendulum's observations
 #: Trained offline for their steps (updates on a dataset's rows), then
 #: online for ONLINE steps from that state (train_offline, then train).
 OFFLINE = {"IQL-offline", "TD3-offline"}
+OFFLINE.update({"SAC-offline", "ASAC-offline", "REDQ-offline", "TQC-offline"})
 ONLINE = 40
+#: Evaluated only in the last fifth of training (LoggingConfig.sweep).
+SWEEP = {"SAC-sweep"}
+# The SAC family's paths its declaration on the replay and incremental
+# families moves (B4): each agent's extension phases, memory, expert
+# options, normalisers and offline training, and an env whose actions
+# have two dimensions (every other case's have one).
+REACHER = {"env_id": "Reacher-misc"}
+TQC_KW = {**S, **R, "num_critics": 3, "n_quantiles": 5}
+AVG_KW = {**S, "learning_starts": 20}
+SAC_FAMILY_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "SAC-offline": (SAC, {**OFFLINE_KW, "policy_update_start": 40}, 80),
+    "SAC-critic-updates": (SAC, {**SAC40, "num_critic_updates": 3}, 160),
+    "SAC-store-policy-action": (SAC, {**NO_PREFILL, "store_policy_action": True}, 160),
+    "SAC-gru-stored": (
+        SAC,
+        {**SAC40, **GRU, "policy_update_start": 80, "stored_state": True},
+        160,
+    ),
+    "SAC-eval-expert": (SAC, {**SAC40, "eval_expert_policy": push}, 160),
+    "SAC-clip-decay": (SAC, {**SAC40, "max_grad_norm": 0.5, "weight_decay": 0.01}, 160),
+    "SAC-sweep": (SAC, SAC40, 160),
+    "SAC-reacher": (SAC, {**SAC40, **REACHER}, 160),
+    "ASAC-keyed": (ASAC, {**S, **R, **KEYED}, 160),
+    "ASAC-learned-alpha": (ASAC, {**S, **R, "fixed_alpha": False}, 160),
+    "ASAC-gru": (ASAC, {**S, **R, **GRU}, 160),
+    "ASAC-residual": (ASAC, {**S, **R, **RESIDUAL}, 160),
+    "ASAC-bc": (ASAC, {**S, **R, **BC}, 160),
+    "ASAC-gain": (ASAC, {**S, **R, **GAIN}, 160),
+    "ASAC-observe": (ASAC, {**S, **R, **OBSERVE}, 160),
+    "ASAC-norm": (ASAC, {**S, **R, **NORM, **REWARD_NORM}, 160),
+    "ASAC-offline": (ASAC, OFFLINE_KW, 80),
+    "ASAC-warmup": (ASAC, {**S, **R, **WARMUP}, 160),
+    "ASAC-reacher": (ASAC, {**S, **R, **REACHER, "fixed_alpha": False}, 160),
+    "REDQ-keyed": (REDQ, {**S, **R, **KEYED}, 120),
+    "REDQ-gru": (REDQ, {**S, **R, **GRU}, 120),
+    "REDQ-residual": (REDQ, {**S, **R, **RESIDUAL}, 120),
+    "REDQ-bc": (REDQ, {**S, **R, **BC}, 120),
+    "REDQ-gain": (REDQ, {**S, **R, **GAIN}, 120),
+    "REDQ-observe": (REDQ, {**S, **R, **OBSERVE}, 120),
+    "REDQ-norm": (REDQ, {**S, **R, **NORM, **REWARD_NORM}, 120),
+    "REDQ-offline": (REDQ, {**OFFLINE_KW, "num_critic_updates": 2}, 40),
+    "REDQ-prefill": (REDQ, {**S, **R, **EXPERT_PREFILL}, 120),
+    "TQC-keyed": (TQC, {**TQC_KW, **KEYED}, 160),
+    "TQC-gru": (TQC, {**TQC_KW, **GRU}, 160),
+    "TQC-residual": (TQC, {**TQC_KW, **RESIDUAL}, 160),
+    "TQC-bc": (TQC, {**TQC_KW, **BC}, 160),
+    "TQC-norm": (TQC, {**TQC_KW, **NORM, **REWARD_NORM}, 160),
+    "TQC-offline": (TQC, {**OFFLINE_KW, "num_critics": 3, "n_quantiles": 5}, 80),
+    "TQC-prefill": (TQC, {**TQC_KW, **EXPERT_PREFILL}, 160),
+    "TQC-gain": (TQC, {**TQC_KW, **GAIN}, 160),
+    "TQC-observe": (TQC, {**TQC_KW, **OBSERVE}, 160),
+    "AVG-residual": (AVG, {**AVG_KW, **RESIDUAL}, 200),
+    "AVG-bc": (AVG, {**AVG_KW, **BC}, 200),
+    "AVG-gain": (AVG, {**AVG_KW, **GAIN}, 200),
+    "AVG-observe": (AVG, {**AVG_KW, **OBSERVE}, 200),
+    "AVG-expose": (AVG, {**AVG_KW, "expose_recent_rollout": True}, 200),
+    "AVG-clip": (AVG, {**AVG_KW, "max_grad_norm": 0.5, "weight_decay": 0.01}, 200),
+}
 CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "TD3": (TD3, {**S, **R}, 200),
     "TD3-keyed": (TD3, {**S, **R, "extensions": (Keyed(),)}, 200),
@@ -356,6 +415,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         {**PQN_KW, **REWARD_NORM, "expose_recent_rollout": True},
         512,
     ),
+    **SAC_FAMILY_CASES,
 }
 
 
@@ -385,7 +445,9 @@ def record(state: Any, evals: Any, tag: str = "") -> dict[str, np.ndarray]:
 def leaves(name: str) -> dict[str, np.ndarray]:
     """The case's :func:`record`, then an OFFLINE case's online one."""
     cls, kwargs, _ = CASES[name]
-    logging = LoggingConfig(config={}, log_frequency=40, use_wandb=False)
+    logging = LoggingConfig(
+        config={}, log_frequency=40, use_wandb=False, sweep=name in SWEEP
+    )
     agent = cls(**kwargs)
     state, evals = run(name, agent, logging)
     out = record(state, evals)

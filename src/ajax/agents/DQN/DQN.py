@@ -21,6 +21,7 @@ policy, argmax_a Q); critic_state mirrors it at init and is never stepped.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -192,8 +193,12 @@ class DQN(
     ) -> tuple[DQNState, AuxiliaryLogs]:
         """n_gradient_steps steps of the Q-network: the metrics of the last."""
 
+        one_step = lambda agent_state: self.update_q_network(agent_state, context)  # noqa: E731
+        if os.environ.get("NESTED_JIT") == "step":
+            one_step = jax.jit(one_step)
+
         def step(agent_state: DQNState, _: Any) -> tuple[DQNState, AuxiliaryLogs]:
-            return self.update_q_network(agent_state, context)
+            return one_step(agent_state)
 
         # Carry-only scan: only the final step's metrics are materialised.
         return final_aux_scan(step, agent_state, length=self.n_gradient_steps)

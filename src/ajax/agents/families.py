@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import KW_ONLY, dataclass
 from functools import partial
@@ -85,6 +86,11 @@ BELLMAN_CONTEXT = frozenset(
 #: capability reads: its gamma, which it declares, and its
 #: reward_scale, 1 (the rewards unscaled) where it declares none (PPO).
 DISCOUNT_FIELDS = ("gamma", "reward_scale")
+
+
+def _nested_jit(update):
+    """SCRATCH: a jit of its own around the update, on NESTED_JIT=family."""
+    return jax.jit(update) if os.environ.get("NESTED_JIT") == "family" else update
 
 
 @dataclass(frozen=True, eq=False)
@@ -812,7 +818,7 @@ class ReplayAgent(DeclaredAgent):
         recurrent = context.recurrent
         return loop.off_policy(
             partial(self.init, context=context),
-            lambda agent_state, _transition: self.update(agent_state, context),
+            _replay_update(self, context),
             self.learning_starts,
             uniform_steps=self.uniform_steps(),
             recurrent=recurrent,
@@ -989,7 +995,7 @@ class IncrementalAgent(DeclaredAgent):
         stores_raw_next_obs = "raw_next_obs" in loop.extensions.buffer_fields()
         return loop.off_policy(
             partial(self.init, context=context),
-            partial(self.update, context=context),
+            _nested_jit(partial(self.update, context=context)),
             self.learning_starts,
             uniform_steps=self.uniform_steps(),
             expose_rollout=self.expose_recent_rollout,
@@ -1086,7 +1092,7 @@ class OnPolicyAgent(DeclaredAgent):
         )
         return loop.on_policy(
             partial(self.init, context=context),
-            partial(self.update, context=context),
+            _nested_jit(partial(self.update, context=context)),
             self.n_steps,
             recurrent=context.recurrent,
             expose_rollout=self.expose_recent_rollout,
@@ -1231,3 +1237,9 @@ class OwnIterationAgent(DeclaredAgent):
             resume=resume,
             returns_iterations=self.returns_iterations,
         )
+
+
+def _replay_update(agent, context):
+    """SCRATCH: ReplayAgent's update as the loop calls it."""
+    inner = _nested_jit(lambda agent_state: agent.update(agent_state, context))
+    return lambda agent_state, _transition: inner(agent_state)

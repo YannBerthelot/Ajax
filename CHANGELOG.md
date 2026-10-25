@@ -6,6 +6,11 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **UDRL logs its eval_expert_policy's return.** UDRL takes
+  `eval_expert_policy`, as every agent with an expert does: each evaluation
+  logs that expert's return on its episodes (`Eval/episodic mean expert
+  reward` and `Eval/expert bias`), the expert taking no other part in the
+  run. Runs without one are unchanged, bitwise.
 - **The row collector and evaluate_policy observe features.** With
   observation features (`env_args.observers`), the world models' row
   collector appends them to every row, fresh at each episode's start, and

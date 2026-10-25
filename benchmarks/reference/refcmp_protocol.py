@@ -155,14 +155,28 @@ def clean_tree() -> bool:
 CALLER_SETTINGS = ("VIRTUAL_ENV", "UV_RESOLUTION", "UV_PRERELEASE", "UV_EXCLUDE_NEWER")
 
 
+def reference_environment(project: pathlib.Path) -> pathlib.Path:
+    """Where a reference subproject's environment is built: one per lock file, named after the
+    subproject and the lock's hash, so every checkout on the same lock shares it (each is 0.5 to
+    1 GB) and a changed lock gets its own. The root is AJAX_REFERENCE_ENVS, or else
+    ~/.cache/ajax/reference-envs."""
+    default = pathlib.Path.home() / ".cache" / "ajax" / "reference-envs"
+    root = pathlib.Path(os.environ.get("AJAX_REFERENCE_ENVS", default))
+    lock = hashlib.sha256((project / "uv.lock").read_bytes()).hexdigest()[:12]
+    return root / f"{project.name}-{lock}"
+
+
 def subproject_env(project: pathlib.Path, **extra: str) -> dict[str, str]:
-    """The environment of a ``uv run --locked --project project`` child: the caller's, without
-    its virtualenv, plus ``extra``. A reference subproject (benchmarks/reference/envs/...) also
-    goes without the rest of :data:`CALLER_SETTINGS`. Ajax's own project keeps its resolution
-    settings: its uv.lock is the one they resolved (the lowest job's lowest-direct sync)."""
+    """The environment of a uv run --locked --project child: the caller's, without its
+    virtualenv, plus extra. A reference subproject (benchmarks/reference/envs/...) also goes
+    without the rest of CALLER_SETTINGS and runs in its shared reference_environment. Ajax's own
+    project keeps its resolution settings: its uv.lock is the one they resolved (the lowest
+    job's lowest-direct sync)."""
     own = project.resolve() == ROOT.resolve()
     dropped = ("VIRTUAL_ENV",) if own else CALLER_SETTINGS
     env = {k: v for k, v in os.environ.items() if k not in dropped}
+    if not own:
+        env["UV_PROJECT_ENVIRONMENT"] = str(reference_environment(project))
     env.update(extra)
     return env
 

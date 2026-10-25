@@ -239,6 +239,21 @@ def test_a_subproject_runs_without_the_callers_venv_and_resolution_mode(monkeypa
     assert (env["AJAX_KEPT"], env["JAX_PLATFORMS"]) == ("1", "cpu")
 
 
+def test_checkouts_on_one_lock_share_a_reference_environment(tmp_path, monkeypatch):
+    """Each reference environment is built once per lock file, under AJAX_REFERENCE_ENVS."""
+    monkeypatch.setenv("AJAX_REFERENCE_ENVS", str(tmp_path / "shared"))
+    projects = [tmp_path / checkout / "torch" for checkout in ("one", "two", "three")]
+    for project, lock in zip(projects, ("pinned", "pinned", "changed"), strict=True):
+        project.mkdir(parents=True)
+        (project / "uv.lock").write_text(lock)
+    one, two, three = (
+        protocol.subproject_env(project)["UV_PROJECT_ENVIRONMENT"]
+        for project in projects
+    )
+    assert one == two and two != three
+    assert one.startswith(str(tmp_path / "shared" / "torch-"))
+
+
 def test_ajax_s_own_project_keeps_the_callers_resolution_mode(monkeypatch):
     """The lowest job's lowest-direct sync rewrote Ajax's own uv.lock in that mode, so Ajax's side
     of a comparison runs `uv run --locked` in it too (#214); only the virtualenv goes."""

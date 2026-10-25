@@ -26,6 +26,7 @@ from ajax.agents.families import (
     IncrementalAgent,
     ObservationNormalization,
     OnPolicyAgent,
+    OwnIterationAgent,
     RecurrentReplayAgent,
     ReplayAgent,
     TrainContext,
@@ -33,6 +34,7 @@ from ajax.agents.families import (
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import ImitationLoss
+from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import action_value, state_value
 from ajax.state import BaseAgentState, OptimizerConfig
@@ -448,6 +450,126 @@ def test_a_recurrent_replay_agent_replays_windows_with_stored_carries() -> None:
     gru = MemoryConfig(kind="gru", hidden_size=4)
     agent = RecurrentToy("Pendulum-v1", memory=gru, stored_state=True, burn_in=2)
     assert agent.network_args.memory == gru and agent.stores_state()
+
+
+@struct.dataclass(kw_only=True)
+class ResumedState(BaseAgentState):
+    resumes: Any = 0  # the times a resumed call transformed the state
+
+
+@dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+class OwnToy(OwnIterationAgent):
+    """Counts its iterations of n_envs x 2 steps; a call given restart=True
+    counts a resume it transforms."""
+
+    actor_architecture: Architecture = NET
+    critic_architecture: Architecture = NET
+
+    def init(self, key: jax.Array, context: TrainContext) -> ResumedState:
+        rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
+        actor, critic = context.make_actor_critic(
+            init_key, continuous=True, action_value=False, num_critics=1
+        )
+        return ResumedState(
+            rng=rng,
+            eval_rng=eval_rng,
+            actor_state=actor,
+            critic_state=critic,
+            collector_state=context.make_collector(collector_key),
+        )
+
+    def iterate(self, agent_state, context):
+        collector = agent_state.collector_state
+        timestep = collector.timestep + self.steps_per_iteration(context)[0]
+        agent_state = agent_state.replace(
+            n_updates=agent_state.n_updates + 1,
+            collector_state=collector.replace(timestep=timestep),
+        )
+        return agent_state, {"timestep": timestep}
+
+    def report(self, agent_state, aux):
+        return {"timestep": aux["timestep"], "Train/updates": agent_state.n_updates}
+
+    def evaluate(self, agent_state, key, context, num_episode_test):
+        return {"Eval/episodes": jnp.asarray(num_episode_test, jnp.float32)}
+
+    def steps_per_iteration(self, context):
+        return 2 * context.env_args.n_envs, "n_envs x 2"
+
+    def configure_call(self, context, n_iterations, restart: bool = False):
+        def count_resume(agent_state):
+            return agent_state.replace(resumes=agent_state.resumes + 1)
+
+        return context, count_resume if restart else None
+
+    name = "OwnToy"
+
+
+@dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+class StackedToy(OwnToy):
+    returns_iterations = True
+
+    def iteration_output(self, aux, evaluations):
+        return {"aux": aux, "evaluations": evaluations}
+
+
+def test_an_own_iteration_agent_runs_its_iterations_on_the_loop() -> None:
+    """Three iterations of 2 envs x 2 steps, evaluated every 8 steps: the
+    evaluations recorded, or every iteration's output returned with them; a
+    call option reaches configure_call, whose transform runs on a resumed
+    state alone; an option it does not take and a dataset are refused."""
+    agent = OwnToy("Pendulum-v1", n_envs=2)
+    logging = LoggingConfig(config={}, log_frequency=8, use_wandb=False)
+    state, rows = agent.train(0, 12, num_episode_test=3, logging_config=logging)
+    assert np.asarray(state.n_updates).tolist() == [3]
+    assert np.asarray(rows["timestep"]).tolist() == [[8, -1]]  # ticks 1, (3)
+    assert np.asarray(rows["Eval/episodes"])[0, 0] == 3.0
+    stacked = StackedToy("Pendulum-v1", n_envs=2)
+    _, out = stacked.train(0, 12, logging_config=logging)
+    assert np.asarray(out["aux"]["timestep"]).tolist() == [[4, 8, 12]]
+    assert np.asarray(out["evaluations"]["timestep"]).tolist() == [[-1, 8, -1]]
+    _, out = stacked.train(0, 12)
+    assert out["evaluations"] is None and out["aux"]["timestep"].shape == (1, 3)
+
+    def counts(state: Any) -> list[int]:  # one seed's resumes and updates
+        return [int(state.resumes[0]), int(state.n_updates[0])]
+
+    assert counts(agent.train(0, 4, restart=True)[0]) == [0, 1]
+    # A resume donates the state it is given: read each before the next call.
+    state, _ = agent.train(0, 4, initial_state=state, restart=True)
+    assert counts(state) == [1, 4]
+    assert counts(agent.train(0, 4, initial_state=state)[0]) == [1, 5]
+    with pytest.raises(TypeError, match="OwnToy.train takes no n_iterations"):
+        agent.train(0, 4, n_iterations=1)
+    with pytest.raises(ValueError, match="cannot train offline"):
+        agent.train_offline(dataset=None, n_updates=1)
+
+
+def test_an_agent_says_what_its_memory_cannot_take() -> None:
+    """A run with memory refuses extensions (check_recurrent_options),
+    unless the agent carries them through its memory, as APG's rollout."""
+
+    @dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+    class Remembering(OwnToy):
+        memory: Any = None
+
+        supports_memory = True
+
+    gru = MemoryConfig(kind="gru", hidden_size=4)
+    with pytest.raises(
+        NotImplementedError,
+        match="OwnToy does not support these options yet: extensions",
+    ):
+        Remembering("Pendulum-v1", memory=gru).make_context(8, extensions=(Recorder(),))
+
+    @dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+    class CarryingThrough(Remembering):
+        def check_recurrent_options(self, extensions):
+            del extensions
+
+    agent = CarryingThrough("Pendulum-v1", memory=gru)
+    loop, _ = agent.make_context(8, extensions=(Recorder(),))
+    assert isinstance(loop.extensions.extensions[0], Recorder)
 
 
 def declared_classes() -> list[type]:

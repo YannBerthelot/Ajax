@@ -19,8 +19,8 @@ from ajax.agents.recurrent import (
     actor_dist,
     previous_actions,
     q_values,
+    row_positions_with_final_observations,
     sample_and_burnin_sequences,
-    stream_positions,
 )
 from ajax.buffers.utils import get_buffer, get_sequence_batch_from_buffer
 from ajax.environments.interaction import get_pi_sequence
@@ -84,7 +84,7 @@ def _carries(critic: Any, actor: Any = None, taken: jax.Array = TAKEN) -> Any:
     """A window whose rows took ``taken``, started from fresh carries."""
     hidden = zeros_carry_like(critic.hidden_state, B, batch_axis=1)
     actor_hidden = None if actor is None else zeros_carry_like(actor.hidden_state, B)
-    positions = stream_positions(CUT)
+    positions = row_positions_with_final_observations(CUT)
     return RecurrentCarries(
         resets=RESETS,
         next_resets=TERMINATED,
@@ -94,7 +94,7 @@ def _carries(critic: Any, actor: Any = None, taken: jax.Array = TAKEN) -> Any:
         obs=OBS_SEQ,
         actions=taken,
         prev_actions=previous_actions(taken, RESETS),
-        positions=positions,
+        row_positions_with_final_observations=positions,
     )
 
 
@@ -223,7 +223,8 @@ def test_a_replayed_window_bootstraps_a_time_limit_on_its_final_observation() ->
     )
     after_limit = jnp.cumsum(row_t == 3, 0) - (row_t == 3)
     np.testing.assert_array_equal(
-        carries.positions, jnp.arange(length)[:, None] + after_limit
+        carries.row_positions_with_final_observations,
+        jnp.arange(length)[:, None] + after_limit,
     )
 
 

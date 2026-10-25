@@ -10,13 +10,13 @@ import optax
 import pytest
 
 from ajax import SAC
-from ajax.agents.recurrent import get_policy_in_training
 from ajax.networks.networks import (
     Actor,
     MultiCritic,
+    get_policy_updating_batch_statistics,
     init_network_state,
     predict_value,
-    predict_value_train,
+    predict_value_updating_batch_statistics,
 )
 from ajax.networks.utils import BatchRenorm, parse_layer
 
@@ -86,7 +86,7 @@ def test_a_critic_keeps_its_statistics_apart_from_its_trained_parameters() -> No
     assert "batch_stats" not in state.params and state.batch_stats is not None
     held = first_mean(state.batch_stats)
     assert held.shape == (2, 3)
-    q, updated = predict_value_train(state, state.params, X)
+    q, updated = predict_value_updating_batch_statistics(state, state.params, X)
     assert type(updated) is type(state.batch_stats)  # one carry structure
     moved = first_mean(updated)
     np.testing.assert_allclose(moved, jnp.tile(0.01 * X.mean(0), (2, 1)), rtol=1e-5)
@@ -96,7 +96,7 @@ def test_a_critic_keeps_its_statistics_apart_from_its_trained_parameters() -> No
 def test_an_actor_without_running_statistics_trains_as_it_reads() -> None:
     actor = Actor(input_architecture=("8", "relu"), action_dim=2, continuous=True)
     state = init_network_state(X[:1], actor, jax.random.PRNGKey(2), optax.adam(1e-3))
-    pi, batch_stats = get_policy_in_training(state, state.params, X)
+    pi, batch_stats = get_policy_updating_batch_statistics(state, state.params, X)
     assert state.batch_stats is None and batch_stats is None
     np.testing.assert_array_equal(pi.mean(), state.apply(state.params, X).mean())
 

@@ -7,7 +7,7 @@ Two kinds of agent use it:
   (Kapturowski et al. 2019): sample_and_burnin_sequences draws the windows,
   and actor_dist and q_values run the networks over them.
 - PPO with memory computes its value estimates over a rollout with
-  compute_rollout_sequence_values.
+  compute_values_from_rollout_sequence.
 
 How an off-policy agent trains its memory:
 1. Sample, for each environment, a window of burn_in + sequence_length + 1
@@ -22,7 +22,8 @@ How an off-policy agent trains its memory:
 
 A TD target adds to the reward the estimated value of the next state: the
 bootstrap. With memory, that value must come from the memory that has read
-the rows up to the current one; the look-ahead sequence below provides it.
+the rows up to the current one. Where a time limit cut an episode, that
+needs the time-limit section below.
 
 A critic's memory reads each row's observation together with the action
 taken before it. The action a loss asks about (the taken one, or one the
@@ -45,7 +46,6 @@ from ajax.buffers.utils import (
     normalized_rewards,
 )
 from ajax.environments.interaction import get_pi, get_pi_sequence, reward_statistics
-from ajax.environments.obs_norm import apply_obs_norm
 from ajax.networks.memory import (
     MemoryConfig,
     flat_carry_dim,
@@ -60,6 +60,12 @@ from ajax.networks.networks import (
 )
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState, Transition
 from ajax.types import BufferType
+
+# ----------------------------------------------------------------------------
+# Replayed windows for the off-policy agents: sampling them and warming
+#
+# up each network's memory (steps 1 and 2 of the module docstring).
+# ----------------------------------------------------------------------------
 
 
 @struct.dataclass(kw_only=True)
@@ -83,8 +89,8 @@ class RecurrentCarries:
     The memories were warmed up with the current parameters, and no
     gradient flows back into them: only the trained rows backpropagate
     through time. The rows' observations, actions and episode starts are
-    kept because the look-ahead passes replay the networks over them
-    (_build_look_ahead_sequence).
+    kept because the targets replay the networks over them (the
+    time-limit section).
     """
 
     # (S, B): True where the row's observation starts an episode.
@@ -101,8 +107,9 @@ class RecurrentCarries:
     # What the critics' memory reads with each row's observation: the
     # action taken before it (previous_actions).
     prev_actions: jax.Array  # (S, B, action size)
-    # (S, B): each row's place in the look-ahead sequence (stream_positions).
-    positions: jax.Array
+    # (S, B): each row's position once the final observations of the
+    # episodes a time limit cut are inserted (the time-limit section).
+    row_positions_with_final_observations: jax.Array
     # The target actor's memory before the first trained row, warmed up
     # with its target parameters: only for an agent whose target asks a
     # target actor for the next action (TD3); None otherwise.
@@ -114,19 +121,6 @@ def previous_actions(actions: jax.Array, resets: jax.Array) -> jax.Array:
     an episode start (resets) and at the sequence's first step."""
     previous = jnp.concatenate([jnp.zeros_like(actions[:1]), actions[:-1]])
     return jnp.where(resets[..., None], 0.0, previous)
-
-
-def stream_positions(cut_by_time_limit: jax.Array) -> jax.Array:
-    """Each row's place in the look-ahead sequence (_build_look_ahead_sequence).
-
-    cut_by_time_limit (S, B) is True where a time limit, not a real
-    termination, ended the episode at that row. Each such row gets one extra
-    step inserted right after it, holding that episode's final observation,
-    so every later row moves one place further. A row's place is therefore
-    its own index plus the number of extra steps inserted before it."""
-    rows = jnp.arange(cut_by_time_limit.shape[0])[:, None]
-    # The extra steps up to and including the row's own, minus its own.
-    return rows + jnp.cumsum(cut_by_time_limit, axis=0) - cut_by_time_limit
 
 
 def sample_and_burnin_sequences(
@@ -245,7 +239,9 @@ def sample_and_burnin_sequences(
             obs=window_obs[rows],
             actions=window_actions[rows],
             prev_actions=window_previous_actions[rows],
-            positions=stream_positions(cut_by_time_limit),
+            row_positions_with_final_observations=row_positions_with_final_observations(
+                cut_by_time_limit
+            ),
             target_actor_hidden=target_actor_carry,
         )
     )
@@ -305,69 +301,55 @@ def sample_replay(
     return batch, None
 
 
-def _build_look_ahead_sequence(
-    carries: RecurrentCarries, rows: jax.Array, next_step_inputs: jax.Array
-) -> Tuple[jax.Array, jax.Array]:
-    """The look-ahead sequence and its reset flags: what a network runs over
-    to give, for every row, its output at that row's next observation.
+def stored_actor_carry_dim(memory: Optional[MemoryConfig], stored_state: bool) -> int:
+    """Width of the actor carry a stored-state replay buffer keeps per step
+    (R2D2 stored state), 0 when nothing is stored."""
+    return flat_carry_dim(memory) if stored_state and memory is not None else 0
 
-    A TD target for row t needs the network's output at row t's next
-    observation, from the memory that has read the rows up to t. Usually
-    that next observation is row t + 1 itself, one place later. But where a
-    time limit ended the episode at row t, the environment has already
-    reset: row t + 1 starts a new episode, and the old episode's final
-    observation is stored only as row t's next observation. So the sequence
-    gets one extra step after such a row, holding that final observation.
-    The next row starts with a reset, so the extra step never reaches the
-    new episode's memory.
 
-    rows (S, B, ...) are the network's inputs at the rows, next_step_inputs
-    (S, B, ...) its inputs at each row's next observation. The sequence has
-    room for one extra step per row, so it is 2 * S long; its unused places
-    at the end are marked as resets.
-    """
-    row_places = _make_place_table(carries.positions)
-    next_step_places = _make_place_table(carries.positions + 1)
-    # Where row t's next step is row t + 1 itself, that place takes the
-    # next-step input: the same observation, with the action the target asks
-    # about (the rows' own asked-about actions are never read).
-    row_places = row_places * (1 - next_step_places.sum(axis=1, keepdims=True))
-    sequence_inputs = _place_rows(row_places, rows) + _place_rows(
-        next_step_places, next_step_inputs
+def make_replay_buffer(
+    agent: Any,
+    n_envs: int,
+    memory: Optional[MemoryConfig],
+    buffer_size: int,
+    batch_size: int,
+) -> BufferType:
+    """The replay buffer of an off-policy agent: transitions, or per-env
+    trajectories sampled as windows when memory is set. agent holds
+    burn_in, sequence_length, stored_state and
+    learning_starts: a declared agent (its fields), or an older agent's
+    RecurrentReplayConfig."""
+    burn_in, sequence_length = agent.burn_in, agent.sequence_length
+    if agent.stored_state and memory is None:
+        raise ValueError(
+            "stored_state=True requires a memory config (recurrent networks)."
+        )
+    learning_starts = agent.learning_starts
+    if (
+        memory is not None
+        and learning_starts // n_envs <= burn_in + sequence_length + 1
+    ):
+        raise ValueError(
+            "learning_starts // n_envs (each env's steps before the first"
+            " update) must exceed burn_in + sequence_length + 1, so the"
+            " trajectory buffer holds a full sequence per env"
+            f" (got learning_starts={learning_starts}, n_envs={n_envs},"
+            f" burn_in={burn_in}, sequence_length={sequence_length})."
+        )
+    return get_buffer(
+        buffer_size=buffer_size,
+        batch_size=batch_size,
+        n_envs=n_envs,
+        # burn-in prefix + trained segment + bootstrap step
+        sequence_length=(burn_in + sequence_length + 1 if memory is not None else None),
     )
-    unused_places = 1 - row_places.sum(axis=1) - next_step_places.sum(axis=1)
-    reset_flags = _place_rows(row_places, carries.resets) + _place_rows(
-        next_step_places, carries.next_resets
-    )
-    return sequence_inputs, reset_flags + unused_places > 0
 
 
-def _make_place_table(positions: jax.Array) -> jax.Array:
-    """A table (2 * S, S, B), 1 where place p of the look-ahead sequence
-    holds row r, from each row's place (S, B)."""
-    places = jnp.arange(2 * positions.shape[0])[:, None, None]
-    return (places == positions[None]).astype(jnp.float32)
-
-
-def _place_rows(table: jax.Array, values: jax.Array) -> jax.Array:
-    """values (S, B, ...) moved to the places table (P, S, B) gives them.
-    Written as a multiply-and-sum because XLA on CPU runs a scatter or a
-    gather one index at a time."""
-    table = table.reshape(table.shape + (1,) * (values.ndim - 2))
-    return jnp.sum(table * values[None], axis=1)
-
-
-def _pick_next_step_outputs(
-    carries: RecurrentCarries, sequence_outputs: jax.Array
-) -> jax.Array:
-    """Every row's look-ahead output, from a network's outputs over the
-    look-ahead sequence (2 * S, B, ...): the output one place after the
-    row."""
-    next_step_places = _make_place_table(carries.positions + 1)
-    table = next_step_places.reshape(
-        next_step_places.shape + (1,) * (sequence_outputs.ndim - 2)
-    )
-    return jnp.sum(table * sequence_outputs[:, None], axis=0)
+# ----------------------------------------------------------------------------
+# Networks with memory, run over a replayed window: the actor's
+#
+# distribution and the critics' Q-values.
+# ----------------------------------------------------------------------------
 
 
 def actor_dist(
@@ -387,8 +369,8 @@ def actor_dist(
     - bootstrap False: at the rows themselves (obs are their observations),
       for the actor's own loss;
     - bootstrap True: at each row's next observation (obs are those next
-      observations), for the critic's target, through the look-ahead
-      sequence.
+      observations), for the critic's target (see the time-limit
+      section).
     target_actor starts from the target actor's memory instead of the online
     actor's: TD3's target asks its target actor for the next action.
     """
@@ -397,26 +379,18 @@ def actor_dist(
     hidden = carries.target_actor_hidden if target_actor else carries.actor_hidden
     if not bootstrap:
         return get_pi_sequence(actor_state, params, obs, carries.resets, hidden)[0]
-    sequence_observations, resets = _build_look_ahead_sequence(
+    sequence_observations, resets = _insert_final_observations(
         carries, carries.obs, obs
     )
     policy = get_pi_sequence(
         actor_state, params, sequence_observations, resets, hidden
     )[0]
     # A distribution is a tree of its parameters (a Gaussian's mean and
-    # scale), each with time as its first axis: pick each one's look-ahead
-    # outputs.
-    return jax.tree.map(lambda leaf: _pick_next_step_outputs(carries, leaf), policy)
-
-
-def get_policy_in_training(
-    actor_state: LoadedTrainState, params: Any, obs: jax.Array
-) -> Tuple[Any, Optional[Any]]:
-    """actor_dist in training, feedforward: the actor's distribution
-    over obs and its running statistics after this pass
-    (apply_train)."""
-    obs = apply_obs_norm(obs, getattr(actor_state, "obs_norm_info", None))
-    return actor_state.apply_train(params, obs)
+    # scale), each with time as its first axis: read each one's outputs
+    # at the rows' next observations.
+    return jax.tree.map(
+        lambda leaf: _read_outputs_at_next_observations(carries, leaf), policy
+    )
 
 
 def q_values(
@@ -439,7 +413,7 @@ def q_values(
       about);
     - bootstrap True: the target critic, from its warmed-up memory, at each
       row's next observation (obs are those next observations, actions the
-      next actions the target asks about), through the look-ahead sequence.
+      next actions the target asks about), see the time-limit section.
     The memory reads each observation with the action taken before it; the
     asked-about action enters at the output layer. Every action reaches the
     critic in its own units (in_critic_units; predict_value converts a
@@ -474,7 +448,7 @@ def q_values(
         0.0,
         in_critic_units(critic_state, carries.actions),
     )
-    sequence_inputs, resets = _build_look_ahead_sequence(
+    sequence_inputs, resets = _insert_final_observations(
         carries, rows, action_value_input(obs, actions, action_taken_before)
     )
     values = predict_value_sequence(
@@ -486,12 +460,121 @@ def q_values(
         quantiles=quantiles,
     )[0]
     # values are (critics, time, B, 1 or quantiles): move the critics' axis
-    # last while picking the look-ahead outputs along time, then back.
-    look_ahead_q_values = _pick_next_step_outputs(carries, jnp.moveaxis(values, 0, -1))
-    return jnp.moveaxis(look_ahead_q_values, -1, 0)
+    # last while reading the outputs at the next observations along time,
+    # then back.
+    next_q_values = _read_outputs_at_next_observations(
+        carries, jnp.moveaxis(values, 0, -1)
+    )
+    return jnp.moveaxis(next_q_values, -1, 0)
 
 
-def compute_rollout_sequence_values(
+# ----------------------------------------------------------------------------
+# Time limits: the rows with each cut episode's final observation inserted.
+#
+# This section serves one case only, not memory itself. A TD target for
+# row t needs the network's output at row t's next observation, from the
+# memory that has read the rows up to t. Usually that next observation is
+# row t + 1, one place later. But where a time limit (not a real
+# termination) ended the episode at row t, the environment has already
+# reset: row t + 1 starts a new episode, and the old episode's final
+# observation is stored only as row t's next observation. So the network
+# runs over the rows with that final observation inserted after row t;
+# row t + 1 starts with a reset, so the inserted step never reaches the
+# new episode's memory. One pass then gives every row's output at its
+# next observation, one place after the row.
+# ----------------------------------------------------------------------------
+
+
+def row_positions_with_final_observations(cut_by_time_limit: jax.Array) -> jax.Array:
+    """Each row's position once a final observation is inserted after
+    every row a time limit cut.
+
+    cut_by_time_limit (S, B) is True where a time limit, not a real
+    termination, ended the episode at that row. Each insertion moves every
+    later row one position further, so a row's position is its own index
+    plus the number of final observations inserted before it."""
+    rows = jnp.arange(cut_by_time_limit.shape[0])[:, None]
+    # The extra steps up to and including the row's own, minus its own.
+    return rows + jnp.cumsum(cut_by_time_limit, axis=0) - cut_by_time_limit
+
+
+# The former name, released in 0.4.0; 0.5.0 removes it.
+stream_positions = row_positions_with_final_observations
+
+
+def _insert_final_observations(
+    carries: RecurrentCarries, rows: jax.Array, next_step_inputs: jax.Array
+) -> Tuple[jax.Array, jax.Array]:
+    """The network's inputs at the rows, with the final observation of each
+    episode a time limit cut inserted after its last row, and the matching
+    reset flags.
+
+    rows (S, B, ...) are the network's inputs at the rows, next_step_inputs
+    (S, B, ...) its inputs at each row's next observation. There is room for
+    one insertion per row, so the result is 2 * S long; its unused positions
+    at the end are marked as resets.
+    """
+    row_positions = _make_row_to_position_table(
+        carries.row_positions_with_final_observations
+    )
+    next_step_positions = _make_row_to_position_table(
+        carries.row_positions_with_final_observations + 1
+    )
+    # Where row t's next step is row t + 1 itself, that position takes the
+    # next-step input: the same observation, with the action the target asks
+    # about (the rows' own asked-about actions are never read).
+    row_positions = row_positions * (1 - next_step_positions.sum(axis=1, keepdims=True))
+    sequence_inputs = _move_rows_to_positions(
+        row_positions, rows
+    ) + _move_rows_to_positions(next_step_positions, next_step_inputs)
+    unused_positions = 1 - row_positions.sum(axis=1) - next_step_positions.sum(axis=1)
+    reset_flags = _move_rows_to_positions(
+        row_positions, carries.resets
+    ) + _move_rows_to_positions(next_step_positions, carries.next_resets)
+    return sequence_inputs, reset_flags + unused_positions > 0
+
+
+def _make_row_to_position_table(row_positions: jax.Array) -> jax.Array:
+    """A 0/1 table (2 * S, S, B): table[p, r, b] is 1 where row r of
+    environment b sits at position p, from each row's position (S, B)."""
+    positions = jnp.arange(2 * row_positions.shape[0])[:, None, None]
+    return (positions == row_positions[None]).astype(jnp.float32)
+
+
+def _move_rows_to_positions(
+    row_to_position: jax.Array, row_values: jax.Array
+) -> jax.Array:
+    """row_values (S, B, ...) moved to the positions the table
+    row_to_position (2 * S, S, B) gives them. Written as a multiply-and-sum
+    because XLA on CPU runs a scatter or a gather one index at a time."""
+    row_to_position = row_to_position.reshape(
+        row_to_position.shape + (1,) * (row_values.ndim - 2)
+    )
+    return jnp.sum(row_to_position * row_values[None], axis=1)
+
+
+def _read_outputs_at_next_observations(
+    carries: RecurrentCarries, sequence_outputs: jax.Array
+) -> jax.Array:
+    """Every row's output at its next observation, from a network's outputs
+    over the rows with the final observations inserted (2 * S, B, ...): the
+    output one position after the row."""
+    next_step_positions = _make_row_to_position_table(
+        carries.row_positions_with_final_observations + 1
+    )
+    row_to_position = next_step_positions.reshape(
+        next_step_positions.shape + (1,) * (sequence_outputs.ndim - 2)
+    )
+    return jnp.sum(row_to_position * sequence_outputs[:, None], axis=0)
+
+
+# ----------------------------------------------------------------------------
+# PPO with memory: values from a rollout.
+#
+# ----------------------------------------------------------------------------
+
+
+def compute_values_from_rollout_sequence(
     agent_state: Any,
     rollout: Transition,
     agent_state_at_rollout_start: Any,
@@ -596,48 +679,10 @@ def compute_rollout_sequence_values(
     return agent_state, values, next_values, resets, carries
 
 
-def stored_actor_carry_dim(memory: Optional[MemoryConfig], stored_state: bool) -> int:
-    """Width of the actor carry a stored-state replay buffer keeps per step
-    (R2D2 stored state), 0 when nothing is stored."""
-    return flat_carry_dim(memory) if stored_state and memory is not None else 0
-
-
-def make_replay_buffer(
-    agent: Any,
-    n_envs: int,
-    memory: Optional[MemoryConfig],
-    buffer_size: int,
-    batch_size: int,
-) -> BufferType:
-    """The replay buffer of an off-policy agent: transitions, or per-env
-    trajectories sampled as windows when memory is set. agent holds
-    burn_in, sequence_length, stored_state and
-    learning_starts: a declared agent (its fields), or an older agent's
-    RecurrentReplayConfig."""
-    burn_in, sequence_length = agent.burn_in, agent.sequence_length
-    if agent.stored_state and memory is None:
-        raise ValueError(
-            "stored_state=True requires a memory config (recurrent networks)."
-        )
-    learning_starts = agent.learning_starts
-    if (
-        memory is not None
-        and learning_starts // n_envs <= burn_in + sequence_length + 1
-    ):
-        raise ValueError(
-            "learning_starts // n_envs (each env's steps before the first"
-            " update) must exceed burn_in + sequence_length + 1, so the"
-            " trajectory buffer holds a full sequence per env"
-            f" (got learning_starts={learning_starts}, n_envs={n_envs},"
-            f" burn_in={burn_in}, sequence_length={sequence_length})."
-        )
-    return get_buffer(
-        buffer_size=buffer_size,
-        batch_size=batch_size,
-        n_envs=n_envs,
-        # burn-in prefix + trained segment + bootstrap step
-        sequence_length=(burn_in + sequence_length + 1 if memory is not None else None),
-    )
+# ----------------------------------------------------------------------------
+# Refusals.
+#
+# ----------------------------------------------------------------------------
 
 
 def unsupported_recurrent_options(agent_name: str, **options: Optional[Any]) -> None:

@@ -55,7 +55,7 @@ from ajax.agents.minibatch import (
     get_actions_and_log_probs,
     run_epochs,
 )
-from ajax.agents.recurrent import compute_rollout_sequence_values
+from ajax.agents.recurrent import compute_values_from_rollout_sequence
 from ajax.agents.update_steps import (
     apply_gradients_clipped_together,
     compute_gradients,
@@ -275,7 +275,7 @@ class PPO(
             # GAE once, on the rollout, with the critic that collected it.
             if context.recurrent:
                 agent_state, values, next_values, resets, carries = (
-                    compute_rollout_sequence_values(
+                    compute_values_from_rollout_sequence(
                         agent_state, rollout, agent_state_at_rollout_start, split.length
                     )
                 )

@@ -115,7 +115,7 @@ PyPI as `ajax-rl`.
 - The declared agents (PPO, APO, PQN, TD3, IQL, CrossQ) and the shared
   modules they use name their parameters and locals in full words: an
   agent's `state` parameter is `agent_state`; the on-policy `update`'s
-  `start` (and `compute_rollout_sequence_values`') is
+  `start` (and `compute_values_from_rollout_sequence`') is
   `agent_state_at_rollout_start`; APO's `minibatch_step` takes
   `value_bias` (was `b`); `get_sequence_minibatches` takes `shuffle_key`
   (was `rng`); PPO's `advantages` method is `compute_advantages`. A caller
@@ -127,9 +127,16 @@ PyPI as `ajax-rl`.
   and `update_actor`, IQL's equations start with `compute_`,
   `RolloutSplit.minibatches` is `cut_into_minibatches`,
   `sequence_minibatches` is `get_sequence_minibatches`, `recurrent`'s
-  `actor_dist_train` and `rollout_sequence_values` are
-  `get_policy_in_training` and `compute_rollout_sequence_values`, and
-  PQN's `epsilon_schedule` method is `make_epsilon_schedule`.
+  `rollout_sequence_values` is `compute_values_from_rollout_sequence`,
+  its `actor_dist_train` is `ajax.networks.networks`'
+  `get_policy_updating_batch_statistics` (beside
+  `predict_value_updating_batch_statistics`, was `predict_value_train`),
+  and PQN's `epsilon_schedule` method is `make_epsilon_schedule`.
+- `recurrent.py` is split into labelled sections, and the machinery that
+  inserts the final observation of an episode a time limit cut is named
+  for it: `stream_positions` is `row_positions_with_final_observations`
+  (the old name stays until 0.5.0), and `RecurrentCarries.positions` is
+  `row_positions_with_final_observations`.
 - **Verb names.** `ajax.agents.steps` is `ajax.agents.update_steps`. A
   function returning a loss or a target value starts with `compute_`, one
   building a function or a network with `make_`: `critics`'

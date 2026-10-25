@@ -45,13 +45,17 @@ from ajax.agents.families import (
     RewardNormalization,
     TrainContext,
 )
-from ajax.agents.recurrent import get_policy_in_training, sample_replay
+from ajax.agents.recurrent import sample_replay
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
 from ajax.agents.SAC.state import SoftACState
 from ajax.controller import policy_action_dim
 from ajax.extensions.base import merge_metrics
-from ajax.networks.networks import action_value_input, predict_value_train
+from ajax.networks.networks import (
+    action_value_input,
+    get_policy_updating_batch_statistics,
+    predict_value_updating_batch_statistics,
+)
 from ajax.state import AlphaConfig, Transition
 
 #: The authors' layers are flax's defaults: lecun-normal kernels, zero biases.
@@ -206,7 +210,9 @@ class CrossQ(
         )
 
         def critic_loss(params: Any) -> tuple[jax.Array, Any]:
-            q_values, batch_stats = predict_value_train(critic_state, params, rows)
+            q_values, batch_stats = predict_value_updating_batch_statistics(
+                critic_state, params, rows
+            )
             current_q_values, next_q_values = jnp.split(q_values, 2, axis=1)
             target = core.soft_bellman_target(
                 jnp.min(next_q_values, axis=0),
@@ -262,7 +268,9 @@ class CrossQ(
             transform = partial(scored_action, context.executed, batch.a_expert)
 
         def policy_loss(params: Any) -> tuple[jax.Array, Any, jax.Array]:
-            policy, batch_stats = get_policy_in_training(actor_state, params, batch.obs)
+            policy, batch_stats = get_policy_updating_batch_statistics(
+                actor_state, params, batch.obs
+            )
             loss, (log_probs, q_values, policy) = core.soft_policy_objective(
                 policy,
                 critic_state,

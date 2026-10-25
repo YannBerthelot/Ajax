@@ -11,7 +11,6 @@ import pytest
 
 from ajax.agents.critics import compute_mse_td_loss, compute_q_loss, q_gradient_step
 from ajax.agents.DQN.DQN import DQN
-from ajax.agents.DQN.train_DQN import init_DQN
 from ajax.agents.PQN.PQN import PQN
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
@@ -24,13 +23,7 @@ NET = ("16", "relu")
 
 def test_a_q_step_reports_the_td_error_size_and_gradient_norm() -> None:
     agent = DQN("CartPole-v1", n_envs=1, architecture=NET)
-    state = init_DQN(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        n_actions=2,
-    )
+    state = agent.init(jax.random.PRNGKey(0), agent.make_context(1)[1])
     obs_shape, _ = get_state_action_shapes(agent.env_args.env)
     keys = jax.random.split(jax.random.PRNGKey(1), 3)
     obs = jax.random.normal(keys[0], (8, *obs_shape))

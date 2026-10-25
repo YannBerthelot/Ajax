@@ -74,9 +74,6 @@ def make_action_pipeline(
     recurrent,
     env_args,
     extension_stack: ExtensionStack,
-    # The run's residual policy (ResidualPolicy), whose ``transform_action``
-    # makes the post-warmup action residual.
-    residual=None,
     # Off-policy correctness ablation: when True, the pipeline returns
     # the policy's sampled action as buffer_action (instead of letting
     # collect_experience fall back to env_action = the executed action).
@@ -93,6 +90,16 @@ def make_action_pipeline(
     """
     if expert_policy is None:
         return None
+    # The run's residual policy (ResidualPolicy) makes the post-warm-up
+    # action residual.
+    residual = next(
+        (
+            transform
+            for transform in env_args.transforms
+            if "transform_action" in transform.implemented_phases()
+        ),
+        None,
+    )
 
     # The extensions of each collection-time slot, classified at trace
     # time by their declared ``action_slot``.

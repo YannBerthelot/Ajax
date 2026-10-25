@@ -35,6 +35,7 @@ from ajax.agents.families import (
     ExpertGuided,
     GradientClipping,
     ObservationNormalization,
+    PolicyUpdateStart,
     RecurrentReplayAgent,
     RewardNormalization,
     TrainContext,
@@ -52,6 +53,7 @@ from ajax.types import Architecture
 
 @dataclass(kw_only=True, eq=False, repr=False)
 class TD3(
+    PolicyUpdateStart,
     GradientClipping,
     ObservationNormalization,
     RewardNormalization,
@@ -171,7 +173,10 @@ class TD3(
         # actor when the count is a multiple of the delay: its first actor
         # step is the policy_delay-th update, not the first. Skipped, its
         # metrics are zeros.
-        do_policy = ((agent_state.n_updates + 1) % self.policy_delay) == 0
+        do_policy = update_steps.all_of(
+            ((agent_state.n_updates + 1) % self.policy_delay) == 0,
+            self.policy_update_due(agent_state),
+        )
         update_actor_on_batch = partial(
             self.update_actor, batch=batch, carries=carries, context=context
         )

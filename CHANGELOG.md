@@ -6,6 +6,11 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **Every replay actor-critic takes policy_update_start**, SAC's knob:
+  TD3, CrossQ and IQL keep the actor's steps from that timestep on, and
+  CrossQ, as every soft actor-critic, takes alpha_update_start for its
+  temperature. Both default to 0, no wait: runs that leave them unset are
+  bitwise the same.
 - **IQL, CrossQ and TD3 are declared agents.** Each is one file,
   `agents/<AGENT>/<AGENT>.py`, on the replay family of the new
   `ajax.agents.families`: its hyperparameters are dataclass fields, declared

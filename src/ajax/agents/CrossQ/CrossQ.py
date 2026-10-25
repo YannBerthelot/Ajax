@@ -42,6 +42,7 @@ from ajax.agents.families import (
     ExpertGuided,
     GradientClipping,
     ObservationNormalization,
+    PolicyUpdateStart,
     ReplayAgent,
     RewardNormalization,
     TrainContext,
@@ -71,6 +72,7 @@ LECUN = "lecun_normal"
 @dataclass(kw_only=True, eq=False, repr=False)
 class CrossQ(
     EntropyTemperature,
+    PolicyUpdateStart,
     GradientClipping,
     ObservationNormalization,
     RewardNormalization,
@@ -163,7 +165,10 @@ class CrossQ(
         agent_state, value_aux, value_metrics = self.update_critic(
             agent_state, batch, context
         )
-        due = (agent_state.n_updates + 1) % self.policy_delay == 0
+        due = update_steps.all_of(
+            (agent_state.n_updates + 1) % self.policy_delay == 0,
+            self.policy_update_due(agent_state),
+        )
         update_actor_on_batch = partial(self.update_actor, batch=batch, context=context)
         agent_state, (policy_aux, temperature, policy_metrics) = update_steps.run_if(
             due, update_actor_on_batch, agent_state
@@ -288,11 +293,15 @@ class CrossQ(
         )
         actor_state = actor_state.replace(batch_stats=batch_stats)
         # The authors' temperature loss: alpha, not log alpha, times the gap.
-        agent_state, temperature = update_temperature(
-            agent_state.replace(actor_state=actor_state),
+        agent_state = agent_state.replace(actor_state=actor_state)
+        tempered, temperature = update_temperature(
+            agent_state,
             jax.lax.stop_gradient(log_probs),
             jnp.asarray(self.target_entropy),
             core.alpha_temperature_loss_fn,
+        )
+        agent_state = update_steps.run_if(
+            self.temperature_update_due(agent_state), lambda _: tempered, agent_state
         )
         return agent_state, (aux, temperature, metrics)
 

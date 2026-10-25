@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from ajax.agents.SAC.state import SoftACState
+from ajax.agents.temperature import SoftActorCriticState
 from ajax.state import BaseAgentConfig
 from ajax.types import Replaceable
 
@@ -20,7 +20,7 @@ class RunningMoments(Replaceable):
 
 
 @struct.dataclass(kw_only=True)
-class AVGState(SoftACState):
+class AVGState(SoftActorCriticState):
     """AVG's state: a soft actor-critic's plus the TD-error scale statistics."""
 
     reward: RunningMoments

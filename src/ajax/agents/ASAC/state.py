@@ -4,11 +4,11 @@ import jax
 from flax import struct
 
 from ajax.agents.recurrent import RecurrentReplayConfig
-from ajax.agents.SAC.state import SoftACState
+from ajax.agents.temperature import SoftActorCriticState
 
 
 @struct.dataclass(kw_only=True)
-class ASACState(SoftACState):
+class ASACState(SoftActorCriticState):
     """ASAC's state: a soft actor-critic's plus the reward rate and the
     termination penalty."""
 

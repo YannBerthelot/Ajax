@@ -28,7 +28,12 @@ from ajax.agents.recurrent import (
     unsupported_recurrent_options,
 )
 from ajax.agents.SAC import core
-from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.agents.temperature import (
+    TemperatureAuxiliaries,
+    create_alpha_train_state,
+    get_alpha,
+    update_temperature,
+)
 from ajax.agents.TQC.state import TQCConfig, TQCState
 from ajax.agents.update_steps import update_target_networks
 from ajax.buffers.dataset import TransitionDataset
@@ -114,7 +119,7 @@ def init_TQC(
         eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
-        alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
+        alpha=create_alpha_train_state(**to_state_dict(alpha_args)),
         collector_state=collector_state,
     )
 
@@ -205,7 +210,7 @@ def update_value_functions(
         dones,
         batch.reward,
         agent_config.gamma,
-        jnp.exp(agent_state.alpha.params["log_alpha"]),
+        get_alpha(agent_state),
         agent_config.top_quantiles_to_drop_per_net * agent_config.num_critics,
         agent_config.reward_scale,
         carries,
@@ -335,8 +340,11 @@ def update_agent(
         executed=executed,
     )
     agent_state = agent_state.replace(critic_state=critic_state)
-    agent_state, aux_temperature = core.update_temperature(
-        agent_state, log_probs, jnp.asarray(agent_config.target_entropy)
+    agent_state, aux_temperature = update_temperature(
+        agent_state,
+        log_probs,
+        jnp.asarray(agent_config.target_entropy),
+        core.temperature_loss_fn,
     )
     return agent_state, AuxiliaryLogs(
         temperature=aux_temperature,

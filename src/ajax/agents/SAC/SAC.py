@@ -3,10 +3,10 @@ from typing import Any, Callable, Optional, Union
 
 from gymnax import EnvParams
 
+from ajax.agents.action_pipeline import check_action_extensions
 from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.loop import LOOP_PHASES, REPLAY_BATCH_KEYS, TARGET_KEYS
 from ajax.agents.recurrent import make_replay_buffer
-from ajax.agents.SAC.action_pipeline import check_action_extensions
 from ajax.agents.SAC.deprecated_keywords import translate_deprecated_keywords
 from ajax.agents.SAC.state import SACConfig
 from ajax.agents.SAC.train_SAC import make_train

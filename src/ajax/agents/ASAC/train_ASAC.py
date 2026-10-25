@@ -31,7 +31,12 @@ from ajax.agents.recurrent import (
     unsupported_recurrent_options,
 )
 from ajax.agents.SAC import core
-from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.agents.temperature import (
+    TemperatureAuxiliaries,
+    create_alpha_train_state,
+    get_alpha,
+    update_temperature,
+)
 from ajax.agents.update_steps import update_target_networks
 from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import executed_fn
@@ -123,7 +128,7 @@ def init_ASAC(
         eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
-        alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
+        alpha=create_alpha_train_state(**to_state_dict(alpha_args)),
         collector_state=collector_state,
         episode_termination_penalty=jnp.zeros(()),
         theta=0.0,
@@ -235,7 +240,7 @@ def update_value_functions(
 ) -> Tuple[ASACState, ValueAuxiliaries, dict]:
     """The critic step on the differential target of the penalised ``rewards``."""
     agent_state, key = agent_state.next_keys()
-    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    alpha = get_alpha(agent_state)
     dones = batch.terminated
     target_q, next_log_probs = compute_asac_td_target(
         agent_state.actor_state,
@@ -320,7 +325,7 @@ def update_theta(
 ) -> ASACState:
     """Track the entropy-regularised reward rate: an EMA of ``mean(r -
     alpha (log pi(a|s) - log(1 / nA)))`` over the batch, ``a ~ pi(.|s)``."""
-    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    alpha = get_alpha(agent_state)
     log_pi = log_probs.sum(-1, keepdims=True) - uniform_log_prob(action_dim)
     new_theta = jnp.mean(rewards - alpha * log_pi)
     theta = agent_state.theta * (1 - tau) + tau * new_theta
@@ -389,8 +394,11 @@ def update_agent(
     # per dimension times the action dimension).
     # ``fixed_alpha`` drops the step but keeps its logged auxiliaries, as
     # SAC's does.
-    tempered, aux_temperature = core.update_temperature(
-        agent_state, log_probs, jnp.asarray(agent_config.target_entropy)
+    tempered, aux_temperature = update_temperature(
+        agent_state,
+        log_probs,
+        jnp.asarray(agent_config.target_entropy),
+        core.temperature_loss_fn,
     )
     if not fixed_alpha:
         agent_state = tempered

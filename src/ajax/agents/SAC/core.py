@@ -10,11 +10,9 @@ from typing import Any, Callable, Optional, Tuple, TypeVar
 
 import jax
 import jax.numpy as jnp
-import optax
-from flax import struct
 from flax.core import FrozenDict
-from flax.training.train_state import TrainState
 
+from ajax.agents import temperature
 from ajax.agents.loop import derive_extensions_key, gradient_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
@@ -22,7 +20,7 @@ from ajax.agents.recurrent import (
     q_values,
     stored_actor_carry_dim,
 )
-from ajax.agents.SAC.state import SoftACState
+from ajax.controller import make_scored_action
 from ajax.deprecation import moved_names
 from ajax.environments.interaction import init_collector_state
 from ajax.extensions.base import ExtensionStack
@@ -30,36 +28,7 @@ from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 from ajax.types import BufferType
 
-S = TypeVar("S", bound=SoftACState)
-
-
-@struct.dataclass
-class TemperatureAuxiliaries:
-    alpha: jax.Array
-    log_alpha: jax.Array
-    effective_target_entropy: jax.Array | float
-
-
-def create_alpha_train_state(
-    learning_rate: float = 3e-4,
-    alpha_init: float = 1.0,
-) -> TrainState:
-    log_alpha = jnp.log(alpha_init)
-    params: FrozenDict[str, Any] = FrozenDict({"log_alpha": log_alpha})
-    # No gradient clipping on the dual variable. log_alpha's gradient is
-    # the scalar (H_target - H_pi); clipping it to a constant norm erases
-    # the magnitude (and hence the target) from the update whenever the
-    # policy entropy is more than the clip away from the target, turning
-    # the step into pure sign-descent at ``learning_rate`` per update.
-    # Reference SAC uses unclipped Adam here. Nor does the agent's
-    # weight_decay reach it: decaying log_alpha towards 0 would pull the
-    # temperature towards 1, a bias no entropy target asks for.
-    tx = optax.adam(learning_rate)
-    return TrainState.create(
-        apply_fn=lambda params: jnp.exp(params["log_alpha"]),
-        params=params,
-        tx=tx,
-    )
+S = TypeVar("S", bound=temperature.SoftActorCriticState)
 
 
 def init_soft_actor_critic(
@@ -258,14 +227,9 @@ def soft_actor_step(
     ``(loss, log_probs, q)``, the SAC loss before the extensions' terms,
     and the extensions' metrics."""
     agent_state, policy_key = agent_state.next_keys()
-    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    alpha = temperature.get_alpha(agent_state)
     actor_state = agent_state.actor_state
-    transform = None
-    if executed is not None:
-        score = executed
-
-        def transform(actions: jax.Array) -> jax.Array:
-            return score(actions, a_expert)
+    transform = make_scored_action(executed, a_expert)
 
     def loss_fn(params: FrozenDict) -> Tuple[jax.Array, Any]:
         loss, (log_probs, q, pi) = soft_policy_loss(
@@ -307,12 +271,12 @@ def temperature_loss_fn(
     log_alpha_params: FrozenDict,
     log_probs: jax.Array,
     target_entropy: jax.Array,
-) -> Tuple[jax.Array, TemperatureAuxiliaries]:
+) -> Tuple[jax.Array, temperature.TemperatureAuxiliaries]:
     """Standard SAC temperature loss: log(α) · (-log π - H_target)."""
     log_alpha = log_alpha_params["log_alpha"]
     alpha = jnp.exp(log_alpha)
     loss = (log_alpha * jax.lax.stop_gradient(-log_probs - target_entropy)).mean()
-    return loss, TemperatureAuxiliaries(
+    return loss, temperature.TemperatureAuxiliaries(
         alpha=alpha,
         log_alpha=log_alpha,
         effective_target_entropy=target_entropy,
@@ -323,7 +287,7 @@ def alpha_temperature_loss_fn(
     log_alpha_params: FrozenDict,
     log_probs: jax.Array,
     target_entropy: jax.Array,
-) -> Tuple[jax.Array, TemperatureAuxiliaries]:
+) -> Tuple[jax.Array, temperature.TemperatureAuxiliaries]:
     """``alpha (H - H_target)``, ``H = -mean log pi``: the temperature's loss
     in CrossQ's authors' SBX fork (adityab/CrossQ@a318a26,
     ``sbx/sac/sac.py:414-416``), alpha in place of log alpha, so its gradient
@@ -331,7 +295,7 @@ def alpha_temperature_loss_fn(
     log_alpha = log_alpha_params["log_alpha"]
     alpha = jnp.exp(log_alpha)
     loss = alpha * jax.lax.stop_gradient(-log_probs.mean() - target_entropy)
-    return loss, TemperatureAuxiliaries(
+    return loss, temperature.TemperatureAuxiliaries(
         alpha=alpha,
         log_alpha=log_alpha,
         effective_target_entropy=target_entropy,
@@ -342,23 +306,21 @@ def update_temperature(
     agent_state: S,
     log_probs: jax.Array,
     target_entropy: jax.Array,
-    loss_fn: Callable[..., Tuple[jax.Array, TemperatureAuxiliaries]] = (
+    loss_fn: Callable[..., Tuple[jax.Array, temperature.TemperatureAuxiliaries]] = (
         temperature_loss_fn
     ),
-) -> Tuple[S, TemperatureAuxiliaries]:
-    """One dual-gradient step of ``log_alpha`` towards ``target_entropy``,
-    ``log_probs`` per action dimension (summed here), down ``loss_fn``."""
-    (_, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-        agent_state.alpha.params,
-        log_probs.sum(-1),
-        target_entropy,
+) -> Tuple[S, temperature.TemperatureAuxiliaries]:
+    """The 0.4.0 form of ajax.agents.temperature.update_temperature, SAC's
+    temperature loss by default (0.5.0 removes it)."""
+    return temperature.update_temperature(
+        agent_state, log_probs, target_entropy, loss_fn
     )
-    new_alpha_state = agent_state.alpha.apply_gradients(grads=grads)
-    return agent_state.replace(alpha=new_alpha_state), jax.lax.stop_gradient(aux)
 
 
 _new_homes = {
     "CoreCriticAux": "ajax.agents.critics",
+    "TemperatureAuxiliaries": "ajax.agents.temperature",
+    "create_alpha_train_state": "ajax.agents.temperature",
     "critic_loss_fn": "ajax.agents.critics:compute_mean_critic_loss",
     "update_target_networks": "ajax.agents.update_steps",
 }

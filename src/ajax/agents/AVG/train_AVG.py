@@ -22,7 +22,11 @@ from ajax.agents.AVG.utils import compute_td_error_scaling
 from ajax.agents.loop import TrainLoop, actor_step, critic_step
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC import core
-from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.agents.temperature import (
+    TemperatureAuxiliaries,
+    create_alpha_train_state,
+    get_alpha,
+)
 from ajax.controller import executed_fn
 from ajax.environments.interaction import get_pi
 from ajax.evaluate import ValueEstimate
@@ -99,7 +103,7 @@ def init_AVG(
         eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
-        alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
+        alpha=create_alpha_train_state(**to_state_dict(alpha_args)),
         collector_state=collector_state,
         reward=init_norm_info,
         gamma=init_norm_info,
@@ -114,7 +118,7 @@ def update_AVG_values(
     """Fold the step just taken into the statistics behind the TD-error
     scale: its entropy-regularised reward and discount and, where an
     episode ended, its return."""
-    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    alpha = get_alpha(agent_state)
     assert rollout.log_prob is not None
     r_ent = rollout.reward - alpha * jax.lax.stop_gradient(rollout.log_prob).sum(
         -1, keepdims=True
@@ -248,7 +252,7 @@ def update_value_functions(
     action executed (``executed``: the policy's stored one, a residual
     policy's from the stored expert action)."""
     agent_state, key = agent_state.next_keys()
-    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    alpha = get_alpha(agent_state)
     critic_state = agent_state.critic_state
     # Only a termination cuts the bootstrap: the official code passes
     # `terminated` alone as the update's done (gauthamvasan/avg, avg.py),
@@ -315,7 +319,7 @@ def update_policy(
     the agent's expert's action from its state (None without one). Also
     returns the extensions' metrics."""
     agent_state, key = agent_state.next_keys()
-    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    alpha = get_alpha(agent_state)
     actor_state = agent_state.actor_state
 
     def policy_loss(params: FrozenDict) -> Tuple[jax.Array, Any, jax.Array]:

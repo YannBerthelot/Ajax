@@ -1460,13 +1460,17 @@ def init_collector_state(
     include_return_to_go: bool = False,
     include_next_action: bool = False,
     include_policy_action: bool = False,
+    count_episode_steps: bool = False,
 ):
     """Initialise the rollout collector: its first observations carry their
     features (``env_args.observers``) at progress 0; the training loop gives
     it the run's horizon (:func:`ajax.agents.loop.with_horizon`). With the
     agent's ``expert_policy`` the replay keeps the expert's actions
     (``a_expert``, ``next_a_expert``) and the collector holds a stateful
-    expert's initial state (:func:`with_expert_state`)."""
+    expert's initial state (:func:`with_expert_state`). With
+    count_episode_steps it counts each env's steps in its episode
+    (step_in_episode), for the extensions that read them (JSRLCurriculum);
+    without, collection skips the count."""
     include_expert_fields = include_expert_fields or expert_policy is not None
     last_done = jnp.zeros(env_args.n_envs)
 
@@ -1545,6 +1549,11 @@ def init_collector_state(
         last_in_box=jnp.zeros((env_args.n_envs, 1), dtype=jnp.float32),
         obs_norm_info=obs_norm_info,
         observer_states=observer_states,
+        step_in_episode=(
+            jnp.zeros((env_args.n_envs,), dtype=jnp.int32)
+            if count_episode_steps
+            else None
+        ),
     )
     return with_expert_state(collector_state, expert_policy, env_args.n_envs)
 

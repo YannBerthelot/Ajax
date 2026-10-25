@@ -8,13 +8,14 @@ with it planted, and ``fast``, the fast tests measured to catch it
 (``python -m tests.fault_catches``), which every fault lists: the
 pull-request gate runs the fast tier alone. ``run`` copies the repository to a scratch
 directory, plants the fault there and runs those nodes, so the checkout is
-never modified; a non-zero exit means caught::
+never modified, then removes the copy; a non-zero exit means caught::
 
     JAX_PLATFORMS=cpu uv run python -m tests.probing.faults SCRATCH ID [ID ...]
 """
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import glob
 import json
@@ -22,10 +23,16 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterable, Iterator
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 COPIED = ("src", "tests", "benchmarks", "docs", "pyproject.toml")
+#: Never copied, at any depth: the run needs none of them, and the reference
+#: implementations' environments (benchmarks/reference/envs/*/.venv) are 1-3.5 GB.
+SKIPPED = frozenset({".git", ".venv", ".claude", "site", "__pycache__"}).union(
+    {".mypy_cache", ".pytest_cache", ".ruff_cache"}
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -69,30 +76,42 @@ def plant(fault: Fault, root: str) -> None:
         fh.write(text.replace(fault.old, fault.new))
 
 
-def run(fault: Fault | None, scratch: str, *pytest_args: str) -> int:
-    """Run ``fault.catches`` (or ``pytest_args``) on a copy with ``fault``
-    planted (``None``: the clean copy)."""
-    root = os.path.join(scratch, fault.id if fault else "clean")
+@contextlib.contextmanager
+def scratch_copy(repo: str, root: str, names: Iterable[str]) -> Iterator[None]:
+    """Copy the named files and directories of repo into root, and remove the
+    copy on exit, whether the run inside passed, failed or raised."""
     shutil.rmtree(root, ignore_errors=True)
     os.makedirs(root)
-    for name in COPIED:
-        src, dst = os.path.join(REPO, name), os.path.join(root, name)
-        if os.path.isdir(src):
-            shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__"))
-        else:
-            shutil.copy2(src, dst)
-    if fault is not None:
-        plant(fault, root)
+    skip = shutil.ignore_patterns(*SKIPPED)
+    try:
+        for name in set(names).difference(SKIPPED):
+            source, target = os.path.join(repo, name), os.path.join(root, name)
+            if os.path.isdir(source):
+                shutil.copytree(source, target, ignore=skip)
+            else:
+                shutil.copy2(source, target)
+        yield
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def run(fault: Fault | None, scratch: str, *pytest_args: str) -> int:
+    """Run the fault's catches (or pytest_args) on a scratch copy with the fault
+    planted (None: the clean copy)."""
+    root = os.path.join(scratch, fault.id if fault else "clean")
     env = dict(os.environ, PYTHONPATH=os.path.join(root, "src"), JAX_PLATFORMS="cpu")
     env["AJAX_NO_COMPILE_CACHE"] = "1"
     probe = [sys.executable, "-c", "import ajax; print(ajax.__file__)"]
-    where = subprocess.run(probe, env=env, cwd=root, capture_output=True, text=True)
-    if not where.stdout.strip().startswith(root):
-        raise RuntimeError(f"imported {where.stdout.strip()}, not the copy")
     nodes = [f"tests/probing/{n}" for n in fault.catches] if fault else []
     cmd = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", *nodes]
     cmd += pytest_args
-    return subprocess.run(cmd, env=env, cwd=root).returncode
+    with scratch_copy(REPO, root, COPIED):
+        if fault is not None:
+            plant(fault, root)
+        where = subprocess.run(probe, env=env, cwd=root, capture_output=True, text=True)
+        if not where.stdout.strip().startswith(root):
+            raise RuntimeError(f"imported {where.stdout.strip()}, not the copy")
+        return subprocess.run(cmd, env=env, cwd=root).returncode
 
 
 if __name__ == "__main__":

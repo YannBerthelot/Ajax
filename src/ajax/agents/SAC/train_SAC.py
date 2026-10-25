@@ -7,8 +7,8 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
-from ajax.agents.critics import critic_loss_fn
-from ajax.agents.loop import TrainLoop, actor_step, critic_step, when
+from ajax.agents.critics import compute_mean_critic_loss
+from ajax.agents.loop import TrainLoop, actor_step, critic_step, run_if
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
@@ -19,7 +19,7 @@ from ajax.agents.SAC import core
 from ajax.agents.SAC.action_pipeline import make_action_pipeline
 from ajax.agents.SAC.core import TemperatureAuxiliaries, update_temperature
 from ajax.agents.SAC.state import SACConfig, SACState
-from ajax.agents.steps import update_target_networks
+from ajax.agents.update_steps import update_target_networks
 from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import executed_fn
 from ajax.evaluate import ValueEstimate
@@ -174,7 +174,7 @@ def update_value_functions(
         )
 
     def value_loss(params: FrozenDict, target_q: jax.Array) -> Tuple[jax.Array, Any]:
-        return critic_loss_fn(
+        return compute_mean_critic_loss(
             params,
             agent_state.critic_state,
             transition.obs,
@@ -353,7 +353,7 @@ def update_agent(
     # The policy step is computed from the start, its log-probs feeding the
     # temperature step, and kept from policy_update_start.
     timestep = agent_state.collector_state.timestep
-    agent_state = when(
+    agent_state = run_if(
         timestep >= policy_update_start, lambda _: new_agent_state, agent_state
     )
 
@@ -364,7 +364,7 @@ def update_agent(
         agent_state, policy_log_probs, jnp.asarray(at(target_entropy, timestep))
     )
     alpha_ready = jnp.logical_and(not fixed_alpha, timestep >= alpha_update_start)
-    agent_state = when(alpha_ready, lambda _: new_agent_state_temp, agent_state)
+    agent_state = run_if(alpha_ready, lambda _: new_agent_state_temp, agent_state)
 
     agent_state = update_target_networks(agent_state, tau=tau)
 

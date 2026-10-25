@@ -524,7 +524,7 @@ class BiasVorePenalty(Extension):
             from ajax.networks.q_networks import predict_q
 
             q_all = predict_q(q_state, q_state.params, obs)
-            # Match q_loss_fn's gather convention: actions may carry a
+            # Match compute_q_loss's gather convention: actions may carry a
             # trailing 1-dim or not.
             act_idx = actions if actions.ndim == q_all.ndim - 1 else actions.squeeze(-1)
             q_taken = jnp.take_along_axis(q_all, act_idx[..., None], axis=-1)

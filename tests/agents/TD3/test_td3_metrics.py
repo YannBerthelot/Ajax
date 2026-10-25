@@ -11,13 +11,13 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 
-from ajax.agents.critics import critic_loss_fn
+from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import TrainContext
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC import core as sac_core
 from ajax.agents.SAC import train_SAC
 from ajax.agents.SAC.SAC import SAC
-from ajax.agents.TD3.TD3 import TD3, compute_td3_td_target, policy_loss_function
+from ajax.agents.TD3.TD3 import TD3, compute_policy_loss, compute_td3_td_target
 from ajax.environments.interaction import init_collector_state
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
@@ -53,7 +53,7 @@ def make_context(agent: TD3, stack: ExtensionStack = EMPTY) -> TrainContext:
         critic_optimizer_args=agent.critic_optimizer_args,
         extensions=stack,
         total_timesteps=1,
-        collector=partial(
+        make_collector=partial(
             init_collector_state,
             env_args=env_args,
             mode=env_args.mode,
@@ -68,7 +68,7 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
     context = make_context(agent)
     state = agent.init(KEY, context)
     batch, config = _batch(agent), agent.agent_config
-    _, v_aux, _ = agent.critic_update(state, batch, None, context)
+    _, v_aux, _ = agent.update_critic(state, batch, None, context)
 
     critic = state.critic_state
     q = q_values(critic, critic.params, batch.obs, batch.action)
@@ -88,16 +88,17 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
         config.reward_scale,
     )
     assert float(v_aux.target_noise_clip_frac) == float(clip_frac)
-    # TD3 sums its critics' squared errors (sfujim/TD3); critic_loss_fn averages them.
+    # TD3 sums its critics' squared errors (sfujim/TD3);
+    # compute_mean_critic_loss averages them.
     v_grads = jax.grad(
         lambda p: config.num_critics
-        * critic_loss_fn(p, critic, batch.obs, batch.action, target)[0]
+        * compute_mean_critic_loss(p, critic, batch.obs, batch.action, target)[0]
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 
-    _, (p_aux, _) = agent.actor_update(state, batch, None, context)
+    _, (p_aux, _) = agent.update_actor(state, batch, None, context)
     actor = state.actor_state
-    p_grads = jax.grad(lambda p: policy_loss_function(p, actor, critic, batch.obs)[0])(
+    p_grads = jax.grad(lambda p: compute_policy_loss(p, actor, critic, batch.obs)[0])(
         actor.params
     )
     np.testing.assert_allclose(p_aux.grad_norm, optax.global_norm(p_grads), rtol=1e-6)
@@ -156,12 +157,14 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
         False,
     )
     v_grads = jax.grad(
-        lambda p: critic_loss_fn(p, critic, batch.obs, batch.action, target)[0]
+        lambda p: compute_mean_critic_loss(p, critic, batch.obs, batch.action, target)[
+            0
+        ]
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 
     _, p_aux, *_ = train_SAC.update_policy(state, batch.obs, None, EMPTY)
-    policy_key = state.draw_keys(2)[1]  # the step's policy key
+    policy_key = state.get_keys_and_new_state(2)[0]  # the step's policy key
     p_grads = jax.grad(
         lambda p: sac_core.soft_policy_loss(
             p, actor, critic, batch.obs, alpha, policy_key

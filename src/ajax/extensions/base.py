@@ -702,7 +702,7 @@ class ExtensionStack:
             metrics = merge_metrics(metrics, ext_metrics)
         return target, metrics
 
-    def apply_critic_loss(
+    def compute_extensions_critic_loss(
         self,
         agent_state: Any,
         batch: Any,
@@ -710,13 +710,13 @@ class ExtensionStack:
         rng: jax.Array,
         total_steps: int,
     ) -> tuple[jax.Array | float, dict]:
-        """Every extension's ``critic_loss``; returns the summed additive
+        """Every extension's critic_loss; returns the summed additive
         critic-loss term and the extensions' metrics."""
-        return self._apply_loss(
+        return self._compute_extensions_loss(
             "critic_loss", agent_state, batch, step, rng, total_steps
         )
 
-    def apply_actor_loss(
+    def compute_extensions_actor_loss(
         self,
         agent_state: Any,
         batch: Any,
@@ -724,13 +724,13 @@ class ExtensionStack:
         rng: jax.Array,
         total_steps: int,
     ) -> tuple[jax.Array | float, dict]:
-        """Every extension's ``actor_loss``; returns the summed additive
+        """Every extension's actor_loss; returns the summed additive
         actor-loss term and the extensions' metrics."""
-        return self._apply_loss(
+        return self._compute_extensions_loss(
             "actor_loss", agent_state, batch, step, rng, total_steps
         )
 
-    def _apply_loss(
+    def _compute_extensions_loss(
         self,
         phase: str,
         agent_state: Any,
@@ -775,8 +775,8 @@ class ExtensionStack:
     fold_post_update = apply_post_update
     fold_reward = apply_reward
     fold_on_target = apply_on_target
-    fold_critic_loss = apply_critic_loss
-    fold_actor_loss = apply_actor_loss
+    fold_critic_loss = compute_extensions_critic_loss
+    fold_actor_loss = compute_extensions_actor_loss
     fold_init = apply_init
     fold_init_states = apply_init_states
     fold_pretrain = apply_pretrain

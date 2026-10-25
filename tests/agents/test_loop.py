@@ -26,13 +26,14 @@ from ajax.agents.APO.APO import APO
 from ajax.agents.loop import (
     TrainLoop,
     actor_step,
-    apply_critic_loss,
     apply_on_target,
+    compute_extensions_critic_loss,
     critic_step,
     gradient_step,
-    when,
+    run_if,
 )
 from ajax.agents.SAC.SAC import SAC
+from ajax.agents.update_steps import compute_gradients
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.evaluate import evaluate
 from ajax.extensions.base import Extension, ExtensionStack, merge_metrics
@@ -281,6 +282,24 @@ def test_gradient_step_reports_the_norm_before_the_clip() -> None:
     assert float(stepped.params["w"]) == 2.0 and float(grad_norm) == 6.0
 
 
+def test_compute_gradients_returns_the_gradients_and_the_aux() -> None:
+    """For one network's parameters, and for a tuple of two networks' (APO's
+    summed loss), the gradients having the parameters' structure."""
+    grads, aux = compute_gradients(
+        lambda params: (params["w"] ** 2, {"w": params["w"]}), {"w": jnp.asarray(3.0)}
+    )
+    assert float(grads["w"]) == 6.0 and float(aux["w"]) == 3.0
+
+    def summed_loss(params: tuple) -> tuple:
+        actor_params, critic_params = params
+        return actor_params["w"] ** 2 + 3.0 * critic_params["v"], critic_params["v"]
+
+    both = ({"w": jnp.asarray(2.0)}, {"v": jnp.asarray(5.0)})
+    (actor_grads, critic_grads), aux = compute_gradients(summed_loss, both)
+    assert float(actor_grads["w"]) == 4.0 and float(critic_grads["v"]) == 3.0
+    assert float(aux) == 5.0
+
+
 # --- Where a replayed target stops bootstrapping ------------------------------
 # Rows: running, truncated, terminated, both.
 _ENDS = Transition(
@@ -379,7 +398,7 @@ def test_the_critic_steps_halves_compose_to_the_step() -> None:
             stack, state, _ENDS, jnp.ones((4, 1)), key, 100, **target_args
         )
         loss, _ = value_loss(params, target_q)
-        extra, loss_metrics = apply_critic_loss(
+        extra, loss_metrics = compute_extensions_critic_loss(
             stack, state, _ENDS, params, target_q, key, 100
         )
         return loss + extra, merge_metrics(target_metrics, loss_metrics)
@@ -435,27 +454,27 @@ def test_actor_step_steps_down_the_loss_plus_the_extensions_terms() -> None:
     }
 
 
-def test_when_runs_fn_only_where_the_predicate_holds() -> None:
+def test_run_if_runs_the_update_only_where_the_condition_holds() -> None:
     def double(x):
         return x * 2
 
-    assert float(when(jnp.asarray(True), double, jnp.asarray(3.0))) == 6.0
-    assert float(when(jnp.asarray(False), double, jnp.asarray(3.0))) == 3.0
+    assert float(run_if(jnp.asarray(True), double, jnp.asarray(3.0))) == 6.0
+    assert float(run_if(jnp.asarray(False), double, jnp.asarray(3.0))) == 3.0
 
 
-def test_when_fills_a_skipped_fns_metrics() -> None:
-    """Skipped, the metrics keep fn's structure: NaN, and -1 in integer
+def test_run_if_fills_a_skipped_updates_metrics() -> None:
+    """Skipped, the metrics keep the update's structure: NaN, and -1 in integer
     leaves, by default; ``fill`` otherwise."""
 
     def step(x):
         return x + 1.0, {"loss": x * 2, "count": jnp.asarray(1)}
 
-    x, metrics = when(jnp.asarray(True), step, jnp.asarray(3.0))
+    x, metrics = run_if(jnp.asarray(True), step, jnp.asarray(3.0))
     assert float(x) == 4.0 and float(metrics["loss"]) == 6.0
-    x, metrics = when(jnp.asarray(False), step, jnp.asarray(3.0))
+    x, metrics = run_if(jnp.asarray(False), step, jnp.asarray(3.0))
     assert float(x) == 3.0 and np.isnan(metrics["loss"])
     assert int(metrics["count"]) == -1
-    _, metrics = when(jnp.asarray(False), step, jnp.asarray(3.0), fill=0.0)
+    _, metrics = run_if(jnp.asarray(False), step, jnp.asarray(3.0), fill=0.0)
     assert float(metrics["loss"]) == 0.0 and int(metrics["count"]) == 0
 
 

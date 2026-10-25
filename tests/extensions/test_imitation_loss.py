@@ -345,7 +345,7 @@ def _td3_update(stack: ExtensionStack) -> Any:
         next_obs=obs,
         raw_obs=obs,
     )
-    state, _ = agent.actor_update(state, batch, None, context)
+    state, _ = agent.update_actor(state, batch, None, context)
     return state.actor_state.params
 
 
@@ -411,7 +411,7 @@ def _apo_update(stack: ExtensionStack) -> Any:
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
     # The stack as given, unbound, as each test builds it.
-    context = dataclasses.replace(agent.context(1)[1], extensions=stack)
+    context = dataclasses.replace(agent.make_context(1)[1], extensions=stack)
     state = _ext_state(agent.init(KEY, context), stack)
     obs = _obs(agent)
     minibatch = {
@@ -433,10 +433,10 @@ def _ppo_update(stack: ExtensionStack) -> Any:
     agent = PPO(
         "Pendulum-v1", n_envs=1, actor_architecture=NET, critic_architecture=NET
     )
-    state = agent.init(KEY, agent.context(1)[1])
+    state = agent.init(KEY, agent.make_context(1)[1])
     state = _ext_state(state, stack)
     obs, actor = _obs(agent), state.actor_state
-    extra = ppo_module._extensions_actor_loss(
+    extra = ppo_module._make_extensions_actor_loss(
         stack, state, KEY, 1, raw_observations=obs
     )
 
@@ -518,17 +518,17 @@ def test_the_critic_in_the_actor_batch_is_inert_without_the_filter(
     def program() -> str:
         return str(jax.make_jaxpr(lambda: update(_stack(1.0)))())
 
-    with_critic, apply = program(), ExtensionStack.apply_actor_loss
+    with_critic, original = program(), ExtensionStack.compute_extensions_actor_loss
 
     def without(self: ExtensionStack, state: Any, batch: dict, *args: Any) -> Any:
-        return apply(
+        return original(
             self,
             state,
             {k: batch[k] for k in set(batch).difference({"critic_state"})},
             *args,
         )
 
-    monkeypatch.setattr(ExtensionStack, "apply_actor_loss", without)
+    monkeypatch.setattr(ExtensionStack, "compute_extensions_actor_loss", without)
     assert program() == with_critic
 
 

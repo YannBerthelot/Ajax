@@ -1,7 +1,7 @@
-"""The Q-critics' regression to a held target, and its logs: shared by every
-Q-critic agent (SAC and its descendants, TD3, IQL, CrossQ); and its
-discrete-action counterpart, the Q-network's regression at the taken action,
-shared by the value agents (DQN, PQN)."""
+"""The Q-critics' regression to a target no gradient flows back through,
+and its logs: shared by every Q-critic agent (SAC and its descendants,
+TD3, IQL, CrossQ); and its discrete-action counterpart, the Q-network's
+regression at the taken action, shared by the value agents (DQN, PQN)."""
 
 from typing import Any, Callable, Optional, Tuple
 
@@ -12,7 +12,7 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.recurrent import RecurrentCarries, q_values
-from ajax.agents.steps import gradient_step
+from ajax.agents.update_steps import gradient_step
 from ajax.extensions.base import ExtensionStack
 from ajax.networks.q_networks import predict_q
 from ajax.state import LoadedTrainState
@@ -37,7 +37,7 @@ class ValueAuxiliaries:
     grad_norm: jax.Array | float = jnp.nan
 
 
-def critic_loss_fn(
+def compute_mean_critic_loss(
     critic_params: FrozenDict,
     critic_state,
     observations: jax.Array,
@@ -57,17 +57,18 @@ def critic_loss_fn(
         jax.lax.stop_gradient(actions),
         carries,
     )
-    return q_regression_loss(q_preds, target_q)
+    return compute_q_regression_loss(q_preds, target_q)
 
 
-def q_regression_loss(
+def compute_q_regression_loss(
     q_preds: jax.Array, target_q: jax.Array
 ) -> Tuple[jax.Array, CoreCriticAux]:
-    """The critics' mean squared error to the held ``target_q`` and its
-    logs, from their predictions ``q_preds`` (the ensemble axis first),
-    however the agent computed them: :func:`critic_loss_fn`'s pass or
+    """The critics' mean squared error to target_q, which no gradient
+    flows back through (the callers stop it), and its logs, from their
+    predictions q_preds (the ensemble axis first),
+    however the agent computed them: compute_mean_critic_loss's pass or
     CrossQ's joint one."""
-    var_preds = q_preds.var(axis=0, keepdims=True)
+    prediction_variance = q_preds.var(axis=0, keepdims=True)
 
     total_loss = jnp.mean((q_preds - target_q) ** 2)
     q_pred_min = jnp.min(q_preds, axis=0)
@@ -75,12 +76,12 @@ def q_regression_loss(
     return total_loss, CoreCriticAux(
         critic_loss=total_loss,
         q_pred_min=q_pred_min.mean().flatten(),
-        var_preds=var_preds.mean().flatten(),
+        var_preds=prediction_variance.mean().flatten(),
         q_gap=(jnp.max(q_preds, axis=0) - q_pred_min).mean().flatten(),
     )
 
 
-def mse_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
+def compute_mse_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
     """Mean-squared TD error."""
     return jnp.mean((q_taken - target_q) ** 2)
 
@@ -88,25 +89,25 @@ def mse_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
 def make_huber_td_loss(delta: float = 1.0) -> Callable:
     """Build a Huber TD-loss callable.
 
-    Huber loss is quadratic within ``delta`` of zero error and linear
-    beyond it: its gradient is the TD error clipped to ``[-delta, delta]``,
+    Huber loss is quadratic within delta of zero error and linear
+    beyond it: its gradient is the TD error clipped to [-delta, delta],
     the original DQN's clip (google-deepmind/dqn @9d9b1d1
-    NeuralQLearner.lua:224-226, ``clip_delta=1`` in run_gpu:31), DQN's
-    default at ``delta = 1``.
+    NeuralQLearner.lua:224-226, clip_delta=1 in run_gpu:31), DQN's
+    default at delta = 1.
     """
 
-    def huber_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
+    def compute_huber_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
         return jnp.mean(optax.huber_loss(q_taken, target_q, delta=delta))
 
-    return huber_td_loss
+    return compute_huber_td_loss
 
 
 #: DQN's default TD loss; one function, so jit's static-argument cache hits
 #: across runs.
-huber_1_td_loss = make_huber_td_loss(1.0)
+compute_huber_1_td_loss = make_huber_td_loss(1.0)
 
 
-def q_loss_fn(
+def compute_q_loss(
     q_params,
     q_state: LoadedTrainState,
     observations: jax.Array,
@@ -116,8 +117,8 @@ def q_loss_fn(
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
     """TD loss between Q(s, a) at the taken action and a pre-computed target.
 
-    ``loss_fn(q_taken, target_q) -> scalar`` selects the error norm
-    (``huber_1_td_loss``, DQN's default, or ``mse_td_loss``).
+    loss_fn(q_taken, target_q) -> scalar selects the error norm
+    (compute_huber_1_td_loss, DQN's default, or compute_mse_td_loss).
     """
     q_all = predict_q(q_state, q_params, observations)
     # actions is (batch, 1) int32 -> gather one Q-value per row.
@@ -142,15 +143,15 @@ def q_gradient_step(
     key: Optional[jax.Array],
     total_timesteps: int,
 ) -> Tuple[LoadedTrainState, ValueAuxiliaries, dict]:
-    """One step of the Q-network (``agent_state.actor_state``) down the TD
-    loss plus the extensions' critic-loss terms, folded on ``key`` (drawn
-    for them alone; ``None`` without extensions). Returns the stepped
+    """One step of the Q-network (agent_state.actor_state) down the TD
+    loss plus the extensions' critic-loss terms, folded on key (drawn
+    for them alone; None without extensions). Returns the stepped
     Q-network, the loss's metrics, with the gradients' norm, and the
     extensions' metrics."""
     q_state = agent_state.actor_state
 
-    def loss_fn(params: Any) -> Tuple[jax.Array, Any]:
-        loss, aux = q_loss_fn(
+    def total_td_loss(params: Any) -> Tuple[jax.Array, Any]:
+        loss, aux = compute_q_loss(
             params, q_state, observations, actions, targets, td_loss_fn
         )
         metrics: dict = {}
@@ -164,7 +165,7 @@ def q_gradient_step(
                 # gradient.
                 "q_state": q_state.replace(params=params),
             }
-            extra, metrics = extension_stack.apply_critic_loss(
+            extra, metrics = extension_stack.compute_extensions_critic_loss(
                 agent_state,
                 batch,
                 agent_state.collector_state.timestep,
@@ -174,5 +175,5 @@ def q_gradient_step(
             loss = loss + extra
         return loss, (aux, metrics)
 
-    q_state, (aux, metrics), grad_norm = gradient_step(q_state, loss_fn)
+    q_state, (aux, metrics), grad_norm = gradient_step(q_state, total_td_loss)
     return q_state, aux.replace(grad_norm=grad_norm), metrics

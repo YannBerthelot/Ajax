@@ -70,15 +70,16 @@ PyPI as `ajax-rl`.
   the rollout (`minibatches`). The old names, also on `train_PPO`, import
   with a FutureWarning until 0.5.0.
 - **Extension phases are applied.** `ExtensionStack.fold_reward`,
-  `fold_on_target`, `fold_critic_loss`, `fold_actor_loss` and
-  `fold_post_update` are now `apply_reward`, `apply_on_target`,
-  `apply_critic_loss`, `apply_actor_loss` and `apply_post_update`, and
-  `fold_init`, `fold_init_states`, `fold_pretrain` and `fold_eval_metrics`
-  are `apply_init`, `apply_init_states`, `apply_pretrain` and
-  `apply_eval_metrics`, as
-  are `ajax.agents.loop`'s `fold_on_target`, `fold_critic_loss` and
-  `fold_post_update` (also in `ajax.agents.steps`): same arguments. The
-  old names stay as aliases until 0.5.0. `TrainContext.stack` is
+  `fold_on_target` and `fold_post_update` are now `apply_reward`,
+  `apply_on_target` and `apply_post_update`, `fold_init`,
+  `fold_init_states`, `fold_pretrain` and `fold_eval_metrics` are
+  `apply_init`, `apply_init_states`, `apply_pretrain` and
+  `apply_eval_metrics`, and the two loss terms, `fold_critic_loss` and
+  `fold_actor_loss`, are computed: `compute_extensions_critic_loss` and
+  `compute_extensions_actor_loss`. So are `ajax.agents.loop`'s
+  `fold_on_target`, `fold_critic_loss` and `fold_post_update` (also in
+  `ajax.agents.update_steps`): same arguments. The old names stay as
+  aliases until 0.5.0. `TrainContext.stack` is
   `TrainContext.extensions`, and so is `TrainLoop.stack`.
 - `ajax.agents.minibatch.rollout_actions` (`ajax.agents.PPO.core`'s
   before) is `get_actions_and_log_probs`; the old names import with a
@@ -99,6 +100,65 @@ PyPI as `ajax-rl`.
 - `checkpoint.py` reads PPO's and APO's restore rules off their state
   classes (`joint_gradient_clip`, `restore_hint`); `PPOState` is a class of
   its own, no longer an alias of `BaseAgentState`.
+- `BaseAgentState.get_keys_and_new_state(n=1)` draws `n` keys from the
+  training key and returns them, then the new agent state:
+  `shuffle_key, agent_state = agent_state.get_keys_and_new_state()`.
+  `next_keys` returns the same, the state first, until the agents still
+  calling it are converted.
+- `ajax.agents.update_steps.compute_gradients(loss, params)` returns the gradients
+  of a loss of the parameters alone, and its aux; `gradient_step` and PPO's
+  and APO's minibatch steps take their gradients with it.
+- `update_steps.joint_step` is now `apply_gradients_clipped_together`, which also
+  returns each network's gradient norm before the clip. `joint_step` (also
+  `train_PPO.joint_step`) returns the two networks alone, as before, until
+  0.5.0.
+- The declared agents (PPO, APO, PQN, TD3, IQL, CrossQ) and the shared
+  modules they use name their parameters and locals in full words: an
+  agent's `state` parameter is `agent_state`; the on-policy `update`'s
+  `start` (and `compute_values_from_rollout_sequence`') is
+  `agent_state_at_rollout_start`; APO's `minibatch_step` takes
+  `value_bias` (was `b`); `get_sequence_minibatches` takes `shuffle_key`
+  (was `rng`); PPO's `advantages` method is `compute_advantages`. A caller
+  passing them by position, as the loop does, sees no change.
+- The functions added since 0.4.0 that these modules define are named by
+  verbs: `steps.when` is `run_if`, `steps.extension_key` is
+  `derive_extensions_key` (its tag `EXTENSIONS` is `EXTENSIONS_KEY_TAG`),
+  TD3's and CrossQ's `critic_update` and `actor_update` are `update_critic`
+  and `update_actor`, IQL's equations start with `compute_`,
+  `RolloutSplit.minibatches` is `cut_into_minibatches`,
+  `sequence_minibatches` is `get_sequence_minibatches`, `recurrent`'s
+  `rollout_sequence_values` is `compute_values_from_rollout_sequence`,
+  its `actor_dist_train` is `ajax.networks.networks`'
+  `get_policy_updating_batch_statistics` (beside
+  `predict_value_updating_batch_statistics`, was `predict_value_train`),
+  and PQN's `epsilon_schedule` method is `make_epsilon_schedule`.
+- `recurrent.py` is split into labelled sections, and the machinery that
+  inserts the final observation of an episode a time limit cut is named
+  for it: `stream_positions` is `row_positions_with_final_observations`
+  (the old name stays until 0.5.0), and `RecurrentCarries.positions` is
+  `row_positions_with_final_observations`.
+- **Verb names.** `ajax.agents.steps` is `ajax.agents.update_steps`. A
+  function returning a loss or a target value starts with `compute_`, one
+  building a function or a network with `make_`: `critics`'
+  `critic_loss_fn`, `q_regression_loss`, `q_loss_fn`, `mse_td_loss` and
+  `huber_1_td_loss` are `compute_mean_critic_loss`,
+  `compute_q_regression_loss`, `compute_q_loss`, `compute_mse_td_loss` and
+  `compute_huber_1_td_loss`; IQL's `expectile_loss` is
+  `compute_expectile_loss`; PQN's `half_mse_td_loss` is
+  `compute_half_mse_td_loss`; TD3's `critic_loss` and `policy_loss_function`
+  are `compute_critic_loss` and `compute_policy_loss`, and
+  `gaussian_exploration` is `make_gaussian_exploration`; CrossQ's
+  `batch_renorm_mlp` is `make_batch_renorm_mlp`. The 0.4.0 paths
+  (`train_DQN.huber_1_td_loss`, `train_DQN.mse_td_loss`,
+  `train_DQN.q_loss_fn`, `train_IQL.expectile_loss`,
+  `train_PQN.half_mse_td_loss`, `SAC.core.critic_loss_fn`,
+  `train_TD3.policy_loss_function`) serve the renamed functions with a
+  FutureWarning until 0.5.0. A declared agent's hooks that build an object
+  start with `make_`: `make_context(total_timesteps)` (was `context`),
+  `make_collector` (was `collector`, also the `TrainContext` field),
+  `make_replay_buffer` (was `replay_buffer`) and
+  `TrainContext.make_actor_critic` (was `actor_critic`); `behaviour` is
+  `choose_behaviour`. The hooks that declare settings keep their names.
 
 - **ASAC** now does what the authors' code does (`darer/ASAC.py`): a
   termination drops the next value in the critic's target (it bootstrapped

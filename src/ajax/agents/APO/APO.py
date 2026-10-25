@@ -30,7 +30,6 @@ from typing import Any, ClassVar, Optional, Tuple, Union
 import distrax
 import jax
 import jax.numpy as jnp
-import optax
 from flax import struct
 from flax.core import FrozenDict
 
@@ -50,7 +49,11 @@ from ajax.agents.minibatch import (
     run_epochs,
 )
 from ajax.agents.PPO.PPO import _compute_gae, clipped_surrogate
-from ajax.agents.steps import extension_key, joint_step
+from ajax.agents.update_steps import (
+    apply_gradients_clipped_together,
+    compute_gradients,
+    derive_extensions_key,
+)
 from ajax.environments.interaction import get_pi
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import merge_metrics
@@ -171,8 +174,8 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
     def optimizer_settings(self) -> dict[str, Any]:
         # Adam's eps: 1e-8, torch's default the official code keeps, not
         # ActorCritic's 1e-5. Its one clip over both networks is
-        # minibatch_step's (steps.joint_step), so neither network's own
-        # optimiser clips.
+        # minibatch_step's (update_steps.apply_gradients_clipped_together), so
+        # neither network's own optimiser clips.
         return {"eps": self.adam_eps, "max_grad_norm": None}
 
     def evaluation_options(self) -> dict[str, Any]:
@@ -181,12 +184,12 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
     def init(self, key: jax.Array, context: TrainContext) -> APOState:
         """PPO's initial actor, critic and collector, on PPO's key layout,
         and the reward rate and the value bias at 0."""
-        rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
+        training_key, init_key, collector_key, evaluation_key = jax.random.split(key, 4)
         env_args = context.env_args
         continuous = check_if_environment_has_continuous_actions(
             env_args.env, env_params=env_args.env_params
         )
-        actor_state, critic_state = context.actor_critic(
+        actor_state, critic_state = context.make_actor_critic(
             init_key,
             continuous=continuous,
             action_value=False,
@@ -194,11 +197,11 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             num_critics=1,
         )
         return APOState(
-            rng=rng,
-            eval_rng=eval_rng,
+            rng=training_key,
+            eval_rng=evaluation_key,
             actor_state=actor_state,
             critic_state=critic_state,
-            collector_state=context.collector(collector_key),
+            collector_state=context.make_collector(collector_key),
             n_updates=0,
             average_reward=0.0,
             b=0.0,
@@ -206,9 +209,9 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
 
     def update(
         self,
-        state: APOState,
+        agent_state: APOState,
         rollout: Transition,
-        start: APOState,
+        agent_state_at_rollout_start: APOState,
         context: TrainContext,
     ) -> tuple[APOState, AuxiliaryLogs]:
         """One APO update (the module docstring); with an expert, the
@@ -223,24 +226,26 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         time-limited row then leaves the loss (bootstrap_timelimit,
         base.py:73-77).
         """
-        del start  # a feedforward policy: nothing to replay from it
+        del (
+            agent_state_at_rollout_start
+        )  # a feedforward policy: nothing to replay from it
         extensions, total_timesteps = context.extensions, context.total_timesteps
-        critic = state.critic_state
+        critic = agent_state.critic_state
         values = predict_value(critic, critic.params, rollout.obs).squeeze(0)
         next_values = predict_value(critic, critic.params, rollout.next_obs).squeeze(0)
 
         average_reward = (
             1 - self.alpha
-        ) * state.average_reward + self.alpha * jnp.mean(rollout.reward)
+        ) * agent_state.average_reward + self.alpha * jnp.mean(rollout.reward)
 
-        b = (1 - self.alpha) * state.b + self.alpha * jnp.mean(values)
+        value_bias = (1 - self.alpha) * agent_state.b + self.alpha * jnp.mean(values)
         # The first update sets both to the rollout's means, as xtma/apo does
         # (apo/algos/apg/base.py:43-50, eta and value_bias start as None): an
         # EMA from 0 would leave rho a fraction 0.9^k too small after k updates.
-        first = state.n_updates == 0
+        first = agent_state.n_updates == 0
         average_reward = jnp.where(first, jnp.mean(rollout.reward), average_reward)
-        b = jnp.where(first, jnp.mean(values), b)
-        state = state.replace(average_reward=average_reward, b=b)
+        value_bias = jnp.where(first, jnp.mean(values), value_bias)
+        agent_state = agent_state.replace(average_reward=average_reward, b=value_bias)
 
         ends = jnp.maximum(rollout.terminated, rollout.truncated)
         # A time-out as gym's TimeLimit flags it: the limit hit, no termination.
@@ -257,7 +262,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
 
         # The update's key: it shuffles the rollout, and on_target draws on a
         # key derived from it.
-        state, shuffle_key = state.draw_keys()
+        shuffle_key, agent_state = agent_state.get_keys_and_new_state()
         target_metrics: dict = {}
         if extensions:
             target_batch = {
@@ -272,20 +277,20 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 "gamma": None,  # APO is average-reward (differential V)
             }
             value_targets, target_metrics = extensions.apply_on_target(
-                state,
+                agent_state,
                 target_batch,
                 value_targets,
-                state.collector_state.timestep,
-                extension_key(shuffle_key),
+                agent_state.collector_state.timestep,
+                derive_extensions_key(shuffle_key),
                 total_timesteps,
             )
 
         # Normalised once over the rollout, by the trained rows' mean and
         # torch's unbiased std, floored at 1e-6 (base.py:79-88).
         if self.normalize_advantage:
-            n = valid.sum()
-            mean = (gae * valid).sum() / n
-            std = jnp.sqrt(((gae - mean) ** 2 * valid).sum() / (n - 1))
+            n_trained = valid.sum()
+            mean = (gae * valid).sum() / n_trained
+            std = jnp.sqrt(((gae - mean) ** 2 * valid).sum() / (n_trained - 1))
             gae = (gae - mean) / jnp.maximum(std, 1e-6)
 
         actions, log_probs = get_actions_and_log_probs(rollout)
@@ -304,22 +309,36 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         # APO always cuts the rollout one way: shuffled single steps, as xtma/apo does.
         num_minibatches = resolve_num_minibatches(self)
 
-        def minibatches(key: jax.Array) -> dict:
+        def cut_rollout_into_minibatches(epoch_key: jax.Array) -> dict:
             """One epoch's partition of the rollout, each minibatch with a key
             for its entropy sample, derived from the epoch's key so the agent's
             own key stream is drawn as before."""
-            parts = get_minibatches_from_batch(batch, key, num_minibatches)
-            keys = jax.random.split(jax.random.fold_in(key, 1), num_minibatches)
-            parts.update({"entropy_key": keys})
-            return parts
+            minibatches = get_minibatches_from_batch(batch, epoch_key, num_minibatches)
+            entropy_keys = jax.random.split(
+                jax.random.fold_in(epoch_key, 1), num_minibatches
+            )
+            minibatches.update({"entropy_key": entropy_keys})
+            return minibatches
 
-        step = partial(self.minibatch_step, b=b, context=context)
-        state, aux = run_epochs(state, shuffle_key, minibatches, step, self.n_epochs)
+        step_on_minibatch = partial(
+            self.minibatch_step, value_bias=value_bias, context=context
+        )
+        agent_state, aux = run_epochs(
+            agent_state,
+            shuffle_key,
+            cut_rollout_into_minibatches,
+            step_on_minibatch,
+            self.n_epochs,
+        )
         aux = aux.replace(extensions=merge_metrics(target_metrics, aux.extensions))
-        return state.replace(n_updates=state.n_updates + 1), aux
+        return agent_state.replace(n_updates=agent_state.n_updates + 1), aux
 
     def minibatch_step(
-        self, state: APOState, minibatch: dict, b: jax.Array, context: TrainContext
+        self,
+        agent_state: APOState,
+        minibatch: dict,
+        value_bias: jax.Array,
+        context: TrainContext,
     ) -> tuple[APOState, AuxiliaryLogs]:
         """One step of both networks on the minibatch, as APO's
         official code takes it (xtma/apo, apo/algos/apg/): one Adam
@@ -334,14 +353,14 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         a_expert, the expert's actions collection stored at the rows
         (None without an expert).
         """
-        actor_state, critic_state = state.actor_state, state.critic_state
+        actor_state, critic_state = agent_state.actor_state, agent_state.critic_state
         critic_key, actor_key = jax.random.split(
-            extension_key(minibatch["entropy_key"])
+            derive_extensions_key(minibatch["entropy_key"])
         )
-        timestep = state.collector_state.timestep
+        timestep = agent_state.collector_state.timestep
         extensions, total_timesteps = context.extensions, context.total_timesteps
 
-        def loss_fn(params: tuple) -> Tuple[jax.Array, AuxiliaryLogs]:
+        def summed_loss(params: tuple) -> Tuple[jax.Array, AuxiliaryLogs]:
             actor_params, critic_params = params
             policy_loss, (policy_aux, pi_mean) = policy_loss_function(
                 actor_params,
@@ -362,7 +381,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 minibatch["obs"],
                 minibatch["targets"],
                 self.nu,
-                b,
+                value_bias,
                 self.vf_coef,
                 minibatch.get("valid"),
             )
@@ -380,11 +399,11 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 "actor_state": actor_state,
                 "a_expert": minibatch["a_expert"],
             }
-            critic_extra, critic_metrics = extensions.apply_critic_loss(
-                state, critic_batch, timestep, critic_key, total_timesteps
+            critic_extra, critic_metrics = extensions.compute_extensions_critic_loss(
+                agent_state, critic_batch, timestep, critic_key, total_timesteps
             )
-            actor_extra, actor_metrics = extensions.apply_actor_loss(
-                state, actor_batch, timestep, actor_key, total_timesteps
+            actor_extra, actor_metrics = extensions.compute_extensions_actor_loss(
+                agent_state, actor_batch, timestep, actor_key, total_timesteps
             )
             loss = policy_loss + value_loss + critic_extra + actor_extra
             metrics = merge_metrics(critic_metrics, actor_metrics)
@@ -392,28 +411,30 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 policy=policy_aux, value=value_aux, extensions=metrics
             )
 
-        grads, aux = jax.grad(loss_fn, has_aux=True)(
-            (actor_state.params, critic_state.params)
+        (actor_grads, critic_grads), aux = compute_gradients(
+            summed_loss, (actor_state.params, critic_state.params)
         )
-        actor_grads, critic_grads = grads
-        actor_state, critic_state = joint_step(
-            actor_state,
-            critic_state,
-            actor_grads,
-            critic_grads,
-            self.max_grad_norm,
-            norm_eps=TORCH_CLIP_EPS,
+        actor_state, critic_state, actor_grad_norm, critic_grad_norm = (
+            apply_gradients_clipped_together(
+                actor_state,
+                critic_state,
+                actor_grads,
+                critic_grads,
+                self.max_grad_norm,
+                norm_eps=TORCH_CLIP_EPS,
+            )
         )
         # Each network's gradient norm before the joint clip, as PPO logs them.
         aux = AuxiliaryLogs(
-            policy=aux.policy.replace(grad_norm=optax.global_norm(actor_grads)),
+            policy=aux.policy.replace(grad_norm=actor_grad_norm),
             value=aux.value.replace(
-                grad_norm=optax.global_norm(critic_grads),
-                average_reward=state.average_reward,
+                grad_norm=critic_grad_norm, average_reward=agent_state.average_reward
             ),
             extensions=aux.extensions,
         )
-        return state.replace(actor_state=actor_state, critic_state=critic_state), aux
+        return agent_state.replace(
+            actor_state=actor_state, critic_state=critic_state
+        ), aux
 
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "APO"
@@ -437,14 +458,14 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
 
 
 # -- APO's equations, in the order the update calls them ---------------------
-def valid_mean(x: jax.Array, valid: Optional[jax.Array]) -> jax.Array:
+def valid_mean(row_values: jax.Array, valid: Optional[jax.Array]) -> jax.Array:
     """The mean over the rows trained on, rlpyt's valid_mean
     (rlpyt/utils/tensor.py); every row when valid is None. A
     minibatch with no row to train on gives 0, not rlpyt's 0 / 0."""
     if valid is None:
-        return jnp.mean(x)
-    valid = valid.reshape(x.shape)
-    return jnp.sum(x * valid) / jnp.maximum(jnp.sum(valid), 1.0)
+        return jnp.mean(row_values)
+    valid = valid.reshape(row_values.shape)
+    return jnp.sum(row_values * valid) / jnp.maximum(jnp.sum(valid), 1.0)
 
 
 def policy_loss_function(
@@ -465,9 +486,9 @@ def policy_loss_function(
     entropy_key), each averaged over the valid rows (appo.py:149-158);
     also returns the policy mean for extensions (None for a discrete
     policy, which has no mean action)."""
-    pi, _ = get_pi(actor_state, actor_params, observations)
-    new_log_probs = recompute_log_prob(pi, actions, raw_actions)
-    entropy = policy_entropy(pi, entropy_key)
+    policy, _ = get_pi(actor_state, actor_params, observations)
+    new_log_probs = recompute_log_prob(policy, actions, raw_actions)
+    entropy = policy_entropy(policy, entropy_key)
     ratio = jnp.exp(new_log_probs - log_probs)
     assert ratio.shape[0] == gae.shape[0], (
         f"Mismatch between ratio shape ({ratio.shape}) and gae shape ({gae.shape})"
@@ -481,9 +502,9 @@ def policy_loss_function(
         clip_fraction=clip_fraction,
         entropy=entropy.mean(),
         approx_kl=approximate_kl(new_log_probs - log_probs),
-        policy_std=mean_policy_std(pi),
+        policy_std=mean_policy_std(policy),
     )
-    pi_mean = None if isinstance(pi, distrax.Categorical) else pi.mean()
+    pi_mean = None if isinstance(policy, distrax.Categorical) else policy.mean()
     return total_loss, (aux, pi_mean)
 
 
@@ -507,13 +528,15 @@ def value_loss_function(
     over the valid rows.
     """
     # The single critic still has the ensemble's leading axis.
-    v_preds = predict_value(critic_states, critic_params, observations).squeeze(0)
-    loss = vf_coef * 0.5 * valid_mean((v_preds - (value_targets - nu * b)) ** 2, valid)
+    value_preds = predict_value(critic_states, critic_params, observations).squeeze(0)
+    loss = (
+        vf_coef * 0.5 * valid_mean((value_preds - (value_targets - nu * b)) ** 2, valid)
+    )
     return loss, ValueAuxiliaries(
         critic_loss=loss,
-        predictions=v_preds.mean().flatten(),
+        predictions=value_preds.mean().flatten(),
         targets=value_targets.mean().flatten(),
-        explained_variance=explained_variance(v_preds, value_targets),
+        explained_variance=explained_variance(value_preds, value_targets),
         value_bias=jnp.asarray(b),
     )
 
@@ -531,8 +554,9 @@ class APOState(BaseAgentState):
     average_reward: float
     b: float
 
-    #: Its networks' gradients are clipped together (steps.joint_step): a
-    #: checkpoint from when each clipped its own restores (ajax.checkpoint).
+    #: Its networks' gradients are clipped together
+    #: (update_steps.apply_gradients_clipped_together): a checkpoint from when each
+    #: clipped its own restores (ajax.checkpoint).
     #: A ClassVar: a flag on the class, shared by every APO state, not stored in its arrays.
     joint_gradient_clip: ClassVar[bool] = True
     #: How to restore a checkpoint of APO's former default network, added to

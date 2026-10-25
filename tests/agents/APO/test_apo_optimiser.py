@@ -16,7 +16,7 @@ import numpy as np
 import optax
 import pytest
 
-from ajax.agents import steps
+from ajax.agents import update_steps
 from ajax.agents.APO.APO import APO, TORCH_CLIP_EPS, policy_loss_function
 from ajax.environments.interaction import get_pi
 from ajax.networks.distributions import recompute_log_prob
@@ -49,7 +49,7 @@ def test_APO_entropy_bonus_is_its_reference_codes(env_id: str) -> None:
     else:
         agent = APO(env_id=env_id, n_envs=2)
     key = jax.random.PRNGKey(0)
-    actor = agent.init(key, agent.context(1)[1]).actor_state
+    actor = agent.init(key, agent.make_context(1)[1]).actor_state
     params: Any = actor.params
     continuous = "log_std_param" in params["params"]
     if continuous:  # a log-std away from its initial 0
@@ -91,7 +91,7 @@ def test_APO_clips_with_torchs_clip_grad_norm() -> None:
     ``max_norm / (norm + 1e-6)`` when that is below 1: at norm 2e-6 and
     max_norm 1e-6, by a third (``tf.clip_by_global_norm``, PPO's, by a
     half)."""
-    clip = steps.clip_global_norm
+    clip = update_steps.clip_global_norm
     grads = ({"a": jnp.array([1.2e-6, 0.0])}, {"b": jnp.array([1.6e-6])})
     clipped = clip(grads, 1e-6, TORCH_CLIP_EPS)
     np.testing.assert_allclose(clipped[0]["a"], [0.4e-6, 0.0], rtol=1e-5)
@@ -138,7 +138,7 @@ def test_APO_steps_its_whole_model_with_one_clipped_adam(options: dict) -> None:
     joint norm, down the summed loss computed by hand. Clipping each
     network on its own, or dropping ``vf_coef``, moves the parameters."""
     agent = APO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8, **options)
-    _, context = agent.context(1)
+    _, context = agent.make_context(1)
     state = agent.init(jax.random.PRNGKey(0), context)
     actor, critic = state.actor_state, state.critic_state
     clip = cast(float, agent.max_grad_norm)

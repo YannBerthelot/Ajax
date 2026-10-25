@@ -127,12 +127,12 @@ def test_an_old_signature_pipeline_is_adapted_with_a_warning():
 
     with pytest.warns(FutureWarning, match="ActingState"):
         agent = TD3(env_id="Pendulum-v1", action_pipeline=old)
-    adapted = agent.behaviour(make_context(agent))
+    adapted = agent.choose_behaviour(make_context(agent))
     assert adapted("s", "acting", "o", "r", "u", "m", "a") == "result"
     assert seen == [("s", "o", "r", "u", "m", "a")]
     new = make_default_action_pipeline(False, 0.1)
     agent = TD3(env_id="Pendulum-v1", action_pipeline=new)
-    assert agent.behaviour(make_context(agent)) is new
+    assert agent.choose_behaviour(make_context(agent)) is new
 
 
 def test_the_target_noise_clip_reaches_the_update():
@@ -149,7 +149,7 @@ def test_the_target_noise_clip_reaches_the_update():
     context = make_context(agent)
     state = agent.init(KEY, context)
     batch = jax.tree.map(lambda x: jnp.tile(x, (16, 1)), _batch(agent))
-    _, aux, _ = agent.critic_update(state, batch, None, context)
-    noise = jax.random.normal(state.draw_keys()[1], batch.action.shape)
+    _, aux, _ = agent.update_critic(state, batch, None, context)
+    noise = jax.random.normal(state.get_keys_and_new_state()[0], batch.action.shape)
     assert float(aux.target_noise_clip_frac) == float((jnp.abs(noise) > 0.2).mean())
     assert float(aux.target_noise_clip_frac) != float((jnp.abs(noise) > 0.5).mean())

@@ -8,7 +8,7 @@ from ajax.deprecation import moved_names
 __getattr__ = moved_names(
     __name__,
     {
-        "half_mse_td_loss": "ajax.agents.PQN.PQN",
+        "half_mse_td_loss": "ajax.agents.PQN.PQN:compute_half_mse_td_loss",
         "update_agent": "ajax.agents.PQN.PQN:PQN.update",
         "make_train": "ajax.agents.families:OnPolicyAgent.make_train",
     },

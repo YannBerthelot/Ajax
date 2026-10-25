@@ -104,4 +104,4 @@ def test_get_make_train_forwards_hooks(agent_cls):
         assert h in keywords, f"{agent_cls.__name__} should forward {h}"
         assert keywords[h] is fn
     if isinstance(agent, TD3):
-        assert agent.behaviour(make_context(agent)) is _identity_hook
+        assert agent.choose_behaviour(make_context(agent)) is _identity_hook

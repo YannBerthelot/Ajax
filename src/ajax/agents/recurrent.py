@@ -1,28 +1,36 @@
-"""Shared machinery for recurrent updates: off-policy (R2D2-style), and an
-on-policy rollout's sequence values (:func:`rollout_sequence_values`).
+"""Shared machinery for agents whose networks have memory (a GRU, LSTM,
+transformer or Mamba; a network's memory is also called its carry).
 
-Every off-policy agent with a Q-critic (SAC, ASAC, REDQ, TD3) trains its
-memory the same way:
+Two kinds of agent use it:
+- The off-policy agents with a Q-critic (SAC, ASAC, REDQ, TQC, TD3) train
+  on windows of consecutive steps from one environment, as R2D2 does
+  (Kapturowski et al. 2019): sample_and_burnin_sequences draws the windows,
+  and actor_dist and q_values run the networks over them.
+- PPO with memory computes its value estimates over a rollout with
+  compute_values_from_rollout_sequence.
 
-1. Sample contiguous per-env sequences of length
-   ``burn_in + sequence_length + 1`` from a trajectory buffer.
-2. Warm up ("burn in") the actor / online-critic / target-critic carries
-   from zero over the first ``burn_in`` steps with the CURRENT params,
-   under ``stop_gradient`` — the carries are constants inside the losses.
-3. Train on the next ``sequence_length`` steps with BPTT; the final step
-   is not read (each row stores the observation its target bootstraps on,
-   ``interaction.bootstrap_obs``).
+How an off-policy agent trains its memory:
+1. Sample, for each environment, a window of burn_in + sequence_length + 1
+   consecutive steps from the replay.
+2. Warm up ("burn in") each network's memory: start it from zero and run
+   the network over the first burn_in steps with the current parameters.
+   Training does not change these warmed-up memories (no gradient flows
+   back into them).
+3. Train on the next sequence_length steps, backpropagating through time.
+   The window's last step is never trained on: each row already stores the
+   next observation its target looks ahead to (interaction.bootstrap_obs).
 
-``sample_and_burnin_sequences`` implements steps 1-3 once for all agents;
-the per-agent losses then consume the returned :class:`RecurrentCarries`
-through :func:`actor_dist` and :func:`q_values`, which run a network on a
-feedforward batch or, given carries, on a replayed sequence.
+A TD target adds to the reward the estimated value of the next state: the
+bootstrap. With memory, that value must come from the memory that has read
+the rows up to the current one. Where a time limit cut an episode, that
+needs the time-limit section below.
 
-A critic's memory reads each row's observation and the action before it,
-the one taken; the action a loss asks about joins after the memory, at
-the critic's head, so a taken or a sampled action is a query on the same
-carry and never feeds it (``Critic.query_dim``; the recurrent off-policy
-critic of Ni et al. 2022, cited from memory, unverified).
+A critic's memory reads each row's observation together with the action
+taken before it. The action a loss asks about (the taken one, or one the
+policy samples) enters after the memory, at the critic's output layer, so
+asking about another action never changes the memory (Critic.query_dim;
+the recurrent off-policy critic of Ni et al. 2022, cited from memory,
+unverified).
 """
 
 from typing import Any, Optional, Tuple
@@ -38,7 +46,6 @@ from ajax.buffers.utils import (
     normalized_rewards,
 )
 from ajax.environments.interaction import get_pi, get_pi_sequence, reward_statistics
-from ajax.environments.obs_norm import apply_obs_norm
 from ajax.networks.memory import (
     MemoryConfig,
     flat_carry_dim,
@@ -54,11 +61,17 @@ from ajax.networks.networks import (
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState, Transition
 from ajax.types import BufferType
 
+# ----------------------------------------------------------------------------
+# Replayed windows for the off-policy agents: sampling them and warming
+#
+# up each network's memory (steps 1 and 2 of the module docstring).
+# ----------------------------------------------------------------------------
+
 
 @struct.dataclass(kw_only=True)
 class RecurrentReplayConfig(BaseAgentConfig):
     """An off-policy agent's sequence-replay settings, read only when it has
-    memory: replayed windows of ``burn_in + sequence_length + 1`` steps."""
+    memory: replayed windows of burn_in + sequence_length + 1 steps."""
 
     burn_in: int = 8
     sequence_length: int = 16
@@ -69,48 +82,45 @@ class RecurrentReplayConfig(BaseAgentConfig):
 
 @struct.dataclass
 class RecurrentCarries:
-    """Per-update recurrent context for replayed sequences (R2D2-style).
+    """What one update needs to replay a window of S trained rows in B
+    environments (R2D2-style): each network's warmed-up memory at the first
+    trained row, and the rows themselves.
 
-    All carries are burned in from zero on the sequence prefix with the
-    CURRENT params and treated as constants inside the losses (they are
-    stop-gradiented); only the training segment backpropagates through
-    time. The carries hold for the training segment's first row; its rows
-    (``obs``, the ``actions`` taken, ``resets`` their episode starts) are
-    the history a bootstrap runs over (:func:`_bootstrap_stream`).
+    The memories were warmed up with the current parameters, and no
+    gradient flows back into them: only the trained rows backpropagate
+    through time. The rows' observations, actions and episode starts are
+    kept because the targets replay the networks over them (the
+    time-limit section).
     """
 
-    resets: jax.Array  # (S, B)
-    # Rows whose bootstrap observation starts an episode: the terminated
-    # ones (interaction.bootstrap_obs).
-    next_resets: jax.Array  # (S, B)
-    actor_hidden: Any  # carry valid for obs[0] of the training segment
-    critic_hidden: Any  # online-critic carry for (obs, action)[0]
-    target_critic_hidden: Any  # target-critic carry for (obs, action)[0]
-    obs: jax.Array  # (S, B, O)
-    actions: jax.Array  # (S, B, A)
+    # (S, B): True where the row's observation starts an episode.
+    resets: jax.Array
+    # (S, B): True where the row's episode really ended (terminated), so the
+    # observation after it starts a new episode
+    # (interaction.bootstrap_obs).
+    next_resets: jax.Array
+    actor_hidden: Any  # the actor's memory before the first trained row
+    critic_hidden: Any  # the online critic's memory before the first trained row
+    target_critic_hidden: Any  # the target critic's memory, likewise
+    obs: jax.Array  # (S, B, observation size)
+    actions: jax.Array  # (S, B, action size): the actions taken
     # What the critics' memory reads with each row's observation: the
     # action taken before it (previous_actions).
-    prev_actions: jax.Array  # (S, B, A)
-    # Where each row sits in the bootstrap stream (_bootstrap_stream).
-    positions: jax.Array  # (S, B)
-    # Target-ACTOR carry for obs[0], burned with actor target_params. Only
-    # populated for agents whose bootstrap action comes from a target
-    # actor (TD3); None otherwise.
+    prev_actions: jax.Array  # (S, B, action size)
+    # (S, B): each row's position once the final observations of the
+    # episodes a time limit cut are inserted (the time-limit section).
+    row_positions_with_final_observations: jax.Array
+    # The target actor's memory before the first trained row, warmed up
+    # with its target parameters: only for an agent whose target asks a
+    # target actor for the next action (TD3); None otherwise.
     target_actor_hidden: Any = None
 
 
 def previous_actions(actions: jax.Array, resets: jax.Array) -> jax.Array:
-    """Each step's previous action in its episode, ``(T, B, A)``: zero at
-    an episode start (``resets``) and at the sequence's first step."""
+    """Each step's previous action in its episode, (T, B, A): zero at
+    an episode start (resets) and at the sequence's first step."""
     previous = jnp.concatenate([jnp.zeros_like(actions[:1]), actions[:-1]])
     return jnp.where(resets[..., None], 0.0, previous)
-
-
-def stream_positions(cut: jax.Array) -> jax.Array:
-    """Each row's position in its window's bootstrap stream, from the rows
-    ``cut`` (S, B) where a time limit alone ended the episode: each such
-    row's final observation follows it (:func:`_bootstrap_stream`)."""
-    return jnp.arange(cut.shape[0])[:, None] + jnp.cumsum(cut, axis=0) - cut
 
 
 def sample_and_burnin_sequences(
@@ -121,22 +131,22 @@ def sample_and_burnin_sequences(
     burn_target_actor: bool = False,
     stored_state: bool = False,
 ) -> Tuple[Transition, RecurrentCarries]:
-    """Sample sequences and burn in all carries; see the module docstring.
+    """Sample windows and warm up every network's memory (steps 1 and 2 of
+    the module docstring).
 
-    ``stored_state=True`` enables R2D2's stored-state strategy for the
-    ACTOR carries: instead of burning them in from zero, the carries the
-    actor actually had at collection time are read back from the buffer
-    (``actor_carry`` field, written by ``collect_experience`` with
-    ``store_hidden=True``). Kapturowski et al. 2019 show stored state
-    beats zero-init + burn-in at mitigating recurrent-state staleness.
-    The critic carries are still burned in from zero: the critic never
-    runs at collection time, so there is nothing stored for it.
+    With stored_state (R2D2's stored state), the actor's memory is not
+    warmed up from zero: the memory the actor had when it collected the
+    data is read back from the replay (the actor_carry field, written by
+    collect_experience with store_hidden). Kapturowski et al. 2019 show it
+    goes stale less than a zero start with a warm-up. The critics are
+    still warmed up from zero: they never run during collection, so nothing
+    is stored for them.
 
-    Returns a time-major :class:`Transition` over the training segment
-    (leaves shaped ``(sequence_length, batch, ...)``) and the matching
-    stop-gradiented :class:`RecurrentCarries`.
+    Returns the trained rows as a Transition whose arrays have time as
+    their first axis, (sequence_length, batch, ...), and the matching
+    RecurrentCarries, which no gradient flows back into.
     """
-    seq = get_sequence_batch_from_buffer(
+    window = get_sequence_batch_from_buffer(
         buffer,
         agent_state.collector_state.buffer_state,
         sample_key,
@@ -144,25 +154,33 @@ def sample_and_burnin_sequences(
     # The replay keeps the env's own rewards (get_batch_from_buffer).
     reward_stats = reward_statistics(agent_state.collector_state.env_state)
     if reward_stats is not None:
-        seq = {**seq, "reward": normalized_rewards(seq["reward"], reward_stats)}
-    obs_seq = seq["obs"]
-    act_seq = seq["action"]
-    done_seq = jnp.logical_or(seq["terminated"], seq["truncated"]).squeeze(-1)  # (L, B)
-    # Obs-aligned episode starts. The flag for the first step of the
-    # sequence is unknown (the buffer slice starts mid-stream); zero
-    # carries make step 0 a fresh start regardless.
-    resets_seq = jnp.concatenate(
-        [jnp.zeros_like(done_seq[:1]), done_seq[:-1]], axis=0
+        window = {
+            **window,
+            "reward": normalized_rewards(window["reward"], reward_stats),
+        }
+    window_obs = window["obs"]
+    window_actions = window["action"]
+    window_dones = jnp.logical_or(window["terminated"], window["truncated"]).squeeze(
+        -1
+    )  # (L, B)
+    # Episode starts, aligned with the observations. The window's first
+    # step may sit mid-episode, so its flag is unknown; the warm-up starts
+    # every memory from zero there anyway.
+    window_resets = jnp.concatenate(
+        [jnp.zeros_like(window_dones[:1]), window_dones[:-1]], axis=0
     ).astype(bool)
-    batch_size = obs_seq.shape[1]
-    prev_act_seq = previous_actions(act_seq, resets_seq)
-    # The burn-ins only need the carries: the queried actions are unread.
-    xs_seq = action_value_input(obs_seq, jnp.zeros_like(act_seq), prev_act_seq)
+    batch_size = window_obs.shape[1]
+    window_previous_actions = previous_actions(window_actions, window_resets)
+    # The warm-ups only need the memories: the asked-about actions are never
+    # read, so zeros stand in for them.
+    window_critic_inputs = action_value_input(
+        window_obs, jnp.zeros_like(window_actions), window_previous_actions
+    )
 
     actor_template = zeros_carry_like(
         agent_state.actor_state.hidden_state, batch_size, batch_axis=0
     )
-    critic_zero = zeros_carry_like(
+    critic_zero_carry = zeros_carry_like(
         agent_state.critic_state.hidden_state, batch_size, batch_axis=1
     )
 
@@ -172,67 +190,70 @@ def sample_and_burnin_sequences(
         return get_pi_sequence(
             agent_state.actor_state,
             params,
-            obs_seq[:burn_in],
-            resets_seq[:burn_in],
+            window_obs[:burn_in],
+            window_resets[:burn_in],
             actor_template,
         )[1]
 
     def burn_critic(params: Any) -> Any:
         if burn_in == 0:
-            return critic_zero
+            return critic_zero_carry
         return predict_value_sequence(
             agent_state.critic_state,
             params,
-            xs_seq[:burn_in],
-            resets_seq[:burn_in],
-            critic_zero,
+            window_critic_inputs[:burn_in],
+            window_resets[:burn_in],
+            critic_zero_carry,
         )[1]
 
     if stored_state:
-        # Actor carries come straight from collection time: exact for the
-        # policy that generated the data, stale only w.r.t. subsequent
-        # param updates (the trade R2D2 shows is worth making). The reset
-        # flags still zero these in-cell at episode starts.
-        actor_carry = unflatten_carry(seq["actor_carry"][burn_in], actor_template)
+        # The actor's memories as they were during collection: exact for
+        # the policy that collected the data, stale only by the updates
+        # since (the trade R2D2 shows is worth making). The reset flags
+        # still zero them at episode starts.
+        actor_carry = unflatten_carry(window["actor_carry"][burn_in], actor_template)
     else:
         actor_carry = burn_actor(agent_state.actor_state.params)
     target_actor_carry = None
     if burn_target_actor:
-        # TD3's bootstrap action comes from the TARGET actor. Stored
-        # carries were produced by the ONLINE actor; reusing them for the
-        # target actor is the standard stored-state staleness trade (R2D2
-        # stores one state per step, period).
+        # TD3's target asks its target actor for the next action, so the
+        # target actor needs a warmed-up memory of its own. With stored
+        # memories, the online actor's are reused for it, though the online
+        # actor produced them: the usual staleness of stored memories (R2D2
+        # stores one memory per step).
         target_actor_carry = (
             actor_carry
             if stored_state
             else burn_actor(agent_state.actor_state.target_params)
         )
     rows = slice(burn_in, -1)
-    terminated = seq["terminated"][rows].squeeze(-1) > 0
-    cut = (seq["truncated"][rows].squeeze(-1) > 0) & ~terminated
+    terminated = window["terminated"][rows].squeeze(-1) > 0
+    cut_by_time_limit = (window["truncated"][rows].squeeze(-1) > 0) & ~terminated
     carries = jax.lax.stop_gradient(
         RecurrentCarries(
-            resets=resets_seq[rows],
+            resets=window_resets[rows],
             next_resets=terminated,
             actor_hidden=actor_carry,
             critic_hidden=burn_critic(agent_state.critic_state.params),
             target_critic_hidden=burn_critic(agent_state.critic_state.target_params),
-            obs=obs_seq[rows],
-            actions=act_seq[rows],
-            prev_actions=prev_act_seq[rows],
-            positions=stream_positions(cut),
+            obs=window_obs[rows],
+            actions=window_actions[rows],
+            prev_actions=window_previous_actions[rows],
+            row_positions_with_final_observations=row_positions_with_final_observations(
+                cut_by_time_limit
+            ),
             target_actor_hidden=target_actor_carry,
         )
     )
-    # A row's next observation is the one its target bootstraps on: the
-    # final one where only a time limit ended the episode.
+    # A row's next observation is the one its target looks ahead to: the
+    # episode's final observation where a time limit ended the episode.
     transition = Transition(
-        obs=obs_seq[rows],
-        action=act_seq[rows],
-        reward=seq["reward"][rows],
-        terminated=seq["terminated"][rows],
-        truncated=seq["truncated"][rows],
-        next_obs=seq["next_obs"][rows],
+        obs=window_obs[rows],
+        action=window_actions[rows],
+        reward=window["reward"][rows],
+        terminated=window["terminated"][rows],
+        truncated=window["truncated"][rows],
+        next_obs=window["next_obs"][rows],
     )
     return transition, carries
 
@@ -248,261 +269,36 @@ def sample_replay(
 ) -> Tuple[Transition, Optional[RecurrentCarries]]:
     """One replay batch: transitions, or burned-in sequences when recurrent.
 
-    Returns ``(batch, carries)``. A feedforward batch keeps its
-    pre-normalisation observations in ``batch.raw_obs`` and has no carries
-    (``None``); sequences are time-major, with the carries of
-    :func:`sample_and_burnin_sequences` and no raw observations.
+    Returns (batch, carries). A feedforward batch keeps its
+    pre-normalisation observations in batch.raw_obs and has no carries
+    (None); sequences are time-major, with the carries of
+    sample_and_burnin_sequences and no raw observations.
     """
     if recurrent:
         return sample_and_burnin_sequences(
             agent_state, buffer, key, burn_in, burn_target_actor, stored_state
         )
     collector = agent_state.collector_state
-    b = get_batch_from_buffer(
+    sampled = get_batch_from_buffer(
         buffer, collector.buffer_state, key, reward_statistics(collector.env_state)
     )
     batch = Transition(
-        b.obs,
-        b.action,
-        b.reward,
-        b.terminated,
-        b.truncated,
-        b.next_obs,
-        b.raw_obs,
-        a_expert=b.a_expert,
-        next_a_expert=b.next_a_expert,
-        raw_next_obs=b.raw_next_obs,
-        return_to_go=b.return_to_go,
-        next_action=b.next_action,
-        is_expert=b.is_expert,
-        policy_action=b.policy_action,
+        sampled.obs,
+        sampled.action,
+        sampled.reward,
+        sampled.terminated,
+        sampled.truncated,
+        sampled.next_obs,
+        sampled.raw_obs,
+        a_expert=sampled.a_expert,
+        next_a_expert=sampled.next_a_expert,
+        raw_next_obs=sampled.raw_next_obs,
+        return_to_go=sampled.return_to_go,
+        next_action=sampled.next_action,
+        is_expert=sampled.is_expert,
+        policy_action=sampled.policy_action,
     )
     return batch, None
-
-
-def _bootstrap_stream(
-    carries: RecurrentCarries, rows: jax.Array, boots: jax.Array
-) -> Tuple[jax.Array, jax.Array]:
-    """The sequence a bootstrap runs over and its reset flags: the rows,
-    each followed by the step its target bootstraps on, ``boots``. That is
-    the next row's own step, except where only a time limit ended the
-    episode: there its final observation is a step of its own, which the
-    next row's reset then forgets. Twice the rows long, the tail fresh.
-    """
-    at, boot = _onehot(carries.positions), _onehot(carries.positions + 1)
-    # A bootstrap step and the next row's own step are one (its query wins).
-    row = at * (1 - boot.sum(axis=1, keepdims=True))
-    xs = _select(row, rows) + _select(boot, boots)
-    empty = 1 - row.sum(axis=1) - boot.sum(axis=1)
-    flags = _select(row, carries.resets) + _select(boot, carries.next_resets)
-    return xs, flags + empty > 0
-
-
-def _onehot(positions: jax.Array) -> jax.Array:
-    """(2S, S, B): stream position p holds row t's entry."""
-    stream = jnp.arange(2 * positions.shape[0])[:, None, None]
-    return (stream == positions[None]).astype(jnp.float32)
-
-
-def _select(onehot: jax.Array, values: jax.Array) -> jax.Array:
-    """Sum of ``values`` (S, B, ...) over the rows ``onehot`` (P, S, B)
-    picks: a select, not a scatter or gather, which XLA runs one index at
-    a time on CPU."""
-    picks = onehot.reshape(onehot.shape + (1,) * (values.ndim - 2))
-    return jnp.sum(picks * values[None], axis=1)
-
-
-def _bootstrap_steps(carries: RecurrentCarries, out: jax.Array) -> jax.Array:
-    """The bootstrap steps of a stream's time-major ``out`` (2S, B, ...):
-    row t's, after it (:func:`_bootstrap_stream`)."""
-    boot = _onehot(carries.positions + 1)
-    picks = boot.reshape(boot.shape + (1,) * (out.ndim - 2))
-    return jnp.sum(picks * out[:, None], axis=0)
-
-
-def actor_dist(
-    actor_state: LoadedTrainState,
-    params: Any,
-    obs: jax.Array,
-    carries: Optional[RecurrentCarries] = None,
-    *,
-    bootstrap: bool = False,
-    target_actor: bool = False,
-) -> Any:
-    """The actor's distribution over ``obs``.
-
-    Without ``carries``, one feedforward batch. With them, a replayed
-    sequence started from its burned-in carry (the target actor's when
-    ``target_actor``, TD3's bootstrap); when ``bootstrap``, ``obs`` are the
-    rows' next observations, each read after its row
-    (:func:`_bootstrap_stream`).
-    """
-    if carries is None:
-        return get_pi(actor_state, params, obs)[0]
-    hidden = carries.target_actor_hidden if target_actor else carries.actor_hidden
-    if not bootstrap:
-        return get_pi_sequence(actor_state, params, obs, carries.resets, hidden)[0]
-    xs, resets = _bootstrap_stream(carries, carries.obs, obs)
-    pi = get_pi_sequence(actor_state, params, xs, resets, hidden)[0]
-    # A distribution is a pytree of its parameters, time-major.
-    return jax.tree.map(lambda leaf: _bootstrap_steps(carries, leaf), pi)
-
-
-def actor_dist_train(
-    actor_state: LoadedTrainState, params: Any, obs: jax.Array
-) -> Tuple[Any, Optional[Any]]:
-    """:func:`actor_dist` in training, feedforward: the actor's distribution
-    over ``obs`` and its running statistics after this pass
-    (:meth:`~ajax.state.LoadedTrainState.apply_train`)."""
-    obs = apply_obs_norm(obs, getattr(actor_state, "obs_norm_info", None))
-    return actor_state.apply_train(params, obs)
-
-
-def q_values(
-    critic_state: LoadedTrainState,
-    params: Any,
-    obs: jax.Array,
-    actions: jax.Array,
-    carries: Optional[RecurrentCarries] = None,
-    *,
-    bootstrap: bool = False,
-    quantiles: bool = False,
-) -> jax.Array:
-    """Every critic's ``Q(obs, actions)``, the ensemble axis first
-    (``quantiles``: a distributional critic's quantiles, last axis).
-
-    With ``carries``, on a replayed sequence from the online critic's
-    burned-in carry, or the target critic's when ``bootstrap`` (``obs``
-    then being the rows' next observations, each read after its row,
-    :func:`_bootstrap_stream`): the memory reads the actions taken before
-    the rows, ``actions`` are queried at the head. Every action reaches the
-    critic in its units (:func:`in_critic_units`; :func:`predict_value` maps
-    a feedforward query's).
-    """
-    if carries is None:
-        x = action_value_input(obs, actions)
-        return predict_value(critic_state, params, x, quantiles=quantiles)
-    actions = in_critic_units(critic_state, actions)
-    prev_actions = in_critic_units(critic_state, carries.prev_actions)
-    if not bootstrap:
-        x = action_value_input(obs, actions, prev_actions)
-        return predict_value_sequence(
-            critic_state,
-            params,
-            x,
-            carries.resets,
-            carries.critic_hidden,
-            quantiles=quantiles,
-        )[0]
-    # The rows' queries are unread; after a termination nothing came before.
-    rows = action_value_input(carries.obs, actions, prev_actions)
-    taken = jnp.where(
-        carries.next_resets[..., None],
-        0.0,
-        in_critic_units(critic_state, carries.actions),
-    )
-    xs, resets = _bootstrap_stream(
-        carries, rows, action_value_input(obs, actions, taken)
-    )
-    values = predict_value_sequence(
-        critic_state,
-        params,
-        xs,
-        resets,
-        carries.target_critic_hidden,
-        quantiles=quantiles,
-    )[0]
-    # Values are (ensemble, T, B, 1 or quantiles): the ensemble axis goes
-    # last meanwhile.
-    steps = _bootstrap_steps(carries, jnp.moveaxis(values, 0, -1))
-    return jnp.moveaxis(steps, -1, 0)
-
-
-def rollout_sequence_values(
-    agent_state: Any, rollout: Transition, start: Any, length: int
-) -> tuple[Any, jax.Array, jax.Array, jax.Array, tuple]:
-    """A recurrent rollout's values, next values and reset flags, and the
-    actor's and critic's carries at the start of each sequence of
-    ``length`` steps.
-
-    One critic pass gives the values and advances the critic carry, which
-    collection never steps: it ends as the next rollout's start carry. Run
-    as a scan over the sequences, it also yields their start carries. The
-    actor's are recomputed sequence by sequence with the current params (one
-    more pass, skipped for whole-rollout sequences, whose start carry is
-    exact): a sequence never starts from a zero carry mid-episode, the
-    variant that makes truncated BPTT worse than none. The pass runs step by
-    step (the memories' acting path, equal to the sequence one), and after
-    each step reads ``V(s_{t+1})`` from the carry that consumed ``obs[t]``,
-    on ``next_obs[t]``: the next observation, or the episode's final one
-    where it ended. A time limit thus bootstraps on its own episode, as
-    sb3-contrib's RecurrentPPO does (its pre-reset LSTM state on the
-    terminal observation), not on the reset observation with a fresh
-    carry; GAE masks terminal steps.
-
-    Returns the state (critic carry advanced), the values, the next values,
-    the reset flags (``resets[t]``: ``obs[t]`` starts an episode) and the
-    ``(actor, critic)`` start carries.
-    """
-    n_steps, n_envs = rollout.obs.shape[:2]
-    n_sequences = n_steps // length
-    initial_done = jnp.logical_or(
-        start.collector_state.last_terminated, start.collector_state.last_truncated
-    ).astype(bool)
-    dones_seq = jnp.logical_or(rollout.terminated, rollout.truncated).squeeze(-1)
-    resets = jnp.concatenate(
-        [initial_done[None], dones_seq[:-1].astype(bool)], axis=0
-    )  # (T, B)
-    obs_seqs = rollout.obs.reshape(n_sequences, length, *rollout.obs.shape[1:])
-    next_obs_seqs = rollout.next_obs.reshape(obs_seqs.shape)
-    resets_seqs = resets.reshape(n_sequences, length, n_envs)
-    critic, actor = agent_state.critic_state, agent_state.actor_state
-    going_on = jnp.zeros((1, n_envs), bool)
-
-    def critic_step(carry: Any, step: tuple) -> tuple[Any, tuple]:
-        obs, next_obs, step_resets = step
-        value, carry = predict_value_sequence(
-            critic, critic.params, obs[None], step_resets[None], carry
-        )
-        next_value, _ = predict_value_sequence(
-            critic, critic.params, next_obs[None], going_on, carry
-        )
-        # (num = 1, T = 1, B, 1) -> (B, 1)
-        return carry, (value.squeeze((0, 1)), next_value.squeeze((0, 1)))
-
-    def critic_chunk(carry: Any, seq: tuple) -> tuple[Any, tuple]:
-        carry_next, values = jax.lax.scan(critic_step, carry, seq)
-        return carry_next, (values, carry)
-
-    assert start.critic_state.hidden_state is not None
-    critic_end, ((seq_values, seq_next_values), critic_starts) = jax.lax.scan(
-        critic_chunk,
-        jax.lax.stop_gradient(start.critic_state.hidden_state),
-        (obs_seqs, next_obs_seqs, resets_seqs),
-    )
-    # (S, L, B, 1) -> (T, B, 1)
-    values = seq_values.reshape(n_steps, *seq_values.shape[2:])
-    next_values = seq_next_values.reshape(values.shape)
-
-    initial_actor_hidden = jax.lax.stop_gradient(start.actor_state.hidden_state)
-    if n_sequences > 1:
-
-        def actor_chunk(carry: Any, seq: tuple) -> tuple[Any, Any]:
-            obs, seq_resets = seq
-            _, carry_next = get_pi_sequence(actor, actor.params, obs, seq_resets, carry)
-            return carry_next, carry
-
-        _, actor_starts = jax.lax.scan(
-            actor_chunk, initial_actor_hidden, (obs_seqs, resets_seqs)
-        )
-    else:
-        actor_starts = jax.tree.map(lambda x: x[None], initial_actor_hidden)
-
-    agent_state = agent_state.replace(
-        critic_state=critic.replace(hidden_state=jax.lax.stop_gradient(critic_end))
-    )
-    carries = jax.lax.stop_gradient((actor_starts, critic_starts))
-    return agent_state, values, next_values, resets, carries
 
 
 def stored_actor_carry_dim(memory: Optional[MemoryConfig], stored_state: bool) -> int:
@@ -519,10 +315,10 @@ def make_replay_buffer(
     batch_size: int,
 ) -> BufferType:
     """The replay buffer of an off-policy agent: transitions, or per-env
-    trajectories sampled as windows when ``memory`` is set. ``agent`` holds
-    ``burn_in``, ``sequence_length``, ``stored_state`` and
-    ``learning_starts``: a declared agent (its fields), or an older agent's
-    :class:`RecurrentReplayConfig`."""
+    trajectories sampled as windows when memory is set. agent holds
+    burn_in, sequence_length, stored_state and
+    learning_starts: a declared agent (its fields), or an older agent's
+    RecurrentReplayConfig."""
     burn_in, sequence_length = agent.burn_in, agent.sequence_length
     if agent.stored_state and memory is None:
         raise ValueError(
@@ -547,6 +343,346 @@ def make_replay_buffer(
         # burn-in prefix + trained segment + bootstrap step
         sequence_length=(burn_in + sequence_length + 1 if memory is not None else None),
     )
+
+
+# ----------------------------------------------------------------------------
+# Networks with memory, run over a replayed window: the actor's
+#
+# distribution and the critics' Q-values.
+# ----------------------------------------------------------------------------
+
+
+def actor_dist(
+    actor_state: LoadedTrainState,
+    params: Any,
+    obs: jax.Array,
+    carries: Optional[RecurrentCarries] = None,
+    *,
+    bootstrap: bool = False,
+    target_actor: bool = False,
+) -> Any:
+    """The actor's action distribution at obs.
+
+    Without carries (an actor without memory), one batch of observations.
+    With carries (an actor with memory), over a replayed window, starting
+    from the warmed-up memory:
+    - bootstrap False: at the rows themselves (obs are their observations),
+      for the actor's own loss;
+    - bootstrap True: at each row's next observation (obs are those next
+      observations), for the critic's target (see the time-limit
+      section).
+    target_actor starts from the target actor's memory instead of the online
+    actor's: TD3's target asks its target actor for the next action.
+    """
+    if carries is None:
+        return get_pi(actor_state, params, obs)[0]
+    hidden = carries.target_actor_hidden if target_actor else carries.actor_hidden
+    if not bootstrap:
+        return get_pi_sequence(actor_state, params, obs, carries.resets, hidden)[0]
+    sequence_observations, resets = _insert_final_observations(
+        carries, carries.obs, obs
+    )
+    policy = get_pi_sequence(
+        actor_state, params, sequence_observations, resets, hidden
+    )[0]
+    # A distribution is a tree of its parameters (a Gaussian's mean and
+    # scale), each with time as its first axis: read each one's outputs
+    # at the rows' next observations.
+    return jax.tree.map(
+        lambda leaf: _read_outputs_at_next_observations(carries, leaf), policy
+    )
+
+
+def q_values(
+    critic_state: LoadedTrainState,
+    params: Any,
+    obs: jax.Array,
+    actions: jax.Array,
+    carries: Optional[RecurrentCarries] = None,
+    *,
+    bootstrap: bool = False,
+    quantiles: bool = False,
+) -> jax.Array:
+    """Every critic's Q(obs, actions), with the critics of the ensemble on
+    the first axis (quantiles: a distributional critic's quantiles, on the
+    last axis).
+
+    With carries (critics with memory), over a replayed window:
+    - bootstrap False: the online critic, from its warmed-up memory, at the
+      rows (obs are their observations, actions the ones the loss asks
+      about);
+    - bootstrap True: the target critic, from its warmed-up memory, at each
+      row's next observation (obs are those next observations, actions the
+      next actions the target asks about), see the time-limit section.
+    The memory reads each observation with the action taken before it; the
+    asked-about action enters at the output layer. Every action reaches the
+    critic in its own units (in_critic_units; predict_value converts a
+    critic without memory's).
+    """
+    if carries is None:
+        critic_input = action_value_input(obs, actions)
+        return predict_value(critic_state, params, critic_input, quantiles=quantiles)
+    actions = in_critic_units(critic_state, actions)
+    previous_actions_in_critic_units = in_critic_units(
+        critic_state, carries.prev_actions
+    )
+    if not bootstrap:
+        critic_input = action_value_input(
+            obs, actions, previous_actions_in_critic_units
+        )
+        return predict_value_sequence(
+            critic_state,
+            params,
+            critic_input,
+            carries.resets,
+            carries.critic_hidden,
+            quantiles=quantiles,
+        )[0]
+    # At the rows only the memory matters, so their asked-about actions are
+    # never read. At a row's next step the memory reads the action taken at
+    # the row, except after a real termination: the next step then starts a
+    # new episode, with no action before it.
+    rows = action_value_input(carries.obs, actions, previous_actions_in_critic_units)
+    action_taken_before = jnp.where(
+        carries.next_resets[..., None],
+        0.0,
+        in_critic_units(critic_state, carries.actions),
+    )
+    sequence_inputs, resets = _insert_final_observations(
+        carries, rows, action_value_input(obs, actions, action_taken_before)
+    )
+    values = predict_value_sequence(
+        critic_state,
+        params,
+        sequence_inputs,
+        resets,
+        carries.target_critic_hidden,
+        quantiles=quantiles,
+    )[0]
+    # values are (critics, time, B, 1 or quantiles): move the critics' axis
+    # last while reading the outputs at the next observations along time,
+    # then back.
+    next_q_values = _read_outputs_at_next_observations(
+        carries, jnp.moveaxis(values, 0, -1)
+    )
+    return jnp.moveaxis(next_q_values, -1, 0)
+
+
+# ----------------------------------------------------------------------------
+# Time limits: the rows with each cut episode's final observation inserted.
+#
+# This section serves one case only, not memory itself. A TD target for
+# row t needs the network's output at row t's next observation, from the
+# memory that has read the rows up to t. Usually that next observation is
+# row t + 1, one place later. But where a time limit (not a real
+# termination) ended the episode at row t, the environment has already
+# reset: row t + 1 starts a new episode, and the old episode's final
+# observation is stored only as row t's next observation. So the network
+# runs over the rows with that final observation inserted after row t;
+# row t + 1 starts with a reset, so the inserted step never reaches the
+# new episode's memory. One pass then gives every row's output at its
+# next observation, one place after the row.
+# ----------------------------------------------------------------------------
+
+
+def row_positions_with_final_observations(cut_by_time_limit: jax.Array) -> jax.Array:
+    """Each row's position once a final observation is inserted after
+    every row a time limit cut.
+
+    cut_by_time_limit (S, B) is True where a time limit, not a real
+    termination, ended the episode at that row. Each insertion moves every
+    later row one position further, so a row's position is its own index
+    plus the number of final observations inserted before it."""
+    rows = jnp.arange(cut_by_time_limit.shape[0])[:, None]
+    # The extra steps up to and including the row's own, minus its own.
+    return rows + jnp.cumsum(cut_by_time_limit, axis=0) - cut_by_time_limit
+
+
+# The former name, released in 0.4.0; 0.5.0 removes it.
+stream_positions = row_positions_with_final_observations
+
+
+def _insert_final_observations(
+    carries: RecurrentCarries, rows: jax.Array, next_step_inputs: jax.Array
+) -> Tuple[jax.Array, jax.Array]:
+    """The network's inputs at the rows, with the final observation of each
+    episode a time limit cut inserted after its last row, and the matching
+    reset flags.
+
+    rows (S, B, ...) are the network's inputs at the rows, next_step_inputs
+    (S, B, ...) its inputs at each row's next observation. There is room for
+    one insertion per row, so the result is 2 * S long; its unused positions
+    at the end are marked as resets.
+    """
+    row_positions = _make_row_to_position_table(
+        carries.row_positions_with_final_observations
+    )
+    next_step_positions = _make_row_to_position_table(
+        carries.row_positions_with_final_observations + 1
+    )
+    # Where row t's next step is row t + 1 itself, that position takes the
+    # next-step input: the same observation, with the action the target asks
+    # about (the rows' own asked-about actions are never read).
+    row_positions = row_positions * (1 - next_step_positions.sum(axis=1, keepdims=True))
+    sequence_inputs = _move_rows_to_positions(
+        row_positions, rows
+    ) + _move_rows_to_positions(next_step_positions, next_step_inputs)
+    unused_positions = 1 - row_positions.sum(axis=1) - next_step_positions.sum(axis=1)
+    reset_flags = _move_rows_to_positions(
+        row_positions, carries.resets
+    ) + _move_rows_to_positions(next_step_positions, carries.next_resets)
+    return sequence_inputs, reset_flags + unused_positions > 0
+
+
+def _make_row_to_position_table(row_positions: jax.Array) -> jax.Array:
+    """A 0/1 table (2 * S, S, B): table[p, r, b] is 1 where row r of
+    environment b sits at position p, from each row's position (S, B)."""
+    positions = jnp.arange(2 * row_positions.shape[0])[:, None, None]
+    return (positions == row_positions[None]).astype(jnp.float32)
+
+
+def _move_rows_to_positions(
+    row_to_position: jax.Array, row_values: jax.Array
+) -> jax.Array:
+    """row_values (S, B, ...) moved to the positions the table
+    row_to_position (2 * S, S, B) gives them. Written as a multiply-and-sum
+    because XLA on CPU runs a scatter or a gather one index at a time."""
+    row_to_position = row_to_position.reshape(
+        row_to_position.shape + (1,) * (row_values.ndim - 2)
+    )
+    return jnp.sum(row_to_position * row_values[None], axis=1)
+
+
+def _read_outputs_at_next_observations(
+    carries: RecurrentCarries, sequence_outputs: jax.Array
+) -> jax.Array:
+    """Every row's output at its next observation, from a network's outputs
+    over the rows with the final observations inserted (2 * S, B, ...): the
+    output one position after the row."""
+    next_step_positions = _make_row_to_position_table(
+        carries.row_positions_with_final_observations + 1
+    )
+    row_to_position = next_step_positions.reshape(
+        next_step_positions.shape + (1,) * (sequence_outputs.ndim - 2)
+    )
+    return jnp.sum(row_to_position * sequence_outputs[:, None], axis=0)
+
+
+# ----------------------------------------------------------------------------
+# PPO with memory: values from a rollout.
+#
+# ----------------------------------------------------------------------------
+
+
+def compute_values_from_rollout_sequence(
+    agent_state: Any,
+    rollout: Transition,
+    agent_state_at_rollout_start: Any,
+    length: int,
+) -> tuple[Any, jax.Array, jax.Array, jax.Array, tuple]:
+    """Before a recurrent PPO update: the critic's values on the rollout,
+    its next values, the episode-start flags, and each network's memory at
+    the start of each training sequence of length steps.
+
+    While collecting, only the actor runs, so its memory is up to date and
+    the critic's is not. This pass runs the critic over the rollout one step
+    at a time, from its memory at the rollout's start, which gives:
+    - the value V(s_t) at every step;
+    - the next value V(s_{t+1}): after reading step t, the critic is asked
+      about step t's next observation, which is the episode's final
+      observation where the episode ended. So a step cut by a time limit is
+      valued with its own episode's memory, as sb3-contrib's RecurrentPPO
+      does, not with a fresh memory on the next episode's first observation
+      (GAE ignores the next value where the episode really terminated);
+    - the critic's memory at the start of every training sequence, which the
+      loss replays the critic from;
+    - the critic's memory at the rollout's end, kept as the next rollout's
+      starting memory.
+    It runs step by step, as acting does, because each next value needs the
+    memory right after its own step.
+
+    The actor's memory at the start of each training sequence is recomputed
+    with the current parameters by one more pass (skipped when one sequence
+    is the whole rollout, whose start memory is the stored one exactly). So
+    no sequence starts from a zero memory in the middle of an episode, which
+    makes truncated backpropagation through time worse than none.
+
+    Returns the agent state with the critic's memory moved to the rollout's
+    end, the values, the next values, the episode-start flags (resets[t]:
+    obs[t] starts an episode) and the (actor, critic) start memories.
+    """
+    n_steps, n_envs = rollout.obs.shape[:2]
+    n_sequences = n_steps // length
+    initial_done = jnp.logical_or(
+        agent_state_at_rollout_start.collector_state.last_terminated,
+        agent_state_at_rollout_start.collector_state.last_truncated,
+    ).astype(bool)
+    dones = jnp.logical_or(rollout.terminated, rollout.truncated).squeeze(-1)
+    resets = jnp.concatenate(
+        [initial_done[None], dones[:-1].astype(bool)], axis=0
+    )  # (T, B)
+    obs_sequences = rollout.obs.reshape(n_sequences, length, *rollout.obs.shape[1:])
+    next_obs_sequences = rollout.next_obs.reshape(obs_sequences.shape)
+    reset_sequences = resets.reshape(n_sequences, length, n_envs)
+    critic, actor = agent_state.critic_state, agent_state.actor_state
+    no_resets = jnp.zeros((1, n_envs), bool)
+
+    def step_critic(carry: Any, step: tuple) -> tuple[Any, tuple]:
+        obs, next_obs, step_resets = step
+        value, carry = predict_value_sequence(
+            critic, critic.params, obs[None], step_resets[None], carry
+        )
+        next_value, _ = predict_value_sequence(
+            critic, critic.params, next_obs[None], no_resets, carry
+        )
+        # (num = 1, T = 1, B, 1) -> (B, 1)
+        return carry, (value.squeeze((0, 1)), next_value.squeeze((0, 1)))
+
+    def run_critic_over_sequence(carry: Any, sequence: tuple) -> tuple[Any, tuple]:
+        next_carry, values = jax.lax.scan(step_critic, carry, sequence)
+        return next_carry, (values, carry)
+
+    assert agent_state_at_rollout_start.critic_state.hidden_state is not None
+    critic_end, ((sequence_values, sequence_next_values), critic_starts) = jax.lax.scan(
+        run_critic_over_sequence,
+        jax.lax.stop_gradient(agent_state_at_rollout_start.critic_state.hidden_state),
+        (obs_sequences, next_obs_sequences, reset_sequences),
+    )
+    # (S, L, B, 1) -> (T, B, 1)
+    values = sequence_values.reshape(n_steps, *sequence_values.shape[2:])
+    next_values = sequence_next_values.reshape(values.shape)
+
+    initial_actor_hidden = jax.lax.stop_gradient(
+        agent_state_at_rollout_start.actor_state.hidden_state
+    )
+    if n_sequences > 1:
+
+        def run_actor_over_sequence(carry: Any, sequence: tuple) -> tuple[Any, Any]:
+            obs, sequence_resets = sequence
+            _, next_carry = get_pi_sequence(
+                actor, actor.params, obs, sequence_resets, carry
+            )
+            return next_carry, carry
+
+        _, actor_starts = jax.lax.scan(
+            run_actor_over_sequence,
+            initial_actor_hidden,
+            (obs_sequences, reset_sequences),
+        )
+    else:
+        actor_starts = jax.tree.map(lambda leaf: leaf[None], initial_actor_hidden)
+
+    agent_state = agent_state.replace(
+        critic_state=critic.replace(hidden_state=jax.lax.stop_gradient(critic_end))
+    )
+    carries = jax.lax.stop_gradient((actor_starts, critic_starts))
+    return agent_state, values, next_values, resets, carries
+
+
+# ----------------------------------------------------------------------------
+# Refusals.
+#
+# ----------------------------------------------------------------------------
 
 
 def unsupported_recurrent_options(agent_name: str, **options: Optional[Any]) -> None:

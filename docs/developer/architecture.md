@@ -33,7 +33,7 @@ src/ajax/
 │   ├── base.py          ActorCritic: environment and network setup, extensions=, train(); run_config
 │   ├── families.py      declared agents (fields as hyperparameters); the replay and on-policy families' train functions
 │   ├── loop.py          TrainLoop, the shared loop (brax's forced resets included)
-│   ├── steps.py         critic_step, actor_step, gradient_step, joint_step, when, the target update
+│   ├── update_steps.py  critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, run_if, the target update
 │   ├── minibatch.py     the on-policy rollout split (RolloutSplit), minibatches and epochs
 │   ├── critics.py       the Q-critics' regression (continuous and discrete actions)
 │   ├── diagnostics.py   KL, explained variance, policy std
@@ -241,7 +241,7 @@ agent at once. The probes check it end to end: a planted fault that runs
 | Shape | Agents | One iteration | Budget |
 | --- | --- | --- | --- |
 | `loop.off_policy(init, update, learning_starts, ...)` | SAC, TD3, REDQ, ASAC, AVG, DQN | one step per env (a *tick*); from `learning_starts` on, one `update(state, transition)` | `budget // n_envs` ticks |
-| `loop.on_policy(init, update, n_steps, ...)` | PPO, APO, PQN | an `n_steps` rollout per env from the state `start`, then `update(state, rollout, start)` | `budget // (n_envs * n_steps) + 1` rollouts |
+| `loop.on_policy(init, update, n_steps, ...)` | PPO, APO, PQN | an `n_steps` rollout per env from the agent state `agent_state_at_rollout_start`, then `update(agent_state, rollout, agent_state_at_rollout_start)` | `budget // (n_envs * n_steps) + 1` rollouts |
 | `loop.off_policy(..., collect=, n_updates=, evaluation=)` | DreamerV3, TDMPC2 | the agent's own `collect(state, tick)`, then `n_updates(tick, state)` updates (a train ratio, a burst), then the agent's own `Evaluation` | `budget // n_envs` ticks, or `num_ticks` |
 
 Before `learning_starts`, the off-policy shape acts uniformly at random
@@ -260,21 +260,27 @@ on `TrainLoop.train`, and evaluates its command-conditioned policy every
 `TDMPC2MultiTask` call `build_resumable_train` themselves, with the loop's
 `fresh_state` and its `post_update` fold.
 
+Under them all, `compute_gradients(loss, params)` returns a loss's gradients
+and its aux: the agent first writes the loss as a small local function of the
+parameters alone, its other inputs fixed. PPO and APO step their two networks
+on it with `apply_gradients_clipped_together`, which clips both gradients to
+one global norm and returns each network's norm before the clip.
+
 Three helpers serve the replay agents: `gradient_step(train_state, loss_fn)`,
 one optimiser step; `actor_step(...)`, an actor step that folds the
 extensions' `actor_loss` phase; and `critic_step(...)`, a replay critic step that folds
 the extensions' `on_target` and `critic_loss` phases. All three return the
 gradients' global norm, before the optimiser clips them. SAC, TD3, REDQ, ASAC,
-AVG and IQL use `critic_step`. Its two halves are public too: `apply_on_target`
-and `apply_critic_loss`. An agent whose target comes out of its own critic
-pass calls them inside its loss.
+AVG and IQL use `critic_step`. Its two halves are public too:
+`apply_on_target` and `compute_extensions_critic_loss`. An agent whose target
+comes out of its own critic pass calls them inside its loss.
 SAC, TD3, AVG, DAgger and IQL use `actor_step`; ASAC and REDQ use
 `soft_actor_step` in `SAC/core.py`, on the same `soft_policy_loss` as SAC.
 
-Two more keep control flow out of the updates. `when(pred, fn, state)` runs
-`fn` where `pred` holds and leaves the state as it is elsewhere, its metrics
-then NaN (or `fill`): TD3's policy delay, DQN's target refresh, SAC's
-warm-ups and the loop's own `learning_starts` gate. A `Schedule`
+Two more keep control flow out of the updates. `run_if(condition, update,
+state)` runs `update` where `condition` holds and leaves the state as it is
+elsewhere, its metrics then NaN (or `fill`): TD3's policy delay, DQN's target
+refresh, SAC's warm-ups and the loop's own `learning_starts` gate. A `Schedule`
 (`ajax.schedule`) is a hyperparameter given as a constant or a function of the
 timestep, read with `at(schedule, timestep)`; `linear(start, end, steps)` is a
 ramp. TD3's exploration noise and PPO's and APO's clip range take one, and
@@ -286,7 +292,7 @@ policy at the last observations, a key and the timestep, the action to take.
 `explore_pipeline(explore, recurrent, n_actions)` turns it into the action
 pipeline collection calls, which owns the uniform warm-up actions, a recurrent
 actor's carry and a discrete action's stored column. TD3's Gaussian noise
-(`gaussian_exploration`) and DQN's and PQN's epsilon-greedy
+(`make_gaussian_exploration`) and DQN's and PQN's epsilon-greedy
 (`epsilon_greedy`) are such functions.
 
 ## Agent state
@@ -300,7 +306,7 @@ gains a leading axis), and makes a checkpoint a matter of saving that pytree.
 
 | Field | What it holds |
 | --- | --- |
-| `rng` | the training key; every random draw splits it (`draw_keys(n)` returns the state and `n` keys) |
+| `rng` | the training key; every random draw splits it (`get_keys_and_new_state(n)` returns `n` keys and the new state) |
 | `actor_state`, `critic_state` | flax `TrainState`s with target parameters, memory carries and the observation normaliser's statistics |
 | `collector_state` | the environment state, last observation and episode flags, the replay buffer, `timestep`, the rolling episodic return, a stateful expert's internal state |
 | `eval_rng` | the evaluations' key, split apart from `rng` and never advanced: evaluation `n` draws from `fold_in(eval_rng, n)` |
@@ -337,16 +343,16 @@ agent without extensions traces nothing extra and never guards a fold.
 | `apply_init` (each `init_state`, then each `pretrain`) | `fresh_state`, fresh runs only (a resumed state already carries both) |
 | `apply_post_update` | after every update: the loop's `maybe_update`, `repeat_update` and `on_policy`; APG, UDRL and `TDMPC2MultiTask` in their own iterations |
 | `apply_eval_metrics` | at every evaluation, merged into the logged metrics (`compose_eval_metrics` in `log.py`) |
-| `apply_on_target`, `apply_critic_loss` | in the agent's critic step; `critic_step` for SAC, TD3, REDQ, ASAC, AVG and IQL |
-| `apply_actor_loss` | in the agent's actor step; `actor_step` for SAC, TD3, AVG, DAgger and IQL |
+| `apply_on_target`, `compute_extensions_critic_loss` | in the agent's critic step; `critic_step` for SAC, TD3, REDQ, ASAC, AVG and IQL |
+| `compute_extensions_actor_loss` | in the agent's actor step; `actor_step` for SAC, TD3, AVG, DAgger and IQL |
 | the `action` phase | SAC's action pipeline only, with an expert policy |
 | `transform_action`, `actuate` | the controller (`env_args.transforms`): the action pipeline before the choice, the shared collector after it (`expert_collect_kwargs`), evaluation, and `executed_actions` where the critics score executed actions |
 | the `observe` phase | the observers the agent lifts out of its stack (`env_args.observers`): the shared collector, at reset and after each step, PPO's forced reset, the expert prefill and evaluation |
 
-`apply_on_target`, `apply_critic_loss` and `apply_actor_loss` return their
-value and the metrics the phases returned beside theirs; the agent carries
-them out of its loss as an aux and logs them, in its `AuxiliaryLogs`'
-`extensions` field, under their own names.
+`apply_on_target`, `compute_extensions_critic_loss` and
+`compute_extensions_actor_loss` return their value and the metrics the phases
+returned beside theirs; the agent carries them out of its loss as an aux and
+logs them, in its `AuxiliaryLogs`' `extensions` field, under their own names.
 
 The loop's own phases are `LOOP_PHASES`: `pretrain`, `post_update`,
 `eval_metrics` and `observe`, which an agent collecting on its own (APG,

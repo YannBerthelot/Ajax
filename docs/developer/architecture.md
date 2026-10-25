@@ -67,20 +67,24 @@ src/ajax/
 └── _compile_cache.py    the persistent JAX compile cache
 ```
 
-A declared agent (SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL, AVG, PPO, APO,
-PQN) is one file, `<AGENT>/<AGENT>.py`: its hyperparameters as dataclass
-fields, its `init`, `update` and equations, its state and metrics, on a
-family of `agents/families.py` that builds its constructor, run config,
-collection and train function
-([Contributing](contributing.md#adding-an-agent)): a replay
-(`ReplayAgent`: SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL), one update on each
-step as it comes (`IncrementalAgent`: AVG) or rollouts (`OnPolicyAgent`:
-PPO, APO, PQN). Knobs several agents share are mixins of fields
-(`EntropyTemperature`, `PolicyUpdateStart`, `ExpertGuided`, ...), and an
-agent changes what its family does by overriding a few hooks
-(`network_settings`, `evaluation_kwargs`, `uniform_steps`,
-`keeps_actor_metrics`, ...). Its old modules serve their names until 0.5.0.
-Every other agent package `src/ajax/agents/<AGENT>/` holds:
+A declared agent (every agent but DreamerV3 and TD-MPC2) is one file,
+`<AGENT>/<AGENT>.py`: its hyperparameters as dataclass fields, its `init`,
+`update` and equations, its state and metrics, on a family of
+`agents/families.py` that builds its constructor, run config, collection
+and train function ([Contributing](contributing.md#adding-an-agent)): a
+replay (`ReplayAgent`: SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL, DQN,
+DAgger), one update on each step as it comes (`IncrementalAgent`: AVG),
+rollouts (`OnPolicyAgent`: PPO, APO, PQN) or an iteration of its own
+(`OwnIterationAgent`: UDRL's segment and replay of segments, APG's
+gradient step through a differentiable rollout; the agent writes
+`iterate`, `report` and `evaluate`, the loop resumes and logs). Knobs
+several agents share are mixins of fields (`EntropyTemperature`,
+`PolicyUpdateStart`, `ExpertGuided`, ...), and an agent changes what its
+family does by overriding a few hooks (`network_settings`,
+`evaluation_kwargs`, `uniform_steps`, `keeps_actor_metrics`,
+`check_recurrent_options`, ...). The old modules of the agents declared
+before DQN, DAgger, UDRL and APG serve their names until 0.5.0; those four
+kept none. Every other agent package `src/ajax/agents/<AGENT>/` holds:
 
 | File | What it holds |
 | --- | --- |

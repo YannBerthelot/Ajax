@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from ajax.agents.SAC.SAC import SAC
-from ajax.extensions.expert import ExpertGains, ExpertWarmup, JSRLCurriculum
+from ajax.extensions.expert import ExpertGains, JSRLCurriculum
 from ajax.extensions.observe import (
     ExpertActionInput,
     ExpertStateInput,
@@ -40,7 +40,13 @@ def test_use_pid_policy_builds_gain_mode_and_warns():
     an expert without learnable gains."""
     with pytest.warns(FutureWarning, match="ExpertGains"):
         old = SAC(env_id="Pendulum-v1", expert_policy=Expert(), use_pid_policy=True)
-    new = SAC(env_id="Pendulum-v1", expert_policy=Expert(), extensions=(ExpertGains(),))
+    # No expert prefill, which SAC adds by default with an expert.
+    new = SAC(
+        env_id="Pendulum-v1",
+        expert_policy=Expert(),
+        expert_buffer_n_steps=0,
+        extensions=(ExpertGains(),),
+    )
     assert old.env_args.transforms == new.env_args.transforms == (ExpertGains(),)
     assert new.env_args.policy_action_dim == 1 and not new.extension_stack
     with pytest.raises(ValueError, match="learnable_fields"):
@@ -108,10 +114,8 @@ def test_jsrl_curriculum_counts_the_episode_steps_it_reads():
     kw.update({"learning_starts": 8, "batch_size": 8, "buffer_size": 64})
     jsrl = (JSRLCurriculum(episode_length=8, decay_frac=0.5),)
     with warnings.catch_warnings():
-        warnings.simplefilter("error", FutureWarning)
-        # SAC's default warm-up mix warns, passed as the extension it does not.
-        mix = ExpertWarmup(fraction=0.7)
-        agent = SAC(env_id="Pendulum-v1", extensions=(*jsrl, mix), **kw)
+        warnings.filterwarnings("error", ".*jsrl_curriculum", FutureWarning)
+        agent = SAC(env_id="Pendulum-v1", extensions=jsrl, **kw)
     state, _ = agent.train(seed=0, n_timesteps=12)
     np.testing.assert_array_equal(state.collector_state.step_in_episode, [[12]])
     plain, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=0, n_timesteps=12)
@@ -237,6 +241,7 @@ def test_the_augmentation_keywords_build_their_features_in_column_order():
             use_train_frac=True,
             augment_obs_with_expert_state=True,
             augment_obs_with_expert_action=True,
+            expert_buffer_n_steps=0,  # no expert prefill, a learner extension
         )
     kinds = [type(o) for o in agent.env_args.observers]
     assert kinds == [TrainingProgressInput, ExpertStateInput, ExpertActionInput]

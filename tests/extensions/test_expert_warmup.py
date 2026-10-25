@@ -78,7 +78,9 @@ def test_the_keyword_warns_and_raises_beside_the_extension():
     with pytest.warns(FutureWarning, match="expert_fraction will be removed"):
         SAC("Pendulum-v1", **SMALL, expert_policy=push, expert_fraction=0.3)
     with warnings.catch_warnings():
-        warnings.simplefilter("error", FutureWarning)
+        warnings.filterwarnings(
+            "error", ".*(ExpertWarmup|expert_fraction)", FutureWarning
+        )
         warmup = (ExpertWarmup(fraction=0.3),)
         agent = SAC("Pendulum-v1", **SMALL, expert_policy=push, extensions=warmup)
     assert agent.env_args.warmups == warmup and not agent.extension_stack

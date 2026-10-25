@@ -134,7 +134,7 @@ import jax.numpy as jnp
 from ajax import SAC
 from ajax.extensions.expert import OnlineBC
 from ajax.extensions.exploration import EDGEExploration
-from ajax.extensions.pretrain import MCPretrain
+from ajax.extensions.pretrain import ExpertPrefill, MCPretrain
 from ajax.logging.wandb_logging import LoggingConfig
 
 
@@ -148,9 +148,10 @@ def pd_expert(obs):
 agent = SAC(
     "Pendulum-v1",
     expert_policy=pd_expert,
-    expert_buffer_n_steps=1_000,  # expert steps written to the replay before training
     learning_starts=1_000,
     extensions=(
+        # 1,000 expert steps written to the replay before training.
+        ExpertPrefill(n_steps=1_000),
         # The frozen expert critic, fitted to ~1,000 steps of the expert's returns.
         MCPretrain(pd_expert, n_mc_steps=100, n_mc_episodes=10, n_steps=200),
         OnlineBC(bc_coef=1.0, critic_warmup_frac=0.2),
@@ -172,12 +173,15 @@ thousands of steps for a real run (its defaults collect about a million).
 
 ### Before training
 
-1. **Replay prefill.** SAC runs the expert for `expert_buffer_n_steps` steps
-   in each environment (default 20,000) and writes them to the replay buffer,
-   flagged as expert rows. Every row also stores the expert's action at `s`
-   and `s′`, which several extensions read later. Under gain mode a row
-   stores the anchor gains (action 0) as the action, as collection does
-   when the expert acts as itself. Set it to 0 to skip.
+1. **Replay prefill**, by extension. `ExpertPrefill(n_steps)` runs the
+   expert for `n_steps` steps in each environment and writes them to the
+   replay buffer, flagged as expert rows. Every row also stores the expert's
+   action at `s` and `s′`, which several extensions read later. Under gain
+   mode a row stores the anchor gains (action 0) as the action, as
+   collection does when the expert acts as itself. SAC's deprecated
+   `expert_buffer_n_steps` builds it, and with an expert SAC adds
+   `ExpertPrefill(n_steps=20_000)` by default, with a warning, until that
+   default goes: pass the extension, or `expert_buffer_n_steps=0` for none.
 2. **Cloning**, by extension. `CloningPretrain(expert, n_steps=...)` rolls
    the expert out for `n_steps` steps per environment, in the observation
    layout the agent sees, and trains the actor to reproduce its actions for
@@ -196,7 +200,8 @@ thousands of steps for a real run (its defaults collect about a million).
    returns, and records the range of values it predicts. Unlike a Bellman
    target, a Monte-Carlo return does not lean on an untrained critic, so it
    is unbiased. `BellmanPretrain` instead runs ordinary critic updates on the
-   prefilled buffer; it is kept for ablations.
+   prefilled buffer (it needs `ExpertPrefill` or `PriorData` in the stack);
+   it is kept for ablations.
 
 ### Warm-up
 
@@ -308,7 +313,7 @@ Ajax" marks a feature with no external reference.
 
 | You want to | Use | Method |
 | --- | --- | --- |
-| Start the replay with good experience | `ExpertPrefill(n_steps)` (SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL; SAC's `expert_buffer_n_steps`, on by default, until it goes); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
+| Start the replay with good experience | `ExpertPrefill(n_steps)` (SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL; SAC adds it by default with an expert, and its deprecated `expert_buffer_n_steps` builds it, until both go); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
 | Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, ASAC, DQN, IQL) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
 | Keep the actor near the dataset's actions | `ImitationLoss(None, target="replay", alpha=2.5)` (SAC, TD3, REDQ, ASAC) | TD3+BC (Fujimoto and Gu, 2021) on TD3 |
 | Keep the critic's target near the dataset's actions too | `TargetBC` with TD3+BC's term (TD3) | ReBRAC (Tarasov et al., 2023) |
@@ -334,7 +339,8 @@ built:
 | `OnlineBC`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox`, `PhiRefresh` | `MCPretrain` in the stack | when built |
 | `OnlineBC` | SAC with an `expert_policy`, whose actions it clones | when built |
 | `IBRL`, `LCBGatedBootstrap` | a discounted agent that keeps the raw next observations they read; `LCBGatedBootstrap` also a critic ensemble | when built |
-| `BellmanPretrain`, `ExpertValueMetrics` | an `expert_policy` and the agent's replay | when built |
+| `BellmanPretrain` | the agent's replay, filled by `ExpertPrefill` or `PriorData` | when built |
+| `ExpertValueMetrics` | an `expert_policy` and the agent's replay | when built |
 | `ImitationLoss(q_filter=True)` | a Q critic (SAC, TD3, REDQ, ASAC, AVG); without `ResidualPolicy` | when built; with `ResidualPolicy`, when training starts |
 | `CloningPretrain` | SAC, TD3, REDQ, ASAC, AVG or APO; first among the pre-training extensions | the agent when built, the order when training starts |
 

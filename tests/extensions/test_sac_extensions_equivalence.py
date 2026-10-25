@@ -76,6 +76,10 @@ Re-captured when SAC's actor step took its keys from the state
 Re-captured when SAC stopped splitting a third, discarded key off its
 replay key (left from a removed expert-batch mix): up to 2.0e-3 (critic),
 3.7e-4 (actor), 7.6e-5 (target), 1.0e-4 (alpha).
+
+BellmanPretrain's golden was re-captured when it came to require a seeded
+replay: it had been recorded on the empty replay expert_buffer_n_steps=0
+left, so it pre-trained on nothing; it now runs on ExpertPrefill(n_steps=40).
 """
 
 from __future__ import annotations
@@ -91,7 +95,12 @@ from optax.tree_utils import tree_norm
 from ajax.agents.SAC.SAC import SAC
 from ajax.extensions.expert import JSRLCurriculum, OnlineBC, ResidualPolicy
 from ajax.extensions.exploration import EDGEExploration
-from ajax.extensions.pretrain import BellmanPretrain, MCPretrain, PhiRefresh
+from ajax.extensions.pretrain import (
+    BellmanPretrain,
+    ExpertPrefill,
+    MCPretrain,
+    PhiRefresh,
+)
 from ajax.extensions.target_mods import (
     IBRL,
     CriticBlend,
@@ -193,7 +202,12 @@ CASES: dict[str, dict[str, Any]] = {
         LCBGatedBootstrap(expert_policy=_EXPERT)
     ),
     "test_mc_pretrain_matches_legacy_flag": _expert(_MC),
-    "test_bellman_pretrain_matches_legacy_flag": _expert(BellmanPretrain(n_steps=20)),
+    # On the expert's prefill: recorded first on the empty replay that
+    # expert_buffer_n_steps=0 left, which BellmanPretrain now refuses.
+    "test_bellman_pretrain_matches_legacy_flag": {
+        "expert_policy": _EXPERT,
+        "extensions": (ExpertPrefill(n_steps=40), BellmanPretrain(n_steps=20)),
+    },
     # CriticBlend reads the expert critic MC pretraining fits. The legacy
     # default ``use_online_bc=True`` appended an OnlineBC whenever MC
     # pretraining ran; the golden was captured under it.

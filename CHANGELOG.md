@@ -203,11 +203,32 @@ PyPI as `ajax-rl`.
 - **`ExpertPrefill(n_steps)`** (`ajax.extensions.pretrain`): the agent's
   expert acts `n_steps` steps in every env before training and its
   transitions go to the replay as collection writes its own, on SAC, REDQ,
-  ASAC, TQC, TD3, CrossQ and IQL. The rows count in no normaliser and no
-  timestep. SAC's `expert_buffer_n_steps` gives way to it when both are
-  set. The pretraining now runs the replay's seeders (`ExpertPrefill`,
+  ASAC, TQC, TD3, CrossQ and IQL. The rows count once in the observation
+  and reward normalisers, as `PriorData`'s do (one shared function,
+  `ajax.agents.loop.count_in_normalisers`), and in no timestep. The
+  pretraining now runs the replay's seeders (`ExpertPrefill`,
   `PriorData`) first, in stack order; `train_offline` refuses a prefill
-  that would overwrite the dataset's rows.
+  that would overwrite the dataset's rows. **Deprecated**: SAC's
+  `expert_buffer_n_steps` builds it, after the other extensions, and warns.
+  Its default is now `None`, which with an expert still builds
+  `ExpertPrefill(n_steps=20_000)`, with a warning that this default will
+  go; the keyword (even 0) next to the extension raises.
+- **SAC's expert prefill runs in the pretraining**, as `ExpertPrefill`:
+  `init_SAC` and SAC's `make_train` lose it and `expert_buffer_n_steps`.
+  It is the same algorithm on other random numbers: the prefill draws the
+  extension's key, and a run whose stack held no other learner extension
+  now draws one more key per update. Under its old key the prefill's rows,
+  statistics and timestep are bitwise the old ones. Under `train_offline`
+  its rows now come after the dataset's, and a prefill that would overwrite
+  them is refused. A run's config records `expert_buffer_n_steps` as passed
+  (`None` by default, where it recorded 20000). Its rows now count in the
+  observation and reward normalisers, which they skipped: a run combining
+  the prefill with normalisation starts from other statistics.
+- **`BellmanPretrain` requires a seeded replay** (`ExpertPrefill` or
+  `PriorData` in the stack) instead of the agent's expert: with an expert
+  and `expert_buffer_n_steps=0` it ran on an empty replay, where it
+  pre-trained on nothing, and now it is refused. Beside `PriorData` it
+  runs without an expert.
 - **Fixed: gain mode's expert columns.** Under `ExpertGains` the replay's
   `a_expert` and `next_a_expert` took the width of the gains, while they
   hold the expert's env action: an expert with fewer gains than action
@@ -219,8 +240,9 @@ PyPI as `ajax-rl`.
   ExpertValueMetrics, CloningPretrain, MCPretrain): those are env actions,
   the policy's are gains.
 - **Fixed: the expert prefill under an action transform.** SAC's prefill
-  (`expert_buffer_n_steps`) wrote the expert's env action into the action
-  column, which gain mode keeps for the gains. A prefill row now stores what
+  (`expert_buffer_n_steps`, now `ExpertPrefill`) wrote the expert's env
+  action into the action column, which gain mode keeps for the gains. A
+  prefill row now stores what
   collection stores when the expert acts as itself, the policy action each
   transform names (`policy_action_for_expert`): the anchor gains (0) under
   `ExpertGains`, and under `ResidualPolicy` a residual of 0 as the policy's

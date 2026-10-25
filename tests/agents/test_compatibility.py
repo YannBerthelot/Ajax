@@ -34,7 +34,7 @@ import ajax.extensions as extensions_package
 from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions.base import Extension
 from ajax.extensions.capabilities import MissingCapability, NotWired
-from ajax.extensions.pretrain import MCPretrain
+from ajax.extensions.pretrain import ExpertPrefill, MCPretrain
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import CNNSpec
 from tests.agents.TDMPC2.test_TDMPC2MultiTask import make_dataset
@@ -126,11 +126,10 @@ GAPS: dict[str, dict[str, str]] = {
         "PhiRefresh": "TD3 REDQ TQC CrossQ DQN IQL",
     },
     CONTEXT: {
-        "BellmanPretrain": "TD3 REDQ TQC CrossQ ASAC",
+        "BellmanPretrain": "TD3 REDQ TQC CrossQ ASAC DQN IQL",
         "CloningPretrain": "APG PPO UDRL",
     },
     EXPERT: {
-        "BellmanPretrain": "DQN IQL",
         "ExpertPrefill": "DQN",
         "ExpertValueMetrics": "DQN",
         "ExpertWarmup": "DQN",
@@ -295,6 +294,10 @@ def verdict(agent: str, env: str, column: str) -> tuple[str, str]:
         companions = (
             (MCPretrain(expert_policy=expert),) if "phi_star" in ext.needs() else ()
         )
+        # A module reading a seeded replay (BellmanPretrain) gets the expert's
+        # prefill, which fills it.
+        if "seeded_replay" in ext.needs():
+            companions = (*companions, ExpertPrefill(n_steps=4))
         kwargs = {"extensions": (*companions, ext)}
         takes = inspect.signature(agent_class(agent).__init__).parameters
         if name in MODULE_EXPERTS and env != "CartPole-v1" and "expert_policy" in takes:

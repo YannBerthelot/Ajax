@@ -24,10 +24,6 @@ from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import executed_fn
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
-from ajax.extensions.pretrain import (
-    ExpertPrefill,
-    collect_and_store_expert_transitions,
-)
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import latent
 from ajax.networks.networks import action_value, predict_value
@@ -83,13 +79,16 @@ def init_SAC(
     stored_state: bool = False,
     expert_policy: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
     num_critics: int = 2,
-    expert_buffer_n_steps: int = 20_000,
     count_episode_steps: bool = False,
     store_raw_next_obs: bool = False,
     store_expert_data: bool = False,
     store_return_to_go: bool = False,
 ) -> SACState:
-    rng, init_key, collector_key, expert_key, eval_rng = jax.random.split(key, 5)
+    # Deliberate workaround: the fourth key fed SAC's built-in expert prefill,
+    # now the ExpertPrefill extension, which draws its own. It is still split
+    # and left unused so that every other key, and so every run without a
+    # prefill, stays as it was.
+    rng, init_key, collector_key, _, eval_rng = jax.random.split(key, 5)
 
     actor_state, critic_state, collector_state = core.init_soft_actor_critic(
         init_key,
@@ -110,22 +109,6 @@ def init_SAC(
             "include_is_expert": store_expert_data,
         },
     )
-    if (
-        expert_policy is not None
-        and buffer is not None
-        and collector_state.buffer_state is not None
-        and expert_buffer_n_steps > 0
-    ):
-        collector_state = collector_state.replace(
-            buffer_state=collect_and_store_expert_transitions(
-                expert_policy=expert_policy,
-                env_args=env_args,
-                buffer=buffer,
-                buffer_state=collector_state.buffer_state,
-                rng=expert_key,
-                n_steps=expert_buffer_n_steps,
-            )
-        )
 
     # A per-env step_in_episode counter for the extensions that read it;
     # left None otherwise, so the collector skips its reset/increment.
@@ -412,7 +395,6 @@ def make_train(
     eval_expert_policy: Optional[Callable] = None,
     fixed_alpha: bool = False,
     num_critics: int = 2,
-    expert_buffer_n_steps: int = 20_000,
     num_critic_updates: int = 1,
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
@@ -424,9 +406,10 @@ def make_train(
 ):
     """SAC's train function on :meth:`TrainLoop.off_policy`.
 
-    expert_policy:      used for training (warmup seeding, expert buffer
-                        prefill, residual / JSRL collection-time
-                        substitution). Pass None for true vanilla SAC.
+    expert_policy:      used for training (the stored expert actions and
+                        the extensions it is bound to: the warm-up mix,
+                        the replay prefill, the residual policy, JSRL).
+                        Pass None for true vanilla SAC.
     eval_expert_policy: used ONLY for eval logging (expert bias metric).
                         Defaults to ``expert_policy`` if unset.
     extensions:         composable research features (see
@@ -477,16 +460,6 @@ def make_train(
         offline_data=offline_data,
     )
 
-    # Deliberate workaround, a bridge while both prefills exist: SAC's
-    # built-in prefill (expert_buffer_n_steps) gives way to an ExpertPrefill
-    # in its stack, so the replay is filled once. Naming the extension here
-    # breaks the rule that an agent knows no extension; the prefill-shim
-    # change (expand, then contract) turns expert_buffer_n_steps into an
-    # ExpertPrefill and deletes this check with init_SAC's prefill.
-    builtin_prefill = expert_policy is not None and not any(
-        isinstance(extension, ExpertPrefill) for extension in stack
-    )
-
     def init(key: jax.Array) -> SACState:
         return init_SAC(
             key=key,
@@ -499,7 +472,6 @@ def make_train(
             buffer=buffer,
             expert_policy=expert_policy,
             num_critics=num_critics,
-            expert_buffer_n_steps=expert_buffer_n_steps if builtin_prefill else 0,
             count_episode_steps=any(e.reads_step_in_episode for e in stack),
             # Kept only for an extension that declares it reads it.
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),

@@ -18,9 +18,13 @@ from ajax.extensions.observe import (
     ExpertStateInput,
     TrainingProgressInput,
 )
+from ajax.extensions.pretrain import ExpertPrefill
 
 #: SAC's warm-up mix while expert_fraction is left unset (None), until B7.
 DEFAULT_WARMUP_FRACTION = 0.7
+#: SAC's expert prefill while expert_buffer_n_steps is left unset (None),
+#: until B7.
+DEFAULT_PREFILL_STEPS = 20_000
 
 
 def augmentation_features(
@@ -86,12 +90,51 @@ def warmup_extension(
     return (ExpertWarmup(fraction=share),)
 
 
+def prefill_extension(
+    expert: Any,
+    n_steps: Optional[int],
+    extensions: Sequence[Any],
+    stacklevel: int = 3,
+) -> tuple:
+    """The ExpertPrefill that SAC's expert_buffer_n_steps stands for (None:
+    20 000 steps with an expert), beside the run's extensions: none without
+    an expert or without steps. A prefill built from the default warns that
+    the default will go; a number of steps passed warns that the keyword
+    will go, and raises next to an ExpertPrefill."""
+    given = any(isinstance(extension, ExpertPrefill) for extension in extensions)
+    if n_steps is not None:
+        if given:
+            raise ValueError(
+                "Pass SAC's expert_buffer_n_steps or ExpertPrefill, not both."
+            )
+        warnings.warn(
+            f"SAC's expert_buffer_n_steps will be removed: pass ExpertPrefill("
+            f"n_steps={n_steps}) (ajax.extensions.pretrain) in extensions, or"
+            " none for no expert prefill.",
+            FutureWarning,
+            stacklevel=stacklevel,
+        )
+    steps = DEFAULT_PREFILL_STEPS if n_steps is None else n_steps
+    if expert is None or given or steps <= 0:
+        return ()
+    if n_steps is None:
+        warnings.warn(
+            f"SAC with an expert_policy adds ExpertPrefill(n_steps={steps}) by"
+            " default; this default will be removed: pass it in extensions to"
+            " keep it.",
+            FutureWarning,
+            stacklevel=stacklevel,
+        )
+    return (ExpertPrefill(n_steps=steps),)
+
+
 def translate_deprecated_keywords(
     expert: Any,
     *,
     extensions: Sequence[Any],
     learning_starts: int,
     expert_fraction: Optional[float],
+    expert_buffer_n_steps: Optional[int],
     normalize_observations: bool,
     normalize_obs_running: bool,
     use_train_frac: bool,
@@ -103,7 +146,9 @@ def translate_deprecated_keywords(
 ) -> tuple[tuple, bool]:
     """The extensions SAC's deprecated keywords stand for, which SAC appends
     to the caller's extensions, and its normalize_observations. Every
-    keyword set warns, pointing at the caller of SAC()."""
+    keyword set warns, pointing at the caller of SAC(). The prefill comes
+    last, so every other extension keeps its place in the stack and its
+    key."""
     # The critic pretraining skip_critic_pretrain switched off is gone: True
     # changes nothing, False cannot be honoured.
     if not skip_critic_pretrain:
@@ -139,6 +184,10 @@ def translate_deprecated_keywords(
         *warmup_extension(
             expert, expert_fraction, (*extensions, *built), learning_starts, 4
         ),
+    )
+    built = (
+        *built,
+        *prefill_extension(expert, expert_buffer_n_steps, (*extensions, *built), 4),
     )
     warn_inert(
         "SAC",

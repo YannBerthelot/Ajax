@@ -188,14 +188,23 @@ def test_mc_returns_carry_the_reward_scale():
     )
 
 
-def test_bellman_pretrain_needs_the_agent_context_and_expert():
-    """Unbound, its pretrain phase raises; on an agent without an expert (so
-    no expert prefill to pre-train on), SAC refuses it when built."""
+def test_bellman_pretrain_needs_the_agent_context_and_a_seeded_replay():
+    """Unbound, its pretrain phase raises; without a seeder (ExpertPrefill
+    or PriorData) the replay is empty when it runs, so SAC refuses it when
+    built, with an expert or without one."""
     context = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
     with pytest.raises(ValueError, match="did not bind"):
         BellmanPretrain().pretrain(None, (), context)
-    with pytest.raises(MissingCapability, match="give the agent an expert_policy"):
-        SAC("Pendulum-v1", extensions=(BellmanPretrain(n_steps=1),))
+    bellman = (BellmanPretrain(n_steps=1),)
+    with pytest.raises(MissingCapability, match="add ExpertPrefill or PriorData"):
+        SAC("Pendulum-v1", extensions=bellman)
+    with pytest.raises(MissingCapability, match="add ExpertPrefill or PriorData"):
+        SAC(
+            "Pendulum-v1",
+            expert_policy=lambda obs: obs[..., :1],
+            expert_buffer_n_steps=0,
+            extensions=bellman,
+        )
 
 
 def test_cloning_pretrain_binds_the_agent_context():

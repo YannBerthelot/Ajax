@@ -84,10 +84,10 @@
     "alpha": 0.9819842576980591
   },
   "test_bellman_pretrain_matches_legacy_flag": {
-    "critic": 561.7606811523438,
-    "actor": 267.1540832519531,
-    "target": 535.2028198242188,
-    "alpha": 0.9819810390472412
+    "critic": 558.8314819335938,
+    "actor": 267.17913818359375,
+    "target": 535.27294921875,
+    "alpha": 0.9819806218147278
   },
   "test_critic_blend_matches_legacy_flag": {
     "critic": 557.8854370117188,

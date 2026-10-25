@@ -426,8 +426,7 @@ def make_train(
     )
     if lr_schedule == "warmup_cosine":
         peak = actor_optimizer_args.learning_rate
-        if not isinstance(peak, (int, float)):
-            raise ValueError("lr_schedule='warmup_cosine' needs a float learning_rate")
+        assert isinstance(peak, (int, float))  # APG's constructor refuses others
         actor_optimizer_args = actor_optimizer_args.replace(
             learning_rate=warmup_cosine_schedule(
                 float(peak),
@@ -437,8 +436,6 @@ def make_train(
                 end_value_fraction=lr_end_fraction,
             )
         )
-    elif lr_schedule is not None:
-        raise ValueError(f"Unknown lr_schedule {lr_schedule!r}; use 'warmup_cosine'")
 
     loop = TrainLoop.create(
         env_args,

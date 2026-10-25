@@ -165,6 +165,14 @@ class APG(ActorCritic):
         # Resolved before run_config, so the logged config holds what runs.
         memory = with_default_init(parse_memory_config(memory), APG_MEMORY_INITS)
         self.config = run_config(locals(), self.name)
+        # Refused at construction, before a train call starts anything (its
+        # logging worker).
+        if lr_schedule not in (None, "warmup_cosine"):
+            raise ValueError(
+                f"Unknown lr_schedule {lr_schedule!r}; use 'warmup_cosine'"
+            )
+        if lr_schedule is not None and not isinstance(learning_rate, (int, float)):
+            raise ValueError("lr_schedule='warmup_cosine' needs a float learning_rate")
 
         # Read by the extension check in the base initialiser.
         self.expert_policy = expert_policy

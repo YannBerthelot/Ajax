@@ -286,8 +286,11 @@ def test_warmup_cosine_schedule_is_wired_and_validated(env_and_class):
     agent = make_agent(env, sc, lr_schedule="warmup_cosine", warmup_steps=2)
     _, aux = agent.train(seed=0, n_timesteps=4 * N_ENVS * HORIZON)
     assert jnp.isfinite(aux.loss).all()
+    # Refused at construction, before a train call starts its logging worker.
     with pytest.raises(ValueError, match="lr_schedule"):
-        make_agent(env, sc, lr_schedule="linear").train(seed=0, n_timesteps=64)
+        make_agent(env, sc, lr_schedule="linear")
+    with pytest.raises(ValueError, match="needs a float learning_rate"):
+        make_agent(env, sc, lr_schedule="warmup_cosine", learning_rate=lambda s: 1e-3)
     # A warmup longer than the run is clamped, leaving one decay step:
     # warmup_cosine_schedule rejects warmup_steps >= total_steps when the
     # train function is built, before anything is traced.

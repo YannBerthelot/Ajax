@@ -1,10 +1,11 @@
 from flax import struct
 
-from ajax.agents.SAC.state import SACConfig, SoftACState
+from ajax.agents.SAC.state import SACConfig
+from ajax.agents.temperature import SoftActorCriticState
 
 
 @struct.dataclass(kw_only=True)
-class TQCState(SoftACState):
+class TQCState(SoftActorCriticState):
     """TQC's state: a soft actor-critic's, nothing more."""
 
 

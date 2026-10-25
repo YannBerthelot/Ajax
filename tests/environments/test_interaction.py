@@ -476,6 +476,36 @@ def test_collect_experience_steps_every_env_once_per_call(env_id):
         )
 
 
+def test_the_collector_counts_each_envs_steps_in_its_episode_only_when_asked():
+    """count_episode_steps keeps step_in_episode, each env's steps in its
+    episode: 2 after two steps, back to 0 where the time limit (3) ended
+    it; without it the collector keeps none."""
+    distribution, _ = COLLECTORS["Pendulum-v1"]
+    env, params = make_gymnax_env("Pendulum-v1")
+    params = params.replace(max_steps_in_episode=3)
+    env_args = EnvironmentConfig(env=env, env_params=params, n_envs=2, continuous=True)
+    key = jax.random.PRNGKey(0)
+    assert init_collector_state(key, env_args, "gymnax").step_in_episode is None
+    actor = _constant_actor(distribution)
+    collector = init_collector_state(key, env_args, "gymnax", count_episode_steps=True)
+    state = BaseAgentState(
+        rng=key,
+        eval_rng=key,
+        actor_state=actor,
+        critic_state=actor,
+        collector_state=collector,
+    )
+    collect = partial(
+        collect_experience, recurrent=False, mode="gymnax", env_args=env_args
+    )
+    counts = []
+    for _ in range(4):
+        state, _ = collect(state, None)
+        counts.append(state.collector_state.step_in_episode.tolist())
+    assert counts == [[1, 1], [2, 2], [0, 0], [1, 1]]
+    assert state.collector_state.step_in_episode.dtype == jnp.int32
+
+
 @pytest.mark.parametrize("bonus", [-3.0, 0.0, 2.0])
 def test_a_value_box_entry_ends_the_agents_episode_whatever_its_bonus(bonus):
     """Entering the value box pays the expert's value as a bonus and ends

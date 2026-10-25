@@ -19,14 +19,13 @@ from ajax.agents.critics import compute_q_regression_loss
 from ajax.agents.recurrent import actor_dist
 from ajax.agents.SAC.core import (
     alpha_temperature_loss_fn,
-    create_alpha_train_state,
     soft_bellman_target,
     soft_policy_loss,
     soft_policy_objective,
     temperature_loss_fn,
-    update_temperature,
 )
 from ajax.agents.SAC.train_SAC import init_SAC
+from ajax.agents.temperature import create_alpha_train_state, update_temperature
 from ajax.agents.update_steps import update_target_networks
 from ajax.buffers.utils import get_buffer
 from ajax.state import (
@@ -117,6 +116,7 @@ def test_update_temperature(env_config, SAC_state):
         agent_state=SAC_state,
         log_probs=log_probs,
         target_entropy=target_entropy,
+        loss=temperature_loss_fn,
     )
     aux = to_state_dict(aux)
     assert not _allclose(updated_state.alpha.params, original_alpha_params)

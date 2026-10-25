@@ -11,8 +11,10 @@ from ajax.controller import (
     ObserveInputs,
     acting_state,
     executed_actions,
+    executed_fn,
     feature_width,
     init_observers,
+    make_scored_action,
     observation_layout,
     observe_features,
     observers_of,
@@ -121,6 +123,16 @@ def test_the_critics_score_the_residual_transforms_executed_actions():
         np.testing.assert_array_equal(
             executed_actions(env_args, actions, a_expert), actions
         )
+
+
+def test_the_scored_action_is_the_executed_one_under_a_residual_policy_only():
+    """make_scored_action: actions -> executed(actions, a_expert) at the
+    rows' stored expert actions; None without a residual policy."""
+    assert make_scored_action(None, jnp.ones((2, 1))) is None
+    residual = SimpleNamespace(transforms=(ResidualPolicy(scale=0.5),))
+    actions, a_expert = jnp.full((2, 1), 0.5), jnp.full((2, 1), 0.75)
+    scored = make_scored_action(executed_fn(residual), a_expert)
+    np.testing.assert_allclose(scored(actions), 0.75 + 0.25)
 
 
 class _Count(Extension):

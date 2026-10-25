@@ -1,21 +1,21 @@
 from typing import Any, Optional
 
 from flax import struct
-from flax.training.train_state import TrainState
 
 from ajax.agents.recurrent import RecurrentReplayConfig
-from ajax.state import BaseAgentState, LoadedTrainState
+from ajax.agents.temperature import SoftActorCriticState
+from ajax.deprecation import moved_names
+from ajax.state import LoadedTrainState
+
+# A soft actor-critic's state moved to the temperature's shared home; the
+# old name serves it until 0.5.0.
+__getattr__ = moved_names(
+    __name__, {"SoftACState": "ajax.agents.temperature:SoftActorCriticState"}
+)
 
 
 @struct.dataclass(kw_only=True)
-class SoftACState(BaseAgentState):
-    """A soft actor-critic's state: the base one plus the temperature."""
-
-    alpha: TrainState  # log-temperature, params["log_alpha"]
-
-
-@struct.dataclass(kw_only=True)
-class SACState(SoftACState):
+class SACState(SoftActorCriticState):
     """SAC's state, with the frozen expert critic phi* its extensions fill."""
 
     expert_critic_params: Optional[Any] = None

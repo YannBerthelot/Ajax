@@ -26,7 +26,12 @@ from ajax.agents.recurrent import (
 )
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
-from ajax.agents.SAC.core import TemperatureAuxiliaries
+from ajax.agents.temperature import (
+    TemperatureAuxiliaries,
+    create_alpha_train_state,
+    get_alpha,
+    update_temperature,
+)
 from ajax.agents.update_steps import update_target_networks
 from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import critic_action_units, executed_fn
@@ -138,7 +143,7 @@ def init_REDQ(
         eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state.replace(action_units=critic_action_units),
-        alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
+        alpha=create_alpha_train_state(**to_state_dict(alpha_args)),
         collector_state=collector_state,
     )
 
@@ -227,7 +232,7 @@ def update_value_functions(
 ) -> Tuple[REDQState, ValueAuxiliaries, dict]:
     """One critic step of the ensemble on the random-subset target."""
     agent_state, key = agent_state.next_keys()
-    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+    alpha = get_alpha(agent_state)
     # A truncated row bootstraps on its final observation (bootstrap_obs).
     dones = batch.terminated
     target_q, next_log_probs = compute_redq_td_target(
@@ -386,8 +391,11 @@ def update_agent(
         executed=executed,
     )
     agent_state = agent_state.replace(critic_state=critic_state, alpha=learned)
-    agent_state, aux_temperature = core.update_temperature(
-        agent_state, log_probs, jnp.asarray(agent_config.target_entropy)
+    agent_state, aux_temperature = update_temperature(
+        agent_state,
+        log_probs,
+        jnp.asarray(agent_config.target_entropy),
+        core.temperature_loss_fn,
     )
     aux = AuxiliaryLogs(
         temperature=aux_temperature,

@@ -5,7 +5,6 @@ import pytest
 
 from ajax.agents.ASAC import train_ASAC
 from ajax.agents.ASAC.ASAC import ASAC
-from ajax.agents.SAC import core
 from ajax.networks.distributions import GuardedTanh
 from ajax.networks.networks import get_initialized_actor_critic, predict_value
 from tests.conformance import kit
@@ -74,7 +73,7 @@ def test_temperature_and_theta_read_the_actors_own_sample(monkeypatch):
     the actor's loss drew, before its step, as the authors' code
     (BobMak/asac @4b68862, darer/ASAC.py:146-213): no other draw."""
     seen, drawn = [], []
-    temperature, theta = core.update_temperature, train_ASAC.update_theta
+    temperature, theta = train_ASAC.update_temperature, train_ASAC.update_theta
     policy = train_ASAC.update_policy
 
     def policy_spy(*args, **kwargs):
@@ -91,7 +90,7 @@ def test_temperature_and_theta_read_the_actors_own_sample(monkeypatch):
         return theta(*args)
 
     monkeypatch.setattr(train_ASAC, "update_policy", policy_spy)
-    monkeypatch.setattr(core, "update_temperature", temperature_spy)
+    monkeypatch.setattr(train_ASAC, "update_temperature", temperature_spy)
     monkeypatch.setattr(train_ASAC, "update_theta", theta_spy)
     net = ("8", "relu")
     agent = ASAC(

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
@@ -47,9 +47,14 @@ from ajax.agents.families import (
 )
 from ajax.agents.recurrent import sample_replay
 from ajax.agents.SAC import core
-from ajax.agents.SAC.core import TemperatureAuxiliaries
-from ajax.agents.SAC.state import SoftACState
-from ajax.controller import policy_action_dim
+from ajax.agents.temperature import (
+    SoftActorCriticState,
+    TemperatureAuxiliaries,
+    create_alpha_train_state,
+    get_alpha,
+    update_temperature,
+)
+from ajax.controller import make_scored_action, policy_action_dim
 from ajax.extensions.base import merge_metrics
 from ajax.networks.networks import (
     action_value_input,
@@ -157,7 +162,7 @@ class CrossQ(
             actor_state=actor_state,
             # No target networks: nothing reads a copy of the critics.
             critic_state=critic_state.replace(target_params=None),
-            alpha=core.create_alpha_train_state(**to_state_dict(self.alpha_args)),
+            alpha=create_alpha_train_state(**to_state_dict(self.alpha_args)),
             collector_state=collector_state,
         )
 
@@ -193,7 +198,7 @@ class CrossQ(
         a'), its running statistics kept (sbx/sac/sac.py:251-342);
         a' is executed (a residual policy's)."""
         critic_key, next_key, agent_state = agent_state.get_keys_and_new_state(2)
-        alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+        alpha = get_alpha(agent_state)
         next_actions, next_log_probs = core.sample_next_actions(
             agent_state.actor_state,
             batch.next_obs,
@@ -261,11 +266,9 @@ class CrossQ(
         statistics (at the executed actions, a residual policy's), then the
         temperature's on the same samples (sbx/sac/sac.py:355-400)."""
         actor_key, agent_state = agent_state.get_keys_and_new_state()
-        alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
+        alpha = get_alpha(agent_state)
         actor_state, critic_state = agent_state.actor_state, agent_state.critic_state
-        transform = None
-        if context.executed is not None:
-            transform = partial(scored_action, context.executed, batch.a_expert)
+        transform = make_scored_action(context.executed, batch.a_expert)
 
         def policy_loss(params: Any) -> tuple[jax.Array, Any, jax.Array]:
             policy, batch_stats = get_policy_updating_batch_statistics(
@@ -300,7 +303,7 @@ class CrossQ(
         )
         actor_state = actor_state.replace(batch_stats=batch_stats)
         # The authors' temperature loss: alpha, not log alpha, times the gap.
-        agent_state, temperature = core.update_temperature(
+        agent_state, temperature = update_temperature(
             agent_state.replace(actor_state=actor_state),
             jax.lax.stop_gradient(log_probs),
             jnp.asarray(self.target_entropy),
@@ -337,14 +340,9 @@ def make_batch_renorm_mlp(width: int) -> tuple[str, ...]:
     return ("batchrenorm", *layer, *layer)
 
 
-def scored_action(executed: Callable, a_expert: Any, actions: jax.Array) -> jax.Array:
-    """The executed action the critics score (a residual policy's)."""
-    return executed(actions, a_expert)
-
-
 # -- State, logged metrics and the legacy view --------------------------------
 @struct.dataclass(kw_only=True)
-class CrossQState(SoftACState):
+class CrossQState(SoftActorCriticState):
     """CrossQ's state: a soft actor-critic's, its critics without targets."""
 
 

@@ -7,6 +7,7 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
+from ajax.agents.action_pipeline import make_action_pipeline
 from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.loop import TrainLoop, actor_step, critic_step, run_if
 from ajax.agents.recurrent import (
@@ -16,12 +17,16 @@ from ajax.agents.recurrent import (
     unsupported_recurrent_options,
 )
 from ajax.agents.SAC import core
-from ajax.agents.SAC.action_pipeline import make_action_pipeline
-from ajax.agents.SAC.core import TemperatureAuxiliaries, update_temperature
 from ajax.agents.SAC.state import SACConfig, SACState
+from ajax.agents.temperature import (
+    TemperatureAuxiliaries,
+    create_alpha_train_state,
+    get_alpha,
+    update_temperature,
+)
 from ajax.agents.update_steps import update_target_networks
 from ajax.buffers.dataset import TransitionDataset
-from ajax.controller import executed_fn
+from ajax.controller import executed_fn, make_scored_action
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
 from ajax.logging.wandb_logging import LoggingConfig
@@ -107,22 +112,16 @@ def init_SAC(
             "include_return_to_go": store_return_to_go,
             "include_raw_obs": store_expert_data,
             "include_is_expert": store_expert_data,
+            "count_episode_steps": count_episode_steps,
         },
     )
-
-    # A per-env step_in_episode counter for the extensions that read it;
-    # left None otherwise, so the collector skips its reset/increment.
-    if count_episode_steps:
-        collector_state = collector_state.replace(
-            step_in_episode=jnp.zeros((env_args.n_envs,), dtype=jnp.int32)
-        )
 
     return SACState(
         rng=rng,
         eval_rng=eval_rng,
         actor_state=actor_state,
         critic_state=critic_state,
-        alpha=core.create_alpha_train_state(**to_state_dict(alpha_args)),
+        alpha=create_alpha_train_state(**to_state_dict(alpha_args)),
         collector_state=collector_state,
     )
 
@@ -152,7 +151,7 @@ def update_value_functions(
         dones=dones,
         rewards=transition.reward,
         gamma=gamma,
-        alpha=jnp.exp(agent_state.alpha.params["log_alpha"]),
+        alpha=get_alpha(agent_state),
         rng=key,
         recurrent=recurrent,
         reward_scale=reward_scale,
@@ -229,12 +228,8 @@ def update_policy(
     (CleanRL's SAC order; cited from memory, unverified) and the extensions'
     metrics."""
     agent_state, key, sample_key = agent_state.next_keys(2)
-    alpha = jnp.exp(agent_state.alpha.params["log_alpha"])
-    transform = None
-    if executed is not None:
-
-        def transform(actions: jax.Array) -> jax.Array:
-            return executed(actions, a_expert)
+    alpha = get_alpha(agent_state)
+    transform = make_scored_action(executed, a_expert)
 
     def policy_loss(params: FrozenDict) -> Tuple[jax.Array, Any, jax.Array]:
         loss, (log_probs, q, pi) = core.soft_policy_loss(
@@ -361,7 +356,10 @@ def update_agent(
     # is kept from alpha_update_start, never with ``fixed_alpha`` (alpha stays
     # at ``alpha_init``).
     new_agent_state_temp, aux_temperature = update_temperature(
-        agent_state, policy_log_probs, jnp.asarray(at(target_entropy, timestep))
+        agent_state,
+        policy_log_probs,
+        jnp.asarray(at(target_entropy, timestep)),
+        core.temperature_loss_fn,
     )
     alpha_ready = jnp.logical_and(not fixed_alpha, timestep >= alpha_update_start)
     agent_state = run_if(alpha_ready, lambda _: new_agent_state_temp, agent_state)

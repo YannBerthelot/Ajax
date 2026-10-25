@@ -256,6 +256,22 @@ def executed_fn(env_args: Any) -> Optional[Callable[[jax.Array, Any], jax.Array]
     return None
 
 
+def make_scored_action(
+    executed: Optional[Callable[[jax.Array, Any], jax.Array]], a_expert: Any
+) -> Optional[Callable[[jax.Array], jax.Array]]:
+    """actions -> the actions the critics score at rows whose expert's stored
+    actions are a_expert: a residual policy's executed ones (executed,
+    executed_fn's); None without a residual policy, so the learner traces
+    nothing extra."""
+    if executed is None:
+        return None
+
+    def scored_action(actions: jax.Array) -> jax.Array:
+        return executed(actions, a_expert)
+
+    return scored_action
+
+
 def policy_action_dim(env_args: Any) -> int:
     """The dimension of the actions the policy chooses: gain mode's, the
     expert's learnable gains (``env_args.policy_action_dim``), else the

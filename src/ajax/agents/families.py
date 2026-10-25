@@ -36,6 +36,7 @@ from functools import partial
 from typing import Any, ClassVar, Optional, Union
 
 import jax
+import jax.numpy as jnp
 from flax import struct
 from gymnax import EnvParams
 
@@ -59,6 +60,7 @@ from ajax.networks.networks import (
     get_initialized_actor_critic,
     state_value,
 )
+from ajax.schedule import Schedule, at
 from ajax.state import (
     AlphaConfig,
     BaseAgentConfig,
@@ -238,14 +240,15 @@ class EntropyTemperature:
             actor's (CrossQ's authors step every network at one rate).
         alpha_init: The temperature's initial value.
         target_entropy_per_dim: The target entropy per dimension of the
-            policy's actions (gain mode's gains).
+            policy's actions (gain mode's gains): a constant, or a function
+            of the timestep (ajax.schedule).
         alpha_update_start: The env steps collected before the
             temperature's steps are kept (0: from the first update).
     """
 
     alpha_learning_rate: Optional[float] = 3e-4
     alpha_init: float = 1.0
-    target_entropy_per_dim: float = -1.0
+    target_entropy_per_dim: Schedule = -1.0
     alpha_update_start: int = 0
 
     @property
@@ -257,10 +260,25 @@ class EntropyTemperature:
         return AlphaConfig(learning_rate=rate, alpha_init=self.alpha_init)
 
     @property
-    def target_entropy(self: Any) -> float:
+    def target_entropy(self: Any) -> Schedule:
         """target_entropy_per_dim times the policy's action width (gain
-        mode's gains)."""
-        return self.target_entropy_per_dim * policy_action_dim(self.env_args)
+        mode's gains), at each timestep for a schedule."""
+        per_dim, width = self.target_entropy_per_dim, policy_action_dim(self.env_args)
+        if callable(per_dim):
+            return lambda timestep: per_dim(timestep) * width
+        return per_dim * width
+
+    def target_entropy_over(self, total_timesteps: int) -> Schedule:
+        """The target entropy over a run of total_timesteps steps:
+        target_entropy (SAC's deprecated ramp reads the run's length)."""
+        del total_timesteps
+        return self.target_entropy
+
+    def target_entropy_at(self, agent_state: Any, total_timesteps: int) -> jax.Array:
+        """The target entropy at agent_state's timestep, in a run of
+        total_timesteps steps."""
+        schedule = self.target_entropy_over(total_timesteps)
+        return jnp.asarray(at(schedule, agent_state.collector_state.timestep))
 
     def temperature_update_due(self, agent_state: Any) -> Union[bool, jax.Array]:
         """Whether the temperature's step counts at this update: from

@@ -6,6 +6,12 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **A soft actor-critic's target entropy may be a schedule**:
+  `target_entropy_per_dim` takes a function of the timestep
+  (`ajax.schedule`, as TD3's `exploration_noise`) on every agent with the
+  shared entropy temperature (`EntropyTemperature`): CrossQ now, the SAC
+  family as each is declared. SAC's `target_entropy_initial_per_dim` and
+  `target_entropy_ramp_frac` build that ramp until 0.5.0.
 - **Every agent with an expert takes eval_expert_policy**, SAC's option:
   the expert whose return each evaluation logs, if not the training one
   (`ExpertGuided`). **Every agent on the shared loop reads

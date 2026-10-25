@@ -1,18 +1,8 @@
-from flax import struct
+"""REDQ's state and config, now in :mod:`ajax.agents.REDQ.REDQ`; their old
+path imports them with a FutureWarning until 0.5.0."""
 
-from ajax.agents.SAC.SAC import SACConfig
-from ajax.agents.temperature import SoftActorCriticState
+from ajax.deprecation import moved_names
 
-
-@struct.dataclass(kw_only=True)
-class REDQState(SoftActorCriticState):
-    """REDQ's state: a soft actor-critic's, nothing more."""
-
-
-@struct.dataclass(kw_only=True)
-class REDQConfig(SACConfig):
-    """SAC's hyperparameters plus REDQ's ensemble ones."""
-
-    num_critics: int = 10
-    subset_size: int = 2
-    num_critic_updates: int = 20
+__getattr__ = moved_names(
+    __name__, dict.fromkeys(("REDQConfig", "REDQState"), "ajax.agents.REDQ.REDQ")
+)

@@ -11,7 +11,8 @@ on its key, and the critic and actor updates record what they receive.
 
 from __future__ import annotations
 
-from typing import Any, cast
+import dataclasses
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -19,9 +20,8 @@ import numpy as np
 import pytest
 from jax.flatten_util import ravel_pytree
 
-from ajax.agents.REDQ import train_REDQ
-from ajax.agents.REDQ.REDQ import REDQ
-from ajax.agents.REDQ.state import REDQConfig, REDQState
+import ajax.agents.REDQ.REDQ as redq_module
+from ajax.agents.REDQ.REDQ import REDQ, REDQState
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
 from ajax.state import Transition
@@ -29,8 +29,8 @@ from ajax.state import Transition
 UPDATES = 3
 BATCH = 4
 
-update_values = train_REDQ.update_value_functions
-update_policy = train_REDQ.update_policy
+update_values = REDQ.update_critic
+update_policy = REDQ.update_actor
 
 
 def record(seen: list[np.ndarray], value: jax.Array) -> None:
@@ -53,25 +53,11 @@ def one_update(monkeypatch: pytest.MonkeyPatch) -> REDQState:
         column = jnp.zeros((BATCH, 1))
         return Transition(obs, column, column, column, column, obs, obs), None
 
-    monkeypatch.setattr(train_REDQ, "sample_replay", keyed_batch)
-    state = train_REDQ.init_REDQ(
-        jax.random.PRNGKey(0),
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.alpha_args,
-        agent.buffer,
-        number_of_critics=agent.agent_config.num_critics,
-    )
-    state, _ = train_REDQ.update_agent(
-        state,
-        agent.buffer,
-        False,
-        cast(REDQConfig, agent.agent_config),
-        ExtensionStack(()),
-        total_timesteps=1_000,
-    )
+    monkeypatch.setattr(redq_module, "sample_replay", keyed_batch)
+    context = agent.make_context(1_000)[1]
+    context = dataclasses.replace(context, extensions=ExtensionStack(()))
+    state = agent.init(jax.random.PRNGKey(0), context)
+    state, _ = agent.update(state, context)
     jax.effects_barrier()
     return state
 
@@ -80,16 +66,16 @@ def test_each_critic_update_gets_a_fresh_batch(monkeypatch: pytest.MonkeyPatch) 
     critic_obs: list[np.ndarray] = []
     actor_obs: list[np.ndarray] = []
 
-    def spy_values(agent_state: Any, batch: Any, *args: Any) -> Any:
+    def spy_values(agent: Any, agent_state: Any, batch: Any, *args: Any) -> Any:
         record(critic_obs, batch.obs)
-        return update_values(agent_state, batch, *args)
+        return update_values(agent, agent_state, batch, *args)
 
-    def spy_policy(agent_state: Any, obs: jax.Array, *args: Any, **kw: Any) -> Any:
-        record(actor_obs, obs)
-        return update_policy(agent_state, obs, *args, **kw)
+    def spy_policy(agent: Any, agent_state: Any, batch: Any, *args: Any) -> Any:
+        record(actor_obs, batch.obs)
+        return update_policy(agent, agent_state, batch, *args)
 
-    monkeypatch.setattr(train_REDQ, "update_value_functions", spy_values)
-    monkeypatch.setattr(train_REDQ, "update_policy", spy_policy)
+    monkeypatch.setattr(REDQ, "update_critic", spy_values)
+    monkeypatch.setattr(REDQ, "update_actor", spy_policy)
     one_update(monkeypatch)
 
     assert len(critic_obs) == UPDATES and len(actor_obs) == 1
@@ -109,18 +95,18 @@ def test_the_actor_reads_the_critics_before_their_last_update(
     def flat_critics(agent_state: Any) -> jax.Array:
         return ravel_pytree(agent_state.critic_state.params)[0]
 
-    def spy_values(agent_state: Any, *args: Any) -> Any:
+    def spy_values(agent: Any, agent_state: Any, *args: Any) -> Any:
         record(critics_in, flat_critics(agent_state))
-        agent_state, *out = update_values(agent_state, *args)
+        agent_state, *out = update_values(agent, agent_state, *args)
         record(critics_out, flat_critics(agent_state))
         return agent_state, *out
 
-    def spy_policy(agent_state: Any, *args: Any, **kw: Any) -> Any:
+    def spy_policy(agent: Any, agent_state: Any, *args: Any) -> Any:
         record(actor_reads, flat_critics(agent_state))
-        return update_policy(agent_state, *args, **kw)
+        return update_policy(agent, agent_state, *args)
 
-    monkeypatch.setattr(train_REDQ, "update_value_functions", spy_values)
-    monkeypatch.setattr(train_REDQ, "update_policy", spy_policy)
+    monkeypatch.setattr(REDQ, "update_critic", spy_values)
+    monkeypatch.setattr(REDQ, "update_actor", spy_policy)
     state = one_update(monkeypatch)
 
     assert len(critics_in) == UPDATES and len(actor_reads) == 1

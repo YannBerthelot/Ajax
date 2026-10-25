@@ -161,21 +161,6 @@ def compute_double_dqn_td_target(
     return jax.lax.stop_gradient(target)
 
 
-@partial(
-    jax.jit,
-    static_argnames=[
-        "buffer",
-        "gamma",
-        "tau",
-        "target_update_interval",
-        "reward_scale",
-        "td_target_fn",
-        "td_loss_fn",
-        "extension_stack",
-        "total_timesteps",
-        "epsilon_schedule",
-    ],
-)
 def update_agent(
     agent_state: DQNState,
     _: Any,

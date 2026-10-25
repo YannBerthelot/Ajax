@@ -36,8 +36,10 @@ class DQN(ActorCritic):
             "warmup",
         }
     )
+    # Its explore pipeline runs the warm-up's chooser (choose_warmup_action),
+    # once DQN takes the expert ExpertWarmup needs.
     supported_extension_phases: frozenset = LOOP_PHASES.union(
-        {"on_target", "critic_loss"}
+        {"on_target", "critic_loss", "choose_warmup_action"}
     )
     phase_batch_keys: Mapping[str, frozenset] = {
         "on_target": frozenset({"actions", "dones", "reward_scale"}),

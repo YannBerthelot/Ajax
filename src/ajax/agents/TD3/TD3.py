@@ -108,13 +108,24 @@ class TD3(
         # A pipeline written before the acting state is adapted, with a
         # warning (a transitional shim, interaction.with_acting_state).
         self.pipeline = with_acting_state(self.action_pipeline)
+        # The user's pipeline replaces the default one, which alone runs the
+        # warm-up's chooser.
+        if self.pipeline is not None and self.env_args.warmups:
+            names = [warmup.name for warmup in self.env_args.warmups]
+            raise ValueError(
+                f"TD3's action_pipeline never sees the warm-up's chooser {names}:"
+                " pass one or the other."
+            )
 
     def choose_behaviour(self, context: TrainContext) -> Optional[Callable]:
         if self.pipeline is not None:
             return self.pipeline
         transform = next(iter(context.env_args.transforms), None)
         return make_default_action_pipeline(
-            context.recurrent, self.exploration_noise, transform
+            context.recurrent,
+            self.exploration_noise,
+            transform,
+            context.env_args.warmups,
         )
 
     def init(self, key: jax.Array, context: TrainContext) -> TD3State:
@@ -410,13 +421,19 @@ def make_gaussian_exploration(exploration_noise: Schedule) -> Explore:
 
 
 def make_default_action_pipeline(
-    recurrent: bool, exploration_noise: Schedule, transform: Any = None
+    recurrent: bool,
+    exploration_noise: Schedule,
+    transform: Any = None,
+    warmups: tuple = (),
 ) -> Callable:
     """TD3's action pipeline: make_gaussian_exploration, through the run's
     residual transform where it has one, uniform actions during the
-    warm-up."""
+    warm-up, or its chooser's (warmups: ExpertWarmup)."""
     return explore_pipeline(
-        make_gaussian_exploration(exploration_noise), recurrent, transform=transform
+        make_gaussian_exploration(exploration_noise),
+        recurrent,
+        transform=transform,
+        warmups=warmups,
     )
 
 

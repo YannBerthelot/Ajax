@@ -24,7 +24,7 @@ from ajax.environments.interaction import (
     reset,
     step,
 )
-from ajax.extensions.expert import ExpertGains
+from ajax.extensions.expert import ExpertGains, ExpertWarmup
 from ajax.networks.distributions import Squash
 from ajax.state import (
     BaseAgentState,
@@ -528,7 +528,8 @@ def test_a_value_box_entry_ends_the_agents_episode_whatever_its_bonus(bonus):
 def test_an_explore_policy_acts_after_the_warm_up_and_uniform_during_it(env_id):
     """explore_pipeline steps and stores explore's action (a discrete one as
     a column) with zero log-probs and no expert; during the warm-up the env
-    steps a uniform action instead, which the replay stores."""
+    steps a uniform action instead, which the replay stores, or its warm-up
+    chooser's."""
     distribution, continuous = COLLECTORS[env_id]
     env, params = make_gymnax_env(env_id)
     env_args = EnvironmentConfig(
@@ -573,6 +574,25 @@ def test_an_explore_policy_acts_after_the_warm_up_and_uniform_during_it(env_id):
     warm, transition = collect(state, None, uniform=True)
     np.testing.assert_array_equal(transition.action, [[chosen], [chosen]])
     assert (stored(warm) != chosen).any() and (np.abs(stored(warm)) <= 1).all()
+    # A warm-up chooser taking every warm-up step hands it to the expert,
+    # whose action the replay stores, flagged; a later step is not flagged.
+    expert_choice = 0.25 if continuous else 0
+
+    def expert(obs):
+        shape = obs.shape[:1] + ((1,) if continuous else ())
+        return jnp.full(shape, expert_choice)
+
+    chooser = step_module.explore_pipeline(
+        explore,
+        recurrent=False,
+        n_actions=None if continuous else 2,
+        warmups=(ExpertWarmup(fraction=1.0),),
+    )
+    expert_kwargs = step_module.expert_collect_kwargs(expert, chooser, False, 2)
+    for uniform, flag, action in ((True, 1.0, expert_choice), (False, 0.0, chosen)):
+        acted, _ = collect(state, None, uniform=uniform, **expert_kwargs)
+        np.testing.assert_array_equal(stored(acted), [[action], [action]])
+        np.testing.assert_array_equal(acted.collector_state.last_expert_frac, flag)
 
 
 class _Pipelines:

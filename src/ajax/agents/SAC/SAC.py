@@ -58,8 +58,9 @@ class SAC(ActorCritic):
         }
     )
     # The action phase reaches only the action pipeline's slots, and
-    # transform_action and choose_warmup_action the pipeline, with an expert
-    # policy (check_action_extensions).
+    # transform_action the pipeline, with an expert policy
+    # (check_action_extensions); choose_warmup_action reaches SAC's pipeline,
+    # or the default one under gain mode.
     supported_extension_phases: frozenset = LOOP_PHASES.union(
         {
             "on_target",
@@ -271,12 +272,11 @@ class SAC(ActorCritic):
         if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("SAC only supports continuous action spaces.")
         # Gain mode (ExpertGains) acts through the default pipeline, which
-        # dispatches no action extension and no warm-up chooser yet.
+        # dispatches no action extension yet (it runs the warm-up's chooser).
         gain_mode = self.env_args.policy_action_dim is not None
         check_action_extensions(
             self.extension_stack,
             dispatched=expert_policy is not None and not gain_mode,
-            warmups=self.env_args.warmups,
         )
 
         # Gain mode's critic, buffer and target entropy act in gain space.

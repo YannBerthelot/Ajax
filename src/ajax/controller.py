@@ -183,10 +183,10 @@ def transforms_of(stack: Any) -> tuple[Any, ...]:
 
 class WarmupInputs(NamedTuple):
     """What a warm-up chooser reads in one step: the expert's action in the
-    space the warm-up draws (expert_action_for_warmup), and the key the
-    step's uniform actions were drawn on."""
+    space the warm-up draws (expert_action_for_warmup; None in a run without
+    an expert), and the key the step's uniform actions were drawn on."""
 
-    expert_action: jax.Array
+    expert_action: Optional[jax.Array]
     key: jax.Array
 
 
@@ -211,8 +211,11 @@ def choose_warmup_actions(
 
 
 def expert_action_for_warmup(
-    transform: Any, after_choice: bool, expert_action: jax.Array, policy_actions: Any
-) -> jax.Array:
+    transform: Any,
+    after_choice: bool,
+    expert_action: Optional[jax.Array],
+    policy_actions: Any,
+) -> Optional[jax.Array]:
     """The expert's action in the space the warm-up draws, which the replay
     stores: the executed one, unless the transform acts after the choice
     (gain mode, or a residual applied after it), where it is the policy

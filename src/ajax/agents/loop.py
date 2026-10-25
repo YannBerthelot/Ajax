@@ -415,7 +415,8 @@ class TrainLoop:
         """:func:`collect_experience`'s arguments for this run. With the
         agent's expert, its action pipeline also stores the expert's actions
         from the expert's tracked state, and gain mode actuates the chosen
-        action through it (:func:`expert_collect_kwargs`)."""
+        action through it, and the default pipeline runs the run's warm-up
+        chooser (:func:`expert_collect_kwargs`)."""
         common = {"recurrent": recurrent, "mode": self.mode, "env_args": self.env_args}
         args = dict(common)
         args.update(kwargs)
@@ -426,9 +427,10 @@ class TrainLoop:
         # The observation features read the expert the collector tracks.
         expert = {"expert": self.expert_policy} if self.env_args.observers else {}
         transform = next(iter(self.env_args.transforms), None)
+        warmups = self.env_args.warmups
         args.update(
             expert_collect_kwargs(
-                self.expert_policy, pipeline, recurrent, n_envs, transform
+                self.expert_policy, pipeline, recurrent, n_envs, transform, warmups
             )
         )
         args.update(expert)

@@ -37,6 +37,7 @@ class ASAC(ActorCritic):
             "warmup",
         }
     )
+    # The default pipeline runs the warm-up's chooser (choose_warmup_action).
     supported_extension_phases: frozenset = LOOP_PHASES.union(
         {
             "on_target",
@@ -44,6 +45,7 @@ class ASAC(ActorCritic):
             "actor_loss",
             "transform_action",
             "actuate",
+            "choose_warmup_action",
         }
     )
     phase_batch_keys: Mapping[str, frozenset] = REPLAY_BATCH_KEYS

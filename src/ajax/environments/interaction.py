@@ -39,6 +39,7 @@ from ajax.environments.utils import (
     check_env_is_playground,
     check_if_environment_has_continuous_actions,
     env_keys,
+    flatten_action_column,
     get_raw_env,
     get_state_action_shapes,
     raw_obs_columns,
@@ -663,6 +664,11 @@ def explore_pipeline(
                 expert_action = expert_action_for_warmup(
                     transform, False, acting.expert_action, action
                 )
+                # A discrete expert's (n_envs, 1) index column would broadcast
+                # against the policy's (n_envs,) indices in the choice.
+                if discrete:
+                    expert_action = flatten_action_column(expert_action, False)
+                    expert_action = expert_action.astype(action.dtype)
                 uniform_action, expert_took = choose_warmup_actions(
                     warmups, uniform_action, WarmupInputs(expert_action, mix_key)
                 )
@@ -1329,7 +1335,11 @@ def collect_experience_from_expert_policy(
                 step(
                     rng_step,
                     env_state,
-                    agent_action_to_env(action, env_args.env, env_args.env_params),
+                    agent_action_to_env(
+                        flatten_action_column(action, env_args.continuous),
+                        env_args.env,
+                        env_args.env_params,
+                    ),
                     env_args.env,
                     mode,
                     env_args.env_params,

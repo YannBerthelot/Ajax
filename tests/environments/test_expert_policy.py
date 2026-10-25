@@ -7,6 +7,7 @@ import pytest
 
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
+from ajax.controller import ObserveInputs
 from ajax.environments.interaction import collect_experience_from_expert_policy
 from ajax.environments.system_class import broadcast_env_params
 from ajax.environments.utils import ExpertInAgentUnits, agent_action_to_env
@@ -16,6 +17,7 @@ from ajax.extensions.expert import (
     ResidualPolicy,
     reads_stored_expert_actions,
 )
+from ajax.extensions.observe import ExpertActionInput
 from ajax.extensions.target_mods import IBRL
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import EnvironmentConfig, Transition
@@ -190,6 +192,39 @@ def test_per_env_params_give_the_expert_one_box():
     params = params.replace(max_torque=jnp.array([1.0, 2.0, 2.0]))
     with pytest.raises(ValueError, match="different action bounds"):
         ExpertInAgentUnits(lambda o: o, env, params)
+
+
+def _push_toward_lean(obs):
+    """CartPole's expert: push toward the pole's lean (1 pushes right), its
+    action index an int (n, 1) column."""
+    return (obs[..., 2:3] > 0).astype(jnp.int32)
+
+
+def test_the_expert_collector_steps_cartpole_and_stores_index_columns():
+    env, params = gymnax.make("CartPole-v1")
+    env_args = EnvironmentConfig(env=env, env_params=params, n_envs=2, continuous=False)
+    rows = collect_experience_from_expert_policy(
+        _push_toward_lean, jax.random.PRNGKey(0), "gymnax", env_args, n_timesteps=6
+    )
+    assert rows.action.shape == (6, 2, 1) and rows.action.dtype == jnp.int32
+    np.testing.assert_array_equal(rows.action, _push_toward_lean(rows.raw_obs))
+    assert rows.obs.shape == (6, 2, 4) and (rows.next_obs != rows.obs).any()
+
+
+def test_a_discrete_experts_action_enters_one_hot():
+    """The expert in agent units records the action count on a discrete env
+    (None when continuous), and ExpertActionInput gives its index that
+    many columns, the width it declares."""
+    env, params = gymnax.make("CartPole-v1")
+    expert = ExpertInAgentUnits(_push_toward_lean, env, params)
+    assert expert.action_count == 2
+    continuous = ExpertInAgentUnits(_push_toward_lean, *gymnax.make("Pendulum-v1"))
+    assert continuous.action_count is None
+    obs = jnp.array([[0.0, 0.0, 0.1, 0.0], [0.0, 0.0, -0.1, 0.0]])
+    columns, _ = ExpertActionInput().observe(ObserveInputs(obs, expert), None)
+    np.testing.assert_array_equal(columns, [[0.0, 1.0], [1.0, 0.0]])
+    env_args = EnvironmentConfig(env=env, env_params=params, n_envs=2, continuous=False)
+    assert ExpertActionInput().observation_width(env_args) == 2
 
 
 # ---------------------------------------------------------------------------

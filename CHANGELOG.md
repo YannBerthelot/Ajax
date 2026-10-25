@@ -6,6 +6,19 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **AVG is a declared agent**, `agents/AVG/AVG.py`, on a new family,
+  `IncrementalAgent` (`ajax.agents.families`): one update on each step as
+  it comes, no replay. Keyword-only after `env_id`, fixed fields,
+  `AVGConfig` a view of them; `train_AVG`, `AVG.state` and `AVG.utils`
+  import their names with a FutureWarning until 0.5.0
+  (`value_loss_function` and `policy_loss_function` are
+  `compute_critic_loss` and `compute_policy_loss`; `init_AVG`,
+  `update_AVG_values` (`update_step_statistics`), `update_agent`,
+  `update_value_functions`, `update_policy` and `make_train` became
+  methods). AVG claims the warm-up it always had before a positive
+  `learning_starts`, so `ExpertWarmup` reaches it, and it takes
+  `policy_update_start` and `eval_expert_policy`. Training is unchanged,
+  bitwise.
 - **ASAC is a declared agent**, `agents/ASAC/ASAC.py`, as SAC is:
   keyword-only after `env_id`, fixed fields, `ASACConfig` a view of them;
   `train_ASAC`, `ASAC.state` and `ASAC.utils` import their names with a

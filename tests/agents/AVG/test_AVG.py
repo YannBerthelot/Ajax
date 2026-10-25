@@ -18,7 +18,7 @@ def test_avg_keeps_its_network_optimizer_and_env_settings():
         assert (args.beta_1, args.beta_2, args.eps) == (0.0, 0.99, 1e-8)
     assert agent.env_args.store_normalized_obs  # normalised at collection
     assert not AVG.supports_memory
-    assert agent.get_make_train().keywords["alpha_args"] is agent.alpha_args
+    assert agent.alpha_args.learning_rate == 0.0  # its temperature never steps
 
 
 def test_avg_keeps_its_temperature_at_alpha_init():

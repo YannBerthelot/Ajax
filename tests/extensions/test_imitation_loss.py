@@ -22,7 +22,6 @@ import pytest
 import ajax.agents.PPO.PPO as ppo_module
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
-from ajax.agents.AVG import train_AVG
 from ajax.agents.AVG.AVG import AVG
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.REDQ.REDQ import REDQ
@@ -431,20 +430,14 @@ def _ppo_update(stack: ExtensionStack) -> Any:
 
 def _avg_update(stack: ExtensionStack) -> Any:
     agent = AVG("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
-    state = train_AVG.init_AVG(
-        KEY,
-        agent.env_args,
-        agent.actor_optimizer_args,
-        agent.critic_optimizer_args,
-        agent.network_args,
-        agent.alpha_args,
-    )
-    state = _ext_state(state, stack)
-    obs = _obs(agent)
-    raw_actions = jnp.zeros((BATCH, 1))  # the pre-squash sample AVG steps through
-    state, *_ = train_AVG.update_policy(
-        state, obs, raw_actions, stack, total_timesteps=1, raw_observations=obs
-    )
+    # The stack as given, unbound, as each test builds it.
+    context = dataclasses.replace(agent.make_context(1)[1], extensions=stack)
+    state = _ext_state(agent.init(KEY, context), stack)
+    obs, column = _obs(agent), jnp.zeros((BATCH, 1))
+    # The pre-squash sample AVG steps through: zeros.
+    batch = Transition(obs, column, column, column, column, obs, raw_obs=obs)
+    batch = batch.replace(raw_action=column)
+    state, *_ = agent.update_actor(state, batch, None, context)
     return state.actor_state.params
 
 

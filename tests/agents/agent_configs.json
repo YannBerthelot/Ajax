@@ -199,6 +199,7 @@
    "env_id": "fast",
    "env_params": null,
    "episode_length": null,
+   "eval_expert_policy": null,
    "expert_policy": null,
    "expose_recent_rollout": false,
    "extensions": [],
@@ -207,6 +208,7 @@
    "max_grad_norm": null,
    "n_envs": 1,
    "num_critics": 1,
+   "policy_update_start": 0,
    "reward_scale": 1.0,
    "weight_decay": 0.0
   }

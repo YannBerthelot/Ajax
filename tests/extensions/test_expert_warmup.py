@@ -139,8 +139,9 @@ NO_WARMUP = frozenset({"warmup", "warmup_steps"})
     [
         (PPO, NO_WARMUP),  # on policy: every step is the policy's
         (TQC, NO_WARMUP),  # acts with its policy from step 0, as its authors do
-        (AVG, NO_WARMUP),  # no replay: warm-up steps would feed no update
-        (IQL, frozenset({"warmup_steps"})),  # its learning_starts is 0
+        # Their learning_starts is 0: no step before it to warm up with.
+        (AVG, frozenset({"warmup_steps"})),
+        (IQL, frozenset({"warmup_steps"})),
     ],
 )
 def test_the_warmup_is_refused_where_there_is_none(cls, lacks):
@@ -154,6 +155,25 @@ ARCHITECTURES = {
     "actor_architecture": ("16", "relu"),
     "critic_architecture": ("16", "relu"),
 }
+
+
+def test_the_expert_takes_avgs_warmup():
+    """AVG's warm-up, before a learning_starts above 0, runs the warm-up's
+    chooser as the replay agents' does (one rule in both off-policy
+    families): at fraction 1 the expert takes every warm-up step."""
+    warmup = (ExpertWarmup(fraction=1.0),)
+    agent = AVG(
+        "Pendulum-v1",
+        n_envs=2,
+        learning_starts=16,
+        expert_policy=push,
+        extensions=warmup,
+        **ARCHITECTURES,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=8)
+    assert float(state.collector_state.last_expert_frac[0]) == 1.0
+
+
 #: Each agent with a uniform warm-up but SAC, with its small networks.
 WARMUP_AGENTS: dict[str, tuple[Any, dict[str, Any]]] = {
     "TD3": (TD3, ARCHITECTURES),

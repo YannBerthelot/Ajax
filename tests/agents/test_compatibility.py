@@ -128,6 +128,7 @@ GAPS: dict[str, dict[str, str]] = {
     },
     EXPERT: {
         "BellmanPretrain": "DQN IQL",
+        "ExpertPrefill": "DQN",
         "ExpertValueMetrics": "DQN",
         **dict.fromkeys(FEATURES[:2], "DQN PQN"),
     },
@@ -176,10 +177,11 @@ GAPS: dict[str, dict[str, str]] = {
         "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO UDRL DAgger IQL DreamerV3"
         " TDMPC2 TDMPC2MultiTask"
     },
-    PRIOR: {
-        "PriorData": "UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3"
-        " DreamerV3/discrete TDMPC2MultiTask"
-    },
+    PRIOR: dict.fromkeys(
+        ("PriorData", "ExpertPrefill"),
+        "UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3"
+        " DreamerV3/discrete TDMPC2MultiTask",
+    ),
 }
 
 
@@ -235,6 +237,7 @@ def field_values(env: str) -> dict[str, Any]:
     return {
         "expert_policy": expert,
         "threshold": 1.0,
+        "n_steps": 4,
         "dataset": episode,
         "demonstrations": episode,
         # A PID's error x[1] - x[0], on every row's observation.

@@ -50,6 +50,7 @@ RUN_CAPABILITIES: Mapping[str, str] = {
     "discrete_actions": "an environment with discrete actions",
     "agent_expert": "give the agent an expert_policy",
     "phi_star": "add MCPretrain(expert_policy=...), which fits phi*, to the extensions",
+    "seeded_replay": "add ExpertPrefill or PriorData, which fill the replay before training",
 }
 
 #: The capabilities each phase needs; the others need none.

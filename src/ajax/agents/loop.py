@@ -715,9 +715,24 @@ class TrainLoop:
         """
         data = self.offline_data
         assert data is not None
+        # The rows the pretraining writes (ExpertPrefill) come after the
+        # dataset's: past the replay's capacity its ring would overwrite them.
+        n_envs = self.env_args.n_envs
+        added = sum(extension.replay_rows(n_envs) for extension in self.extensions)
 
         def seeded(key: jax.Array) -> Any:
-            return seed_replay(init(key), buffer, data, self.env_args)
+            agent_state = init(key)
+            experience = agent_state.collector_state.buffer_state.experience
+            replay_envs, rows_per_env = jax.tree.leaves(experience)[0].shape[:2]
+            capacity = replay_envs * rows_per_env
+            if len(data.reward) + added > capacity:
+                raise ValueError(
+                    f"The dataset's {len(data.reward)} rows and the {added} the"
+                    " extensions write before training outnumber the replay's"
+                    f" {capacity}, which would overwrite dataset rows: raise"
+                    " buffer_size or write fewer."
+                )
+            return seed_replay(agent_state, buffer, data, self.env_args)
 
         def iteration(
             agent_state: Any, index: Any, tick: Any

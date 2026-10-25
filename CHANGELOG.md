@@ -148,7 +148,10 @@ PyPI as `ajax-rl`.
   transform names (`policy_action_for_expert`): the anchor gains (0) under
   `ExpertGains`, and under `ResidualPolicy` a residual of 0 as the policy's
   action (IQL fits those) beside the expert's executed action. SAC runs in
-  gain mode with a prefill learn other values.
+  gain mode with a prefill learn other values. A prefill row ending in a
+  termination keeps the reset observation as its next one, as collection
+  does (ASAC's differential target continues from it); it kept the final
+  one.
 - `NetworkConfig.squash_log_det_eps` sets the guard inside the `tanh`
   log-det, `log(1 - tanh(u)^2 + eps)`, for an agent whose reference uses
   one; 0, the exact log-det, by default. `NetworkConfig.log_variance_head`

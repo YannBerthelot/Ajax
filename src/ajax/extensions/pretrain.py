@@ -983,12 +983,15 @@ def collect_and_store_expert_transitions(
             " (actor_carry, stored_state=True): that carry exists only along"
             " the agent's own rollouts."
         )
+    # The next observations the live collector stores: after a termination
+    # the reset one, which ASAC's differential target continues from.
     transitions = collect_experience_from_expert_policy(
         expert_policy=expert_policy,
         rng=rng,
         mode=env_args.mode,
         env_args=env_args,
         n_timesteps=n_steps,
+        bootstrap_next_obs=True,
     )
     # A row stores what collection stores when the expert acts. Under an
     # action transform, the policy's action is the one at which it executes
@@ -1010,9 +1013,6 @@ def collect_and_store_expert_transitions(
                 (*step.reward.shape[:-1], policy_action_dim(env_args))
             )
             chosen = choose_for_expert(policy_actions)
-        # The expert collector's next observations are the final ones at
-        # every end, the live collector's (bootstrap_obs) at time limits
-        # only: they differ at terminations alone, which SAC's target masks.
         row = replay_row(
             schema,
             obs=step.obs,

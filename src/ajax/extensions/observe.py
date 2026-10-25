@@ -41,7 +41,7 @@ class ExpertActionInput(Extension):
     """The agent's expert's action at the observation, called from the
     state it holds there, in agent units: raw, since it is an action. An
     agent learning from the expert's labels alone (DAgger) would read the
-    label it learns: it refuses it (``reward_learning``). A discrete expert's
+    label it learns: it refuses it (reward_learning). A discrete expert's
     index enters one-hot, over the env's action count."""
 
     name: str = "expert_action"

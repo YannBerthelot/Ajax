@@ -147,9 +147,9 @@ class Row:
 class RowCollectorState(CollectorState):
     """:class:`CollectorState` plus the row collector's bookkeeping.
 
-    ``last_obs`` is the observation the next row emits, with its features
+    last_obs is the observation the next row emits, with its features
     (observer_states their states); reset_obs holds the env columns.
-    ``reward`` / ``is_first`` / ``is_last`` / ``is_terminal`` are that
+    reward / is_first / is_last / is_terminal are that
     row's flags.
     ``timestep`` advances by the unit the caller chose (``"rows"``:
     ``n_envs`` per tick, held ticks included; ``"env_steps"``: the number of
@@ -201,7 +201,7 @@ def init_row_collector_state(
     policy_carry: Any = None,
     window_size: int = 10,
 ) -> RowCollectorState:
-    """Reset the envs; the first row of every env is ``is_first``, its
+    """Reset the envs; the first row of every env is is_first, its
     features (env_args.observers) those before training (progress 0).
 
     Raises if the env stack normalises observations or rewards (module

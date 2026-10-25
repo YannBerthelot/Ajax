@@ -780,7 +780,7 @@ def evaluate_policy(
       with ``is_first`` set on the first step only;
     * every env runs exactly one episode: a scan over the episode length in
       agent steps (:func:`ajax.environments.utils.agent_episode_length`)
-      with rewards and lengths masked after each env's first ``done``;
+      with rewards and lengths masked after each env's first done;
     * every observation carries its features (env_args.observers) at the
       progress the collector of agent_state holds, frozen as evaluate holds it.
 

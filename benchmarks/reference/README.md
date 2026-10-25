@@ -45,8 +45,10 @@ uv run python benchmarks/reference/refcmp_protocol.py run PQN defaults
 uv run python benchmarks/reference/refcmp_protocol.py report PQN
 ```
 
-Each reference runs in its own uv project, `envs/<library>/`, created on
-first use from its lockfile; Ajax runs in the repository's. Ajax and
+Each reference runs in its own uv project, `envs/<library>/`, whose
+environment is built on first use from its lockfile, once per lock under
+`~/.cache/ajax/reference-envs` (`AJAX_REFERENCE_ENVS` moves it); Ajax runs in
+the repository's. Ajax and
 purejaxql train a batch of seeds in one program, SB3 and Brax one process
 per seed, all on the CPU. Every batch appends a record to
 `results/protocol/<comparison>.jsonl`: the per-seed evaluation curves, the

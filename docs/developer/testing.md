@@ -132,6 +132,9 @@ as do ASAC's and CrossQ's, on the versions their authors pinned
 (`benchmarks/reference/envs/asac`: stable-baselines3 2.4 and gymnasium
 1.0; `benchmarks/reference/envs/crossq`: jax, flax and Stable-Baselines3;
 `benchmarks/reference/envs/jax_offline`: ReBRAC's flax).
+Each environment is built on first use under `~/.cache/ajax/reference-envs`,
+once per lock file, so all checkouts share it; set `AJAX_REFERENCE_ENVS` to
+build them elsewhere.
 Each records its states to disk; CI keeps those records between runs while
 the original, its recorder and that environment's lock stay the same
 (`AJAX_CONFORMANCE_RECORDS`). TQC's original runs as written only on torch

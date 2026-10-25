@@ -35,7 +35,7 @@ from ajax.extensions.expert import (
     ResidualPolicy,
 )
 from ajax.extensions.observe import ExpertActionInput, TrainingProgressInput
-from ajax.extensions.pretrain import BellmanPretrain, MCPretrain
+from ajax.extensions.pretrain import BellmanPretrain, ExpertPrefill, MCPretrain
 from ajax.extensions.target_mods import ValueBox
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDPolicy
@@ -151,6 +151,7 @@ CROSSQ.update({**R, "learning_starts": 40})
 RESIDUAL = {"expert_policy": push, "extensions": (ResidualPolicy(), Keyed())}
 BC = {"expert_policy": push, "extensions": (ImitationLoss(push, coef=1.0),)}
 GAIN = {"expert_policy": GainExpert(), "extensions": (ExpertGains(),)}
+EXPERT_PREFILL = {"expert_policy": push, "extensions": (ExpertPrefill(n_steps=40),)}
 OBSERVE: dict[str, Any] = {"expert_policy": push}
 OBSERVE.update({"extensions": (ExpertActionInput(), TrainingProgressInput())})
 REWARD_NORM = {"normalize_rewards": True, "reward_normalization_gamma": 0.99}
@@ -195,6 +196,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         200,
     ),
     "TD3-offline": (TD3, OFFLINE_KW, 80),
+    "TD3-prefill": (TD3, {**S, **R, **EXPERT_PREFILL}, 200),
     "AVG": (AVG, {**S, "learning_starts": 20}, 200),
     "AVG-keyed": (AVG, {**S, "learning_starts": 20, "extensions": (Keyed(),)}, 200),
     "DAgger-keyed": (DAgger, {**DAGGER, "extensions": (ActorKeyed(),)}, 200),
@@ -214,6 +216,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "IQL-gain": (IQL, {**S, **R, **GAIN}, 200),
     "IQL-observe-norm": (IQL, {**S, **R, **OBSERVE, **NORM}, 200),
     "IQL-offline": (IQL, OFFLINE_KW, 80),
+    "IQL-prefill": (IQL, {**S, **R, **EXPERT_PREFILL}, 200),
     "DQN": (DQN, {**CART, "target_update_interval": 10}, 240),
     "DQN-keyed": (
         DQN,
@@ -289,6 +292,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "SAC-residual-bc": (SAC, {**NO_PREFILL, "extensions": RESIDUAL_BC}, 160),
     "REDQ": (REDQ, {**S, **R}, 120),
     "ASAC": (ASAC, {**S, **R}, 160),
+    "ASAC-prefill": (ASAC, {**S, **R, **EXPERT_PREFILL}, 160),
     "CrossQ": (CrossQ, CROSSQ, 160),
     "CrossQ-keyed": (CrossQ, {**CROSSQ, "extensions": (Keyed(),)}, 160),
     "CrossQ-residual": (CrossQ, {**CROSSQ, **RESIDUAL}, 160),

@@ -24,7 +24,10 @@ from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import executed_actions
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import ExtensionStack, holds_expert, merge_metrics
-from ajax.extensions.pretrain import collect_and_store_expert_transitions
+from ajax.extensions.pretrain import (
+    ExpertPrefill,
+    collect_and_store_expert_transitions,
+)
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.distributions import latent
 from ajax.networks.networks import action_value, predict_value
@@ -505,6 +508,16 @@ def make_train(
         offline_data=offline_data,
     )
 
+    # Deliberate workaround, a bridge while both prefills exist: SAC's
+    # built-in prefill (expert_buffer_n_steps) gives way to an ExpertPrefill
+    # in its stack, so the replay is filled once. Naming the extension here
+    # breaks the rule that an agent knows no extension; the prefill-shim
+    # change (expand, then contract) turns expert_buffer_n_steps into an
+    # ExpertPrefill and deletes this check with init_SAC's prefill.
+    builtin_prefill = expert_policy is not None and not any(
+        isinstance(extension, ExpertPrefill) for extension in stack
+    )
+
     def init(key: jax.Array) -> SACState:
         return init_SAC(
             key=key,
@@ -517,9 +530,7 @@ def make_train(
             buffer=buffer,
             expert_policy=expert_policy,
             num_critics=num_critics,
-            expert_buffer_n_steps=(
-                expert_buffer_n_steps if expert_policy is not None else 0
-            ),
+            expert_buffer_n_steps=expert_buffer_n_steps if builtin_prefill else 0,
             count_episode_steps=any(e.reads_step_in_episode for e in stack),
             # Kept only for an extension that declares it reads it.
             store_raw_next_obs="raw_next_obs" in stack.buffer_fields(),

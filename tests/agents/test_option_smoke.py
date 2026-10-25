@@ -169,6 +169,10 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "ExpertValueMetrics": (expert.ExpertValueMetrics, "SAC"),
     "BellmanPretrain": (lambda: pre.BellmanPretrain(n_steps=4), "SAC"),
     "PriorData": (prior_data, "SAC TD3 REDQ ASAC"),
+    "ExpertPrefill": (
+        lambda: pre.ExpertPrefill(n_steps=8),
+        "SAC TD3 REDQ ASAC TQC CrossQ IQL",
+    ),
     "ImitationLoss": (lambda: expert.ImitationLoss(stateless_expert), "APO"),
     "KernelRepulsion": (ensemble.KernelRepulsion, "REDQ"),
     "BiasVorePenalty": (instrumentation.BiasVorePenalty, "AVG"),
@@ -193,7 +197,7 @@ PHI_STAR = (
 NEEDS_EXPERT = "augment_obs_with_expert_action augment_obs_with_expert_state"
 NEEDS_EXPERT += " use_pid_policy expert_buffer_n_steps IBRL LCBGatedBootstrap"
 NEEDS_EXPERT += " ExpertValueMetrics CloningPretrain ResidualPolicy JSRLCurriculum"
-NEEDS_EXPERT += " ExpertActionInput ExpertStateInput ExpertGains"
+NEEDS_EXPERT += " ExpertActionInput ExpertStateInput ExpertGains ExpertPrefill"
 #: What an option or extension needs on in its row: phi* is MCPretrain's,
 #: BellmanPretrain reads its prefilled replay.
 REQUIRES = {o: {"MCPretrain"} for o in (*PHI_STAR.split(), "BellmanPretrain")}

@@ -15,6 +15,8 @@ refreshes MCPretrain's critic during training.
   frozen expert critic during training (the ``post_update`` phase).
 * :class:`PriorData`           — a transition dataset in the replay, and the
   agent's own updates on it before acting.
+* ExpertPrefill                — the agent's expert's transitions in the
+  replay before training.
 """
 
 from __future__ import annotations
@@ -1036,30 +1038,98 @@ def collect_and_store_expert_transitions(
     return buffer_state
 
 
+#: The prefill's own stream off the pretrain key. CloningPretrain and
+#: MCPretrain roll the expert out on split(key, n), and under the
+#: partitionable threefry split(key, n)[i] equals fold_in(key, i): a small
+#: tag would reuse one of their keys, a 32-bit one no realistic n reaches.
+EXPERT_PREFILL_KEY_TAG = 0x70726566
+
+
+@dataclass(frozen=True)
+class ExpertPrefill(Extension):
+    """The agent's expert acts n_steps steps in every env before training,
+    and its transitions go to the replay as collection writes its own
+    (collect_and_store_expert_transitions): with the agent's features at
+    training progress 0, is_expert 1, and under an action transform the
+    policy action that executes the expert's own. The rows count in no
+    normaliser and no timestep, as SAC's built-in prefill never counted
+    them, so learning_starts counts live steps.
+
+    It needs the agent's expert, a replay and an update that stays correct
+    on actions the policy did not choose: SAC, REDQ, ASAC, TQC, TD3, CrossQ
+    and IQL take it. It runs before the other pretraining, which may read
+    its rows (ExtensionStack.apply_pretrain)."""
+
+    n_steps: int
+    # The agent's expert, in agent units, bound by bind_to_agent.
+    expert: Any = None
+    name: str = "expert_prefill"
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"agent_expert", "off_policy", "replay"}
+    )
+    provides: ClassVar[frozenset[str]] = frozenset({"seeded_replay"})
+    context: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+    pretrain_context: ClassVar[frozenset[str]] = frozenset({"buffer", "env_args"})
+
+    def bind_to_agent(self, **agent_context: Any) -> "ExpertPrefill":
+        if self.expert is not None or "expert_policy" not in agent_context:
+            return self
+        return dataclasses.replace(self, expert=agent_context["expert_policy"])
+
+    def replay_rows(self, n_envs: int) -> int:
+        return self.n_steps * n_envs
+
+    def pretrain(
+        self, agent_state: Any, ext_state: Any, context: ExtensionContext
+    ) -> tuple[Any, Any]:
+        if self.expert is None:
+            raise ValueError(
+                "ExpertPrefill rolls out the agent's expert_policy, which the"
+                " agent did not bind."
+            )
+        key = jax.random.fold_in(context.rng, EXPERT_PREFILL_KEY_TAG)
+        collector = agent_state.collector_state
+        buffer_state = collect_and_store_expert_transitions(
+            self.expert,
+            context.env_args,
+            context.buffer,
+            collector.buffer_state,
+            key,
+            self.n_steps,
+        )
+        collector = collector.replace(buffer_state=buffer_state)
+        return agent_state.replace(collector_state=collector), ext_state
+
+
 @dataclass(frozen=True)
 class PriorData(Extension):
     """Prior data in the replay, and the agent's own updates on it before
     acting (offline-to-online RL).
 
-    Adds ``dataset``'s rows to the agent's replay, where they stay
-    (:func:`ajax.buffers.dataset.fill_replay`), and to its observation and
-    reward normalisers, each row counted once as collection counts its own;
-    then runs ``offline_updates`` of the agent's update on that replay: its
-    critic, actor and target steps and its extensions' loss terms, but no
-    ``post_update`` between them. ``offline_updates=0`` is RLPD's prior
-    data in the replay (Ball et al. 2023) without its symmetric sampling.
-    Ajax's warm-up acts uniformly: pair it with ``learning_starts=0``.
+    Adds the dataset's rows to the agent's replay, where they stay
+    (ajax.buffers.dataset.fill_replay), and to its observation and reward
+    normalisers, each row counted once as collection counts its own; then
+    runs offline_updates of the agent's update on that replay: its critic,
+    actor and target steps and its extensions' loss terms, but no
+    post_update between them. offline_updates=0 is RLPD's prior data in the
+    replay (Ball et al. 2023) without its symmetric sampling. Ajax's warm-up
+    acts uniformly: pair it with learning_starts=0.
 
-    Needs the replay and update an off-policy loop hands the ``pretrain``
-    phase (``pretrain_context``): any agent but SAC, TD3, REDQ, ASAC and DQN
-    refuses it when built.
+    Needs the replay and update an off-policy loop hands the pretrain phase
+    (pretrain_context): SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL and DQN take
+    it, every other agent refuses it when built.
     """
 
     dataset: TransitionDataset
     offline_updates: int = 0
     name: str = "prior_data"
     requires: ClassVar[frozenset[str]] = frozenset({"off_policy", "replay"})
+    provides: ClassVar[frozenset[str]] = frozenset({"seeded_replay"})
     pretrain_context: ClassVar[frozenset[str]] = frozenset({"buffer", "update"})
+
+    def replay_rows(self, n_envs: int) -> int:
+        del n_envs
+        return len(self.dataset.reward)
 
     def pretrain(
         self, agent_state: Any, ext_state: Any, context: ExtensionContext
@@ -1068,7 +1138,8 @@ class PriorData(Extension):
         if context.buffer is None or agent_update is None:
             raise ValueError(
                 "PriorData adds its rows to the agent's replay: give it to an"
-                " agent replaying transitions (SAC, TD3, REDQ, ASAC, DQN)."
+                " agent replaying transitions (SAC, TD3, REDQ, ASAC, TQC,"
+                " CrossQ, IQL, DQN)."
             )
         agent_state = seed_replay(
             agent_state, context.buffer, self.dataset, context.env_args
@@ -1086,6 +1157,7 @@ class PriorData(Extension):
 __all__ = [
     "BellmanPretrain",
     "CloningPretrain",
+    "ExpertPrefill",
     "MCPretrain",
     "PhiRefresh",
     "PriorData",

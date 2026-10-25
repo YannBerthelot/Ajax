@@ -131,6 +131,14 @@ PyPI as `ajax-rl`.
 - **IQL** sums its two critics' squared errors, as the reference does
   (`ikostrikov/implicit_q_learning`, `update_q`): it averaged them, which
   halved the critics' gradient against Adam's eps and `max_grad_norm`.
+- **`ExpertPrefill(n_steps)`** (`ajax.extensions.pretrain`): the agent's
+  expert acts `n_steps` steps in every env before training and its
+  transitions go to the replay as collection writes its own, on SAC, REDQ,
+  ASAC, TQC, TD3, CrossQ and IQL. The rows count in no normaliser and no
+  timestep. SAC's `expert_buffer_n_steps` gives way to it when both are
+  set. The pretraining now runs the replay's seeders (`ExpertPrefill`,
+  `PriorData`) first, in stack order; `train_offline` refuses a prefill
+  that would overwrite the dataset's rows.
 - **Fixed: gain mode's expert columns.** Under `ExpertGains` the replay's
   `a_expert` and `next_a_expert` took the width of the gains, while they
   hold the expert's env action: an expert with fewer gains than action

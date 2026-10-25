@@ -315,6 +315,12 @@ class Extension:
         del context
         return agent_state, ext_state
 
+    def replay_rows(self, n_envs: int) -> int:
+        """The rows its pretrain writes into a replay of n_envs envs
+        (ExpertPrefill, PriorData); none by default."""
+        del n_envs
+        return 0
+
     # -- per-iteration transforms (state-read-only) ----------------------
     def on_target(
         self,
@@ -547,11 +553,12 @@ class ExtensionStack:
         """One sub-key per extension (an empty stack splits nothing)."""
         return tuple(jax.random.split(rng, len(self.extensions)))
 
-    # Each ``apply_<phase>`` builds the phase's ExtensionContext and
-    # reads (and, for state-threading phases, writes)
-    # ``agent_state.ext_state``, in list order. On an empty stack it returns
-    # its input unchanged without building a context, so an agent without
-    # extensions traces nothing extra and never needs to guard a call.
+    # Each apply method builds its phase's ExtensionContext and reads (and,
+    # for state-threading phases, writes) agent_state.ext_state, in list
+    # order (the pretraining runs the replay's seeders first,
+    # apply_pretrain). On an empty stack it returns its input unchanged
+    # without building a context, so an agent without extensions traces
+    # nothing extra and never needs to guard a call.
 
     def apply_init(
         self, agent_state: Any, rng: jax.Array, total_steps: int, **run_fields: Any
@@ -598,9 +605,15 @@ class ExtensionStack:
             step=step, rng=rng, total_steps=total_steps, **run_fields
         )
         ext_states = list(agent_state.ext_state)
-        for i, ext in enumerate(self.extensions):
-            agent_state, ext_states[i] = ext.pretrain(
-                agent_state, ext_states[i], context
+        # The replay's seeders (ExpertPrefill, PriorData) run first, in stack
+        # order, since the other pretraining (BellmanPretrain) reads what
+        # they write. Each keeps its place in the stack, and so its state.
+        seeds = ["seeded_replay" in extension.provides for extension in self.extensions]
+        order = [index for index, seed in enumerate(seeds) if seed]
+        order.extend(index for index, seed in enumerate(seeds) if not seed)
+        for index in order:
+            agent_state, ext_states[index] = self.extensions[index].pretrain(
+                agent_state, ext_states[index], context
             )
         return agent_state.replace(ext_state=tuple(ext_states))
 

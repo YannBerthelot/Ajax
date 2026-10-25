@@ -15,12 +15,7 @@ from ajax.controller import feature_width, policy_action_dim
 from ajax.environments.obs_norm import apply_obs_norm
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.observe import pid_terms_at
-from ajax.modules.pid_actor import (
-    PID_LOG_STD_INIT,
-    PIDActor,
-    PIDPolicy,
-    check_pid_actor,
-)
+from ajax.modules.pid_actor import PIDActor, PIDPolicy, check_pid_actor
 from ajax.networks.distributions import squash
 from ajax.networks.memory import (
     Carry,
@@ -621,16 +616,15 @@ def get_initialized_actor_critic(
         pass
     elif isinstance(network_config.actor_architecture, PIDPolicy):
         check_pid_actor(continuous, memory)
-        # The PID actor's log-std is one learned parameter: the agent's
-        # log-std kernel init is for its Dense head and does not apply, and
-        # a start that head's layer would draw (None) is the PID actor's own.
-        log_std_init = network_config.log_std_init
+        # The agent's mean and log-std settings (kernel inits, log_std_init)
+        # are for its Gaussian MLP actor's head, often its reference code's:
+        # the PID actor in its place has one learned log-std parameter and
+        # always starts it at its own PID_LOG_STD_INIT, whatever the agent.
         policy = network_config.actor_architecture
         actor = PIDActor(
             policy=policy,
             action_dim=action_dim,
             tanh_mean=network_config.tanh_mean,
-            log_std_init=PID_LOG_STD_INIT if log_std_init is None else log_std_init,
             log_std_bounds=network_config.log_std_bounds,
             terms_at=pid_terms_at(env_config, policy.n_errors),
         )

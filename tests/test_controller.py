@@ -14,10 +14,12 @@ from ajax.controller import (
     executed_fn,
     feature_width,
     init_observers,
+    make_run_controller,
     make_scored_action,
     observation_layout,
     observe_features,
     observers_of,
+    restart_observers,
 )
 from ajax.environments.obs_norm import init_agent_obs_norm, update_obs_norm
 from ajax.extensions.base import Extension
@@ -200,3 +202,23 @@ def test_the_expert_steps_every_step_its_state_feeds_the_features():
     np.testing.assert_array_equal(observed, own)  # the actor's action either way
     np.testing.assert_array_equal(still, 0.0)
     np.testing.assert_array_equal(stepped, 1.0)
+
+
+def test_observers_and_a_stateful_expert_restart_where_an_episode_starts():
+    states, expert_state = (jnp.array([[3.0], [5.0]]),), jnp.array([[7.0], [9.0]])
+    started, count, expert = jnp.array([True, False]), (_Count(),), _GainExpert()
+    restarted = restart_observers(started, count, states, expert, expert_state, 2)
+    np.testing.assert_array_equal(restarted[0][0], [[0.0], [5.0]])
+    np.testing.assert_array_equal(restarted[1], [[0.0], [9.0]])
+    # A stateless expert's state is left as it is.
+    kept = restart_observers(started, count, states, None, expert_state, 2)[1]
+    assert kept is expert_state
+
+
+def test_the_run_controller_carries_the_runs_features_and_transforms():
+    run = SimpleNamespace(store_normalized_obs=False, observers=(_Count(),))
+    run.transforms = (_Mix(),)
+    expected = Controller(observers=run.observers, transforms=run.transforms)
+    assert make_run_controller(run) == expected
+    run.observers, run.transforms = (), ()
+    assert make_run_controller(run) == Controller()

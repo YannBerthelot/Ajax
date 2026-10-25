@@ -80,7 +80,7 @@ from ajax.agents.update_steps import (
     run_if,
 )
 from ajax.buffers.dataset import TransitionDataset, fill_replay
-from ajax.controller import Controller, reads_progress
+from ajax.controller import Controller, make_run_controller, reads_progress
 from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     collect_experience,
@@ -511,20 +511,7 @@ class TrainLoop:
         storing normalised observations evaluates with them normalised by its
         running statistics, unless its own ``controller`` says how it
         acts."""
-        controller = kwargs.get("controller") or Controller()
-        if self.env_args.store_normalized_obs:
-            columns = raw_obs_columns(self.env_args.env)
-            controller = dataclasses.replace(
-                controller, normalize_obs=True, raw_columns=columns
-            )
-        if self.env_args.observers:
-            controller = dataclasses.replace(
-                controller, observers=self.env_args.observers
-            )
-        if self.env_args.transforms:
-            controller = dataclasses.replace(
-                controller, transforms=self.env_args.transforms
-            )
+        controller = make_run_controller(self.env_args, kwargs.get("controller"))
         if controller != Controller():
             kwargs.update({"controller": controller})
         if self.sweep:

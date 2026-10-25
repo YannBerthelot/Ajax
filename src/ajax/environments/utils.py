@@ -314,6 +314,13 @@ def agent_action_to_env(
     return centre + half * jnp.clip(action, -1.0, 1.0)
 
 
+def flatten_action_column(action: jax.Array, continuous: bool) -> jax.Array:
+    """The action an env steps with: a discrete action's index, kept as an
+    (n_envs, 1) column by a replay and an expert, as the (n_envs,) vector the
+    env takes; a continuous action as it is."""
+    return action if continuous else action[..., 0]
+
+
 def critic_action_units(
     env: EnvType, env_params: Optional[EnvParams] = None
 ) -> Optional[tuple[tuple[float, ...], tuple[float, ...]]]:
@@ -382,10 +389,12 @@ class ExpertInAgentUnits:
     Its bounds are one ``(A,)`` box read from concrete params, also inside
     jit (static params): a stateless expert is also vmapped over single
     observations, where per-env bounds would broadcast its action. Per-env
-    boxes that differ raise.
+    boxes that differ raise. On a discrete env the expert's index column
+    passes through, and action_count (None when continuous) records the
+    number of actions, the width of its one-hot.
     """
 
-    __slots__ = ("_bounds", "expert")
+    __slots__ = ("_bounds", "action_count", "expert")
     _FORWARDED = frozenset({"init_state", "learnable_fields", "anchor_gains"})
 
     def __init__(
@@ -405,6 +414,9 @@ class ExpertInAgentUnits:
             bounds = tuple(x[0] for x in bounds)
         self.expert = expert
         self._bounds = bounds
+        self.action_count: Optional[int] = None
+        if bounds is None:
+            self.action_count = get_action_dim(env, env_params)
 
     @classmethod
     def wrap(

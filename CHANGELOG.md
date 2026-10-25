@@ -6,6 +6,17 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **The row collector and evaluate_policy observe features.** With
+  observation features (`env_args.observers`), the world models' row
+  collector appends them to every row, fresh at each episode's start, and
+  `evaluate_policy` takes `agent_state` for the frozen training progress, as
+  `evaluate` does. Runs without features are unchanged, bitwise.
+- **Discrete experts outside DAgger.** A discrete expert's action index, an
+  int `(n, 1)` column, now steps the env in the expert's own rollouts (the
+  replay prefill, the cloning and Monte-Carlo rollouts), enters
+  `ExpertWarmup`'s mix as the policy's index, and enters `ExpertActionInput`
+  one-hot (`ExpertInAgentUnits.action_count`): PPO and APO run with one on
+  CartPole. Continuous runs are unchanged, bitwise.
 - **A skipped actor step logs the last one that ran.** On the updates whose
   actor step is skipped (TD3's and CrossQ's `policy_delay`, any agent's
   `policy_update_start`), the actor's logged metrics are now those of its

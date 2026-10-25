@@ -1,6 +1,8 @@
 """evaluate_policy: the stateful-policy evaluation of the agents that own
 their collection (DESIGN §5.4)."""
 
+from types import SimpleNamespace
+
 import distrax
 import flax.linen as nn
 import gymnax
@@ -15,6 +17,7 @@ from ajax.environments.interaction import get_pi
 from ajax.environments.system_class import broadcast_env_params
 from ajax.environments.utils import agent_episode_length
 from ajax.evaluate import evaluate, evaluate_policy
+from ajax.extensions.observe import TrainingProgressInput
 from ajax.state import EnvironmentConfig, LoadedTrainState
 
 
@@ -217,3 +220,25 @@ def test_evaluate_rebuilds_the_eval_env_with_the_training_action_repeat():
             env_params=None,
         )
         assert float(length) == expected_length
+
+
+def test_evaluate_policy_holds_the_training_progress_the_collector_holds():
+    """The policy reads the env's columns, then the progress the agent's
+    collector holds, at every step: evaluate's frozen progress."""
+    env, env_params = build_env_from_id("CartPole-v1")
+    env_args = EnvironmentConfig(
+        env=env, env_params=env_params, n_envs=1, continuous=False
+    ).replace(observers=(TrainingProgressInput(),))
+    collector = SimpleNamespace(timestep=25, max_timesteps=100)
+    seen = []
+
+    def policy(carry, obs, is_first, key):
+        jax.debug.callback(lambda o: seen.append(np.asarray(o)), obs)
+        return jnp.ones(obs.shape[0], jnp.int32), carry, None
+
+    agent_state = SimpleNamespace(collector_state=collector)
+    evaluate_policy(
+        env_args, policy, lambda n: None, 2, jax.random.PRNGKey(0), agent_state
+    )
+    assert np.stack(seen).shape == (agent_episode_length(env, env_params, 1), 2, 5)
+    np.testing.assert_array_equal(np.stack(seen)[..., -1], 0.25)

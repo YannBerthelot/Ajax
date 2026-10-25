@@ -24,6 +24,7 @@ from ajax.controller import (
     feature_width,
     init_observers,
     observe_features,
+    restart_observers,
     warmup_expert_flags,
 )
 from ajax.environments.obs_norm import (
@@ -39,6 +40,7 @@ from ajax.environments.utils import (
     check_env_is_playground,
     check_if_environment_has_continuous_actions,
     env_keys,
+    flatten_action_column,
     get_raw_env,
     get_state_action_shapes,
     raw_obs_columns,
@@ -663,6 +665,11 @@ def explore_pipeline(
                 expert_action = expert_action_for_warmup(
                     transform, False, acting.expert_action, action
                 )
+                # A discrete expert's (n_envs, 1) index column would broadcast
+                # against the policy's (n_envs,) indices in the choice.
+                if discrete:
+                    expert_action = flatten_action_column(expert_action, False)
+                    expert_action = expert_action.astype(action.dtype)
                 uniform_action, expert_took = choose_warmup_actions(
                     warmups, uniform_action, WarmupInputs(expert_action, mix_key)
                 )
@@ -900,16 +907,9 @@ def step_features(
     the next observation. ``at``: the inputs' timestep and horizon, or
     progress (:class:`ajax.controller.ObserveInputs`)."""
     observers, n_envs = env_args.observers, env_args.n_envs
-    done = ended.astype(jnp.bool_)
-    fresh = init_observers(observers, n_envs)
-    start = tree_where_reset(done, fresh, observer_states)
-    expert_start = expert_state
-    if (
-        expert is not None
-        and hasattr(expert, "init_state")
-        and expert_state is not None
-    ):
-        expert_start = tree_where_reset(done, expert.init_state(n_envs), expert_state)
+    start, expert_start = restart_observers(
+        ended, observers, observer_states, expert, expert_state, n_envs
+    )
     raw_next = get_raw_obs(env_state=env_state, env=env_args.env, mode=mode)
     raw_next = raw_next.astype(jnp.float32)
     next_inputs = ObserveInputs(raw_next, expert, expert_start, **at)
@@ -1329,7 +1329,11 @@ def collect_experience_from_expert_policy(
                 step(
                     rng_step,
                     env_state,
-                    agent_action_to_env(action, env_args.env, env_args.env_params),
+                    agent_action_to_env(
+                        flatten_action_column(action, env_args.continuous),
+                        env_args.env,
+                        env_args.env_params,
+                    ),
                     env_args.env,
                     mode,
                     env_args.env_params,

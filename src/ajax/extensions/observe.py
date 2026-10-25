@@ -27,7 +27,11 @@ from ajax.environments.pid_terms import (
     start_terms,
     tracking_error,
 )
-from ajax.environments.utils import get_action_dim, get_state_action_shapes
+from ajax.environments.utils import (
+    flatten_action_column,
+    get_action_dim,
+    get_state_action_shapes,
+)
 from ajax.extensions.base import Extension
 from ajax.schedule import progress
 
@@ -37,7 +41,8 @@ class ExpertActionInput(Extension):
     """The agent's expert's action at the observation, called from the
     state it holds there, in agent units: raw, since it is an action. An
     agent learning from the expert's labels alone (DAgger) would read the
-    label it learns: it refuses it (``reward_learning``)."""
+    label it learns: it refuses it (reward_learning). A discrete expert's
+    index enters one-hot, over the env's action count."""
 
     name: str = "expert_action"
     observes_normalised: ClassVar[bool] = False
@@ -48,6 +53,12 @@ class ExpertActionInput(Extension):
 
     def observe(self, inputs: ObserveInputs, state: Any) -> tuple[jax.Array, Any]:
         action, _ = call_expert(inputs.expert, inputs.expert_state, inputs.raw_obs)
+        # The agent's expert in agent units records its action count on a
+        # discrete env (ExpertInAgentUnits): one column per action.
+        action_count = getattr(inputs.expert, "action_count", None)
+        if action_count is not None:
+            index = flatten_action_column(action, continuous=False)
+            action = jax.nn.one_hot(index, action_count)
         return jax.lax.stop_gradient(action), state
 
 

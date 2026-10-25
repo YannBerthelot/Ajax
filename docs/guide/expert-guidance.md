@@ -200,7 +200,8 @@ thousands of steps for a real run (its defaults collect about a million).
    returns, and records the range of values it predicts. Unlike a Bellman
    target, a Monte-Carlo return does not lean on an untrained critic, so it
    is unbiased. `BellmanPretrain` instead runs ordinary critic updates on the
-   prefilled buffer; it is kept for ablations.
+   prefilled buffer (it needs `ExpertPrefill` or `PriorData` in the stack);
+   it is kept for ablations.
 
 ### Warm-up
 
@@ -338,7 +339,8 @@ built:
 | `OnlineBC`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox`, `PhiRefresh` | `MCPretrain` in the stack | when built |
 | `OnlineBC` | SAC with an `expert_policy`, whose actions it clones | when built |
 | `IBRL`, `LCBGatedBootstrap` | a discounted agent that keeps the raw next observations they read; `LCBGatedBootstrap` also a critic ensemble | when built |
-| `BellmanPretrain`, `ExpertValueMetrics` | an `expert_policy` and the agent's replay | when built |
+| `BellmanPretrain` | the agent's replay, filled by `ExpertPrefill` or `PriorData` | when built |
+| `ExpertValueMetrics` | an `expert_policy` and the agent's replay | when built |
 | `ImitationLoss(q_filter=True)` | a Q critic (SAC, TD3, REDQ, ASAC, AVG); without `ResidualPolicy` | when built; with `ResidualPolicy`, when training starts |
 | `CloningPretrain` | SAC, TD3, REDQ, ASAC, AVG or APO; first among the pre-training extensions | the agent when built, the order when training starts |
 

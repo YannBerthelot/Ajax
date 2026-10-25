@@ -160,6 +160,11 @@ PyPI as `ajax-rl`.
   its rows now come after the dataset's, and a prefill that would overwrite
   them is refused. A run's config records `expert_buffer_n_steps` as passed
   (`None` by default, where it recorded 20000).
+- **`BellmanPretrain` requires a seeded replay** (`ExpertPrefill` or
+  `PriorData` in the stack) instead of the agent's expert: with an expert
+  and `expert_buffer_n_steps=0` it ran on an empty replay, where it
+  pre-trained on nothing, and now it is refused. Beside `PriorData` it
+  runs without an expert.
 - **Fixed: gain mode's expert columns.** Under `ExpertGains` the replay's
   `a_expert` and `next_a_expert` took the width of the gains, while they
   hold the expert's env action: an expert with fewer gains than action

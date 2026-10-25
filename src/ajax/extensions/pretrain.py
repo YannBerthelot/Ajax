@@ -783,9 +783,10 @@ class BellmanPretrain(Extension):
     """Bellman-bootstrapped critic pre-training.
 
     ``n_steps`` critic updates on the replay buffer before training, which
-    then holds the agent's expert prefill. Bootstraps from an untrained
-    critic, so the pre-trained values are biased (:class:`MCPretrain`
-    regresses unbiased returns instead); kept for ablation parity.
+    a seeder fills first (ExpertPrefill or PriorData, which pretrain before
+    it). Bootstraps from an untrained critic, so the pre-trained values are
+    biased (:class:`MCPretrain` regresses unbiased returns instead); kept
+    for ablation parity.
     Evaluations log the critic loss of its first and last update
     (``bellman_pretrain/first_loss``, ``bellman_pretrain/last_loss``).
 
@@ -802,7 +803,9 @@ class BellmanPretrain(Extension):
     update_value_fn: Optional[Callable] = None
     update_target_fn: Optional[Callable] = None
     name: str = "bellman_pretrain"
-    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert", "critic", "replay"})
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"seeded_replay", "critic", "replay"}
+    )
     context: ClassVar[frozenset[str]] = frozenset(
         {
             "buffer",
@@ -817,8 +820,8 @@ class BellmanPretrain(Extension):
     def bind_to_agent(self, **agent_context: Any) -> "BellmanPretrain":
         """Copy the agent's buffer, ``gamma``, ``reward_scale``, ``recurrent``
         and critic updates (``update_value_fn``, ``update_target_fn``). It
-        requires ``agent_expert``: without one the buffer holds no expert
-        prefill to pre-train on."""
+        requires a seeded replay: without a seeder the replay is empty when
+        it runs."""
         if self.update_value_fn is not None or "update_value_fn" not in agent_context:
             return self
         return dataclasses.replace(

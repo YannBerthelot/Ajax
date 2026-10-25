@@ -27,7 +27,7 @@ Algorithms and Applications*, 2018.
 | Vectorised environments (`n_envs`) | Yes |
 | Recurrent memory (`memory=`) | Yes, without extensions or `expert_policy` |
 | PID policy (`actor_architecture=PIDPolicy(...)`) | Yes |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `action`, `transform_action`, `actuate`, `choose_warmup_action` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `action`, `transform_action`, `actuate`, `choose_warmup_action`, `choose_replay_action` |
 
 The `action` phase runs only when the agent has an `expert_policy` and no
 gain mode (`ExpertGains`); SAC raises at construction otherwise. See
@@ -98,9 +98,9 @@ expert is written in the environment's units and receives the raw
 | `use_pid_policy` | `False` | deprecated: builds `ExpertGains()` (`ajax.extensions.expert`, gain mode: the actor outputs the gains of the expert's PID), which pass instead |
 | `augment_obs_with_expert_action`, `augment_obs_with_expert_state` | `False` | deprecated: build `ExpertActionInput()`, `ExpertStateInput.for_expert(expert)` (`ajax.extensions.observe`), which pass instead |
 | `use_train_frac` | `False` | deprecated: builds `TrainingProgressInput()`, which pass instead |
-| `target_entropy_initial_per_dim`, `target_entropy_ramp_frac` | `None`, `0.5` | move the target entropy linearly from this start to `target_entropy_per_dim` over that fraction of training |
+| `target_entropy_initial_per_dim`, `target_entropy_ramp_frac` | `None`, `0.5` | deprecated: pass `target_entropy_per_dim=linear(initial, final, steps)` (`ajax.schedule`) instead |
 | `normalize_obs_running` | `False` | `normalize_observations` under its old name: warns, and will be removed ([Environments](../guide/environments.md#normalisation)) |
-| `store_policy_action` | `False` | store the policy's sampled action in the replay instead of the executed one (an off-policy-correctness ablation) |
+| `store_policy_action` | `False` | deprecated: builds `StorePolicyAction()` (`ajax.extensions.expert`), which pass instead |
 
 Cloning the expert into the actor before training is the `CloningPretrain`
 extension, at the actor's learning rate; fitting a frozen expert critic on

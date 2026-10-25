@@ -20,7 +20,7 @@ code (`adityab/CrossQ` at `a318a26`) is more specific, Ajax follows the code.
 | Learning | Off-policy, replay buffer |
 | Vectorised environments (`n_envs`) | Yes |
 | Recurrent memory (`memory=`) | No: the paper defines no recurrent batch normalisation |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate`, `choose_warmup_action` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate`, `choose_warmup_action`, `choose_replay_action` |
 
 ## Example
 
@@ -82,7 +82,7 @@ Defaults are read from CrossQ's fields, the authors' `train.py -algo crossq`.
   `IBRL` and `LCBGatedBootstrap`, which bootstrap on target critics, are
   refused.
 - **Shared maths.** The target and the actor's objective are SAC's
-  (`ajax.agents.SAC.core`), the critics' regression is the one every
+  (`ajax.agents.SAC.SAC`), the critics' regression is the one every
   Q-critic agent shares (`ajax.agents.critics`), and the extensions apply
   through the shared critic step's two halves (`apply_on_target`,
   `compute_extensions_critic_loss`).

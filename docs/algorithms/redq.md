@@ -22,7 +22,7 @@ specific, Ajax follows the code (see [Notes](#notes)).
 | Vectorised environments (`n_envs`) | Yes |
 | Recurrent memory (`memory=`) | Yes, without extensions or `expert_policy` |
 | PID policy (`actor_architecture=PIDPolicy(...)`) | Yes |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate`, `choose_warmup_action` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe`, `on_target`, `critic_loss`, `actor_loss`, `transform_action`, `actuate`, `choose_warmup_action`, `choose_replay_action` |
 
 ## Example
 
@@ -119,7 +119,7 @@ extension; a cloning term during training is `ImitationLoss`
   observation; only a termination stops the bootstrap.
 - **Diagnostics.** REDQ logs how spread out its ensemble is
   (`ensemble_q_std`, `mean_pairwise_q_dist`), computed without gradient.
-- **Shared maths.** REDQ imports SAC's maths (`ajax.agents.SAC.core`) instead
+- **Shared maths.** REDQ imports SAC's maths (`ajax.agents.SAC.SAC`) instead
   of copying it.
 
 ## Results

@@ -313,9 +313,9 @@ def compute_dqn_td_target(
 ) -> jax.Array:
     """DQN's target: y = scale r + gamma (1 - d) max_a' Q_target(s', a')."""
     rewards = rewards * reward_scale
-    q_next = predict_q(q_state, q_state.target_params, next_observations)
-    max_q_next = jnp.max(q_next, axis=-1, keepdims=True)
-    target = rewards + gamma * (1.0 - dones) * max_q_next
+    next_q_values = predict_q(q_state, q_state.target_params, next_observations)
+    max_next_q_values = jnp.max(next_q_values, axis=-1, keepdims=True)
+    target = rewards + gamma * (1.0 - dones) * max_next_q_values
     return jax.lax.stop_gradient(target)
 
 
@@ -338,11 +338,11 @@ def compute_double_dqn_td_target(
     compute_double_dqn_td_target).
     """
     rewards = rewards * reward_scale
-    q_next_online = predict_q(q_state, q_state.params, next_observations)
-    next_actions = jnp.argmax(q_next_online, axis=-1, keepdims=True)
-    q_next_target = predict_q(q_state, q_state.target_params, next_observations)
-    q_next = jnp.take_along_axis(q_next_target, next_actions, axis=-1)
-    target = rewards + gamma * (1.0 - dones) * q_next
+    next_online_q_values = predict_q(q_state, q_state.params, next_observations)
+    next_actions = jnp.argmax(next_online_q_values, axis=-1, keepdims=True)
+    next_target_q_values = predict_q(q_state, q_state.target_params, next_observations)
+    next_q_values = jnp.take_along_axis(next_target_q_values, next_actions, axis=-1)
+    target = rewards + gamma * (1.0 - dones) * next_q_values
     return jax.lax.stop_gradient(target)
 
 

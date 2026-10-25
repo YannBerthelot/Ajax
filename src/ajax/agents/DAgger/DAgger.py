@@ -127,8 +127,8 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
         ):
             del raw_obs, uniform, action_key
             actor = agent_state.actor_state
-            pi = get_pi(actor, actor.params, acting.obs)[0]
-            own = choose_learner_action(pi, continuous)
+            policy = get_pi(actor, actor.params, acting.obs)[0]
+            own = choose_learner_action(policy, continuous)
             # The label in the replay's action layout (a discrete index's column).
             a_expert = acting.expert_action.reshape(own.shape).astype(own.dtype)
             draw = jax.random.uniform(mix_key, (n_envs, 1))
@@ -180,14 +180,14 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
         continuous = context.env_args.continuous
 
         def compute_imitation_loss(params: Any) -> tuple[jax.Array, jax.Array, Any]:
-            pi, _ = get_pi(agent_state.actor_state, params, batch.obs)
+            policy, _ = get_pi(agent_state.actor_state, params, batch.obs)
             if continuous:
-                pi_mean = pi.mean()
-                loss = jnp.mean(jnp.square(pi_mean - batch.a_expert))
+                policy_mean = policy.mean()
+                loss = jnp.mean(jnp.square(policy_mean - batch.a_expert))
             else:
-                pi_mean = None
-                loss = -jnp.mean(pi.log_prob(batch.a_expert[..., 0]))
-            return loss, loss, pi_mean
+                policy_mean = None
+                loss = -jnp.mean(policy.log_prob(batch.a_expert[..., 0]))
+            return loss, loss, policy_mean
 
         actor_state, loss, grad_norm, metrics = actor_step(
             agent_state,
@@ -228,10 +228,12 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
     stores_expert_actions = True
 
 
-def choose_learner_action(pi: Any, continuous: bool) -> jax.Array:
+def choose_learner_action(policy: Any, continuous: bool) -> jax.Array:
     """The actor's deterministic action: the squashed mean, or the most
     likely action as an int (n, 1) column, as a discrete replay keeps it."""
-    return pi.mean() if continuous else pi.mode()[..., None].astype(jnp.int32)
+    if continuous:
+        return policy.mean()
+    return policy.mode()[..., None].astype(jnp.int32)
 
 
 # -- State, logged metrics and the agent_config view --------------------------

@@ -24,8 +24,8 @@ import numpy as np
 import pytest
 from gymnax import make as make_gymnax_env
 
+from ajax.agents.APG.APG import make_policy_step
 from ajax.agents.APG.networks import Controller, PIDHeadConfig
-from ajax.agents.APG.train_APG import make_policy_step
 from ajax.environments.differentiable import (
     closed_loop_rollout,
     with_transition_gradients,

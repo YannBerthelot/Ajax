@@ -21,7 +21,6 @@ import pytest
 from probing_environments import gymnax_envs as pe
 from probing_environments.gymnax_envs import continuous_actions as continuous
 
-from ajax.agents.APG.train_APG import evaluate_apg
 from ajax.agents.PPO.PPO import _compute_gae
 from ajax.agents.PQN.PQN import compute_q_lambda_targets
 from ajax.environments.differentiable import with_transition_gradients
@@ -189,7 +188,8 @@ def _apg_read(run: runs.Run) -> dict:
         a = R.action(R.nets(state), x0, clip=False)
         args = run.agent.env_args
         args = args.replace(env_params=args.env_params.replace(start=x0))
-        m = evaluate_apg(state, R.KEY, args, None, 2, 2)
+        context = run.agent.make_context(1, env_args=args)[1]
+        m = run.agent.evaluate(state, R.KEY, context, 2)
         return a, m["Eval/episodic mean reward"]
 
     out: dict[str, Any] = {}

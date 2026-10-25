@@ -27,8 +27,7 @@ from flashbax.buffers.trajectory_buffer import TrajectoryBuffer
 
 import ajax.agents
 from ajax.agents import base
-from ajax.agents.APG.APG import APG
-from ajax.agents.APG.train_APG import make_policy_step, rollout_returns
+from ajax.agents.APG.APG import APG, compute_rollout_returns, make_policy_step
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
@@ -521,7 +520,7 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
         seeds, _ = apg.train(seed=0, n_timesteps=0)
         state: Any = jax.tree.map(lambda x: x[0], seeds)
         actor = state.actor_state
-        _, rollout = rollout_returns(
+        _, rollout = compute_rollout_returns(
             state, actor.params, jax.random.PRNGKey(1), apg.env_args, None, 1, 4
         )
         policy_step = make_policy_step(actor, actor.params, False)

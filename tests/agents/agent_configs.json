@@ -21,6 +21,7 @@
    "env_id": "Pendulum-v1",
    "env_params": null,
    "episode_length": null,
+   "eval_expert_policy": null,
    "expert_policy": null,
    "extensions": [],
    "horizon": 100,

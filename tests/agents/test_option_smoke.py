@@ -269,6 +269,9 @@ EXCLUSIVE = [
     ({"AdversarialReward"}, {"fast", "CartPole-v1"}),
 ]
 TABLE = {**CASES, "APG": Case(APG, {"horizon": 1, "pid": None}, ())}
+#: The options an agent takes and refuses with NotWired until its code passes
+#: them on (APG's evaluation rolls out no expert yet).
+NOT_WIRED = {"APG": {"eval_expert_policy"}}
 #: The exported agents off TABLE, and the tests that run their options.
 OWN_TESTS = {"DreamerV3": "DreamerV3", "TDMPC2": "TDMPC2", "TDMPC2MultiTask": "TDMPC2"}
 
@@ -276,7 +279,9 @@ OWN_TESTS = {"DreamerV3": "DreamerV3", "TDMPC2": "TDMPC2", "TDMPC2MultiTask": "T
 def _options(name: str) -> list[str]:
     """``name``'s options and extensions."""
     case, takes = TABLE[name], set(inspect.signature(TABLE[name].cls).parameters)
+    unwired = NOT_WIRED.get(name, set())
     out = [o for o, kw in OPTIONS.items() if set(kw) <= takes and o not in ENVS]
+    out = [o for o in out if o not in unwired]
     out += [env for env in ENVS if env in case.envs]
     return out + [e for e, (_, at) in EXTENSIONS.items() if name in at.split()]
 

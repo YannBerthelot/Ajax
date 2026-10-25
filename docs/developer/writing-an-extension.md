@@ -462,11 +462,12 @@ same with or without extensions.
 ## Pitfalls
 
 - **A loss term needs the differentiated parameters.** `critic_loss` and
-  `actor_loss` run inside the agent's `value_and_grad`. A term computed from
-  `agent_state.critic_state.params` has no gradient. Use the parameters the
-  batch passes (`critic_params`, `actor_params`, or `q_state` for DQN and
-  PQN). The probes plant this exact mistake and catch it, and the phase
-  contract checks that a term moves the network it names, and only that one.
+  `actor_loss` run inside the gradient the agent takes (`compute_gradients`).
+  A term computed from `agent_state.critic_state.params` has no gradient. Use
+  the parameters the batch passes (`critic_params`, `actor_params`, or
+  `q_state` for DQN and PQN). The probes plant this exact mistake and catch
+  it, and the phase contract checks that a term moves the network it names,
+  and only that one.
 - **Integer metrics.** Between evaluations the logger fills `eval_metrics`
   with NaN of the metric's dtype. An integer cannot hold NaN: it becomes 0,
   which reads as a real value. Return floats.

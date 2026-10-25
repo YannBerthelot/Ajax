@@ -33,6 +33,7 @@ from ajax.agents.loop import (
     when,
 )
 from ajax.agents.SAC.SAC import SAC
+from ajax.agents.steps import compute_gradients
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.evaluate import evaluate
 from ajax.extensions.base import Extension, ExtensionStack, merge_metrics
@@ -279,6 +280,24 @@ def test_gradient_step_reports_the_norm_before_the_clip() -> None:
 
     stepped, _, grad_norm = gradient_step(train_state, loss_fn)
     assert float(stepped.params["w"]) == 2.0 and float(grad_norm) == 6.0
+
+
+def test_compute_gradients_returns_the_gradients_and_the_aux() -> None:
+    """For one network's parameters, and for a tuple of two networks' (APO's
+    summed loss), the gradients having the parameters' structure."""
+    grads, aux = compute_gradients(
+        lambda params: (params["w"] ** 2, {"w": params["w"]}), {"w": jnp.asarray(3.0)}
+    )
+    assert float(grads["w"]) == 6.0 and float(aux["w"]) == 3.0
+
+    def summed_loss(params: tuple) -> tuple:
+        actor_params, critic_params = params
+        return actor_params["w"] ** 2 + 3.0 * critic_params["v"], critic_params["v"]
+
+    both = ({"w": jnp.asarray(2.0)}, {"v": jnp.asarray(5.0)})
+    (actor_grads, critic_grads), aux = compute_gradients(summed_loss, both)
+    assert float(actor_grads["w"]) == 4.0 and float(critic_grads["v"]) == 3.0
+    assert float(aux) == 5.0
 
 
 # --- Where a replayed target stops bootstrapping ------------------------------

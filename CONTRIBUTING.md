@@ -21,7 +21,7 @@ src/ajax/
 ├── agents/base.py       ActorCritic: environment and network setup, extensions=, train()
 ├── agents/families.py   declared agents: fields as hyperparameters, the replay and on-policy families
 ├── agents/loop.py       TrainLoop, the shared loop (brax's forced resets included)
-├── agents/steps.py      critic_step, actor_step, gradient_step, joint_step, when, the target update
+├── agents/steps.py      critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, when, the target update
 ├── agents/minibatch.py  the on-policy rollout split, minibatches and epochs
 ├── agents/critics.py    the Q-critics' regression (continuous and discrete actions)
 ├── agents/diagnostics.py  KL, explained variance, policy std
@@ -173,8 +173,10 @@ goes to a shared module: `agents/steps.py`, `agents/minibatch.py`,
 imports no agent.
 `tests/agents/test_agent_imports.py` holds the lineages and each parent's
 equations, and fails on any other cross-agent import. Use `critic_step` (a
-replay critic step), `actor_step` (an actor step) and `gradient_step` (an
-optimiser step) from `agents/steps.py` rather than writing your own.
+replay critic step), `actor_step` (an actor step), `gradient_step` (an
+optimiser step), `compute_gradients` (a loss's gradients) and
+`apply_gradients_clipped_together` (two networks stepped on one clip) from
+`agents/steps.py` rather than writing your own.
 
 A new agent `FOO` declares itself on a family of `agents/families.py`: a
 replay agent on `ReplayAgent`, as IQL, CrossQ and TD3 do (read

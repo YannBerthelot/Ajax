@@ -1,8 +1,8 @@
-"""The steps an agent's update is written in: gradient steps with the
-extensions' loss terms added (critic_step, actor_step,
-joint_step for two networks clipped together), the extensions'
-target and post-update phases, the gates (when) and keys
-(extension_key) around them, which ajax.agents.loop
+"""The steps an agent's update is written in: a loss's gradients
+(compute_gradients), gradient steps with the extensions' loss terms added
+(critic_step, actor_step, apply_gradients_clipped_together for two networks
+clipped together), the extensions' target and post-update phases, the gates
+(when) and keys (extension_key) around them, which ajax.agents.loop
 re-exports, and the target critics' Polyak update SAC, ASAC, REDQ and TQC
 share (update_target_networks).
 """
@@ -121,6 +121,21 @@ def extension_key(key: jax.Array) -> jax.Array:
     return jax.random.fold_in(key, EXTENSIONS)
 
 
+def compute_gradients(
+    loss: Callable[[Any], tuple[jax.Array, Any]], params: Any
+) -> tuple[Any, Any]:
+    """The gradients of loss at params, and what loss returns beside its value.
+
+    loss takes the parameters alone and returns (value, aux): the number to
+    minimise and what to keep from computing it (its metrics). An agent fixes
+    the loss's other inputs first, in a small local function. params is one
+    network's parameters, or a tuple of several networks' (APO's summed loss),
+    and the gradients have the same structure. A caller that logs the loss's
+    value puts it in aux.
+    """
+    return jax.grad(loss, has_aux=True)(params)
+
+
 def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any, jax.Array]:
     """One optimiser step down loss_fn(params) -> (loss, aux).
 
@@ -128,7 +143,7 @@ def gradient_step(train_state: Any, loss_fn: Callable) -> tuple[Any, Any, jax.Ar
     of the gradients, before any clipping the optimiser does (a caller that
     does not log it leaves it to dead-code elimination).
     """
-    (_, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(train_state.params)
+    grads, aux = compute_gradients(loss_fn, train_state.params)
     return train_state.apply_gradients(grads=grads), aux, optax.global_norm(grads)
 
 
@@ -313,6 +328,31 @@ def clip_global_norm(grads: Any, max_norm: Optional[float], eps: float = 0.0) ->
     return jax.tree.map(lambda g: g * coef, grads)
 
 
+def apply_gradients_clipped_together(
+    actor: Any,
+    critic: Any,
+    actor_grads: Any,
+    critic_grads: Any,
+    max_grad_norm: Optional[float],
+    norm_eps: float = 0.0,
+) -> tuple[Any, Any, jax.Array, jax.Array]:
+    """One Adam step of each network, their gradients first clipped together
+    to one global norm (clip_global_norm), as ppo2's single optimiser and
+    APO's reference code clip every parameter's gradient at once. Adam works
+    per coordinate, so the two Adams act as one over the whole model.
+
+    Returns the stepped actor and critic, then each one's gradient norm
+    before the clip."""
+    clipped_actor_grads, clipped_critic_grads = clip_global_norm(
+        (actor_grads, critic_grads), max_grad_norm, norm_eps
+    )
+    actor = actor.apply_gradients(grads=clipped_actor_grads)
+    critic = critic.apply_gradients(grads=clipped_critic_grads)
+    actor_grad_norm = optax.global_norm(actor_grads)
+    critic_grad_norm = optax.global_norm(critic_grads)
+    return actor, critic, actor_grad_norm, critic_grad_norm
+
+
 def joint_step(
     actor: Any,
     critic: Any,
@@ -321,17 +361,13 @@ def joint_step(
     max_grad_norm: Optional[float],
     norm_eps: float = 0.0,
 ) -> tuple[Any, Any]:
-    """Both networks' Adam steps on their gradients clipped together
-    (clip_global_norm), as ppo2's one optimiser, and APO's
-    reference code's, clip every parameter's gradient at once. Adam is per
-    coordinate, so the two Adams are one over the whole model."""
-    actor_grads, critic_grads = clip_global_norm(
-        (actor_grads, critic_grads), max_grad_norm, norm_eps
+    """The former name of apply_gradients_clipped_together, which returns the
+    stepped actor and critic alone, as it did in 0.4.0 (then
+    ajax.agents.PPO.train_PPO.joint_step); 0.5.0 removes it."""
+    actor, critic, _, _ = apply_gradients_clipped_together(
+        actor, critic, actor_grads, critic_grads, max_grad_norm, norm_eps
     )
-    return (
-        actor.apply_gradients(grads=actor_grads),
-        critic.apply_gradients(grads=critic_grads),
-    )
+    return actor, critic
 
 
 # The former names, which the agents not yet declared on a family call;

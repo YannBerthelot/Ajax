@@ -30,7 +30,6 @@ from typing import Any, ClassVar, Optional, Tuple, Union
 import distrax
 import jax
 import jax.numpy as jnp
-import optax
 from flax import struct
 from flax.core import FrozenDict
 
@@ -50,7 +49,11 @@ from ajax.agents.minibatch import (
     run_epochs,
 )
 from ajax.agents.PPO.PPO import _compute_gae, clipped_surrogate
-from ajax.agents.steps import extension_key, joint_step
+from ajax.agents.steps import (
+    apply_gradients_clipped_together,
+    compute_gradients,
+    extension_key,
+)
 from ajax.environments.interaction import get_pi
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import merge_metrics
@@ -171,8 +174,8 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
     def optimizer_settings(self) -> dict[str, Any]:
         # Adam's eps: 1e-8, torch's default the official code keeps, not
         # ActorCritic's 1e-5. Its one clip over both networks is
-        # minibatch_step's (steps.joint_step), so neither network's own
-        # optimiser clips.
+        # minibatch_step's (steps.apply_gradients_clipped_together), so
+        # neither network's own optimiser clips.
         return {"eps": self.adam_eps, "max_grad_norm": None}
 
     def evaluation_options(self) -> dict[str, Any]:
@@ -341,7 +344,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         timestep = state.collector_state.timestep
         extensions, total_timesteps = context.extensions, context.total_timesteps
 
-        def loss_fn(params: tuple) -> Tuple[jax.Array, AuxiliaryLogs]:
+        def summed_loss(params: tuple) -> Tuple[jax.Array, AuxiliaryLogs]:
             actor_params, critic_params = params
             policy_loss, (policy_aux, pi_mean) = policy_loss_function(
                 actor_params,
@@ -392,24 +395,24 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 policy=policy_aux, value=value_aux, extensions=metrics
             )
 
-        grads, aux = jax.grad(loss_fn, has_aux=True)(
-            (actor_state.params, critic_state.params)
+        (actor_grads, critic_grads), aux = compute_gradients(
+            summed_loss, (actor_state.params, critic_state.params)
         )
-        actor_grads, critic_grads = grads
-        actor_state, critic_state = joint_step(
-            actor_state,
-            critic_state,
-            actor_grads,
-            critic_grads,
-            self.max_grad_norm,
-            norm_eps=TORCH_CLIP_EPS,
+        actor_state, critic_state, actor_grad_norm, critic_grad_norm = (
+            apply_gradients_clipped_together(
+                actor_state,
+                critic_state,
+                actor_grads,
+                critic_grads,
+                self.max_grad_norm,
+                norm_eps=TORCH_CLIP_EPS,
+            )
         )
         # Each network's gradient norm before the joint clip, as PPO logs them.
         aux = AuxiliaryLogs(
-            policy=aux.policy.replace(grad_norm=optax.global_norm(actor_grads)),
+            policy=aux.policy.replace(grad_norm=actor_grad_norm),
             value=aux.value.replace(
-                grad_norm=optax.global_norm(critic_grads),
-                average_reward=state.average_reward,
+                grad_norm=critic_grad_norm, average_reward=state.average_reward
             ),
             extensions=aux.extensions,
         )
@@ -531,8 +534,9 @@ class APOState(BaseAgentState):
     average_reward: float
     b: float
 
-    #: Its networks' gradients are clipped together (steps.joint_step): a
-    #: checkpoint from when each clipped its own restores (ajax.checkpoint).
+    #: Its networks' gradients are clipped together
+    #: (steps.apply_gradients_clipped_together): a checkpoint from when each
+    #: clipped its own restores (ajax.checkpoint).
     #: A ClassVar: a flag on the class, shared by every APO state, not stored in its arrays.
     joint_gradient_clip: ClassVar[bool] = True
     #: How to restore a checkpoint of APO's former default network, added to

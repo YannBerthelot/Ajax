@@ -35,7 +35,6 @@ from typing import Any, Callable, ClassVar, Optional, Tuple, Union
 import distrax
 import jax
 import jax.numpy as jnp
-import optax
 from flax import struct
 from flax.core import FrozenDict
 
@@ -57,7 +56,11 @@ from ajax.agents.minibatch import (
     run_epochs,
 )
 from ajax.agents.recurrent import rollout_sequence_values
-from ajax.agents.steps import extension_key, joint_step
+from ajax.agents.steps import (
+    apply_gradients_clipped_together,
+    compute_gradients,
+    extension_key,
+)
 from ajax.environments.interaction import get_pi, get_pi_sequence
 from ajax.environments.utils import check_if_environment_has_continuous_actions
 from ajax.extensions.base import ExtensionStack, merge_metrics
@@ -170,8 +173,8 @@ class PPO(
 
     def optimizer_settings(self) -> dict[str, Any]:
         # ppo2's Adam (model.py:100-107) with eps 1e-5; its one clip over both
-        # networks is minibatch_step's (steps.joint_step), so neither
-        # network's own optimiser clips.
+        # networks is minibatch_step's (steps.apply_gradients_clipped_together),
+        # so neither network's own optimiser clips.
         return {"eps": self.adam_eps, "max_grad_norm": None}
 
     def setup(self) -> None:
@@ -358,9 +361,11 @@ class PPO(
         split: RolloutSplit,
         context: TrainContext,
     ) -> tuple[PPOState, AuxiliaryLogs]:
-        """One gradient step on the critic and one on the actor. Both
-        gradients are taken at the parameters this minibatch starts from, then
-        clipped together and applied, as ppo2's single optimiser does."""
+        """One gradient step of the critic and one of the actor on the
+        minibatch. Both gradients are taken at the parameters this step starts
+        from, then clipped together and applied. That is ppo2's single step
+        down the sum of the two losses: the networks share no parameter, so
+        each network's gradient of the sum is the gradient of its own loss."""
         ent_rng, state = state.get_keys_and_new_state()
         target_metrics: dict = {}
         critic, actor = state.critic_state, state.actor_state
@@ -392,45 +397,60 @@ class PPO(
 
         # Only a recurrent split's minibatches carry resets and start memories.
         resets = minibatch["resets"] if context.recurrent else None
-        (_, (v_aux, v_metrics)), v_grads = jax.value_and_grad(
-            value_loss_function, has_aux=True
-        )(
-            critic.params,
-            critic,
-            minibatch["obs"],
-            value_targets,
-            context.recurrent,
-            vf_coef=self.vf_coef,
-            extra_loss_fn=critic_extra,
-            resets=resets,
-            initial_hidden=minibatch["critic_hidden"] if context.recurrent else None,
+        critic_hidden = minibatch["critic_hidden"] if context.recurrent else None
+        actor_hidden = minibatch["actor_hidden"] if context.recurrent else None
+
+        def value_loss(critic_params: FrozenDict) -> tuple:
+            return value_loss_function(
+                critic_params,
+                critic,
+                minibatch["obs"],
+                value_targets,
+                context.recurrent,
+                vf_coef=self.vf_coef,
+                extra_loss_fn=critic_extra,
+                resets=resets,
+                initial_hidden=critic_hidden,
+            )
+
+        def policy_loss(actor_params: FrozenDict) -> tuple:
+            return policy_loss_function(
+                actor_params,
+                actor,
+                minibatch["obs"],
+                minibatch["actions"],
+                minibatch["log_probs"],
+                gae,
+                context.recurrent,
+                clip_coef=at(self.clip_range, state.collector_state.timestep),
+                ent_coef=self.ent_coef,
+                advantage_normalization=self.normalize_advantage,
+                extra_loss_fn=actor_extra,
+                raw_actions=minibatch["raw_actions"],
+                entropy_rng=ent_rng,
+                resets=resets,
+                initial_hidden=actor_hidden,
+            )
+
+        value_grads, (value_aux, value_metrics) = compute_gradients(
+            value_loss, critic.params
         )
-        (_, (p_aux, p_metrics)), p_grads = jax.value_and_grad(
-            policy_loss_function, has_aux=True
-        )(
-            actor.params,
-            actor,
-            minibatch["obs"],
-            minibatch["actions"],
-            minibatch["log_probs"],
-            gae,
-            context.recurrent,
-            at(self.clip_range, state.collector_state.timestep),
-            self.ent_coef,
-            self.normalize_advantage,
-            extra_loss_fn=actor_extra,
-            raw_actions=minibatch["raw_actions"],
-            entropy_rng=ent_rng,
-            resets=resets,
-            initial_hidden=minibatch["actor_hidden"] if context.recurrent else None,
+        policy_grads, (policy_aux, policy_metrics) = compute_gradients(
+            policy_loss, actor.params
         )
-        actor, critic = joint_step(actor, critic, p_grads, v_grads, self.max_grad_norm)
+        actor, critic, policy_grad_norm, value_grad_norm = (
+            apply_gradients_clipped_together(
+                actor, critic, policy_grads, value_grads, self.max_grad_norm
+            )
+        )
         state = state.replace(critic_state=critic, actor_state=actor)
-        # Each network's norm before the joint clip.
-        p_aux = p_aux.replace(grad_norm=optax.global_norm(p_grads))
-        v_aux = v_aux.replace(grad_norm=optax.global_norm(v_grads))
-        metrics = merge_metrics(target_metrics, v_metrics, p_metrics)
-        return state, AuxiliaryLogs(policy=p_aux, value=v_aux, extensions=metrics)
+        metrics = merge_metrics(target_metrics, value_metrics, policy_metrics)
+        # Each network's gradient norm is the one before the joint clip.
+        return state, AuxiliaryLogs(
+            policy=policy_aux.replace(grad_norm=policy_grad_norm),
+            value=value_aux.replace(grad_norm=value_grad_norm),
+            extensions=metrics,
+        )
 
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "PPO"
@@ -704,8 +724,9 @@ def _extensions_actor_loss(
 class PPOState(BaseAgentState):
     """PPO's state: the base state's fields."""
 
-    #: Its networks' gradients are clipped together (steps.joint_step): a
-    #: checkpoint from when each clipped its own restores (ajax.checkpoint).
+    #: Its networks' gradients are clipped together
+    #: (steps.apply_gradients_clipped_together): a checkpoint from when each
+    #: clipped its own restores (ajax.checkpoint).
     #: A ClassVar: a flag on the class, shared by every PPO state, not stored in its arrays.
     joint_gradient_clip: ClassVar[bool] = True
 

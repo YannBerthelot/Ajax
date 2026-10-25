@@ -33,7 +33,7 @@ src/ajax/
 │   ├── base.py          ActorCritic: environment and network setup, extensions=, train(); run_config
 │   ├── families.py      declared agents (fields as hyperparameters); the replay and on-policy families' train functions
 │   ├── loop.py          TrainLoop, the shared loop (brax's forced resets included)
-│   ├── steps.py         critic_step, actor_step, gradient_step, joint_step, when, the target update
+│   ├── steps.py         critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, when, the target update
 │   ├── minibatch.py     the on-policy rollout split (RolloutSplit), minibatches and epochs
 │   ├── critics.py       the Q-critics' regression (continuous and discrete actions)
 │   ├── diagnostics.py   KL, explained variance, policy std
@@ -259,6 +259,12 @@ on `TrainLoop.train`, and evaluates its command-conditioned policy every
 `log_frequency` steps through an `Evaluation`. APG and the offline
 `TDMPC2MultiTask` call `build_resumable_train` themselves, with the loop's
 `fresh_state` and its `post_update` fold.
+
+Under them all, `compute_gradients(loss, params)` returns a loss's gradients
+and its aux: the agent first writes the loss as a small local function of the
+parameters alone, its other inputs fixed. PPO and APO step their two networks
+on it with `apply_gradients_clipped_together`, which clips both gradients to
+one global norm and returns each network's norm before the clip.
 
 Three helpers serve the replay agents: `gradient_step(train_state, loss_fn)`,
 one optimiser step; `actor_step(...)`, an actor step that folds the

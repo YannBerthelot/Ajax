@@ -281,6 +281,7 @@
    "env_id": "fast",
    "env_params": null,
    "episode_length": null,
+   "eval_expert_policy": null,
    "expert_policy": "<function>",
    "extensions": [],
    "iteration_steps": 500,

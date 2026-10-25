@@ -9,8 +9,6 @@ import numpy as np
 import pytest
 
 from ajax import DAgger
-from ajax.agents.DAgger.state import DAggerConfig
-from ajax.agents.DAgger.train_DAgger import beta
 from ajax.environments.interaction import get_pi
 
 N_ENVS = 2
@@ -40,8 +38,10 @@ def replay(state, first: int = 0) -> dict:
 def test_beta_is_the_decay_to_the_iterations_done(decay):
     """beta_i = decay ** (i - 1) over iterations of iteration_steps
     timesteps; 0 ** 0 = 1: the paper's beta_i = I(i = 1) at decay 0."""
-    config = DAggerConfig(beta_decay=decay, iteration_steps=10)
-    got = [float(beta(jnp.asarray(t), config)) for t in (0, 9, 10, 25)]
+    agent = DAgger(
+        "Pendulum-v1", expert_policy=push, beta_decay=decay, iteration_steps=10
+    )
+    got = [float(agent.compute_beta(jnp.asarray(t))) for t in (0, 9, 10, 25)]
     np.testing.assert_allclose(got, [1.0, 1.0, decay, decay**2])
 
 
@@ -98,7 +98,10 @@ def test_the_actor_learns_the_experts_labels_not_the_actions_taken(env_id):
     continuous = env_id == "Pendulum-v1"
     kwargs = {"n_envs": N_ENVS, "iteration_steps": N_ENVS, "batch_size": 8}
     kwargs.update({"buffer_size": 256, "actor_learning_rate": 1e-2})
-    init, _ = DAgger(env_id, expert_policy=push, **kwargs).train(
+    # The initial actor, built beside an expert of the env's action kind
+    # (collection stores its actions in the replay's layout).
+    first_expert = push if continuous else choose_one
+    init, _ = DAgger(env_id, expert_policy=first_expert, **kwargs).train(
         seed=[0], n_timesteps=0
     )
     if continuous:

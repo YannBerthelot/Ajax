@@ -69,7 +69,7 @@ pretraining stacks most), actor at most 1.5e-4, target at most 6.5e-5,
 alpha at most 1.2e-6; the plain-SAC parity goldens moved alike.
 
 Re-captured when SAC's actor step took its keys from the state
-(``next_keys``) and its extensions' key from its policy key
+(``get_keys_and_new_state``) and its extensions' key from its policy key
 (``derive_extensions_key``), the random stream of every SAC run moving: up to
 4.2e-3 (critic), 5.0e-4 (actor), 8.2e-5 (target), 1.2e-4 (alpha).
 

@@ -309,13 +309,6 @@ class BaseAgentState(Replaceable):
         *keys, training_key = jax.random.split(self.rng, n + 1)
         return (*keys, self.replace(rng=training_key))
 
-    def next_keys(self, n: int = 1) -> tuple:
-        """get_keys_and_new_state in its former order, the new state first:
-        (agent_state, *keys). It stays, as is, until the agents not yet
-        declared on a family, which still call it, are converted."""
-        *keys, agent_state = self.get_keys_and_new_state(n)
-        return (agent_state, *keys)
-
 
 @struct.dataclass
 class BaseAgentConfig(Replaceable):

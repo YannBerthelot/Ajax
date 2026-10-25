@@ -222,7 +222,7 @@ class Step:
 
 
 def capture_step(agent: Any, n_timesteps: int) -> Step:
-    from ajax.agents import loop
+    import ajax.agents.loop as loop
 
     got: dict = {}
     original = loop.TrainLoop.train

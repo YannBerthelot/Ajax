@@ -608,9 +608,8 @@ def test_an_explore_policy_acts_after_the_warm_up_and_uniform_during_it(env_id):
     # whose action the replay stores, flagged; a later step is not flagged.
     expert_choice = 0.25 if continuous else 0
 
-    def expert(obs):
-        shape = obs.shape[:1] + ((1,) if continuous else ())
-        return jnp.full(shape, expert_choice)
+    def expert(obs):  # a discrete action's index as an (n, 1) column
+        return jnp.full(obs.shape[:1] + (1,), expert_choice)
 
     chooser = step_module.explore_pipeline(
         explore,

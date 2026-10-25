@@ -47,7 +47,7 @@ Four conventions matter:
 3. **It works on batches.** Ajax calls it on one observation per
    environment, and on replay batches. Index the last axis (`obs[..., 0]`),
    not the first, and keep the action's last axis (`[..., None]` for one
-   action).
+   action; a discrete action's index is an int `(n, 1)` column).
 4. **It is part of the compiled program**: a plain function or a frozen
    dataclass works.
 
@@ -289,7 +289,8 @@ Observation features append columns to every observation, which the actor,
 the critics and the replay all read (`ajax.extensions.observe`):
 
 - `ExpertActionInput()` appends the expert's action, so the policy can
-  condition on the expert's suggestion. It stays raw: it is an action.
+  condition on the expert's suggestion. It stays raw: it is an action. A
+  discrete expert's index enters one-hot.
 - `ExpertStateInput.for_expert(expert)` appends a stateful expert's internal
   state (a PID's integral, say).
 - `TrainingProgressInput()` appends the fraction of training done; an

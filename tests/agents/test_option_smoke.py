@@ -68,6 +68,11 @@ def stateless_expert(obs: jax.Array) -> jax.Array:
     return jnp.clip(-obs[..., :1], -2.0, 2.0)
 
 
+def push_toward_lean(obs: jax.Array) -> jax.Array:
+    """CartPole's expert: push toward the pole's lean, an int (n, 1) column."""
+    return (obs[..., 2:3] > 0).astype(jnp.int32)
+
+
 def pendulum_rows() -> TransitionDataset:
     """16 logged rows shaped as Pendulum's, two episodes cut by the time
     limit."""
@@ -188,7 +193,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
         lambda: adversarial.AdversarialReward(pendulum_rows()),
         "PPO",
     ),
-    "ExpertActionInput": (observe.ExpertActionInput, "SAC"),
+    "ExpertActionInput": (observe.ExpertActionInput, "SAC PPO APO"),
     "ExpertStateInput": (lambda: observe.ExpertStateInput.for_expert(EXPERT), "SAC"),
     "TrainingProgressInput": (observe.TrainingProgressInput, "SAC"),
     "PIDTermsInput": (lambda: observe.PIDTermsInput((0,), (1,)), "SAC"),
@@ -247,8 +252,8 @@ EXCLUSIVE = [
     ({"ExpertActionInput"}, {"augment_obs_with_expert_action"}),
     ({"ExpertStateInput"}, {"augment_obs_with_expert_state"}),
     ({"TrainingProgressInput"}, {"use_train_frac"}),
-    # Experts act in continuous spaces; ImitationLoss reads a mean action.
-    ({"CartPole-v1"}, EXPERTS.union({"ImitationLoss"})),
+    # ImitationLoss reads a mean action.
+    ({"CartPole-v1"}, {"ImitationLoss"}),
     # The rows are Pendulum's own observations: the replay's of another env,
     # one widened by the training fraction, or one keeping the expert's next
     # action (an expert_policy) cannot take them; GAIL's discriminator reads
@@ -317,6 +322,8 @@ def _build(name: str, row: frozenset[str]) -> Any:
     for option in sorted(row.intersection(OPTIONS)):
         kw.update(OPTIONS[option])
     env = kw.pop("env_id", None)
+    if env == "CartPole-v1":  # the gain expert acts on a torque
+        kw.update(dict.fromkeys(EXPERTS.intersection(kw), push_toward_lean))
     for option in NEGATED:
         if option in kw:
             kw[option] = not params[option].default

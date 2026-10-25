@@ -389,10 +389,12 @@ class ExpertInAgentUnits:
     Its bounds are one ``(A,)`` box read from concrete params, also inside
     jit (static params): a stateless expert is also vmapped over single
     observations, where per-env bounds would broadcast its action. Per-env
-    boxes that differ raise.
+    boxes that differ raise. On a discrete env the expert's index column
+    passes through, and action_count (None when continuous) records the
+    number of actions, the width of its one-hot.
     """
 
-    __slots__ = ("_bounds", "expert")
+    __slots__ = ("_bounds", "action_count", "expert")
     _FORWARDED = frozenset({"init_state", "learnable_fields", "anchor_gains"})
 
     def __init__(
@@ -412,6 +414,9 @@ class ExpertInAgentUnits:
             bounds = tuple(x[0] for x in bounds)
         self.expert = expert
         self._bounds = bounds
+        self.action_count: Optional[int] = None
+        if bounds is None:
+            self.action_count = get_action_dim(env, env_params)
 
     @classmethod
     def wrap(

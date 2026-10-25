@@ -205,7 +205,7 @@ def _expert(obs: jnp.ndarray) -> jnp.ndarray:
 
 
 def _discrete_expert(obs: jnp.ndarray) -> jnp.ndarray:
-    return jnp.zeros(obs.shape[:-1], jnp.int32)
+    return jnp.zeros(obs.shape[:-1] + (1,), jnp.int32)
 
 
 class _GainExpert:

@@ -206,6 +206,9 @@ REQUIRES.update(
     }
 )
 EXPERTS = {"expert_policy", "eval_expert_policy"}
+USES_EXPERT_ACTIONS = {"OnlineBC", "CriticBlend", "PhiRefresh", "IBRL"}
+USES_EXPERT_ACTIONS.update({"LCBGatedBootstrap", "ExpertValueMetrics", "ImitationLoss"})
+USES_EXPERT_ACTIONS.update({"CloningPretrain", "MCPretrain"})
 #: Options no row takes together: one of each group, and no pair across these.
 ONE_OF = [{"normalize_rewards", "reward_normalization_gamma"}, MEMORY, set(ENVS)]
 ONE_OF += [{"cnn_image_shape", "mlp"}]  # else the CNN takes every row
@@ -223,6 +226,9 @@ EXCLUSIVE = [
         ACTING.union({"use_pid_policy", "augment_obs_with_expert_action"}),
     ),
     ({"ExpertGains"}, {"ExpertActionInput"}),
+    # Under gain mode the policy chooses gains, and these use the expert's
+    # env actions where the gains go: refused, not wired yet.
+    ({"use_pid_policy", "ExpertGains"}, USES_EXPERT_ACTIONS),
     # A feature and the deprecated keyword making it would widen the
     # observation twice under one name.
     ({"ExpertActionInput"}, {"augment_obs_with_expert_action"}),

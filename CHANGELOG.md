@@ -124,6 +124,16 @@ PyPI as `ajax-rl`.
 - **IQL** sums its two critics' squared errors, as the reference does
   (`ikostrikov/implicit_q_learning`, `update_q`): it averaged them, which
   halved the critics' gradient against Adam's eps and `max_grad_norm`.
+- **Fixed: gain mode's expert columns.** Under `ExpertGains` the replay's
+  `a_expert` and `next_a_expert` took the width of the gains, while they
+  hold the expert's env action: an expert with fewer gains than action
+  dimensions crashed collection, and one with more had its action copied
+  into every column. They now take the env's action width. Gain mode
+  refuses an extension that uses an expert's actions where the policy's go
+  (`Extension.uses_expert_actions_as_policy_actions`: ImitationLoss cloning
+  its expert, OnlineBC, IBRL, LCBGatedBootstrap, CriticBlend, PhiRefresh,
+  ExpertValueMetrics, CloningPretrain, MCPretrain): those are env actions,
+  the policy's are gains.
 - `NetworkConfig.squash_log_det_eps` sets the guard inside the `tanh`
   log-det, `log(1 - tanh(u)^2 + eps)`, for an agent whose reference uses
   one; 0, the exact log-det, by default. `NetworkConfig.log_variance_head`

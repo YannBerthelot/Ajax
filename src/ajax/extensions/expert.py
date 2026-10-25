@@ -150,6 +150,9 @@ class OnlineBC(Extension):
         "actor_loss": frozenset({"a_expert", "observations", "pi_mean"})
     }
 
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        return True
+
     def actor_loss(
         self,
         agent_state: Any,
@@ -322,6 +325,10 @@ class ImitationLoss(Extension):
 
     def experts(self) -> tuple:
         return () if self.expert_policy is None else (self.expert_policy,)
+
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        # The replayed target clones the stored actions, the policy's own.
+        return self.target == "expert"
 
     def needs(self) -> frozenset[str]:
         """The filter and ``alpha`` also read the Q critic; the replayed
@@ -632,6 +639,9 @@ class ExpertValueMetrics(Extension):
     )
     context: ClassVar[frozenset[str]] = frozenset({"buffer", "expert_policy"})
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
+
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        return True
 
     def bind_to_agent(self, **agent_context: Any) -> "ExpertValueMetrics":
         if self.buffer is not None:

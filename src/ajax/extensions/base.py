@@ -430,6 +430,13 @@ class Extension:
         is given (without a state); none by default."""
         return ()
 
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        """Whether it puts an expert's actions where the policy's actions go:
+        as the actor's target, or as an action its critics score. Gain mode
+        refuses it, since there the expert's actions are env actions and the
+        policy's are gains. None does by default."""
+        return False
+
     def needs(self) -> frozenset[str]:
         """The capabilities it needs: those its phases imply and those it
         ``requires``."""

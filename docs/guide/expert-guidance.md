@@ -399,9 +399,12 @@ applied is `anchor · 10^a`, between a tenth and ten times the expert's own.
 The PID computes the action. The replay, or the rollout, holds the gains
 (the agent's actions, as many as the learnable gains), so the critics score
 them and the warm-up draws uniform gains; the expert's own action is stored
-as `a_expert`. An agent refuses this mode, when it is built, with
-`ResidualPolicy` (one transform a run) and `ExpertActionInput` (the
-expert's action does not exist before the actor has chosen the gains), and
+as `a_expert`, as wide as the env's action. An agent refuses this mode, when
+it is built, with `ResidualPolicy` (one transform a run), `ExpertActionInput`
+(the expert's action does not exist before the actor has chosen the gains),
+the extensions using an expert's actions where the policy's go
+(`ImitationLoss` cloning its expert, `OnlineBC`, `IBRL`, `CloningPretrain`,
+`MCPretrain` and the like: env actions against gains, not wired yet), and
 SAC with its collection extensions (their `action` phase never runs in it).
 
 It is different from the [PID policy](networks.md#the-pid-policy), in which

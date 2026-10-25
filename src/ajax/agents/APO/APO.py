@@ -609,7 +609,19 @@ class AuxiliaryLogs:
 
 #: agent.agent_config's class: a view of the fields until 0.5.0.
 APOConfig = APO.declare_config(
-    "ent_coef clip_range n_steps batch_size n_epochs gae_lambda"
-    " normalize_advantage alpha nu num_minibatches vf_coef max_grad_norm"
-    " expose_recent_rollout"
+    (
+        "ent_coef",
+        "clip_range",
+        "n_steps",
+        "batch_size",
+        "n_epochs",
+        "gae_lambda",
+        "normalize_advantage",
+        "alpha",
+        "nu",
+        "num_minibatches",
+        "vf_coef",
+        "max_grad_norm",
+        "expose_recent_rollout",
+    )
 )

@@ -143,8 +143,10 @@ PyPI as `ajax-rl`.
 - **`ExpertPrefill(n_steps)`** (`ajax.extensions.pretrain`): the agent's
   expert acts `n_steps` steps in every env before training and its
   transitions go to the replay as collection writes its own, on SAC, REDQ,
-  ASAC, TQC, TD3, CrossQ and IQL. The rows count in no normaliser and no
-  timestep. The pretraining now runs the replay's seeders (`ExpertPrefill`,
+  ASAC, TQC, TD3, CrossQ and IQL. The rows count once in the observation
+  and reward normalisers, as `PriorData`'s do (one shared function,
+  `ajax.agents.loop.count_in_normalisers`), and in no timestep. The
+  pretraining now runs the replay's seeders (`ExpertPrefill`,
   `PriorData`) first, in stack order; `train_offline` refuses a prefill
   that would overwrite the dataset's rows. **Deprecated**: SAC's
   `expert_buffer_n_steps` builds it, after the other extensions, and warns.
@@ -159,7 +161,9 @@ PyPI as `ajax-rl`.
   statistics and timestep are bitwise the old ones. Under `train_offline`
   its rows now come after the dataset's, and a prefill that would overwrite
   them is refused. A run's config records `expert_buffer_n_steps` as passed
-  (`None` by default, where it recorded 20000).
+  (`None` by default, where it recorded 20000). Its rows now count in the
+  observation and reward normalisers, which they skipped: a run combining
+  the prefill with normalisation starts from other statistics.
 - **`BellmanPretrain` requires a seeded replay** (`ExpertPrefill` or
   `PriorData` in the stack) instead of the agent's expert: with an expert
   and `expert_buffer_n_steps=0` it ran on an empty replay, where it

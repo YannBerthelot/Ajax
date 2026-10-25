@@ -14,7 +14,7 @@ from flax import struct
 
 from ajax import IQL, PPO, SAC, TD3
 from ajax.buffers.utils import get_buffer, init_buffer
-from ajax.environments.interaction import replay_row
+from ajax.environments.interaction import replay_row, reward_statistics
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.extensions.capabilities import MissingCapability, NotWired
 from ajax.extensions.expert import ExpertGains, ImitationLoss, ResidualPolicy
@@ -163,19 +163,25 @@ def test_the_first_rows_of_each_env_are_the_experts(name):
 
 
 @pytest.mark.parametrize("name", ["SAC", "TD3"])
-def test_the_prefill_counts_in_no_normaliser_and_no_timestep(name):
-    """The live steps are the same with or without it: SAC's built-in
-    prefill never counted its rows either."""
+def test_the_prefill_counts_in_the_normalisers_and_no_timestep(name):
+    """Its rows count once each in the observation statistics and in the
+    reward statistics (each env's copy of them), as PriorData's do, beside
+    the live steps; the timestep counts the live steps alone."""
     norm = {"normalize_observations": True, "normalize_rewards": True}
-    plain = run(name, **norm).collector_state
+    # SAC adds a prefill of its own by default beside an expert.
+    no_prefill = {"expert_buffer_n_steps": 0} if name == "SAC" else {}
+    plain = run(name, **norm, **no_prefill).collector_state
     prefilled = run(name, (ExpertPrefill(n_steps=4),), **norm).collector_state
     assert int(prefilled.timestep) == int(plain.timestep) == 4
-    for old, new in zip(
-        jax.tree.leaves((plain.obs_norm_info, plain.env_state)),
-        jax.tree.leaves((prefilled.obs_norm_info, prefilled.env_state)),
-        strict=True,
+    rows = 4 * 2  # four prefill steps in each of two envs
+    for counts in (
+        (plain.obs_norm_info.count, prefilled.obs_norm_info.count),
+        (
+            reward_statistics(plain.env_state).count,
+            reward_statistics(prefilled.env_state).count,
+        ),
     ):
-        np.testing.assert_array_equal(old, new)
+        np.testing.assert_array_equal(counts[1], counts[0] + rows)
 
 
 def test_sac_with_expert_prefill_fills_its_replay_once():

@@ -32,7 +32,7 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.cloning import cloning_columns, pre_train
-from ajax.agents.loop import seed_replay
+from ajax.agents.loop import count_in_normalisers, seed_replay
 from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.controller import policy_action_dim, reads_agent_expert
@@ -1073,9 +1073,10 @@ class ExpertPrefill(Extension):
     and its transitions go to the replay as collection writes its own
     (store_expert_transitions): with the agent's features at
     training progress 0, is_expert 1, and under an action transform the
-    policy action that executes the expert's own. The rows count in no
-    normaliser and no timestep, as SAC's built-in prefill never counted
-    them, so learning_starts counts live steps.
+    policy action that executes the expert's own. The rows count once in
+    the observation and reward normalisers, as PriorData's and collection's
+    own do (count_in_normalisers), and in no timestep, so learning_starts
+    counts live steps.
 
     It needs the agent's expert, a replay and an update that stays correct
     on actions the policy did not choose: SAC, REDQ, ASAC, TQC, TD3, CrossQ
@@ -1120,7 +1121,16 @@ class ExpertPrefill(Extension):
             transitions, env_args, context.buffer, collector.buffer_state
         )
         collector = collector.replace(buffer_state=buffer_state)
-        return agent_state.replace(collector_state=collector), ext_state
+        agent_state = agent_state.replace(collector_state=collector)
+        agent_state = count_in_normalisers(
+            agent_state,
+            transitions.obs,
+            transitions.reward,
+            transitions.terminated,
+            transitions.truncated,
+            env_args,
+        )
+        return agent_state, ext_state
 
 
 @dataclass(frozen=True)

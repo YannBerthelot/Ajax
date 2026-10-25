@@ -86,13 +86,13 @@ def test_ppo_reshuffles_every_epoch(
     agent = PPO(**{**SMALL, **geometry})
     n_envs = agent.env_args.n_envs
     seen: list[np.ndarray] = []
-    value_loss = ppo_module.value_loss_function
+    value_loss = ppo_module.compute_value_loss
 
-    def spy(params: Any, critic: Any, obs: jax.Array, *args: Any, **kw: Any) -> Any:
-        _record(seen, obs)
-        return value_loss(params, critic, obs, *args, **kw)
+    def spy(params: Any, critic: Any, minibatch: dict, *args: Any, **kw: Any) -> Any:
+        _record(seen, minibatch["obs"])
+        return value_loss(params, critic, minibatch, *args, **kw)
 
-    monkeypatch.setattr(ppo_module, "value_loss_function", spy)
+    monkeypatch.setattr(ppo_module, "compute_value_loss", spy)
     _, context = agent.make_context(1_000)
     state = agent.init(jax.random.PRNGKey(0), context)
     agent.update(state, _rollout(n_envs), state, context)

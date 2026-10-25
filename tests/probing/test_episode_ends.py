@@ -20,7 +20,7 @@ import probing_environments.gymnax_envs as discrete
 import pytest
 from probing_environments.gymnax_envs import continuous_actions as continuous
 
-from ajax.agents.APO.APO import value_loss_function
+from ajax.agents.APO.APO import compute_value_loss
 from ajax.environments.create import build_env_from_id
 from ajax.environments.interaction import reset, step
 from ajax.evaluate import evaluate
@@ -933,7 +933,7 @@ def test_q1_apo_value_loss_pulls_values_towards_zero() -> None:
     values = predict_value(critic, critic.params, obs).squeeze(0)
 
     def loss(p: Any) -> jax.Array:
-        return value_loss_function(p, critic, obs, values, nu, 1.0)[0]
+        return compute_value_loss(p, critic, obs, values, nu, 1.0)[0]
 
     grads = jax.grad(loss)(critic.params)
     new = jax.tree.map(lambda p, g: p - 1e-3 * g, critic.params, grads)

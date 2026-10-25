@@ -25,7 +25,7 @@ src/ajax/
 ├── agents/minibatch.py  the on-policy rollout split, minibatches and epochs
 ├── agents/critics.py    the Q-critics' regression (continuous and discrete actions)
 ├── agents/diagnostics.py  KL, explained variance, policy std
-├── agents/recurrent.py  replay buffers and R2D2-style sequence replay for memory=
+├── agents/recurrent.py  replay buffers and R2D2-style sequence replay for memory=, and PPO's networks with or without memory
 ├── agents/cloning.py    the behaviour-cloning loss and fit (CloningPretrain's)
 ├── extensions/base.py   Extension, ExtensionStack, ExtensionContext, the phases
 ├── environments/interaction.py  collect_experience: act, step and store
@@ -337,7 +337,11 @@ an agent declares them, and adds the `evaluation_options()` hook (APO's
 `avg_reward_mode`). `agents/minibatch.py` runs the passes (`run_epochs`);
 PPO's `choose_rollout_split` returns the `RolloutSplit` that says how its
 rollout is cut and where the advantages are computed, while APO and PQN
-shuffle single steps. `ImageObservations` adds the CNN encoder's fields;
+shuffle single steps. PPO never asks whether its networks have memory:
+`agents/recurrent.py`'s `compute_rollout_values` (the values GAE reads),
+`get_policy_on_minibatch` and `predict_values_on_minibatch` (the networks
+in its losses) run a network with memory over its sequences and one
+without as an ordinary forward pass. `ImageObservations` adds the CNN encoder's fields;
 `train_offline` refuses an on-policy agent.
 
 Do **not** add a field for a feature (`use_critic_blend=True`, ...): it

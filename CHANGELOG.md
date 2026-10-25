@@ -159,6 +159,26 @@ PyPI as `ajax-rl`.
   `make_replay_buffer` (was `replay_buffer`) and
   `TrainContext.make_actor_critic` (was `actor_critic`); `behaviour` is
   `choose_behaviour`. The hooks that declare settings keep their names.
+- **PPO's memory handling lives in `recurrent.py`.** PPO's losses are
+  `compute_value_loss` and `compute_policy_loss`: they take the minibatch
+  and no `recurrent`, `resets` or `initial_hidden`, and their keywords are
+  `critic_state`, `normalize_advantage`, `entropy_key` and
+  `compute_extensions_loss` (were `critic_states`,
+  `advantage_normalization`, `entropy_rng` and `extra_loss_fn`). The
+  networks run through `ajax.agents.recurrent`'s `get_policy_on_minibatch`
+  and `predict_values_on_minibatch`, and the values GAE reads come from
+  `compute_rollout_values`; each serves a network with or without memory.
+  `RolloutSplit.cut_into_minibatches` and `get_sequence_minibatches` take
+  what a recurrent split's sequences replay from (the episode starts and
+  each network's memory at every sequence's start) as one dict. APO's
+  losses take the same names, with the keywords `critic_state` and
+  `value_bias` (was `b`). The 0.4.0 forms stay on the modules 0.4.0
+  released them from until 0.5.0: `train_PPO.value_loss_function` and
+  `policy_loss_function` and `train_APO.value_loss_function` keep their
+  parameters and warn on each call, and `train_APO.policy_loss_function`
+  imports `compute_policy_loss` with a FutureWarning. `PPO.py` and
+  `APO.py` no longer define the old names. Training is unchanged: every
+  final state is bitwise the same, and so is the program.
 
 - **ASAC** now does what the authors' code does (`darer/ASAC.py`): a
   termination drops the next value in the critic's target (it bootstrapped

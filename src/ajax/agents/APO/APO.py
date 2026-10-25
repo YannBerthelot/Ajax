@@ -13,8 +13,8 @@ function below, or PPO's::
           r_t - rho + V(s_{t+1}) - V(s_t), cut at every episode end
                                                             PPO's _compute_gae
     for each of n_epochs, for each minibatch of shuffled single steps:
-        L = clipped surrogate - ent_coef H(pi)          policy_loss_function
-            + vf_coef 0.5 (V(s_t) - (V_targ - nu b))^2   value_loss_function
+        L = clipped surrogate - ent_coef H(pi)           compute_policy_loss
+            + vf_coef 0.5 (V(s_t) - (V_targ - nu b))^2    compute_value_loss
         one step of both networks down L, its gradient clipped over both
         at once (torch's clip_grad_norm_)               APO.minibatch_step
 
@@ -122,7 +122,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
     gae_lambda: float = 0.95
     #: The rate of the reward rate's and the value bias's moving averages.
     alpha: float = 0.1
-    #: The value-bias penalty's weight (value_loss_function).
+    #: The value-bias penalty's weight (compute_value_loss).
     nu: float = 0.1
     normalize_advantage: bool = True
     actor_bias_init: Optional[Union[str, InitializationFunction]] = None
@@ -362,7 +362,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
 
         def summed_loss(params: tuple) -> Tuple[jax.Array, AuxiliaryLogs]:
             actor_params, critic_params = params
-            policy_loss, (policy_aux, pi_mean) = policy_loss_function(
+            policy_loss, (policy_aux, pi_mean) = compute_policy_loss(
                 actor_params,
                 actor_state,
                 observations=minibatch["obs"],
@@ -375,7 +375,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 entropy_key=minibatch["entropy_key"],
                 valid=minibatch.get("valid"),
             )
-            value_loss, value_aux = value_loss_function(
+            value_loss, value_aux = compute_value_loss(
                 critic_params,
                 critic_state,
                 minibatch["obs"],
@@ -468,7 +468,7 @@ def valid_mean(row_values: jax.Array, valid: Optional[jax.Array]) -> jax.Array:
     return jnp.sum(row_values * valid) / jnp.maximum(jnp.sum(valid), 1.0)
 
 
-def policy_loss_function(
+def compute_policy_loss(
     actor_params: FrozenDict,
     actor_state: LoadedTrainState,
     observations: jax.Array,
@@ -508,17 +508,18 @@ def policy_loss_function(
     return total_loss, (aux, pi_mean)
 
 
-def value_loss_function(
+def compute_value_loss(
     critic_params: FrozenDict,
-    critic_states: LoadedTrainState,
+    critic_state: LoadedTrainState,
     observations: jax.Array,
     value_targets: jax.Array,
     nu: float,
-    b: float | jax.Array,
+    value_bias: float | jax.Array,
     vf_coef: float = 1.0,
     valid: Optional[jax.Array] = None,
 ) -> Tuple[jax.Array, ValueAuxiliaries]:
-    """The differential value loss vf_coef 0.5 (V(s) - (target - nu b))^2.
+    """The differential value loss vf_coef 0.5 (V(s) - (target - nu b))^2,
+    b the value bias.
 
     APO's official code (xtma/apo, apo/algos/apg/) subtracts
     nu b from the critic's target, so with b the mean value each fit
@@ -528,16 +529,15 @@ def value_loss_function(
     over the valid rows.
     """
     # The single critic still has the ensemble's leading axis.
-    value_preds = predict_value(critic_states, critic_params, observations).squeeze(0)
-    loss = (
-        vf_coef * 0.5 * valid_mean((value_preds - (value_targets - nu * b)) ** 2, valid)
-    )
+    value_preds = predict_value(critic_state, critic_params, observations).squeeze(0)
+    targets = value_targets - nu * value_bias
+    loss = vf_coef * 0.5 * valid_mean((value_preds - targets) ** 2, valid)
     return loss, ValueAuxiliaries(
         critic_loss=loss,
         predictions=value_preds.mean().flatten(),
         targets=value_targets.mean().flatten(),
         explained_variance=explained_variance(value_preds, value_targets),
-        value_bias=jnp.asarray(b),
+        value_bias=jnp.asarray(value_bias),
     )
 
 

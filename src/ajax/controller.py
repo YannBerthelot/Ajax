@@ -10,7 +10,7 @@ rollout, so the action pipelines read one state whichever runs them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from typing import Any, Callable, NamedTuple, Optional
 
@@ -19,8 +19,8 @@ import jax.numpy as jnp
 
 from ajax.environments.obs_norm import normalized_obs
 from ajax.environments.utils import critic_action_units as env_critic_action_units
-from ajax.environments.utils import get_action_dim
-from ajax.networks.memory import flatten_carry
+from ajax.environments.utils import get_action_dim, raw_obs_columns
+from ajax.networks.memory import flatten_carry, tree_where_reset
 from ajax.types import NormalizationInfo
 
 
@@ -148,6 +148,24 @@ def observation_layout(
 def init_observers(observers: Any, n_envs: int) -> tuple:
     """Each observer's per-env state at an episode start."""
     return tuple(e.init_observer(n_envs) for e in observers)
+
+
+def restart_observers(
+    started: jax.Array,
+    observers: Any,
+    states: tuple,
+    expert: Any,
+    expert_state: Any,
+    n_envs: int,
+) -> tuple[tuple, Any]:
+    """The observers' states and a stateful expert's, fresh in the envs
+    where an episode starts (started) and continuing in the others."""
+    started = started.astype(jnp.bool_)
+    states = tree_where_reset(started, init_observers(observers, n_envs), states)
+    if hasattr(expert, "init_state") and expert_state is not None:
+        fresh = expert.init_state(n_envs)
+        expert_state = tree_where_reset(started, fresh, expert_state)
+    return states, expert_state
 
 
 def feature_columns(
@@ -408,3 +426,20 @@ class Controller:
             _, expert_state = call_expert(expert, acting.expert_state, expert_obs)
             return actions, expert_state
         return actions, acting.expert_state
+
+
+def make_run_controller(
+    env_args: Any, controller: Optional[Controller] = None
+) -> Controller:
+    """How a run acts in evaluation: controller (None: the actor's action
+    on its observation) with the run's features, transforms and, where it
+    stores them so, observations normalised by its running statistics."""
+    controller = controller or Controller()
+    if env_args.store_normalized_obs:
+        columns = raw_obs_columns(env_args.env)
+        controller = replace(controller, normalize_obs=True, raw_columns=columns)
+    if env_args.observers:
+        controller = replace(controller, observers=env_args.observers)
+    if env_args.transforms:
+        controller = replace(controller, transforms=env_args.transforms)
+    return controller

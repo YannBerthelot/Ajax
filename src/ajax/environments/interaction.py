@@ -24,6 +24,7 @@ from ajax.controller import (
     feature_width,
     init_observers,
     observe_features,
+    restart_observers,
     warmup_expert_flags,
 )
 from ajax.environments.obs_norm import (
@@ -906,16 +907,9 @@ def step_features(
     the next observation. ``at``: the inputs' timestep and horizon, or
     progress (:class:`ajax.controller.ObserveInputs`)."""
     observers, n_envs = env_args.observers, env_args.n_envs
-    done = ended.astype(jnp.bool_)
-    fresh = init_observers(observers, n_envs)
-    start = tree_where_reset(done, fresh, observer_states)
-    expert_start = expert_state
-    if (
-        expert is not None
-        and hasattr(expert, "init_state")
-        and expert_state is not None
-    ):
-        expert_start = tree_where_reset(done, expert.init_state(n_envs), expert_state)
+    start, expert_start = restart_observers(
+        ended, observers, observer_states, expert, expert_state, n_envs
+    )
     raw_next = get_raw_obs(env_state=env_state, env=env_args.env, mode=mode)
     raw_next = raw_next.astype(jnp.float32)
     next_inputs = ObserveInputs(raw_next, expert, expert_start, **at)

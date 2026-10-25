@@ -18,14 +18,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import gymnax
 import jax
 import jax.numpy as jnp
 import numpy as np
 from optax.tree_utils import tree_norm
 
 from ajax import APO, ASAC, AVG, DQN, IQL, PPO, PQN, REDQ, SAC, TD3, TQC, CrossQ, DAgger
+from ajax.agents.APG.APG import APG
 from ajax.agents.critics import make_huber_td_loss
+from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.TD3.TD3 import make_default_action_pipeline
+from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
+from ajax.agents.UDRL.UDRL import UDRL
 from ajax.extensions.adversarial import AdversarialReward
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import (
@@ -42,6 +47,8 @@ from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import MemoryConfig
 from ajax.schedule import linear
+from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
+from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
 from tests.agents.test_offline import episodes
 from tests.modules import setpoint_env
 
@@ -241,6 +248,31 @@ SAC_FAMILY_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "AVG-expose": (AVG, {**AVG_KW, "expose_recent_rollout": True}, 200),
     "AVG-clip": (AVG, {**AVG_KW, "max_grad_norm": 0.5, "weight_decay": 0.01}, 200),
 }
+# The agents with collectors of their own, before the every-agent gaps give
+# them features and experts: APG's differentiable rollout (through a residual
+# expert), UDRL's command-conditioned collector on both action kinds (its
+# actor-loss batch read by ActorKeyed) and the world models' row collector.
+OWN = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_architecture": ("16", "relu")}
+APG_KW = {**OWN, "horizon": 8}
+UDRL_KW = {**OWN, "n_steps": 16, "batch_size": 16, "buffer_capacity": 8}
+UDRL_KW.update({"n_updates_per_iter": 4})
+ACTOR_RESIDUAL = {"expert_policy": push, "extensions": (ResidualPolicy(),)}
+KEYED_RESIDUAL = {"expert_policy": push, "extensions": (ResidualPolicy(), ActorKeyed())}
+DREAMER = {**DREAMER_TINY, "env_id": "CartPole-v1", "n_envs": 2}
+DREAMER.update({"train_ratio": 32, "replay_capacity": 80})
+SHORT_PENDULUM = gymnax.make("Pendulum-v1")[1].replace(max_steps_in_episode=10)
+TDMPC2_KW = {**TDMPC2_TINY, "env_id": "Pendulum-v1", "env_params": SHORT_PENDULUM}
+TDMPC2_KW.update({"seed_steps": 20})
+OWN_COLLECTOR_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "APG": (APG, APG_KW, 80),
+    "APG-residual": (APG, {**APG_KW, **KEYED_RESIDUAL}, 80),
+    "UDRL": (UDRL, UDRL_KW, 128),
+    "UDRL-discrete": (UDRL, {**UDRL_KW, "env_id": "CartPole-v1"}, 128),
+    "UDRL-residual": (UDRL, {**UDRL_KW, **ACTOR_RESIDUAL}, 128),
+    "UDRL-keyed": (UDRL, {**UDRL_KW, "extensions": (ActorKeyed(),)}, 128),
+    "DreamerV3": (DreamerV3, DREAMER, 80),
+    "TDMPC2": (TDMPC2, TDMPC2_KW, 40),
+}
 CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "TD3": (TD3, {**S, **R}, 200),
     "TD3-keyed": (TD3, {**S, **R, "extensions": (Keyed(),)}, 200),
@@ -416,6 +448,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         512,
     ),
     **SAC_FAMILY_CASES,
+    **OWN_COLLECTOR_CASES,
 }
 
 
@@ -438,6 +471,8 @@ def record(state: Any, evals: Any, tag: str = "") -> dict[str, np.ndarray]:
         ):
             leaf = jax.random.key_data(leaf)
         out[f"{tag}state" + jax.tree_util.keystr(path)] = np.asarray(leaf)
+    # APG returns its evaluations inside its per-update auxiliaries.
+    evals = getattr(evals, "evaluations", evals)
     out.update({f"{tag}eval/" + k: np.asarray(v) for k, v in (evals or {}).items()})
     return out
 

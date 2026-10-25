@@ -49,17 +49,10 @@ EQUATIONS = {
         "compute_alpha_temperature_loss",
     },
 }
-# B2 declared the replay family on IQL, CrossQ and TD3 only: SAC's descendants
-# join it, and leave its state and init, when B4 declares them.
-_SAC_FAMILY_INIT = "B4 (the replay family's init, each agent's networks)"
-_SAC_STEPS = "B4 (update_steps.actor_step or gradient_step over SAC's equations)"
 #: (importer, agent, name) -> the batch that ends the import. An importer is
 #: an agent, or a shared module's path under src/ajax.
 BORROWED = {
-    # B3 declared PPO, APO and PQN on the on-policy family.
-    **{
-        (agent, "SAC", "init_soft_actor_critic"): _SAC_FAMILY_INIT for agent in ("AVG",)
-    },
+    # B4 declared the SAC family: no agent borrows from another any more.
     ("checkpoint.py", "UDRL", "SegmentBuffer"): "2026-11-17 (the shim's removal)",
 }
 

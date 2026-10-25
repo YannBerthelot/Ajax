@@ -11,11 +11,12 @@ import jax
 import numpy as np
 import pytest
 
-from ajax import ASAC, IQL, REDQ, SAC, TD3, TQC, CrossQ
+from ajax import ASAC, AVG, IQL, REDQ, SAC, TD3, TQC, CrossQ
 
 TINY = {"env_id": "Pendulum-v1", "n_envs": 1, "buffer_size": 64, "batch_size": 8}
 TINY.update({"learning_starts": 8})
 NETS: dict[type, dict[str, Any]] = {
+    AVG: {"actor_architecture": ("8", "relu"), "critic_architecture": ("8", "relu")},
     TD3: {"actor_architecture": ("8", "relu"), "critic_architecture": ("8", "relu")},
     IQL: {"actor_architecture": ("8", "relu"), "critic_architecture": ("8", "relu")},
     CrossQ: {"actor_width": 8, "critic_width": 8, "policy_delay": 1},
@@ -39,9 +40,10 @@ NO_WAIT = {"policy_update_start": 0, "alpha_update_start": 0}
 STEPS = 24
 
 
-def _train(cls: type, **kwargs: Any) -> Any:
+def _train(cls: Any, **kwargs: Any) -> Any:
     waits = {key: 0 for key in NO_WAIT if cls is SAC and key not in kwargs}
-    agent = cls(**{**TINY, **NETS[cls], **waits, **kwargs})
+    tiny = {key: value for key, value in TINY.items() if key in cls.field_names()}
+    agent = cls(**{**tiny, **NETS[cls], **waits, **kwargs})
     return agent.train(seed=0, n_timesteps=STEPS)[0]
 
 
@@ -53,7 +55,7 @@ def _same(first: object, second: object) -> bool:
 
 
 @pytest.mark.parametrize(
-    "cls", [TD3, IQL, CrossQ, SAC, TQC, REDQ, ASAC], ids=lambda c: c.__name__
+    "cls", [TD3, IQL, CrossQ, SAC, TQC, REDQ, ASAC, AVG], ids=lambda c: c.__name__
 )
 def test_the_actor_is_kept_from_policy_update_start(cls: type) -> None:
     """Started after the run, the actor stays as initialised while the

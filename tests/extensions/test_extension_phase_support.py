@@ -37,7 +37,7 @@ AGENTS = "APG APO ASAC AVG DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL".split
 RESIDUAL = {"SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG"}
 RESIDUAL.update({"PPO", "APO", "IQL", "APG", "UDRL"})
 #: The agents whose collection runs the warm-up's chooser (ExpertWarmup).
-WARMUP = {"SAC", "TD3", "REDQ", "ASAC", "DQN"}
+WARMUP = {"SAC", "TD3", "REDQ", "ASAC", "AVG", "DQN"}
 #: The agents whose replay the replay family's collector writes, which runs
 #: the stored action's chooser (StorePolicyAction).
 REPLAY_FAMILY = {"ASAC", "REDQ", "SAC", "TD3", "TQC"}

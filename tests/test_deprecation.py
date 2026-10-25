@@ -83,6 +83,8 @@ BECAME_METHODS = {
     "init_TQC",
     "init_REDQ",
     "init_ASAC",
+    "init_AVG",
+    "update_AVG_values",
     "update_agent",
     "update_critics",
     "update_actor_and_temperature",
@@ -93,7 +95,7 @@ BECAME_METHODS = {
 
 
 @pytest.mark.parametrize(
-    "agent", ["IQL", "CrossQ", "TD3", "PQN", "TQC", "REDQ", "ASAC"]
+    "agent", ["IQL", "CrossQ", "TD3", "PQN", "TQC", "REDQ", "ASAC", "AVG"]
 )
 def test_the_declared_agents_old_names_resolve_or_give_the_new_call(
     agent: str,
@@ -222,6 +224,8 @@ RENAMED_BY_A_VERB = [
     ("SAC.core", "temperature_loss_fn", "SAC.SAC", "compute_temperature_loss"),
     ("REDQ.train_REDQ", "value_loss_function", "REDQ.REDQ", "compute_critic_loss"),
     ("ASAC.train_ASAC", "value_loss_function", "ASAC.ASAC", "compute_critic_loss"),
+    ("AVG.train_AVG", "value_loss_function", "AVG.AVG", "compute_critic_loss"),
+    ("AVG.train_AVG", "policy_loss_function", "AVG.AVG", "compute_policy_loss"),
     ("TD3.train_TD3", "policy_loss_function", "TD3.TD3", "compute_policy_loss"),
 ]
 

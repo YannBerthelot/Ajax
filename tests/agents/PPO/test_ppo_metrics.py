@@ -21,8 +21,8 @@ from ajax.agents.PPO.PPO import (
     PPO,
     PPOState,
     _compute_gae,
-    policy_loss_function,
-    value_loss_function,
+    compute_policy_loss,
+    compute_value_loss,
 )
 from ajax.environments.interaction import get_pi
 from ajax.environments.utils import get_state_action_shapes
@@ -75,8 +75,14 @@ def test_ppo_losses_report_kl_std_and_explained_variance() -> None:
     actor, critic = state.actor_state, state.critic_state
     obs, actions, log_probs, gae, targets = _batch(agent)
 
-    _, (p_aux, _) = policy_loss_function(
-        actor.params, actor, obs, actions, log_probs, gae, False, 0.2, 0.0, True
+    minibatch = {
+        "obs": obs,
+        "actions": actions,
+        "log_probs": log_probs,
+        "raw_actions": None,
+    }
+    _, (p_aux, _) = compute_policy_loss(
+        actor.params, actor, minibatch, gae, 0.2, 0.0, True
     )
     pi, _ = get_pi(actor, actor.params, obs)
     log_ratio = np.asarray(recompute_log_prob(pi, actions, None) - log_probs)
@@ -85,7 +91,7 @@ def test_ppo_losses_report_kl_std_and_explained_variance() -> None:
     )
     np.testing.assert_allclose(p_aux.policy_std, np.mean(pi.stddev()), rtol=1e-6)
 
-    _, (v_aux, _) = value_loss_function(critic.params, critic, obs, targets, False)
+    _, (v_aux, _) = compute_value_loss(critic.params, critic, minibatch, targets)
     v = np.asarray(predict_value(critic, critic.params, obs).squeeze(0))
     t = np.asarray(targets)
     np.testing.assert_allclose(
@@ -127,25 +133,27 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
         gae_lambda=config.gae_lambda,
     )
     actions, log_probs = get_actions_and_log_probs(rollout)
+    minibatch = {
+        "obs": rollout.obs,
+        "actions": actions,
+        "log_probs": log_probs,
+        "raw_actions": rollout.raw_action,
+    }
 
     def value_loss(p):
-        return value_loss_function(
-            p, critic, rollout.obs, targets, False, vf_coef=config.vf_coef
+        return compute_value_loss(
+            p, critic, minibatch, targets, vf_coef=config.vf_coef
         )[0]
 
     def policy_loss(p):
-        return policy_loss_function(
+        return compute_policy_loss(
             p,
             actor,
-            rollout.obs,
-            actions,
-            log_probs,
+            minibatch,
             gae,
-            False,
             config.clip_range,
             config.ent_coef,
             config.normalize_advantage,
-            raw_actions=rollout.raw_action,
         )[0]
 
     v_norm = optax.global_norm(jax.grad(value_loss)(critic.params))
@@ -280,19 +288,19 @@ def test_the_entropy_bonus_lowers_the_policy_loss() -> None:
     state = agent.init(KEY, context)
     actor = state.actor_state
     obs, actions, log_probs, gae, targets = _batch(agent)
+    minibatch: dict[str, Any] = {"obs": obs, "actions": actions, "log_probs": log_probs}
+    minibatch.update(
+        {"gae": gae, "targets": targets, "raw_actions": None, "raw_obs": None}
+    )
 
     def loss(ent_coef: float) -> tuple:
-        args = (obs, actions, log_probs, gae, False, 0.2, ent_coef, True)
-        total, (aux, _) = policy_loss_function(actor.params, actor, *args)
+        args = (minibatch, gae, 0.2, ent_coef, True)
+        total, (aux, _) = compute_policy_loss(actor.params, actor, *args)
         return float(total), float(aux.entropy)
 
     (with_bonus, entropy), (without, _) = loss(0.1), loss(0.0)
     np.testing.assert_allclose(with_bonus - without, -0.1 * entropy, rtol=1e-5)
     # The update's minibatch step logs the loss with the agent's bonus.
-    minibatch: dict[str, Any] = {"obs": obs, "actions": actions, "log_probs": log_probs}
-    minibatch.update(
-        {"gae": gae, "targets": targets, "raw_actions": None, "raw_obs": None}
-    )
     split = choose_rollout_split(agent, agent.n_steps, agent.n_envs, False)
     _, aux = agent.minibatch_step(state, minibatch, split, context)
     np.testing.assert_allclose(aux.policy.policy_loss, with_bonus, rtol=1e-5)

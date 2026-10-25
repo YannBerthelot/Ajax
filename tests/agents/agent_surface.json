@@ -256,8 +256,6 @@
 "ajax.agents.PPO.PPO:clipped_surrogate",
 "ajax.agents.PPO.PPO:compute_policy_loss",
 "ajax.agents.PPO.PPO:compute_value_loss",
-"ajax.agents.PPO.PPO:policy_loss_function",
-"ajax.agents.PPO.PPO:value_loss_function",
 "ajax.agents.PPO.core:AuxiliaryLogs",
 "ajax.agents.PPO.core:PolicyAuxiliaries",
 "ajax.agents.PPO.core:ValueAuxiliaries",

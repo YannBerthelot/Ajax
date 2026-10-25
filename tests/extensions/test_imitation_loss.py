@@ -440,20 +440,24 @@ def _ppo_update(stack: ExtensionStack) -> Any:
         stack, state, KEY, 1, raw_observations=obs
     )
 
+    minibatch = {
+        "obs": obs,
+        "actions": jnp.zeros((BATCH, 1)),
+        "log_probs": jnp.zeros((BATCH, 1)),
+        "raw_actions": None,
+    }
+
     def loss(params: Any) -> Any:
-        return ppo_module.policy_loss_function(
+        return ppo_module.compute_policy_loss(
             params,
             actor,
-            obs,
-            actions=jnp.zeros((BATCH, 1)),
-            log_probs=jnp.zeros((BATCH, 1)),
+            minibatch,
             gae=jnp.ones((BATCH, 1)),
-            recurrent=False,
             clip_coef=0.2,
             ent_coef=0.0,
-            advantage_normalization=False,
-            extra_loss_fn=extra,
-            entropy_rng=KEY,
+            normalize_advantage=False,
+            compute_extensions_loss=extra,
+            entropy_key=KEY,
         )
 
     grads, _ = jax.grad(loss, has_aux=True)(actor.params)

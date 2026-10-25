@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from ajax.agents.SAC.SAC import SAC
-from ajax.extensions.expert import ExpertGains, JSRLCurriculum
+from ajax.extensions.expert import ExpertGains, ExpertWarmup, JSRLCurriculum
 from ajax.extensions.observe import (
     ExpertActionInput,
     ExpertStateInput,
@@ -109,7 +109,9 @@ def test_jsrl_curriculum_counts_the_episode_steps_it_reads():
     jsrl = (JSRLCurriculum(episode_length=8, decay_frac=0.5),)
     with warnings.catch_warnings():
         warnings.simplefilter("error", FutureWarning)
-        agent = SAC(env_id="Pendulum-v1", extensions=jsrl, **kw)
+        # SAC's default warm-up mix warns, passed as the extension it does not.
+        mix = ExpertWarmup(fraction=0.7)
+        agent = SAC(env_id="Pendulum-v1", extensions=(*jsrl, mix), **kw)
     state, _ = agent.train(seed=0, n_timesteps=12)
     np.testing.assert_array_equal(state.collector_state.step_in_episode, [[12]])
     plain, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=0, n_timesteps=12)

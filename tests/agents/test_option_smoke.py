@@ -137,6 +137,7 @@ CNN = {"Pendulum-v1": (1, 3, 1), "fast": (1, 2, 1), "CartPole-v1": (2, 2, 1)}
 ELSEWHERE = {
     "env_params": "agents/test_agent_contract.py",
     "skip_critic_pretrain": "agents/SAC/test_sac.py",
+    "expert_fraction": "extensions/test_expert_warmup.py",  # deprecated
     "jsrl_curriculum": "agents/SAC/test_sac.py",  # deprecated
     "td_target_fn": "agents/DQN/test_DQN.py",
     "td_loss_fn": "agents/PQN/test_PQN.py",
@@ -173,6 +174,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
         lambda: pre.ExpertPrefill(n_steps=8),
         "SAC TD3 REDQ ASAC TQC CrossQ IQL",
     ),
+    "ExpertWarmup": (lambda: expert.ExpertWarmup(fraction=0.5), "SAC"),
     "ImitationLoss": (lambda: expert.ImitationLoss(stateless_expert), "APO"),
     "KernelRepulsion": (ensemble.KernelRepulsion, "REDQ"),
     "BiasVorePenalty": (instrumentation.BiasVorePenalty, "AVG"),
@@ -198,6 +200,7 @@ NEEDS_EXPERT = "augment_obs_with_expert_action augment_obs_with_expert_state"
 NEEDS_EXPERT += " use_pid_policy expert_buffer_n_steps IBRL LCBGatedBootstrap"
 NEEDS_EXPERT += " ExpertValueMetrics CloningPretrain ResidualPolicy JSRLCurriculum"
 NEEDS_EXPERT += " ExpertActionInput ExpertStateInput ExpertGains ExpertPrefill"
+NEEDS_EXPERT += " ExpertWarmup"
 #: What an option or extension needs on in its row: phi* is MCPretrain's,
 #: BellmanPretrain reads its prefilled replay.
 REQUIRES = {o: {"MCPretrain"} for o in (*PHI_STAR.split(), "BellmanPretrain")}
@@ -233,6 +236,9 @@ EXCLUSIVE = [
     # Under gain mode the policy chooses gains, and these use the expert's
     # env actions where the gains go: refused, not wired yet.
     ({"use_pid_policy", "ExpertGains"}, USES_EXPERT_ACTIONS),
+    # SAC's gain mode acts through the shared pipeline, which has no
+    # warm-up chooser yet.
+    ({"use_pid_policy", "ExpertGains"}, {"ExpertWarmup"}),
     # A feature and the deprecated keyword making it would widen the
     # observation twice under one name.
     ({"ExpertActionInput"}, {"augment_obs_with_expert_action"}),

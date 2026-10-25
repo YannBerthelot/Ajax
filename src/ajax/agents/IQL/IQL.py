@@ -215,6 +215,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             "target_critic",
             "v_critic",
             "reward_learning",
+            "warmup",
         }
     )
     phase_batch_keys = {  # noqa: RUF012

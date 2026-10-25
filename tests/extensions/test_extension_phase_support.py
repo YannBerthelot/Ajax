@@ -104,6 +104,9 @@ class EveryPhase(Extension):
     def actuate(self, actions, inputs):
         return actions, inputs.expert_state
 
+    def choose_warmup_action(self, uniform_actions, inputs):
+        return uniform_actions, jnp.zeros((), dtype=bool)
+
     def post_update(self, agent_state, ext_state, context):
         return agent_state, ext_state
 
@@ -268,6 +271,9 @@ def test_agents_accept_only_the_phases_they_fold():
         assert ("observe" in phases) != own_collector, name
         assert ("action" in phases) == (name == "SAC"), name
         assert ("transform_action" in phases) == (name in RESIDUAL), name
+        # The warm-up chooser reaches SAC's pipeline only, until the shared
+        # pipelines take it.
+        assert ("choose_warmup_action" in phases) == (name == "SAC"), name
 
 
 @dataclass(frozen=True)

@@ -200,10 +200,14 @@ thousands of steps for a real run (its defaults collect about a million).
 
 ### Warm-up
 
-Until `learning_starts`, SAC does not use its policy. At each step, with
-probability `expert_fraction` (default 0.7), every environment takes the
-expert's action; otherwise, a uniform random one. With `ResidualPolicy`, the
-warm-up is uniform only.
+Until `learning_starts`, SAC does not use its policy. With
+`ExpertWarmup(fraction)` (`ajax.extensions.expert`), at each step, with
+probability `fraction`, every environment takes the expert's action;
+otherwise, a uniform random one. The replay flags the rows the expert took.
+SAC's `expert_fraction` builds it and warns; left unset with an expert, it
+stands for `ExpertWarmup(fraction=0.7)`, with a warning that this default
+will go. Without warm-up steps (`learning_starts=0`), with `ResidualPolicy`
+or under gain mode, SAC builds none and the warm-up is uniform.
 
 ### Collection
 

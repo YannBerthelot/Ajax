@@ -79,6 +79,9 @@ DEFERRED = "memory on this agent has no published form (deferred)"
 PRIOR = "the agent's own replay is not handed to its pretraining yet"
 NEXT = "only TD3 hands on_target the next actions its target scored (ReBRAC's TargetBC)"
 REWARD = "only PPO folds the reward phase (GAIL's AdversarialReward)"
+WARMUP = (
+    "no collector but SAC's runs the choose_warmup_action phase yet (the warm-up reach)"
+)
 OWN_ROLLOUT = (
     "the agent's own collector does not observe features yet (APG's differentiable"
     " rollout, UDRL's command)"
@@ -130,6 +133,7 @@ GAPS: dict[str, dict[str, str]] = {
         "BellmanPretrain": "DQN IQL",
         "ExpertPrefill": "DQN",
         "ExpertValueMetrics": "DQN",
+        "ExpertWarmup": "DQN",
         **dict.fromkeys(FEATURES[:2], "DQN PQN"),
     },
     FORM: {
@@ -173,6 +177,7 @@ GAPS: dict[str, dict[str, str]] = {
     MEMORY: {"memory": "APO APO/discrete DQN PQN DAgger DAgger/discrete IQL"},
     DEFERRED: {"memory": "AVG CrossQ UDRL UDRL/discrete"},
     NEXT: {"TargetBC": "SAC REDQ TQC CrossQ AVG IQL"},
+    WARMUP: {"ExpertWarmup": "TD3 REDQ ASAC CrossQ TDMPC2"},
     REWARD: {
         "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO UDRL DAgger IQL DreamerV3"
         " TDMPC2 TDMPC2MultiTask"
@@ -238,6 +243,7 @@ def field_values(env: str) -> dict[str, Any]:
         "expert_policy": expert,
         "threshold": 1.0,
         "n_steps": 4,
+        "fraction": 0.5,
         "dataset": episode,
         "demonstrations": episode,
         # A PID's error x[1] - x[0], on every row's observation.

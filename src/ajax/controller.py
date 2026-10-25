@@ -181,6 +181,57 @@ def transforms_of(stack: Any) -> tuple[Any, ...]:
     return tuple(e for e in stack if e.implemented_phases().intersection(phases))
 
 
+class WarmupInputs(NamedTuple):
+    """What a warm-up chooser reads in one step: the expert's action in the
+    space the warm-up draws (expert_action_for_warmup), and the key the
+    step's uniform actions were drawn on."""
+
+    expert_action: jax.Array
+    key: jax.Array
+
+
+def warmups_of(extensions: Any) -> tuple[Any, ...]:
+    """The extensions choosing what the warm-up acts with (ExpertWarmup)."""
+    return tuple(
+        extension
+        for extension in extensions
+        if "choose_warmup_action" in extension.implemented_phases()
+    )
+
+
+def choose_warmup_actions(
+    warmups: Any, uniform_actions: jax.Array, inputs: WarmupInputs
+) -> tuple[jax.Array, jax.Array]:
+    """The warm-up's actions and whether the expert took them (one boolean
+    for the step): the run's chooser's (an agent takes one), else the
+    uniform ones."""
+    if not warmups:
+        return uniform_actions, jnp.zeros((), dtype=jnp.bool_)
+    return warmups[0].choose_warmup_action(uniform_actions, inputs)
+
+
+def expert_action_for_warmup(
+    transform: Any, after_choice: bool, expert_action: jax.Array, policy_actions: Any
+) -> jax.Array:
+    """The expert's action in the space the warm-up draws, which the replay
+    stores: the executed one, unless the transform acts after the choice
+    (gain mode, or a residual applied after it), where it is the policy
+    action that executes the expert's own (policy_action_for_expert)."""
+    acts_after_choice = transform is not None and (
+        after_choice or "actuate" in transform.implemented_phases()
+    )
+    if not acts_after_choice:
+        return expert_action
+    return transform.policy_action_for_expert(policy_actions)
+
+
+def warmup_expert_flags(expert_took: jax.Array, policy_actions: jax.Array) -> jax.Array:
+    """A warm-up step's is_expert column: 1 in every env where the expert
+    took it."""
+    flags = jnp.ones_like(policy_actions[..., :1], dtype=jnp.float32)
+    return flags * expert_took.astype(jnp.float32)
+
+
 def executed_actions(env_args: Any, actions: jax.Array, a_expert: Any) -> jax.Array:
     """The actions the critics score: the policy's ``actions`` through the
     run's ``transform_action`` (residual RL), from the expert's actions

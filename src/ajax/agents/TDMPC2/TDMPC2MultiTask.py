@@ -123,7 +123,8 @@ class TDMPC2MultiTask:
     """
 
     name: str = "TDMPC2MultiTask"
-    capabilities: frozenset = TDMPC2.capabilities
+    # It trains on a dataset and never acts while it learns: no warm-up.
+    capabilities: frozenset = TDMPC2.capabilities.difference({"warmup"})
     supported_extension_phases: frozenset = TDMPC2.supported_extension_phases
 
     def __init__(

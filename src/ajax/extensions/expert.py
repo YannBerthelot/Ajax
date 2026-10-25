@@ -4,6 +4,7 @@
 * :class:`ImitationLoss`         — plain BC loss term towards the expert.
 * :class:`ResidualPolicy`        — execute ``clip(a_expert + scale·a_pi)``.
 * :class:`ExpertGains`           — the action sets the expert's gains (gain mode).
+* ExpertWarmup                  — the expert acts on a share of the warm-up steps.
 * :class:`JSRLCurriculum`        — per-episode expert→learner handoff.
 * :class:`ExpertValueMetrics`    — the critic at the expert's actions, logged.
 
@@ -540,6 +541,29 @@ class ExpertGains(Extension):
 
 
 @dataclass(frozen=True)
+class ExpertWarmup(Extension):
+    """During the warm-up, the agent's expert acts on a share fraction of the
+    steps and uniform random actions on the others (SAC's former
+    expert_fraction). One draw decides each step for every env, as SAC drew
+    it. It acts in the controller only: no state and no key in the learner.
+    The replay flags the steps the expert took, where it keeps is_expert."""
+
+    fraction: float
+    name: str = "expert_warmup"
+    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert"})
+
+    def choose_warmup_action(
+        self, uniform_actions: jax.Array, inputs: Any
+    ) -> tuple[jax.Array, jax.Array]:
+        # Its own key: on the uniform actions' key the decision would reuse
+        # their first draw (env 0, dimension 0).
+        decision_key = jax.random.fold_in(inputs.key, 1)
+        expert_took = jax.random.uniform(decision_key) < self.fraction
+        actions = jnp.where(expert_took, inputs.expert_action, uniform_actions)
+        return actions, expert_took
+
+
+@dataclass(frozen=True)
 class JSRLCurriculum(Extension):
     """True JSRL per-episode handoff (Uchendu et al. 2023).
 
@@ -615,6 +639,7 @@ class JSRLCurriculum(Extension):
 
 __all__ = [
     "ExpertGains",
+    "ExpertWarmup",
     "ImitationLoss",
     "JSRLCurriculum",
     "OnlineBC",

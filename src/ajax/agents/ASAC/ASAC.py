@@ -34,6 +34,7 @@ class ASAC(ActorCritic):
             "replay",
             "target_critic",
             "reward_learning",
+            "warmup",
         }
     )
     supported_extension_phases: frozenset = LOOP_PHASES.union(

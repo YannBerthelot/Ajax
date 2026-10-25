@@ -51,7 +51,6 @@ from ajax.agents.temperature import (
 )
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import merge_metrics
-from ajax.modules.pid_actor import PIDPolicy
 from ajax.state import AlphaConfig, LoadedTrainState, Transition
 from ajax.types import Architecture, Replaceable
 
@@ -99,17 +98,10 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             "squash": True,
             "encoder_kernel_init": ORTHOGONAL,
             "value_kernel_init": ORTHOGONAL,
+            "mean_kernel_init": ORTHOGONAL,
+            "log_std_kernel_init": ORTHOGONAL,
+            "log_std_init": 0.0,
         }
-        # The Gaussian head's settings are the MLP actor's: a PID actor in
-        # its place keeps its own log-std start (PID_LOG_STD_INIT).
-        if not isinstance(self.actor_architecture, PIDPolicy):
-            args.update(
-                {
-                    "mean_kernel_init": ORTHOGONAL,
-                    "log_std_kernel_init": ORTHOGONAL,
-                    "log_std_init": 0.0,
-                }
-            )
         return args
 
     def optimizer_settings(self) -> dict[str, Any]:

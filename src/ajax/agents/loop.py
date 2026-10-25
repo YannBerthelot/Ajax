@@ -320,6 +320,9 @@ class TrainLoop:
     expert_policy: Any = None
     #: A transition dataset to train on alone (:meth:`offline`).
     offline_data: Optional[TransitionDataset] = None
+    #: Evaluate only in the last fifth of training (LoggingConfig.sweep, for
+    #: hyperparameter sweeps).
+    sweep: bool = False
 
     @classmethod
     def create(
@@ -354,6 +357,7 @@ class TrainLoop:
             end_timestep=end_timestep,
             expert_policy=expert_policy,
             offline_data=offline_data,
+            sweep=logging_config is not None and logging_config.sweep,
         )
 
     @property
@@ -490,9 +494,10 @@ class TrainLoop:
         """Evaluate and log every ``log_frequency`` steps
         (:func:`ajax.log.evaluate_and_log`), the extensions' eval metrics
         included; returns the state and the metrics (``None`` without
-        logging). An agent storing normalised observations evaluates with
-        them normalised by its running statistics, unless its own
-        ``controller`` says how it acts."""
+        logging), only in the last fifth of training in a sweep. An agent
+        storing normalised observations evaluates with them normalised by its
+        running statistics, unless its own ``controller`` says how it
+        acts."""
         controller = kwargs.get("controller") or Controller()
         if self.env_args.store_normalized_obs:
             columns = raw_obs_columns(self.env_args.env)
@@ -509,6 +514,8 @@ class TrainLoop:
             )
         if controller != Controller():
             kwargs.update({"controller": controller})
+        if self.sweep:
+            kwargs.setdefault("sweep", True)
         return evaluate_and_log(
             agent_state,
             aux,

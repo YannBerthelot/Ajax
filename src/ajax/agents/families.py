@@ -198,9 +198,12 @@ class ExpertGuided:
             residual policy and the extensions reading them; each evaluation
             logs its return. It speaks the env's units; the agent reads it in
             its own (agent.expert).
+        eval_expert_policy: The expert whose return each evaluation logs
+            instead, which takes no other part in the run.
     """
 
     expert_policy: Optional[Callable] = None
+    eval_expert_policy: Optional[Callable] = None
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -454,9 +457,13 @@ class DeclaredAgent(ActorCritic):
         return {}
 
     def evaluation_kwargs(self) -> dict[str, Any]:
-        """Each evaluation's arguments: the expert, the critic's estimate
+        """Each evaluation's arguments: the expert, the critic's estimate,
+        the expert whose return it logs (eval_expert_policy, in agent units)
         and the agent's evaluation_options."""
         kwargs = {"expert_policy": self.expert, "value_estimate": self.value_estimate()}
+        eval_expert = getattr(self, "eval_expert_policy", None)
+        if eval_expert is not None:
+            kwargs.update({"eval_expert_policy": self._in_agent_units(eval_expert)})
         kwargs.update(self.evaluation_options())
         return kwargs
 

@@ -32,15 +32,12 @@ from ajax.networks.networks import phi_star_critic_state
 ACTION_SLOTS = ("pre_warmup", "post_warmup")
 
 
-def check_action_extensions(
-    extension_stack: ExtensionStack, dispatched: bool, warmups: tuple = ()
-) -> None:
+def check_action_extensions(extension_stack: ExtensionStack, dispatched: bool) -> None:
     """Reject the action extensions the pipeline never dispatches: one
     without an action_slot of ACTION_SLOTS, or any, or a residual policy (an
-    extension implementing transform_action) or a warm-up chooser
-    (ExpertWarmup, in warmups), when the pipeline does not dispatch
-    (dispatched False: no expert policy, or gain mode, which acts through
-    the default pipeline). SAC calls it at construction."""
+    extension implementing transform_action), when the pipeline does not
+    dispatch (dispatched False: no expert policy, or gain mode, which acts
+    through the default pipeline). SAC calls it at construction."""
     acting = [e for e in extension_stack if "action" in e.implemented_phases()]
     unslotted = [
         e.name for e in acting if getattr(e, "action_slot", None) not in ACTION_SLOTS
@@ -53,7 +50,7 @@ def check_action_extensions(
     residual = [
         e for e in extension_stack if "transform_action" in e.implemented_phases()
     ]
-    ignored = [extension.name for extension in (*acting, *residual, *warmups)]
+    ignored = [extension.name for extension in (*acting, *residual)]
     if ignored and not dispatched:
         raise ValueError(
             "SAC dispatches the action phase only with an expert_policy and"

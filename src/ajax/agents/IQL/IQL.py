@@ -119,6 +119,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             n_envs=context.env_args.n_envs,
             transform=context.env_args.transforms[0],
             after_choice=True,
+            warmups=context.env_args.warmups,
         )
 
     def init(self, key: jax.Array, context: TrainContext) -> IQLState:

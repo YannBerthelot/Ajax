@@ -16,11 +16,15 @@ from ajax.controller import (
     ActingState,
     ObserveInputs,
     TransformInputs,
+    WarmupInputs,
     acting_state,
+    choose_warmup_actions,
+    expert_action_for_warmup,
     feature_columns,
     feature_width,
     init_observers,
     observe_features,
+    warmup_expert_flags,
 )
 from ajax.environments.obs_norm import (
     apply_obs_norm,
@@ -536,6 +540,7 @@ def policy_pipeline(
     n_envs: int,
     transform: Any = None,
     after_choice: bool = False,
+    warmups: tuple = (),
 ) -> ActionPipelineResult:
     """The default action pipeline: the policy's action, through the run's
     residual ``transform`` (its ``transform_action``) where it has one, or a
@@ -543,7 +548,10 @@ def policy_pipeline(
     acts before the choice, so the warm-up draws executed actions; with
     ``after_choice`` it acts on the chosen one, so the warm-up draws
     residuals, and the policy's action stored is the one chosen (an actor
-    fitting its own stored actions: IQL's)."""
+    fitting its own stored actions: IQL's). The run's warm-up chooser
+    (warmups: ExpertWarmup) may take a warm-up step instead of the uniform
+    action, the expert's action entering in the space the warm-up draws,
+    and the replay flags the steps the expert took."""
     action, log_probs, raw_action, agent_state = get_action_and_log_probs(
         action_key=action_key,
         agent_state=agent_state,
@@ -556,6 +564,14 @@ def policy_pipeline(
     # A discrete policy's action is stepped and stored as a float, the
     # uniform draw's dtype, which the cond needs both branches to share.
     action = action.astype(uniform_action.dtype)
+    # Traced only with a warm-up chooser: a run without one is unchanged.
+    if warmups:
+        expert_action = expert_action_for_warmup(
+            transform, after_choice, acting.expert_action, action
+        )
+        uniform_action, expert_took = choose_warmup_actions(
+            warmups, uniform_action, WarmupInputs(expert_action, mix_key)
+        )
     no_box = jnp.zeros((n_envs, 1), dtype=jnp.float32)
     if after_choice:
         action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
@@ -563,11 +579,17 @@ def policy_pipeline(
     else:
         executed = executed_action(transform, action, acting, _raw_obs)
         env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: executed)
+    if warmups:
+        # The warm-up flags the steps the expert took; no later step is.
+        took_this_step = jnp.logical_and(uniform, expert_took)
+        is_expert_flag = warmup_expert_flags(took_this_step, action)
+    else:
+        is_expert_flag = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
     return ActionPipelineResult(
         env_action=env_action,
         policy_action=action,
         log_probs=log_probs,
-        is_expert_flag=jnp.zeros_like(action[..., :1], dtype=jnp.float32),
+        is_expert_flag=is_expert_flag,
         in_value_box=no_box,
         entry_bonus=no_box,
         rng=rng,
@@ -601,16 +623,20 @@ def explore_pipeline(
     n_actions: Optional[int] = None,
     warmup: bool = True,
     transform: Any = None,
+    warmups: tuple = (),
 ) -> Callable:
     """The action pipeline of the behaviour policy ``explore`` (``n_actions``:
     a discrete action space's size), through the run's residual
     ``transform`` where it has one, or uniform actions, on ``mix_key``,
     during the warm-up; an agent that never warms up (``warmup=False``, an
-    on-policy one) draws none.
+    on-policy one) draws none. The run's warm-up chooser (warmups:
+    ExpertWarmup) may take a warm-up step instead of the uniform action,
+    the expert's action entering in the space the warm-up draws, and the
+    replay flags the steps the expert took.
 
     A recurrent actor advances its carry, its one-step time axis dropped
     from the action. A discrete action is stored as an ``(n_envs, 1)``
-    column. No log-probs, expert or value box.
+    column. No log-probs or value box.
     """
 
     def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
@@ -619,6 +645,8 @@ def explore_pipeline(
         action = explore(pi, action_key, acting.timestep)
         action = action.squeeze(0) if recurrent else action
         env_action = executed_action(transform, action, acting, raw_obs)
+        discrete = n_actions is not None
+        is_expert_flag = None
         if warmup:
             if n_actions is None:
                 uniform_action = jax.random.uniform(
@@ -628,12 +656,28 @@ def explore_pipeline(
                 uniform_action = jax.random.randint(
                     mix_key, action.shape, minval=0, maxval=n_actions
                 ).astype(action.dtype)
+            # Traced only with a warm-up chooser: a run without one is
+            # unchanged. The residual acts before the choice, so the
+            # expert's action enters as executed.
+            if warmups:
+                expert_action = expert_action_for_warmup(
+                    transform, False, acting.expert_action, action
+                )
+                uniform_action, expert_took = choose_warmup_actions(
+                    warmups, uniform_action, WarmupInputs(expert_action, mix_key)
+                )
+                # The warm-up flags the steps the expert took; no later step is.
+                took_this_step = jnp.logical_and(uniform, expert_took)
+                stored_policy_action = action[:, None] if discrete else action
+                is_expert_flag = warmup_expert_flags(
+                    took_this_step, stored_policy_action
+                )
             executed = env_action
             env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: executed)
-        discrete = n_actions is not None
         return ActionPipelineResult(
             env_action=env_action,
             policy_action=action[:, None] if discrete else action,
+            is_expert_flag=is_expert_flag,
             rng=rng,
             buffer_action=env_action[:, None] if discrete else None,
             new_actor_hidden=actor.hidden_state if recurrent else None,
@@ -781,6 +825,7 @@ def expert_collect_kwargs(
     recurrent: bool,
     n_envs: int,
     transform: Any = None,
+    warmups: tuple = (),
 ) -> dict:
     """:func:`collect_experience`'s ``action_pipeline`` and ``next_expert_fn``
     for an agent storing its expert's actions (``a_expert`` at s,
@@ -793,11 +838,17 @@ def expert_collect_kwargs(
     default pipeline applies before the choice (a pipeline of the agent's
     applies it itself); an ``actuate`` one (gain mode) executes the chosen
     action through the expert, which that steps, and the chosen one is
-    stored. Without an expert, ``action_pipeline`` alone."""
+    stored. The run's warm-up chooser (warmups) runs in the default
+    pipeline; a pipeline of the agent's runs it itself. Without an expert,
+    ``action_pipeline`` alone."""
     if expert_policy is None:
         return {"action_pipeline": action_pipeline}
     inner = action_pipeline or partial(
-        policy_pipeline, recurrent=recurrent, n_envs=n_envs, transform=transform
+        policy_pipeline,
+        recurrent=recurrent,
+        n_envs=n_envs,
+        transform=transform,
+        warmups=warmups,
     )
     actuate = None
     if transform is not None and "actuate" in transform.implemented_phases():

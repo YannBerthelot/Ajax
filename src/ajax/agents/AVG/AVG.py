@@ -24,6 +24,8 @@ class AVG(ActorCritic):
     """
 
     name: str = "AVG"
+    # No replay, so no warmup: AVG learns from each step as it comes, and
+    # steps taken before learning_starts feed no update.
     capabilities: frozenset = frozenset(
         {
             "actor",

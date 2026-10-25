@@ -28,6 +28,8 @@ class TQC(ActorCritic):
     ``tqc/``)."""
 
     name: str = "TQC"
+    # No warmup: TQC acts with its policy from its first step, as its
+    # authors' code does (train_TQC: uniform_steps=0).
     capabilities: frozenset = frozenset(
         {
             "actor",

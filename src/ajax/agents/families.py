@@ -524,8 +524,17 @@ class ReplayAgent(DeclaredAgent):
     learning_starts: int
 
     replays_transitions = True
+    # The default pipelines run the warm-up's chooser (choose_warmup_action);
+    # an agent replacing them passes it on (choose_behaviour).
     supported_extension_phases = LOOP_PHASES.union(
-        {"on_target", "critic_loss", "actor_loss", "transform_action", "actuate"}
+        {
+            "on_target",
+            "critic_loss",
+            "actor_loss",
+            "transform_action",
+            "actuate",
+            "choose_warmup_action",
+        }
     )
     phase_batch_keys = REPLAY_BATCH_KEYS
     pretrain_context = frozenset({"buffer", "env_args", "update"})
@@ -543,7 +552,8 @@ class ReplayAgent(DeclaredAgent):
 
     def choose_behaviour(self, context: TrainContext) -> Optional[Callable]:
         """The action pipeline collection runs; None: the policy's, uniform
-        during the warm-up."""
+        during the warm-up or its chooser's. An agent's own runs the
+        chooser too (context.env_args.warmups)."""
         del context
         return None
 

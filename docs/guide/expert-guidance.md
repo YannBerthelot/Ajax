@@ -205,10 +205,13 @@ thousands of steps for a real run (its defaults collect about a million).
 
 ### Warm-up
 
-Until `learning_starts`, SAC does not use its policy. With
-`ExpertWarmup(fraction)` (`ajax.extensions.expert`), at each step, with
-probability `fraction`, every environment takes the expert's action;
-otherwise, a uniform random one. The replay flags the rows the expert took.
+Until `learning_starts`, SAC, TD3, REDQ, ASAC, CrossQ and IQL do not use
+their policy. With `ExpertWarmup(fraction)` (`ajax.extensions.expert`), at
+each step, with probability `fraction`, every environment takes the
+expert's action; otherwise, a uniform random one. The replay flags the rows
+the expert took, where it keeps the expert flags. Under gain mode, or with
+IQL's `ResidualPolicy`, the warm-up draws the policy's actions, and the
+expert's rows store the one that executes the expert's own action (0).
 SAC's `expert_fraction` builds it and warns; left unset with an expert, it
 stands for `ExpertWarmup(fraction=0.7)`, with a warning that this default
 will go. Without warm-up steps (`learning_starts=0`), with `ResidualPolicy`

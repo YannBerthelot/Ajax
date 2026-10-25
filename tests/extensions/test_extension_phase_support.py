@@ -36,6 +36,8 @@ AGENTS = "APG APO ASAC AVG DQN DreamerV3 PPO PQN REDQ SAC TD3 TDMPC2 UDRL".split
 #: actions, or their update reads the policy's own (PPO, APO, IQL's actor).
 RESIDUAL = {"SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG"}
 RESIDUAL.update({"PPO", "APO", "IQL", "APG", "UDRL"})
+#: The agents whose collection runs the warm-up's chooser (ExpertWarmup).
+WARMUP = {"SAC", "TD3", "REDQ", "ASAC", "DQN"}
 
 
 @dataclass(frozen=True)
@@ -255,8 +257,9 @@ def test_an_agent_declares_the_batch_keys_it_passes():
 def test_agents_accept_only_the_phases_they_fold():
     """The base accepts none; every agent the loop's, ``observe`` but where
     it collects on its own, no agent ``eval_action``, only SAC ``action``
-    (its pipeline's slots), and ``transform_action`` (a residual policy) the
-    agents whose critics score executed actions."""
+    (its pipeline's slots), ``transform_action`` (a residual policy) the
+    agents whose critics score executed actions, and choose_warmup_action
+    those whose collection has a uniform warm-up."""
     assert ActorCritic.supported_extension_phases == frozenset()
     assert EveryPhase().implemented_phases() == frozenset(PHASES)
     # PPO, on policy, lacks what replacing the executed action needs.
@@ -271,9 +274,9 @@ def test_agents_accept_only_the_phases_they_fold():
         assert ("observe" in phases) != own_collector, name
         assert ("action" in phases) == (name == "SAC"), name
         assert ("transform_action" in phases) == (name in RESIDUAL), name
-        # The warm-up chooser reaches SAC's pipeline only, until the shared
-        # pipelines take it.
-        assert ("choose_warmup_action" in phases) == (name == "SAC"), name
+        # The warm-up chooser reaches the agents with a uniform warm-up, but
+        # TD-MPC2, whose own collector does not run it yet.
+        assert ("choose_warmup_action" in phases) == (name in WARMUP), name
 
 
 @dataclass(frozen=True)

@@ -338,7 +338,10 @@ def make_train(
         )
 
     action_pipeline = explore_pipeline(
-        epsilon_greedy(epsilon_schedule, n_actions), False, n_actions
+        epsilon_greedy(epsilon_schedule, n_actions),
+        False,
+        n_actions,
+        warmups=env_args.warmups,
     )
     return loop.off_policy(
         init,

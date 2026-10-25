@@ -401,6 +401,8 @@ class PPO(
 
         if split.advantages_per_minibatch:
             # brax's PPO: GAE again, on this minibatch, with the current critic.
+            # Only a feedforward critic gets here (check_rollout_split refuses
+            # unroll_length with a memory), so it needs no stored memory.
             values = predict_value(
                 critic_state=critic, critic_params=critic.params, x=minibatch["obs"]
             ).squeeze(0)
@@ -415,7 +417,8 @@ class PPO(
         else:
             gae, value_targets = minibatch["gae"], minibatch["targets"]
 
-        # Only a recurrent split's minibatches carry resets and start memories.
+        # Only a recurrent split's minibatches carry resets and start memories,
+        # which the two losses below replay their networks from.
         resets = minibatch["resets"] if context.recurrent else None
         critic_hidden = minibatch["critic_hidden"] if context.recurrent else None
         actor_hidden = minibatch["actor_hidden"] if context.recurrent else None

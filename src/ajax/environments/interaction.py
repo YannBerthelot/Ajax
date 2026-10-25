@@ -868,6 +868,53 @@ def step_features(
     return next_columns, final_columns, states
 
 
+def replay_row(
+    schema: Any,
+    *,
+    obs: jax.Array,
+    action: jax.Array,
+    reward: jax.Array,
+    terminated: jax.Array,
+    truncated: jax.Array,
+    next_obs: jax.Array,
+    raw_obs: jax.Array,
+    is_expert: jax.Array,
+    a_expert: jax.Array,
+    next_a_expert: jax.Array,
+    raw_next_obs: jax.Array,
+    policy_action: jax.Array,
+    actor_carry: Optional[jax.Array] = None,
+) -> dict:
+    """One replay row per env, as the live collector and the expert prefill
+    store it, holding the fields the replay's schema keeps (init_buffer): the
+    action stored, the one the policy chose (policy_action), and the rest.
+    Raises, naming the field, when the schema holds one it cannot fill."""
+    row = {
+        "obs": obs,
+        "action": action,
+        "reward": reward,
+        "terminated": terminated,
+        "truncated": truncated,
+        "next_obs": next_obs,
+        "raw_obs": raw_obs,
+        "is_expert": is_expert,
+        "a_expert": a_expert,
+        "next_a_expert": next_a_expert,
+        "raw_next_obs": raw_next_obs,
+        # Unknown until the episode ends: no Cal-QL floor on the row.
+        "return_to_go": jnp.full(reward.shape, -jnp.inf),
+        # The next step's action, unknown yet: no TargetBC penalty.
+        "next_action": jnp.full(action.shape, jnp.nan, jnp.float32),
+        "policy_action": policy_action,
+    }
+    if actor_carry is not None:
+        row["actor_carry"] = actor_carry
+    unfilled = [name for name in schema if name not in row]
+    if unfilled:
+        raise ValueError(f"This collector cannot fill the replay's {unfilled}.")
+    return {name: value for name, value in row.items() if name in schema}
+
+
 @partial(
     jax.jit,
     static_argnames=[
@@ -1055,32 +1102,25 @@ def collect_experience(
 
     buffer_state = agent_state.collector_state.buffer_state
     if buffer_state is not None and buffer is not None:
-        row = {
-            "obs": agent_state.collector_state.last_obs,
-            "action": buffer_action,
-            "reward": (own_reward + entry_bonus[..., 0])[:, None],
-            "terminated": terminated[:, None],
-            "truncated": truncated[:, None],
-            "next_obs": bootstrap_obs(new_last_obs, final_obs, terminated, truncated),
-            "raw_obs": raw_obs,
-            "is_expert": is_expert_flag,
-            "a_expert": _a_expert_for_buf,
-            "next_a_expert": _next_a_expert_for_buf,
-            "raw_next_obs": raw_final_obs.astype(jnp.float32),
-            # Unknown until the episode ends: no Cal-QL floor on the row.
-            "return_to_go": jnp.full((env_args.n_envs, 1), -jnp.inf),
-            # The next step's action, unknown yet: no TargetBC penalty.
-            "next_action": jnp.full(buffer_action.shape, jnp.nan, jnp.float32),
-            "policy_action": action,
-        }
-        if store_hidden:
-            row["actor_carry"] = _pre_actor_carry_flat
         # The fields the buffer holds: those a reader asked for
         # (init_buffer), or all a checkpoint from before kept.
-        schema = buffer_state.experience
-        buffer_state = buffer.add(
-            buffer_state, {k: v for k, v in row.items() if k in schema}
+        row = replay_row(
+            buffer_state.experience,
+            obs=agent_state.collector_state.last_obs,
+            action=buffer_action,
+            reward=(own_reward + entry_bonus[..., 0])[:, None],
+            terminated=terminated[:, None],
+            truncated=truncated[:, None],
+            next_obs=bootstrap_obs(new_last_obs, final_obs, terminated, truncated),
+            raw_obs=raw_obs,
+            is_expert=is_expert_flag,
+            a_expert=_a_expert_for_buf,
+            next_a_expert=_next_a_expert_for_buf,
+            raw_next_obs=raw_final_obs.astype(jnp.float32),
+            policy_action=action,
+            actor_carry=_pre_actor_carry_flat if store_hidden else None,
         )
+        buffer_state = buffer.add(buffer_state, row)
 
     transition = Transition(
         obs=agent_state.collector_state.last_obs,

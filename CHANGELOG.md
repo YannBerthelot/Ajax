@@ -86,6 +86,10 @@ PyPI as `ajax-rl`.
 - `ajax.agents.SAC.SAC.augmentation_features` lives in
   `ajax.agents.SAC.deprecated_keywords`, with SAC's other deprecated
   keywords; the old path imports with a FutureWarning until 0.5.0.
+- `ajax.agents.SAC.expert.collect_and_store_expert_transitions` lives in
+  `ajax.extensions.pretrain`, for every replay agent, and writes its rows as
+  the live collector does (`policy_action` and `next_action` too); the old
+  path imports with a FutureWarning until 0.5.0.
 - The extension phases' `ExtensionContext` parameter is named `context`
   (was `ctx`). The stack passes it positionally, so an extension that
   still names it `ctx` keeps working.

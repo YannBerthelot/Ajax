@@ -55,11 +55,11 @@ from ajax.agents.minibatch import (
     get_actions_and_log_probs,
     run_epochs,
 )
-from ajax.agents.recurrent import rollout_sequence_values
+from ajax.agents.recurrent import compute_rollout_sequence_values
 from ajax.agents.steps import (
     apply_gradients_clipped_together,
     compute_gradients,
-    extension_key,
+    derive_extensions_key,
 )
 from ajax.environments.interaction import get_pi, get_pi_sequence
 from ajax.environments.utils import check_if_environment_has_continuous_actions
@@ -186,7 +186,7 @@ class PPO(
     def init(self, key: jax.Array, context: TrainContext) -> PPOState:
         """The initial actor, critic and collector (holding a stateful
         expert's initial state)."""
-        rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
+        training_key, init_key, collector_key, evaluation_key = jax.random.split(key, 4)
         env_args = context.env_args
         continuous = check_if_environment_has_continuous_actions(
             env_args.env, env_params=env_args.env_params
@@ -199,8 +199,8 @@ class PPO(
             num_critics=1,
         )
         return PPOState(
-            rng=rng,
-            eval_rng=eval_rng,
+            rng=training_key,
+            eval_rng=evaluation_key,
             actor_state=actor_state,
             critic_state=critic_state,
             collector_state=context.collector(collector_key),
@@ -209,13 +209,13 @@ class PPO(
 
     def update(
         self,
-        state: PPOState,
+        agent_state: PPOState,
         rollout: Transition,
-        start: PPOState,
+        agent_state_at_rollout_start: PPOState,
         context: TrainContext,
     ) -> tuple[PPOState, AuxiliaryLogs]:
-        """One PPO update on the (n_steps, n_envs) rollout collected
-        from start: n_epochs passes over its minibatches."""
+        """One PPO update on the (n_steps, n_envs) rollout collected from
+        agent_state_at_rollout_start: n_epochs passes over its minibatches."""
         n_steps, n_envs = rollout.obs.shape[:2]
         # Cut the rollout into minibatches, in one of three ways the hyperparameters choose:
         # - shuffled single steps (ppo2): advantages computed once, on the whole rollout;
@@ -228,21 +228,21 @@ class PPO(
         extensions, total_timesteps = context.extensions, context.total_timesteps
         # The update's key: it shuffles the rollout, and the extensions' reward
         # and on_target draw on keys derived from it.
-        shuffle_key, state = state.get_keys_and_new_state()
-        reward_key, target_key = jax.random.split(extension_key(shuffle_key))
+        shuffle_key, agent_state = agent_state.get_keys_and_new_state()
+        reward_key, target_key = jax.random.split(derive_extensions_key(shuffle_key))
         rewards = rollout.reward
         reward_metrics: dict[str, Any] = {}
         if "reward" in extensions.implemented_phases():
             # The extensions' rewards replace the env's (GAIL's discriminator).
-            state, rewards, reward_metrics = extensions.apply_reward(
-                state,
+            agent_state, rewards, reward_metrics = extensions.apply_reward(
+                agent_state,
                 {
                     "observations": rollout.obs,
                     "raw_observations": rollout.raw_obs,
                     "actions": actions,
                 },
                 rewards,
-                state.collector_state.timestep,
+                agent_state.collector_state.timestep,
                 reward_key,
                 total_timesteps,
             )
@@ -274,44 +274,57 @@ class PPO(
         else:
             # GAE once, on the rollout, with the critic that collected it.
             if context.recurrent:
-                state, values, next_values, resets, carries = rollout_sequence_values(
-                    state, rollout, start, split.length
+                agent_state, values, next_values, resets, carries = (
+                    compute_rollout_sequence_values(
+                        agent_state, rollout, agent_state_at_rollout_start, split.length
+                    )
                 )
                 batch["resets"] = resets
             else:
                 values = predict_value(
-                    critic_state=state.critic_state,
-                    critic_params=state.critic_state.params,
+                    critic_state=agent_state.critic_state,
+                    critic_params=agent_state.critic_state.params,
                     x=rollout.obs,
                 ).squeeze(0)
                 next_values = predict_value(
-                    critic_state=state.critic_state,
-                    critic_params=state.critic_state.params,
+                    critic_state=agent_state.critic_state,
+                    critic_params=agent_state.critic_state.params,
                     x=rollout.next_obs,
                 ).squeeze(0)
             batch_with_outcomes = dict(batch)
             batch_with_outcomes.update(outcomes)
-            gae, value_targets, rollout_metrics = self.advantages(
-                state, batch_with_outcomes, values, next_values, target_key, context
+            gae, value_targets, rollout_metrics = self.compute_advantages(
+                agent_state,
+                batch_with_outcomes,
+                values,
+                next_values,
+                target_key,
+                context,
             )
             batch.update({"targets": value_targets, "gae": gae})
 
-        def minibatches(key: jax.Array) -> dict:
+        def cut_rollout_into_minibatches(epoch_key: jax.Array) -> dict:
             """One epoch's partition of the rollout."""
-            return split.minibatches(batch, key, carries)
+            return split.cut_into_minibatches(batch, epoch_key, carries)
 
-        step = partial(self.minibatch_step, split=split, context=context)
-        state, aux = run_epochs(state, shuffle_key, minibatches, step, self.n_epochs)
+        step_on_minibatch = partial(self.minibatch_step, split=split, context=context)
+        agent_state, aux = run_epochs(
+            agent_state,
+            shuffle_key,
+            cut_rollout_into_minibatches,
+            step_on_minibatch,
+            self.n_epochs,
+        )
         # on_target ran once, over the rollout, unless the advantages are per minibatch.
         aux = aux.replace(
             extensions=merge_metrics(reward_metrics, rollout_metrics, aux.extensions)
         )
-        state = state.replace(n_updates=state.n_updates + 1)
-        return state, aux
+        agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
+        return agent_state, aux
 
-    def advantages(
+    def compute_advantages(
         self,
-        state: PPOState,
+        agent_state: PPOState,
         steps: dict,
         values: jax.Array,
         next_values: jax.Array,
@@ -348,15 +361,18 @@ class PPO(
             "next_values": next_values,
             "gamma": self.gamma,
         }
-        timestep, horizon = state.collector_state.timestep, context.total_timesteps
+        timestep, horizon = (
+            agent_state.collector_state.timestep,
+            context.total_timesteps,
+        )
         value_targets, metrics = context.extensions.apply_on_target(
-            state, target_batch, value_targets, timestep, key, horizon
+            agent_state, target_batch, value_targets, timestep, key, horizon
         )
         return gae, value_targets, metrics
 
     def minibatch_step(
         self,
-        state: PPOState,
+        agent_state: PPOState,
         minibatch: dict,
         split: RolloutSplit,
         context: TrainContext,
@@ -366,17 +382,21 @@ class PPO(
         from, then clipped together and applied. That is ppo2's single step
         down the sum of the two losses: the networks share no parameter, so
         each network's gradient of the sum is the gradient of its own loss."""
-        ent_rng, state = state.get_keys_and_new_state()
+        # The minibatch's key: a squashed policy's entropy is sampled with it,
+        # and the extensions' keys below are derived from it.
+        entropy_key, agent_state = agent_state.get_keys_and_new_state()
         target_metrics: dict = {}
-        critic, actor = state.critic_state, state.actor_state
+        critic, actor = agent_state.critic_state, agent_state.actor_state
         extensions, total_timesteps = context.extensions, context.total_timesteps
         # The extensions' target and loss terms, each on a key of its own.
-        target_key, critic_key, actor_key = jax.random.split(extension_key(ent_rng), 3)
-        critic_extra = _extensions_critic_loss(
-            extensions, state, critic_key, total_timesteps
+        target_key, critic_key, actor_key = jax.random.split(
+            derive_extensions_key(entropy_key), 3
         )
-        actor_extra = _extensions_actor_loss(
-            extensions, state, actor_key, total_timesteps, minibatch["raw_obs"]
+        compute_extensions_critic_loss = _make_extensions_critic_loss(
+            extensions, agent_state, critic_key, total_timesteps
+        )
+        compute_extensions_actor_loss = _make_extensions_actor_loss(
+            extensions, agent_state, actor_key, total_timesteps, minibatch["raw_obs"]
         )
 
         if split.advantages_per_minibatch:
@@ -389,8 +409,8 @@ class PPO(
                 critic_params=critic.params,
                 x=minibatch["next_obs"],
             ).squeeze(0)
-            gae, value_targets, target_metrics = self.advantages(
-                state, minibatch, values, next_values, target_key, context
+            gae, value_targets, target_metrics = self.compute_advantages(
+                agent_state, minibatch, values, next_values, target_key, context
             )
         else:
             gae, value_targets = minibatch["gae"], minibatch["targets"]
@@ -408,7 +428,7 @@ class PPO(
                 value_targets,
                 context.recurrent,
                 vf_coef=self.vf_coef,
-                extra_loss_fn=critic_extra,
+                extra_loss_fn=compute_extensions_critic_loss,
                 resets=resets,
                 initial_hidden=critic_hidden,
             )
@@ -422,12 +442,12 @@ class PPO(
                 minibatch["log_probs"],
                 gae,
                 context.recurrent,
-                clip_coef=at(self.clip_range, state.collector_state.timestep),
+                clip_coef=at(self.clip_range, agent_state.collector_state.timestep),
                 ent_coef=self.ent_coef,
                 advantage_normalization=self.normalize_advantage,
-                extra_loss_fn=actor_extra,
+                extra_loss_fn=compute_extensions_actor_loss,
                 raw_actions=minibatch["raw_actions"],
-                entropy_rng=ent_rng,
+                entropy_rng=entropy_key,
                 resets=resets,
                 initial_hidden=actor_hidden,
             )
@@ -443,10 +463,10 @@ class PPO(
                 actor, critic, policy_grads, value_grads, self.max_grad_norm
             )
         )
-        state = state.replace(critic_state=critic, actor_state=actor)
+        agent_state = agent_state.replace(critic_state=critic, actor_state=actor)
         metrics = merge_metrics(target_metrics, value_metrics, policy_metrics)
         # Each network's gradient norm is the one before the joint clip.
-        return state, AuxiliaryLogs(
+        return agent_state, AuxiliaryLogs(
             policy=policy_aux.replace(grad_norm=policy_grad_norm),
             value=value_aux.replace(grad_norm=value_grad_norm),
             extensions=metrics,
@@ -510,10 +530,10 @@ def _compute_gae(
         reward, value, next_value, terminated, truncated = transition
 
         next_state_is_non_terminal = 1.0 - terminated
-        done = 1 - jnp.logical_or(terminated, truncated)
+        episode_continues = 1 - jnp.logical_or(terminated, truncated)
 
         delta = reward + gamma * next_value * next_state_is_non_terminal - value
-        gae = delta + gamma * gae_lambda * done * gae
+        gae = delta + gamma * gae_lambda * episode_continues * gae
 
         return gae, gae
 
@@ -545,7 +565,7 @@ def value_loss_function(
     resets flagging the observations that start an episode."""
     if recurrent:
         assert resets is not None and initial_hidden is not None
-        v_preds, _ = predict_value_sequence(
+        value_preds, _ = predict_value_sequence(
             critic_state=critic_states,
             critic_params=critic_params,
             x=observations,
@@ -553,14 +573,14 @@ def value_loss_function(
             initial_hidden=initial_hidden,
         )
     else:
-        v_preds = predict_value(
+        value_preds = predict_value(
             critic_state=critic_states,
             critic_params=critic_params,
             x=observations,
         )
-    v_preds = v_preds.squeeze(0)  # the single critic keeps the ensemble axis
+    value_preds = value_preds.squeeze(0)  # the single critic keeps the ensemble axis
 
-    loss = vf_coef * 0.5 * jnp.mean((v_preds - value_targets) ** 2)
+    loss = vf_coef * 0.5 * jnp.mean((value_preds - value_targets) ** 2)
     metrics: dict = {}
     if extra_loss_fn is not None:
         extra, metrics = extra_loss_fn(
@@ -570,9 +590,9 @@ def value_loss_function(
 
     aux = ValueAuxiliaries(
         critic_loss=loss,
-        predictions=v_preds.mean().flatten(),
+        predictions=value_preds.mean().flatten(),
         targets=value_targets.mean().flatten(),
-        explained_variance=explained_variance(v_preds, value_targets),
+        explained_variance=explained_variance(value_preds, value_targets),
     )
     return loss, (aux, metrics)
 
@@ -597,11 +617,11 @@ def policy_loss_function(
     """The clipped surrogate minus ent_coef times the entropy bonus,
     plus extra_loss_fn's term; with advantage_normalization the
     advantages are normalised per minibatch. A recurrent actor replays the
-    sequence from initial_hidden (the live carry on actor_state has
-    advanced past this rollout), resets flagging episode starts."""
+    sequence from initial_hidden (the live memory on actor_state has moved
+    past this rollout), resets flagging episode starts."""
     if recurrent:
         assert resets is not None
-        pi, _ = get_pi_sequence(
+        policy, _ = get_pi_sequence(
             actor_state=actor_state,
             actor_params=actor_params,
             obs=observations,
@@ -609,22 +629,22 @@ def policy_loss_function(
             initial_hidden=initial_hidden,
         )
     else:
-        pi, _ = get_pi(actor_state, actor_params, observations)
+        policy, _ = get_pi(actor_state, actor_params, observations)
 
-    new_log_probs = recompute_log_prob(pi, actions, raw_actions)
+    new_log_probs = recompute_log_prob(policy, actions, raw_actions)
     ratio = jnp.exp(new_log_probs - log_probs)
 
     if advantage_normalization:
         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
     surrogate, clip_fraction = clipped_surrogate(ratio, gae, clip_coef)
     loss_actor = surrogate.mean()
-    entropy = policy_entropy(pi, entropy_rng).mean()
+    entropy = policy_entropy(policy, entropy_rng).mean()
 
     total_loss = loss_actor - ent_coef * entropy
     metrics: dict = {}
     if extra_loss_fn is not None:
         # A discrete policy has no mean action.
-        pi_mean = None if isinstance(pi, distrax.Categorical) else pi.mean()
+        pi_mean = None if isinstance(policy, distrax.Categorical) else policy.mean()
         extra, metrics = extra_loss_fn(actor_params, actor_state, observations, pi_mean)
         total_loss = total_loss + extra
 
@@ -635,7 +655,7 @@ def policy_loss_function(
         clip_fraction=clip_fraction,
         entropy=entropy,
         approx_kl=approximate_kl(new_log_probs - log_probs),
-        policy_std=mean_policy_std(pi),
+        policy_std=mean_policy_std(policy),
     )
     return total_loss, (aux, metrics)
 
@@ -653,7 +673,7 @@ def clipped_surrogate(
 
 
 # -- The extensions' loss terms, as the losses' extra_loss_fn ----------------
-def _extensions_critic_loss(
+def _make_extensions_critic_loss(
     extensions: ExtensionStack,
     agent_state: PPOState,
     key: jax.Array,
@@ -668,8 +688,10 @@ def _extensions_critic_loss(
     if not extensions:
         return None
 
-    def critic_loss(critic_params, critic_states, observations, value_targets):
-        _batch = {
+    def compute_extensions_critic_loss(
+        critic_params, critic_states, observations, value_targets
+    ):
+        critic_batch = {
             "observations": observations,
             "targets": value_targets,
             "critic_params": critic_params,
@@ -677,16 +699,16 @@ def _extensions_critic_loss(
         }
         return extensions.apply_critic_loss(
             agent_state,
-            _batch,
+            critic_batch,
             agent_state.collector_state.timestep,
             key,
             total_timesteps,
         )
 
-    return critic_loss
+    return compute_extensions_critic_loss
 
 
-def _extensions_actor_loss(
+def _make_extensions_actor_loss(
     extensions: ExtensionStack,
     agent_state: PPOState,
     key: jax.Array,
@@ -700,8 +722,8 @@ def _extensions_actor_loss(
     if not extensions:
         return None
 
-    def actor_loss(actor_params, actor_state, observations, pi_mean):
-        _batch = {
+    def compute_extensions_actor_loss(actor_params, actor_state, observations, pi_mean):
+        actor_batch = {
             "observations": observations,
             "raw_observations": raw_observations,
             "pi_mean": pi_mean,
@@ -710,13 +732,13 @@ def _extensions_actor_loss(
         }
         return extensions.apply_actor_loss(
             agent_state,
-            _batch,
+            actor_batch,
             agent_state.collector_state.timestep,
             key,
             total_timesteps,
         )
 
-    return actor_loss
+    return compute_extensions_actor_loss
 
 
 # -- State, logged metrics and the legacy view --------------------------------

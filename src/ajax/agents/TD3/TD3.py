@@ -119,7 +119,7 @@ class TD3(
 
     def init(self, key: jax.Array, context: TrainContext) -> TD3State:
         """A deterministic actor and num_critics Q critics, with targets."""
-        rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
+        training_key, init_key, collector_key, evaluation_key = jax.random.split(key, 4)
         actor_state, critic_state = context.actor_critic(
             init_key,
             build=get_initialized_td3_actor_critic,
@@ -129,23 +129,23 @@ class TD3(
         # TD3's (static, from the concrete env params).
         units = critic_action_units(context.env_args)
         return TD3State(
-            rng=rng,
-            eval_rng=eval_rng,
+            rng=training_key,
+            eval_rng=evaluation_key,
             actor_state=actor_state,
             critic_state=critic_state.replace(action_units=units),
             collector_state=context.collector(collector_key),
         )
 
     def update(
-        self, state: TD3State, context: TrainContext
+        self, agent_state: TD3State, context: TrainContext
     ) -> tuple[TD3State, AuxiliaryLogs]:
         """A critic step on a replay batch and, every policy_delay
         updates, an actor step and the targets' Polyak update."""
-        sample_key, state = state.get_keys_and_new_state()
+        sample_key, agent_state = agent_state.get_keys_and_new_state()
         # Sequence replay burns the TARGET actor's carry in as well: TD3's
         # bootstrap action comes from it.
         batch, carries = sample_replay(
-            state,
+            agent_state,
             context.buffer,
             sample_key,
             context.recurrent,
@@ -153,37 +153,41 @@ class TD3(
             self.stored_state,
             burn_target_actor=True,
         )
-        state, value_aux, value_metrics = self.critic_update(
-            state, batch, carries, context
+        agent_state, value_aux, value_metrics = self.update_critic(
+            agent_state, batch, carries, context
         )
         # sfujim/TD3 counts the update first (total_it += 1), then steps the
         # actor when the count is a multiple of the delay: its first actor
         # step is the policy_delay-th update, not the first. Skipped, its
         # metrics are zeros.
-        do_policy = ((state.n_updates + 1) % self.policy_delay) == 0
-        actor_update = partial(
-            self.actor_update, batch=batch, carries=carries, context=context
+        do_policy = ((agent_state.n_updates + 1) % self.policy_delay) == 0
+        update_actor_on_batch = partial(
+            self.update_actor, batch=batch, carries=carries, context=context
         )
-        state, (policy_aux, policy_metrics) = steps.when(
-            do_policy, actor_update, state, fill=0.0
+        agent_state, (policy_aux, policy_metrics) = steps.run_if(
+            do_policy, update_actor_on_batch, agent_state, fill=0.0
         )
-        state = state.replace(n_updates=state.n_updates + 1)
-        return state, AuxiliaryLogs(
+        agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
+        return agent_state, AuxiliaryLogs(
             policy=policy_aux,
             value=value_aux,
             extensions=merge_metrics(value_metrics, policy_metrics),
         )
 
-    def critic_update(
-        self, state: TD3State, batch: Transition, carries: Any, context: TrainContext
+    def update_critic(
+        self,
+        agent_state: TD3State,
+        batch: Transition,
+        carries: Any,
+        context: TrainContext,
     ) -> tuple[TD3State, ValueAuxiliaries, dict]:
         """The critics' step on the smoothed, clipped double-Q target."""
-        key, state = state.get_keys_and_new_state()
+        critic_key, agent_state = agent_state.get_keys_and_new_state()
         # A truncated row bootstraps on its final observation (bootstrap_obs).
-        target_q, clip_frac, next_actions = compute_td3_td_target(
-            state.actor_state,
-            state.critic_state,
-            key,
+        target_q, clip_fraction, next_actions = compute_td3_td_target(
+            agent_state.actor_state,
+            agent_state.critic_state,
+            critic_key,
             batch.next_obs,
             batch.terminated,
             batch.reward,
@@ -195,16 +199,21 @@ class TD3(
             context.executed,
             batch.next_a_expert,
         )
-        loss = partial(
-            critic_loss, state.critic_state, batch, carries, self.num_critics, clip_frac
+        compute_critic_loss_on_batch = partial(
+            critic_loss,
+            agent_state.critic_state,
+            batch,
+            carries,
+            self.num_critics,
+            clip_fraction,
         )
         critic_state, aux, grad_norm, metrics = steps.critic_step(
-            state,
+            agent_state,
             batch,
             target_q,
-            loss,
+            compute_critic_loss_on_batch,
             context.extensions,
-            key,
+            critic_key,
             context.total_timesteps,
             rewards=batch.reward,
             dones=batch.terminated,
@@ -215,20 +224,24 @@ class TD3(
             target_extras={"next_actions": next_actions},
         )
         aux = aux.replace(grad_norm=grad_norm)
-        return state.replace(critic_state=critic_state), aux, metrics
+        return agent_state.replace(critic_state=critic_state), aux, metrics
 
-    def actor_update(
-        self, state: TD3State, batch: Transition, carries: Any, context: TrainContext
+    def update_actor(
+        self,
+        agent_state: TD3State,
+        batch: Transition,
+        carries: Any,
+        context: TrainContext,
     ) -> tuple[TD3State, tuple[PolicyAuxiliaries, dict]]:
         """The deterministic policy-gradient step on -Q1(s, mu(s)), then
         both targets' Polyak update."""
-        key, state = state.get_keys_and_new_state()
+        actor_key, agent_state = agent_state.get_keys_and_new_state()
 
         def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
             loss, (aux, pi_mean) = policy_loss_function(
                 params,
-                state.actor_state,
-                state.critic_state,
+                agent_state.actor_state,
+                agent_state.critic_state,
                 batch.obs,
                 carries,
                 context.executed,
@@ -237,20 +250,22 @@ class TD3(
             return loss, aux, pi_mean
 
         actor_state, aux, grad_norm, metrics = steps.actor_step(
-            state,
+            agent_state,
             policy_loss,
             context.extensions,
-            key,
+            actor_key,
             context.total_timesteps,
             observations=batch.obs,
             raw_observations=batch.raw_obs,
             a_expert=batch.a_expert,
             actions=batch.action,
-            critic_state=state.critic_state,
+            critic_state=agent_state.critic_state,
         )
         aux = aux.replace(grad_norm=grad_norm)
-        state = update_targets(state.replace(actor_state=actor_state), self.tau)
-        return state, (aux, metrics)
+        agent_state = update_targets(
+            agent_state.replace(actor_state=actor_state), self.tau
+        )
+        return agent_state, (aux, metrics)
 
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "TD3"
@@ -308,7 +323,7 @@ def compute_td3_td_target(
         target_actor=True,
     ).mean()
     noise = jax.random.normal(rng, next_action.shape) * target_policy_noise
-    clip_frac = (jnp.abs(noise) > target_noise_clip).mean()
+    clip_fraction = (jnp.abs(noise) > target_noise_clip).mean()
     noise = jnp.clip(noise, -target_noise_clip, target_noise_clip)
     next_action = jnp.clip(next_action + noise, -1.0, 1.0)
     if executed is not None:
@@ -322,7 +337,7 @@ def compute_td3_td_target(
         bootstrap=True,
     )
     target = rewards + gamma * (1.0 - dones) * jnp.min(q_targets, axis=0)
-    return jax.lax.stop_gradient(target), clip_frac, next_action
+    return jax.lax.stop_gradient(target), clip_fraction, next_action
 
 
 def critic_loss(
@@ -330,7 +345,7 @@ def critic_loss(
     batch: Transition,
     carries: Optional[RecurrentCarries],
     num_critics: int,
-    clip_frac: jax.Array,
+    clip_fraction: jax.Array,
     params: FrozenDict,
     target_q: jax.Array,
 ) -> tuple[jax.Array, ValueAuxiliaries]:
@@ -347,7 +362,7 @@ def critic_loss(
         target_q=target_q.mean().flatten(),
         q_pred_min=aux.q_pred_min,
         q_gap=aux.q_gap,
-        target_noise_clip_frac=clip_frac,
+        target_noise_clip_frac=clip_fraction,
     )
 
 
@@ -385,8 +400,8 @@ def gaussian_exploration(exploration_noise: Schedule) -> Explore:
     """TD3's behaviour policy: clip(mu(s) + N(0, exploration_noise), -1, 1),
     the noise's scale a schedule of the timestep."""
 
-    def explore(pi: Any, key: jax.Array, step: jax.Array) -> jax.Array:
-        mean_action = pi.mean()
+    def explore(policy: Any, key: jax.Array, step: jax.Array) -> jax.Array:
+        mean_action = policy.mean()
         sigma = at(exploration_noise, step)
         noise = jax.random.normal(key, mean_action.shape) * sigma
         return jnp.clip(mean_action + noise, -1.0, 1.0)

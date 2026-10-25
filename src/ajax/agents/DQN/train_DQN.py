@@ -30,7 +30,7 @@ from jax.tree_util import Partial as partial
 
 from ajax.agents.critics import ValueAuxiliaries, huber_1_td_loss, q_gradient_step
 from ajax.agents.DQN.state import DQNConfig, DQNState
-from ajax.agents.loop import TrainLoop, extension_key, when
+from ajax.agents.loop import TrainLoop, derive_extensions_key, run_if
 from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.deprecation import moved_names
@@ -213,7 +213,7 @@ def update_agent(
 
     # The extensions reshape the target, then add their loss terms, each on
     # a key of its own.
-    target_key, loss_key = jax.random.split(extension_key(sample_key))
+    target_key, loss_key = jax.random.split(derive_extensions_key(sample_key))
     target_batch = {
         "observations": observations,
         "actions": actions,
@@ -244,7 +244,7 @@ def update_agent(
     )
 
     do_target_update = (agent_state.n_updates % target_update_interval) == 0
-    q_state = when(do_target_update, lambda s: s.soft_update(tau), q_state)
+    q_state = run_if(do_target_update, lambda s: s.soft_update(tau), q_state)
 
     agent_state = agent_state.replace(
         actor_state=q_state,

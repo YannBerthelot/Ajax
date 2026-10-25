@@ -8,7 +8,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents.critics import critic_loss_fn
-from ajax.agents.loop import TrainLoop, actor_step, critic_step, when
+from ajax.agents.loop import TrainLoop, actor_step, critic_step, run_if
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
@@ -370,7 +370,7 @@ def update_agent(
     # The policy step is computed from the start, its log-probs feeding the
     # temperature step, and kept from policy_update_start.
     timestep = agent_state.collector_state.timestep
-    agent_state = when(
+    agent_state = run_if(
         timestep >= policy_update_start, lambda _: new_agent_state, agent_state
     )
 
@@ -381,7 +381,7 @@ def update_agent(
         agent_state, policy_log_probs, jnp.asarray(at(target_entropy, timestep))
     )
     alpha_ready = jnp.logical_and(not fixed_alpha, timestep >= alpha_update_start)
-    agent_state = when(alpha_ready, lambda _: new_agent_state_temp, agent_state)
+    agent_state = run_if(alpha_ready, lambda _: new_agent_state_temp, agent_state)
 
     agent_state = update_target_networks(agent_state, tau=tau)
 

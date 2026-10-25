@@ -111,6 +111,24 @@ PyPI as `ajax-rl`.
   returns each network's gradient norm before the clip. `joint_step` (also
   `train_PPO.joint_step`) returns the two networks alone, as before, until
   0.5.0.
+- The declared agents (PPO, APO, PQN, TD3, IQL, CrossQ) and the shared
+  modules they use name their parameters and locals in full words: an
+  agent's `state` parameter is `agent_state`; the on-policy `update`'s
+  `start` (and `compute_rollout_sequence_values`') is
+  `agent_state_at_rollout_start`; APO's `minibatch_step` takes
+  `value_bias` (was `b`); `get_sequence_minibatches` takes `shuffle_key`
+  (was `rng`); PPO's `advantages` method is `compute_advantages`. A caller
+  passing them by position, as the loop does, sees no change.
+- The functions added since 0.4.0 that these modules define are named by
+  verbs: `steps.when` is `run_if`, `steps.extension_key` is
+  `derive_extensions_key` (its tag `EXTENSIONS` is `EXTENSIONS_KEY_TAG`),
+  TD3's and CrossQ's `critic_update` and `actor_update` are `update_critic`
+  and `update_actor`, IQL's equations start with `compute_`,
+  `RolloutSplit.minibatches` is `cut_into_minibatches`,
+  `sequence_minibatches` is `get_sequence_minibatches`, `recurrent`'s
+  `actor_dist_train` and `rollout_sequence_values` are
+  `get_policy_in_training` and `compute_rollout_sequence_values`, and
+  PQN's `epsilon_schedule` method is `make_epsilon_schedule`.
 
 - **ASAC** now does what the authors' code does (`darer/ASAC.py`): a
   termination drops the next value in the critic's target (it bootstrapped

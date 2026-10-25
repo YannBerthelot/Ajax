@@ -44,15 +44,19 @@ class RolloutSplit:
         critic (brax's fragments), rather than once on the rollout."""
         return self.kind == "time"
 
-    def minibatches(self, batch: dict, key: jax.Array, carries: Any = None) -> dict:
+    def cut_into_minibatches(
+        self, batch: dict, key: jax.Array, carries: Any = None
+    ) -> dict:
         """One epoch's partition of the rollout batch on key; a
         recurrent split's sequences take their start carries along."""
-        k, length = self.num_minibatches, self.length
+        num_minibatches, length = self.num_minibatches, self.length
         if self.kind == "time":
-            return get_minibatches_preserving_time(batch, key, k, length)
+            return get_minibatches_preserving_time(batch, key, num_minibatches, length)
         if self.kind == "recurrent":
-            return sequence_minibatches(batch, carries, key, k, length)
-        return get_minibatches_from_batch(batch, key, k)
+            return get_sequence_minibatches(
+                batch, carries, key, num_minibatches, length
+            )
+        return get_minibatches_from_batch(batch, key, num_minibatches)
 
 
 def default_bptt_length(n_steps: int, n_envs: int, num_minibatches: int) -> int:
@@ -114,44 +118,49 @@ def choose_rollout_split(
                 " (docs/guide/memory.md)."
             )
         return RolloutSplit("recurrent", num_minibatches, length)
-    unroll = agent_config.unroll_length
+    unroll_length = agent_config.unroll_length
     if (
-        unroll is not None
+        unroll_length is not None
         and num_minibatches > 1
-        and n_steps % unroll == 0
-        and n_steps // unroll * n_envs % num_minibatches == 0
+        and n_steps % unroll_length == 0
+        and n_steps // unroll_length * n_envs % num_minibatches == 0
     ):
-        return RolloutSplit("time", num_minibatches, unroll)
+        return RolloutSplit("time", num_minibatches, unroll_length)
     return RolloutSplit("flat", num_minibatches, n_steps)
 
 
-def check_rollout_split(config: Any, n_envs: int, recurrent: bool) -> None:
+def check_rollout_split(agent_config: Any, n_envs: int, recurrent: bool) -> None:
     """Refuse a bptt_length without memory or not dividing n_steps,
     an unroll_length the update could not use (it would fall back to
     the flat shuffle), and a recurrent rollout whose sequences do not split
     into the minibatches (choose_rollout_split raises)."""
-    bptt, n_steps = config.bptt_length, config.n_steps
-    if bptt is not None:
+    bptt_length, n_steps = agent_config.bptt_length, agent_config.n_steps
+    if bptt_length is not None:
         if not recurrent:
             raise ValueError(
                 "bptt_length requires a memory config (recurrent PPO);"
                 " for feedforward fragment minibatching use unroll_length."
             )
-        if n_steps % bptt != 0:
-            raise ValueError(f"bptt_length ({bptt}) must divide n_steps ({n_steps}).")
-    unroll = config.unroll_length
-    if unroll is not None and recurrent:
+        if n_steps % bptt_length != 0:
+            raise ValueError(
+                f"bptt_length ({bptt_length}) must divide n_steps ({n_steps})."
+            )
+    unroll_length = agent_config.unroll_length
+    if unroll_length is not None and recurrent:
         raise ValueError(
             "unroll_length is the feedforward fragment length; a recurrent"
             " PPO splits its rollout with bptt_length."
         )
-    split = choose_rollout_split(config, n_steps, n_envs, recurrent)
-    if unroll is not None and (split.kind, split.length) != ("time", unroll):
+    split = choose_rollout_split(agent_config, n_steps, n_envs, recurrent)
+    if unroll_length is not None and (split.kind, split.length) != (
+        "time",
+        unroll_length,
+    ):
         raise ValueError(
-            f"unroll_length ({unroll}) must divide n_steps ({n_steps})"
+            f"unroll_length ({unroll_length}) must divide n_steps ({n_steps})"
             " into fragments (n_steps // unroll_length * n_envs of them) that"
             " split evenly into num_minibatches"
-            f" ({resolve_num_minibatches(config)}) > 1 minibatches."
+            f" ({resolve_num_minibatches(agent_config)}) > 1 minibatches."
         )
 
 
@@ -167,21 +176,23 @@ def resolve_num_minibatches(agent_config: Any) -> int:
 def split_fragments(
     batch: Any, perm: jax.Array, num_minibatches: int, length: int
 ) -> Any:
-    """Split a (T, n_envs, ...) rollout into num_minibatches
+    """Split a (n_steps, n_envs, ...) rollout into num_minibatches
     minibatches of whole fragments of length steps. Fragment c *
     n_envs + e (chunk c of env e) goes in the order of perm;
     per leaf (num_minibatches, length, fragments_per_minibatch, ...),
     so a scan over the minibatches sees time-major fragments."""
-    T, n_envs = jax.tree.leaves(batch)[0].shape[:2]
-    n_chunks = T // length
+    n_steps, n_envs = jax.tree.leaves(batch)[0].shape[:2]
+    fragments_per_env = n_steps // length
 
-    def split(x: jax.Array) -> jax.Array:
-        # (T, n_envs, ...) -> (n_chunks * n_envs, length, ...)
-        x = x.reshape(n_chunks, length, n_envs, *x.shape[2:])
-        x = jnp.swapaxes(x, 1, 2).reshape(n_chunks * n_envs, length, *x.shape[3:])
-        x = jnp.take(x, perm, axis=0)
-        x = x.reshape(num_minibatches, -1, length, *x.shape[2:])
-        return jnp.swapaxes(x, 1, 2)
+    def split(leaf: jax.Array) -> jax.Array:
+        # (n_steps, n_envs, ...) -> (fragments_per_env * n_envs, length, ...)
+        leaf = leaf.reshape(fragments_per_env, length, n_envs, *leaf.shape[2:])
+        leaf = jnp.swapaxes(leaf, 1, 2).reshape(
+            fragments_per_env * n_envs, length, *leaf.shape[3:]
+        )
+        leaf = jnp.take(leaf, perm, axis=0)
+        leaf = leaf.reshape(num_minibatches, -1, length, *leaf.shape[2:])
+        return jnp.swapaxes(leaf, 1, 2)
 
     return jax.tree.map(split, batch)
 
@@ -193,75 +204,82 @@ def get_minibatches_preserving_time(
     num_minibatches: int,
     unroll_length: Optional[int] = None,
 ) -> Any:
-    """Split a (T, n_envs, ...) rollout into minibatches that keep the
+    """Split a (n_steps, n_envs, ...) rollout into minibatches that keep the
     time axis (brax PPO): fragments of unroll_length steps (the whole
     rollout by default), shuffled and split evenly
     (split_fragments). GAE in the loss then scans each fragment and
     bootstraps at its end, brax's per-minibatch (T=unroll_length,
     B=batch_size)."""
-    T, n_envs = jax.tree.leaves(batch)[0].shape[:2]
-    length = unroll_length or T
-    assert T % length == 0, f"n_steps={T} must be a multiple of {length=}."
-    n_fragments = T // length * n_envs
+    n_steps, n_envs = jax.tree.leaves(batch)[0].shape[:2]
+    length = unroll_length or n_steps
+    assert n_steps % length == 0, f"n_steps={n_steps} must be a multiple of {length=}."
+    n_fragments = n_steps // length * n_envs
     assert n_fragments % num_minibatches == 0, (
-        f"{n_fragments} fragments (n_steps={T} / {length=} * n_envs={n_envs})"
+        f"{n_fragments} fragments (n_steps={n_steps} / {length=} * n_envs={n_envs})"
         f" do not split into {num_minibatches=}."
     )
-    perm = jax.random.permutation(rng, n_fragments)
-    return split_fragments(batch, perm, num_minibatches, length)
+    permutation = jax.random.permutation(rng, n_fragments)
+    return split_fragments(batch, permutation, num_minibatches, length)
 
 
 def get_minibatches_from_batch(batch: Any, rng: jax.Array, num_minibatches: int):
-    """Split a (T, n_envs, ...) rollout batch into num_minibatches
-    minibatches of shape (num_minibatches, T*n_envs/num_minibatches, ...).
+    """Split a (n_steps, n_envs, ...) rollout batch into num_minibatches
+    minibatches of shape (num_minibatches, n_steps * n_envs / num_minibatches, ...).
 
-    The flatten step joins the leading (T, n_envs) dims into a single
+    The flatten step joins the leading (n_steps, n_envs) dims into a single
     sample axis regardless of how many trailing feature dims a leaf has,
-    so leaves with a feature dim (e.g. observations (T, n_envs, obs_dim))
+    so leaves with a feature dim (e.g. observations (n_steps, n_envs, obs_dim))
     and leaves without one (e.g. terminated, truncated of shape
-    (T, n_envs)) are reshuffled with the same permutation and stay
+    (n_steps, n_envs)) are reshuffled with the same permutation and stay
     aligned across leaves.
     """
-    T, n_envs = jax.tree.leaves(batch)[0].shape[:2]
-    total = T * n_envs
+    n_steps, n_envs = jax.tree.leaves(batch)[0].shape[:2]
+    total = n_steps * n_envs
     assert total % num_minibatches == 0, (
-        "T * n_envs should be a multiple of num_minibatches, got "
-        f"T={T}, n_envs={n_envs}, total={total}, {num_minibatches=}"
+        "n_steps * n_envs should be a multiple of num_minibatches, got "
+        f"n_steps={n_steps}, n_envs={n_envs}, total={total}, {num_minibatches=}"
     )
 
     # One permutation for every leaf: jax.random.permutation(rng, x, axis=0)
     # per leaf draws the same one, but shuffles a 1-D leaf by sorting it.
-    perm = jax.random.permutation(rng, total)
+    permutation = jax.random.permutation(rng, total)
 
-    def shuffle(x: jax.Array) -> jax.Array:
-        x = jnp.take(x.reshape((total,) + x.shape[2:]), perm, axis=0)
-        return x.reshape((num_minibatches, -1) + x.shape[1:])
+    def shuffle(leaf: jax.Array) -> jax.Array:
+        leaf = jnp.take(leaf.reshape((total,) + leaf.shape[2:]), permutation, axis=0)
+        return leaf.reshape((num_minibatches, -1) + leaf.shape[1:])
 
     return jax.tree.map(shuffle, batch)
 
 
-def _split_carries(x: jax.Array, perm: jax.Array, num_minibatches: int) -> jax.Array:
-    """(S, B, ...) start carries to (k, S * B // k, ...), sequence
-    s * B + b in the order of perm (as split_fragments)."""
-    x = x.reshape(-1, *x.shape[2:])
-    x = jnp.take(x, perm, axis=0)
-    return x.reshape(num_minibatches, -1, *x.shape[1:])
+def _split_carries(
+    carries: jax.Array, permutation: jax.Array, num_minibatches: int
+) -> jax.Array:
+    """(n_sequences, n_envs, ...) start carries to (num_minibatches,
+    n_sequences * n_envs // num_minibatches, ...), in the order of
+    permutation (as split_fragments)."""
+    carries = carries.reshape(-1, *carries.shape[2:])
+    carries = jnp.take(carries, permutation, axis=0)
+    return carries.reshape(num_minibatches, -1, *carries.shape[1:])
 
 
-def sequence_minibatches(
-    batch: dict, carries: tuple, rng: jax.Array, num_minibatches: int, length: int
+def get_sequence_minibatches(
+    batch: dict,
+    carries: tuple,
+    shuffle_key: jax.Array,
+    num_minibatches: int,
+    length: int,
 ) -> dict:
     """A recurrent rollout's minibatches of whole sequences, each with the
     actor's and the critic's carry at its start (the critic's ensemble axis
     second)."""
     n_steps, n_envs = batch["obs"].shape[:2]
-    perm = jax.random.permutation(rng, n_steps // length * n_envs)
+    permutation = jax.random.permutation(shuffle_key, n_steps // length * n_envs)
 
-    def split(x: jax.Array) -> jax.Array:
-        return _split_carries(x, perm, num_minibatches)
+    def split(leaf: jax.Array) -> jax.Array:
+        return _split_carries(leaf, permutation, num_minibatches)
 
     actor_starts, critic_starts = carries
-    minibatches = split_fragments(batch, perm, num_minibatches, length)
+    minibatches = split_fragments(batch, permutation, num_minibatches, length)
     minibatches.update(
         {
             "actor_hidden": jax.tree.map(split, actor_starts),
@@ -292,11 +310,11 @@ def run_epochs(
     iterate_mb_idxs(..., shuffle=True) once per epoch.
     """
 
-    def epoch(agent_state: Any, epoch_key: jax.Array) -> tuple[Any, Any]:
+    def run_epoch(agent_state: Any, epoch_key: jax.Array) -> tuple[Any, Any]:
         return jax.lax.scan(step, agent_state, minibatches(epoch_key))
 
     epoch_keys = jax.random.split(key, n_epochs)
-    agent_state, aux = jax.lax.scan(epoch, agent_state, epoch_keys)
+    agent_state, aux = jax.lax.scan(run_epoch, agent_state, epoch_keys)
     return agent_state, jax.tree.map(jnp.mean, aux)
 
 

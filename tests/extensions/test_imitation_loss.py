@@ -345,7 +345,7 @@ def _td3_update(stack: ExtensionStack) -> Any:
         next_obs=obs,
         raw_obs=obs,
     )
-    state, _ = agent.actor_update(state, batch, None, context)
+    state, _ = agent.update_actor(state, batch, None, context)
     return state.actor_state.params
 
 
@@ -436,7 +436,7 @@ def _ppo_update(stack: ExtensionStack) -> Any:
     state = agent.init(KEY, agent.context(1)[1])
     state = _ext_state(state, stack)
     obs, actor = _obs(agent), state.actor_state
-    extra = ppo_module._extensions_actor_loss(
+    extra = ppo_module._make_extensions_actor_loss(
         stack, state, KEY, 1, raw_observations=obs
     )
 

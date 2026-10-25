@@ -9,7 +9,8 @@ line after that is a function below::
 
     V_t = max_a Q(s_{t+1}, a), on the network that collected      PQN.update
     G_t = r_t + gamma ((1 - lambda) V_t + lambda G_{t+1})
-          (r_t at an episode's end), held constant      compute_q_lambda_targets
+          (r_t at an episode's end)                    compute_q_lambda_targets
+          no gradient flows back through the targets G_t
     for each of n_epochs, for each minibatch of shuffled single steps:
         one RAdam step of Q down (Q(s_t, a_t) - G_t)^2 / 2     half_mse_td_loss
                                                 (critics.q_gradient_step)
@@ -41,7 +42,7 @@ from ajax.agents.families import (
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.minibatch import get_minibatches_from_batch
 from ajax.agents.PQN.networks import PQNNetwork
-from ajax.agents.steps import extension_key
+from ajax.agents.steps import derive_extensions_key
 from ajax.environments.interaction import epsilon_greedy, explore_pipeline
 from ajax.environments.utils import get_action_dim
 from ajax.evaluate import ValueEstimate
@@ -133,7 +134,9 @@ class PQN(
         # action (the family's choice for a q_critic).
         return ValueEstimate(q_network_value, self.gamma, self.reward_scale)
 
-    def epsilon_schedule(self, context: TrainContext) -> Callable[[Any], jax.Array]:
+    def make_epsilon_schedule(
+        self, context: TrainContext
+    ) -> Callable[[Any], jax.Array]:
         """The exploration rate at a timestep: linear over the first
         epsilon_decay_frac of the horizon, then flat."""
         return linear(
@@ -146,22 +149,25 @@ class PQN(
         """Epsilon-greedy collection on the greedy Q-network."""
         env_args = context.env_args
         n_actions = get_action_dim(env_args.env, env_args.env_params)
-        epsilon_schedule = self.epsilon_schedule(context)
+        epsilon_schedule = self.make_epsilon_schedule(context)
         # purejaxql reads epsilon once per update, at its update count
         # (pqn_gymnax.py:189): here at the first step of the rollout, update
         # count x rollout size.
         rollout_size = self.n_steps * env_args.n_envs
 
-        def rollout_epsilon(timestep: jax.Array) -> jax.Array:
+        def epsilon_at_rollout_start(timestep: jax.Array) -> jax.Array:
             return epsilon_schedule(timestep - timestep % rollout_size)
 
         return explore_pipeline(
-            epsilon_greedy(rollout_epsilon, n_actions), False, n_actions, warmup=False
+            epsilon_greedy(epsilon_at_rollout_start, n_actions),
+            False,
+            n_actions,
+            warmup=False,
         )
 
     def init(self, key: jax.Array, context: TrainContext) -> PQNState:
         """The Q-network and the collector."""
-        rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
+        training_key, init_key, collector_key, evaluation_key = jax.random.split(key, 4)
         env_args = context.env_args
         q_state = get_initialized_q_network(
             key=init_key,
@@ -174,8 +180,8 @@ class PQN(
         # The single Q-network lives in actor_state (so the shared eval loop
         # works); critic_state mirrors it at init and is never updated.
         return PQNState(
-            rng=rng,
-            eval_rng=eval_rng,
+            rng=training_key,
+            eval_rng=evaluation_key,
             actor_state=q_state,
             critic_state=q_state,
             collector_state=context.collector(collector_key),
@@ -183,21 +189,21 @@ class PQN(
 
     def update(
         self,
-        state: PQNState,
+        agent_state: PQNState,
         rollout: Transition,
-        start: PQNState,
+        agent_state_at_rollout_start: PQNState,
         context: TrainContext,
     ) -> Tuple[PQNState, AuxiliaryLogs]:
         """One PQN update on an (n_steps, n_envs) rollout: Q(lambda)
         targets bootstrapped on the current network (no target network), then
         n_epochs epochs of TD steps, the rollout reshuffled each epoch;
-        also logs the epsilon its rollout read (epsilon_schedule once per
+        also logs the epsilon its rollout read (the schedule read once per
         update, as purejaxql reads it)."""
-        del start  # a feedforward network replays nothing
+        del agent_state_at_rollout_start  # a feedforward network replays nothing
         extensions, total_timesteps = context.extensions, context.total_timesteps
         next_q = predict_q(
-            state.actor_state,
-            state.actor_state.params,
+            agent_state.actor_state,
+            agent_state.actor_state.params,
             rollout.next_obs,
         )
         next_q_max = jnp.max(next_q, axis=-1, keepdims=True)
@@ -209,11 +215,15 @@ class PQN(
             self.gamma,
             self.q_lambda,
         )
-        rng, key = jax.random.split(state.rng)
-        state = state.replace(rng=rng)
-        # The extensions reshape the target before it is held constant, on a
-        # key derived from the update's, then add their loss terms, on keys
-        # derived from each epoch's: one per minibatch.
+        # The carried key first, as purejaxql splits it (rng, _rng =
+        # jax.random.split(rng), pqn_gymnax.py:318): the reverse of
+        # get_keys_and_new_state's order, kept so PQN draws its reference's keys.
+        training_key, update_key = jax.random.split(agent_state.rng)
+        agent_state = agent_state.replace(rng=training_key)
+        # The extensions reshape the targets before the gradient is stopped
+        # there (stop_gradient below), on a key derived from the update's,
+        # then add their loss terms, on keys derived from each epoch's: one
+        # per minibatch.
         target_metrics: dict = {}
         if extensions:
             target_batch = {
@@ -229,11 +239,11 @@ class PQN(
                 "reward_scale": self.reward_scale,
             }
             targets, target_metrics = extensions.apply_on_target(
-                state,
+                agent_state,
                 target_batch,
                 targets,
-                state.collector_state.timestep,
-                extension_key(key),
+                agent_state.collector_state.timestep,
+                derive_extensions_key(update_key),
                 total_timesteps,
             )
         targets = jax.lax.stop_gradient(targets)
@@ -241,18 +251,22 @@ class PQN(
         td_loss_fn = half_mse_td_loss if self.td_loss_fn is None else self.td_loss_fn
 
         # PQN always cuts the rollout one way: shuffled single steps, targets fixed above.
-        epoch_keys = jax.random.split(key, self.n_epochs)
+        epoch_keys = jax.random.split(update_key, self.n_epochs)
 
-        def epoch_body(state: PQNState, epoch_key: jax.Array) -> Tuple[Any, Any]:
+        def run_epoch(agent_state: PQNState, epoch_key: jax.Array) -> Tuple[Any, Any]:
             minibatches = get_minibatches_from_batch(
                 batch, epoch_key, self.num_minibatches
             )
-            loss_keys = jax.random.split(extension_key(epoch_key), self.num_minibatches)
+            loss_keys = jax.random.split(
+                derive_extensions_key(epoch_key), self.num_minibatches
+            )
 
-            def minibatch_body(state: PQNState, xs: tuple) -> Tuple[Any, Any]:
-                (observations, actions, targets), loss_key = xs
+            def step_on_minibatch(
+                agent_state: PQNState, minibatch_and_key: tuple
+            ) -> Tuple[Any, Any]:
+                (observations, actions, targets), loss_key = minibatch_and_key
                 q_state, value_aux, loss_metrics = q_gradient_step(
-                    state,
+                    agent_state,
                     observations,
                     actions,
                     targets,
@@ -261,21 +275,25 @@ class PQN(
                     loss_key,
                     total_timesteps,
                 )
-                state = state.replace(actor_state=q_state)
-                return state, (value_aux, loss_metrics)
+                agent_state = agent_state.replace(actor_state=q_state)
+                return agent_state, (value_aux, loss_metrics)
 
-            return jax.lax.scan(minibatch_body, state, (minibatches, loss_keys))
+            return jax.lax.scan(
+                step_on_minibatch, agent_state, (minibatches, loss_keys)
+            )
 
-        state, (value_aux, loss_metrics) = jax.lax.scan(epoch_body, state, epoch_keys)
+        agent_state, (value_aux, loss_metrics) = jax.lax.scan(
+            run_epoch, agent_state, epoch_keys
+        )
         # (n_epochs, num_minibatches, ...) -> one (1,) value per metric.
         value_aux, loss_metrics = jax.tree.map(
-            lambda x: x.mean().reshape((1,)), (value_aux, loss_metrics)
+            lambda metric: metric.mean().reshape((1,)), (value_aux, loss_metrics)
         )
         rollout_size = rollout.reward.shape[0] * rollout.reward.shape[1]
-        epsilon_schedule = self.epsilon_schedule(context)
-        epsilon = epsilon_schedule(state.n_updates * rollout_size).reshape((1,))
-        state = state.replace(n_updates=state.n_updates + 1)
-        return state, AuxiliaryLogs(
+        epsilon_schedule = self.make_epsilon_schedule(context)
+        epsilon = epsilon_schedule(agent_state.n_updates * rollout_size).reshape((1,))
+        agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
+        return agent_state, AuxiliaryLogs(
             value=value_aux,
             policy=PolicyAuxiliaries(epsilon=epsilon),
             extensions=merge_metrics(target_metrics, loss_metrics),
@@ -327,20 +345,22 @@ def compute_q_lambda_targets(
     """
     done = jnp.logical_or(terminateds.astype(bool), truncateds.astype(bool))
     done = done.astype(rewards.dtype)
-    v = (1.0 - done) * next_q_max
-    last = rewards[-1] + gamma * v[-1]
+    bootstraps = (1.0 - done) * next_q_max
+    last = rewards[-1] + gamma * bootstraps[-1]
     if rewards.shape[0] == 1:
         return last[None]
-    v = v.at[-2].set(v[-1])  # purejaxql's off-by-one
+    bootstraps = bootstraps.at[-2].set(bootstraps[-1])  # purejaxql's off-by-one
 
-    def body(next_return, transition):
-        reward, v_next, d = transition
-        g = reward + gamma * ((1.0 - q_lambda) * v_next + q_lambda * next_return)
-        g = (1.0 - d) * g + d * reward
-        return g, g
+    def step_back(next_return, transition):
+        reward, bootstrap, ended = transition
+        lambda_return = reward + gamma * (
+            (1.0 - q_lambda) * bootstrap + q_lambda * next_return
+        )
+        lambda_return = (1.0 - ended) * lambda_return + ended * reward
+        return lambda_return, lambda_return
 
     _, returns = jax.lax.scan(
-        body, last, (rewards[:-1], v[:-1], done[:-1]), reverse=True
+        step_back, last, (rewards[:-1], bootstraps[:-1], done[:-1]), reverse=True
     )
     return jnp.concatenate([returns, last[None]])
 

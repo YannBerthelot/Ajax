@@ -15,7 +15,7 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.training.train_state import TrainState
 
-from ajax.agents.loop import extension_key, gradient_step
+from ajax.agents.loop import derive_extensions_key, gradient_step
 from ajax.agents.recurrent import (
     RecurrentCarries,
     actor_dist,
@@ -294,7 +294,7 @@ def soft_actor_step(
             agent_state,
             actor_batch,
             agent_state.collector_state.timestep,
-            extension_key(policy_key),
+            derive_extensions_key(policy_key),
             total_timesteps,
         )
         return loss + extra, ((loss, log_probs, q), metrics)

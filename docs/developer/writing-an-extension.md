@@ -451,11 +451,11 @@ every `action` extension too.
 Each fold's key is one no other fold gets and one the agent draws nothing
 else on (`tests/extensions/test_phase_contract.py` checks both on every
 agent). `critic_step` and `actor_step` derive their folds' keys from the
-step's key with `extension_key(key)` (`ajax.agents.steps`), so an agent hands
+step's key with `derive_extensions_key(key)` (`ajax.agents.steps`), so an agent hands
 them the key its step draws on and never splits one for the extensions. When
-you add a fold to an agent outside them, fold on `extension_key` of a key the
+you add a fold to an agent outside them, fold on `derive_extensions_key` of a key the
 step holds, never a split of it: under JAX's partitionable threefry
-`fold_in(k, i)` is `split(k, n)[i]`, which is why `extension_key` folds in a
+`fold_in(k, i)` is `split(k, n)[i]`, which is why `derive_extensions_key` folds in a
 tag far past any split's length. An agent's own random stream is then the
 same with or without extensions.
 

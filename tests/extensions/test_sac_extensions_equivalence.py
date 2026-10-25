@@ -70,7 +70,7 @@ alpha at most 1.2e-6; the plain-SAC parity goldens moved alike.
 
 Re-captured when SAC's actor step took its keys from the state
 (``next_keys``) and its extensions' key from its policy key
-(``extension_key``), the random stream of every SAC run moving: up to
+(``derive_extensions_key``), the random stream of every SAC run moving: up to
 4.2e-3 (critic), 5.0e-4 (actor), 8.2e-5 (target), 1.2e-4 (alpha).
 
 Re-captured when SAC stopped splitting a third, discarded key off its

@@ -241,7 +241,7 @@ agent at once. The probes check it end to end: a planted fault that runs
 | Shape | Agents | One iteration | Budget |
 | --- | --- | --- | --- |
 | `loop.off_policy(init, update, learning_starts, ...)` | SAC, TD3, REDQ, ASAC, AVG, DQN | one step per env (a *tick*); from `learning_starts` on, one `update(state, transition)` | `budget // n_envs` ticks |
-| `loop.on_policy(init, update, n_steps, ...)` | PPO, APO, PQN | an `n_steps` rollout per env from the state `start`, then `update(state, rollout, start)` | `budget // (n_envs * n_steps) + 1` rollouts |
+| `loop.on_policy(init, update, n_steps, ...)` | PPO, APO, PQN | an `n_steps` rollout per env from the agent state `agent_state_at_rollout_start`, then `update(agent_state, rollout, agent_state_at_rollout_start)` | `budget // (n_envs * n_steps) + 1` rollouts |
 | `loop.off_policy(..., collect=, n_updates=, evaluation=)` | DreamerV3, TDMPC2 | the agent's own `collect(state, tick)`, then `n_updates(tick, state)` updates (a train ratio, a burst), then the agent's own `Evaluation` | `budget // n_envs` ticks, or `num_ticks` |
 
 Before `learning_starts`, the off-policy shape acts uniformly at random
@@ -277,10 +277,10 @@ pass calls them inside its loss.
 SAC, TD3, AVG, DAgger and IQL use `actor_step`; ASAC and REDQ use
 `soft_actor_step` in `SAC/core.py`, on the same `soft_policy_loss` as SAC.
 
-Two more keep control flow out of the updates. `when(pred, fn, state)` runs
-`fn` where `pred` holds and leaves the state as it is elsewhere, its metrics
-then NaN (or `fill`): TD3's policy delay, DQN's target refresh, SAC's
-warm-ups and the loop's own `learning_starts` gate. A `Schedule`
+Two more keep control flow out of the updates. `run_if(condition, update,
+state)` runs `update` where `condition` holds and leaves the state as it is
+elsewhere, its metrics then NaN (or `fill`): TD3's policy delay, DQN's target
+refresh, SAC's warm-ups and the loop's own `learning_starts` gate. A `Schedule`
 (`ajax.schedule`) is a hyperparameter given as a constant or a function of the
 timestep, read with `at(schedule, timestep)`; `linear(start, end, steps)` is a
 ramp. TD3's exploration noise and PPO's and APO's clip range take one, and

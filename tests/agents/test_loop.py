@@ -30,7 +30,7 @@ from ajax.agents.loop import (
     apply_on_target,
     critic_step,
     gradient_step,
-    when,
+    run_if,
 )
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.steps import compute_gradients
@@ -454,27 +454,27 @@ def test_actor_step_steps_down_the_loss_plus_the_extensions_terms() -> None:
     }
 
 
-def test_when_runs_fn_only_where_the_predicate_holds() -> None:
+def test_run_if_runs_the_update_only_where_the_condition_holds() -> None:
     def double(x):
         return x * 2
 
-    assert float(when(jnp.asarray(True), double, jnp.asarray(3.0))) == 6.0
-    assert float(when(jnp.asarray(False), double, jnp.asarray(3.0))) == 3.0
+    assert float(run_if(jnp.asarray(True), double, jnp.asarray(3.0))) == 6.0
+    assert float(run_if(jnp.asarray(False), double, jnp.asarray(3.0))) == 3.0
 
 
-def test_when_fills_a_skipped_fns_metrics() -> None:
-    """Skipped, the metrics keep fn's structure: NaN, and -1 in integer
+def test_run_if_fills_a_skipped_updates_metrics() -> None:
+    """Skipped, the metrics keep the update's structure: NaN, and -1 in integer
     leaves, by default; ``fill`` otherwise."""
 
     def step(x):
         return x + 1.0, {"loss": x * 2, "count": jnp.asarray(1)}
 
-    x, metrics = when(jnp.asarray(True), step, jnp.asarray(3.0))
+    x, metrics = run_if(jnp.asarray(True), step, jnp.asarray(3.0))
     assert float(x) == 4.0 and float(metrics["loss"]) == 6.0
-    x, metrics = when(jnp.asarray(False), step, jnp.asarray(3.0))
+    x, metrics = run_if(jnp.asarray(False), step, jnp.asarray(3.0))
     assert float(x) == 3.0 and np.isnan(metrics["loss"])
     assert int(metrics["count"]) == -1
-    _, metrics = when(jnp.asarray(False), step, jnp.asarray(3.0), fill=0.0)
+    _, metrics = run_if(jnp.asarray(False), step, jnp.asarray(3.0), fill=0.0)
     assert float(metrics["loss"]) == 0.0 and int(metrics["count"]) == 0
 
 

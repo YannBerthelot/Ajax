@@ -68,7 +68,7 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
     context = make_context(agent)
     state = agent.init(KEY, context)
     batch, config = _batch(agent), agent.agent_config
-    _, v_aux, _ = agent.critic_update(state, batch, None, context)
+    _, v_aux, _ = agent.update_critic(state, batch, None, context)
 
     critic = state.critic_state
     q = q_values(critic, critic.params, batch.obs, batch.action)
@@ -95,7 +95,7 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 
-    _, (p_aux, _) = agent.actor_update(state, batch, None, context)
+    _, (p_aux, _) = agent.update_actor(state, batch, None, context)
     actor = state.actor_state
     p_grads = jax.grad(lambda p: policy_loss_function(p, actor, critic, batch.obs)[0])(
         actor.params

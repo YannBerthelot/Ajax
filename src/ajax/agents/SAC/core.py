@@ -15,7 +15,7 @@ from flax.core import FrozenDict
 from ajax.agents import temperature
 from ajax.agents.recurrent import RecurrentCarries, stored_actor_carry_dim
 from ajax.agents.SAC.SAC import compute_soft_policy_loss, compute_temperature_loss
-from ajax.agents.update_steps import derive_extensions_key, gradient_step
+from ajax.agents.update_steps import actor_step
 from ajax.controller import make_scored_action
 from ajax.deprecation import moved_names
 from ajax.environments.interaction import init_collector_state
@@ -79,50 +79,41 @@ def soft_actor_step(
     actions: Optional[jax.Array] = None,
     executed: Optional[Callable[[jax.Array, Any], jax.Array]] = None,
 ) -> Tuple[S, Tuple[jax.Array, jax.Array, jax.Array], dict]:
-    """One actor step on SAC's soft policy loss plus the extensions'
-    actor-loss terms, which also read a_expert, the expert's stored actions
-    at the rows (None without an expert), and actions, the rows' own. With
-    a residual policy the critics score executed(a, a_expert). Returns the
-    state, (loss, log_probs, q), the SAC loss before the extensions' terms,
-    and the extensions' metrics."""
-    agent_state, policy_key = agent_state.next_keys()
+    """The 0.4.0 actor step of a soft actor-critic (0.5.0 removes it):
+    update_steps.actor_step on SAC's soft policy loss, the critics' values
+    reduced by q_reduce and scored at executed(a, a_expert) under a residual
+    policy. Returns the state, (loss, log_probs, q), the loss before the
+    extensions' terms, and the extensions' metrics."""
+    policy_key, agent_state = agent_state.get_keys_and_new_state()
     alpha = temperature.get_alpha(agent_state)
-    actor_state = agent_state.actor_state
     transform = make_scored_action(executed, a_expert)
 
-    def loss_fn(params: FrozenDict) -> Tuple[jax.Array, Any]:
+    def policy_loss(params: FrozenDict) -> Tuple[jax.Array, Any, jax.Array]:
         loss, (log_probs, q, pi) = compute_soft_policy_loss(
             params,
-            actor_state,
+            agent_state.actor_state,
             agent_state.critic_state,
             observations,
             alpha,
             policy_key,
             carries,
             q_reduce,
-            transform,
+            action_transform=transform,
         )
-        actor_batch = {
-            "observations": observations,
-            "raw_observations": raw_observations,
-            "pi_mean": pi.mean(),
-            "actor_params": params,
-            "actor_state": actor_state,
-            "a_expert": a_expert,
-            "actions": actions,
-            "critic_state": agent_state.critic_state,
-            "agent_loss": loss,
-        }
-        extra, metrics = extension_stack.compute_extensions_actor_loss(
-            agent_state,
-            actor_batch,
-            agent_state.collector_state.timestep,
-            derive_extensions_key(policy_key),
-            total_timesteps,
-        )
-        return loss + extra, ((loss, log_probs, q), metrics)
+        return loss, (loss, log_probs, q), pi.mean()
 
-    actor_state, (out, metrics), _ = gradient_step(actor_state, loss_fn)
+    actor_state, out, _, metrics = actor_step(
+        agent_state,
+        policy_loss,
+        extension_stack,
+        policy_key,
+        total_timesteps,
+        observations=observations,
+        raw_observations=raw_observations,
+        a_expert=a_expert,
+        actions=actions,
+        critic_state=agent_state.critic_state,
+    )
     return agent_state.replace(actor_state=actor_state), out, metrics
 
 

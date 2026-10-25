@@ -36,7 +36,6 @@ from ajax.agents.loop import TrainLoop, actor_step
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     ActionPipelineResult,
-    expert_step,
     get_pi,
     init_collector_state,
 )
@@ -82,18 +81,19 @@ def learner_action(pi: Any, continuous: bool) -> jax.Array:
 
 
 def make_action_pipeline(
-    expert_policy: Any, config: DAggerConfig, continuous: bool, n_envs: int
+    config: DAggerConfig, continuous: bool, n_envs: int
 ) -> Callable:
     """Collection's pipeline: per env, the expert's action with probability
     ``beta_i``, else the actor's; the expert's action at every state is
-    stored (``a_expert``), from its state along the trajectory."""
+    stored (``a_expert``): the one collection computes before the choice,
+    from the expert's state along the trajectory (expert_collect_kwargs)."""
 
     def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
-        del uniform, action_key
+        del raw_obs, uniform, action_key
         actor = agent_state.actor_state
         own = learner_action(get_pi(actor, actor.params, acting.obs)[0], continuous)
-        a_expert, expert_state = expert_step(expert_policy, acting, raw_obs, n_envs)
-        a_expert = a_expert.reshape(own.shape).astype(own.dtype)
+        # The label in the replay's action layout (a discrete index's column).
+        a_expert = acting.expert_action.reshape(own.shape).astype(own.dtype)
         draw = jax.random.uniform(mix_key, (n_envs, 1))
         use_expert = draw < beta(acting.timestep, config)
         action = jnp.where(use_expert, a_expert, own)
@@ -106,7 +106,6 @@ def make_action_pipeline(
             in_value_box=zeros,
             entry_bonus=zeros,
             rng=rng,
-            new_expert_state=expert_state,
             buffer_action=action,
             a_expert=a_expert,
         )
@@ -237,9 +236,9 @@ def make_train(
     }
     extensions = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
     continuous = env_args.continuous
-    # The pipeline tracks the expert and stores its action itself. The loop
-    # gets no expert_policy, so the expert's next action (next_a_expert),
-    # which only the critic modules DAgger refuses read, stays zeros.
+    # The loop tracks the expert, as every agent's with one: collection calls
+    # it once per step, before the choice, and stores its actions at s and
+    # s' (a_expert, next_a_expert).
     loop = TrainLoop.create(
         env_args,
         total_timesteps,
@@ -249,6 +248,7 @@ def make_train(
         extensions,
         start_timestep=start_timestep,
         end_timestep=end_timestep,
+        expert_policy=expert_policy,
     )
 
     def init(key: jax.Array) -> DAggerState:
@@ -272,9 +272,7 @@ def make_train(
             total_timesteps,
         )
 
-    pipeline = make_action_pipeline(
-        expert_policy, agent_config, continuous, env_args.n_envs
-    )
+    pipeline = make_action_pipeline(agent_config, continuous, env_args.n_envs)
     return loop.off_policy(
         init,
         update,

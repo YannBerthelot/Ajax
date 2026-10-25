@@ -98,7 +98,10 @@ def test_the_actor_learns_the_experts_labels_not_the_actions_taken(env_id):
     continuous = env_id == "Pendulum-v1"
     kwargs = {"n_envs": N_ENVS, "iteration_steps": N_ENVS, "batch_size": 8}
     kwargs.update({"buffer_size": 256, "actor_learning_rate": 1e-2})
-    init, _ = DAgger(env_id, expert_policy=push, **kwargs).train(
+    # The initial actor, built beside an expert of the env's action kind
+    # (collection stores its actions in the replay's layout).
+    first_expert = push if continuous else choose_one
+    init, _ = DAgger(env_id, expert_policy=first_expert, **kwargs).train(
         seed=[0], n_timesteps=0
     )
     if continuous:

@@ -21,7 +21,6 @@ import concurrent.futures
 import glob
 import json
 import os
-import shutil
 import subprocess
 import sys
 from collections import Counter
@@ -30,7 +29,6 @@ from tests import shards
 from tests.probing import faults
 
 REPO = faults.REPO
-SKIPPED = {".git", ".venv", "site", ".mypy_cache", ".pytest_cache", ".ruff_cache"}
 #: The fast tier: tests/conftest.py marks tests/probing slow but its harness checks.
 FAST = ["-m", "not slow", "tests"]
 
@@ -77,14 +75,12 @@ def failed_nodes(stdout: str) -> list[str]:
 
 def catch(fault: faults.Fault, nodes: list[str], scratch: str) -> dict:
     root = os.path.join(scratch, fault.id)
-    shutil.rmtree(root, ignore_errors=True)
-    shutil.copytree(REPO, root, ignore=lambda d, names: SKIPPED.intersection(names))
-    faults.plant(fault, root)
     env = dict(os.environ, PYTHONPATH=os.path.join(root, "src"), JAX_PLATFORMS="cpu")
     env["AJAX_JAX_COMPILE_CACHE_DIR"] = os.path.join(scratch, "jax-cache")
     cmd = [sys.executable, "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider", *nodes]
-    run = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
-    shutil.rmtree(root, ignore_errors=True)
+    with faults.scratch_copy(REPO, root, os.listdir(REPO)):
+        faults.plant(fault, root)
+        run = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
     failed = failed_nodes(run.stdout)
     first_fail = failed[0] if failed else None
     return {"caught": run.returncode not in (0, 5), "first_fail": first_fail}

@@ -58,9 +58,10 @@ from . import readouts as R
 # faults/ + 1, this note + 2; CrossQ's cells: agents.py + 4, test_bookkeeping
 # + 2, test_value_chains + 9, test_framework + 1, this note + 1; TQC's cells:
 # agents.py + 2, test_bookkeeping + 4, test_value_chains + 8, this note + 1.
+# The scratch copy's shared skip set and cleanup: faults.py + 19, this note + 1.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 160, "runs.py": 250}
-CAPS |= {"readouts.py": 220, "oracles.py": 198, "faults.py": 101, "faults/": 239}
-CAPS |= {"test_framework.py": 260, "test_value_chains.py": 1051}
+CAPS |= {"readouts.py": 220, "oracles.py": 198, "faults.py": 120, "faults/": 239}
+CAPS |= {"test_framework.py": 262, "test_value_chains.py": 1051}
 CAPS |= {"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013}
 CAPS |= {"test_extensions.py": 794, "test_p4_split_run.py": 360}
 CAPS |= {"test_memory.py": 372, "test_world_models.py": 452}
@@ -226,14 +227,15 @@ def test_the_directory_keeps_to_its_budget() -> None:
     tracks or would track: 7,000, plus 400 for the offline-learning and imitation probes
     (2026-10-20: DAgger, offline mode, TD3+BC, IQL, CQL/Cal-QL, ReBRAC, GAIL), 12 for
     PQN's and APO's original rules, 17 for CrossQ's cells, 15 for TQC's, 160 for
-    residual RL and gain mode, 1 each for the context rename and APG's vector rate."""
+    residual RL and gain mode, 1 each for the context rename and APG's vector rate,
+    21 for the scratch copy's cleanup."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 7606, total
+    assert total <= 7627, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

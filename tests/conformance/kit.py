@@ -248,12 +248,19 @@ def capture_step(agent: Any, n_timesteps: int) -> Step:
         "update": kw.get("update"),
         "buffer": kw.get("buffer"),
     }
-    fresh = jax.jit(
-        lambda key: loop.fresh_state(
+    one_update = kw.get("one_update")
+
+    def fresh_state(key: jax.Array) -> Any:
+        """The train function's fresh state, with the slot of the actor's
+        last metrics where its update keeps them (TrainLoop.train)."""
+        state = loop.fresh_state(
             got["init"], lp.extensions, lp.total_timesteps, key, **context
         )
-    )
-    return Step(got["iteration"], kw.get("update"), fresh)
+        if one_update is None:
+            return state
+        return loop.with_actor_metrics_slot(state, one_update)
+
+    return Step(got["iteration"], kw.get("update"), jax.jit(fresh_state))
 
 
 def _body_name(f: Callable) -> str:

@@ -928,7 +928,7 @@ def test_q1_apo_value_loss_pulls_values_towards_zero() -> None:
     """With targets equal to the predictions and b = 1 > 0 only the
     centring force is left: a small gradient step must lower mean V."""
     agent = agents.make("APO", *APO_CONST.make(), ent_coef=0.0)
-    critic = agent.init(R.KEY, agent.context(1)[1]).critic_state
+    critic = agent.init(R.KEY, agent.make_context(1)[1]).critic_state
     obs, nu = jnp.linspace(-1.0, 1.0, 9)[:, None], agent.agent_config.nu
     values = predict_value(critic, critic.params, obs).squeeze(0)
 

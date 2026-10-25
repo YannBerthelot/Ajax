@@ -20,7 +20,7 @@ from ajax.log import unevaluated
 
 #: The keys of the extensions' batches the shared steps below build, which
 #: an agent on them declares (ActorCritic.phase_batch_keys), with any it
-#: adds: apply_on_target's, apply_critic_loss's, and those
+#: adds: apply_on_target's, compute_extensions_critic_loss's, and those
 #: actor_step adds, and with them the rows' entries a replay agent
 #: passes (REPLAY_ACTOR_KEYS: SAC's, TD3's, CrossQ's and SAC's core's).
 TARGET_KEYS = frozenset(
@@ -204,7 +204,7 @@ def apply_on_target(
     return jax.lax.stop_gradient(target_q), metrics
 
 
-def apply_critic_loss(
+def compute_extensions_critic_loss(
     extensions: ExtensionStack,
     agent_state: Any,
     batch: Any,
@@ -230,7 +230,7 @@ def apply_critic_loss(
     }
     _, loss_key = jax.random.split(derive_extensions_key(key))
     timestep = agent_state.collector_state.timestep
-    return extensions.apply_critic_loss(
+    return extensions.compute_extensions_critic_loss(
         agent_state, loss_batch, timestep, loss_key, total_timesteps
     )
 
@@ -251,7 +251,7 @@ def critic_step(
     back through it (apply_on_target, which target_args reach: what the target
     used), then steps the critic down value_loss(params, target_q) ->
     (loss, aux) plus their critic_loss terms
-    (apply_critic_loss). The phases draw on keys derived from key,
+    (compute_extensions_critic_loss). The phases draw on keys derived from key,
     the step's, on which the agent may draw too. Returns the stepped critic
     state, aux, the gradients' norm (gradient_step) and the two
     phases' metrics.
@@ -268,7 +268,7 @@ def critic_step(
 
     def total_critic_loss(params: Any) -> tuple[jax.Array, Any]:
         loss, aux = value_loss(params, target_q)
-        extra, loss_metrics = apply_critic_loss(
+        extra, loss_metrics = compute_extensions_critic_loss(
             extensions, agent_state, batch, params, target_q, key, total_timesteps
         )
         return loss + extra, (aux, loss_metrics)
@@ -314,7 +314,7 @@ def actor_step(
             }
         )
         timestep = agent_state.collector_state.timestep
-        extra, metrics = extensions.apply_actor_loss(
+        extra, metrics = extensions.compute_extensions_actor_loss(
             agent_state,
             actor_batch,
             timestep,
@@ -389,7 +389,7 @@ def joint_step(
 # 0.5.0 removes them.
 fold_post_update = apply_post_update
 fold_on_target = apply_on_target
-fold_critic_loss = apply_critic_loss
+fold_critic_loss = compute_extensions_critic_loss
 
 
 def update_target_networks(agent_state: Any, tau: float) -> Any:

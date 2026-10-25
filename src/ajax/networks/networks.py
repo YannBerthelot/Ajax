@@ -913,14 +913,29 @@ def predict_value(
     return critic_state.apply_fn(variables, x)
 
 
-def predict_value_train(
+def get_policy_updating_batch_statistics(
+    actor_state: LoadedTrainState, params: Any, obs: jax.Array
+) -> Tuple[Any, Optional[Any]]:
+    """The actor's distribution at obs in training mode, and its batch
+    normalisation's running statistics after this pass (apply_train).
+
+    In training mode a batch normalisation layer (CrossQ's batch
+    renormalisation) normalises with the batch's own statistics and updates
+    its running averages; acting and the targets use the running averages
+    instead. A feedforward actor only."""
+    obs = apply_obs_norm(obs, getattr(actor_state, "obs_norm_info", None))
+    return actor_state.apply_train(params, obs)
+
+
+def predict_value_updating_batch_statistics(
     critic_state: LoadedTrainState,
     critic_params: FrozenDict,
     x: jax.Array,
 ) -> Tuple[jax.Array, Optional[FrozenDict]]:
-    """:func:`predict_value` in training: the critic's values at ``x`` and
-    its running statistics after this pass
-    (:meth:`LoadedTrainState.apply_train`)."""
+    """The critic's values at x in training mode, and its batch
+    normalisation's running statistics after this pass
+    (LoadedTrainState.apply_train); see get_policy_updating_batch_statistics
+    for what training mode changes."""
     x = _apply_critic_action_units(
         critic_state, _apply_critic_obs_norm(critic_state, x)
     )

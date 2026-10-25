@@ -15,8 +15,8 @@ _new_homes.update(
         "minibatch_geometry": "ajax.agents.minibatch:choose_rollout_split",
         "default_bptt_length": "ajax.agents.minibatch",
         "run_epochs": "ajax.agents.minibatch",
-        "clip_global_norm": "ajax.agents.steps",
-        "joint_step": "ajax.agents.steps",
+        "clip_global_norm": "ajax.agents.update_steps",
+        "joint_step": "ajax.agents.update_steps",
     }
 )
 __getattr__ = moved_names(__name__, _new_homes)

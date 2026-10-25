@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from ajax import CrossQ
-from ajax.agents.CrossQ.CrossQ import batch_renorm_mlp
+from ajax.agents.CrossQ.CrossQ import make_batch_renorm_mlp
 from ajax.agents.families import TrainContext
 from ajax.agents.loop import TrainLoop
 from ajax.state import Transition
@@ -18,8 +18,8 @@ from ajax.state import Transition
 def test_the_defaults_are_the_authors() -> None:
     """adityab/CrossQ@a318a26, train.py -algo crossq."""
     agent = CrossQ("Pendulum-v1")
-    assert agent.network_args.actor_architecture == batch_renorm_mlp(256)
-    assert agent.network_args.critic_architecture == batch_renorm_mlp(2048)
+    assert agent.network_args.actor_architecture == make_batch_renorm_mlp(256)
+    assert agent.network_args.critic_architecture == make_batch_renorm_mlp(2048)
     for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
         assert (args.learning_rate, args.beta_1, args.eps) == (1e-3, 0.5, 1e-8)
     assert agent.alpha_args.learning_rate == 1e-3
@@ -50,7 +50,9 @@ def test_the_critics_normalise_the_rows_and_their_next_states_together() -> None
         critic_optimizer_args=agent.critic_optimizer_args,
         extensions=agent.extension_stack,
         total_timesteps=1,
-        collector=partial(agent.collector, loop=loop, network_args=agent.network_args),
+        make_collector=partial(
+            agent.make_collector, loop=loop, network_args=agent.network_args
+        ),
         buffer=agent.buffer,
     )
     state = agent.init(jax.random.PRNGKey(0), context)

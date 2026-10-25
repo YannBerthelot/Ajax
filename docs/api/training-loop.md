@@ -9,7 +9,7 @@ way for every agent. An agent supplies only its `init` and `update`.
 
 The steps an agent's update is written in:
 
-::: ajax.agents.steps
+::: ajax.agents.update_steps
 
 ::: ajax.perf_utils
 

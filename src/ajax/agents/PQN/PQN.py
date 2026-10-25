@@ -4,7 +4,7 @@ Difference Learning"), as its reference code, purejaxql (mttga/purejaxql
 
 One iteration. The on-policy family runs the epsilon-greedy policy for
 n_steps in each of n_envs envs
-(OnPolicyAgent, PQN.behaviour); each
+(OnPolicyAgent, PQN.choose_behaviour); each
 line after that is a function below::
 
     V_t = max_a Q(s_{t+1}, a), on the network that collected      PQN.update
@@ -12,7 +12,7 @@ line after that is a function below::
           (r_t at an episode's end)                    compute_q_lambda_targets
           no gradient flows back through the targets G_t
     for each of n_epochs, for each minibatch of shuffled single steps:
-        one RAdam step of Q down (Q(s_t, a_t) - G_t)^2 / 2     half_mse_td_loss
+        one RAdam step of Q down (Q(s_t, a_t) - G_t)^2 / 2     compute_half_mse_td_loss
                                                 (critics.q_gradient_step)
 
 PQN is DQN's sibling: it shares the value agents' Q-network wrapper
@@ -42,7 +42,7 @@ from ajax.agents.families import (
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.minibatch import get_minibatches_from_batch
 from ajax.agents.PQN.networks import PQNNetwork
-from ajax.agents.steps import derive_extensions_key
+from ajax.agents.update_steps import derive_extensions_key
 from ajax.environments.interaction import epsilon_greedy, explore_pipeline
 from ajax.environments.utils import get_action_dim
 from ajax.evaluate import ValueEstimate
@@ -94,7 +94,7 @@ class PQN(
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
     epsilon_decay_frac: float = 0.5
-    #: The TD loss: None is half_mse_td_loss, purejaxql's;
+    #: The TD loss: None is compute_half_mse_td_loss, purejaxql's;
     #: make_huber_td_loss(delta) (from ajax.agents.critics) the Huber loss.
     td_loss_fn: Optional[Callable] = None
 
@@ -145,7 +145,7 @@ class PQN(
             self.epsilon_decay_frac * context.total_timesteps,
         )
 
-    def behaviour(self, context: TrainContext) -> Callable:
+    def choose_behaviour(self, context: TrainContext) -> Callable:
         """Epsilon-greedy collection on the greedy Q-network."""
         env_args = context.env_args
         n_actions = get_action_dim(env_args.env, env_args.env_params)
@@ -184,7 +184,7 @@ class PQN(
             eval_rng=evaluation_key,
             actor_state=q_state,
             critic_state=q_state,
-            collector_state=context.collector(collector_key),
+            collector_state=context.make_collector(collector_key),
         )
 
     def update(
@@ -248,7 +248,9 @@ class PQN(
             )
         targets = jax.lax.stop_gradient(targets)
         batch = (rollout.obs, rollout.action, targets)
-        td_loss_fn = half_mse_td_loss if self.td_loss_fn is None else self.td_loss_fn
+        td_loss_fn = (
+            compute_half_mse_td_loss if self.td_loss_fn is None else self.td_loss_fn
+        )
 
         # PQN always cuts the rollout one way: shuffled single steps, targets fixed above.
         epoch_keys = jax.random.split(update_key, self.n_epochs)
@@ -365,7 +367,7 @@ def compute_q_lambda_targets(
     return jnp.concatenate([returns, last[None]])
 
 
-def half_mse_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
+def compute_half_mse_td_loss(q_taken: jax.Array, target_q: jax.Array) -> jax.Array:
     """Half the mean-squared TD error, PQN's default: purejaxql's loss
     (mttga/purejaxql @47af6d7 pqn_minatar.py:285), whose gradient its
     global clip of 10 is set against."""

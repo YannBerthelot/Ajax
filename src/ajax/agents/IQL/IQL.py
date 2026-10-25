@@ -26,8 +26,8 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from ajax.agents import steps
-from ajax.agents.critics import critic_loss_fn
+from ajax.agents import update_steps
+from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
     ExpertGuided,
     GradientClipping,
@@ -108,7 +108,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             learning_rate=self.value_learning_rate
         )
 
-    def behaviour(self, context: TrainContext) -> Optional[Callable]:
+    def choose_behaviour(self, context: TrainContext) -> Optional[Callable]:
         # A residual policy acts on the chosen action, so the warm-up draws
         # residuals (and the replay keeps the one the actor fits, init).
         if context.executed is None:
@@ -126,10 +126,10 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         training_key, init_key, value_key, collector_key, evaluation_key = (
             jax.random.split(key, 5)
         )
-        actor_state, critic_state = context.actor_critic(
+        actor_state, critic_state = context.make_actor_critic(
             init_key, continuous=True, action_value=True, num_critics=NUM_CRITICS
         )
-        _, value_state = context.actor_critic(
+        _, value_state = context.make_actor_critic(
             value_key,
             critic_optimizer_args=self.value_optimizer_args,
             continuous=True,
@@ -141,7 +141,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             actor_state=actor_state,
             critic_state=critic_state,
             value_state=value_state,
-            collector_state=context.collector(
+            collector_state=context.make_collector(
                 collector_key, include_policy_action=context.executed is not None
             ),
         )
@@ -163,7 +163,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
             min_q_values,
             self.expectile,
         )
-        value_state, _, _ = steps.gradient_step(
+        value_state, _, _ = update_steps.gradient_step(
             agent_state.value_state, compute_value_loss_on_batch
         )
         value_loss_after_step = compute_value_loss_on_batch(value_state.params)[0]
@@ -174,7 +174,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         # The actor fits the actions it chose: a residual policy's residuals,
         # which the replay keeps apart from the executed actions.
         chosen = batch.action if batch.policy_action is None else batch.policy_action
-        actor_state, actor_loss, _, actor_metrics = steps.actor_step(
+        actor_state, actor_loss, _, actor_metrics = update_steps.actor_step(
             agent_state,
             partial(
                 compute_weighted_regression_loss,
@@ -194,7 +194,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         target = compute_bellman_target(
             value_state, batch, self.gamma, self.reward_scale
         )
-        critic_state, critic_loss, _, critic_metrics = steps.critic_step(
+        critic_state, critic_loss, _, critic_metrics = update_steps.critic_step(
             agent_state,
             batch,
             target,
@@ -243,8 +243,8 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         }
     )
     phase_batch_keys = {  # noqa: RUF012
-        **steps.REPLAY_BATCH_KEYS,
-        "actor_loss": steps.ACTOR_STEP_KEYS.union(
+        **update_steps.REPLAY_BATCH_KEYS,
+        "actor_loss": update_steps.ACTOR_STEP_KEYS.union(
             {"observations", "raw_observations", "actions", "critic_state"}
         ),
     }
@@ -260,7 +260,7 @@ def compute_min_target_q(critic: LoadedTrainState, batch: Transition) -> jax.Arr
     return jnp.min(per_critic_q_values, axis=0)
 
 
-def expectile_loss(diff: jax.Array, expectile: float) -> jax.Array:
+def compute_expectile_loss(diff: jax.Array, expectile: float) -> jax.Array:
     """|expectile - 1(diff < 0)| diff^2 (critic.py loss)."""
     weight = jnp.where(diff > 0, expectile, 1.0 - expectile)
     return weight * diff**2
@@ -275,7 +275,7 @@ def compute_value_loss(
 ) -> tuple[jax.Array, None]:
     """V's expectile regression on q_values (critic.py update_v)."""
     state_values = predict_value(value_state, params, obs)[0]
-    return jnp.mean(expectile_loss(q_values - state_values, expectile)), None
+    return jnp.mean(compute_expectile_loss(q_values - state_values, expectile)), None
 
 
 def compute_advantage_weights(
@@ -314,9 +314,9 @@ def compute_summed_critic_loss(
     critic: LoadedTrainState, batch: Transition, params: Any, target: jax.Array
 ) -> tuple[jax.Array, jax.Array]:
     """The critics' squared errors to the target, summed over the critics as
-    the reference sums them: critic_loss_fn averages them, and averaging
+    the reference sums them: compute_mean_critic_loss averages them, and averaging
     would halve the gradient that Adam's eps and the clip weigh."""
-    loss, _ = critic_loss_fn(params, critic, batch.obs, batch.action, target)
+    loss, _ = compute_mean_critic_loss(params, critic, batch.obs, batch.action, target)
     loss = loss * NUM_CRITICS
     return loss, loss
 

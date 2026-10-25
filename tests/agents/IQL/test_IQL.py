@@ -9,14 +9,14 @@ import pytest
 
 from ajax import IQL
 from ajax.agents.families import TrainContext
-from ajax.agents.IQL.IQL import expectile_loss
+from ajax.agents.IQL.IQL import compute_expectile_loss
 
 
 def test_the_expectile_loss_weighs_each_side_of_zero() -> None:
     """``tau`` above the value, ``1 - tau`` below (critic.py ``loss``)."""
     diff = jnp.array([-2.0, -0.5, 0.0, 0.5, 2.0])
     want = np.where(np.asarray(diff) > 0, 0.9, 0.1) * np.asarray(diff) ** 2
-    np.testing.assert_allclose(expectile_loss(diff, 0.9), want, rtol=1e-6)
+    np.testing.assert_allclose(compute_expectile_loss(diff, 0.9), want, rtol=1e-6)
 
 
 def _constant(params, value: float):
@@ -46,7 +46,7 @@ def test_the_actor_weighs_each_row_by_its_clipped_advantage() -> None:
         critic_optimizer_args=agent.critic_optimizer_args,
         extensions=agent.extension_stack,
         total_timesteps=16,
-        collector=agent.collector,
+        make_collector=agent.make_collector,
         buffer=agent.buffer,
     )
 

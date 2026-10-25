@@ -58,9 +58,10 @@ import jax.numpy as jnp
 import numpy as np
 from jax.tree_util import Partial as partial
 
-# The step verbs are steps.py's; the agents import them from here until
-# each agent's file moves onto steps (0.5.0 drops these re-exports).
-from ajax.agents.steps import (
+# The step verbs are update_steps.py's; the agents import them from here
+# until each agent's file moves onto update_steps (0.5.0 drops these
+# re-exports).
+from ajax.agents.update_steps import (
     ACTOR_STEP_KEYS,
     CRITIC_LOSS_KEYS,
     EXTENSIONS_KEY_TAG,
@@ -68,9 +69,9 @@ from ajax.agents.steps import (
     REPLAY_BATCH_KEYS,
     TARGET_KEYS,
     actor_step,
-    apply_critic_loss,
     apply_on_target,
     apply_post_update,
+    compute_extensions_critic_loss,
     critic_step,
     derive_extensions_key,
     fold_critic_loss,
@@ -855,9 +856,9 @@ __all__ = [
     "Evaluation",
     "TrainLoop",
     "actor_step",
-    "apply_critic_loss",
     "apply_on_target",
     "apply_post_update",
+    "compute_extensions_critic_loss",
     "critic_step",
     "derive_extensions_key",
     "fold_critic_loss",

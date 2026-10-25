@@ -1,12 +1,13 @@
 """The keys an agent's steps draw on: BaseAgentState.get_keys_and_new_state
-and the extensions' key a step derives (ajax.agents.steps.derive_extensions_key)."""
+and the extensions' key a step derives
+(ajax.agents.update_steps.derive_extensions_key)."""
 
 from typing import Any
 
 import jax
 import numpy as np
 
-from ajax.agents.steps import derive_extensions_key
+from ajax.agents.update_steps import derive_extensions_key
 from ajax.state import BaseAgentState
 
 

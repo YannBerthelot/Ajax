@@ -15,7 +15,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 from flax.training.train_state import TrainState
 
-from ajax.agents.critics import q_regression_loss
+from ajax.agents.critics import compute_q_regression_loss
 from ajax.agents.recurrent import actor_dist
 from ajax.agents.SAC.core import (
     alpha_temperature_loss_fn,
@@ -27,7 +27,7 @@ from ajax.agents.SAC.core import (
     update_temperature,
 )
 from ajax.agents.SAC.train_SAC import init_SAC
-from ajax.agents.steps import update_target_networks
+from ajax.agents.update_steps import update_target_networks
 from ajax.buffers.utils import get_buffer
 from ajax.state import (
     AlphaConfig,
@@ -167,7 +167,7 @@ def test_the_soft_bellman_target_from_a_bootstrap_value():
 
 def test_the_q_regression_loss_from_predictions():
     q_preds = jnp.array([[[1.0], [3.0]], [[2.0], [5.0]]])  # 2 critics, 2 rows
-    loss, aux = q_regression_loss(q_preds, jnp.array([[2.0], [4.0]]))
+    loss, aux = compute_q_regression_loss(q_preds, jnp.array([[2.0], [4.0]]))
     assert float(loss) == pytest.approx((1 + 1 + 0 + 1) / 4)
     assert float(aux.q_gap[0]) == pytest.approx((1 + 2) / 2)
 

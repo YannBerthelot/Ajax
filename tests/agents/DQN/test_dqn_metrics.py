@@ -9,7 +9,7 @@ import numpy as np
 import optax
 import pytest
 
-from ajax.agents.critics import mse_td_loss, q_gradient_step, q_loss_fn
+from ajax.agents.critics import compute_mse_td_loss, compute_q_loss, q_gradient_step
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.DQN.train_DQN import init_DQN
 from ajax.agents.PQN.PQN import PQN
@@ -38,16 +38,16 @@ def test_a_q_step_reports_the_td_error_size_and_gradient_norm() -> None:
     targets = jax.random.normal(keys[2], (8, 1))
 
     _, aux, _ = q_gradient_step(
-        state, obs, actions, targets, mse_td_loss, ExtensionStack(()), None, 1
+        state, obs, actions, targets, compute_mse_td_loss, ExtensionStack(()), None, 1
     )
     q = state.actor_state
     q_taken = jnp.take_along_axis(predict_q(q, q.params, obs), actions, axis=-1)
     np.testing.assert_allclose(
         aux.abs_td_error, np.mean(np.abs(q_taken - targets)), rtol=1e-6
     )
-    grads = jax.grad(lambda p: q_loss_fn(p, q, obs, actions, targets, mse_td_loss)[0])(
-        q.params
-    )
+    grads = jax.grad(
+        lambda p: compute_q_loss(p, q, obs, actions, targets, compute_mse_td_loss)[0]
+    )(q.params)
     np.testing.assert_allclose(aux.grad_norm, optax.global_norm(grads), rtol=1e-6)
 
 

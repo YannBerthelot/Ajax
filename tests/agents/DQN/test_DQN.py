@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from ajax.agents.critics import huber_1_td_loss, make_huber_td_loss
+from ajax.agents.critics import compute_huber_1_td_loss, make_huber_td_loss
 from ajax.agents.DQN.DQN import DQN
 from ajax.agents.DQN.train_DQN import compute_double_dqn_td_target
 from ajax.networks.networks import MINATAR_CNN, MNIH_CNN, CNNEncoder, CNNSpec
@@ -52,7 +52,7 @@ def test_the_default_loss_clips_the_td_error_at_one():
     """Huber 1 (NeuralQLearner.lua:224-226, clip_delta=1): its gradient is
     the TD error clipped to [-1, 1]."""
     q, target = jnp.array([0.0, 0.0, 0.0]), jnp.array([3.0, -0.5, -2.0])
-    grad = jax.grad(huber_1_td_loss)(q, target) * q.size
+    grad = jax.grad(compute_huber_1_td_loss)(q, target) * q.size
     assert jnp.allclose(grad, jnp.array([-1.0, 0.5, 1.0]))
 
 

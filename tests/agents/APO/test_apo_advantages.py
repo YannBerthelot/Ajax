@@ -61,7 +61,7 @@ def test_differential_gae_stops_at_episode_ends(
         actor_architecture=("8", "tanh"),
         critic_architecture=("8", "tanh"),
     )
-    _, context = agent.context(1_000)
+    _, context = agent.make_context(1_000)
     state = agent.init(jax.random.PRNGKey(0), context)
     seen: dict[str, Any] = {}
     compute_gae = apo_module._compute_gae
@@ -105,7 +105,7 @@ def test_the_rate_and_the_bias_start_at_the_first_rollouts_means() -> None:
         actor_architecture=("8", "tanh"),
         critic_architecture=("8", "tanh"),
     )
-    _, context = agent.context(1_000)
+    _, context = agent.make_context(1_000)
     state = agent.init(jax.random.PRNGKey(0), context)
     rollout = _rollout()
     means = []
@@ -139,7 +139,7 @@ def test_a_time_limited_step_leaves_the_loss(monkeypatch: pytest.MonkeyPatch) ->
         critic_architecture=("8", "tanh"),
         actor_architecture=("8", "tanh"),
     )
-    _, context = agent.context(1_000)
+    _, context = agent.make_context(1_000)
     state = agent.init(jax.random.PRNGKey(0), context)
     critic, obs = state.critic_state, jax.random.normal(jax.random.PRNGKey(2), (3, 3))
     valid = jnp.array([[1.0], [1.0], [0.0]])

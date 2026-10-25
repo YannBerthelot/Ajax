@@ -27,7 +27,7 @@ from ajax.agents.recurrent import (
 from ajax.agents.REDQ.state import REDQConfig, REDQState
 from ajax.agents.SAC import core
 from ajax.agents.SAC.core import TemperatureAuxiliaries
-from ajax.agents.steps import update_target_networks
+from ajax.agents.update_steps import update_target_networks
 from ajax.buffers.dataset import TransitionDataset
 from ajax.controller import critic_action_units, executed_fn
 from ajax.evaluate import ValueEstimate

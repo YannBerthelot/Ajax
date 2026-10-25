@@ -18,18 +18,18 @@ import typing
 
 import pytest
 
-from ajax.agents import loop, steps
+from ajax.agents import loop, update_steps
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOCS = ("CONTRIBUTING.md", "docs/developer/architecture.md")
 HELPERS = {
     "off_policy": loop.TrainLoop.off_policy,
     "on_policy": loop.TrainLoop.on_policy,
-    "critic_step": steps.critic_step,
-    "actor_step": steps.actor_step,
-    "gradient_step": steps.gradient_step,
-    "compute_gradients": steps.compute_gradients,
-    "apply_gradients_clipped_together": steps.apply_gradients_clipped_together,
+    "critic_step": update_steps.critic_step,
+    "actor_step": update_steps.actor_step,
+    "gradient_step": update_steps.gradient_step,
+    "compute_gradients": update_steps.compute_gradients,
+    "apply_gradients_clipped_together": update_steps.apply_gradients_clipped_together,
 }
 METHODS = {"off_policy", "on_policy"}
 CODE = re.compile(r"^```python\n(.*?)^```|`([^`\n]+)`", re.MULTILINE | re.DOTALL)

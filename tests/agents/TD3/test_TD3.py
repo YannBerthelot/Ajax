@@ -127,12 +127,12 @@ def test_an_old_signature_pipeline_is_adapted_with_a_warning():
 
     with pytest.warns(FutureWarning, match="ActingState"):
         agent = TD3(env_id="Pendulum-v1", action_pipeline=old)
-    adapted = agent.behaviour(make_context(agent))
+    adapted = agent.choose_behaviour(make_context(agent))
     assert adapted("s", "acting", "o", "r", "u", "m", "a") == "result"
     assert seen == [("s", "o", "r", "u", "m", "a")]
     new = make_default_action_pipeline(False, 0.1)
     agent = TD3(env_id="Pendulum-v1", action_pipeline=new)
-    assert agent.behaviour(make_context(agent)) is new
+    assert agent.choose_behaviour(make_context(agent)) is new
 
 
 def test_the_target_noise_clip_reaches_the_update():

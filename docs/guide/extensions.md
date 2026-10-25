@@ -93,11 +93,11 @@ where it may act. Every other phase keeps a default that changes nothing.
 
 The agent hands its stack (an `ExtensionStack`) to its training step, which
 makes one call per phase: `apply_init` (every initial state, then every
-`pretrain`), `apply_on_target`, `apply_critic_loss`, `apply_actor_loss`,
-`apply_post_update` and `apply_eval_metrics`. Each call gets a random key of
-its own, on which the agent draws nothing else (`init_state` and
-`eval_metrics` split it, one sub-key per extension). On an empty stack a
-fold returns its input untouched and draws nothing. The `action`,
+`pretrain`), `apply_on_target`, `compute_extensions_critic_loss`,
+`compute_extensions_actor_loss`, `apply_post_update` and `apply_eval_metrics`.
+Each call gets a random key of its own, on which the agent draws nothing else
+(`init_state` and `eval_metrics` split it, one sub-key per extension). On an
+empty stack a fold returns its input untouched and draws nothing. The `action`,
 `transform_action` and `actuate` phases are the exceptions: the agent's
 controller (its action pipeline, the shared collector and evaluation) calls
 them directly (see [below](#which-agent-runs-which-phase)).

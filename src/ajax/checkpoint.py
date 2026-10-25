@@ -217,10 +217,10 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
 
 
 def _took_a_joint_clip(skeleton: Any) -> bool:
-    """Whether ``skeleton``'s class declares ``joint_gradient_clip`` (a
-    ``ClassVar[bool]``): PPO's and APO's networks each clipped their own
+    """Whether skeleton's class declares joint_gradient_clip (a
+    ClassVar[bool]): PPO's and APO's networks each clipped their own
     gradient until one clip over both took its place
-    (``steps.apply_gradients_clipped_together``).
+    (update_steps.apply_gradients_clipped_together).
     Another agent's optimiser saved behind a clip is refused, as flax
     refuses any other optimiser layout."""
     return getattr(skeleton, "joint_gradient_clip", False)
@@ -287,16 +287,16 @@ def _children(node: Any) -> Iterator[tuple[str, Any]]:
 
 def _without_own_gradient_clip(skeleton: Any, saved: Any) -> Any:
     """Give an optimiser state saved when its optimiser clipped the
-    gradient first (``get_adam_tx``'s ``max_grad_norm``: a chain whose clip
-    holds an empty state) the layout of the unclipped optimiser restoring
-    it. The clip holds no data, so every moment and step count is kept.
-    PPO's and APO's networks clipped their own gradients until each took its
+    gradient first (get_adam_tx's max_grad_norm: a chain whose clip holds an
+    empty state) the layout of the unclipped optimiser restoring it. The
+    clip holds no data, so every moment and step count is kept. PPO's and
+    APO's networks clipped their own gradients until each took its
     reference code's one clip over both
-    (``steps.apply_gradients_clipped_together``); only their states take
-    it (:func:`_took_a_joint_clip`).
+    (update_steps.apply_gradients_clipped_together); only their states take
+    it (their classes declare joint_gradient_clip).
 
-    Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as
-    ``_with_replay_next_obs``.
+    Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as the one
+    that gives an old replay buffer its next observations.
     """
     if not isinstance(skeleton, dict) or not isinstance(saved, dict):
         return saved

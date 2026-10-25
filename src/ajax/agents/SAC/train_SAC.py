@@ -265,8 +265,6 @@ def update_policy(
         and "actor_loss" in extension_stack.implemented_phases()
     ):
         a_expert = a_expert_precomputed
-        if a_expert is None:
-            a_expert = jax.lax.stop_gradient(expert_policy(raw))
 
     def policy_loss(params: FrozenDict) -> Tuple[jax.Array, Any, jax.Array]:
         loss, (log_probs, q, pi) = core.soft_policy_loss(
@@ -350,18 +348,9 @@ def update_agent(
         policy_action_transform is not None or has_actor_loss
     )
     if needs_expert:
-        assert expert_policy is not None
-        # Prefer the a_expert stored in the buffer at collection time
-        # (computed with the correct stateful expert internal state).
-        # Fall back to a fresh stateless expert call only if the buffer
-        # transition predates the schema change (legacy run).
-        if transition.a_expert is not None:
-            a_expert_precomputed = jax.lax.stop_gradient(transition.a_expert)
-        else:
-            # The env's own observations, which a run with an expert stores.
-            a_expert_precomputed = jax.lax.stop_gradient(
-                expert_policy(transition.raw_obs)
-            )
+        # As collection stored it, from the expert's state along the
+        # trajectory: a run with an expert always stores it.
+        a_expert_precomputed = jax.lax.stop_gradient(transition.a_expert)
 
     # See ajax.perf_utils.final_aux_scan: carry-only scan that exposes
     # last-step aux without materialising the full ys axis.

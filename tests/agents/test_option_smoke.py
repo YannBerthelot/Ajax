@@ -175,6 +175,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
         "SAC TD3 REDQ ASAC TQC CrossQ IQL",
     ),
     "ExpertWarmup": (lambda: expert.ExpertWarmup(fraction=0.5), "SAC"),
+    "StorePolicyAction": (expert.StorePolicyAction, "TD3"),
     "ImitationLoss": (lambda: expert.ImitationLoss(stateless_expert), "APO"),
     "KernelRepulsion": (ensemble.KernelRepulsion, "REDQ"),
     "BiasVorePenalty": (instrumentation.BiasVorePenalty, "AVG"),

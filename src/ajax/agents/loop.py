@@ -579,21 +579,21 @@ class TrainLoop:
         resume: Optional[Callable[[Any], Any]] = None,
         returns_iterations: bool = False,
     ) -> Callable:
-        """The resumable train function: ``init`` (fresh runs only), then
-        ``num_updates`` scan iterations ``iteration(agent_state, index,
-        tick)``, recording the evaluations when logging (see the module
-        docstring): :attr:`n_evaluations` rows, or ``evaluations``.
+        """The resumable train function: init (fresh runs only), then
+        num_updates scan iterations iteration(agent_state, index, tick),
+        recording the evaluations when logging (see the module docstring):
+        n_evaluations rows, or evaluations.
 
-        ``last_rollout``, ``(length, collect_kwargs)``, pre-allocates
-        ``agent_state.last_rollout`` for an agent exposing its rollouts.
-        The extensions' pretraining gets the env, ``update`` and the replay
-        ``buffer`` (:class:`ajax.extensions.base.ExtensionContext`).
-        ``one_update``, a state to the state after one update, is given by an
+        last_rollout, a (length, collect_kwargs) pair, pre-allocates
+        agent_state.last_rollout for an agent exposing its rollouts.
+        The extensions' pretraining gets the env, update and the replay
+        buffer (ajax.extensions.base.ExtensionContext).
+        one_update, a state to the state after one update, is given by an
         update keeping its actor's last metrics: a fresh or resumed state gets
-        their slot (:func:`with_actor_metrics_slot`). ``resume`` transforms a
-        resumed state after :meth:`continued` (APG rebuilds its optimiser).
-        With ``returns_iterations`` the train function returns every
-        iteration's output, stacked, logging or not, instead of the rows.
+        their slot (with_actor_metrics_slot). resume transforms a resumed
+        state after continued (APG rebuilds its optimiser). With
+        returns_iterations the train function returns every iteration's
+        output, stacked, logging or not, instead of the rows.
         """
         rows = self.n_evaluations if evaluations is None else evaluations
         records = self.log and not returns_iterations

@@ -197,10 +197,13 @@ def _saved_obs_normalised(saved_agent: dict) -> bool:
 
 def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
     """Give a checkpoint saved before a field was added the fields its
-    skeleton holds empty (None), at any depth: ``Transition.raw_next_obs``
-    in every rollout the collector and the last-rollout placeholder hold.
-    An empty field has no data to restore; a field with data stays
-    required, so a mismatched checkpoint still fails.
+    skeleton holds empty, at any depth: None, as ``Transition.raw_next_obs``
+    in every rollout the collector and the last-rollout placeholder hold,
+    or a mapping holding nothing, as the entry in ext_state of a stateless
+    extension appended to a stack the checkpoint was saved without (SAC's
+    expert prefill, which joins its stack as ExpertPrefill). An empty field
+    has no data to restore; a field with data stays required, so a
+    mismatched checkpoint still fails.
 
     Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as
     ``_with_replay_next_obs``.
@@ -211,8 +214,8 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
     for key, value in skeleton.items():
         if key in out:
             out[key] = _with_new_empty_fields(value, out[key])
-        elif value is None:
-            out[key] = None
+        elif value is None or (isinstance(value, dict) and not value):
+            out[key] = value
     return out
 
 

@@ -190,7 +190,7 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
 
     critic = state.critic_state
     v_grads = jax.grad(
-        lambda p: apo_module.value_loss_function(
+        lambda p: apo_module.compute_value_loss(
             p, critic, obs, targets, agent.nu, b, agent.vf_coef
         )[0]
     )(critic.params)
@@ -206,7 +206,7 @@ def test_apo_steps_report_the_value_bias_rate_and_gradient_norms() -> None:
     actor = state.actor_state
     clip = at(agent.clip_range, state.collector_state.timestep)
     p_grads = jax.grad(
-        lambda p: apo_module.policy_loss_function(
+        lambda p: apo_module.compute_policy_loss(
             p, actor, obs, actions, log_probs, gae, clip, agent.ent_coef, None, KEY
         )[0]
     )(actor.params)

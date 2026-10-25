@@ -146,19 +146,19 @@ def test_a_time_limited_step_leaves_the_loss(monkeypatch: pytest.MonkeyPatch) ->
 
     def loss(targets: jax.Array) -> float:
         args = (critic.params, critic, obs, targets, 0.1, 0.5, 1.0, valid)
-        return float(apo_module.value_loss_function(*args)[0])
+        return float(apo_module.compute_value_loss(*args)[0])
 
     assert loss(jnp.array([[1.0], [2.0], [3.0]])) == loss(
         jnp.array([[1.0], [2.0], [99.0]])
     )
     seen: list = []
-    value_loss = apo_module.value_loss_function
+    value_loss = apo_module.compute_value_loss
 
     def spy(*args: Any) -> Any:
         jax.debug.callback(lambda v: seen.append(np.asarray(v)), args[-1])
         return value_loss(*args)
 
-    monkeypatch.setattr(apo_module, "value_loss_function", spy)
+    monkeypatch.setattr(apo_module, "compute_value_loss", spy)
     rollout = _rollout()
     both = rollout.replace(terminated=rollout.terminated.at[TRUNCATED].set(1.0))
     for roll, dropped in ((rollout, 1), (both, 0)):

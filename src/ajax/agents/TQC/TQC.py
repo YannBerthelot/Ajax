@@ -213,8 +213,10 @@ class TQC(
         stepped = stepped.replace(critic_state=critic_state)
         # The actor step runs from the first update, since its log-probs feed
         # the temperature's, and is kept from policy_update_start.
-        agent_state = update_steps.run_if(
-            self.policy_update_due(timestep), lambda _: stepped, agent_state
+        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
+            self.policy_update_due(timestep),
+            lambda _: (stepped, (policy_aux, policy_metrics)),
+            agent_state,
         )
         tempered, temperature_aux = update_temperature(
             agent_state,

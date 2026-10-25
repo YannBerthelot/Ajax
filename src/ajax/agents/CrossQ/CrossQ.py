@@ -136,6 +136,10 @@ class CrossQ(
         # The authors' optax.adam: its default eps, their beta1 (train.py).
         return {"eps": 1e-8, "beta_1": self.adam_beta_1}
 
+    def keeps_actor_metrics(self) -> bool:
+        """The policy delay skips the actor on some updates."""
+        return True
+
     def init(self, key: jax.Array, context: TrainContext) -> CrossQState:
         """A squashed Gaussian actor, num_critics Q critics without
         targets, and the temperature."""
@@ -175,8 +179,8 @@ class CrossQ(
             self.policy_update_due(agent_state.collector_state.timestep),
         )
         update_actor_on_batch = partial(self.update_actor, batch=batch, context=context)
-        agent_state, (policy_aux, temperature, policy_metrics) = update_steps.run_if(
-            due, update_actor_on_batch, agent_state
+        agent_state, (policy_aux, temperature, policy_metrics) = (
+            update_steps.run_actor_if(due, update_actor_on_batch, agent_state)
         )
         agent_state = agent_state.replace(n_updates=agent_state.n_updates + 1)
         return agent_state, AuxiliaryLogs(

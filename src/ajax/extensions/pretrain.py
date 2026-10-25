@@ -32,7 +32,11 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents.cloning import cloning_columns, pre_train
-from ajax.agents.loop import count_in_normalisers, seed_replay
+from ajax.agents.loop import (
+    count_in_normalisers,
+    seed_replay,
+    with_actor_metrics_slot,
+)
 from ajax.buffers.dataset import TransitionDataset
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.controller import policy_action_dim, reads_agent_expert
@@ -1183,6 +1187,11 @@ class PriorData(Extension):
         def update(agent_state: Any, _: None) -> tuple[Any, None]:
             return agent_update(agent_state, None)[0], None
 
+        # The scan's carry holds, from the first update, the slot an update
+        # keeping its actor's last metrics writes.
+        agent_state = with_actor_metrics_slot(
+            agent_state, lambda state: agent_update(state, None)[0]
+        )
         agent_state, _ = jax.lax.scan(
             update, agent_state, None, length=self.offline_updates
         )

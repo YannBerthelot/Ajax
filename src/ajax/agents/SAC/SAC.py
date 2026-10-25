@@ -259,8 +259,10 @@ class SAC(
         # The actor step runs from the first update, since its log-probs feed
         # the temperature's, and is kept from policy_update_start.
         timestep = agent_state.collector_state.timestep
-        agent_state = update_steps.run_if(
-            self.policy_update_due(timestep), lambda _: stepped, agent_state
+        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
+            self.policy_update_due(timestep),
+            lambda _: (stepped, (policy_aux, policy_metrics)),
+            agent_state,
         )
         # The temperature's loss is computed for its logs; its step is kept
         # from alpha_update_start, never with fixed_alpha (alpha stays at

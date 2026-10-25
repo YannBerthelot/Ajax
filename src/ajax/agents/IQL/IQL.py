@@ -183,10 +183,9 @@ class IQL(
         # which the replay keeps apart from the executed actions.
         chosen = batch.action if batch.policy_action is None else batch.policy_action
 
-        def step_actor(actor_state: Any) -> tuple[Any, tuple]:
-            del actor_state  # the step reads agent_state's
+        def step_actor(state: IQLState) -> tuple[IQLState, tuple]:
             actor_state, actor_loss, _, actor_metrics = update_steps.actor_step(
-                agent_state,
+                state,
                 partial(
                     compute_weighted_regression_loss,
                     agent_state.actor_state,
@@ -202,12 +201,12 @@ class IQL(
                 actions=batch.action,
                 critic_state=critic,
             )
-            return actor_state, (actor_loss, actor_metrics)
+            return state.replace(actor_state=actor_state), (actor_loss, actor_metrics)
 
-        actor_state, (actor_loss, actor_metrics) = update_steps.run_if(
+        stepped, (actor_loss, actor_metrics) = update_steps.run_actor_if(
             self.policy_update_due(agent_state.collector_state.timestep),
             step_actor,
-            agent_state.actor_state,
+            agent_state,
         )
         target = compute_bellman_target(
             value_state, batch, self.gamma, self.reward_scale
@@ -225,8 +224,8 @@ class IQL(
             gamma=self.gamma,
             reward_scale=self.reward_scale,
         )
-        agent_state = agent_state.replace(
-            actor_state=actor_state,
+        # The critic's step read the state from before the actor's.
+        agent_state = stepped.replace(
             critic_state=critic_state.soft_update(tau=self.tau),
             value_state=value_state,
             n_updates=agent_state.n_updates + 1,

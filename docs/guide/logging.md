@@ -76,6 +76,11 @@ rewards. A metric that is NaN (an agent that has not started updating yet,
 an expert metric without an expert) is dropped from W&B and TensorBoard,
 but kept as NaN in the returned evaluations.
 
+An evaluation logs the update just before it. On an update whose actor
+step is skipped (TD3's and CrossQ's `policy_delay`, any agent's
+`policy_update_start`), the actor's metrics are those of its last step
+that ran: NaN before its first.
+
 ### Training diagnostics
 
 Beside its losses, each agent logs a few measures of how its updates go.
@@ -92,7 +97,7 @@ APO and PQN average theirs over the update's epochs and minibatches.
 | `policy/epsilon` | DQN, PQN | the exploration rate of the epsilon-greedy schedule at the current timestep |
 | `value/abs_td_error` | DQN, PQN | the mean of `abs(Q(s, a) - target)` over the batch |
 | `value/grad_norm` | DQN, PQN | the global norm of the Q-network's gradient, before clipping |
-| `policy/grad_norm`, `value/grad_norm` | SAC, TD3 | the global norm of the actor's and the critics' gradients, before clipping. TD3 logs 0 for the actor on the updates its `policy_delay` skips |
+| `policy/grad_norm`, `value/grad_norm` | SAC, TD3 | the global norm of the actor's and the critics' gradients, before clipping |
 | `value/q_gap` | TD3 | the mean over the batch of the critics' spread, the largest value minus the smallest (`abs(Q1(s, a) - Q2(s, a))` for the default twin critics): how far they disagree |
 | `value/target_noise_clip_frac` | TD3 | the share of the target policy's noise samples that the clip to `±target_noise_clip` changed |
 | `Train/grad_norm` | APG | the global norm of the controller's gradient, before clipping (`max_grad_norm`) |

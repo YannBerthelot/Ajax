@@ -32,8 +32,9 @@ to ``[-1, 1]``. The gains are therefore normalised: they map the
 error terms to agent units, and a PID in the env's units has gains ``h *
 K`` (small-signal, ``tanh`` near 0) and offset ``c``; zero gains command
 the box's centre (no control on a symmetric box). The stochastic agents
-explore with a learned, state-independent log-std, clipped to the agent's
-``log_std_bounds`` (PPO's and APO's default: no clip). Gains start at zero.
+explore with a learned, state-independent log-std, which starts at -1 in
+every agent and is clipped to the agent's ``log_std_bounds`` (PPO's and
+APO's default: no clip). Gains start at zero.
 Observation normalisation (env- or agent-side) leaves the terms raw, as
 the feature and the wrapper declare them, so the gains act on the errors in
 the env's units; the gain network of ``gains="observation"`` reads the rest
@@ -121,8 +122,8 @@ class PIDLaw(nn.Module):
         return jnp.einsum("...tak,...tk->...a", self.gains(obs), terms)
 
 
-#: The PID actor's starting log-std when the network config leaves it to the
-#: Gaussian head's layer to draw (``log_std_init`` None, a "torch_linear" head).
+#: The PID actor's starting log-std, whatever start the agent sets for its
+#: Gaussian MLP actor's head (get_initialized_actor_critic).
 PID_LOG_STD_INIT = -1.0
 
 

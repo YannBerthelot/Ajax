@@ -141,6 +141,14 @@ PyPI as `ajax-rl`.
   its expert, OnlineBC, IBRL, LCBGatedBootstrap, CriticBlend, PhiRefresh,
   ExpertValueMetrics, CloningPretrain, MCPretrain): those are env actions,
   the policy's are gains.
+- **Fixed: the expert prefill under an action transform.** SAC's prefill
+  (`expert_buffer_n_steps`) wrote the expert's env action into the action
+  column, which gain mode keeps for the gains. A prefill row now stores what
+  collection stores when the expert acts as itself, the policy action each
+  transform names (`policy_action_for_expert`): the anchor gains (0) under
+  `ExpertGains`, and under `ResidualPolicy` a residual of 0 as the policy's
+  action (IQL fits those) beside the expert's executed action. SAC runs in
+  gain mode with a prefill learn other values.
 - `NetworkConfig.squash_log_det_eps` sets the guard inside the `tanh`
   log-det, `log(1 - tanh(u)^2 + eps)`, for an agent whose reference uses
   one; 0, the exact log-det, by default. `NetworkConfig.log_variance_head`

@@ -1,5 +1,6 @@
 """The expert prefill writes its rows as the live collector does
-(replay_row): every field the replay holds, from the expert's steps."""
+(replay_row): every field the replay holds, from the expert's steps, and
+under an action transform what collection stores when the expert acts."""
 
 import warnings
 from typing import Any
@@ -9,35 +10,73 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax import SAC
+from ajax import IQL, SAC
 from ajax.buffers.utils import get_buffer, init_buffer
 from ajax.environments.interaction import replay_row
+from ajax.extensions.expert import ExpertGains, ResidualPolicy
 from ajax.extensions.pretrain import collect_and_store_expert_transitions
+from tests.agents.test_gain_mode import OneGainTwoActions, TwoGains
+from tests.environments import paid_action
 
 
 def push(obs: jax.Array) -> jax.Array:
     return jnp.full(obs.shape[:-1] + (1,), 0.5)
 
 
-def prefill(n_steps: int = 4, **fields: Any) -> dict:
-    """A 2-env Pendulum replay holding the expert fields and ``fields``,
-    after ``n_steps`` of the expert's prefill."""
-    env_args = SAC("Pendulum-v1", n_envs=2).env_args
+def prefill(agent: Any = None, n_steps: int = 4, **fields: Any) -> dict:
+    """The first ``n_steps`` rows of each env of the agent's replay (by
+    default 2-env SAC on Pendulum with ``push``), holding the expert fields
+    and ``fields``, after the expert's prefill."""
+    agent = agent or SAC("Pendulum-v1", n_envs=2, expert_policy=push)
     buffer = get_buffer(64, 8, n_envs=2)
-    state = init_buffer(buffer, env_args, include_expert_fields=True, **fields)
+    state = init_buffer(buffer, agent.env_args, include_expert_fields=True, **fields)
     key = jax.random.PRNGKey(0)
     state = collect_and_store_expert_transitions(
-        push, env_args, buffer, state, key, n_steps
+        agent.expert_policy, agent.env_args, buffer, state, key, n_steps
     )
-    return state.experience
+    return {
+        name: np.asarray(value)[:, :n_steps] for name, value in state.experience.items()
+    }
 
 
 def test_the_prefill_fills_the_policy_action_and_the_next_action():
     """The expert chose its action, and the next one is unknown."""
     rows = prefill(include_policy_action=True, include_next_action=True)
-    written = {name: np.asarray(value)[:, :4] for name, value in rows.items()}
-    np.testing.assert_array_equal(written["policy_action"], written["action"])
-    assert np.isnan(written["next_action"]).all()
+    np.testing.assert_array_equal(rows["policy_action"], rows["action"])
+    assert np.isnan(rows["next_action"]).all()
+
+
+@pytest.mark.parametrize("expert", [OneGainTwoActions(), TwoGains()])
+def test_gain_mode_prefill_rows_store_the_anchor_gains(expert):
+    """Collection stores the gains chosen; at 0, the anchor gains, the expert
+    acts as itself, its env action in a_expert."""
+    env_width = 2 if isinstance(expert, OneGainTwoActions) else 1
+    env, params = paid_action.make(length=8, dim=env_width)
+    agent = SAC(
+        env,
+        env_params=params,
+        n_envs=2,
+        expert_policy=expert,
+        extensions=(ExpertGains(),),
+    )
+    rows = prefill(agent)
+    assert rows["action"].shape[-1] == len(expert.learnable_fields)
+    assert (rows["action"] == 0).all()
+    anchor_action, _ = expert(expert.init_state(1), paid_action.OBS[None])
+    np.testing.assert_allclose(
+        rows["a_expert"], np.broadcast_to(anchor_action / 2, rows["a_expert"].shape)
+    )
+
+
+def test_a_residual_prefill_stores_a_zero_residual_and_the_experts_action():
+    """IQL fits its stored residuals: the expert's rows are residual 0, and
+    the executed action is the expert's (0.25 in agent units)."""
+    agent = IQL(
+        "Pendulum-v1", n_envs=2, expert_policy=push, extensions=(ResidualPolicy(),)
+    )
+    rows = prefill(agent, include_policy_action=True)
+    assert (rows["policy_action"] == 0).all()
+    np.testing.assert_allclose(rows["action"], 0.25)
 
 
 def test_the_prefill_refuses_a_recurrent_actors_stored_carry():

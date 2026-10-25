@@ -314,6 +314,13 @@ def agent_action_to_env(
     return centre + half * jnp.clip(action, -1.0, 1.0)
 
 
+def flatten_action_column(action: jax.Array, continuous: bool) -> jax.Array:
+    """The action an env steps with: a discrete action's index, kept as an
+    (n_envs, 1) column by a replay and an expert, as the (n_envs,) vector the
+    env takes; a continuous action as it is."""
+    return action if continuous else action[..., 0]
+
+
 def critic_action_units(
     env: EnvType, env_params: Optional[EnvParams] = None
 ) -> Optional[tuple[tuple[float, ...], tuple[float, ...]]]:

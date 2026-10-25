@@ -31,6 +31,7 @@ from ajax.environments.utils import (
     check_if_environment_has_continuous_actions,
     env_action_repeat,
     env_keys,
+    flatten_action_column,
     get_env_type,
     get_raw_env,
     wrapper_chain,
@@ -458,7 +459,7 @@ def step_environment_expert(mode, env, env_params, expert_policy):
     stateless one as ``expert_policy(obs) -> action``, in agent units and
     mapped onto the env's bounds. A discrete expert's action index comes as
     an ``(n, 1)`` column, as a replay keeps it; the env takes ``(n,)``."""
-    discrete = not check_if_environment_has_continuous_actions(env, env_params)
+    continuous = check_if_environment_has_continuous_actions(env, env_params)
 
     def fn(carry: _EvalCarry) -> _EvalCarry:
         rng, step_key = jax.random.split(carry.rng)
@@ -472,8 +473,7 @@ def step_environment_expert(mode, env, env_params, expert_policy):
         actions, new_expert_state = call_expert(
             expert_policy, carry.expert_state, expert_obs
         )
-        if discrete:
-            actions = actions[..., 0]
+        actions = flatten_action_column(actions, continuous)
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
             step_keys,
             carry.state,

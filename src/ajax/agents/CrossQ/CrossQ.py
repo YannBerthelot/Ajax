@@ -297,7 +297,7 @@ class CrossQ(
         tempered, temperature = update_temperature(
             agent_state,
             jax.lax.stop_gradient(log_probs),
-            jnp.asarray(self.target_entropy),
+            self.target_entropy_at(agent_state, context.total_timesteps),
             core.alpha_temperature_loss_fn,
         )
         agent_state = update_steps.run_if(

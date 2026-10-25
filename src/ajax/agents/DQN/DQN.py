@@ -346,7 +346,7 @@ def compute_double_dqn_td_target(
     return jax.lax.stop_gradient(target)
 
 
-# -- State, logged metrics and the agent_config view --------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class DQNState(BaseAgentState):
     """DQN carries a single Q-network, no actor and no temperature: in
@@ -366,16 +366,3 @@ class AuxiliaryLogs:
     value: ValueAuxiliaries
     policy: PolicyAuxiliaries
     extensions: dict  # the extensions' training metrics
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-DQNConfig = DQN.declare_config(
-    (
-        "gamma",
-        "tau",
-        "target_update_interval",
-        "learning_starts",
-        "reward_scale",
-        "n_gradient_steps",
-    )
-)

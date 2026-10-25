@@ -21,19 +21,18 @@ def updates_in_run(agent, n_envs: int, timesteps: int) -> int:
     if schedule is not None:  # TD-MPC2's seed phase, burst, then per tick
         ticks = jnp.arange(schedule.num_ticks(timesteps))
         return int(schedule.n_updates(ticks).sum())
-    config = agent.agent_config
-    if hasattr(config, "learning_starts"):
+    if hasattr(agent, "learning_starts"):
         # One update per iteration (n_envs steps) once the collected steps
         # reach learning_starts (TrainLoop.maybe_update).
         iterations = timesteps // n_envs
-        first = max(1, -(-config.learning_starts // n_envs))
+        first = max(1, -(-agent.learning_starts // n_envs))
         return max(0, iterations - first + 1)
-    if hasattr(config, "n_steps"):  # one update per rollout
+    if hasattr(agent, "n_steps"):  # one update per rollout
         loop = TrainLoop.create(agent.env_args, timesteps, num_episode_test=0)
-        return loop.n_rollouts(config.n_steps)
-    # APG: one update per closed-loop rollout of ``horizon`` steps
+        return loop.n_rollouts(agent.n_steps)
+    # APG: one update per closed-loop rollout of horizon steps
     # (APG.count_iteration_steps's).
-    return max(timesteps // (n_envs * config.horizon), 1)
+    return max(timesteps // (n_envs * agent.horizon), 1)
 
 
 @pytest.mark.parametrize("name", sorted(agent_bench.AGENTS))

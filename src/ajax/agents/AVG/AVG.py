@@ -555,15 +555,3 @@ class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
     extensions: dict  # the extensions' training metrics
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-AVGConfig = AVG.declare_config(
-    (
-        "gamma",
-        "learning_starts",
-        "reward_scale",
-        "num_critics",
-        "expose_recent_rollout",
-    )
-)

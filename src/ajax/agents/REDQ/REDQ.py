@@ -174,6 +174,11 @@ class REDQ(
         # (redq/algos/core.py:232).
         return {"squash_log_det_eps": 1e-6}
 
+    def setup(self) -> None:
+        # Refuse, when built, a target entropy MBPO's table cannot resolve:
+        # the property raises.
+        _ = self.target_entropy
+
     @property
     def target_entropy(self) -> Schedule:
         """MBPO's target entropy for the env (target_entropy_per_dim
@@ -563,21 +568,3 @@ class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
     extensions: dict  # the extensions' training metrics
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-REDQConfig = REDQ.declare_config(
-    (
-        "gamma",
-        "target_entropy",
-        "tau",
-        "learning_starts",
-        "reward_scale",
-        "num_critic_updates",
-        "num_critics",
-        "subset_size",
-        "burn_in",
-        "sequence_length",
-        "stored_state",
-    )
-)

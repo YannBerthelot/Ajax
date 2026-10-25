@@ -528,7 +528,7 @@ def test_apg_trains_with_the_term_along_its_rollout() -> None:
 
     def actor(*extensions: Any) -> Any:
         agent = make_agent(env, tracking_class(params), extensions=extensions)
-        steps = agent.env_args.n_envs * agent.agent_config.horizon
+        steps = agent.env_args.n_envs * agent.horizon
         return agent.train(seed=0, n_timesteps=steps)[0].actor_state.params
 
     assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())

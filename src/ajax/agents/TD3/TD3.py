@@ -477,22 +477,3 @@ class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
     extensions: dict  # the extensions' training metrics
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-TD3Config = TD3.declare_config(
-    (
-        "gamma",
-        "tau",
-        "learning_starts",
-        "reward_scale",
-        "num_critics",
-        "policy_delay",
-        "target_policy_noise",
-        "target_noise_clip",
-        "exploration_noise",
-        "burn_in",
-        "sequence_length",
-        "stored_state",
-    )
-)

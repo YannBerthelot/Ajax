@@ -74,4 +74,4 @@ def test_pqn_images_build_purejaxql_s_network_and_train_on_minatar():
     assert sorted(params) == ["CNNEncoder_0", "Dense_0"]
     assert params["Dense_0"]["kernel"].shape == (128, 3)
     agent = PQN(env_id="Breakout-MinAtar", cnn_image_shape=(10, 10, 4), n_envs=2)
-    agent.train(seed=0, n_timesteps=2 * agent.agent_config.n_steps)
+    agent.train(seed=0, n_timesteps=2 * agent.n_steps)

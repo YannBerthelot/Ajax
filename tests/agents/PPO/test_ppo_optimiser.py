@@ -6,20 +6,17 @@ gradient clipped to global norm 0.5 over every parameter at once
 
 from __future__ import annotations
 
-from typing import cast
-
 import jax
 import numpy as np
 import optax
 
 from ajax.agents import update_steps
-from ajax.agents.PPO.PPO import PPO, PPOConfig
+from ajax.agents.PPO.PPO import PPO
 
 
 def test_PPO_defaults_to_ppo2s_optimiser() -> None:
     agent = PPO(env_id="Pendulum-v1")
-    config = cast(PPOConfig, agent.agent_config)
-    assert (config.max_grad_norm, config.vf_coef) == (0.5, 0.5)
+    assert (agent.max_grad_norm, agent.vf_coef) == (0.5, 0.5)
     for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
         assert (args.learning_rate, args.eps, args.max_grad_norm) == (3e-4, 1e-5, None)
 

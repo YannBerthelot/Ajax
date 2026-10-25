@@ -236,7 +236,7 @@ def choose_learner_action(policy: Any, continuous: bool) -> jax.Array:
     return policy.mode()[..., None].astype(jnp.int32)
 
 
-# -- State, logged metrics and the agent_config view --------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class DAggerState(BaseAgentState):
     """DAgger carries its actor and collector; its critic is unused."""
@@ -259,7 +259,3 @@ class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     dagger: DAggerAuxiliaries
     extensions: dict  # the extensions' training metrics
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-DAggerConfig = DAgger.declare_config(("beta_decay", "iteration_steps"))

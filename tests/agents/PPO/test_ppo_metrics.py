@@ -116,7 +116,7 @@ def test_a_ppo_update_logs_each_networks_norm_before_the_clip() -> None:
     assert state.last_rollout is not None
     if state.last_rollout.obs.ndim == 4:  # a leading seed axis
         state = jax.tree.map(lambda x: x[0], state)
-    rollout, config = state.last_rollout, agent.agent_config
+    rollout, config = state.last_rollout, agent
     assert rollout is not None and isinstance(state, PPOState)
     _, aux = agent.update(state, rollout, state, agent.make_context(8)[1])
 
@@ -283,7 +283,7 @@ def test_the_entropy_bonus_lowers_the_policy_loss() -> None:
         actor_architecture=NET,
         critic_architecture=NET,
     )
-    assert agent.agent_config.ent_coef == 0.1
+    assert agent.ent_coef == 0.1
     _, context = agent.make_context(1)
     state = agent.init(KEY, context)
     actor = state.actor_state

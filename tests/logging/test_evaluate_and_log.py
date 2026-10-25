@@ -67,7 +67,6 @@ def test_a_logged_run_traces_the_evaluation(name: str) -> None:
         actor_optimizer_args=agent.actor_optimizer_args,
         critic_optimizer_args=agent.critic_optimizer_args,
         network_args=agent.network_args,
-        agent_config=agent.agent_config,
         total_timesteps=BUDGET,
         num_episode_test=1,
         run_ids=[],

@@ -470,21 +470,3 @@ class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
     extensions: dict  # the extensions' training metrics
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-TQCConfig = TQC.declare_config(
-    (
-        "gamma",
-        "target_entropy",
-        "tau",
-        "learning_starts",
-        "reward_scale",
-        "num_critics",
-        "n_quantiles",
-        "top_quantiles_to_drop_per_net",
-        "burn_in",
-        "sequence_length",
-        "stored_state",
-    )
-)

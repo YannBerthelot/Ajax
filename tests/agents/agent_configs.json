@@ -1,11 +1,5 @@
 {
  "APG": {
-  "agent_config": {
-   "APGConfig": {
-    "expose_recent_rollout": false,
-    "horizon": 100
-   }
-  },
   "config": {
    "action_repeat": 1,
    "actor_architecture": [
@@ -39,23 +33,6 @@
   }
  },
  "APO": {
-  "agent_config": {
-   "APOConfig": {
-    "alpha": 0.1,
-    "batch_size": 64,
-    "clip_range": 0.2,
-    "ent_coef": 0.01,
-    "expose_recent_rollout": false,
-    "gae_lambda": 0.95,
-    "max_grad_norm": 10.0,
-    "n_epochs": 10,
-    "n_steps": 2048,
-    "normalize_advantage": true,
-    "nu": 0.1,
-    "num_minibatches": 0,
-    "vf_coef": 1.0
-   }
-  },
   "config": {
    "action_repeat": 1,
    "actor_architecture": [
@@ -105,20 +82,6 @@
   }
  },
  "ASAC": {
-  "agent_config": {
-   "ASACConfig": {
-    "burn_in": 8,
-    "expose_recent_rollout": false,
-    "learning_starts": 10000,
-    "p_0": 20,
-    "reward_scale": 1.0,
-    "sequence_length": 16,
-    "stored_state": false,
-    "target_entropy": -1.0,
-    "tau": 0.005,
-    "tau_theta": 0.005
-   }
-  },
   "config": {
    "action_repeat": 1,
    "actor_architecture": [
@@ -168,15 +131,6 @@
   }
  },
  "AVG": {
-  "agent_config": {
-   "AVGConfig": {
-    "expose_recent_rollout": false,
-    "gamma": 0.99,
-    "learning_starts": 0,
-    "num_critics": 1,
-    "reward_scale": 1.0
-   }
-  },
   "config": {
    "action_repeat": 1,
    "actor_architecture": [
@@ -215,16 +169,6 @@
   }
  },
  "CrossQ": {
-  "agent_config": {
-   "CrossQConfig": {
-    "expose_recent_rollout": false,
-    "gamma": 0.99,
-    "learning_starts": 5000,
-    "policy_delay": 3,
-    "reward_scale": 1.0,
-    "target_entropy": -1.0
-   }
-  },
   "config": {
    "action_repeat": 1,
    "actor_width": 256,
@@ -259,13 +203,6 @@
   }
  },
  "DAgger": {
-  "agent_config": {
-   "DAggerConfig": {
-    "beta_decay": 0.0,
-    "expose_recent_rollout": false,
-    "iteration_steps": 500
-   }
-  },
   "config": {
    "action_repeat": 1,
    "actor_architecture": [
@@ -293,17 +230,6 @@
   }
  },
  "DQN": {
-  "agent_config": {
-   "DQNConfig": {
-    "expose_recent_rollout": false,
-    "gamma": 0.99,
-    "learning_starts": 1000,
-    "n_gradient_steps": 1,
-    "reward_scale": 1.0,
-    "target_update_interval": 500,
-    "tau": 1.0
-   }
-  },
   "config": {
    "action_repeat": 1,
    "algo_name": "DQN",
@@ -416,17 +342,6 @@
   }
  },
  "IQL": {
-  "agent_config": {
-   "IQLConfig": {
-    "expectile": 0.7,
-    "expose_recent_rollout": false,
-    "gamma": 0.99,
-    "learning_starts": 0,
-    "reward_scale": 1.0,
-    "tau": 0.005,
-    "temperature": 3.0
-   }
-  },
   "config": {
    "action_repeat": 1,
    "actor_architecture": [
@@ -467,26 +382,6 @@
   }
  },
  "PPO": {
-  "agent_config": {
-   "PPOConfig": {
-    "batch_size": 64,
-    "bptt_length": null,
-    "clip_range": 0.2,
-    "ent_coef": 0,
-    "expose_recent_rollout": false,
-    "gae_lambda": 0.95,
-    "gamma": 0.99,
-    "max_grad_norm": 0.5,
-    "n_epochs": 10,
-    "n_steps": 2048,
-    "normalize_advantage": true,
-    "num_evals": 1,
-    "num_minibatches": 0,
-    "num_resets_per_eval": 0,
-    "unroll_length": null,
-    "vf_coef": 0.5
-   }
-  },
   "config": {
    "action_repeat": 1,
    "actor_architecture": [
@@ -548,17 +443,6 @@
   }
  },
  "PQN": {
-  "agent_config": {
-   "PQNConfig": {
-    "expose_recent_rollout": false,
-    "gamma": 0.99,
-    "n_epochs": 4,
-    "n_steps": 128,
-    "num_minibatches": 4,
-    "q_lambda": 0.65,
-    "reward_scale": 1.0
-   }
-  },
   "config": {
    "action_repeat": 1,
    "algo_name": "PQN",
@@ -596,22 +480,6 @@
   }
  },
  "REDQ": {
-  "agent_config": {
-   "REDQConfig": {
-    "burn_in": 8,
-    "expose_recent_rollout": false,
-    "gamma": 0.99,
-    "learning_starts": 10000,
-    "num_critic_updates": 20,
-    "num_critics": 10,
-    "reward_scale": 1.0,
-    "sequence_length": 16,
-    "stored_state": false,
-    "subset_size": 2,
-    "target_entropy": -1.0,
-    "tau": 0.005
-   }
-  },
   "config": {
    "action_repeat": 1,
    "actor_architecture": [
@@ -662,19 +530,6 @@
   }
  },
  "SAC": {
-  "agent_config": {
-   "SACConfig": {
-    "burn_in": 8,
-    "expose_recent_rollout": false,
-    "gamma": 0.99,
-    "learning_starts": 10000,
-    "reward_scale": 1.0,
-    "sequence_length": 16,
-    "stored_state": false,
-    "target_entropy": -1.0,
-    "tau": 0.005
-   }
-  },
   "config": {
    "action_repeat": 1,
    "actor_architecture": [
@@ -725,23 +580,6 @@
   }
  },
  "TD3": {
-  "agent_config": {
-   "TD3Config": {
-    "burn_in": 8,
-    "exploration_noise": 0.1,
-    "expose_recent_rollout": false,
-    "gamma": 0.99,
-    "learning_starts": 25000,
-    "num_critics": 2,
-    "policy_delay": 2,
-    "reward_scale": 1.0,
-    "sequence_length": 16,
-    "stored_state": false,
-    "target_noise_clip": 0.5,
-    "target_policy_noise": 0.2,
-    "tau": 0.005
-   }
-  },
   "config": {
    "action_pipeline": null,
    "action_repeat": 1,
@@ -986,22 +824,6 @@
   }
  },
  "TQC": {
-  "agent_config": {
-   "TQCConfig": {
-    "burn_in": 8,
-    "expose_recent_rollout": false,
-    "gamma": 0.99,
-    "learning_starts": 257,
-    "n_quantiles": 25,
-    "num_critics": 5,
-    "reward_scale": 1.0,
-    "sequence_length": 16,
-    "stored_state": false,
-    "target_entropy": -1.0,
-    "tau": 0.005,
-    "top_quantiles_to_drop_per_net": 2
-   }
-  },
   "config": {
    "action_repeat": 1,
    "actor_architecture": [
@@ -1054,23 +876,6 @@
   }
  },
  "UDRL": {
-  "agent_config": {
-   "UDRLConfig": {
-    "batch_size": 64,
-    "buffer_capacity": 64,
-    "command_horizon_init": 100.0,
-    "command_return_boost": 1.0,
-    "command_return_init": 1.0,
-    "command_scale_h": 0.01,
-    "command_scale_r": 0.02,
-    "command_target_tau": 1.0,
-    "command_topk": 32,
-    "expose_recent_rollout": false,
-    "gamma": 1.0,
-    "n_steps": 64,
-    "n_updates_per_iter": 64
-   }
-  },
   "config": {
    "action_repeat": 1,
    "actor_architecture": [

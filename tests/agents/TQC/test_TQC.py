@@ -16,7 +16,7 @@ from ajax.extensions.instrumentation import BiasVorePenalty
 def test_the_defaults_are_the_authors() -> None:
     """bayesgroup/tqc_pytorch's main.py, trainer.py and structures.py."""
     agent = TQC("Pendulum-v1")
-    config = agent.agent_config
+    config = agent
     assert (config.num_critics, config.n_quantiles) == (5, 25)
     assert config.top_quantiles_to_drop_per_net == 2
     assert (config.gamma, config.tau, config.learning_starts) == (0.99, 0.005, 257)

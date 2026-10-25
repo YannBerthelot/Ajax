@@ -2,8 +2,7 @@
 fields of a dataclass, and writes what its paper defines: its networks, its
 init (on its own key layout), its update and its equations. Its
 family builds everything else from those fields, the same for every member:
-the constructor, the logged run config, the agent_config view, the
-optimisers, the replay, the extensions' binding, the collector's storage,
+the constructor, the logged run config, the optimisers, the replay, the extensions' binding, the collector's storage,
 the training loop's shape and the evaluation's value estimate::
 
     @dataclass(kw_only=True, eq=False, repr=False)
@@ -38,7 +37,6 @@ from typing import Any, ClassVar, Optional, Union
 
 import jax
 import jax.numpy as jnp
-from flax import struct
 from gymnax import EnvParams
 
 from ajax.agents import update_steps
@@ -64,7 +62,6 @@ from ajax.networks.networks import (
 from ajax.schedule import Schedule, at
 from ajax.state import (
     AlphaConfig,
-    BaseAgentConfig,
     EnvironmentConfig,
     NetworkConfig,
     OptimizerConfig,
@@ -339,9 +336,6 @@ class DeclaredAgent(ActorCritic):
 
     #: The action spaces the algorithm acts in: "continuous", "discrete", "any".
     action_space: ClassVar[str] = "continuous"
-    #: agent_config's class and the names it holds (declare_config).
-    config_class: ClassVar[type] = BaseAgentConfig
-    agent_config_fields: ClassVar[tuple[str, ...]] = ()
 
     def __post_init__(self) -> None:
         # The run config the loggers record: the call, before any check.
@@ -398,8 +392,6 @@ class DeclaredAgent(ActorCritic):
             self.network_args = self.network_args.replace(**network_settings)
         self._build_family()
         self.setup()
-        values = {name: getattr(self, name) for name in self.agent_config_fields}
-        self.agent_config = self.config_class(**values)
         object.__setattr__(self, "_built", True)
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -407,12 +399,6 @@ class DeclaredAgent(ActorCritic):
         # run config logs; other attributes (network_args, a monkeypatched
         # method) stay writable.
         built = getattr(self, "_built", False)
-        if built and name == "agent_config":
-            raise AttributeError(
-                f"{self.name}'s agent_config views its fields, fixed once the"
-                " agent is built: build another with a field replaced, as"
-                " dataclasses.replace(agent, gamma=...)."
-            )
         if built and name in self.field_names():
             raise AttributeError(
                 f"{self.name}'s {name} is fixed once the agent is built (its run"
@@ -523,15 +509,6 @@ class DeclaredAgent(ActorCritic):
         gamma, reward_scale = (getattr(self, name, 1.0) for name in DISCOUNT_FIELDS)
         return ValueEstimate(value, gamma, reward_scale)
 
-    def check_agent_config(self, agent_config: Any) -> None:
-        """Refuse an agent_config other than the agent's own view."""
-        if agent_config is not self.agent_config:
-            raise ValueError(
-                f"{self.name} trains on its fields, which agent_config only views:"
-                " build another agent, dataclasses.replace(agent, ...), instead of"
-                " passing another agent_config."
-            )
-
     def make_context(
         self,
         total_timesteps: int,
@@ -635,28 +612,6 @@ class DeclaredAgent(ActorCritic):
             expert_policy=self.expert,
             **options,
         )
-
-    @classmethod
-    def declare_config(cls, names: tuple[str, ...]) -> Any:
-        """agent_config's class, the agent's name then Config: the names it holds,
-        typed and defaulted as the fields (a property, as CrossQ's target
-        entropy, is a required entry). Only the agents that had a Config
-        before their fields were declared (IQL, CrossQ, TD3, PPO, APO, PQN) keep
-        this view, until 0.5.0; the update reads the fields. Built at run
-        time, it is Any to a type checker."""
-        declared = {field.name: field for field in dataclasses.fields(cls)}  # type: ignore[arg-type]
-        spec: dict[str, Any] = {"__annotations__": {}, "__module__": cls.__module__}
-        for name in names:
-            field = declared.get(name)
-            spec["__annotations__"][name] = Any if field is None else field.type
-            if field is not None and field.default is not dataclasses.MISSING:
-                spec[name] = field.default
-        title = f"{cls.name}Config"
-        spec.update({"__qualname__": title})
-        view = type(title, (BaseAgentConfig,), spec)
-        cls.config_class = struct.dataclass(view, kw_only=True)
-        cls.agent_config_fields = names
-        return cls.config_class
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -766,7 +721,6 @@ class ReplayAgent(DeclaredAgent):
         actor_optimizer_args: OptimizerConfig,
         critic_optimizer_args: OptimizerConfig,
         network_args: NetworkConfig,
-        agent_config: Any,
         total_timesteps: int,
         num_episode_test: int,
         run_ids: Optional[Sequence[str]] = None,
@@ -778,7 +732,6 @@ class ReplayAgent(DeclaredAgent):
     ) -> Callable:
         """The train function ActorCritic.train builds: the loop
         over init and update."""
-        self.check_agent_config(agent_config)
         loop, context = self.make_context(
             total_timesteps,
             num_episode_test,
@@ -944,7 +897,6 @@ class IncrementalAgent(DeclaredAgent):
         actor_optimizer_args: OptimizerConfig,
         critic_optimizer_args: OptimizerConfig,
         network_args: NetworkConfig,
-        agent_config: Any,
         total_timesteps: int,
         num_episode_test: int,
         run_ids: Optional[Sequence[str]] = None,
@@ -956,7 +908,6 @@ class IncrementalAgent(DeclaredAgent):
         """The train function ActorCritic.train builds: the loop over init,
         update_step_statistics and update. It takes no dataset: without a
         replay there is no offline training (train_offline refuses it)."""
-        self.check_agent_config(agent_config)
         loop, context = self.make_context(
             total_timesteps,
             num_episode_test,
@@ -1041,7 +992,6 @@ class OnPolicyAgent(DeclaredAgent):
         actor_optimizer_args: OptimizerConfig,
         critic_optimizer_args: OptimizerConfig,
         network_args: NetworkConfig,
-        agent_config: Any,
         total_timesteps: int,
         num_episode_test: int,
         run_ids: Optional[Sequence[str]] = None,
@@ -1054,7 +1004,6 @@ class OnPolicyAgent(DeclaredAgent):
         over init and update. It takes no dataset: an
         on-policy agent learns from its own rollouts (train_offline
         refuses it)."""
-        self.check_agent_config(agent_config)
         loop, context = self.make_context(
             total_timesteps,
             num_episode_test,
@@ -1154,7 +1103,6 @@ class OwnIterationAgent(DeclaredAgent):
         actor_optimizer_args: OptimizerConfig,
         critic_optimizer_args: OptimizerConfig,
         network_args: NetworkConfig,
-        agent_config: Any,
         total_timesteps: int,
         num_episode_test: int,
         run_ids: Optional[Sequence[str]] = None,
@@ -1167,7 +1115,6 @@ class OwnIterationAgent(DeclaredAgent):
         """The train function ActorCritic.train builds: the loop over init
         and iterate, call_options going to configure_call. It takes no
         dataset (train_offline refuses it)."""
-        self.check_agent_config(agent_config)
         # An option configure_call does not take is refused before
         # make_context starts the logging worker.
         options = set(inspect.signature(self.configure_call).parameters)

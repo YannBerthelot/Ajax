@@ -16,7 +16,10 @@ These tests catch bugs of the form:
 
 from __future__ import annotations
 
+import dataclasses
 import itertools
+from types import SimpleNamespace
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -27,7 +30,6 @@ from ajax.agents.minibatch import (
     RolloutSplit,
     choose_rollout_split,
 )
-from ajax.agents.PPO.PPO import PPOConfig
 from ajax.networks.memory import MemoryConfig
 
 # Small CartPole config sized so one training iteration's rollout
@@ -43,6 +45,24 @@ _CFG = {
     "actor_architecture": ("16", "tanh", "16", "tanh"),
     "critic_architecture": ("16", "tanh", "16", "tanh"),
 }
+#: PPO's fields choose_rollout_split reads.
+SPLIT_FIELDS = (
+    "n_steps",
+    "batch_size",
+    "num_minibatches",
+    "bptt_length",
+    "unroll_length",
+)
+
+
+def _split_fields(**fields: Any) -> SimpleNamespace:
+    """PPO's SPLIT_FIELDS at its defaults but those given, without building
+    an agent (which refuses a split that does not divide)."""
+    values = {
+        f.name: f.default for f in dataclasses.fields(PPO) if f.name in SPLIT_FIELDS
+    }
+    values.update(fields)
+    return SimpleNamespace(**values)
 
 
 @pytest.mark.parametrize(
@@ -116,8 +136,9 @@ def test_apply_gradients_runs_once_per_epoch_and_minibatch(extra, num_minibatche
     ],
 )
 def test_the_rollout_split(config, n_envs, recurrent, split):
-    agent_config = PPOConfig(n_steps=32, **config)
-    got = choose_rollout_split(agent_config, 32, n_envs, recurrent)
+    got = choose_rollout_split(
+        _split_fields(n_steps=32, **config), 32, n_envs, recurrent
+    )
     assert got == RolloutSplit(*split)
 
 
@@ -166,7 +187,9 @@ def test_bptt_length_is_the_longest_that_splits_and_explicit_ones_divide_it():
         if splits:
             assert splits == [n for n in divisors if max(splits) % n == 0]
         for length in (None, *divisors):
-            config = PPOConfig(n_steps=n_steps, num_minibatches=k, bptt_length=length)
+            config = _split_fields(
+                n_steps=n_steps, num_minibatches=k, bptt_length=length
+            )
             want = max(splits, default=None) if length is None else length
             if want is None or want not in splits:
                 with pytest.raises(ValueError):

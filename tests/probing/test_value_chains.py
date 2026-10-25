@@ -618,7 +618,7 @@ def _p1_read(model: Any, cell: str, n: R.Nets) -> dict:
         gap = R.critic(n, S0, -0.5) - 2 * R.critic(n, S1, 0.5)
         return out | {"Q(s0,-0.5) - 2 Q(s1,0.5) - oracle": gap - oracle}
     if name == "TD3":
-        c = model.agent_config
+        c = model
         noise = c.target_policy_noise * jax.random.normal(R.KEY, (4096,))
         noise = jnp.clip(noise, -c.target_noise_clip, c.target_noise_clip)
         boot = jnp.mean(r(1, pi1.mean().reshape(()) + noise))

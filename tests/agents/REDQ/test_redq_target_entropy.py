@@ -9,13 +9,13 @@ from ajax.agents.REDQ.REDQ import MBPO_TARGET_ENTROPY, REDQ
 
 
 def test_the_default_stays_minus_the_action_dim() -> None:
-    assert REDQ("hopper", buffer_size=1_000).agent_config.target_entropy == -3.0
+    assert REDQ("hopper", buffer_size=1_000).target_entropy == -3.0
 
 
 @pytest.mark.parametrize("env_id", sorted(MBPO_TARGET_ENTROPY))
 def test_mbpo_takes_the_tables_value_for_each_brax_task(env_id: str) -> None:
     agent = REDQ(env_id, buffer_size=1_000, target_entropy_per_dim="mbpo")
-    assert agent.agent_config.target_entropy == MBPO_TARGET_ENTROPY[env_id]
+    assert agent.target_entropy == MBPO_TARGET_ENTROPY[env_id]
 
 
 def test_mbpo_refuses_a_task_the_table_lacks() -> None:

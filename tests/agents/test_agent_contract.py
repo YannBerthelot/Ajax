@@ -45,7 +45,7 @@ from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.agents.TQC.TQC import TQC
-from ajax.agents.UDRL.UDRL import UDRL, EvalCommand, UDRLConfig
+from ajax.agents.UDRL.UDRL import UDRL, EvalCommand
 from ajax.evaluate import evaluate, get_deterministic_action_and_entropy_fn
 from ajax.extensions.base import Extension
 from ajax.extensions.capabilities import MissingCapability
@@ -253,7 +253,6 @@ def test_an_agent_builds_its_configs(name: str, env_id: str) -> None:
         ("network_args", NetworkConfig),
     ):
         assert isinstance(getattr(agent, attr), kind), attr
-    assert type(agent.agent_config).__name__ == f"{name}Config"
     assert agent.env_args.continuous == (env_id not in DISCRETE)
     assert isinstance(getattr(agent, "alpha_args", None), AlphaConfig) == case.alpha
     # An on-policy agent keeps no replay buffer.
@@ -546,9 +545,8 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
     seed = jax.tree.map(lambda x: x[0], state)
     obs, extra = paid_action.OBS[None], {}
     if name == "UDRL":  # it acts on its observation and its command
-        config = agent.agent_config
-        assert isinstance(config, UDRLConfig)
-        command = EvalCommand(config.command_scale_r, config.command_scale_h)
+        assert isinstance(agent, UDRL)
+        command = EvalCommand(agent.command_scale_r, agent.command_scale_h)
         obs = command.actor_input(obs, command.initial(seed, 1))
         extra = {"agent_state": seed, "command": command}
     key = jax.random.PRNGKey(1)
@@ -697,7 +695,7 @@ def test_an_agent_clips_its_gradients_as_its_paper_does(name: str) -> None:
         for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
             assert args.max_grad_norm == own
         if name in JOINT:
-            assert getattr(agent.agent_config, option) == default
+            assert getattr(agent, option) == default
 
 
 class _Stop(Exception):

@@ -99,6 +99,11 @@ PyPI as `ajax-rl`.
 - `checkpoint.py` reads PPO's and APO's restore rules off their state
   classes (`joint_gradient_clip`, `restore_hint`); `PPOState` is a class of
   its own, no longer an alias of `BaseAgentState`.
+- `BaseAgentState.get_keys_and_new_state(n=1)` draws `n` keys from the
+  training key and returns them, then the new agent state:
+  `shuffle_key, agent_state = agent_state.get_keys_and_new_state()`.
+  `next_keys` returns the same, the state first, until the agents still
+  calling it are converted.
 
 - **ASAC** now does what the authors' code does (`darer/ASAC.py`): a
   termination drops the next value in the critic's target (it bootstrapped

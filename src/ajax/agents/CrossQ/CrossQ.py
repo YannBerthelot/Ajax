@@ -163,7 +163,7 @@ class CrossQ(
         policy_delay-th, an actor and a temperature step on the same
         batch (the authors' (n_updates + i + 1) % policy_delay,
         sbx/sac/sac.py:201)."""
-        state, sample_key = state.draw_keys()
+        sample_key, state = state.get_keys_and_new_state()
         batch, _ = sample_replay(state, context.buffer, sample_key)
         state, value, value_metrics = self.critic_update(state, batch, context)
         due = (state.n_updates + 1) % self.policy_delay == 0
@@ -185,7 +185,7 @@ class CrossQ(
         """One critic step on one training pass over (s, a) and (s',
         a'), its running statistics kept (sbx/sac/sac.py:251-342);
         a' is executed (a residual policy's)."""
-        state, key, next_key = state.draw_keys(2)
+        key, next_key, state = state.get_keys_and_new_state(2)
         alpha = jnp.exp(state.alpha.params["log_alpha"])
         next_actions, next_log_probs = core.sample_next_actions(
             state.actor_state,
@@ -251,7 +251,7 @@ class CrossQ(
         """The actor step in training, the critics read with their running
         statistics (at the executed actions, a residual policy's), then the
         temperature's on the same samples (sbx/sac/sac.py:355-400)."""
-        state, key = state.draw_keys()
+        key, state = state.get_keys_and_new_state()
         alpha = jnp.exp(state.alpha.params["log_alpha"])
         actor_state, critic_state = state.actor_state, state.critic_state
         transform = None

@@ -284,15 +284,23 @@ class BaseAgentState(Replaceable):
     # carry's structure is stable from iteration zero.
     last_rollout: Optional[Any] = None
 
-    def draw_keys(self, n: int = 1) -> tuple:
-        """``(state, *keys)``: ``n`` fresh keys and the state whose ``rng``
-        has moved past them (``*keys, rng = split(rng, n + 1)``)."""
-        *keys, rng = jax.random.split(self.rng, n + 1)
-        return (self.replace(rng=rng), *keys)
+    def get_keys_and_new_state(self, n: int = 1) -> tuple:
+        """Draw n fresh random keys from the training key (rng).
 
-    # The former name, which the agents not yet declared on a family call;
-    # 0.5.0 removes it.
-    next_keys = draw_keys
+        Returns the drawn keys, then a new agent state whose key has moved
+        past them: shuffle_key, agent_state = agent_state.get_keys_and_new_state().
+        The state it is called on is untouched (it is frozen), so drawing from
+        it again would hand out the same keys: carry on with the state returned.
+        """
+        *keys, training_key = jax.random.split(self.rng, n + 1)
+        return (*keys, self.replace(rng=training_key))
+
+    def next_keys(self, n: int = 1) -> tuple:
+        """get_keys_and_new_state in its former order, the new state first:
+        (agent_state, *keys). It stays, as is, until the agents not yet
+        declared on a family, which still call it, are converted."""
+        *keys, agent_state = self.get_keys_and_new_state(n)
+        return (agent_state, *keys)
 
 
 @struct.dataclass

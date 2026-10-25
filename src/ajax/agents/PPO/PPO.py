@@ -225,7 +225,7 @@ class PPO(
         extensions, total_timesteps = context.extensions, context.total_timesteps
         # The update's key: it shuffles the rollout, and the extensions' reward
         # and on_target draw on keys derived from it.
-        state, shuffle_key = state.draw_keys()
+        shuffle_key, state = state.get_keys_and_new_state()
         reward_key, target_key = jax.random.split(extension_key(shuffle_key))
         rewards = rollout.reward
         reward_metrics: dict[str, Any] = {}
@@ -361,7 +361,7 @@ class PPO(
         """One gradient step on the critic and one on the actor. Both
         gradients are taken at the parameters this minibatch starts from, then
         clipped together and applied, as ppo2's single optimiser does."""
-        state, ent_rng = state.draw_keys()
+        ent_rng, state = state.get_keys_and_new_state()
         target_metrics: dict = {}
         critic, actor = state.critic_state, state.actor_state
         extensions, total_timesteps = context.extensions, context.total_timesteps

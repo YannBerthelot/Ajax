@@ -146,7 +146,7 @@ class IQL(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
         self, state: IQLState, context: TrainContext
     ) -> tuple[IQLState, AuxiliaryLogs]:
         """One IQL update (the module docstring)."""
-        state, sample_key, critic_key, actor_key = state.draw_keys(3)
+        sample_key, critic_key, actor_key, state = state.get_keys_and_new_state(3)
         batch, _ = sample_replay(state, context.buffer, sample_key)
         critic = state.critic_state
         q = min_target_q(critic, batch)

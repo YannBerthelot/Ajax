@@ -257,7 +257,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
 
         # The update's key: it shuffles the rollout, and on_target draws on a
         # key derived from it.
-        state, shuffle_key = state.draw_keys()
+        shuffle_key, state = state.get_keys_and_new_state()
         target_metrics: dict = {}
         if extensions:
             target_batch = {

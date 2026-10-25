@@ -21,8 +21,7 @@ import jax
 import numpy as np
 
 from ajax.agents.UDRL.buffer import episode_stream, sample_training_batch
-from ajax.agents.UDRL.state import UDRLState
-from ajax.agents.UDRL.UDRL import UDRL
+from ajax.agents.UDRL.UDRL import UDRL, UDRLState
 from tests.environments.identity_env import IdentityEnv
 
 R0, H0, SEG, CAPACITY, N_ENVS = 2.5, 8.0, 4, 8, 2

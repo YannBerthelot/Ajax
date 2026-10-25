@@ -46,9 +46,7 @@ from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.agents.TQC.TQC import TQC
-from ajax.agents.UDRL.state import UDRLConfig
-from ajax.agents.UDRL.train_UDRL import EvalCommand
-from ajax.agents.UDRL.UDRL import UDRL
+from ajax.agents.UDRL.UDRL import UDRL, EvalCommand, UDRLConfig
 from ajax.evaluate import evaluate, get_deterministic_action_and_entropy_fn
 from ajax.extensions.base import Extension
 from ajax.extensions.capabilities import MissingCapability

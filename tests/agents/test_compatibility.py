@@ -176,8 +176,8 @@ GAPS: dict[str, dict[str, str]] = {
     WORLD_FEATURES: dict.fromkeys(FEATURES[2:], WORLD_ROWS),
     OWN_ROLLOUT: dict.fromkeys(FEATURES, "APG UDRL UDRL/discrete"),
     CNN: {
-        "cnn": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO APO/discrete UDRL UDRL/discrete"
-        " DAgger DAgger/discrete IQL"
+        "cnn": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO APO/discrete DAgger"
+        " DAgger/discrete IQL"
     },
     MEMORY: {"memory": "APO APO/discrete DQN PQN DAgger DAgger/discrete IQL"},
     DEFERRED: {"memory": "AVG CrossQ UDRL UDRL/discrete"},

@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.UDRL.utils import (
+from ajax.agents.UDRL.UDRL import (
     compute_returns_to_go_horizons,
     update_command,
 )

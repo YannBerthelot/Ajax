@@ -1089,7 +1089,7 @@
    "reward_learning"
   ],
   "extension_context": [],
-  "make_train": "ajax.agents.UDRL.train_UDRL:make_train",
+  "make_train": "ajax.agents.families:OwnIterationAgent.make_train",
   "name": "UDRL",
   "per_seed_update_counts": false,
   "phase_batch_keys": {

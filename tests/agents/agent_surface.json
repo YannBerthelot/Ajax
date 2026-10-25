@@ -601,6 +601,7 @@
 "ajax.agents.recurrent:RecurrentCarries",
 "ajax.agents.recurrent:RecurrentReplayConfig",
 "ajax.agents.recurrent:actor_dist",
+"ajax.agents.recurrent:compute_rollout_values",
 "ajax.agents.recurrent:compute_values_from_rollout_sequence",
 "ajax.agents.recurrent:make_replay_buffer",
 "ajax.agents.recurrent:previous_actions",

@@ -6,8 +6,8 @@ Two kinds of agent use it:
   on windows of consecutive steps from one environment, as R2D2 does
   (Kapturowski et al. 2019): sample_and_burnin_sequences draws the windows,
   and actor_dist and q_values run the networks over them.
-- PPO with memory computes its value estimates over a rollout with
-  compute_values_from_rollout_sequence.
+- PPO computes its values on a rollout with compute_rollout_values, for a
+  critic with or without memory (the on-policy section).
 
 How an off-policy agent trains its memory:
 1. Sample, for each environment, a window of burn_in + sequence_length + 1
@@ -569,9 +569,49 @@ def _read_outputs_at_next_observations(
 
 
 # ----------------------------------------------------------------------------
-# PPO with memory: values from a rollout.
+# On-policy agents (PPO): the critic's values on a rollout.
 #
+# Each call here serves a network with or without memory, so the agent's own
+# file never asks which.
 # ----------------------------------------------------------------------------
+
+
+def compute_rollout_values(
+    agent_state: Any,
+    rollout: Transition,
+    agent_state_at_rollout_start: Any,
+    sequence_length: int,
+) -> tuple[Any, jax.Array, jax.Array, Optional[dict]]:
+    """Before an on-policy update: the critic's values V(s_t) on the rollout
+    and its next values V(s_{t+1}), which GAE reads.
+
+    A critic without memory values each observation on its own. A critic
+    with memory reads the rollout in order
+    (compute_values_from_rollout_sequence), which also moves its memory to
+    the rollout's end and gives what the minibatches replay both networks
+    from: the episode starts (resets, one per step) and each network's
+    memory at the start of every sequence of sequence_length steps
+    (actor_hidden and critic_hidden).
+
+    Returns the agent state, the values, the next values and those memories
+    (None without memory).
+    """
+    critic = agent_state.critic_state
+    if critic.hidden_state is None:
+        values = predict_value(critic, critic.params, rollout.obs).squeeze(0)
+        next_values = predict_value(critic, critic.params, rollout.next_obs).squeeze(0)
+        return agent_state, values, next_values, None
+    agent_state, values, next_values, resets, (actor_starts, critic_starts) = (
+        compute_values_from_rollout_sequence(
+            agent_state, rollout, agent_state_at_rollout_start, sequence_length
+        )
+    )
+    memories = {
+        "resets": resets,
+        "actor_hidden": actor_starts,
+        "critic_hidden": critic_starts,
+    }
+    return agent_state, values, next_values, memories
 
 
 def compute_values_from_rollout_sequence(

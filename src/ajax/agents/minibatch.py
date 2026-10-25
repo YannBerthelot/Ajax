@@ -45,16 +45,18 @@ class RolloutSplit:
         return self.kind == "time"
 
     def cut_into_minibatches(
-        self, batch: dict, key: jax.Array, carries: Any = None
+        self, batch: dict, key: jax.Array, memories: Optional[dict] = None
     ) -> dict:
         """One epoch's partition of the rollout batch on key; a
-        recurrent split's sequences take their start carries along."""
+        recurrent split's sequences take along what they replay their
+        networks from (memories, from recurrent.compute_rollout_values)."""
         num_minibatches, length = self.num_minibatches, self.length
         if self.kind == "time":
             return get_minibatches_preserving_time(batch, key, num_minibatches, length)
         if self.kind == "recurrent":
+            assert memories is not None
             return get_sequence_minibatches(
-                batch, carries, key, num_minibatches, length
+                batch, memories, key, num_minibatches, length
             )
         return get_minibatches_from_batch(batch, key, num_minibatches)
 
@@ -264,27 +266,30 @@ def _split_carries(
 
 def get_sequence_minibatches(
     batch: dict,
-    carries: tuple,
+    memories: dict,
     shuffle_key: jax.Array,
     num_minibatches: int,
     length: int,
 ) -> dict:
-    """A recurrent rollout's minibatches of whole sequences, each with the
-    actor's and the critic's carry at its start (the critic's ensemble axis
-    second)."""
+    """A recurrent rollout's minibatches of whole sequences. memories holds
+    the episode starts (resets, one per step, cut with the sequences) and
+    each network's memory at the start of every sequence (actor_hidden, and
+    critic_hidden with the critic's ensemble axis second), which each
+    sequence takes along."""
     n_steps, n_envs = batch["obs"].shape[:2]
     permutation = jax.random.permutation(shuffle_key, n_steps // length * n_envs)
 
     def split(leaf: jax.Array) -> jax.Array:
         return _split_carries(leaf, permutation, num_minibatches)
 
-    actor_starts, critic_starts = carries
-    minibatches = split_fragments(batch, permutation, num_minibatches, length)
+    steps = dict(batch)
+    steps["resets"] = memories["resets"]
+    minibatches = split_fragments(steps, permutation, num_minibatches, length)
     minibatches.update(
         {
-            "actor_hidden": jax.tree.map(split, actor_starts),
+            "actor_hidden": jax.tree.map(split, memories["actor_hidden"]),
             "critic_hidden": jax.tree.map(
-                jax.vmap(split, in_axes=1, out_axes=1), critic_starts
+                jax.vmap(split, in_axes=1, out_axes=1), memories["critic_hidden"]
             ),
         }
     )

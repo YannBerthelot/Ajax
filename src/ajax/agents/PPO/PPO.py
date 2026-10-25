@@ -55,7 +55,7 @@ from ajax.agents.minibatch import (
     get_actions_and_log_probs,
     run_epochs,
 )
-from ajax.agents.recurrent import compute_values_from_rollout_sequence
+from ajax.agents.recurrent import compute_rollout_values
 from ajax.agents.update_steps import (
     apply_gradients_clipped_together,
     compute_gradients,
@@ -264,7 +264,9 @@ class PPO(
             "rewards": rewards,
         }
         rollout_metrics: dict = {}  # the extensions' on the rollout's targets
-        carries = None  # a recurrent split's sequences' start memories
+        # What a recurrent split's sequences replay their networks from; None
+        # without memory.
+        memories = None
 
         if split.advantages_per_minibatch:
             # brax's PPO computes GAE inside its loss, on each minibatch, with the
@@ -273,24 +275,9 @@ class PPO(
             batch.update(outcomes)
         else:
             # GAE once, on the rollout, with the critic that collected it.
-            if context.recurrent:
-                agent_state, values, next_values, resets, carries = (
-                    compute_values_from_rollout_sequence(
-                        agent_state, rollout, agent_state_at_rollout_start, split.length
-                    )
-                )
-                batch["resets"] = resets
-            else:
-                values = predict_value(
-                    critic_state=agent_state.critic_state,
-                    critic_params=agent_state.critic_state.params,
-                    x=rollout.obs,
-                ).squeeze(0)
-                next_values = predict_value(
-                    critic_state=agent_state.critic_state,
-                    critic_params=agent_state.critic_state.params,
-                    x=rollout.next_obs,
-                ).squeeze(0)
+            agent_state, values, next_values, memories = compute_rollout_values(
+                agent_state, rollout, agent_state_at_rollout_start, split.length
+            )
             batch_with_outcomes = dict(batch)
             batch_with_outcomes.update(outcomes)
             gae, value_targets, rollout_metrics = self.compute_advantages(
@@ -305,7 +292,7 @@ class PPO(
 
         def cut_rollout_into_minibatches(epoch_key: jax.Array) -> dict:
             """One epoch's partition of the rollout."""
-            return split.cut_into_minibatches(batch, epoch_key, carries)
+            return split.cut_into_minibatches(batch, epoch_key, memories)
 
         step_on_minibatch = partial(self.minibatch_step, split=split, context=context)
         agent_state, aux = run_epochs(

@@ -131,7 +131,7 @@ class UDRL(
             "encoder_layer_norm": True,
         }
 
-    def steps_per_iteration(self, context: TrainContext) -> tuple[int, str]:
+    def count_iteration_steps(self, context: TrainContext) -> tuple[int, str]:
         return context.env_args.n_envs * self.n_steps, "n_envs x n_steps"
 
     def init(self, key: jax.Array, context: TrainContext) -> UDRLState:

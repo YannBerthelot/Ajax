@@ -486,7 +486,7 @@ class OwnToy(OwnIterationAgent):
 
     def iterate(self, agent_state, context):
         collector = agent_state.collector_state
-        timestep = collector.timestep + self.steps_per_iteration(context)[0]
+        timestep = collector.timestep + self.count_iteration_steps(context)[0]
         agent_state = agent_state.replace(
             n_updates=agent_state.n_updates + 1,
             collector_state=collector.replace(timestep=timestep),
@@ -499,7 +499,7 @@ class OwnToy(OwnIterationAgent):
     def evaluate(self, agent_state, key, context, num_episode_test):
         return {"Eval/episodes": jnp.asarray(num_episode_test, jnp.float32)}
 
-    def steps_per_iteration(self, context):
+    def count_iteration_steps(self, context):
         return 2 * context.env_args.n_envs, "n_envs x 2"
 
     def configure_call(self, context, n_iterations, restart: bool = False):
@@ -515,7 +515,7 @@ class OwnToy(OwnIterationAgent):
 class StackedToy(OwnToy):
     returns_iterations = True
 
-    def iteration_output(self, aux, evaluations):
+    def make_iteration_output(self, aux, evaluations):
         return {"aux": aux, "evaluations": evaluations}
 
 

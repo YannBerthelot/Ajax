@@ -32,7 +32,7 @@ def updates_in_run(agent, n_envs: int, timesteps: int) -> int:
         loop = TrainLoop.create(agent.env_args, timesteps, num_episode_test=0)
         return loop.n_rollouts(config.n_steps)
     # APG: one update per closed-loop rollout of ``horizon`` steps
-    # (APG.steps_per_iteration's).
+    # (APG.count_iteration_steps's).
     return max(timesteps // (n_envs * config.horizon), 1)
 
 

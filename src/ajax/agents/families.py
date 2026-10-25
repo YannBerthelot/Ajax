@@ -1109,16 +1109,16 @@ class OwnIterationAgent(DeclaredAgent):
 
     An agent writes init, iterate (applying the extensions' post_update
     where its order puts it), report (the training metrics an evaluation
-    logs), evaluate and steps_per_iteration. It may take options per train
+    logs), evaluate and count_iteration_steps. It may take options per train
     call (configure_call), and return every iteration's output instead of
-    the evaluations (returns_iterations, iteration_output). It takes no
+    the evaluations (returns_iterations, make_iteration_output). It takes no
     dataset: train_offline refuses it.
     """
 
     # The loop's phases but observe, which no shared collector or evaluation
     # meets; an agent adds the phases its iteration applies.
     supported_extension_phases = LOOP_PHASES.difference({"observe"})
-    #: Whether train returns every iteration's output (iteration_output),
+    #: Whether train returns every iteration's output (make_iteration_output),
     #: stacked, logging or not, instead of the evaluations.
     returns_iterations = False
 
@@ -1128,7 +1128,7 @@ class OwnIterationAgent(DeclaredAgent):
 
     def iterate(self, agent_state: Any, context: TrainContext) -> tuple[Any, Any]:
         """One iteration, the extensions' post_update applied: (agent_state,
-        aux, which report and iteration_output read)."""
+        aux, which report and make_iteration_output read)."""
         raise NotImplementedError
 
     def report(self, agent_state: Any, aux: Any) -> dict:
@@ -1145,7 +1145,7 @@ class OwnIterationAgent(DeclaredAgent):
         """The policy's evaluation metrics, on num_episode_test episodes."""
         raise NotImplementedError
 
-    def steps_per_iteration(self, context: TrainContext) -> tuple[int, str]:
+    def count_iteration_steps(self, context: TrainContext) -> tuple[int, str]:
         """The env steps one iteration takes, and how a warning names them."""
         raise NotImplementedError
 
@@ -1158,7 +1158,7 @@ class OwnIterationAgent(DeclaredAgent):
         del n_iterations
         return context, None
 
-    def iteration_output(self, aux: Any, evaluations: Optional[dict]) -> Any:
+    def make_iteration_output(self, aux: Any, evaluations: Optional[dict]) -> Any:
         """What an iteration returns: its evaluations, which the loop records
         (None without logging); with returns_iterations, the agent's own."""
         del aux
@@ -1204,7 +1204,7 @@ class OwnIterationAgent(DeclaredAgent):
             start_timestep=start_timestep,
             end_timestep=end_timestep,
         )
-        steps, unit = self.steps_per_iteration(context)
+        steps, unit = self.count_iteration_steps(context)
         loop.warn_if_partial(steps, unit)
         n_iterations = max(loop.budget // steps, 1)
         context, resume = self.configure_call(context, n_iterations, **call_options)
@@ -1221,7 +1221,7 @@ class OwnIterationAgent(DeclaredAgent):
             agent_state, evaluations = loop.evaluate_every(
                 agent_state, aux, index, tick, evaluation
             )
-            return agent_state, self.iteration_output(aux, evaluations)
+            return agent_state, self.make_iteration_output(aux, evaluations)
 
         return loop.train(
             partial(self.init, context=context),

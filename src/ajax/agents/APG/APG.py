@@ -295,7 +295,7 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
             **kwargs,
         )
 
-    def steps_per_iteration(self, context: TrainContext) -> tuple[int, str]:
+    def count_iteration_steps(self, context: TrainContext) -> tuple[int, str]:
         return context.env_args.n_envs * self.horizon, "n_envs x horizon"
 
     def configure_call(
@@ -316,7 +316,7 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         checkpoint's 0-step skeleton; there it spans the run's updates, from
         0 to the horizon, and a resumed call's value goes unused.
         """
-        per_update = self.steps_per_iteration(context)[0]
+        per_update = self.count_iteration_steps(context)[0]
         schedule_updates = (
             n_iterations
             if reset_optimizer_on_resume
@@ -455,7 +455,7 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
             "Eval/m_rmse": jnp.sqrt(jnp.maximum(-returns.mean(), 0.0) / self.horizon),
         }
 
-    def iteration_output(
+    def make_iteration_output(
         self, aux: APGAuxiliaries, evaluations: Optional[dict]
     ) -> APGAuxiliaries:
         """Every update's metrics, as train returns them, with what it

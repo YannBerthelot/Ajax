@@ -7,15 +7,20 @@ keywords with it.
 """
 
 import warnings
+from collections.abc import Sequence
 from typing import Any, Optional
 
+from ajax.controller import transforms_of
 from ajax.deprecation import warn_inert
-from ajax.extensions.expert import ExpertGains
+from ajax.extensions.expert import ExpertGains, ExpertWarmup
 from ajax.extensions.observe import (
     ExpertActionInput,
     ExpertStateInput,
     TrainingProgressInput,
 )
+
+#: SAC's warm-up mix while expert_fraction is left unset (None), until B7.
+DEFAULT_WARMUP_FRACTION = 0.7
 
 
 def augmentation_features(
@@ -42,9 +47,51 @@ def augmentation_features(
     )
 
 
+def warmup_extension(
+    expert: Any,
+    fraction: Optional[float],
+    extensions: Sequence[Any],
+    learning_starts: int,
+    stacklevel: int = 3,
+) -> tuple:
+    """The ExpertWarmup that SAC's expert_fraction stands for (None: 0.7
+    with an expert), beside the run's extensions: none without an expert,
+    under an action transform or without warm-up steps, where SAC never
+    mixed. A warm-up built from the default warns that the default will go;
+    a fraction passed warns that the keyword will go, and raises next to an
+    ExpertWarmup."""
+    given = any(isinstance(extension, ExpertWarmup) for extension in extensions)
+    if fraction is not None:
+        if given:
+            raise ValueError("Pass SAC's expert_fraction or ExpertWarmup, not both.")
+        warnings.warn(
+            f"SAC's expert_fraction will be removed: pass ExpertWarmup(fraction="
+            f"{fraction}) (ajax.extensions.expert) in extensions, or none for no"
+            " expert in the warm-up.",
+            FutureWarning,
+            stacklevel=stacklevel,
+        )
+    share = DEFAULT_WARMUP_FRACTION if fraction is None else fraction
+    transformed = bool(transforms_of(extensions))
+    if expert is None or given or transformed or learning_starts <= 0 or share <= 0:
+        return ()
+    if fraction is None:
+        warnings.warn(
+            "SAC with an expert_policy adds ExpertWarmup(fraction=0.7) by"
+            " default; this default will be removed: pass it in extensions to"
+            " keep it.",
+            FutureWarning,
+            stacklevel=stacklevel,
+        )
+    return (ExpertWarmup(fraction=share),)
+
+
 def translate_deprecated_keywords(
     expert: Any,
     *,
+    extensions: Sequence[Any],
+    learning_starts: int,
+    expert_fraction: Optional[float],
     normalize_observations: bool,
     normalize_obs_running: bool,
     use_train_frac: bool,
@@ -55,8 +102,8 @@ def translate_deprecated_keywords(
     skip_critic_pretrain: bool,
 ) -> tuple[tuple, bool]:
     """The extensions SAC's deprecated keywords stand for, which SAC appends
-    to the caller's, and its normalize_observations. Every keyword set warns,
-    pointing at the caller of SAC()."""
+    to the caller's extensions, and its normalize_observations. Every
+    keyword set warns, pointing at the caller of SAC()."""
     # The critic pretraining skip_critic_pretrain switched off is gone: True
     # changes nothing, False cannot be honoured.
     if not skip_critic_pretrain:
@@ -72,7 +119,7 @@ def translate_deprecated_keywords(
             FutureWarning,
             stacklevel=3,
         )
-    extensions = augmentation_features(
+    built = augmentation_features(
         expert,
         progress=use_train_frac,
         state=augment_obs_with_expert_state,
@@ -86,7 +133,13 @@ def translate_deprecated_keywords(
             FutureWarning,
             stacklevel=3,
         )
-        extensions = (*extensions, ExpertGains())
+        built = (*built, ExpertGains())
+    built = (
+        *built,
+        *warmup_extension(
+            expert, expert_fraction, (*extensions, *built), learning_starts, 4
+        ),
+    )
     warn_inert(
         "SAC",
         "SAC counts each env's steps in its episode when an extension reads"
@@ -94,4 +147,4 @@ def translate_deprecated_keywords(
         stacklevel=4,
         jsrl_curriculum=jsrl_curriculum,
     )
-    return extensions, normalize_observations or normalize_obs_running
+    return built, normalize_observations or normalize_obs_running

@@ -416,7 +416,6 @@ def make_train(
     num_critic_updates: int = 1,
     policy_update_start: int = 2_000,
     alpha_update_start: int = 2_000,
-    expert_fraction: float = 0.7,
     target_entropy_initial: Optional[float] = None,
     target_entropy_ramp_frac: float = 0.5,
     store_policy_action: bool = False,
@@ -547,17 +546,16 @@ def make_train(
             stored_state=agent_config.stored_state,
         )
 
-    # The pipeline carries the SAC-side bookkeeping (warmup mix,
-    # ``is_expert_flag``, ``buffer_action``, expert-state threading) and
-    # the gain-policy short-circuit; the EDGE / ValueBox / JSRL gates run
-    # through the extension stack.
+    # The pipeline carries the SAC-side bookkeeping (the warm-up chooser,
+    # the expert flags, the stored action); the EDGE, ValueBox and JSRL
+    # gates run through the extension stack. Gain mode acts through the
+    # shared collector's pipeline.
     gain_mode = env_args.policy_action_dim is not None
     action_pipeline = make_action_pipeline(
         expert_policy=None if gain_mode else expert_policy,
         recurrent=recurrent,
         env_args=env_args,
         extension_stack=loop.extensions,
-        expert_fraction=expert_fraction,
         store_policy_action=store_policy_action,
         total_timesteps=total_timesteps,
     )

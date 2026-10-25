@@ -1,18 +1,25 @@
 """SAC's action pipeline (collection-time action selection).
 
-The pipeline owns SAC's collection bookkeeping (``is_expert_flag``,
-``buffer_action``) and the warmup expert/uniform mix; the shared collector
-calls the expert and tracks its state. Extensions that declare an ``action_slot`` substitute
-the action through their :meth:`~ajax.extensions.base.Extension.action`
-phase: ``"pre_warmup"`` ones (EDGEExploration, JSRLCurriculum) before the
-warmup choice, ``"post_warmup"`` ones (ValueBox) after it. They read and
-write a dict of the step's quantities passed as ``obs``.
+The pipeline owns SAC's collection bookkeeping (the expert flags, the
+stored action) and applies the run's warm-up chooser (ExpertWarmup's expert
+mix, ajax.controller.choose_warmup_actions); the shared collector calls the
+expert and tracks its state. Extensions declaring an action_slot substitute
+the action through their action phase: the pre_warmup ones
+(EDGEExploration, JSRLCurriculum) before the warm-up choice, the
+post_warmup ones (ValueBox) after it. They read and write a dict of the
+step's quantities passed as obs.
 """
 
 import jax
 import jax.numpy as jnp
 
-from ajax.controller import TransformInputs
+from ajax.controller import (
+    TransformInputs,
+    WarmupInputs,
+    choose_warmup_actions,
+    expert_action_for_warmup,
+    warmup_expert_flags,
+)
 from ajax.environments.interaction import (
     ActionPipelineResult,
     get_action_and_log_probs,
@@ -25,13 +32,15 @@ from ajax.networks.networks import phi_star_critic_state
 ACTION_SLOTS = ("pre_warmup", "post_warmup")
 
 
-def check_action_extensions(extension_stack: ExtensionStack, dispatched: bool) -> None:
-    """Reject the ``action`` extensions the pipeline never dispatches: one
-    without an ``action_slot`` of :data:`ACTION_SLOTS`, or any, or a residual
-    policy (an extension implementing ``transform_action``), when the
-    pipeline does not dispatch (``dispatched`` False: no expert policy, or
-    gain mode, which acts through the default pipeline). SAC calls it at
-    construction."""
+def check_action_extensions(
+    extension_stack: ExtensionStack, dispatched: bool, warmups: tuple = ()
+) -> None:
+    """Reject the action extensions the pipeline never dispatches: one
+    without an action_slot of ACTION_SLOTS, or any, or a residual policy (an
+    extension implementing transform_action) or a warm-up chooser
+    (ExpertWarmup, in warmups), when the pipeline does not dispatch
+    (dispatched False: no expert policy, or gain mode, which acts through
+    the default pipeline). SAC calls it at construction."""
     acting = [e for e in extension_stack if "action" in e.implemented_phases()]
     unslotted = [
         e.name for e in acting if getattr(e, "action_slot", None) not in ACTION_SLOTS
@@ -44,11 +53,11 @@ def check_action_extensions(extension_stack: ExtensionStack, dispatched: bool) -
     residual = [
         e for e in extension_stack if "transform_action" in e.implemented_phases()
     ]
-    if (acting or residual) and not dispatched:
+    ignored = [extension.name for extension in (*acting, *residual, *warmups)]
+    if ignored and not dispatched:
         raise ValueError(
             "SAC dispatches the action phase only with an expert_policy and"
-            f" without gain mode; {[e.name for e in acting + residual]}"
-            " would be ignored."
+            f" without gain mode; {ignored} would be ignored."
         )
 
 
@@ -79,7 +88,6 @@ def make_action_pipeline(
     # collect_experience fall back to env_action = the executed action).
     store_policy_action=False,
     total_timesteps=1,
-    expert_fraction=0.7,
 ):
     """Compose the SAC action pipeline for collect_experience.
 
@@ -174,17 +182,17 @@ def make_action_pipeline(
             )
             post_warmup_action, rng = pre["post_warmup_action"], pre["gate_rng"]
 
-        if residual is not None:
-            warmup_action = uniform_action
-            use_expert_this_step = jnp.zeros((), dtype=jnp.bool_)
-        else:
-            # Its own key: on mix_key the decision would be the uniform
-            # action's first draw (env 0, dim 0), and select on it.
-            decision_key = jax.random.fold_in(mix_key, 1)
-            use_expert_this_step = jax.random.uniform(decision_key) < expert_fraction
-            warmup_action = jnp.where(
-                use_expert_this_step, expert_action, uniform_action
-            )
+        # The warm-up's actions: the run's chooser's (ExpertWarmup), else
+        # uniform. The residual acts before the choice, so the expert's
+        # action enters as executed.
+        warmup_expert_action = expert_action_for_warmup(
+            residual, False, expert_action, action
+        )
+        warmup_action, expert_took = choose_warmup_actions(
+            env_args.warmups,
+            uniform_action,
+            WarmupInputs(warmup_expert_action, mix_key),
+        )
 
         env_action = jax.lax.cond(
             uniform, lambda: warmup_action, lambda: post_warmup_action
@@ -227,9 +235,7 @@ def make_action_pipeline(
         for mask in masks:
             if mask is not None:
                 _post_expert = jnp.maximum(_post_expert, mask.astype(jnp.float32))
-        _warmup_expert = jnp.ones_like(
-            action[..., :1], dtype=jnp.float32
-        ) * use_expert_this_step.astype(jnp.float32)
+        _warmup_expert = warmup_expert_flags(expert_took, action)
         is_expert_flag = jax.lax.cond(
             uniform, lambda: _warmup_expert, lambda: _post_expert
         )

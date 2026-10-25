@@ -54,11 +54,12 @@ class SAC(ActorCritic):
             "replay",
             "target_critic",
             "reward_learning",
+            "warmup",
         }
     )
-    # ``action`` reaches only the action pipeline's slots, and
-    # ``transform_action`` the pipeline, with an expert policy
-    # (check_action_extensions).
+    # The action phase reaches only the action pipeline's slots, and
+    # transform_action and choose_warmup_action the pipeline, with an expert
+    # policy (check_action_extensions).
     supported_extension_phases: frozenset = LOOP_PHASES.union(
         {
             "on_target",
@@ -67,6 +68,7 @@ class SAC(ActorCritic):
             "action",
             "transform_action",
             "actuate",
+            "choose_warmup_action",
         }
     )
     # Its critic step's target_extras join the shared step's on_target keys.
@@ -157,9 +159,10 @@ class SAC(ActorCritic):
         use_train_frac: bool = False,
         policy_update_start: int = 2_000,
         alpha_update_start: int = 2_000,
-        # Warmup expert-vs-uniform mix fraction (gates uniform sampling
-        # in the action pipeline).
-        expert_fraction: float = 0.7,
+        # Deprecated: the share of warm-up steps the expert takes, now
+        # ExpertWarmup(fraction) in extensions. None, with an expert, is
+        # 0.7, until B7 (deprecated_keywords.warmup_extension).
+        expert_fraction: Optional[float] = None,
         # Expert-state augmentation (PID integrator state etc.).
         # Changes the network input dim.
         augment_obs_with_expert_state: bool = False,
@@ -191,6 +194,9 @@ class SAC(ActorCritic):
         self.expert_policy = expert_policy
         features, normalize_observations = translate_deprecated_keywords(
             expert_policy,
+            extensions=extensions,
+            learning_starts=learning_starts,
+            expert_fraction=expert_fraction,
             normalize_observations=normalize_observations,
             normalize_obs_running=normalize_obs_running,
             use_train_frac=use_train_frac,
@@ -262,11 +268,12 @@ class SAC(ActorCritic):
         if not check_if_environment_has_continuous_actions(self.env_args.env):
             raise ValueError("SAC only supports continuous action spaces.")
         # Gain mode (ExpertGains) acts through the default pipeline, which
-        # dispatches no action extension.
+        # dispatches no action extension and no warm-up chooser yet.
         gain_mode = self.env_args.policy_action_dim is not None
         check_action_extensions(
             self.extension_stack,
             dispatched=expert_policy is not None and not gain_mode,
+            warmups=self.env_args.warmups,
         )
 
         # Gain mode's critic, buffer and target entropy act in gain space.
@@ -296,7 +303,6 @@ class SAC(ActorCritic):
             "expert_buffer_n_steps": expert_buffer_n_steps,
             "policy_update_start": policy_update_start,
             "alpha_update_start": alpha_update_start,
-            "expert_fraction": expert_fraction,
             "store_policy_action": store_policy_action,
             "target_entropy_initial": (
                 target_entropy_initial_per_dim * action_dim

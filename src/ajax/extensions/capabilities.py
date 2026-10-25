@@ -40,6 +40,10 @@ ALGORITHM_CAPABILITIES: Mapping[str, str] = {
         " model's latent state"
     ),
     "reward_learning": "it learns from the reward, not from an expert's labels alone",
+    "warmup": (
+        "it acts uniformly at random for its first learning_starts steps, and"
+        " later learns from their stored transitions"
+    ),
 }
 
 #: The capabilities a run gives, with what gives them.
@@ -51,6 +55,7 @@ RUN_CAPABILITIES: Mapping[str, str] = {
     "agent_expert": "give the agent an expert_policy",
     "phi_star": "add MCPretrain(expert_policy=...), which fits phi*, to the extensions",
     "seeded_replay": "add ExpertPrefill or PriorData, which fill the replay before training",
+    "warmup_steps": "set learning_starts above 0",
 }
 
 #: The capabilities each phase needs; the others need none.
@@ -62,6 +67,8 @@ PHASE_NEEDS: Mapping[str, frozenset[str]] = {
     "action": frozenset({"off_policy"}),
     "transform_action": frozenset({"continuous_actions"}),
     "actuate": frozenset({"continuous_actions"}),
+    # A warm-up exists only on an agent that has one, run with steps in it.
+    "choose_warmup_action": frozenset({"warmup", "warmup_steps"}),
 }
 
 
@@ -89,10 +96,12 @@ def run_capabilities(
     continuous: bool,
     has_expert: bool,
     num_critics: int | None = None,
+    learning_starts: int | None = None,
 ) -> frozenset[str]:
     """A run's capabilities: its ``algorithm``'s, without ``critic_ensemble``
     when ``num_critics`` (the agent's option, where it has one) is below 2,
-    and those its environment's actions and its expert give."""
+    and those its environment's actions, its expert and its warm-up steps
+    (learning_starts, where the agent has one) give."""
     caps = frozenset(algorithm)
     if num_critics is not None and num_critics < 2:
         caps = caps.difference({"critic_ensemble"})
@@ -103,6 +112,7 @@ def run_capabilities(
         "continuous_actions": continuous,
         "discrete_actions": not continuous,
         "agent_expert": has_expert,
+        "warmup_steps": "warmup" in caps and bool(learning_starts),
     }
     return caps.union({name for name, given in derived.items() if given})
 

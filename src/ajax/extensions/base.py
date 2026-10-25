@@ -45,6 +45,8 @@ Phases
 ``eval_metrics`` extra metrics, merged into the eval log
 ``observe``      columns appended to every observation (an expert's action,
                  the training progress), stored with it
+``choose_warmup_action`` the actions of a warm-up step (ExpertWarmup's
+                 expert mix), uniform by default
 
 ``on_target``, ``critic_loss`` and ``actor_loss`` may return ``(value,
 metrics)`` instead of their value: ``metrics``, a dict of scalars named
@@ -116,9 +118,15 @@ PHASES: tuple[str, ...] = (
     "eval_action",
     "transform_action",
     "actuate",
+    "choose_warmup_action",
     "post_update",
     "eval_metrics",
 )
+
+#: The phases the controller alone runs, in collection and evaluation: an
+#: extension implementing only these holds no state and draws no key in the
+#: learner (ActorCritic lifts it out of the learner's stack).
+CONTROLLER_PHASES = frozenset({"observe", "choose_warmup_action", "actuate"})
 
 #: The keys of each phase's ``batch`` every agent folding it passes ("Phase
 #: batches" above); an agent declares the others its folds pass in its
@@ -397,6 +405,15 @@ class Extension:
         the env's (gain mode: the expert's learnable gains); None: the env's."""
         del env_args, expert
         return None
+
+    def choose_warmup_action(
+        self, uniform_actions: jax.Array, inputs: Any
+    ) -> tuple[jax.Array, jax.Array]:
+        """The actions a warm-up step takes instead of uniform_actions, and
+        whether the expert took them, one boolean for the step
+        (ajax.controller.WarmupInputs); by default the uniform ones."""
+        del inputs
+        return uniform_actions, jnp.zeros((), dtype=jnp.bool_)
 
     def policy_action_for_expert(self, policy_actions: jax.Array) -> jax.Array:
         """For an action transform: the policy action, shaped like

@@ -734,7 +734,8 @@
    "q_critic",
    "replay",
    "reward_learning",
-   "target_critic"
+   "target_critic",
+   "warmup"
   ],
   "extension_context": [
    "actor_optimizer_args",
@@ -807,6 +808,7 @@
    "action",
    "actor_loss",
    "actuate",
+   "choose_warmup_action",
    "critic_loss",
    "eval_metrics",
    "observe",

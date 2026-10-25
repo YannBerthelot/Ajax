@@ -688,7 +688,7 @@
    "episode_length": null,
    "eval_expert_policy": null,
    "expert_buffer_n_steps": 20000,
-   "expert_fraction": 0.7,
+   "expert_fraction": null,
    "expert_policy": null,
    "extensions": [],
    "fixed_alpha": false,

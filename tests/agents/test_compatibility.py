@@ -238,6 +238,7 @@ def field_values(env: str) -> dict[str, Any]:
         "expert_policy": expert,
         "threshold": 1.0,
         "n_steps": 4,
+        "fraction": 0.5,
         "dataset": episode,
         "demonstrations": episode,
         # A PID's error x[1] - x[0], on every row's observation.

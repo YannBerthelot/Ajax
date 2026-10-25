@@ -131,6 +131,14 @@ PyPI as `ajax-rl`.
 - **IQL** sums its two critics' squared errors, as the reference does
   (`ikostrikov/implicit_q_learning`, `update_q`): it averaged them, which
   halved the critics' gradient against Adam's eps and `max_grad_norm`.
+- **`ExpertWarmup(fraction)`** (`ajax.extensions.expert`): during the
+  warm-up the agent's expert takes a share of the steps, uniform actions the
+  others, through a new controller phase, `choose_warmup_action` (no state
+  and no key in the learner). SAC runs it; the other agents with a warm-up
+  follow. **Deprecated**: SAC's `expert_fraction` builds it and warns. Its
+  default is now `None`, which with an expert and warm-up steps still builds
+  `ExpertWarmup(fraction=0.7)`, with a warning that this default will go;
+  passing both raises. Runs are unchanged.
 - **`ExpertPrefill(n_steps)`** (`ajax.extensions.pretrain`): the agent's
   expert acts `n_steps` steps in every env before training and its
   transitions go to the replay as collection writes its own, on SAC, REDQ,

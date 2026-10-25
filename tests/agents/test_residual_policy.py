@@ -3,7 +3,6 @@ actions: collection executes ``clip(a_expert + scale·a_pi)`` and stores it,
 the critics and the actor score it (that the agents learn the residual is
 tests/probing's)."""
 
-import inspect
 from typing import Any
 
 import jax
@@ -13,11 +12,9 @@ import pytest
 
 from ajax import APG, UDRL
 from ajax.agents.recurrent import q_values
-from ajax.agents.SAC import core
 from ajax.agents.SAC.SAC import compute_soft_policy_loss, sample_next_actions
 from ajax.agents.TD3.TD3 import compute_td3_td_target
 from ajax.controller import make_scored_action
-from ajax.extensions.base import ExtensionStack
 from ajax.extensions.expert import ResidualPolicy
 from tests.agents.test_agent_contract import CASES
 from tests.environments import paid_action
@@ -34,16 +31,12 @@ def _one(obs: jax.Array) -> jax.Array:
 def _residual_run(name: str, n_timesteps: int, **extra: Any) -> tuple:
     case = CASES[name]
     cls: Any = case.cls  # each agent's own keywords
-    # No expert prefill (SAC's, TQC's): the replay holds collection's rows.
-    takes = inspect.signature(cls).parameters
-    prefill = {"expert_buffer_n_steps": 0} if "expert_buffer_n_steps" in takes else {}
     agent = cls(
         env_id="Pendulum-v1",
         n_envs=2,
         expert_policy=_one,
         extensions=(ResidualPolicy(scale=0.0),),
         **case.kwargs,
-        **prefill,
         **extra,
     )
     return agent.train(seed=0, n_timesteps=n_timesteps)[0], case
@@ -171,8 +164,7 @@ def _put(a: jax.Array, a_expert: Any) -> jax.Array:
 def test_the_soft_core_scores_executed_actions():
     """SAC's equations (REDQ, TQC, ASAC, CrossQ, AVG read them): the
     bootstrap's next actions and the actor's objective, at the scored
-    actions make_scored_action gives, are the executed ones; so is the
-    0.4.0 actor step SAC's core keeps."""
+    actions make_scored_action gives, are the executed ones."""
     state = _initial("REDQ")
     obs, key = jnp.ones((4, 3)), jax.random.PRNGKey(0)
     a_expert = jnp.full((4, 1), 0.25)
@@ -188,10 +180,6 @@ def test_the_soft_core_scores_executed_actions():
     )
     at_expert = jnp.min(q_values(critic, critic.params, obs, a_expert), axis=0)
     np.testing.assert_allclose(q, at_expert, rtol=1e-6)
-    _, (_, _, legacy_q), _ = core.soft_actor_step(
-        state, obs, None, ExtensionStack(()), 1, a_expert=a_expert, executed=_put
-    )
-    np.testing.assert_allclose(legacy_q, at_expert, rtol=1e-6)
 
 
 def test_td3s_target_scores_the_executed_next_action():

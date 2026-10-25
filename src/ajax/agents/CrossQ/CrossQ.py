@@ -307,7 +307,7 @@ class CrossQ(
         tempered, temperature = update_temperature(
             agent_state,
             jax.lax.stop_gradient(log_probs),
-            self.target_entropy_at(timestep, context.total_timesteps),
+            self.target_entropy_at(timestep),
             compute_alpha_temperature_loss,
         )
         agent_state = update_steps.run_if(
@@ -363,15 +363,3 @@ class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     value: CoreCriticAux
     extensions: dict  # the extensions' training metrics
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-CrossQConfig = CrossQ.declare_config(
-    (
-        "gamma",
-        "target_entropy",
-        "learning_starts",
-        "reward_scale",
-        "policy_delay",
-    )
-)

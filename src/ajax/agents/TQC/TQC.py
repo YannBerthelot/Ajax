@@ -221,7 +221,7 @@ class TQC(
         tempered, temperature_aux = update_temperature(
             agent_state,
             log_probs,
-            self.target_entropy_at(timestep, context.total_timesteps),
+            self.target_entropy_at(timestep),
             compute_temperature_loss,
         )
         agent_state = update_steps.run_if(
@@ -470,21 +470,3 @@ class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
     extensions: dict  # the extensions' training metrics
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-TQCConfig = TQC.declare_config(
-    (
-        "gamma",
-        "target_entropy",
-        "tau",
-        "learning_starts",
-        "reward_scale",
-        "num_critics",
-        "n_quantiles",
-        "top_quantiles_to_drop_per_net",
-        "burn_in",
-        "sequence_length",
-        "stored_state",
-    )
-)

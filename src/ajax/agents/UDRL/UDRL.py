@@ -648,7 +648,7 @@ def compute_returns_to_go_horizons(
     return returns_to_go[::-1], horizons[::-1]
 
 
-# -- State, logged metrics and the agent_config view --------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass
 class UDRLState(BaseAgentState):
     """UDRL's state adds the command targets tracked across iterations and
@@ -681,22 +681,3 @@ class UDRLAuxiliaries:
     timestep: Union[int, jax.Array]
     # The extensions' training metrics, averaged over the iteration's updates.
     extensions: dict
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-UDRLConfig = UDRL.declare_config(
-    (
-        "gamma",
-        "n_steps",
-        "batch_size",
-        "command_return_init",
-        "command_horizon_init",
-        "command_topk",
-        "command_return_boost",
-        "command_target_tau",
-        "command_scale_r",
-        "command_scale_h",
-        "buffer_capacity",
-        "n_updates_per_iter",
-    )
-)

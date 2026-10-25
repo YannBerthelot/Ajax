@@ -706,7 +706,7 @@ def compute_rollout_returns(
     return rollout.reward.sum(0), rollout
 
 
-# -- State, logged metrics and the agent_config view --------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class APGState(BaseAgentState):
     """APG carries no value function: critic_state is None. Keyword-only so
@@ -727,7 +727,3 @@ class APGAuxiliaries:
     # the updates that do not evaluate), returned whatever the backend;
     # None without one.
     evaluations: Optional[dict] = None
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-APGConfig = APG.declare_config(("horizon",))

@@ -302,7 +302,6 @@ def test_warmup_cosine_schedule_is_wired_and_validated(env_and_class):
         actor_optimizer_args=short.actor_optimizer_args,
         critic_optimizer_args=short.critic_optimizer_args,
         network_args=short.network_args,
-        agent_config=short.agent_config,
         total_timesteps=2 * N_ENVS * HORIZON,
         num_episode_test=1,
     )

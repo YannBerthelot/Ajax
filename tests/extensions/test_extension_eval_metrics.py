@@ -108,7 +108,6 @@ def test_a_logged_sac_run_carries_the_extensions_metrics() -> None:
         learning_starts=16,
         batch_size=8,
         expert_policy=expert,
-        expert_buffer_n_steps=0,
         extensions=stack,
     )
     logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)

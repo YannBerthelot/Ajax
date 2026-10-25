@@ -728,26 +728,3 @@ class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
     extensions: dict  # the extensions' training metrics
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-PPOConfig = PPO.declare_config(
-    (
-        "gamma",
-        "ent_coef",
-        "clip_range",
-        "n_steps",
-        "batch_size",
-        "n_epochs",
-        "gae_lambda",
-        "normalize_advantage",
-        "num_minibatches",
-        "vf_coef",
-        "max_grad_norm",
-        "unroll_length",
-        "bptt_length",
-        "num_resets_per_eval",
-        "num_evals",
-        "expose_recent_rollout",
-    )
-)

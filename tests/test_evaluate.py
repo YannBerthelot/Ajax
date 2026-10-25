@@ -15,6 +15,7 @@ from ajax.agents.UDRL.UDRL import EvalCommand
 from ajax.controller import Controller
 from ajax.evaluate import ValueEstimate, evaluate
 from ajax.extensions.expert import ExpertGains
+from ajax.extensions.observe import ExpertActionInput, TrainingProgressInput
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import (
     EnvironmentConfig,
@@ -230,10 +231,8 @@ def test_the_expert_sees_raw_observations_in_collection_and_evaluation(augment):
         learning_starts=16,
         batch_size=8,
         expert_policy=_RecordingExpert(),
-        expert_buffer_n_steps=0,
         normalize_observations=True,
-        augment_obs_with_expert_action=augment,
-        use_train_frac=augment,
+        extensions=(TrainingProgressInput(), ExpertActionInput()) if augment else (),
     )
     logged = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
     agent.train(seed=0, n_timesteps=64, num_episode_test=3, logging_config=logged)
@@ -274,9 +273,7 @@ def _actor_inputs(monkeypatch, expert, **kwargs) -> list:
         learning_starts=16,
         batch_size=8,
         expert_policy=expert,
-        expert_buffer_n_steps=0,
-        augment_obs_with_expert_action=True,
-        use_train_frac=True,
+        extensions=(TrainingProgressInput(), ExpertActionInput()),
         **kwargs,
     )
     logged = LoggingConfig(config={}, log_frequency=32, use_wandb=False)

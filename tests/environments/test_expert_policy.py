@@ -13,11 +13,13 @@ from ajax.environments.system_class import broadcast_env_params
 from ajax.environments.utils import ExpertInAgentUnits, agent_action_to_env
 from ajax.evaluate import evaluate
 from ajax.extensions.expert import (
+    ExpertWarmup,
     ImitationLoss,
     ResidualPolicy,
     reads_stored_expert_actions,
 )
 from ajax.extensions.observe import ExpertActionInput
+from ajax.extensions.pretrain import ExpertPrefill
 from ajax.extensions.target_mods import IBRL
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import EnvironmentConfig, Transition
@@ -236,8 +238,6 @@ _SAC = {
     "critic_architecture": ("8", "relu"),
     "buffer_size": 64,
     "batch_size": 4,
-    "expert_buffer_n_steps": 0,
-    "expert_fraction": 1.0,  # the expert acts on every warm-up step
 }
 
 
@@ -262,7 +262,9 @@ def _written(state):
 def test_expert_rows_are_stored_in_agent_units_and_paid_in_env_units():
     """The expert prefill and the expert's warm-up steps store action =
     a_expert = next_a_expert = 0.75 and are paid the expert's 1.5."""
-    agent = _sac(expert_buffer_n_steps=4, learning_starts=64)
+    # The expert acts on every warm-up step.
+    expert_steps = (ExpertWarmup(fraction=1.0), ExpertPrefill(n_steps=4))
+    agent = _sac(learning_starts=64, extensions=expert_steps)
     state, _ = agent.train(seed=0, n_timesteps=8)
     rows = _written(state)
     assert len(rows["reward"]) == 4 + 8

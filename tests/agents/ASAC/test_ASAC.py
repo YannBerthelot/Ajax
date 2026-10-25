@@ -290,7 +290,7 @@ def test_a_terminated_rows_reward_is_charged_the_penalty_for_the_critics_alone(
     jax.effects_barrier()
     assert any(t.any() and p != 0 for _, _, t, p in seen), "nothing was charged"
     assert len(theta_rewards) == len(seen)
-    scale = agent.agent_config.reward_scale
+    scale = agent.reward_scale
     for (charged, reward, terminated, penalty), theta in zip(
         seen, theta_rewards, strict=True
     ):

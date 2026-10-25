@@ -178,10 +178,7 @@ thousands of steps for a real run (its defaults collect about a million).
    replay buffer, flagged as expert rows. Every row also stores the expert's
    action at `s` and `s′`, which several extensions read later. Under gain
    mode a row stores the anchor gains (action 0) as the action, as
-   collection does when the expert acts as itself. SAC's deprecated
-   `expert_buffer_n_steps` builds it, and with an expert SAC adds
-   `ExpertPrefill(n_steps=20_000)` by default, with a warning, until that
-   default goes: pass the extension, or `expert_buffer_n_steps=0` for none.
+   collection does when the expert acts as itself.
 2. **Cloning**, by extension. `CloningPretrain(expert, n_steps=...)` rolls
    the expert out for `n_steps` steps per environment, in the observation
    layout the agent sees, and trains the actor to reproduce its actions for
@@ -212,10 +209,7 @@ expert's action; otherwise, a uniform random one. The replay flags the rows
 the expert took, where it keeps the expert flags. Under gain mode, or with
 IQL's `ResidualPolicy`, the warm-up draws the policy's actions, and the
 expert's rows store the one that executes the expert's own action (0).
-SAC's `expert_fraction` builds it and warns; left unset with an expert, it
-stands for `ExpertWarmup(fraction=0.7)`, with a warning that this default
-will go. Without warm-up steps (`learning_starts=0`), with `ResidualPolicy`
-or under gain mode, SAC builds none and the warm-up is uniform.
+Without it the warm-up is uniform.
 
 ### Collection
 
@@ -297,8 +291,7 @@ the critics and the replay all read (`ajax.extensions.observe`):
   evaluation holds the collector's.
 
 They join an observation when it arrives, in collection and evaluation, and
-are stored with it. SAC's `augment_obs_with_expert_action`,
-`augment_obs_with_expert_state` and `use_train_frac` build them, and warn.
+are stored with it.
 
 ### Evaluation
 
@@ -317,7 +310,7 @@ Ajax" marks a feature with no external reference.
 
 | You want to | Use | Method |
 | --- | --- | --- |
-| Start the replay with good experience | `ExpertPrefill(n_steps)` (SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL; SAC adds it by default with an expert, and its deprecated `expert_buffer_n_steps` builds it, until both go); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
+| Start the replay with good experience | `ExpertPrefill(n_steps)` (SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
 | Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, ASAC, DQN, IQL) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
 | Keep the actor near the dataset's actions | `ImitationLoss(None, target="replay", alpha=2.5)` (SAC, TD3, REDQ, ASAC) | TD3+BC (Fujimoto and Gu, 2021) on TD3 |
 | Keep the critic's target near the dataset's actions too | `TargetBC` with TD3+BC's term (TD3) | ReBRAC (Tarasov et al., 2023) |
@@ -409,7 +402,7 @@ and `step_with_gains` (TargetGym's `FunctionalExpertPolicy` after
 `register_learnable_gains`), the `ExpertGains` extension
 (`ajax.extensions.expert`) makes an agent schedule the expert's gains
 instead of acting directly: SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL run it with the expert as their
-`expert_policy` (SAC's `use_pid_policy=True` builds it and warns). The
+`expert_policy`. The
 actor outputs one number `a` in `[-1, 1]` per learnable gain; the gain
 applied is `anchor · 10^a`, between a tenth and ten times the expert's own.
 The PID computes the action. The replay, or the rollout, holds the gains

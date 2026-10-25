@@ -43,7 +43,7 @@ from ajax.agents.families import (
 )
 from ajax.agents.recurrent import RecurrentCarries, actor_dist, q_values, sample_replay
 from ajax.controller import critic_action_units
-from ajax.environments.interaction import Explore, explore_pipeline, with_acting_state
+from ajax.environments.interaction import Explore, explore_pipeline
 from ajax.extensions.base import merge_metrics
 from ajax.networks.deterministic import get_initialized_td3_actor_critic
 from ajax.networks.utils import TORCH_LINEAR
@@ -108,12 +108,9 @@ class TD3(
         return {"eps": 1e-8}  # torch.optim.Adam's default eps (sfujim/TD3)
 
     def setup(self) -> None:
-        # A pipeline written before the acting state is adapted, with a
-        # warning (a transitional shim, interaction.with_acting_state).
-        self.pipeline = with_acting_state(self.action_pipeline)
         # The user's pipeline replaces the default one, which alone runs the
         # warm-up's chooser.
-        if self.pipeline is not None and self.env_args.warmups:
+        if self.action_pipeline is not None and self.env_args.warmups:
             names = [warmup.name for warmup in self.env_args.warmups]
             raise ValueError(
                 f"TD3's action_pipeline never sees the warm-up's chooser {names}:"
@@ -121,8 +118,8 @@ class TD3(
             )
 
     def choose_behaviour(self, context: TrainContext) -> Optional[Callable]:
-        if self.pipeline is not None:
-            return self.pipeline
+        if self.action_pipeline is not None:
+            return self.action_pipeline
         transform = next(iter(context.env_args.transforms), None)
         return make_default_action_pipeline(
             context.recurrent,
@@ -477,22 +474,3 @@ class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
     extensions: dict  # the extensions' training metrics
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-TD3Config = TD3.declare_config(
-    (
-        "gamma",
-        "tau",
-        "learning_starts",
-        "reward_scale",
-        "num_critics",
-        "policy_delay",
-        "target_policy_noise",
-        "target_noise_clip",
-        "exploration_noise",
-        "burn_in",
-        "sequence_length",
-        "stored_state",
-    )
-)

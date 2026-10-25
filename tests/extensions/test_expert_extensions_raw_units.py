@@ -14,6 +14,7 @@ import pytest
 from ajax import SAC
 from ajax.extensions.base import Extension
 from ajax.extensions.capabilities import NotWired
+from ajax.extensions.observe import TrainingProgressInput
 from ajax.extensions.pretrain import MCPretrain, PhiRefresh
 from ajax.extensions.target_mods import IBRL, CriticBlend, LCBGatedBootstrap
 
@@ -97,8 +98,9 @@ def test_the_extensions_expert_reads_raw_observations(name):
     extension's expert is given, current or next, is Pendulum's own: three
     columns with cos^2 + sin^2 = 1, which normalised ones break."""
     expert = _RecordingExpert()
-    kw = {"normalize_observations": True, "use_train_frac": True}
-    for seen in _seen(expert, *STACKS[name](expert), **kw):
+    progress = TrainingProgressInput()
+    stack = (*STACKS[name](expert), progress)
+    for seen in _seen(expert, *stack, normalize_observations=True):
         assert seen.shape[-1] == 3, seen.shape
         np.testing.assert_allclose(np.square(seen[..., :2]).sum(-1), 1.0, atol=1e-4)
 
@@ -135,7 +137,6 @@ def test_the_buffer_keeps_raw_next_observations_only_for_a_declared_reader(
         "MCPretrain": (_mc(expert),),
         "metrics": (ExpertValueMetrics(),),
     }
-    sac_only = {"expert_buffer_n_steps": 0} if agent_name == "SAC" else {}
     agent = getattr(ajax, agent_name)(
         "Pendulum-v1",
         n_envs=2,
@@ -143,7 +144,6 @@ def test_the_buffer_keeps_raw_next_observations_only_for_a_declared_reader(
         critic_architecture=("8", "relu"),
         expert_policy=expert,
         extensions=stacks[name],
-        **sac_only,
     )
     state, _ = agent.train(seed=0, n_timesteps=0)
     experience = state.collector_state.buffer_state.experience
@@ -173,7 +173,7 @@ def test_the_buffer_keeps_raw_observations_and_expert_flags_only_for_an_expert(
         "critic_architecture": ("8", "relu"),
     }
     if expert:
-        kw.update({"expert_policy": _RecordingExpert(), "expert_buffer_n_steps": 0})
+        kw.update({"expert_policy": _RecordingExpert()})
     if extension:
         kw["extensions"] = (ImitationLoss(expert_policy=lambda obs: obs[..., :1]),)
     agent = getattr(ajax, agent_name)("Pendulum-v1", n_envs=2, **kw)

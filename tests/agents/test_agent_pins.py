@@ -44,6 +44,8 @@ from ajax.agents.TDMPC2.TDMPC2MultiTask import TDMPC2MultiTask
 from ajax.agents.TQC.TQC import TQC
 from ajax.agents.UDRL.UDRL import UDRL
 from ajax.extensions.base import Extension
+from ajax.extensions.expert import ExpertWarmup
+from ajax.extensions.pretrain import ExpertPrefill
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.q_networks import DuelingQNetwork
 
@@ -246,7 +248,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             "policy_update_start": 40,
             "alpha_update_start": 40,
             "expert_policy": _push,
-            "expert_buffer_n_steps": 40,
+            "extensions": (ExpertWarmup(fraction=0.7), ExpertPrefill(n_steps=40)),
         },
         200,
     ),
@@ -1458,7 +1460,8 @@ _GOLDEN.update(
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]
-    state, _ = agent_cls(**kwargs).train(seed=0, n_timesteps=steps)
+    agent = agent_cls(**kwargs)
+    state, _ = agent.train(seed=0, n_timesteps=steps)
     out = {"actor": float(tree_norm(state.actor_state.params, squared=True))}
     if state.critic_state is not None:
         out["critic"] = float(tree_norm(state.critic_state.params, squared=True))
@@ -1474,10 +1477,13 @@ def fingerprint(name: str) -> dict[str, float]:
         out["n_updates"] = float(jnp.asarray(state.n_updates).reshape(-1)[0])
     if hasattr(state, "alpha"):
         out["alpha"] = float(jnp.exp(state.alpha.params["log_alpha"]).reshape(-1)[0])
-    for ext, ext_state in zip(
-        kwargs.get("extensions", ()), state.ext_state, strict=False
-    ):
-        out[ext.name] = float(jnp.asarray(ext_state).reshape(-1)[0])
+    # The learner's extensions hold the states; a controller's (ExpertWarmup)
+    # or a stateless one (ExpertPrefill) records nothing.
+    extensions = agent.extension_stack.extensions
+    for ext, ext_state in zip(extensions, state.ext_state, strict=True):
+        leaves = jnp.asarray(ext_state).reshape(-1)
+        if leaves.size:
+            out[ext.name] = float(leaves[0])
     return out
 
 

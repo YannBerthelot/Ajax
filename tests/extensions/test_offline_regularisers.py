@@ -15,6 +15,7 @@ from ajax.buffers.dataset import TransitionDataset, fill_replay, next_actions
 from ajax.extensions.base import ExtensionContext
 from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.offline import CalQL, ConservativeQ, TargetBC
+from ajax.extensions.pretrain import ExpertPrefill
 from ajax.networks.networks import predict_value
 
 KEY = jax.random.PRNGKey(0)
@@ -102,9 +103,8 @@ def test_expert_prefill_rows_keep_minus_inf() -> None:
         "Pendulum-v1",
         buffer_size=64,
         batch_size=8,
-        extensions=(CalQL(),),
+        extensions=(CalQL(), ExpertPrefill(n_steps=4)),
         expert_policy=lambda obs: jnp.zeros((*obs.shape[:-1], 1)),
-        expert_buffer_n_steps=4,
     )
     state, _ = agent.train(seed=0, n_timesteps=0)
     replay = jax.tree.map(lambda x: x[0], state.collector_state.buffer_state)

@@ -231,7 +231,7 @@ class ASAC(
         tempered, temperature_aux = update_temperature(
             agent_state,
             log_probs,
-            self.target_entropy_at(timestep, context.total_timesteps),
+            self.target_entropy_at(timestep),
             compute_temperature_loss,
         )
         if not self.fixed_alpha:
@@ -560,19 +560,3 @@ class AuxiliaryLogs:
     value: ValueAuxiliaries
     theta: ThetaAuxiliaries
     extensions: dict  # the extensions' training metrics
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-ASACConfig = ASAC.declare_config(
-    (
-        "target_entropy",
-        "tau",
-        "tau_theta",
-        "learning_starts",
-        "reward_scale",
-        "p_0",
-        "burn_in",
-        "sequence_length",
-        "stored_state",
-    )
-)

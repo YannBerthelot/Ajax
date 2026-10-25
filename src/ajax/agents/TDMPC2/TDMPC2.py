@@ -288,6 +288,7 @@ class TDMPC2(ActorCritic):
         # paper-era mode's follow the tick, in step.
         self.per_seed_update_counts = episodic
         self.train_kwargs = {
+            "agent_config": self.agent_config,
             "gamma": self.gamma,
             "schedule": self.schedule,
             "learning_rate": learning_rate,

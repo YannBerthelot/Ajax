@@ -2,12 +2,10 @@ import json
 import re
 import subprocess
 import sys
-import warnings
 from types import SimpleNamespace
 
 import jax.numpy as jnp
 import numpy as np
-import pytest
 
 from ajax.logging import wandb_logging
 from ajax.logging.wandb_logging import (
@@ -89,12 +87,3 @@ def test_async_tensorboard_logging_round_trip(tmp_path):
     assert "not_ready" not in scalars
     with open(log_dir / "config.json") as fh:
         assert json.load(fh) == {"lr": 0.1, "seed": 3, "run_id": run_id}
-
-
-def test_the_inert_horizon_warns():
-    """Nothing reads ``horizon``; setting it warns until callers stop."""
-    with pytest.warns(FutureWarning, match="horizon has no effect"):
-        LoggingConfig(config={}, horizon=10_000)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", FutureWarning)
-        LoggingConfig(config={})

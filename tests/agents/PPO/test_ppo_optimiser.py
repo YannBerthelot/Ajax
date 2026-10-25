@@ -6,21 +6,17 @@ gradient clipped to global norm 0.5 over every parameter at once
 
 from __future__ import annotations
 
-from typing import cast
-
 import jax
 import numpy as np
 import optax
-import pytest
 
 from ajax.agents import update_steps
-from ajax.agents.PPO.PPO import PPO, PPOConfig
+from ajax.agents.PPO.PPO import PPO
 
 
 def test_PPO_defaults_to_ppo2s_optimiser() -> None:
     agent = PPO(env_id="Pendulum-v1")
-    config = cast(PPOConfig, agent.agent_config)
-    assert (config.max_grad_norm, config.vf_coef) == (0.5, 0.5)
+    assert (agent.max_grad_norm, agent.vf_coef) == (0.5, 0.5)
     for args in (agent.actor_optimizer_args, agent.critic_optimizer_args):
         assert (args.learning_rate, args.eps, args.max_grad_norm) == (3e-4, 1e-5, None)
 
@@ -64,25 +60,3 @@ def test_the_clipped_together_step_is_one_clipped_adam_over_both_networks() -> N
     expected = jax.tree.map(lambda p, s: p - s, params, start)
     for m, e in zip(jax.tree.leaves(moved), jax.tree.leaves(expected), strict=True):
         np.testing.assert_allclose(m, e, rtol=1e-4, atol=1e-8)
-
-
-def test_joint_step_still_returns_the_two_stepped_networks() -> None:
-    """The 0.4.0 name (train_PPO.joint_step, served from steps until 0.5.0)
-    steps both networks as apply_gradients_clipped_together does, without
-    the norms."""
-    from ajax.agents.PPO import train_PPO
-
-    agent = PPO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
-    agent_state = agent.init(jax.random.PRNGKey(0), agent.make_context(8)[1])
-    actor, critic = agent_state.actor_state, agent_state.critic_state
-    actor_grads = jax.tree.map(jax.numpy.ones_like, actor.params)
-    critic_grads = jax.tree.map(jax.numpy.ones_like, critic.params)
-    with pytest.warns(FutureWarning, match="train_PPO.joint_step moved to"):
-        joint_step = train_PPO.joint_step
-    old = joint_step(actor, critic, actor_grads, critic_grads, 0.5)
-    new = update_steps.apply_gradients_clipped_together(
-        actor, critic, actor_grads, critic_grads, 0.5
-    )
-    assert len(old) == 2
-    for got, expected in zip(old, new[:2], strict=True):
-        jax.tree.map(np.testing.assert_array_equal, got.params, expected.params)

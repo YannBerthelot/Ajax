@@ -42,8 +42,13 @@ from ajax.extensions.expert import (
     ImitationLoss,
     JSRLCurriculum,
     ResidualPolicy,
+    StorePolicyAction,
 )
-from ajax.extensions.observe import ExpertActionInput, TrainingProgressInput
+from ajax.extensions.observe import (
+    ExpertActionInput,
+    ExpertStateInput,
+    TrainingProgressInput,
+)
 from ajax.extensions.pretrain import BellmanPretrain, ExpertPrefill, MCPretrain
 from ajax.extensions.target_mods import ValueBox
 from ajax.logging.wandb_logging import LoggingConfig
@@ -176,12 +181,15 @@ TIME_RESET.update(
     {"unroll_length": 16, "num_resets_per_eval": 1, "num_evals": 3, **NORM}
 )
 PPO_GRU = {"memory": MemoryConfig(kind="gru", hidden_size=8)}
-# SAC's own expert options: its replay prefill (expert_buffer_n_steps) and
-# its warm-up mix (expert_fraction, 0.7 by default), alone and with what
-# runs around them: the acting gates before and after the warm-up choice, a
-# pretraining reading the prefill, and the actor loss reading a_expert.
-PREFILL = {**SAC40, "expert_policy": push, "expert_buffer_n_steps": 40}
-NO_PREFILL = {**PREFILL, "expert_buffer_n_steps": 0}
+# SAC's expert options: its replay prefill and its warm-up mix, alone and
+# with what runs around them: the acting gates before and after the warm-up
+# choice, a pretraining reading the prefill, and the actor loss reading
+# a_expert. The cases with an expert and no action transform mix 0.7 of the
+# warm-up, and those without a prefill of their own prefill 20 000 steps,
+# as SAC did by default with an expert when they were recorded.
+SAC_EXPERT = {**SAC40, "expert_policy": push}
+MIX, PREFILL40 = ExpertWarmup(fraction=0.7), ExpertPrefill(n_steps=40)
+DEFAULT_PREFILL = ExpertPrefill(n_steps=20_000)
 SMALL_MC = MCPretrain(
     push, n_mc_steps=200, n_mc_episodes=4, n_steps=20, online_light_steps=5
 )
@@ -207,7 +215,11 @@ AVG_KW = {**S, "learning_starts": 20}
 SAC_FAMILY_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "SAC-offline": (SAC, {**OFFLINE_KW, "policy_update_start": 40}, 80),
     "SAC-critic-updates": (SAC, {**SAC40, "num_critic_updates": 3}, 160),
-    "SAC-store-policy-action": (SAC, {**NO_PREFILL, "store_policy_action": True}, 160),
+    "SAC-store-policy-action": (
+        SAC,
+        {**SAC_EXPERT, "extensions": (MIX, StorePolicyAction())},
+        160,
+    ),
     "SAC-gru-stored": (
         SAC,
         {**SAC40, **GRU, "policy_update_start": 80, "stored_state": True},
@@ -394,7 +406,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             **R,
             "policy_update_start": 80,
             "alpha_update_start": 120,
-            "target_entropy_initial_per_dim": -3.0,
+            "target_entropy_per_dim": linear(-3.0, -1.0, 120),
             "extensions": (Keyed(),),
         },
         240,
@@ -406,39 +418,50 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "SAC-residual": (
         SAC,
-        {**SAC40, "expert_policy": push, "extensions": (ResidualPolicy(), Keyed())},
+        {**SAC_EXPERT, "extensions": (ResidualPolicy(), Keyed(), DEFAULT_PREFILL)},
         160,
     ),
     "SAC-expert-bc": (
         SAC,
         {
-            **SAC40,
-            "expert_policy": push,
-            "extensions": (ImitationLoss(push, coef=1.0),),
+            **SAC_EXPERT,
+            "extensions": (ImitationLoss(push, coef=1.0), MIX, DEFAULT_PREFILL),
         },
         160,
     ),
-    "SAC-expert": (
-        SAC,
-        {**SAC40, "expert_policy": push, "expert_buffer_n_steps": 40},
-        160,
-    ),
+    "SAC-expert": (SAC, {**SAC_EXPERT, "extensions": (MIX, PREFILL40)}, 160),
     "SAC-augment": (
         SAC,
-        {**SAC40, "expert_policy": push, "augment_obs_with_expert_action": True},
+        {**SAC_EXPERT, "extensions": (ExpertActionInput(), MIX, DEFAULT_PREFILL)},
         160,
     ),
     "SAC-gain": (
         SAC,
-        {**SAC40, "expert_policy": GainExpert(), "use_pid_policy": True},
+        {
+            **SAC40,
+            "expert_policy": GainExpert(),
+            "extensions": (ExpertGains(), DEFAULT_PREFILL),
+        },
         160,
     ),
     "SAC-augment-state": (
         SAC,
-        {**SAC40, "expert_policy": GainExpert(), "augment_obs_with_expert_state": True},
+        {
+            **SAC40,
+            "expert_policy": GainExpert(),
+            "extensions": (
+                ExpertStateInput.for_expert(GainExpert()),
+                MIX,
+                DEFAULT_PREFILL,
+            ),
+        },
         160,
     ),
-    "SAC-train-frac": (SAC, {**SAC40, "use_train_frac": True}, 160),
+    "SAC-train-frac": (
+        SAC,
+        {**SAC40, "extensions": (TrainingProgressInput(),)},
+        160,
+    ),
     "SAC-norm": (SAC, {**SAC40, **NORM}, 160),
     "SAC-fixed": (SAC, {**SAC40, "fixed_alpha": True, "policy_update_start": 60}, 160),
     "SAC-pid-norm": (
@@ -446,12 +469,24 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         {**PID, **R, **NORM, "policy_update_start": 40, "alpha_update_start": 40},
         160,
     ),
-    "SAC-mix": (SAC, NO_PREFILL, 160),
-    "SAC-prefill": (SAC, {**PREFILL, "expert_fraction": 0.0}, 160),
-    "SAC-expert-norm": (SAC, {**PREFILL, **NORM, **REWARD_NORM}, 160),
-    "SAC-expert-gates": (SAC, {**PREFILL, "extensions": GATES}, 160),
-    "SAC-expert-bellman": (SAC, {**PREFILL, "extensions": BELLMAN}, 160),
-    "SAC-residual-bc": (SAC, {**NO_PREFILL, "extensions": RESIDUAL_BC}, 160),
+    "SAC-mix": (SAC, {**SAC_EXPERT, "extensions": (MIX,)}, 160),
+    "SAC-prefill": (SAC, {**SAC_EXPERT, "extensions": (PREFILL40,)}, 160),
+    "SAC-expert-norm": (
+        SAC,
+        {**SAC_EXPERT, **NORM, **REWARD_NORM, "extensions": (MIX, PREFILL40)},
+        160,
+    ),
+    "SAC-expert-gates": (
+        SAC,
+        {**SAC_EXPERT, "extensions": (*GATES, MIX, PREFILL40)},
+        160,
+    ),
+    "SAC-expert-bellman": (
+        SAC,
+        {**SAC_EXPERT, "extensions": (*BELLMAN, MIX, PREFILL40)},
+        160,
+    ),
+    "SAC-residual-bc": (SAC, {**SAC_EXPERT, "extensions": RESIDUAL_BC}, 160),
     "REDQ": (REDQ, {**S, **R}, 120),
     "REDQ-warmup": (REDQ, {**S, **R, **WARMUP}, 120),
     "ASAC": (ASAC, {**S, **R}, 160),

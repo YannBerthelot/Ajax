@@ -1,7 +1,6 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
 
 from ajax.agents.TD3.TD3 import TD3, make_default_action_pipeline
 from ajax.controller import acting_state
@@ -116,20 +115,7 @@ def test_the_behaviour_policy_adds_its_exploration_noise():
     assert 0.2 < spread < 0.4, spread
 
 
-def test_an_old_signature_pipeline_is_adapted_with_a_warning():
-    """A pipeline written before the acting state, as AjaxExperiments' TD3
-    variants are, still collects, called with its old arguments."""
-    seen = []
-
-    def old(agent_state, raw_obs, rng, uniform, mix_key, action_key):
-        seen.append((agent_state, raw_obs, rng, uniform, mix_key, action_key))
-        return "result"
-
-    with pytest.warns(FutureWarning, match="ActingState"):
-        agent = TD3(env_id="Pendulum-v1", action_pipeline=old)
-    adapted = agent.choose_behaviour(make_context(agent))
-    assert adapted("s", "acting", "o", "r", "u", "m", "a") == "result"
-    assert seen == [("s", "o", "r", "u", "m", "a")]
+def test_a_given_pipeline_replaces_the_default_one():
     new = make_default_action_pipeline(False, 0.1)
     agent = TD3(env_id="Pendulum-v1", action_pipeline=new)
     assert agent.choose_behaviour(make_context(agent)) is new

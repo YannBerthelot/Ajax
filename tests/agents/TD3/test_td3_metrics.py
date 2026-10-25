@@ -66,7 +66,7 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
     agent = TD3("Pendulum-v1", actor_architecture=NET, critic_architecture=NET)
     context = make_context(agent)
     state = agent.init(KEY, context)
-    batch, config = _batch(agent), agent.agent_config
+    batch, config = _batch(agent), agent
     _, v_aux, _ = agent.update_critic(state, batch, None, context)
 
     critic = state.critic_state

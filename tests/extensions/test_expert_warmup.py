@@ -1,9 +1,7 @@
 """ExpertWarmup: the agent's expert takes a share of the warm-up steps, a
 controller phase (choose_warmup_action) with no state and no key in the
-learner, on every agent with a uniform warm-up. SAC's expert_fraction builds
-it and warns, its None default standing for 0.7 with an expert until B7."""
+learner, on every agent with a uniform warm-up."""
 
-import warnings
 from typing import Any
 
 import jax
@@ -22,7 +20,6 @@ from tests.agents.test_offline import episodes
 SMALL: dict[str, Any] = {"actor_architecture": ("16", "relu")}
 SMALL.update({"critic_architecture": ("16", "relu"), "n_envs": 2})
 SMALL.update({"learning_starts": 8, "batch_size": 8, "buffer_size": 64})
-SMALL.update({"expert_buffer_n_steps": 0})
 
 
 def push(obs: jax.Array) -> jax.Array:
@@ -30,10 +27,8 @@ def push(obs: jax.Array) -> jax.Array:
 
 
 def sac(**kwargs: Any) -> SAC:
-    """SAC on Pendulum with push as its expert, its warnings silenced."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", FutureWarning)
-        return SAC("Pendulum-v1", **{**SMALL, "expert_policy": push, **kwargs})
+    """SAC on Pendulum with push as its expert."""
+    return SAC("Pendulum-v1", **{**SMALL, "expert_policy": push, **kwargs})
 
 
 def train(agent: SAC) -> Any:
@@ -57,51 +52,10 @@ def test_the_expert_takes_its_share_of_the_warmup_and_is_flagged(fraction):
     assert (np.asarray(rows["is_expert"])[:, 4:6] == 0).all()
 
 
-def test_the_keyword_and_the_extension_train_the_same():
-    """expert_fraction, and its None default with an expert, build the
-    extension: bitwise the same runs."""
-    pairs = [
-        (sac(expert_fraction=0.5), sac(extensions=(ExpertWarmup(fraction=0.5),))),
-        (sac(), sac(extensions=(ExpertWarmup(fraction=0.7),))),
-    ]
-    for keyword, extension in pairs:
-        by_keyword = jax.tree.leaves(train(keyword))
-        by_extension = jax.tree.leaves(train(extension))
-        for old, new in zip(by_keyword, by_extension, strict=True):
-            np.testing.assert_array_equal(old, new)
-
-
-def test_the_keyword_warns_and_raises_beside_the_extension():
-    with pytest.warns(
-        FutureWarning, match="adds ExpertWarmup.fraction=0.7. by default"
-    ):
-        SAC("Pendulum-v1", **SMALL, expert_policy=push)
-    with pytest.warns(FutureWarning, match="expert_fraction will be removed"):
-        SAC("Pendulum-v1", **SMALL, expert_policy=push, expert_fraction=0.3)
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "error", ".*(ExpertWarmup|expert_fraction)", FutureWarning
-        )
-        warmup = (ExpertWarmup(fraction=0.3),)
-        agent = SAC("Pendulum-v1", **SMALL, expert_policy=push, extensions=warmup)
-    assert agent.env_args.warmups == warmup and not agent.extension_stack
-    both = {"expert_fraction": 0.3, "extensions": warmup}
-    with pytest.raises(ValueError, match="not both"):
-        SAC("Pendulum-v1", **SMALL, expert_policy=push, **both)
-
-
-def test_sac_builds_no_default_warmup_where_it_never_mixed():
-    """Without warm-up steps, under an action transform or without an
-    expert there is no mix, and nothing is built."""
-    assert sac(learning_starts=0).env_args.warmups == ()
-    assert sac(extensions=(ResidualPolicy(),)).env_args.warmups == ()
-    assert sac(expert_policy=None).env_args.warmups == ()
-
-
 def test_sac_with_an_expert_and_no_warmup_steps_builds_and_trains():
-    """The default mix needs warm-up steps; without them SAC builds none,
-    also beside PriorData (whose rows need learning_starts=0). A replay with
-    an expert's columns takes no dataset yet, so that one only builds."""
+    """SAC with an expert and no warm-up steps builds and trains, also beside
+    PriorData (whose rows need learning_starts=0). A replay with an expert's
+    columns takes no dataset yet, so that one only builds."""
     train(sac(learning_starts=0))
     data = PriorData(episodes(3, discrete=False))
     assert sac(learning_starts=0, extensions=(data,)).env_args.warmups == ()
@@ -233,8 +187,6 @@ def test_the_expert_warmup_stores_the_policy_action_that_executes_the_expert(nam
             "expert_policy": TwoGains(),
             "extensions": (ExpertGains(), warmup),
         }
-    if name == "SAC":
-        transformed.update({"expert_buffer_n_steps": 0})
     cls, networks = (SAC, ARCHITECTURES) if name == "SAC" else WARMUP_AGENTS[name]
     rows = warmup_rows(cls, **transformed, **networks)
     chosen = rows["policy_action"] if name == "IQL" else rows["action"]

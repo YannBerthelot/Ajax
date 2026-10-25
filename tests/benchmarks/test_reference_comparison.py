@@ -38,7 +38,7 @@ def test_every_arm_builds_its_agent_and_evaluates_inside_the_run(name, arm):
     assert type(agent).__name__ == spec.agent
     if spec.eval_every:  # no evaluation slot may stay empty (NaN)
         assert spec.n_timesteps % spec.eval_every == 0
-        n_steps = getattr(agent.agent_config, "n_steps", 1)
+        n_steps = getattr(agent, "n_steps", 1)
         assert spec.eval_every % (agent.env_args.n_envs * n_steps) == 0
 
 

@@ -48,7 +48,6 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.agents.recurrent import RecurrentCarries, actor_dist, q_values, sample_replay
-from ajax.agents.SAC.deprecated_keywords import SACDeprecatedKeywords
 from ajax.agents.temperature import (
     SoftActorCriticState,
     TemperatureAuxiliaries,
@@ -57,18 +56,12 @@ from ajax.agents.temperature import (
     update_temperature,
 )
 from ajax.controller import make_scored_action
-from ajax.deprecation import moved_names
 from ajax.extensions.base import merge_metrics
 from ajax.networks.distributions import latent
 from ajax.networks.networks import predict_value
 from ajax.perf_utils import final_aux_scan
 from ajax.state import LoadedTrainState, Transition
 from ajax.types import Architecture
-
-# Moved with SAC's other deprecated keywords; the old path goes in 0.5.0.
-__getattr__ = moved_names(
-    __name__, {"augmentation_features": "ajax.agents.SAC.deprecated_keywords"}
-)
 
 #: SAC's reference initialisation, Glorot-uniform kernels and zero biases in
 #: both networks (see SAC.actor_critic_args).
@@ -77,7 +70,6 @@ GLOROT = "xavier_uniform"
 
 @dataclass(kw_only=True, eq=False, repr=False)
 class SAC(
-    SACDeprecatedKeywords,
     EntropyTemperature,
     PolicyUpdateStart,
     GradientClipping,
@@ -267,7 +259,7 @@ class SAC(
         tempered, temperature_aux = update_temperature(
             agent_state,
             log_probs,
-            self.target_entropy_at(timestep, context.total_timesteps),
+            self.target_entropy_at(timestep),
             compute_temperature_loss,
         )
         temperature_due = jnp.logical_and(
@@ -689,18 +681,3 @@ class AuxiliaryLogs:
     policy: PolicyAuxiliaries
     value: ValueAuxiliaries
     extensions: dict  # the extensions' training metrics
-
-
-#: agent.agent_config's class: a view of the fields until 0.5.0.
-SACConfig = SAC.declare_config(
-    (
-        "gamma",
-        "target_entropy",
-        "tau",
-        "learning_starts",
-        "reward_scale",
-        "burn_in",
-        "sequence_length",
-        "stored_state",
-    )
-)

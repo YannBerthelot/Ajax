@@ -8,9 +8,8 @@ itself towards a target entropy. SAC learns off-policy from a replay buffer,
 so it reuses each transition many times.
 
 SAC is also the agent with the most expert-guidance support in Ajax: it is
-the only one that runs `action` extensions (an expert acting during
-collection) and keeps a few expert options of its own (see
-[Expert options](#expert-options)).
+the only one that runs `action` extensions, an expert acting during
+collection (see [Expert options](#expert-options)).
 
 **Papers.** Haarnoja et al., *Soft Actor-Critic*, 2018
 ([arXiv:1801.01290](https://arxiv.org/abs/1801.01290)). The learned
@@ -82,10 +81,7 @@ Defaults are read from `SAC.__init__`.
 
 ### Expert options
 
-These options remain on SAC because they reach the network's input size, the
-collection or the action pipeline, where extensions do not reach yet. Most
-concern the expert; the last four are research switches of SAC's own. The
-expert is written in the environment's units and receives the raw
+The expert is written in the environment's units and receives the raw
 (unnormalised) observations; Ajax reads its actions in the agent's units. See
 [Expert guidance](../guide/expert-guidance.md).
 
@@ -93,23 +89,16 @@ expert is written in the environment's units and receives the raw
 | --- | --- | --- |
 | `expert_policy` | `None` | the expert used in training; `None` is plain SAC |
 | `eval_expert_policy` | `None` | an expert used only for the evaluation's comparison metrics |
-| `expert_buffer_n_steps` | `None` | deprecated: builds `ExpertPrefill(n_steps)` (`ajax.extensions.pretrain`: the expert's steps per env written to the replay before training), which pass instead; `None` with an expert builds `ExpertPrefill(n_steps=20_000)` and warns that this default will go |
-| `expert_fraction` | `None` | deprecated: builds `ExpertWarmup(fraction)` (`ajax.extensions.expert`: during warm-up, the chance a step takes the expert's action instead of a uniform one), which pass instead; `None` with an expert builds `ExpertWarmup(fraction=0.7)` and warns that this default will go |
-| `use_pid_policy` | `False` | deprecated: builds `ExpertGains()` (`ajax.extensions.expert`, gain mode: the actor outputs the gains of the expert's PID), which pass instead |
-| `augment_obs_with_expert_action`, `augment_obs_with_expert_state` | `False` | deprecated: build `ExpertActionInput()`, `ExpertStateInput.for_expert(expert)` (`ajax.extensions.observe`), which pass instead |
-| `use_train_frac` | `False` | deprecated: builds `TrainingProgressInput()`, which pass instead |
-| `target_entropy_initial_per_dim`, `target_entropy_ramp_frac` | `None`, `0.5` | deprecated: pass `target_entropy_per_dim=linear(initial, final, steps)` (`ajax.schedule`) instead |
-| `normalize_obs_running` | `False` | `normalize_observations` under its old name: warns, and will be removed ([Environments](../guide/environments.md#normalisation)) |
-| `store_policy_action` | `False` | deprecated: builds `StorePolicyAction()` (`ajax.extensions.expert`), which pass instead |
 
-Cloning the expert into the actor before training is the `CloningPretrain`
-extension, at the actor's learning rate; fitting a frozen expert critic on
-the expert's Monte-Carlo returns is `MCPretrain`, which only SAC supports.
-`jsrl_curriculum` is deprecated: it has no
-effect and warns, since SAC counts each environment's steps in its episode
-whenever an extension reads them (`JSRLCurriculum`).
-`skip_critic_pretrain=True` is a no-op kept for a downstream project; `False`
-raises.
+The expert's other uses are extensions: `ExpertPrefill(n_steps)` writes its
+steps to the replay before training, `ExpertWarmup(fraction)` lets it take a
+share of the warm-up's steps, `ExpertGains()` makes the actor output the
+gains of the expert's PID, and `ExpertActionInput()` and
+`ExpertStateInput.for_expert(expert)` append its action and state to the
+observation. Cloning the expert into the actor before training is the
+`CloningPretrain` extension, at the actor's learning rate; fitting a frozen
+expert critic on the expert's Monte-Carlo returns is `MCPretrain`, which
+only SAC supports.
 
 ## Notes
 

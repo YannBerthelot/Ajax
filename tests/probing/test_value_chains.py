@@ -579,7 +579,7 @@ P1_CELLS: dict[str, tuple[str, str, int, dict]] = {  # agent, chain, budget, ove
     "TD3": ("TD3", "continuous", 2500, _ON),
     "REDQ": ("REDQ", "continuous", 2500, _ON | {"num_critic_updates": 2}),
     "ASAC": ("ASAC", "continuous", 5000, _ON | {"p_0": 0.0}),
-    "SAC-running": ("SAC", "continuous", 5000, {"normalize_obs_running": True}),
+    "SAC-running": ("SAC", "continuous", 5000, {"normalize_observations": True}),
 }
 
 
@@ -618,7 +618,7 @@ def _p1_read(model: Any, cell: str, n: R.Nets) -> dict:
         gap = R.critic(n, S0, -0.5) - 2 * R.critic(n, S1, 0.5)
         return out | {"Q(s0,-0.5) - 2 Q(s1,0.5) - oracle": gap - oracle}
     if name == "TD3":
-        c = model.agent_config
+        c = model
         noise = c.target_policy_noise * jax.random.normal(R.KEY, (4096,))
         noise = jnp.clip(noise, -c.target_noise_clip, c.target_noise_clip)
         boot = jnp.mean(r(1, pi1.mean().reshape(()) + noise))

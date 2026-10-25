@@ -12,6 +12,7 @@ from flax import linen as nn
 from flax.training import train_state
 
 from ajax.agents.cloning import pre_train
+from ajax.extensions.observe import ExpertActionInput, TrainingProgressInput
 from ajax.extensions.pretrain import CloningPretrain
 from ajax.modules.pid_actor import PIDActor, PIDPolicy
 from ajax.networks.networks import Actor
@@ -170,7 +171,6 @@ def test_cloning_pretraining_leaves_jax_caches_alone():
         critic_architecture=("8", "relu"),
         expert_policy=expert,
         extensions=(CloningPretrain(expert, n_steps=64, epochs=1),),
-        expert_buffer_n_steps=0,
         learning_starts=8,
         batch_size=8,
     )
@@ -191,16 +191,10 @@ def _half_torque(obs):
     return jnp.clip(-0.5 * obs[..., :1], -1.0, 1.0)
 
 
-# SAC clones with its observation layout: the expert's action and the
-# training fraction appended (its expert prefill off, for speed).
-_LAYOUT = {
-    "SAC": {
-        "augment_obs_with_expert_action": True,
-        "use_train_frac": True,
-        "expert_buffer_n_steps": 0,
-    },
-    "APO": {"n_steps": 8, "batch_size": 8},
-}
+# SAC clones with its observation layout: the training fraction and the
+# expert's action appended.
+_FEATURES = {"SAC": (TrainingProgressInput(), ExpertActionInput())}
+_LAYOUT = {"APO": {"n_steps": 8, "batch_size": 8}}
 
 
 @pytest.mark.parametrize("agent_name", ["APO", "ASAC", "AVG", "REDQ", "SAC", "TD3"])
@@ -213,7 +207,8 @@ def test_cloning_pretrain_seeds_the_agents_statistics(agent_name):
     kw.update({"expert_policy": _half_torque, **_LAYOUT.get(agent_name, {})})
     module = importlib.import_module(f"ajax.agents.{agent_name}.{agent_name}")
     cloning = CloningPretrain(_half_torque, n_steps=16, epochs=2, batch_size=8)
-    agent = getattr(module, agent_name)("Pendulum-v1", extensions=(cloning,), **kw)
+    extensions = (cloning, *_FEATURES.get(agent_name, ()))
+    agent = getattr(module, agent_name)("Pendulum-v1", extensions=extensions, **kw)
     state = agent.train(seed=0, n_timesteps=0)[0]
     assert state.actor_state.obs_norm_info is not None
 
@@ -230,7 +225,6 @@ def _sac_actor(*extensions):
         actor_architecture=tiny,
         critic_architecture=tiny,
         expert_policy=_half_torque,
-        expert_buffer_n_steps=0,
         extensions=extensions,
     )
     return agent.train(seed=0, n_timesteps=0)[0].actor_state.params["params"]

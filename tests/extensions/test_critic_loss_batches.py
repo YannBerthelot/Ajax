@@ -15,7 +15,7 @@ import optax
 import pytest
 from flax.training.train_state import TrainState
 
-from ajax.agents.loop import critic_step
+from ajax.agents.update_steps import critic_step
 from ajax.extensions.base import ExtensionContext, ExtensionStack
 from ajax.extensions.instrumentation import BiasVorePenalty
 from ajax.state import Transition

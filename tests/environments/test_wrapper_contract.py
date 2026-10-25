@@ -38,7 +38,6 @@ from ajax.environments.model_reference import (
     ModelReferenceWrapper,
     StepReference,
 )
-from ajax.environments.pid_terms import PIDTermsWrapper
 from ajax.environments.utils import env_keys, get_env_type
 from tests.environments.identity_env import LIMIT, TERMINAL, IdentityEnv, ends
 
@@ -103,7 +102,6 @@ ROWS = {
     ),
     W.TerminatedTruncatedWrapper: lambda: W.TerminatedTruncatedWrapper(IdentityEnv()),
     W.ObservationNoiseWrapper: lambda: W.ObservationNoiseWrapper(IdentityEnv(), 0.1),
-    PIDTermsWrapper: lambda: PIDTermsWrapper(IdentityEnv(), (0,), (1,)),
     ModelReferenceWrapper: lambda: ModelReferenceWrapper(
         IdentityEnv(),
         StepReference(LIMIT, -1.0, 1.0, 1, 2),

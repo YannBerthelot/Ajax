@@ -9,6 +9,7 @@ from flax import struct
 from gymnax.environments import environment, spaces
 
 from ajax import SAC
+from ajax.extensions.observe import TrainingProgressInput
 
 
 @struct.dataclass
@@ -43,10 +44,11 @@ class _ReplacingCounter(environment.Environment):
 
 
 def test_an_agent_on_the_training_fraction_steps_the_envs_own_state():
-    """SAC with use_train_frac trains on an env stepping by state.replace
-    (gymnax's auto-reset selects between the reset state and the stepped
-    one: they must be one class), and its collector holds the env's own
-    state class, the fraction being the collector's, not the state's."""
+    """SAC with TrainingProgressInput trains on an env stepping by
+    state.replace (gymnax's auto-reset selects between the reset state and
+    the stepped one: they must be one class), and its collector holds the
+    env's own state class, the fraction being the collector's, not the
+    state's."""
     env = _ReplacingCounter()
     agent = SAC(
         env,
@@ -56,7 +58,7 @@ def test_an_agent_on_the_training_fraction_steps_the_envs_own_state():
         critic_architecture=("8", "relu"),
         learning_starts=16,
         batch_size=8,
-        use_train_frac=True,
+        extensions=(TrainingProgressInput(),),
     )
     state, _ = agent.train(seed=0, n_timesteps=32)
     collector = state.collector_state

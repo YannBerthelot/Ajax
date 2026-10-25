@@ -17,7 +17,7 @@ Usage:
 Scenarios:
     pure_sac          Pendulum-v1, no obs norm, no expert. Sensitive to
                       patch #2 (gated q_preds_for_var).
-    obs_norm_sac      Pendulum-v1, normalize_obs_running=True. Sensitive
+    obs_norm_sac      Pendulum-v1, normalize_observations=True. Sensitive
                       to patch #1 (agent obs-norm shape).
     stress_sac        Pendulum-v1, 64 envs, 10 critics, 256-wide nets,
                       obs norm: the headline scenario.
@@ -109,7 +109,7 @@ def _build_agent(scenario: str, n_envs: int, learning_starts: int):
     if scenario == "pure_sac":
         return SAC(**common)
     if scenario == "obs_norm_sac":
-        return SAC(normalize_obs_running=True, **common)
+        return SAC(normalize_observations=True, **common)
     if scenario in ("stress_sac", "stress_sac_utd"):
         # Amplifies patch effects: many critics (#2), bigger obs broadcast
         # via larger n_envs (#1), larger nets so forward passes dominate.
@@ -125,7 +125,7 @@ def _build_agent(scenario: str, n_envs: int, learning_starts: int):
             buffer_size=20_000,
             num_critics=10,
             num_critic_updates=10 if scenario == "stress_sac_utd" else 1,
-            normalize_obs_running=True,
+            normalize_observations=True,
         )
     if scenario == "p3dcircle_sac":
         # Plane3DCircle from target_gym: 17-dim obs, 3-dim action.

@@ -35,7 +35,6 @@ from ajax.networks.memory import MemoryConfig, parse_memory_config
 from ajax.networks.networks import CNNSpec
 from ajax.state import (
     LOG_STD_BOUNDS,
-    BaseAgentConfig,
     BaseAgentState,
     EnvironmentConfig,
     NetworkConfig,
@@ -347,9 +346,6 @@ class ActorCritic:
             weight_decay=weight_decay,
         )
 
-        # Any: a declared agent's is the class its fields generate
-        # (ajax.agents.families.DeclaredAgent.declare_config).
-        self.agent_config: Any = BaseAgentConfig()
         #: ``make_train``'s keyword arguments proper to the agent, beyond the
         #: ones every agent's takes (:meth:`train`); each agent fills it.
         self.train_kwargs: dict[str, Any] = {}
@@ -571,7 +567,6 @@ class ActorCritic:
             actor_optimizer_args=self.actor_optimizer_args,
             critic_optimizer_args=self.critic_optimizer_args,
             network_args=self.network_args,
-            agent_config=self.agent_config,
             total_timesteps=horizon,
             num_episode_test=num_episode_test,
             run_ids=self.run_ids,

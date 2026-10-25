@@ -150,7 +150,6 @@ DOWNSTREAM_API: dict[str, tuple[str, ...]] = {
     "ajax.logging.wandb_logging:LoggingConfig": (
         "config",
         "folder",
-        "horizon",
         "log_frequency",
         "project_name",
         "run_name",

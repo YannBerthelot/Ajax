@@ -149,15 +149,3 @@ def test_a_replay_agent_stores_the_envs_own_rewards(name: str) -> None:
         agent.buffer, buffer_state, jax.random.PRNGKey(1), reward_stats=stats
     )
     np.testing.assert_allclose(replayed.reward, batch.reward / std, rtol=1e-5)
-
-
-def test_sacs_running_normaliser_is_normalize_observations_under_its_old_name() -> None:
-    """One mechanism: normalize_obs_running turns on the same agent-side
-    normalisation as normalize_observations, with a FutureWarning naming
-    the new keyword (expand then contract: a downstream project passes it)."""
-    with pytest.warns(FutureWarning, match="pass normalize_observations=True"):
-        old = ajax.SAC(env_id="Pendulum-v1", normalize_obs_running=True)
-    new = ajax.SAC(env_id="Pendulum-v1", normalize_observations=True)
-    assert old.env_args.normalize_obs_in_agent and new.env_args.normalize_obs_in_agent
-    layers = [strip_ajax_wrappers(a.env_args.env)[1] for a in (old, new)]
-    assert layers[0] == layers[1]

@@ -24,6 +24,8 @@ import ajax.log
 from ajax.environments import model_reference as mr
 from ajax.environments.system_class import UniformPerturbation
 from ajax.extensions import target_mods
+from ajax.extensions.expert import ExpertWarmup
+from ajax.extensions.observe import TrainingProgressInput
 from ajax.extensions.pretrain import MCPretrain
 
 from . import agents, envs, runs
@@ -126,7 +128,8 @@ ELSEWHERE = {  # world models whose own tests assert a resume equals one call
 # PPO's and PQN's log points two iterations apart, none at a leg's overshoot:
 # ten a run, PQN's three.
 LOGGED = {"SAC": 40, "DQN": 40, "PPO": 64, "PQN": 256}
-TRAIN_FRAC = Split(_make("SAC", RD, {**SAC_KW, "use_train_frac": True}), 400, 200, 200)
+PROGRESS = {**SAC_KW, "extensions": (TrainingProgressInput(),)}
+TRAIN_FRAC = Split(_make("SAC", RD, PROGRESS), 400, 200, 200)
 VB_STEPS = 100
 
 
@@ -226,7 +229,7 @@ def test_a_resumed_run_evaluates_only_when_it_logs(name: str) -> None:
 # --- Totals and bounds that must survive a resume -----------------------------
 def test_sac_trains_with_the_training_fraction_in_its_observation() -> None:
     """A fresh run trains and ends at training fraction 1.0 (the observation
-    column's source, state.py:222-226); no other test runs use_train_frac."""
+    column's source, TrainingProgressInput)."""
     run = runs.train(TRAIN_FRAC.build(), SEEDS, TRAIN_FRAC.budget, **TEST)
     frac = run.state.collector_state.train_time_fraction
     np.testing.assert_allclose(np.asarray(frac), 1.0, rtol=0, atol=1e-6)
@@ -278,9 +281,8 @@ class RecordingValueBox(target_mods.ValueBox):
 
 def value_box_agent(records: list) -> Any:
     """SAC, MC pre-training and the recording ValueBox under a constant
-    expert; the expert buffer off (with it on, the expert path crashes)."""
+    expert, which acts on a share 0.7 of the warm-up's steps."""
     e = ConstantExpert()
-    off: dict[str, Any] = {"expert_buffer_n_steps": 0}
     mc: dict[str, Any] = {"n_mc_steps": 200, "n_mc_episodes": 4, "n_steps": 20}
     mc |= {"online_light_steps": 5}
 
@@ -290,8 +292,9 @@ def value_box_agent(records: list) -> Any:
     exts = (
         MCPretrain(expert_policy=e, **mc),
         RecordingValueBox(sink=sink),
+        ExpertWarmup(fraction=0.7),
     )
-    kw: dict[str, Any] = {**SAC_KW, **dict.fromkeys(STARTS, 20), **off, "n_envs": 1}
+    kw: dict[str, Any] = {**SAC_KW, **dict.fromkeys(STARTS, 20), "n_envs": 1}
     kw |= {"batch_size": 16, "gamma": agents.GAMMA, "expert_policy": e}
     return agents.make("SAC", *envs.package(RD), preset=None, extensions=exts, **kw)
 

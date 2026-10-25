@@ -490,30 +490,6 @@ def test_with_experts_converts_each_held_expert_and_keeps_identity():
     assert bound.extensions[0].reads_stored_expert
 
 
-def test_the_former_fold_names_still_apply_the_phases():
-    """The agents not yet declared on a family call fold_<phase>, kept as
-    aliases of the phase's current name until 0.5.0, on the stack, the update
-    steps and the loop: apply_<phase>, or compute_extensions_<phase> for the
-    two loss terms."""
-    from ajax.agents import loop, update_steps
-
-    phases = "reward on_target post_update init init_states pretrain eval_metrics"
-    current = {phase: f"apply_{phase}" for phase in phases.split()}
-    current.update(
-        {
-            "critic_loss": "compute_extensions_critic_loss",
-            "actor_loss": "compute_extensions_actor_loss",
-        }
-    )
-    for phase, name in current.items():
-        assert getattr(ExtensionStack, f"fold_{phase}") is getattr(ExtensionStack, name)
-    for phase in ("on_target", "critic_loss", "post_update"):
-        function = getattr(update_steps, current[phase])
-        assert getattr(update_steps, f"fold_{phase}") is function
-        assert getattr(loop, f"fold_{phase}") is function
-        assert getattr(loop, current[phase]) is function
-
-
 @dataclass(frozen=True)
 class _NamedCtx(Extension):
     """A downstream extension written before the rename: each phase names its

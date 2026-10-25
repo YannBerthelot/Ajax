@@ -253,7 +253,6 @@ def test_sac_logs_the_filtered_fraction_on_a_replay_batch() -> None:
         learning_starts=16,
         batch_size=8,
         expert_policy=expert,
-        expert_buffer_n_steps=0,
         extensions=(ImitationLoss(expert_policy=expert, q_filter=True),),
     )
     state, rows = agent.train(seed=0, n_timesteps=64, logging_config=logged)
@@ -318,7 +317,7 @@ def test_the_other_q_critic_agents_train_with_the_filter(name: str) -> None:
 
 def _ext_state(state: Any, stack: ExtensionStack) -> Any:
     """What make_train does before training: one ext_state per extension."""
-    return stack.fold_init_states(state, KEY)
+    return stack.apply_init_states(state, KEY)
 
 
 def _obs(agent: Any) -> jax.Array:
@@ -529,7 +528,7 @@ def test_apg_trains_with_the_term_along_its_rollout() -> None:
 
     def actor(*extensions: Any) -> Any:
         agent = make_agent(env, tracking_class(params), extensions=extensions)
-        steps = agent.env_args.n_envs * agent.agent_config.horizon
+        steps = agent.env_args.n_envs * agent.horizon
         return agent.train(seed=0, n_timesteps=steps)[0].actor_state.params
 
     assert not _same(actor(ImitationLoss(EXPERT, coef=100.0)), actor())

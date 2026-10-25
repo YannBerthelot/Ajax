@@ -121,7 +121,6 @@ Ajax ships gymnax wrappers for common changes to a task:
 | `InitialStateWrapper(env, init_state_fn)` | replaces the reset state, for every episode (fixed or narrowed initial conditions) |
 | `ObservationNoiseWrapper(env, sigma, scale=1.0)` | adds sensor noise to the observations (see [below](#sensor-noise)) |
 | `TerminatedTruncatedWrapper(env)` | splits an old-style `done` into `terminated` and `truncated` (see [time limits](#time-limits)) |
-| `PIDTermsWrapper` (`ajax.environments.pid_terms`) | deprecated: the `PIDTermsInput` observation feature adds a PID's error terms (see [below](#pid-error-terms)) |
 
 ```python
 import gymnax
@@ -227,10 +226,8 @@ normalises observations itself: the statistics live in
 them, so `get_pi` takes raw observations) and cover the dimensions SAC
 appends to the observation (an expert's action or state), not UDRL's
 command. A replayed reward
-is divided by the environment normaliser's current statistics. SAC's
-`normalize_obs_running=True`, the switch's old name, warns and will be
-removed: pass `normalize_observations=True`. An expert policy always reads the raw
-observation, in the environment's own units: see
+is divided by the environment normaliser's current statistics. An expert
+policy always reads the raw observation, in the environment's own units: see
 [Expert guidance](expert-guidance.md).
 
 ### Raw observation columns
@@ -239,9 +236,8 @@ Some observation entries must keep their units: a PID's gains only mean
 something on errors in the plant's units. An environment or wrapper declares
 its first `k` columns raw with a `raw_obs_columns = k` attribute. Every
 normaliser, in the environment or in the agent, then leaves those columns
-unchanged and normalises the rest. The deprecated `PIDTermsWrapper` declares
-its terms this way; observation features keep their columns raw by
-declaring it (`observes_normalised = False`) instead.
+unchanged and normalises the rest. Observation features keep their columns
+raw by declaring it (`observes_normalised = False`) instead.
 
 ## PID error terms
 
@@ -276,8 +272,7 @@ columns longer. `dt` is the sampling period: the integral sums `dt * e` and
 the difference is divided by `dt`, so gains keep their continuous-time
 units. `integral_limit` clamps the integral (anti-windup). The terms restart
 with every episode, auto-resets included. The [PID policy](networks.md#the-pid-policy)
-reads them. `PIDTermsWrapper(env, current_idx, target_idx, dt, integral_limit)`,
-which put them first in the environment's observation, is deprecated.
+reads them.
 
 ## Actions
 

@@ -217,7 +217,6 @@ class DreamerV3(ActorCritic):
         self.dreamer_config = DreamerV3Config.from_arguments(
             {**self.config, "return_horizon": float(return_horizon)}
         )
-        self.train_kwargs = {"config": self.dreamer_config}
         # The values actually used, next to the constructor arguments (whose
         # None widths the preset resolves), for the loggers' run config.
         self.config.update(self.dreamer_config.resolved())
@@ -227,6 +226,11 @@ class DreamerV3(ActorCritic):
             batch_length=batch_length,
             replay_capacity=replay_capacity,
         )
+        # Its make_train reads the replay's settings from agent_config.
+        self.train_kwargs = {
+            "config": self.dreamer_config,
+            "agent_config": self.agent_config,
+        }
         self.schedule = TrainRatio(
             n_envs=n_envs,
             batch_size=batch_size,

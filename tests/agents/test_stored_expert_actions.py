@@ -73,18 +73,10 @@ def rerun(
 #: The replay agents' updates from step 16, on batches of 8.
 REPLAY = {"learning_starts": 16, "batch_size": 8}
 #: Each agent storing its expert's actions, and its options for a short run
-#: (SAC: no expert prefill or warm-up mixing; its actor steps from its first
-#: update. APO: two rollouts of two episodes per env, the last one kept).
+#: (SAC: its actor steps from its first update. APO: two rollouts of two
+#: episodes per env, the last one kept).
 AGENTS: dict[str, tuple[type, dict]] = {
-    "SAC": (
-        SAC,
-        {
-            **REPLAY,
-            "expert_buffer_n_steps": 0,
-            "expert_fraction": 0.0,
-            "policy_update_start": 8,
-        },
-    ),
+    "SAC": (SAC, {**REPLAY, "policy_update_start": 8}),
     "TD3": (TD3, REPLAY),
     "REDQ": (REDQ, {**REPLAY, "num_critic_updates": 2}),  # not its 20 a step
     "ASAC": (ASAC, REPLAY),

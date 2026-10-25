@@ -82,10 +82,8 @@ class GainExpert:
 #: Overrides of the probe preset for the agents it lacks or whose defaults
 #: never warm up on one step.
 EXTRA: dict[str, dict[str, Any]] = {
-    # No expert prefill (collection's rows); the policy updates from the
-    # warm-up's end, not SAC's 2000th step.
-    "SAC": {"expert_buffer_n_steps": 0, "policy_update_start": 100}
-    | {"alpha_update_start": 100},
+    # The policy updates from the warm-up's end, not SAC's 2000th step.
+    "SAC": {"policy_update_start": 100, "alpha_update_start": 100},
 }
 
 

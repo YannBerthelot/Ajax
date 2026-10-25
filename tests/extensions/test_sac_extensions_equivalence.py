@@ -93,8 +93,14 @@ import pytest
 from optax.tree_utils import tree_norm
 
 from ajax.agents.SAC.SAC import SAC
-from ajax.extensions.expert import JSRLCurriculum, OnlineBC, ResidualPolicy
+from ajax.extensions.expert import (
+    ExpertWarmup,
+    JSRLCurriculum,
+    OnlineBC,
+    ResidualPolicy,
+)
 from ajax.extensions.exploration import EDGEExploration
+from ajax.extensions.observe import ExpertActionInput
 from ajax.extensions.pretrain import (
     BellmanPretrain,
     ExpertPrefill,
@@ -153,7 +159,10 @@ class _NoiseExpert:
 
 
 _EXPERT = _NoiseExpert()
-_WITH_EXPERT: dict[str, Any] = {"expert_policy": _EXPERT, "expert_buffer_n_steps": 0}
+_WITH_EXPERT: dict[str, Any] = {"expert_policy": _EXPERT}
+#: The expert's share of the warm-up, which SAC took by default with an expert
+#: (outside an action transform) when the goldens were recorded.
+_MIX = ExpertWarmup(fraction=0.7)
 # MC critic pretraining, small enough to stay fast.
 _MC = MCPretrain(
     expert_policy=_EXPERT,
@@ -166,7 +175,7 @@ _GATES = ("fixed", "argmax", "boltzmann", "lcb", "argmax_lcb", "thompson")
 
 
 def _expert(*extensions: Any, **kwargs: Any) -> dict[str, Any]:
-    return {**_WITH_EXPERT, **kwargs, "extensions": extensions}
+    return {**_WITH_EXPERT, **kwargs, "extensions": (*extensions, _MIX)}
 
 
 # The SAC configurations by the golden captured for each, in the stacks'
@@ -181,9 +190,10 @@ CASES: dict[str, dict[str, Any]] = {
     "test_online_bc_matches_legacy_flag": _expert(
         _MC, OnlineBC(bc_coef=0.5, critic_warmup_frac=0.5)
     ),
-    "test_residual_policy_matches_legacy_use_residual_rl": _expert(
-        ResidualPolicy(scale=0.5)
-    ),
+    "test_residual_policy_matches_legacy_use_residual_rl": {
+        "expert_policy": _EXPERT,
+        "extensions": (ResidualPolicy(scale=0.5),),
+    },
     # SAC counts the per-env ``step_in_episode`` the curriculum reads: the
     # golden was recorded with the retired ``jsrl_curriculum=True`` flag.
     "test_jsrl_curriculum_matches_legacy_flag": _expert(
@@ -202,12 +212,11 @@ CASES: dict[str, dict[str, Any]] = {
         LCBGatedBootstrap(expert_policy=_EXPERT)
     ),
     "test_mc_pretrain_matches_legacy_flag": _expert(_MC),
-    # On the expert's prefill: recorded first on the empty replay that
-    # expert_buffer_n_steps=0 left, which BellmanPretrain now refuses.
-    "test_bellman_pretrain_matches_legacy_flag": {
-        "expert_policy": _EXPERT,
-        "extensions": (ExpertPrefill(n_steps=40), BellmanPretrain(n_steps=20)),
-    },
+    # On the expert's prefill: recorded first on an empty replay, which
+    # BellmanPretrain now refuses.
+    "test_bellman_pretrain_matches_legacy_flag": _expert(
+        ExpertPrefill(n_steps=40), BellmanPretrain(n_steps=20)
+    ),
     # CriticBlend reads the expert critic MC pretraining fits. The legacy
     # default ``use_online_bc=True`` appended an OnlineBC whenever MC
     # pretraining ran; the golden was captured under it.
@@ -246,6 +255,6 @@ def test_configuration_matches_its_golden(name: str):
 def test_expert_obs_aug_constructs_and_trains():
     """Augmenting observations with the expert's action changes the
     networks' input width (init_SAC, collect_experience): it trains."""
-    agent = SAC(**_TINY, **_WITH_EXPERT, augment_obs_with_expert_action=True)
+    agent = SAC(**_TINY, **_WITH_EXPERT, extensions=(ExpertActionInput(),))
     state, _ = agent.train(seed=_SEED, n_timesteps=_TIMESTEPS)
     assert state is not None

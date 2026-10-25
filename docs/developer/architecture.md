@@ -61,7 +61,6 @@ src/ajax/
 ├── state.py             BaseAgentState, CollectorState and the configuration dataclasses
 ├── checkpoint.py        save_checkpoint, restore_into
 ├── wrappers.py          env wrappers: normalisation, action clip, auto-reset, observation noise
-├── deprecation.py       warn_inert and moved_names, for keywords and paths on their way out
 ├── schedule.py          a warm-up and cosine learning-rate schedule
 ├── distributional.py, normalizers.py   symlog, two-hot and return scales (DreamerV3, TD-MPC2)
 └── _compile_cache.py    the persistent JAX compile cache
@@ -82,9 +81,8 @@ several agents share are mixins of fields (`EntropyTemperature`,
 `PolicyUpdateStart`, `ExpertGuided`, ...), and an agent changes what its
 family does by overriding a few hooks (`network_settings`,
 `evaluation_kwargs`, `uniform_steps`, `keeps_actor_metrics`,
-`check_recurrent_options`, ...). The old modules of the agents declared
-before DQN, DAgger, UDRL and APG serve their names until 0.5.0; those four
-kept none. Every other agent package `src/ajax/agents/<AGENT>/` holds:
+`check_recurrent_options`, ...). Every other agent package
+`src/ajax/agents/<AGENT>/` holds:
 
 | File | What it holds |
 | --- | --- |
@@ -460,31 +458,11 @@ to restore. A class that gains a float field lists it in its
 
 ## Keywords on their way out
 
-A public keyword is removed in two steps (CLAUDE.md, rule 10, "expand, then
-contract"): first the new form is added and downstream projects move to it,
-then the old one goes. A keyword that no longer does anything but that
-callers still pass stays accepted meanwhile, and says so with
-[`ajax.deprecation.warn_inert`](../../src/ajax/deprecation.py): a
-`FutureWarning` for each such keyword set to something other than `None`,
-pointing at the caller's line and giving the reason.
-
-```python
-import warnings
-
-from ajax import SAC
-
-with warnings.catch_warnings(record=True) as caught:
-    warnings.simplefilter("always")
-    SAC("Pendulum-v1", jsrl_curriculum=True)  # SAC counts episode steps itself
-print([str(w.message) for w in caught if w.category is FutureWarning])
-# ["SAC's jsrl_curriculum has no effect and will be removed: SAC counts each
-#   env's steps in its episode when an extension reads them (JSRLCurriculum)."]
-```
-
-Today it covers SAC's `jsrl_curriculum` (SAC now counts episode steps
-whenever an extension reads them) and `LoggingConfig`'s `horizon`, which
-nothing reads. Keywords whose downstream callers have moved are removed
-outright, without a warning.
+A public name or keyword is removed in two steps (CLAUDE.md, rule 10,
+"expand, then contract"): first the new form is added and downstream
+projects move to it, then the old one goes. A project pinned to a release
+keeps its names until it upgrades; the changelog lists what each release
+removed.
 
 ## Compilation
 

@@ -1,8 +1,8 @@
 """The agent families (ajax.agents.families) on toy declared agents that
 never train: the constructor their fields generate, the run config, the
-``agent_config`` view, the knobs reaching ActorCritic, and the literal
-dataclass decorator on every family, mixin and declared agent (the API docs
-read the constructor from it). Training is the declared agents' own tests'."""
+knobs reaching ActorCritic, and the literal dataclass decorator on every
+family, mixin and declared agent (the API docs read the constructor from
+it). Training is the declared agents' own tests'."""
 
 import ast
 import dataclasses
@@ -80,15 +80,6 @@ class Toy(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAgent)
 
     name = "Toy"
     capabilities = frozenset({"discounted", "q_critic"})
-
-
-ToyConfig = Toy.declare_config(
-    (
-        "gamma",
-        "lam",
-        "scaled",
-    )
-)
 
 
 @dataclasses.dataclass(kw_only=True, eq=False, repr=False)
@@ -205,43 +196,15 @@ def test_actor_critic_args_only_fill_a_field_left_none() -> None:
         Filling("Pendulum-v1", encoder_kernel_init="he_normal")
 
 
-def test_agent_config_is_a_view_of_the_fields_declared_once() -> None:
-    view = Toy("Pendulum-v1", lam=0.25).agent_config
-    assert (view.gamma, view.lam, view.scaled) == (0.9, 0.25, 0.5)
-    assert view == Toy("Pendulum-v1", lam=0.25).agent_config
-    assert view.replace(gamma=0.5) == ToyConfig(gamma=0.5, lam=0.25, scaled=0.5)
-    assert ToyConfig(scaled=1.0).lam == 0.5  # the fields' defaults
-    with pytest.raises(TypeError, match="scaled"):
-        ToyConfig()  # a derived entry has no default
-    assert (ToyConfig.__qualname__, ToyConfig.__module__) == ("ToyConfig", __name__)
-    assert type(view) is ToyConfig
-
-
 def test_the_fields_are_fixed_once_built_and_replace_builds_another() -> None:
     """What trains is what the run config logs (owner, 2026-10-24)."""
     agent = Toy("Pendulum-v1", lam=0.25)
     with pytest.raises(AttributeError, match=r"lam is fixed.*dataclasses.replace"):
         agent.lam = 1.0
-    with pytest.raises(AttributeError, match=r"views its fields.*replace\(agent, g"):
-        agent.agent_config = agent.agent_config.replace(lam=1.0)
     agent.network_args = agent.network_args  # not a field: writable
     other = dataclasses.replace(agent, lam=1.0)
-    assert (other.lam, other.config["lam"], other.agent_config.scaled) == (
-        1.0,
-        1.0,
-        2.0,
-    )
+    assert (other.lam, other.config["lam"], other.scaled) == (1.0, 1.0, 2.0)
     assert agent.lam == 0.25
-    with pytest.raises(ValueError, match="trains on its fields"):
-        agent.make_train(
-            agent.env_args,
-            agent.actor_optimizer_args,
-            agent.critic_optimizer_args,
-            agent.network_args,
-            agent.agent_config.replace(lam=1.0),
-            total_timesteps=8,
-            num_episode_test=1,
-        )
 
 
 class HalfUnit:
@@ -309,7 +272,6 @@ def test_make_train_refuses_an_extension_context_it_cannot_give() -> None:
             agent.actor_optimizer_args,
             agent.critic_optimizer_args,
             agent.network_args,
-            agent.agent_config,
             total_timesteps=8,
             num_episode_test=1,
         )
@@ -436,16 +398,6 @@ def test_an_on_policy_agent_runs_its_update_on_each_rollout() -> None:
     assert agent.init(jax.random.PRNGKey(0), context).collector_state.timestep == 0
     state, _ = agent.train(seed=0, n_timesteps=4)  # 4 // 4 + 1 rollouts
     assert np.asarray(state.n_updates).tolist() == [2]  # one seed
-    with pytest.raises(ValueError, match="trains on its fields"):
-        agent.make_train(
-            agent.env_args,
-            agent.actor_optimizer_args,
-            agent.critic_optimizer_args,
-            agent.network_args,
-            agent.agent_config.replace(),
-            total_timesteps=8,
-            num_episode_test=1,
-        )
     with pytest.raises(ValueError, match="cannot train offline"):
         agent.train_offline(dataset=None, n_updates=1)
 

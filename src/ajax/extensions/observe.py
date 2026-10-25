@@ -153,9 +153,9 @@ class PIDTermsInput(Extension):
 
 
 def pid_terms_at(env_args: Any, n_errors: int) -> int:
-    """The first column of the ``n_errors`` PID terms a PID actor reads: a
-    :class:`PIDTermsInput`'s among the observation features, else the
-    observation's first (a deprecated PIDTermsWrapper's)."""
+    """The first column of the n_errors PID terms a PID actor reads: a
+    PIDTermsInput's among the observation features, else the observation's
+    first (an env that puts them there)."""
     found = [e for e in env_args.observers if isinstance(e, PIDTermsInput)]
     if not found:
         return 0

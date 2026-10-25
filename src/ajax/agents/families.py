@@ -39,6 +39,7 @@ import jax
 from flax import struct
 from gymnax import EnvParams
 
+from ajax.agents import update_steps
 from ajax.agents.base import ActorCritic
 from ajax.agents.loop import LOOP_PHASES, TrainLoop
 
@@ -47,7 +48,7 @@ from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_bu
 from ajax.agents.recurrent import stored_actor_carry_dim, unsupported_recurrent_options
 from ajax.agents.update_steps import REPLAY_BATCH_KEYS
 from ajax.buffers.utils import get_buffer
-from ajax.controller import executed_fn
+from ajax.controller import executed_fn, policy_action_dim
 from ajax.environments.interaction import init_collector_state
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import Extension, ExtensionStack, holds_expert
@@ -59,6 +60,7 @@ from ajax.networks.networks import (
     state_value,
 )
 from ajax.state import (
+    AlphaConfig,
     BaseAgentConfig,
     EnvironmentConfig,
     NetworkConfig,
@@ -215,6 +217,41 @@ class ImageObservations:
     cnn_spec: Optional[CNNSpec] = None
 
 
+# A mixin's methods read the agent's attributes (env_args, its optimisers),
+# which only the agent has: their self is typed Any.
+@dataclass(kw_only=True, eq=False, repr=False)
+class EntropyTemperature:
+    """The entropy temperature alpha of a soft actor-critic, learned towards
+    a target entropy (Haarnoja et al., 2018b) unless the agent fixes it
+    (ajax.agents.temperature).
+
+    Args:
+        alpha_learning_rate: The temperature's Adam learning rate; None: the
+            actor's (CrossQ's authors step every network at one rate).
+        alpha_init: The temperature's initial value.
+        target_entropy_per_dim: The target entropy per dimension of the
+            policy's actions (gain mode's gains).
+    """
+
+    alpha_learning_rate: Optional[float] = 3e-4
+    alpha_init: float = 1.0
+    target_entropy_per_dim: float = -1.0
+
+    @property
+    def alpha_args(self: Any) -> AlphaConfig:
+        """The temperature's learning rate and initial value."""
+        rate = self.alpha_learning_rate
+        if rate is None:
+            rate = self.actor_optimizer_args.learning_rate
+        return AlphaConfig(learning_rate=rate, alpha_init=self.alpha_init)
+
+    @property
+    def target_entropy(self: Any) -> float:
+        """target_entropy_per_dim times the policy's action width (gain
+        mode's gains)."""
+        return self.target_entropy_per_dim * policy_action_dim(self.env_args)
+
+
 @dataclass(eq=False, repr=False)
 class DeclaredAgent(ActorCritic):
     """An agent whose constructor is its fields' (keyword-only but
@@ -290,6 +327,9 @@ class DeclaredAgent(ActorCritic):
         expert = getattr(self, "expert_policy", None)
         arguments = dict(shared)
         arguments.update(derived)
+        # A deliberate workaround, deleted with SAC's deprecated keywords in
+        # B7: the arguments they stand for may replace given ones.
+        arguments.update(self.translate_deprecated_arguments())
         ActorCritic.__init__(self, **arguments)
         # ActorCritic writes the expert in agent units over the field: the
         # wrapper moves to expert, and the field keeps the caller's, which
@@ -306,6 +346,9 @@ class DeclaredAgent(ActorCritic):
         settings = self.optimizer_settings()
         self.actor_optimizer_args = self.actor_optimizer_args.replace(**settings)
         self.critic_optimizer_args = self.critic_optimizer_args.replace(**settings)
+        network_settings = self.network_settings()
+        if network_settings:
+            self.network_args = self.network_args.replace(**network_settings)
         self._build_family()
         self.setup()
         values = {name: getattr(self, name) for name in self.agent_config_fields}
@@ -355,6 +398,43 @@ class DeclaredAgent(ActorCritic):
         """OptimizerConfig settings both networks' optimisers take (the
         reference's Adam: its eps, its betas)."""
         return {}
+
+    def network_settings(self) -> dict[str, Any]:
+        """NetworkConfig settings the reference fixes beyond ActorCritic's
+        arguments (REDQ's squash_log_det_eps, TQC's critic_quantiles)."""
+        return {}
+
+    def translate_deprecated_arguments(self) -> dict[str, Any]:
+        """ActorCritic arguments the agent's deprecated keywords stand for
+        (SAC's: extensions, normalize_observations), which may replace the
+        given ones; B7 deletes the hook with those keywords."""
+        return {}
+
+    def extension_values(self, configs: dict[str, Any]) -> dict[str, Any]:
+        """Values only the agent has, which its extension_context may name
+        (configs: the run's env_args, network_args and optimisers)."""
+        del configs
+        return {}
+
+    def evaluation_options(self) -> dict[str, Any]:
+        """Each evaluation's options beyond the expert and the critic's
+        estimate (ajax.log.evaluate_and_log's: APO's
+        avg_reward_mode)."""
+        return {}
+
+    def evaluation_kwargs(self) -> dict[str, Any]:
+        """Each evaluation's arguments: the expert, the critic's estimate
+        and the agent's evaluation_options."""
+        kwargs = {"expert_policy": self.expert, "value_estimate": self.value_estimate()}
+        kwargs.update(self.evaluation_options())
+        return kwargs
+
+    def uniform_steps(self) -> Optional[int]:
+        """The steps an off-policy family's collection acts uniformly for:
+        the warm-up, until learning_starts (None), for an agent claiming the
+        warmup capability; none otherwise (TQC's authors act with the policy
+        from the first step)."""
+        return None if "warmup" in self.capabilities else 0
 
     def setup(self) -> None:
         """What the agent derives or checks once its env, networks and family
@@ -428,8 +508,25 @@ class DeclaredAgent(ActorCritic):
         if extensions is None:
             extensions = tuple(self.extension_stack.extensions)
         buffer = getattr(self, "buffer", None)  # a replay agent's
+        recurrent = network_args.memory is not None
         given = dict(configs)
-        given.update({"expert_policy": self.expert, "buffer": buffer})
+        given.update(
+            {
+                "expert_policy": self.expert,
+                "buffer": buffer,
+                "extensions": tuple(extensions),
+                "recurrent": recurrent,
+            }
+        )
+        declared = self.field_names()
+        given.update(
+            {
+                name: getattr(self, name)
+                for name in ("gamma", "reward_scale", "num_critics")
+                if name in declared
+            }
+        )
+        given.update(self.extension_values(configs))
         unknown = sorted(self.extension_context.difference(given.keys()))
         if unknown:
             raise ValueError(
@@ -439,7 +536,6 @@ class DeclaredAgent(ActorCritic):
             )
         agent_context = {name: given[name] for name in sorted(self.extension_context)}
         bound = ExtensionStack(extensions).bind_to_agent(**agent_context).extensions
-        recurrent = network_args.memory is not None
         if recurrent:
             unsupported_recurrent_options(
                 self.name, expert_policy=self.expert, extensions=tuple(bound) or None
@@ -474,7 +570,14 @@ class DeclaredAgent(ActorCritic):
     ) -> Any:
         """The collector state (init_collector_state), holding a
         stateful expert's state, with options an agent's own."""
-        raise NotImplementedError
+        del network_args
+        return init_collector_state(
+            key,
+            env_args=loop.env_args,
+            mode=loop.env_args.mode,
+            expert_policy=self.expert,
+            **options,
+        )
 
     @classmethod
     def declare_config(cls, names: str) -> Any:
@@ -592,6 +695,9 @@ class ReplayAgent(DeclaredAgent):
             include_next_action="next_action" in fields,
             include_is_expert=stored,
             expert_policy=self.expert,
+            count_episode_steps=any(
+                extension.reads_step_in_episode for extension in loop.extensions
+            ),
             **options,
         )
 
@@ -633,17 +739,55 @@ class ReplayAgent(DeclaredAgent):
             partial(self.init, context=context),
             lambda agent_state, _transition: self.update(agent_state, context),
             self.learning_starts,
+            uniform_steps=self.uniform_steps(),
             recurrent=recurrent,
             collect_kwargs={
                 "buffer": self.buffer,
                 "action_pipeline": self.choose_behaviour(context),
                 "store_hidden": recurrent and self.stores_state(),
             },
-            eval_kwargs={
-                "expert_policy": self.expert,
-                "value_estimate": self.value_estimate(),
-            },
+            eval_kwargs=self.evaluation_kwargs(),
         )
+
+    def extension_values(self, configs: dict[str, Any]) -> dict[str, Any]:
+        """A discounted Q critic with targets gives BellmanPretrain its
+        critic step on a replay batch without any extension
+        (update_value_fn, the agent's update_critic) and the targets'
+        Polyak update (update_target_fn): an agent naming them in its
+        extension_context writes update_critic(agent_state, batch,
+        carries, context) -> (agent_state, aux with critic_loss, metrics)."""
+        wanted = {"discounted", "q_critic", "target_critic"}
+        if not wanted.issubset(self.capabilities) or not hasattr(self, "update_critic"):
+            return {}
+        update_critic = self.update_critic
+
+        def update_critic_alone(
+            agent_state: Any,
+            batch: Transition,
+            recurrent: bool,
+            gamma: float,
+            extensions: Any,
+            reward_scale: float = 1.0,
+        ) -> tuple[Any, Any, dict]:
+            # BellmanPretrain's call (pretrain_critic_bellman). The step reads
+            # the agent's own gamma and reward scale, with no extension, no
+            # residual policy (executed None) and a horizon of 1, as SAC's
+            # update_value_functions was called before B4.
+            del gamma, reward_scale
+            context = TrainContext(
+                **configs,
+                extensions=extensions,
+                total_timesteps=1,
+                make_collector=self.make_collector,
+                buffer=self.buffer,
+                recurrent=recurrent,
+            )
+            return update_critic(agent_state, batch, None, context)
+
+        return {
+            "update_value_fn": update_critic_alone,
+            "update_target_fn": update_steps.update_target_networks,
+        }
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -682,6 +826,101 @@ class RecurrentReplayAgent(ReplayAgent):
 
     def stores_state(self) -> bool:
         return self.stored_state
+
+
+@dataclass(kw_only=True, eq=False, repr=False)
+class IncrementalAgent(DeclaredAgent):
+    """An agent learning from each step as it comes, without a replay
+    (TrainLoop.off_policy): one step per env per iteration, then, from
+    learning_starts, one update on that step alone (AVG, Vasan et al.,
+    2024). An agent writes init and update, and may record statistics of
+    every collected step (update_step_statistics).
+
+    Args:
+        learning_starts: The env steps collected before the first update.
+        expose_recent_rollout: Keep each step on agent_state.last_rollout,
+            a one-step rollout, for measurement extensions.
+    """
+
+    learning_starts: int
+    expose_recent_rollout: bool = False
+
+    # The default pipeline runs the warm-up's chooser (choose_warmup_action).
+    supported_extension_phases = LOOP_PHASES.union(
+        {
+            "on_target",
+            "critic_loss",
+            "actor_loss",
+            "transform_action",
+            "actuate",
+            "choose_warmup_action",
+        }
+    )
+    pretrain_context = frozenset({"env_args", "update"})
+    extension_context = frozenset({"actor_optimizer_args", "env_args", "expert_policy"})
+
+    def init(self, key: jax.Array, context: TrainContext) -> Any:
+        """A fresh agent state, on the agent's own key layout."""
+        raise NotImplementedError
+
+    def update(
+        self, agent_state: Any, transition: Transition, context: TrainContext
+    ) -> tuple[Any, Any]:
+        """One update on the step just collected: (agent_state, logged
+        metrics)."""
+        raise NotImplementedError
+
+    def update_step_statistics(
+        self, agent_state: Any, transition: Transition, context: TrainContext
+    ) -> Any:
+        """What the agent records from every collected step, before the
+        update (AVG's TD-error scale)."""
+        del transition, context
+        return agent_state
+
+    def make_train(
+        self,
+        env_args: EnvironmentConfig,
+        actor_optimizer_args: OptimizerConfig,
+        critic_optimizer_args: OptimizerConfig,
+        network_args: NetworkConfig,
+        agent_config: Any,
+        total_timesteps: int,
+        num_episode_test: int,
+        run_ids: Optional[Sequence[str]] = None,
+        logging_config: Any = None,
+        start_timestep: int = 0,
+        end_timestep: Optional[int] = None,
+        extensions: Sequence[Extension] = (),
+    ) -> Callable:
+        """The train function ActorCritic.train builds: the loop over init,
+        update_step_statistics and update. It takes no dataset: without a
+        replay there is no offline training (train_offline refuses it)."""
+        self.check_agent_config(agent_config)
+        loop, context = self.make_context(
+            total_timesteps,
+            num_episode_test,
+            env_args=env_args,
+            actor_optimizer_args=actor_optimizer_args,
+            critic_optimizer_args=critic_optimizer_args,
+            network_args=network_args,
+            extensions=extensions,
+            run_ids=run_ids,
+            logging_config=logging_config,
+            start_timestep=start_timestep,
+            end_timestep=end_timestep,
+        )
+        stores_raw_next_obs = "raw_next_obs" in loop.extensions.buffer_fields()
+        return loop.off_policy(
+            partial(self.init, context=context),
+            partial(self.update, context=context),
+            self.learning_starts,
+            uniform_steps=self.uniform_steps(),
+            expose_rollout=self.expose_recent_rollout,
+            after_collect=partial(self.update_step_statistics, context=context),
+            collect_kwargs={"store_raw_next_obs": stores_raw_next_obs},
+            eval_kwargs=self.evaluation_kwargs(),
+        )
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -735,24 +974,6 @@ class OnPolicyAgent(DeclaredAgent):
         del context
         return None
 
-    def evaluation_options(self) -> dict[str, Any]:
-        """Each evaluation's options beyond the expert and the critic's
-        estimate (ajax.log.evaluate_and_log's: APO's
-        avg_reward_mode)."""
-        return {}
-
-    def make_collector(
-        self, key: jax.Array, loop: TrainLoop, network_args: NetworkConfig, **options
-    ) -> Any:
-        del network_args
-        return init_collector_state(
-            key,
-            env_args=loop.env_args,
-            mode=loop.env_args.mode,
-            expert_policy=self.expert,
-            **options,
-        )
-
     def make_train(
         self,
         env_args: EnvironmentConfig,
@@ -786,11 +1007,6 @@ class OnPolicyAgent(DeclaredAgent):
             start_timestep=start_timestep,
             end_timestep=end_timestep,
         )
-        eval_kwargs = {
-            "expert_policy": self.expert,
-            "value_estimate": self.value_estimate(),
-        }
-        eval_kwargs.update(self.evaluation_options())
         return loop.on_policy(
             partial(self.init, context=context),
             partial(self.update, context=context),
@@ -802,5 +1018,5 @@ class OnPolicyAgent(DeclaredAgent):
                 getattr(self, "num_evals", 1),
             ),
             collect_kwargs={"action_pipeline": self.choose_behaviour(context)},
-            eval_kwargs=eval_kwargs,
+            eval_kwargs=self.evaluation_kwargs(),
         )

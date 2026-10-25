@@ -38,6 +38,7 @@ from flax.serialization import to_state_dict
 from ajax.agents import update_steps
 from ajax.agents.critics import CoreCriticAux, compute_q_regression_loss
 from ajax.agents.families import (
+    EntropyTemperature,
     ExpertGuided,
     GradientClipping,
     ObservationNormalization,
@@ -54,14 +55,14 @@ from ajax.agents.temperature import (
     get_alpha,
     update_temperature,
 )
-from ajax.controller import make_scored_action, policy_action_dim
+from ajax.controller import make_scored_action
 from ajax.extensions.base import merge_metrics
 from ajax.networks.networks import (
     action_value_input,
     get_policy_updating_batch_statistics,
     predict_value_updating_batch_statistics,
 )
-from ajax.state import AlphaConfig, Transition
+from ajax.state import Transition
 
 #: The authors' layers are flax's defaults: lecun-normal kernels, zero biases.
 LECUN = "lecun_normal"
@@ -69,6 +70,7 @@ LECUN = "lecun_normal"
 
 @dataclass(kw_only=True, eq=False, repr=False)
 class CrossQ(
+    EntropyTemperature,
     GradientClipping,
     ObservationNormalization,
     RewardNormalization,
@@ -97,7 +99,7 @@ class CrossQ(
     """
 
     learning_rate: float = 1e-3
-    alpha_learning_rate: Optional[float] = None
+    alpha_learning_rate: Optional[float] = None  # the actor's: learning_rate
     actor_width: int = 256
     critic_width: int = 2048
     num_critics: int = 2
@@ -105,8 +107,6 @@ class CrossQ(
     policy_delay: int = 3
     adam_beta_1: float = 0.5
     reward_scale: float = 1.0
-    alpha_init: float = 1.0
-    target_entropy_per_dim: float = -1.0
     buffer_size: int = int(1e6)
     batch_size: int = 256
     learning_starts: int = 5000
@@ -128,21 +128,6 @@ class CrossQ(
     def optimizer_settings(self) -> dict[str, Any]:
         # The authors' optax.adam: its default eps, their beta1 (train.py).
         return {"eps": 1e-8, "beta_1": self.adam_beta_1}
-
-    @property
-    def alpha_args(self) -> AlphaConfig:
-        """The temperature's learning rate and initial value."""
-        rate = self.alpha_learning_rate
-        return AlphaConfig(
-            learning_rate=self.learning_rate if rate is None else rate,
-            alpha_init=self.alpha_init,
-        )
-
-    @property
-    def target_entropy(self) -> float:
-        """target_entropy_per_dim times the policy's action width (gain
-        mode's gains)."""
-        return self.target_entropy_per_dim * policy_action_dim(self.env_args)
 
     def init(self, key: jax.Array, context: TrainContext) -> CrossQState:
         """A squashed Gaussian actor, num_critics Q critics without

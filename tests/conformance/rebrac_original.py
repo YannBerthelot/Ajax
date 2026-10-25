@@ -115,6 +115,8 @@ def run(records: pathlib.Path, precision: str, beta: float = 1.0) -> dict[str, d
         agent_state: Any, buffer: Any, key: Any, *args: Any, **kwargs: Any
     ) -> Any:
         b, carries = sample(agent_state, buffer, key, *args, **kwargs)
+        if not given:  # outside a record: the fresh state's slot reads shapes alone
+            return b, carries
         values = {
             "obs": given["states"],
             "action": given["actions"],  # the box is [-1, 1]: ReBRAC's units are Ajax's
@@ -150,6 +152,7 @@ def _task_updates(
 ) -> dict[str, dict]:
     agent = ajax.TD3(TASK.get(task, task), **SETTINGS, extensions=extensions(beta))
     step = kit.capture_step(agent, 2_000)
+    given.clear()  # no record's batch while the fresh state is traced
     template, update = step.fresh(jax.random.PRNGKey(0)), updater(step)
     arrays = {p.stem: dict(np.load(p)) for p in sorted(records.glob(f"{task}_*.npz"))}
     batches = {

@@ -110,6 +110,8 @@ def run(records: Any, precision: str, fault: str | None = None) -> dict[str, dic
         agent_state: Any, buffer: Any, key: Any, *args: Any, **kwargs: Any
     ) -> Any:
         b, carries = sample(agent_state, buffer, key, *args, **kwargs)
+        if not given:  # outside a record: the fresh state's slot reads shapes alone
+            return b, carries
         values = {
             "obs": given["observations"],
             "action": given["actions"],
@@ -141,6 +143,7 @@ def _env_updates(
     settings.update(FAULTS.get(fault or "", {}))
     agent = ajax.CrossQ(env_id, **settings)
     step = kit.capture_step(agent, 2_000)
+    given.clear()  # no record's batch while the fresh state is traced
     template, update = step.fresh(jax.random.PRNGKey(0)), step.update
     assert update is not None, "CrossQ passes its update to its train loop"
     arrays = {p.stem: dict(np.load(p)) for p in sorted(records.glob(f"{env_id}_*.npz"))}

@@ -508,8 +508,12 @@ def make_train(
         offline_data=offline_data,
     )
 
-    # SAC's built-in prefill gives way to an ExpertPrefill in its stack, so
-    # the replay is filled once.
+    # Deliberate workaround, a bridge while both prefills exist: SAC's
+    # built-in prefill (expert_buffer_n_steps) gives way to an ExpertPrefill
+    # in its stack, so the replay is filled once. Naming the extension here
+    # breaks the rule that an agent knows no extension; the prefill-shim
+    # change (expand, then contract) turns expert_buffer_n_steps into an
+    # ExpertPrefill and deletes this check with init_SAC's prefill.
     builtin_prefill = expert_policy is not None and not any(
         isinstance(extension, ExpertPrefill) for extension in stack
     )

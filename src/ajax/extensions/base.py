@@ -47,6 +47,8 @@ Phases
                  the training progress), stored with it
 ``choose_warmup_action`` the actions of a warm-up step (ExpertWarmup's
                  expert mix), uniform by default
+``choose_replay_action`` the action a replay row stores (StorePolicyAction:
+                 the policy's), the executed one by default
 
 ``on_target``, ``critic_loss`` and ``actor_loss`` may return ``(value,
 metrics)`` instead of their value: ``metrics``, a dict of scalars named
@@ -119,6 +121,7 @@ PHASES: tuple[str, ...] = (
     "transform_action",
     "actuate",
     "choose_warmup_action",
+    "choose_replay_action",
     "post_update",
     "eval_metrics",
 )
@@ -126,7 +129,9 @@ PHASES: tuple[str, ...] = (
 #: The phases the controller alone runs, in collection and evaluation: an
 #: extension implementing only these holds no state and draws no key in the
 #: learner (ActorCritic lifts it out of the learner's stack).
-CONTROLLER_PHASES = frozenset({"observe", "choose_warmup_action", "actuate"})
+CONTROLLER_PHASES = frozenset(
+    {"observe", "choose_warmup_action", "choose_replay_action", "actuate"}
+)
 
 #: The keys of each phase's ``batch`` every agent folding it passes ("Phase
 #: batches" above); an agent declares the others its folds pass in its
@@ -415,6 +420,15 @@ class Extension:
         (ajax.controller.WarmupInputs); by default the uniform ones."""
         del inputs
         return uniform_actions, jnp.zeros((), dtype=jnp.bool_)
+
+    def choose_replay_action(
+        self, executed_actions: jax.Array, policy_actions: jax.Array
+    ) -> jax.Array:
+        """The actions a replay row stores for a step: by default the ones
+        executed (residual, warm-up or expert actions included), which
+        generated the step's reward and next observation."""
+        del policy_actions
+        return executed_actions
 
     def policy_action_for_expert(self, policy_actions: jax.Array) -> jax.Array:
         """For an action transform: the policy action, shaped like

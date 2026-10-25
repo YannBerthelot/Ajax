@@ -117,6 +117,10 @@ class EnvironmentConfig(Replaceable):
     # The extension choosing the warm-up's actions (ajax.controller.warmups_of):
     # ExpertWarmup's expert mix; none, the uniform ones.
     warmups: tuple = struct.field(pytree_node=False, default=())
+    # The extension choosing the action a replay row stores
+    # (ajax.controller.replay_action_choosers_of): StorePolicyAction's, the
+    # policy's; none, the executed one.
+    replay_action_choosers: tuple = struct.field(pytree_node=False, default=())
     # The dimension of the actions the policy chooses where it is not the
     # env's (gain mode: the expert's learnable gains); None: the env's.
     policy_action_dim: Optional[int] = struct.field(pytree_node=False, default=None)

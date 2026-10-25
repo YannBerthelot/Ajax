@@ -6,6 +6,12 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **StorePolicyAction** (`ajax.extensions.expert`), SAC's
+  `store_policy_action` as an extension for every replay agent on the
+  family: the replay stores the action the policy chose, not the one
+  executed. It acts in the controller alone, through a new controller
+  phase, `choose_replay_action`; TD3, CrossQ and IQL take it now, the SAC
+  family once declared, where SAC's keyword builds it until 0.5.0.
 - **A soft actor-critic's target entropy may be a schedule**:
   `target_entropy_per_dim` takes a function of the timestep
   (`ajax.schedule`, as TD3's `exploration_noise`) on every agent with the

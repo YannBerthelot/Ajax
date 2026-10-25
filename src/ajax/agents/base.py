@@ -9,7 +9,12 @@ import jax.numpy as jnp
 import numpy as np
 from gymnax import EnvParams
 
-from ajax.controller import observers_of, transforms_of, warmups_of
+from ajax.controller import (
+    observers_of,
+    replay_action_choosers_of,
+    transforms_of,
+    warmups_of,
+)
 from ajax.environments.create import prepare_env
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import ExpertInAgentUnits
@@ -384,10 +389,18 @@ class ActorCritic:
             raise ValueError(
                 f"An agent takes one warm-up, got {[warmup.name for warmup in warmups]}."
             )
+        # What the replay stores (StorePolicyAction), also the controller's.
+        choosers = replay_action_choosers_of(self.extension_stack)
+        if len(choosers) > 1:
+            raise ValueError(
+                "An agent stores one action per replay row, got"
+                f" {[chooser.name for chooser in choosers]}."
+            )
         self.env_args = self.env_args.replace(
             observers=observers,
             transforms=transforms,
             warmups=warmups,
+            replay_action_choosers=choosers,
             policy_action_dim=dim,
         )
         # Under gain mode the policy chooses gains, and an expert's actions,
@@ -408,8 +421,8 @@ class ActorCritic:
             )
 
         # An extension acting only in the controller (a feature, gain mode, a
-        # warm-up) takes no part in the learner's folds: no state, no key of
-        # its own. A residual policy stays: the learner scores its executed
+        # warm-up, the action a replay stores) takes no part in the learner's
+        # folds: no state, no key of its own. A residual policy stays: the learner scores its executed
         # actions.
         def controller_only(extension: Any) -> bool:
             phases = extension.implemented_phases()

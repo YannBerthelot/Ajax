@@ -684,7 +684,8 @@ class ReplayAgent(DeclaredAgent):
 
     replays_transitions = True
     # The default pipelines run the warm-up's chooser (choose_warmup_action);
-    # an agent replacing them passes it on (choose_behaviour).
+    # an agent replacing them passes it on (choose_behaviour). The shared
+    # collector writes the replay (choose_replay_action).
     supported_extension_phases = LOOP_PHASES.union(
         {
             "on_target",
@@ -693,6 +694,7 @@ class ReplayAgent(DeclaredAgent):
             "transform_action",
             "actuate",
             "choose_warmup_action",
+            "choose_replay_action",
         }
     )
     phase_batch_keys = REPLAY_BATCH_KEYS

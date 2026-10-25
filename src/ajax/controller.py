@@ -199,6 +199,16 @@ def warmups_of(extensions: Any) -> tuple[Any, ...]:
     )
 
 
+def replay_action_choosers_of(extensions: Any) -> tuple[Any, ...]:
+    """The extensions choosing the action a replay row stores
+    (StorePolicyAction)."""
+    return tuple(
+        extension
+        for extension in extensions
+        if "choose_replay_action" in extension.implemented_phases()
+    )
+
+
 def choose_warmup_actions(
     warmups: Any, uniform_actions: jax.Array, inputs: WarmupInputs
 ) -> tuple[jax.Array, jax.Array]:

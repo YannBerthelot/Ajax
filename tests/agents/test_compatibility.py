@@ -83,6 +83,11 @@ WARMUP = (
     "TD-MPC2's own collector does not run the choose_warmup_action phase in its"
     " seed phase yet, and it takes no expert_policy"
 )
+STORE = (
+    "the agent's replay is not written through the replay family yet (its"
+    " declaration on the family)"
+)
+OWN_STORE = "the agent's own collector does not run choose_replay_action yet"
 OWN_ROLLOUT = (
     "the agent's own collector does not observe features yet (APG's differentiable"
     " rollout, UDRL's command)"
@@ -181,6 +186,11 @@ GAPS: dict[str, dict[str, str]] = {
     REWARD: {
         "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO UDRL DAgger IQL DreamerV3"
         " TDMPC2 TDMPC2MultiTask"
+    },
+    STORE: {"StorePolicyAction": "SAC REDQ TQC ASAC DQN DAgger DAgger/discrete"},
+    OWN_STORE: {
+        "StorePolicyAction": "UDRL UDRL/discrete DreamerV3 DreamerV3/discrete TDMPC2"
+        " TDMPC2MultiTask"
     },
     PRIOR: dict.fromkeys(
         ("PriorData", "ExpertPrefill"),

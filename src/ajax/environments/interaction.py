@@ -1076,6 +1076,9 @@ def collect_experience(
         )
     raw_action = action if result.raw_action is None else result.raw_action
     buffer_action = env_action if result.buffer_action is None else result.buffer_action
+    # The run's replay action chooser (StorePolicyAction) may store another.
+    for chooser in env_args.replay_action_choosers:
+        buffer_action = chooser.choose_replay_action(buffer_action, action)
 
     obsv, env_state, reward, terminated, truncated, info = jax.lax.stop_gradient(
         step(

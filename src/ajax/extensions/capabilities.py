@@ -69,6 +69,8 @@ PHASE_NEEDS: Mapping[str, frozenset[str]] = {
     "actuate": frozenset({"continuous_actions"}),
     # A warm-up exists only on an agent that has one, run with steps in it.
     "choose_warmup_action": frozenset({"warmup", "warmup_steps"}),
+    # Only a replay stores actions to learn from.
+    "choose_replay_action": frozenset({"replay"}),
 }
 
 

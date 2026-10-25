@@ -564,6 +564,23 @@ class ExpertWarmup(Extension):
 
 
 @dataclass(frozen=True)
+class StorePolicyAction(Extension):
+    """An off-policy correctness ablation (SAC's former store_policy_action):
+    the replay stores the action the policy chose, not the one executed, so
+    the rows an expert, a warm-up or a residual acted in no longer hold the
+    action that produced their reward and next observation. It acts in the
+    controller only: no state and no key in the learner."""
+
+    name: str = "store_policy_action"
+
+    def choose_replay_action(
+        self, executed_actions: jax.Array, policy_actions: jax.Array
+    ) -> jax.Array:
+        del executed_actions
+        return policy_actions
+
+
+@dataclass(frozen=True)
 class JSRLCurriculum(Extension):
     """True JSRL per-episode handoff (Uchendu et al. 2023).
 

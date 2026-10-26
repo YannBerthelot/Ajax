@@ -80,7 +80,7 @@ def test_collection_executes_the_expert_where_the_target_critics_rate_it_higher(
     taken = step(jnp.array([[-1.0], [0.5], [1.0]]))
     chosen = ibrl.action(Learner(), (), taken, KEY, CONTEXT)
     np.testing.assert_allclose(chosen, [[0.5], [0.5], [1.0]])
-    np.testing.assert_array_equal(taken["expert_mask"], [[True], [False], [False]])
+    np.testing.assert_array_equal(taken.get("expert_mask"), [[True], [False], [False]])
     assert taken["gate_rng"] is KEY
 
 

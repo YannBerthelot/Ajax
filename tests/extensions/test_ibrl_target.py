@@ -27,7 +27,7 @@ Q_EXPERT = jnp.array([[1, 1, 1], [1, 1, 1], [3, 3, 0], [3, 3, 0.0]])[..., None]
 Q_POLICY = jnp.array([[2, 0, 2], [2, 0, 2], [1, 1, 1], [1, 1, 1.0]])[..., None]
 
 
-def half(obs: jax.Array) -> jax.Array:
+def act_at_half(obs: jax.Array) -> jax.Array:
     return jnp.full(obs.shape[:-1] + (1,), 0.5)
 
 
@@ -49,7 +49,7 @@ def test_ibrl_scores_the_next_actions_its_target_scored() -> None:
         "dones": jnp.zeros((6, 1)),
         "gamma": 0.9,
     }
-    target, _ = IBRL(expert_policy=half).on_target(
+    target, _ = IBRL(expert_policy=act_at_half).on_target(
         state, None, batch, jnp.zeros((6, 1)), CONTEXT
     )
 
@@ -60,7 +60,7 @@ def test_ibrl_scores_the_next_actions_its_target_scored() -> None:
         x = jnp.concatenate((next_observations, actions), axis=-1)
         return jnp.min(predict_value(critic, target_params, x), axis=0)
 
-    advantage = value(half(next_observations)) - value(next_actions)
+    advantage = value(act_at_half(next_observations)) - value(next_actions)
     want = 0.9 * jnp.maximum(advantage, 0.0)
     np.testing.assert_allclose(target, want, rtol=1e-6, atol=1e-7)
 

@@ -3,8 +3,9 @@
 These reshape the Bellman target before it enters the critic loss (the
 on_target phase):
 
-* IBRL: add the positive gap gamma (1 - d) max(Q_expert - Q_policy, 0), so
-  the value function matches an argmax action-selection policy.
+* IBRL: add gamma (1 - d) (Q_expert - Q_policy) where the expert's next
+  action is selected, so the value function matches an argmax
+  action-selection policy.
 * LCBGatedBootstrap: soft-blend the policy and expert TD targets by an
   LCB-scored sigmoid gate.
 * CriticBlend: a warmup-decaying blend of the Bellman target with the
@@ -274,12 +275,11 @@ class IBRL(Extension):
         selection_critics = draw_selection_critics(
             value_critics, q_expert.shape[0], selection_key
         )
-        expert_selected = take_minimum(q_expert, selection_critics) > take_minimum(
-            q_policy, selection_critics
-        )
-        advantage = take_minimum(q_expert, value_critics) - take_minimum(
-            q_policy, value_critics
-        )
+        expert_on_selection = take_minimum(q_expert, selection_critics)
+        policy_on_selection = take_minimum(q_policy, selection_critics)
+        expert_selected = expert_on_selection > policy_on_selection
+        expert_value = take_minimum(q_expert, value_critics)
+        advantage = expert_value - take_minimum(q_policy, value_critics)
         gap = jax.lax.stop_gradient(
             gamma * (1.0 - dones) * jnp.where(expert_selected, advantage, 0.0)
         )

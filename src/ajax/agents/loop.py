@@ -493,15 +493,16 @@ class TrainLoop:
         aux: Any,
         index: Any,
         recurrent: bool = False,
+        agent_metrics: Optional[Callable[[Any], dict]] = None,
         **kwargs: Any,
     ) -> tuple[Any, Optional[dict]]:
-        """Evaluate and log every ``log_frequency`` steps
-        (:func:`ajax.log.evaluate_and_log`), the extensions' eval metrics
-        included; returns the state and the metrics (``None`` without
-        logging), only in the last fifth of training in a sweep. An agent
-        storing normalised observations evaluates with them normalised by its
-        running statistics, unless its own ``controller`` says how it
-        acts."""
+        """Evaluate and log every log_frequency steps
+        (ajax.log.evaluate_and_log), the agent's family's agent_metrics and
+        the extensions' eval metrics included; returns the state and the
+        metrics (None without logging), only in the last fifth of training
+        in a sweep. An agent storing normalised observations evaluates with
+        them normalised by its running statistics, unless its own controller
+        says how it acts."""
         controller = make_run_controller(self.env_args, kwargs.get("controller"))
         if controller != Controller():
             kwargs.update({"controller": controller})
@@ -520,7 +521,7 @@ class TrainLoop:
             self.log_frequency,
             self.total_timesteps,
             extra_eval_metrics=compose_eval_metrics(
-                self.extensions, self.total_timesteps
+                self.extensions, self.total_timesteps, agent_metrics
             ),
             **kwargs,
         )

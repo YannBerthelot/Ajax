@@ -416,14 +416,24 @@ class TrainLoop:
         expert's tracked state, the run's action extensions act on its
         result, gain mode actuates the chosen action through the expert, and
         the default pipeline runs the run's warm-up chooser
-        (expert_collect_kwargs)."""
+        (expert_collect_kwargs); without it, the action extensions acting
+        with an expert of their own (IBRL)."""
         common = {"recurrent": recurrent, "mode": self.mode, "env_args": self.env_args}
         args = dict(common)
         args.update(kwargs)
-        if self.expert_policy is None:
-            return args
         pipeline = kwargs.get("action_pipeline")
         n_envs = self.env_args.n_envs
+        if self.expert_policy is None:
+            stage = expert_collect_kwargs(
+                None,
+                pipeline,
+                recurrent,
+                n_envs,
+                extensions=self.extensions,
+                total_timesteps=self.total_timesteps,
+            )
+            args.update(stage)
+            return args
         # The observation features read the expert the collector tracks.
         expert = {"expert": self.expert_policy} if self.env_args.observers else {}
         transform = next(iter(self.env_args.transforms), None)

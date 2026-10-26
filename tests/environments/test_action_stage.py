@@ -75,6 +75,39 @@ def _stage_result(uniform: bool) -> ActionPipelineResult:
     return staged(agent_state, acting, None, key, jnp.asarray(uniform), key, key)
 
 
+@dataclass(frozen=True)
+class OwnExpertHandOver(Extension):
+    """Hands env 0 its own expert's action, index 3, read off the raw obs."""
+
+    name: str = "own_expert_hand_over"
+    action_slot: ClassVar[str] = "pre_warmup"
+
+    def action(self, agent_state, ext_state, obs, rng, context):
+        assert obs["expert_action"] is None  # no agent expert
+        mask = jnp.arange(N_ENVS) == 0
+        obs["expert_mask"] = mask
+        own = obs["raw_obs"][:, 0].astype(jnp.int32)
+        return jnp.where(mask, own, obs["post_warmup_action"])
+
+
+def test_without_the_agents_expert_the_stage_runs_an_extensions_own():
+    """No agent expert: the stage still runs an extension acting with an
+    expert of its own (IBRL); with none in a slot the pipeline stays None."""
+    stage = interaction.expert_collect_kwargs(
+        None, None, False, N_ENVS, extensions=(ExpertWarmup(fraction=0.5),)
+    )
+    assert stage == {"action_pipeline": None}
+    staged = interaction.expert_collect_kwargs(
+        None, _discrete_pipeline, False, N_ENVS, extensions=(OwnExpertHandOver(),)
+    )["action_pipeline"]
+    acting = ActingState(jnp.zeros((N_ENVS, 3)), jnp.zeros(N_ENVS, bool), 0)
+    key, raw_obs = jax.random.PRNGKey(0), jnp.full((N_ENVS, 1), 3.0)
+    agent_state = SimpleNamespace(ext_state=((),))
+    result = staged(agent_state, acting, raw_obs, key, jnp.asarray(False), key, key)
+    np.testing.assert_array_equal(result.buffer_action, [[3], [2]])
+    np.testing.assert_array_equal(result.is_expert_flag, [[1.0], [0.0]])
+
+
 def test_an_action_extension_without_a_slot_is_refused():
     check_action_slots((HandOver(), ExpertWarmup(fraction=0.5)))
     with pytest.raises(ValueError, match="unslotted"):

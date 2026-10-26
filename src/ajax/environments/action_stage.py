@@ -32,11 +32,13 @@ ACTION_SLOTS = ("pre_warmup", "post_warmup")
 
 def slotted_extensions(extensions: Any, slot: str) -> tuple:
     """The (index, extension) pairs of the stack's extensions acting in
-    slot, in stack order."""
+    slot, in stack order: those with an action phase (IBRL has one only
+    where it acts)."""
     return tuple(
         (index, extension)
         for index, extension in enumerate(extensions)
-        if getattr(extension, "action_slot", None) == slot
+        if "action" in extension.implemented_phases()
+        and getattr(extension, "action_slot", None) == slot
     )
 
 
@@ -137,10 +139,12 @@ def apply_action_extensions(
         )
         env_action = result.env_action
         # The expert's action in the env action's layout (a discrete index's
-        # (n_envs,) vector, not the expert's column).
-        expert_action = acting.expert_action.reshape(env_action.shape).astype(
-            env_action.dtype
-        )
+        # (n_envs,) vector, not the expert's column); None without the
+        # agent's expert (IBRL calls its own).
+        expert_action = acting.expert_action
+        if expert_action is not None:
+            expert_action = expert_action.reshape(env_action.shape)
+            expert_action = expert_action.astype(env_action.dtype)
         gate_rng = rng if result.rng is None else result.rng
         masks = []
         if pre_warmup:

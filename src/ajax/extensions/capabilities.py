@@ -26,6 +26,10 @@ ALGORITHM_CAPABILITIES: Mapping[str, str] = {
     "q_critic": "a learned action value Q(s, a)",
     "v_critic": "a learned state value V(s)",
     "discounted": "it maximises a discounted return, not the average reward",
+    "next_action_target": (
+        "its target scores the critic at a next action a' (the policy's at s',"
+        " or the greedy one), not a state value V(s')"
+    ),
     "replay": "its updates sample stored past transitions",
     "off_policy": "its update stays correct on actions its policy did not choose",
     "critic_ensemble": "two critics or more (num_critics, where the agent has it)",

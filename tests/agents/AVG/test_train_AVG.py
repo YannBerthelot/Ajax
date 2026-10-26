@@ -145,9 +145,9 @@ def test_a_truncated_step_bootstraps_and_a_terminated_one_does_not(
     td_target = avg_module.compute_avg_td_target
 
     def spy_td_target(*a: Any):
-        target, next_log_probs = td_target(*a)
+        target, next_log_probs, next_actions = td_target(*a)
         targets.append(target)
-        return target, next_log_probs
+        return target, next_log_probs, next_actions
 
     monkeypatch.setattr(avg_module, "compute_avg_td_target", spy_td_target)
     one, zero = jnp.ones((1, 1)), jnp.zeros((1, 1))

@@ -57,7 +57,6 @@ def _setup() -> tuple[Any, dict, jax.Array]:
         "gamma": 0.99,
         "raw_next_observations": next_obs,
         "next_a_expert": None,
-        "recurrent": False,
     }
     return state, batch, jnp.zeros((BATCH, 1))
 

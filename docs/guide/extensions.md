@@ -219,8 +219,9 @@ target cut the bootstrap. `targets` is the target, held constant. The critic
 actor's mean action. `raw_observations` are the environment's own
 observations, before any normalisation; a replay agent keeps them only in a
 run with an expert, and passes `None` otherwise, except UDRL, whose segments
-hold them anyway. An agent's own keys (SAC's `rng_key`, TD3's
-`next_actions`) are in its `phase_batch_keys`.
+hold them anyway. `next_actions` are the next actions the target scored
+(None for a target on a state value, IQL's V(s')). An agent's own keys
+(SAC's `rng_key`) are in its `phase_batch_keys`.
 
 An extension never falls back to adding nothing, so a misplaced extension
 cannot look like a result. One declaring the keys it reads (`batch_keys`) is

@@ -127,6 +127,7 @@ class TDMPC2(ActorCritic):
             "actor",
             "critic_ensemble",
             "discounted",
+            "next_action_target",
             "off_policy",
             "policy_density",
             "q_critic",

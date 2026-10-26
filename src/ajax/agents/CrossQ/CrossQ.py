@@ -236,6 +236,7 @@ class CrossQ(
                 dones=batch.terminated,
                 gamma=self.gamma,
                 reward_scale=self.reward_scale,
+                next_actions=next_actions,
             )
             loss, aux = compute_q_regression_loss(current_q_values, target)
             extra, loss_metrics = update_steps.compute_extensions_critic_loss(
@@ -317,6 +318,7 @@ class CrossQ(
             "actor",
             "critic_ensemble",
             "discounted",
+            "next_action_target",
             "obs_networks",
             "off_policy",
             "policy_density",
@@ -328,7 +330,9 @@ class CrossQ(
     )
     trains_batch_norm = True
     stores_expert_actions = True
-    supported_buffer_fields = frozenset({"raw_next_obs", "return_to_go"})
+    supported_buffer_fields = ReplayAgent.supported_buffer_fields.union(
+        {"raw_next_obs", "return_to_go"}
+    )
 
 
 # -- CrossQ's own helpers; its equations are SAC's ---------------------------

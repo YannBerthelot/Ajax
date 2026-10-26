@@ -235,9 +235,7 @@ class TD3(
             dones=batch.terminated,
             gamma=self.gamma,
             reward_scale=self.reward_scale,
-            # The smoothed next actions the target scored, for a target term
-            # on them (TargetBC).
-            target_extras={"next_actions": next_actions},
+            next_actions=next_actions,
         )
         aux = aux.replace(grad_norm=grad_norm)
         return agent_state.replace(critic_state=critic_state), aux, metrics
@@ -287,6 +285,7 @@ class TD3(
             "actor",
             "critic_ensemble",
             "discounted",
+            "next_action_target",
             "obs_networks",
             "off_policy",
             "q_critic",
@@ -296,14 +295,11 @@ class TD3(
             "warmup",
         }
     )
-    # Its smoothed next actions join the shared step's on_target keys.
-    phase_batch_keys = {  # noqa: RUF012
-        **update_steps.REPLAY_BATCH_KEYS,
-        "on_target": update_steps.TARGET_KEYS.union({"next_actions"}),
-    }
     extension_context = RecurrentReplayAgent.extension_context.union(BELLMAN_CONTEXT)
     stores_expert_actions = True
-    supported_buffer_fields = frozenset({"next_action", "raw_next_obs", "return_to_go"})
+    supported_buffer_fields = RecurrentReplayAgent.supported_buffer_fields.union(
+        {"raw_next_obs", "return_to_go"}
+    )
 
 
 # -- TD3's equations, in the order update calls them -------------------------

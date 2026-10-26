@@ -256,7 +256,7 @@ class SAC(
         # A truncated row bootstraps on its final observation (bootstrap_obs).
         dones = batch.terminated
         scored = context.make_scored_actions(batch)
-        target_q = compute_td_target(
+        target_q, next_actions = compute_td_target(
             actor_state=agent_state.actor_state,
             critic_state=agent_state.critic_state,
             next_observations=batch.next_obs,
@@ -293,9 +293,10 @@ class SAC(
             dones=dones,
             gamma=self.gamma,
             reward_scale=self.reward_scale,
-            # The target's key (IBRL and LCBGatedBootstrap redraw its
-            # next-action sample) and the memory flag.
-            target_extras={"rng_key": critic_key, "recurrent": context.recurrent},
+            next_actions=next_actions,
+            # The target's key: IBRL and LCBGatedBootstrap redraw its
+            # next-action sample.
+            target_extras={"rng_key": critic_key},
         )
         value_aux = ValueAuxiliaries(
             critic_loss=aux.critic_loss,
@@ -367,6 +368,7 @@ class SAC(
             "actor",
             "critic_ensemble",
             "discounted",
+            "next_action_target",
             "obs_networks",
             "off_policy",
             "policy_density",
@@ -380,7 +382,7 @@ class SAC(
     # Its critic step's target_extras join the shared step's on_target keys.
     phase_batch_keys = {  # noqa: RUF012
         **update_steps.REPLAY_BATCH_KEYS,
-        "on_target": update_steps.TARGET_KEYS.union({"rng_key", "recurrent"}),
+        "on_target": update_steps.TARGET_KEYS.union({"rng_key"}),
     }
     # MCPretrain's and PhiRefresh's (the expert critic phi*, SACState's
     # fields), and BellmanPretrain's.
@@ -388,7 +390,9 @@ class SAC(
         BELLMAN_CONTEXT
     ).union({"critic_optimizer_args", "extensions", "network_args", "num_critics"})
     stores_expert_actions = True
-    supported_buffer_fields = frozenset({"raw_next_obs", "return_to_go"})
+    supported_buffer_fields = RecurrentReplayAgent.supported_buffer_fields.union(
+        {"raw_next_obs", "return_to_go"}
+    )
 
 
 # -- SAC's equations, in the order update calls them --------------------------
@@ -423,11 +427,12 @@ def compute_td_target(
     reward_scale: float = 1.0,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
     carries: Optional[RecurrentCarries] = None,
-) -> jax.Array:
+) -> tuple[jax.Array, jax.Array]:
     """SAC's Bellman target r + gamma (1 - d)(min_i Q_target_i(s', a') -
     alpha log pi(a'|s')), a' ~ pi(.|s'), no gradient flowing back through
-    it; the target extensions (IBRL, CriticBlend, MCVarianceCorrection) may
-    change it before the critic loss reads it.
+    it, and the next actions a' it scored; the target extensions (IBRL,
+    CriticBlend, MCVarianceCorrection) may change it before the critic loss
+    reads it.
 
     With a residual policy, map_next_actions maps the sampled next actions
     to the executed ones, from the expert's stored next actions
@@ -453,7 +458,7 @@ def compute_td_target(
     target = compute_soft_bellman_target(
         min_q_target, log_probs, rewards, dones, gamma, alpha, reward_scale
     )
-    return jax.lax.stop_gradient(target)
+    return jax.lax.stop_gradient(target), next_actions
 
 
 def compute_soft_bellman_target(

@@ -92,24 +92,23 @@ batch (`ImitationLoss`, `IBRL`, `LCBGatedBootstrap`, `CriticBlend`,
 `PhiRefresh`), call it as `expert(obs)`, on raw observations, where no
 expert state exists. A stateful expert is allowed there in one case only:
 when it is the agent's own `expert_policy` (the same object), on an agent
-that stores that expert's actions (SAC, TD3, REDQ, ASAC, AVG, APO). The extensions
+that stores that expert's actions (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG,
+APO, DAgger, DQN). The extensions
 then read the actions the agent stored at collection, computed from the
 expert's tracked state, instead of calling it. Any other stateful expert is
 refused when the agent is built.
 
 ## Which agents take an expert
 
-| Agent | `expert_policy=` | Expert extensions |
-| --- | --- | --- |
-| [SAC](../algorithms/sac.md) | replay prefill, warm-up actions, collection extensions, the expert's evaluation return | all |
-| [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [ASAC](../algorithms/asac.md), [AVG](../algorithms/avg.md), [APO](../algorithms/apo.md) | the expert's evaluation return | `CloningPretrain`, `ImitationLoss`; `IBRL`, `LCBGatedBootstrap` on TD3, REDQ and AVG; `ExpertValueMetrics` on TD3, REDQ and ASAC |
-| [DAgger](../algorithms/dagger.md) | required: the expert acts and labels every visited state; its evaluation return | `CloningPretrain`, `ImitationLoss` (continuous actions) |
+Every agent but the world models takes an `expert_policy=`: collection
+tracks it along each trajectory, the extensions read it, and evaluations
+log its return. DAgger requires one: the expert acts and labels every
+visited state. Which expert extensions each agent runs is in
+[Compatibility](compatibility.md).
 
-The other agents (PPO, DQN, PQN, UDRL, APG and the world models) take no
-expert: `CloningPretrain` raises on them when training starts. PPO, APG and
-UDRL with continuous actions take `ImitationLoss` with a stateless expert.
-A discrete policy has no mean action for it, DQN and PQN have no actor, and
-the world models fold no actor phase.
+`ImitationLoss` needs a policy's mean action: PPO, APG and UDRL take it with
+continuous actions and a stateless expert. A discrete policy has no mean
+action, DQN and PQN have no actor, and the world models fold no actor phase.
 
 With an expert, evaluations also log `Eval/episodic mean expert reward`, the
 expert's return on the same episodes as the agent's, and `Eval/expert
@@ -216,8 +215,8 @@ Without it the warm-up is uniform.
 Collection extensions decide, at each step, whether the expert or the policy
 acts. The shared collector runs them around the agent's own action choice,
 on every off-policy agent with an expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC,
-AVG, IQL, DAgger), in two places, which each extension names in its
-`action_slot`:
+AVG, IQL, DAgger, DQN, PQN), and UDRL's collector too, in two places, which
+each extension names in its `action_slot`:
 
 - **Before the warm-up choice** (`"pre_warmup"`): `EDGEExploration` (a
   value-based gate, comparing the expert's action with the one the step
@@ -229,6 +228,11 @@ AVG, IQL, DAgger), in two places, which each extension names in its
   transition and pays the expert's value as a reward, in place of the
   bootstrap, whatever its sign.
 
+Where an extension hands the expert a step, UDRL's segment keeps the
+choice that executes the expert's action (the expert's own, or a residual
+of 0), which its actor then fits under the command the step realised:
+Ajax's composition of JSRL and EDGE with UDRL, not a published pairing.
+
 `ResidualPolicy` changes what the policy's action means: the agent executes
 `clip(a_E + scale · a_π, −1, 1)`, in agent units, in collection (before the
 warm-up's choice, so the warm-up draws executed actions), in the critics'
@@ -237,7 +241,10 @@ executed action. The policy then learns a correction to the expert
 (residual RL). SAC, TD3, REDQ, TQC, CrossQ, ASAC and AVG run it, their
 critics scoring the executed action; PPO and APO too, their ratio reading
 the policy's own sample; and IQL, whose replay also keeps the residual the
-policy chose (its warm-up draws residuals), which its actor fits. UDRL
+policy chose (its warm-up draws residuals), which its actor fits. Where a
+collection extension handed the agent's expert the step, IQL's replay keeps
+the residual that executes the expert's action, 0, which is Ajax's own
+composition of JSRL, EDGE and IBRL with residual IQL. UDRL
 acts through it in its own collector, keeping the policy's action, and APG
 in its differentiable rollout, whose gradient runs through the residual
 and the expert.
@@ -274,8 +281,9 @@ target's size), and the replay flags the rows the expert's action took.
 Evaluation makes the same choice from the agent's evaluation action, its
 mean. It uses its own expert, which need not be the agent's.
 `ibrl/expert_frac` and `Eval/expert share` log how often the expert's action
-was taken. IQL under a residual policy refuses it, as it refuses JSRL and
-EDGE. `tests/conformance/test_ibrl_original.py` checks the target and the
+was taken. IQL under a residual policy takes it with the agent's expert
+only: a residual reaches clip(a_E + residual), and another expert's action
+need not lie in that reach. `tests/conformance/test_ibrl_original.py` checks the target and the
 acting against the authors' code on fixed inputs.
 
 The choice between the two actions is hard by default (the authors'
@@ -350,7 +358,7 @@ Ajax" marks a feature with no external reference.
 
 | You want to | Use | Method |
 | --- | --- | --- |
-| Start the replay with good experience | `ExpertPrefill(n_steps)` (SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
+| Start the replay with good experience | `ExpertPrefill(n_steps)` (SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL, DQN); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
 | Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, ASAC, DQN, IQL) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
 | Keep the actor near the dataset's actions | `ImitationLoss(None, target="replay", alpha=2.5)` (SAC, TD3, REDQ, ASAC) | TD3+BC (Fujimoto and Gu, 2021) on TD3 |
 | Keep the critic's target near the dataset's actions too | `TargetBC` with TD3+BC's term (TD3) | ReBRAC (Tarasov et al., 2023) |
@@ -360,18 +368,18 @@ Ajax" marks a feature with no external reference.
 | Imitate the expert, with no reward | the `DAgger` agent | DAgger (Ross, Gordon and Bagnell, 2011); `ImitationLoss` with a replay agent's own expert is its aggregation plus the RL loss |
 | Keep the actor near the expert early on | `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger; PPO, APG, UDRL with a stateless expert), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |
 | Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC, TD3, REDQ, ASAC, AVG) | Q-filtered behaviour cloning (Nair et al., 2018) |
-| Let the expert act while the agent is poor | `JSRLCurriculum`, `EDGEExploration` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger), `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
+| Let the expert act while the agent is poor | `JSRLCurriculum` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger, DQN, PQN, UDRL), `EDGEExploration` (the same with continuous actions; on UDRL its fixed gate alone, UDRL having no Q critic), `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
 | Learn a correction to the expert | `ResidualPolicy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL) | residual RL (Johannink et al., 2019) |
 | Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` (SAC) | developed with Ajax |
 | Make the target account for the expert | `IBRL` (SAC, TD3, REDQ, AVG), `LCBGatedBootstrap` (SAC, TD3, REDQ) | IBRL (Hu et al., 2023); the LCB gate developed with Ajax |
-| Measure how the critic rates the expert | `ExpertValueMetrics` (SAC, TD3, REDQ, ASAC) | |
+| Measure how the critic rates the expert | `ExpertValueMetrics` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, IQL, DQN) | |
 
 Some pieces need others. The agent refuses wrong combinations when it is
 built:
 
 | Extension | Needs | Refused |
 | --- | --- | --- |
-| `EDGEExploration`, `JSRLCurriculum`, `ValueBox` | an off-policy agent with an `expert_policy`, without gain mode (`ExpertGains`) and, on IQL, without a residual policy; `EDGEExploration` continuous actions | when built |
+| `EDGEExploration`, `JSRLCurriculum`, `ValueBox` | an off-policy agent with an `expert_policy`, without gain mode (`ExpertGains`); `EDGEExploration` continuous actions; on IQL with a residual policy, `IBRL` acting with the agent's expert only | when built |
 | `ResidualPolicy` | SAC (without gain mode), TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL, with an `expert_policy` | when built |
 | `OnlineBC`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox`, `PhiRefresh` | `MCPretrain` in the stack | when built |
 | `OnlineBC` | SAC with an `expert_policy`, whose actions it clones | when built |

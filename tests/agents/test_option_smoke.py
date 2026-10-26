@@ -165,18 +165,21 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "IBRL": (lambda: tm.IBRL(EXPERT), "SAC"),
     "LCBGatedBootstrap": (lambda: tm.LCBGatedBootstrap(EXPERT), "SAC"),
     "EDGEExploration": (exploration.EDGEExploration, "SAC"),
-    "JSRLCurriculum": (lambda: expert.JSRLCurriculum(episode_length=8), "SAC"),
+    "JSRLCurriculum": (
+        lambda: expert.JSRLCurriculum(episode_length=8),
+        "SAC DQN PQN UDRL",
+    ),
     "ResidualPolicy": (expert.ResidualPolicy, "SAC"),
     "ExpertGains": (expert.ExpertGains, "SAC"),
-    "ExpertValueMetrics": (expert.ExpertValueMetrics, "SAC"),
+    "ExpertValueMetrics": (expert.ExpertValueMetrics, "SAC DQN"),
     "BellmanPretrain": (lambda: pre.BellmanPretrain(n_steps=4), "SAC"),
     "PriorData": (prior_data, "SAC TD3 REDQ ASAC"),
     "ExpertPrefill": (
         lambda: pre.ExpertPrefill(n_steps=8),
-        "SAC TD3 REDQ ASAC TQC CrossQ IQL",
+        "SAC TD3 REDQ ASAC TQC CrossQ IQL DQN",
     ),
-    "ExpertWarmup": (lambda: expert.ExpertWarmup(fraction=0.5), "SAC"),
-    "StorePolicyAction": (expert.StorePolicyAction, "TD3 TQC REDQ ASAC"),
+    "ExpertWarmup": (lambda: expert.ExpertWarmup(fraction=0.5), "SAC DQN"),
+    "StorePolicyAction": (expert.StorePolicyAction, "TD3 TQC REDQ ASAC DQN UDRL"),
     "ImitationLoss": (lambda: expert.ImitationLoss(stateless_expert), "APO"),
     "KernelRepulsion": (ensemble.KernelRepulsion, "REDQ"),
     "BiasVorePenalty": (instrumentation.BiasVorePenalty, "AVG"),
@@ -189,9 +192,12 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
         lambda: adversarial.AdversarialReward(pendulum_rows()),
         "PPO",
     ),
-    "ExpertActionInput": (observe.ExpertActionInput, "SAC PPO APO"),
+    "ExpertActionInput": (
+        observe.ExpertActionInput,
+        "SAC PPO APO DQN PQN APG UDRL",
+    ),
     "ExpertStateInput": (lambda: observe.ExpertStateInput.for_expert(EXPERT), "SAC"),
-    "TrainingProgressInput": (observe.TrainingProgressInput, "SAC"),
+    "TrainingProgressInput": (observe.TrainingProgressInput, "SAC APG"),
     "PIDTermsInput": (lambda: observe.PIDTermsInput((0,), (1,)), "SAC"),
 }
 ACTING = {"ValueBox", "EDGEExploration", "JSRLCurriculum", "ResidualPolicy"}
@@ -260,9 +266,6 @@ EXCLUSIVE = [
     ({"AdversarialReward"}, {"fast", "CartPole-v1"}),
 ]
 TABLE = {**CASES, "APG": Case(APG, {"horizon": 1, "pid": None}, ())}
-#: The options an agent takes and refuses with NotWired until its code passes
-#: them on (APG's evaluation rolls out no expert yet).
-NOT_WIRED = {"APG": {"eval_expert_policy"}}
 #: The exported agents off TABLE, and the tests that run their options.
 OWN_TESTS = {"DreamerV3": "DreamerV3", "TDMPC2": "TDMPC2", "TDMPC2MultiTask": "TDMPC2"}
 
@@ -270,9 +273,7 @@ OWN_TESTS = {"DreamerV3": "DreamerV3", "TDMPC2": "TDMPC2", "TDMPC2MultiTask": "T
 def _options(name: str) -> list[str]:
     """``name``'s options and extensions."""
     case, takes = TABLE[name], set(inspect.signature(TABLE[name].cls).parameters)
-    unwired = NOT_WIRED.get(name, set())
     out = [o for o, kw in OPTIONS.items() if set(kw) <= takes and o not in ENVS]
-    out = [o for o in out if o not in unwired]
     out += [env for env in ENVS if env in case.envs]
     return out + [e for e, (_, at) in EXTENSIONS.items() if name in at.split()]
 

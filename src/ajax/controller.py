@@ -78,8 +78,9 @@ class ObserveInputs(NamedTuple):
     tracked expert (in agent units; None without one) and the state its call
     there starts from, the collector's timestep (None in evaluation, which
     passes its frozen ``progress``), the run's horizon (None where the
-    collector keeps none) and, in evaluation, the training progress it
-    holds."""
+    collector keeps none), in evaluation the training progress it holds,
+    and whether the features' gradient flows back to what they read (APG's
+    differentiable rollout); elsewhere they are held constant."""
 
     raw_obs: jax.Array
     expert: Any = None
@@ -87,6 +88,7 @@ class ObserveInputs(NamedTuple):
     timestep: Any = None
     horizon: Any = None
     progress: Any = None
+    differentiable: bool = False
 
 
 @dataclass(frozen=True)
@@ -201,8 +203,9 @@ def transforms_of(stack: Any) -> tuple[Any, ...]:
 
 class WarmupInputs(NamedTuple):
     """What a warm-up chooser reads in one step: the expert's action in the
-    space the warm-up draws (expert_action_for_warmup; None in a run without
-    an expert), and the key the step's uniform actions were drawn on."""
+    space the warm-up draws (find_expert_action_in_choice_space; None in a
+    run without an expert), and the key the step's uniform actions were
+    drawn on."""
 
     expert_action: Optional[jax.Array]
     key: jax.Array
@@ -238,16 +241,17 @@ def choose_warmup_actions(
     return warmups[0].choose_warmup_action(uniform_actions, inputs)
 
 
-def expert_action_for_warmup(
+def find_expert_action_in_choice_space(
     transform: Any,
     after_choice: bool,
     expert_action: Optional[jax.Array],
     policy_actions: Any,
 ) -> Optional[jax.Array]:
-    """The expert's action in the space the warm-up draws, which the replay
-    stores: the executed one, unless the transform acts after the choice
-    (gain mode, or a residual applied after it), where it is the policy
-    action that executes the expert's own (policy_action_for_expert)."""
+    """The expert's action in the space the step's action is chosen in,
+    which the warm-up draws and the replay stores: the executed one, unless
+    the transform acts after the choice (gain mode, or a residual applied
+    after it), where it is the policy action that executes the expert's own
+    (policy_action_for_expert)."""
     acts_after_choice = transform is not None and (
         after_choice or "actuate" in transform.implemented_phases()
     )

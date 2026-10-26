@@ -29,6 +29,7 @@ from ajax.environments.utils import critic_action_units
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.observe import ExpertActionInput
 from ajax.networks.networks import phi_star_critic_state, predict_value
+from ajax.networks.q_networks import q_network_value
 from ajax.schedule import progress
 
 
@@ -569,9 +570,12 @@ class StorePolicyAction(Extension):
     the replay stores the action the policy chose, not the one executed, so
     the rows an expert, a warm-up or a residual acted in no longer hold the
     action that produced their reward and next observation. It acts in the
-    controller only: no state and no key in the learner."""
+    controller only: no state and no key in the learner. An agent learning
+    from an expert's labels alone (DAgger) learns from no stored action:
+    there is nothing to ablate (reward_learning)."""
 
     name: str = "store_policy_action"
+    requires: ClassVar[frozenset[str]] = frozenset({"reward_learning"})
 
     def choose_replay_action(
         self, executed_actions: jax.Array, policy_actions: jax.Array
@@ -678,17 +682,22 @@ class ExpertValueMetrics(Extension):
     One replay batch per evaluation pays for them, not a critic pass (two
     with ``φ*``) per update for three logged numbers. ``a_E`` is the
     expert's action stored at collection. A replay agent with an
-    ``expert_policy`` (SAC, TD3, REDQ, ASAC) binds its replay buffer and its
-    expert.
+    ``expert_policy`` (SAC, TD3, REDQ, ASAC, DQN) binds its replay buffer,
+    its expert and whether its actions are discrete: a discrete agent's
+    Q-network gives every action's value, read at the stored index
+    (q_network_value), one network, no ensemble to take the minimum of.
     """
 
     buffer: Any = None
     expert_policy: Optional[Callable] = None
+    discrete: bool = False
     name: str = "expert_value_metrics"
     requires: ClassVar[frozenset[str]] = frozenset(
         {"agent_expert", "q_critic", "replay"}
     )
-    context: ClassVar[frozenset[str]] = frozenset({"buffer", "expert_policy"})
+    context: ClassVar[frozenset[str]] = frozenset(
+        {"buffer", "env_args", "expert_policy"}
+    )
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
 
     def uses_expert_actions_as_policy_actions(self) -> bool:
@@ -702,9 +711,12 @@ class ExpertValueMetrics(Extension):
             raise ValueError(
                 "ExpertValueMetrics reads, on a replay batch, the critic at the"
                 " actions the agent stored for its expert_policy: it needs a"
-                " replay agent (SAC, TD3, REDQ, ASAC) with an expert_policy."
+                " replay agent (SAC, TD3, REDQ, ASAC, DQN) with an expert_policy."
             )
-        return dataclasses.replace(self, buffer=buffer, expert_policy=expert)
+        discrete = not agent_context["env_args"].continuous
+        return dataclasses.replace(
+            self, buffer=buffer, expert_policy=expert, discrete=discrete
+        )
 
     def eval_metrics(
         self,
@@ -722,6 +734,13 @@ class ExpertValueMetrics(Extension):
         obs, actions = batch.obs, batch.action
         # The expert's actions as collection stored them (from its state).
         a_expert = batch.a_expert
+        if self.discrete:
+            q_expert = q_network_value(agent_state, obs, a_expert)
+            q_taken = q_network_value(agent_state, obs, actions)
+            return {
+                "value/q_expert_mean": q_expert.mean(),
+                "value/q_gap": (q_expert - q_taken).mean(),
+            }
         critic = agent_state.critic_state
 
         def q_min(params: Any, a: jax.Array, state: Any = critic) -> jax.Array:

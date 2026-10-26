@@ -55,12 +55,23 @@ from ajax.agents.UDRL.buffer import (
     topk_command_stats,
 )
 from ajax.agents.update_steps import apply_post_update
-from ajax.controller import ActingState, Controller, policy_action_dim
+from ajax.controller import (
+    ActingState,
+    feature_width,
+    find_expert_action_in_choice_space,
+    make_run_controller,
+    policy_action_dim,
+)
 from ajax.environments.interaction import (
-    act_through_expert,
+    ActionPipelineResult,
+    executed_action,
+    expert_collect_kwargs,
+    get_final_obs,
     get_pi,
+    get_raw_final_obs,
     get_raw_obs,
     step,
+    step_features,
     update_episodic_return,
 )
 from ajax.environments.obs_norm import update_obs_norm
@@ -187,19 +198,69 @@ class UDRL(
             buffer=buffer,
         )
 
+    def make_acting_pipeline(
+        self, context: TrainContext, keeps_choice: bool = False
+    ) -> Any:
+        """UDRL's action pipeline (interaction.ActionPipelineResult's): a
+        sample of the actor on the observation with its command scaled,
+        executed through the run's residual transform where it has one. With
+        keeps_choice (an action extension in the stack), it gives the action
+        stage the choice that executes the expert's action, in the
+        segment's layout: the expert's own, or a residual of 0."""
+        transform = next(iter(context.env_args.transforms), None)
+        scale_r, scale_h = self.command_scale_r, self.command_scale_h
+
+        def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
+            del rng, uniform, mix_key
+            # Scaled before the actor's forward pass (paper, appendix); the
+            # replay keeps the raw command.
+            obs_for_actor = scale_command(acting.obs, scale_r, scale_h)
+            actor = agent_state.actor_state
+            pi, _ = get_pi(
+                actor_state=actor, actor_params=actor.params, obs=obs_for_actor
+            )
+            action, log_probs = pi.sample_and_log_prob(seed=action_key)
+            for_expert = None
+            if keeps_choice:
+                for_expert = find_expert_action_in_choice_space(
+                    transform, True, acting.expert_action, action
+                )
+                for_expert = for_expert.reshape(action.shape).astype(action.dtype)
+            return ActionPipelineResult(
+                env_action=executed_action(transform, action, acting, raw_obs),
+                policy_action=action,
+                log_probs=log_probs,
+                policy_action_for_expert=for_expert,
+            )
+
+        return pipeline
+
     def collect_step(
         self, agent_state: UDRLState, context: TrainContext
     ) -> tuple[UDRLState, Transition]:
         """One env step: the actor reads the observation and its command
         (the last two columns of last_obs) scaled, the env steps, and the
-        next observation carries the next command. With an expert the action
+        next observation carries the next command. With an expert, called
+        first as every collector calls it (expert_collect_kwargs), the action
         is executed through the run's transform (residual RL, gain mode) and
         the tracked expert; the segment keeps the policy's own action, which
         the actor fits."""
         env_args, n_envs = context.env_args, context.env_args.n_envs
         mode = env_args.mode
         collector = agent_state.collector_state
-        training_key, action_key, step_key = jax.random.split(agent_state.rng, 3)
+        # An action extension (JSRL, EDGE) acts in the action stage, its gates
+        # drawing on a fourth key: split(k, 4)[:3] is split(k, 3), so the
+        # agent's own draws are unchanged.
+        acts = any(
+            "action" in extension.implemented_phases()
+            for extension in context.extensions
+        )
+        gate_key = None
+        if acts:
+            keys = jax.random.split(agent_state.rng, 4)
+            training_key, action_key, step_key, gate_key = keys
+        else:
+            training_key, action_key, step_key = jax.random.split(agent_state.rng, 3)
         step_keys = env_keys(step_key, mode, n_envs)
         last_obs = collector.last_obs  # (n_envs, env's columns + 2)
         # The observation statistics take each observation once, when it is
@@ -210,34 +271,41 @@ class UDRL(
             )
             collector = collector.replace(obs_norm_info=stats)
             agent_state = with_obs_norm(agent_state.replace(collector_state=collector))
-        # Scaled before the actor's forward pass (paper, appendix); the
-        # replay keeps the raw command.
-        last_obs_for_actor = scale_command(
-            last_obs, self.command_scale_r, self.command_scale_h
+        transform = next(iter(env_args.transforms), None)
+        pipeline = expert_collect_kwargs(
+            self.expert,
+            self.make_acting_pipeline(context, keeps_choice=acts),
+            False,
+            n_envs,
+            transform,
+            extensions=context.extensions if acts else (),
+            total_timesteps=context.total_timesteps,
+        )["action_pipeline"]
+        acting = ActingState(
+            obs=last_obs,
+            done=jnp.logical_or(collector.last_terminated, collector.last_truncated),
+            timestep=jnp.asarray(collector.timestep),
+            expert_state=collector.expert_state,
         )
-        pi, new_actor_state = get_pi(
-            actor_state=agent_state.actor_state,
-            actor_params=agent_state.actor_state.params,
-            obs=last_obs_for_actor,
-        )
-        action, log_probs = pi.sample_and_log_prob(seed=action_key)
-        env_action, expert_state = action, collector.expert_state
+        # The env's own observation, which only the expert reads.
+        raw = None
         if self.expert is not None:
-            acting = ActingState(
-                obs=last_obs,
-                done=jnp.logical_or(
-                    collector.last_terminated, collector.last_truncated
-                ),
-                timestep=jnp.asarray(collector.timestep),
-                expert_state=collector.expert_state,
-            )
             raw = get_raw_obs(
                 env_state=collector.env_state, env=env_args.env, mode=mode
             )
-            transform = next(iter(env_args.transforms), None)
-            env_action, _, expert_state = act_through_expert(
-                transform, self.expert, acting, raw, action, n_envs
-            )
+        result = pipeline(agent_state, acting, raw, gate_key, False, None, action_key)
+        log_probs, env_action = result.log_probs, result.env_action
+        # The segment keeps the choice the actor fits: the one executing the
+        # expert's action where the stage handed it the step, unless the
+        # run's replay chooser (StorePolicyAction) picks the policy's own.
+        action = result.policy_action
+        if result.stored_policy_action is not None:
+            action = result.stored_policy_action
+        for chooser in env_args.replay_action_choosers:
+            action = chooser.choose_replay_action(action, result.policy_action)
+        expert_state = collector.expert_state
+        if result.new_expert_state is not None:
+            expert_state = result.new_expert_state
         new_env_obs, new_env_state, reward, terminated, truncated, info = (
             jax.lax.stop_gradient(
                 step(
@@ -252,6 +320,25 @@ class UDRL(
         )
         done = jnp.logical_or(terminated.astype(bool), truncated.astype(bool))
         done = done.astype(jnp.float32)
+        if env_args.observers:
+            # The next observation's features (the reset one's where an
+            # episode ended), from the expert's state after this step's call,
+            # before the command joins them.
+            final_obs = get_final_obs(info, new_env_obs).astype(new_env_obs.dtype)
+            next_columns, _, observer_states = step_features(
+                env_args,
+                mode,
+                self.expert,
+                collector.observer_states,
+                new_env_state,
+                get_raw_final_obs(info, final_obs),
+                expert_state,
+                done > 0,
+                timestep=collector.timestep,
+                horizon=collector.max_timesteps,
+            )
+            new_env_obs = jnp.concatenate([new_env_obs, next_columns], axis=-1)
+            collector = collector.replace(observer_states=observer_states)
         # A fresh exploratory command per env at an episode's end
         # (Algorithm 5): d_r ~ U(R_target, R_target + R_std), d_h = H_target.
         training_key, explore_key = jax.random.split(training_key)
@@ -309,9 +396,16 @@ class UDRL(
         )
         if expert_state is not None:
             collector = collector.replace(expert_state=expert_state)
-        agent_state = agent_state.replace(
-            collector_state=collector, actor_state=new_actor_state, rng=training_key
-        )
+        # Each env's step in its episode (JSRL's horizon), and the share of
+        # envs the stage handed the expert, as collect_experience keeps them.
+        if collector.step_in_episode is not None:
+            steps = jnp.where(done > 0, 0, collector.step_in_episode + 1)
+            collector = collector.replace(step_in_episode=steps)
+        if result.is_expert_flag is not None:
+            collector = collector.replace(
+                last_expert_frac=jnp.mean(result.is_expert_flag)
+            )
+        agent_state = agent_state.replace(collector_state=collector, rng=training_key)
         return agent_state, transition
 
     def iterate(
@@ -363,6 +457,7 @@ class UDRL(
         # unchanged.
         next_key, fit_key, extensions_key = jax.random.split(agent_state.rng, 3)
         agent_state = agent_state.replace(rng=next_key)
+        env_width = buffer.obs.shape[-1] - 2 - feature_width(context.env_args)
 
         def fit_batch(
             agent_state: UDRLState, keys: tuple[jax.Array, jax.Array]
@@ -387,11 +482,12 @@ class UDRL(
                 }
                 if extensions:
                     # For the extensions: the env's own observations at the
-                    # batch's rows (the replay holds them raw), and the
-                    # policy's mean action (None for a discrete policy).
+                    # batch's rows (the replay holds them raw, then their
+                    # features and the command), and the policy's mean action
+                    # (None for a discrete policy).
                     pi, _ = get_pi(actor, params, observations)
                     discrete = isinstance(pi, distrax.Categorical)
-                    batch["raw_observations"] = observations[..., :-2]
+                    batch["raw_observations"] = observations[..., :env_width]
                     batch["pi_mean"] = None if discrete else pi.mean()
                 extra, metrics = extensions.compute_extensions_actor_loss(
                     agent_state,
@@ -482,7 +578,7 @@ class UDRL(
             command=EvalCommand(self.command_scale_r, self.command_scale_h),
             expert_policy=self.expert,
             eval_expert_policy=self._in_agent_units(self.eval_expert_policy),
-            controller=Controller(transforms=env_args.transforms),
+            controller=make_run_controller(env_args),
         )
         return {
             "Eval/episodic mean reward": returns,
@@ -507,9 +603,18 @@ class UDRL(
             "reward_learning",
         }
     )
-    # It acts through the run's transform itself (transform_action, actuate).
+    # Its collector runs the action stage (action), acts through the run's
+    # transform (transform_action, actuate), observes the features (observe)
+    # and stores what the run's chooser picks (choose_replay_action) itself.
     supported_extension_phases = OwnIterationAgent.supported_extension_phases.union(
-        {"actor_loss", "transform_action", "actuate"}
+        {
+            "actor_loss",
+            "transform_action",
+            "actuate",
+            "observe",
+            "action",
+            "choose_replay_action",
+        }
     )
     # Unannotated, as the whole contract, so the dataclass makes it no field.
     phase_batch_keys = {  # noqa: RUF012

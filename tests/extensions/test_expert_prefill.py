@@ -15,7 +15,7 @@ from ajax import IQL, PPO, SAC, TD3
 from ajax.buffers.utils import get_buffer, init_buffer
 from ajax.environments.interaction import replay_row, reward_statistics
 from ajax.extensions.base import Extension, ExtensionStack
-from ajax.extensions.capabilities import MissingCapability, NotWired
+from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.expert import ExpertGains, ResidualPolicy
 from ajax.extensions.pretrain import (
     EXPERT_PREFILL_KEY_TAG,
@@ -218,10 +218,11 @@ def test_the_replays_seeders_pretrain_first_in_stack_order():
 
 
 def test_an_agent_lacking_what_the_prefill_needs_refuses_it():
-    """PPO has no replay (inherent); DQN takes no expert_policy yet (a gap)."""
+    """PPO has no replay, DQN without an expert_policy no expert to prefill
+    with: both inherent to the run."""
     with pytest.raises(MissingCapability, match="replay"):
         PPO("Pendulum-v1", extensions=(ExpertPrefill(n_steps=4),))
-    with pytest.raises(NotWired, match="expert_policy"):
+    with pytest.raises(MissingCapability, match="agent_expert"):
         CASES["DQN"].cls("CartPole-v1", extensions=(ExpertPrefill(n_steps=4),))
 
 

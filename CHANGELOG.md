@@ -6,6 +6,52 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **UDRL runs the action stage.** `JSRLCurriculum` and EDGE's fixed gate
+  hand its expert steps, and its segment keeps the choice executing the
+  expert's action (the expert's own, or a residual of 0), which its actor
+  fits; `StorePolicyAction` keeps the policy's own instead. The gates draw
+  on a fourth split of the step's key, taken only with an action extension.
+  Runs without one are unchanged, bitwise.
+- **UDRL observes the observation features.** `ExpertActionInput`,
+  `ExpertStateInput`, `TrainingProgressInput` and `PIDTermsInput` join each
+  observation of its segments, before the command, in collection and
+  evaluation; UDRL's collector calls the expert through the shared wrapper
+  (the expert first, gain mode last). Runs without features are
+  unchanged, bitwise.
+- **DQN and PQN take an expert.** `expert_policy=` (an index per row) and
+  `eval_expert_policy=`: collection tracks the expert, evaluations log its
+  return, and `JSRLCurriculum` and the expert's observation features run on
+  both; DQN, which stores the expert's actions, also takes `ExpertPrefill`,
+  `ExpertWarmup` and `ExpertValueMetrics` (Q at the stored index). PQN now
+  fits Q at the actions its steps executed, the policy's own without an
+  action extension. Runs without an expert are unchanged, bitwise.
+- **IQL under a residual policy takes JSRL, EDGE and IBRL's acting.** Where
+  one hands the agent's expert the step, IQL's replay keeps the residual
+  that executes the expert's action, 0, beside the executed action, which
+  its actor fits; IBRL acting with another expert is refused (a residual
+  need not reach that expert's action). `StorePolicyAction` still stores
+  the policy's choice. The action pipelines' result carries the new
+  columns (`policy_action_for_expert`, `stored_policy_action`). Runs that
+  were accepted before are unchanged, bitwise.
+- **APG logs its expert's return.** Each evaluation also rolls out
+  `eval_expert_policy`, else the agent's `expert_policy`, alone on the same
+  systems, and logs `Eval/episodic mean expert reward` and `Eval/expert
+  bias` (NaN without an expert), as every agent does; APG takes
+  `eval_expert_policy`, which it refused before. Training is unchanged,
+  bitwise; evaluations gain the two keys.
+- **APG observes the observation features.** `ExpertActionInput`,
+  `ExpertStateInput`, `TrainingProgressInput` and `PIDTermsInput` join the
+  observation its controller reads in the differentiable rollout, their
+  memory afresh at each episode start; the expert's features keep their
+  gradient there (`ObserveInputs.differentiable`), as the expert a residual
+  policy acts with does. `closed_loop_rollout` takes `observe` and its
+  `Rollout` keeps `policy_observation`. Runs without features are
+  unchanged, bitwise.
+- **DQN takes StorePolicyAction.** Its replay, on the replay family's
+  collector, stores the policy's index where the run picks it; DAgger
+  refuses the ablation as missing a capability (`reward_learning`: it
+  learns from its expert's labels alone, no stored action). Runs without
+  it are unchanged, bitwise.
 - **Fixed: EDGE scores the executed action.** Under `ResidualPolicy`,
   `EDGEExploration`'s scoring gates compared the expert's action with the
   policy's residual, while every critic is trained on the executed action

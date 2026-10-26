@@ -29,10 +29,10 @@ from ajax.environments.model_reference import (
     StepReference,
 )
 from ajax.environments.system_class import FixedSystem, UniformPerturbation
-from ajax.extensions.capabilities import NotWired
 from ajax.networks.memory import MemoryCell, MemoryConfig, init_carry
 from ajax.wrappers import InitialStateWrapper
 from tests.agents.extension_stubs import CounterExt
+from tests.environments import paid_action
 
 HORIZON = 16
 N_ENVS = 4
@@ -428,7 +428,13 @@ def test_evaluate_reports_m_rmse_on_fresh_systems(default_run):
     agent, sc, state, _ = default_run
     single = jax.tree.map(lambda x: x[0], state)
     metrics = agent.evaluate(single, jax.random.PRNGKey(0), agent.make_context(1)[1], 5)
-    assert set(metrics) == {"Eval/episodic mean reward", "Eval/m_rmse"}
+    assert set(metrics) == {
+        "Eval/episodic mean reward",
+        "Eval/m_rmse",
+        "Eval/episodic mean expert reward",
+        "Eval/expert bias",
+    }
+    assert jnp.isnan(metrics["Eval/episodic mean expert reward"])  # no expert
     assert jnp.isfinite(metrics["Eval/m_rmse"]) and metrics["Eval/m_rmse"] >= 0
     assert jnp.allclose(
         metrics["Eval/m_rmse"],
@@ -574,12 +580,28 @@ def test_the_evaluation_rolls_out_the_training_horizon(monkeypatch):
     np.testing.assert_allclose(out["Eval/m_rmse"], 2.0)
 
 
-def test_apg_refuses_what_it_cannot_run():
-    """No dataset (it learns through its own differentiable rollouts), and no
-    eval_expert_policy until its evaluation rolls out an expert: refused, as
-    gain mode's unwired modules are, rather than ignored."""
+def test_apg_refuses_a_dataset():
+    """It learns through its own differentiable rollouts."""
     with pytest.raises(ValueError, match="cannot train offline"):
         APG("Pendulum-v1").train_offline(dataset=None, n_updates=1)
-    with pytest.raises(NotWired, match="does not roll out an expert") as refused:
-        APG("Pendulum-v1", eval_expert_policy=lambda obs: obs[..., :1])
-    assert set(refused.value.unwired) == {"eval_expert_policy"}
+
+
+@pytest.mark.parametrize("option", ["expert_policy", "eval_expert_policy"])
+def test_the_evaluation_logs_its_experts_return(option):
+    """The expert acting alone on the evaluation's systems: on a task
+    paying the action of each one-step episode, an expert taking 1 (env
+    units) returns the horizon, 8, and the bias is the agent's return minus
+    that."""
+    env, params = paid_action.make()
+
+    def one(obs):
+        return jnp.ones(obs.shape[:-1] + (1,))
+
+    agent = APG(env, env_params=params, n_envs=2, horizon=8, **{option: one})
+    _, context = agent.make_context(16)
+    state = agent.init(jax.random.PRNGKey(0), context)
+    out = agent.evaluate(state, jax.random.PRNGKey(1), context, 3)
+    np.testing.assert_allclose(out["Eval/episodic mean expert reward"], 8.0)
+    np.testing.assert_allclose(
+        out["Eval/expert bias"], out["Eval/episodic mean reward"] - 8.0, rtol=1e-6
+    )

@@ -18,9 +18,9 @@ from ajax.controller import (
     WarmupInputs,
     acting_state,
     choose_warmup_actions,
-    expert_action_for_warmup,
     feature_columns,
     feature_width,
+    find_expert_action_in_choice_space,
     init_observers,
     observe_features,
     restart_observers,
@@ -527,6 +527,15 @@ class ActionPipelineResult(NamedTuple):
     # 1 where the step entered the value box, which ends the agent's
     # episode whatever the sign of the entry bonus. None: no box.
     box_entry: Optional[jax.Array] = None
+    # The policy action at which the step executes the agent's expert's
+    # action (a residual's 0), from a pipeline storing its choice apart from
+    # the executed action: the replay keeps it where the action stage hands
+    # the expert the step. None: the pipeline stores no such choice.
+    policy_action_for_expert: Optional[jax.Array] = None
+    # The policy action the replay keeps (its policy_action column), where
+    # the action stage handed the expert the step; None: policy_action, the
+    # choice, which StorePolicyAction and the transition keep.
+    stored_policy_action: Optional[jax.Array] = None
 
 
 def policy_pipeline(
@@ -568,7 +577,7 @@ def policy_pipeline(
     action = action.astype(uniform_action.dtype)
     # Traced only with a warm-up chooser: a run without one is unchanged.
     if warmups:
-        expert_action = expert_action_for_warmup(
+        expert_action = find_expert_action_in_choice_space(
             transform, after_choice, acting.expert_action, action
         )
         uniform_action, expert_took = choose_warmup_actions(
@@ -587,6 +596,14 @@ def policy_pipeline(
         is_expert_flag = warmup_expert_flags(took_this_step, action)
     else:
         is_expert_flag = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
+    # The stored choice is apart from the executed action: where the action
+    # stage hands the expert the step, the replay keeps the choice that
+    # executes the expert's action.
+    policy_action_for_expert = None
+    if after_choice:
+        policy_action_for_expert = find_expert_action_in_choice_space(
+            transform, after_choice, acting.expert_action, action
+        )
     return ActionPipelineResult(
         env_action=env_action,
         policy_action=action,
@@ -597,6 +614,7 @@ def policy_pipeline(
         rng=rng,
         new_actor_hidden=agent_state.actor_state.hidden_state,
         raw_action=raw_action,
+        policy_action_for_expert=policy_action_for_expert,
     )
 
 
@@ -662,7 +680,7 @@ def explore_pipeline(
             # unchanged. The residual acts before the choice, so the
             # expert's action enters as executed.
             if warmups:
-                expert_action = expert_action_for_warmup(
+                expert_action = find_expert_action_in_choice_space(
                     transform, False, acting.expert_action, action
                 )
                 # A discrete expert's (n_envs, 1) index column would broadcast
@@ -1154,7 +1172,11 @@ def collect_experience(
             a_expert=_a_expert_for_buf,
             next_a_expert=_next_a_expert_for_buf,
             raw_next_obs=raw_final_obs.astype(jnp.float32),
-            policy_action=action,
+            policy_action=(
+                action
+                if result.stored_policy_action is None
+                else result.stored_policy_action
+            ),
             actor_carry=_pre_actor_carry_flat if store_hidden else None,
         )
         buffer_state = buffer.add(buffer_state, row)
@@ -1275,7 +1297,8 @@ def collect_experience_from_expert_policy(
         if expert_is_stateful
         else jnp.zeros((1,))  # dummy carry; never read
     )
-    observers, before_training = env_args.observers, {"progress": 0.0}
+    observers = env_args.observers
+    before_training: dict[str, Any] = {"progress": 0.0}
     observer_states = None
     if observers:
         raw = get_raw_obs(env_state=env_state, env=env_args.env, mode=mode)

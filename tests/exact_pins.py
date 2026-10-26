@@ -39,6 +39,7 @@ from ajax.extensions.adversarial import AdversarialReward
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import (
     ExpertGains,
+    ExpertValueMetrics,
     ExpertWarmup,
     ImitationLoss,
     JSRLCurriculum,
@@ -428,6 +429,83 @@ PLUMBING_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         200,
     ),
 }
+# DQN and PQN with an expert (an index): the action stage on each, the
+# warm-up's expert mix, the critic at the expert's index and a feature
+# reading the expert. Last in the table, so the cases before keep their order.
+EXPERT_REACH_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "DQN-expert": (
+        DQN,
+        {
+            **DQN_KW,
+            "expert_policy": choose_one,
+            "extensions": (JSRL, ExpertWarmup(fraction=0.5), ExpertValueMetrics()),
+        },
+        240,
+    ),
+    "PQN-jsrl": (
+        PQN,
+        {
+            **PQN_KW,
+            "expert_policy": choose_one,
+            "extensions": (JSRL, ExpertActionInput()),
+        },
+        512,
+    ),
+}
+# IQL's residual policy under the action stage: the replay keeps the
+# residual executing the expert's action where JSRL hands it the step. Last
+# in the table, so the cases before keep their order.
+RESIDUAL_STAGE_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "IQL-residual-jsrl": (
+        IQL,
+        {**S, **R, "expert_policy": push, "extensions": (ResidualPolicy(), JSRL)},
+        200,
+    ),
+}
+# APG's rollout observing features: the expert's action (its gradient kept)
+# and the training progress. Last in the table, so the cases before keep
+# their order.
+APG_FEATURE_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "APG-observe": (
+        APG,
+        {
+            **APG_KW,
+            "expert_policy": push,
+            "extensions": (ExpertActionInput(), TrainingProgressInput()),
+        },
+        80,
+    ),
+}
+# DQN's replay storing the policy's index (StorePolicyAction). Last in the
+# table, so the cases before keep their order.
+STORE_REACH_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "DQN-store-policy-action": (
+        DQN,
+        {**DQN_KW, "extensions": (StorePolicyAction(),)},
+        240,
+    ),
+}
+# UDRL with an expert and no transform: the expert called beside the
+# actor. Last in the table, so the cases before keep their order.
+UDRL_WIRING_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "UDRL-expert": (UDRL, {**UDRL_KW, "expert_policy": push}, 128),
+    "UDRL-observe": (UDRL, {**UDRL_KW, **OBSERVE}, 128),
+    "UDRL-residual-jsrl": (
+        UDRL,
+        {**UDRL_KW, "expert_policy": push, "extensions": (ResidualPolicy(), JSRL)},
+        128,
+    ),
+    "UDRL-discrete-jsrl": (
+        UDRL,
+        {
+            **UDRL_KW,
+            "env_id": "CartPole-v1",
+            "expert_policy": choose_one,
+            "extensions": (JSRL,),
+        },
+        128,
+    ),
+}
 OFFLINE.update({"TD3-target-bc-offline"})
 #: The dataset an OFFLINE case trains on, where it is not test_offline's.
 DATASETS = {"TD3-target-bc-offline": long_episodes()}
@@ -641,6 +719,11 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     **OWN_COLLECTOR_CASES,
     **B5_CASES,
     **PLUMBING_CASES,
+    **EXPERT_REACH_CASES,
+    **RESIDUAL_STAGE_CASES,
+    **APG_FEATURE_CASES,
+    **STORE_REACH_CASES,
+    **UDRL_WIRING_CASES,
 }
 
 

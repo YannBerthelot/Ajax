@@ -60,7 +60,7 @@ def test_the_metrics_read_the_critic_at_the_stored_expert_actions() -> None:
     state = jax.tree.map(lambda x: x[0], state)
     critic = state.critic_state
     ext = ExpertValueMetrics().bind_to_agent(
-        buffer=agent.buffer, expert_policy=agent.expert_policy
+        buffer=agent.buffer, expert_policy=agent.expert_policy, env_args=agent.env_args
     )
     key = jax.random.PRNGKey(3)
     with_phi = state.replace(expert_critic_params=critic.params)

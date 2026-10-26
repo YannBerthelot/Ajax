@@ -65,10 +65,8 @@ VARIANTS["ImitationLoss(target='replay', alpha=2.5)"] = (
 )
 
 # Why each gap is open, and the work that closes it.
-ACTION = "the agent's own collector does not run the action stage yet (UDRL's)"
 MC = "MCPretrain binds only on SAC (batch module-reach)"
 CONTEXT = "the agent binds no context for it yet"
-EXPERT = "the agent takes no expert_policy yet (expert reach)"
 FORM = (
     "no form for this agent yet (cross-entropy for discrete actors; a policy's encoder)"
 )
@@ -82,15 +80,7 @@ WARMUP = (
     "TD-MPC2's own collector does not run the choose_warmup_action phase in its"
     " seed phase yet, and it takes no expert_policy"
 )
-STORE = (
-    "the agent's replay is not written through the replay family yet (its"
-    " declaration on the family)"
-)
 OWN_STORE = "the agent's own collector does not run choose_replay_action yet"
-OWN_ROLLOUT = (
-    "the agent's own collector does not observe features yet (APG's differentiable"
-    " rollout, UDRL's command)"
-)
 FEATURES = (
     "ExpertActionInput ExpertStateInput TrainingProgressInput PIDTermsInput".split()
 )
@@ -116,7 +106,6 @@ FORM_GAPS = {
 #: The pinned gaps: reason -> module -> the rows (agents, and "/discrete"
 #: for an agent taking both action kinds) where it is not wired yet.
 GAPS: dict[str, dict[str, str]] = {
-    ACTION: {"EDGEExploration": "UDRL", "JSRLCurriculum": "UDRL UDRL/discrete"},
     MC: {
         "CriticBlend": "TD3 REDQ CrossQ AVG DQN PQN IQL",
         "MCPretrain": "TD3 REDQ TQC CrossQ AVG PPO PPO/discrete DQN PQN IQL",
@@ -128,13 +117,6 @@ GAPS: dict[str, dict[str, str]] = {
     CONTEXT: {
         "BellmanPretrain": "ASAC DQN IQL",
         "CloningPretrain": "APG PPO UDRL",
-    },
-    EXPERT: {
-        "ExpertPrefill": "DQN",
-        "ExpertValueMetrics": "DQN",
-        "ExpertWarmup": "DQN",
-        "JSRLCurriculum": "DQN PQN",
-        **dict.fromkeys(FEATURES[:2], "DQN PQN"),
     },
     FORM: {
         "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"
@@ -171,7 +153,6 @@ GAPS: dict[str, dict[str, str]] = {
     },
     IMAGINED: dict.fromkeys(FEATURES[:2], WORLD_ROWS),
     WORLD_FEATURES: dict.fromkeys(FEATURES[2:], WORLD_ROWS),
-    OWN_ROLLOUT: dict.fromkeys(FEATURES, "APG UDRL UDRL/discrete"),
     CNN: {
         "cnn": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO APO/discrete DAgger"
         " DAgger/discrete IQL"
@@ -183,10 +164,8 @@ GAPS: dict[str, dict[str, str]] = {
         "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO UDRL DAgger IQL DreamerV3"
         " TDMPC2 TDMPC2MultiTask"
     },
-    STORE: {"StorePolicyAction": "DQN DAgger DAgger/discrete"},
     OWN_STORE: {
-        "StorePolicyAction": "UDRL UDRL/discrete DreamerV3 DreamerV3/discrete TDMPC2"
-        " TDMPC2MultiTask"
+        "StorePolicyAction": "DreamerV3 DreamerV3/discrete TDMPC2 TDMPC2MultiTask"
     },
     PRIOR: dict.fromkeys(
         ("PriorData", "ExpertPrefill"),

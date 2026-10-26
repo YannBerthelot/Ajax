@@ -101,6 +101,36 @@ def test_an_action_map_keeps_the_policys_action_and_the_envs(pendulum):
     assert plain.policy_action is None
 
 
+def test_an_observe_gives_the_policy_its_observation(pendulum):
+    """observe runs before each policy step: the policy reads its
+    observation (the env's and a count of the episode's steps, which the
+    carry holds, restarting at each start), and the rollout keeps the
+    env's (obs) and the policy's (policy_observation); without it there is
+    none."""
+    env, params = pendulum
+    params = params.replace(max_steps_in_episode=4)
+
+    def observe(count, obs, resets):
+        count = jnp.where(resets, 0.0, count + 1.0)
+        return jnp.concatenate([obs, count[:, None]], -1), count
+
+    def policy_step(count, obs, resets):
+        del resets
+        return -0.1 * obs[:, 2:3] + 0.0 * obs[:, 3:], count
+
+    key = jax.random.PRNGKey(0)
+    rollout, _ = closed_loop_rollout(
+        policy_step, jnp.zeros(B), key, env, params, T, n_envs=B, observe=observe
+    )
+    np.testing.assert_array_equal(rollout.policy_observation[..., :3], rollout.obs)
+    counts = rollout.policy_observation[:, 0, 3]
+    np.testing.assert_array_equal(counts, [0, 1, 2, 3, 0, 1, 2, 3, 0, 1])
+    plain, _ = closed_loop_rollout(
+        linear_policy(0.1), None, key, env, params, T, n_envs=B
+    )
+    assert plain.policy_observation is None
+
+
 def test_the_policy_is_told_each_episode_start(pendulum):
     """``resets`` is True at the first step and on the step after each end of
     its own env: two systems whose episodes end at the time limits 3 and 4."""

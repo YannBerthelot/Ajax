@@ -34,6 +34,7 @@ from ajax.agents.critics import (
     q_gradient_step,
 )
 from ajax.agents.families import (
+    ExpertGuided,
     GradientClipping,
     ImageObservations,
     ObservationNormalization,
@@ -70,6 +71,7 @@ class DQN(
     GradientClipping,
     ObservationNormalization,
     RewardNormalization,
+    ExpertGuided,
     ImageObservations,
     ReplayAgent,
 ):
@@ -290,17 +292,18 @@ class DQN(
             "warmup",
         }
     )
-    # Its explore pipeline runs the warm-up's chooser (choose_warmup_action),
-    # once DQN takes the expert ExpertWarmup needs.
+    # Its explore pipeline runs the warm-up's chooser (choose_warmup_action);
+    # the replay family's collector stores what the run's chooser picks
+    # (choose_replay_action).
     supported_extension_phases = LOOP_PHASES.union(
-        {"on_target", "critic_loss", "choose_warmup_action"}
+        {"on_target", "critic_loss", "choose_warmup_action", "choose_replay_action"}
     )
     # Unannotated, as the whole contract, so the dataclass makes it no field.
     phase_batch_keys = {  # noqa: RUF012
         "on_target": frozenset({"actions", "dones", "reward_scale"}),
         "critic_loss": frozenset({"actions", "q_state"}),
     }
-    extension_context = frozenset()
+    stores_expert_actions = True
 
 
 # -- DQN's equations, in the order the update calls them ---------------------

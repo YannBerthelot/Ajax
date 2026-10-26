@@ -202,11 +202,9 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             agent_state, transition, context
         )
         # The actor step reads the networks from before the critic's, its key
-        # drawn after the critic's; the expert's stored actions reach the
-        # actor-loss extensions in a run with an expert.
-        a_expert = transition.a_expert if self.expert is not None else None
+        # drawn after the critic's.
         policy_updated, policy_aux, policy_metrics = self.update_actor(
-            agent_state.replace(rng=critic_updated.rng), transition, a_expert, context
+            agent_state.replace(rng=critic_updated.rng), transition, context
         )
         stepped = critic_updated.replace(
             actor_state=policy_updated.actor_state, rng=policy_updated.rng
@@ -292,12 +290,12 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
         self,
         agent_state: AVGState,
         transition: Transition,
-        a_expert: Optional[jax.Array],
         context: TrainContext,
     ) -> tuple[AVGState, PolicyAuxiliaries, dict]:
         """The actor step through the action taken; the extensions also read
-        the env's own observations, the policy's mean action and a_expert,
-        the agent's expert's action from its state (None without one)."""
+        the env's own observations, the policy's mean action and the agent's
+        expert's action from its state (which only an extension holding that
+        expert reads: zeros without one)."""
         actor_key, agent_state = agent_state.get_keys_and_new_state()
         alpha = get_alpha(agent_state)
         actor_state = agent_state.actor_state
@@ -313,7 +311,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
                 raw_actions,
                 alpha,
                 context.executed,
-                a_expert,
+                transition.a_expert,
             )
             # The mean action is the extensions' (unused without them,
             # compiled out).
@@ -328,7 +326,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             context.total_timesteps,
             observations=transition.obs,
             raw_observations=transition.raw_obs,
-            a_expert=a_expert,
+            a_expert=transition.a_expert,
             critic_state=agent_state.critic_state,
         )
         return agent_state.replace(actor_state=actor_state), aux, metrics

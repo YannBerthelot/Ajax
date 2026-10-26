@@ -130,8 +130,7 @@ def test_the_buffer_keeps_raw_next_observations_only_for_a_declared_reader(
     expert = _RecordingExpert()
     stacks = {
         "IBRL": (IBRL(expert_policy=expert),),
-        # Declares raw_next_obs and needs nothing else (IBRL also needs the
-        # target batch's rng_key, which SAC alone passes yet).
+        # Declares raw_next_obs and needs nothing else.
         "reader": (_NextObservationReader(),),
         "PhiRefresh": (_mc(expert), PhiRefresh(expert_policy=expert)),
         "MCPretrain": (_mc(expert),),

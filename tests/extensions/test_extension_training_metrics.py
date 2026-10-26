@@ -54,7 +54,6 @@ def _setup() -> tuple[Any, dict, jax.Array]:
         "rewards": jax.random.normal(keys[3], (BATCH, 1)),
         "reward_scale": 1.0,
         "dones": jnp.zeros((BATCH, 1)),
-        "rng_key": KEY,
         "gamma": 0.99,
         "raw_next_observations": next_obs,
         "next_a_expert": None,

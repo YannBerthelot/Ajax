@@ -290,9 +290,6 @@ class SAC(
             gamma=self.gamma,
             reward_scale=self.reward_scale,
             next_actions=next_actions,
-            # The target's key: IBRL and LCBGatedBootstrap redraw its
-            # next-action sample.
-            target_extras={"rng_key": critic_key},
         )
         value_aux = ValueAuxiliaries(
             critic_loss=aux.critic_loss,
@@ -374,11 +371,6 @@ class SAC(
             "warmup",
         }
     )
-    # Its critic step's target_extras join the shared step's on_target keys.
-    phase_batch_keys = {  # noqa: RUF012
-        **update_steps.REPLAY_BATCH_KEYS,
-        "on_target": update_steps.TARGET_KEYS.union({"rng_key"}),
-    }
     # MCPretrain's and PhiRefresh's (the expert critic phi*, SACState's
     # fields), and BellmanPretrain's.
     extension_context = RecurrentReplayAgent.extension_context.union(

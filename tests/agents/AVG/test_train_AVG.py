@@ -90,6 +90,7 @@ def _one_step() -> tuple[AVG, Any, Transition]:
         truncated=column,
         next_obs=jax.random.normal(keys[2], (1, *obs_shape)),
         raw_action=raw,
+        executed_action=jnp.tanh(raw),  # the policy's own action executed
     )
     return agent, state, transition
 

@@ -934,6 +934,12 @@ class IncrementalAgent(DeclaredAgent):
             end_timestep=end_timestep,
         )
         stores_raw_next_obs = "raw_next_obs" in loop.extensions.buffer_fields()
+        # The update learns from the step itself: its critic scores the action
+        # the step executed, as a replay agent's scores its rows' actions.
+        collect_kwargs = {
+            "store_raw_next_obs": stores_raw_next_obs,
+            "store_executed_action": True,
+        }
         return loop.off_policy(
             partial(self.init, context=context),
             partial(self.update, context=context),
@@ -941,7 +947,7 @@ class IncrementalAgent(DeclaredAgent):
             uniform_steps=self.uniform_steps(),
             expose_rollout=self.expose_recent_rollout,
             after_collect=partial(self.update_step_statistics, context=context),
-            collect_kwargs={"store_raw_next_obs": stores_raw_next_obs},
+            collect_kwargs=collect_kwargs,
             eval_kwargs=self.evaluation_kwargs(),
             keeps_actor_metrics=self.keeps_actor_metrics(),
         )

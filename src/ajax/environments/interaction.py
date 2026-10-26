@@ -952,6 +952,7 @@ def replay_row(
         "next_expert_fn",
         "store_hidden",
         "store_raw_next_obs",
+        "store_executed_action",
         "expert",
     ],
 )
@@ -967,13 +968,15 @@ def collect_experience(
     next_expert_fn: Optional[Callable] = None,
     store_hidden: bool = False,
     store_raw_next_obs: bool = False,
+    store_executed_action: bool = False,
     expert: Any = None,
 ) -> tuple[BaseAgentState, Transition]:
-    """Collect one step of experience. ``store_raw_next_obs`` keeps the
-    env's own next observation on the transition (``raw_next_obs``), for
-    an agent updating on it (AVG) whose extensions read it. ``expert`` (the
-    agent's, in agent units) is what its observation features read
-    (``env_args.observers``).
+    """Collect one step of experience. store_raw_next_obs keeps the env's
+    own next observation on the transition (raw_next_obs), for an agent
+    updating on it (AVG) whose extensions read it; store_executed_action
+    keeps the action the step executed, as a replay row would store it
+    (executed_action), for such an agent's critic. expert (the agent's, in
+    agent units) is what its observation features read (env_args.observers).
 
     Args:
         action_pipeline: Optional callable that handles agent-specific action
@@ -1166,6 +1169,7 @@ def collect_experience(
         raw_next_obs=(
             raw_final_obs.astype(jnp.float32) if store_raw_next_obs else None
         ),
+        executed_action=buffer_action if store_executed_action else None,
     )
 
     # The Train return sums what the env paid, in its own units (a reward

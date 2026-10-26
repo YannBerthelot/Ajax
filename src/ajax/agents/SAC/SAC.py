@@ -390,13 +390,8 @@ class SAC(
             context.extensions,
             actor_key,
             context.total_timesteps,
-            observations=batch.obs,
-            # The replay keeps them only for a run with an expert: None
-            # without one, never the observations passed off as raw.
-            raw_observations=batch.raw_obs,
-            a_expert=batch.a_expert,
-            actions=batch.action,
-            critic_state=agent_state.critic_state,
+            batch,
+            agent_state.critic_state,
         )
         policy = actor_dist(actor_state, actor_state.params, batch.obs, carries)
         _, log_probs = policy.sample_and_log_prob(seed=sample_key)

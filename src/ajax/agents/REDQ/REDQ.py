@@ -386,11 +386,8 @@ class REDQ(
             context.extensions,
             actor_key,
             context.total_timesteps,
-            observations=batch.obs,
-            raw_observations=batch.raw_obs,
-            a_expert=batch.a_expert,
-            actions=batch.action,
-            critic_state=critic_state,
+            batch,
+            critic_state,
         )
         aux = PolicyAuxiliaries(
             policy_loss=loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()

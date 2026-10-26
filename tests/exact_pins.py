@@ -406,6 +406,13 @@ PLUMBING_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "IQL-ibrl": (IQL, {**S, **R, **IBRL_PUSH}, 200),
     "TD3-target-bc": (TD3, {**S, **R, "extensions": (TargetBC(),)}, 200),
     "TD3-target-bc-offline": (TD3, {**OFFLINE_KW, "extensions": (TargetBC(),)}, 80),
+    # IBRL's soft choice, drawn in acting and in the target; last in the table,
+    # so the cases before it keep their order.
+    "TD3-ibrl-soft": (
+        TD3,
+        {**S, **R, "extensions": (IBRL(push, soft_choice=True),)},
+        200,
+    ),
 }
 OFFLINE.update({"TD3-target-bc-offline"})
 #: The dataset an OFFLINE case trains on, where it is not test_offline's.

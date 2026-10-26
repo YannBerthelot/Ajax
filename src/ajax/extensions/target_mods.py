@@ -224,8 +224,14 @@ class IBRL(Extension):
     max(min Q(s', a_E) - min Q(s', a'), 0). With a random subset of them
     (REDQ's), a_E is selected on a fresh subset of the same size
     (draw_selection_critics), as the authors select on one random pair and
-    value on another, so the bonus can be negative. Selection is hard, the
-    authors' "ibrl", not their "ibrl_soft" (choose_expert).
+    value on another, so the bonus can be negative.
+
+    Selection is hard by default, the authors' "ibrl". With soft_choice it
+    is their "ibrl_soft", in acting and in the bootstrap alike, as their
+    act_method sets both: the expert's action is chosen with probability
+    sigmoid(soft_choice_beta (min Q(a_E) - min Q(a'))), their softmax over
+    the two candidates (beta 10 in their configurations), and sampled, in
+    evaluation too (choose_expert).
 
     With hybrid_acting (the default) it also acts as their act_method
     "ibrl", as every IBRL configuration of theirs does: it executes the
@@ -249,6 +255,8 @@ class IBRL(Extension):
 
     expert_policy: Callable
     hybrid_acting: bool = True
+    soft_choice: bool = False
+    soft_choice_beta: float = 10.0
     reads_stored_expert: bool = False  # bound: the agent's expert
     critic_subset_size: Optional[int] = None  # bound: REDQ's subset_size
     name: str = "ibrl"
@@ -322,9 +330,10 @@ class IBRL(Extension):
     ) -> jax.Array:
         """The expert's action where its minimum over the target critics
         tops action's, else action (hengyuan-hu/ibrl rl/q_agent.py
-        _act_ibrl), as choose_expert chooses. Reads step (the stage's dict,
-        or evaluation's) and writes into it where the expert's won
-        (expert_mask) and the key a subset drew on (gate_rng)."""
+        _act_ibrl), or chosen as choose_expert chooses. Reads step (the
+        stage's dict, or evaluation's) and writes into it where the expert's
+        won (expert_mask) and the stream a subset or a soft choice drew on
+        (gate_rng)."""
         expert_action = extension_expert_actions(
             self, step["raw_obs"], step["expert_action"]
         )
@@ -341,8 +350,9 @@ class IBRL(Extension):
             num_critics = q_expert.shape[0]
             key = take_gate_key(step)
             critics = draw_selection_critics(self.critic_subset_size, num_critics, key)
+        choice_key = take_gate_key(step) if self.soft_choice else None
         expert_won = self.choose_expert(
-            take_minimum(q_expert, critics), take_minimum(q_policy, critics)
+            take_minimum(q_expert, critics), take_minimum(q_policy, critics), choice_key
         )
         step["expert_mask"] = expert_won
         return jnp.where(expert_won, expert_action, action)
@@ -351,11 +361,20 @@ class IBRL(Extension):
         self,
         expert_values: jax.Array,
         policy_values: jax.Array,
+        key: Optional[jax.Array],
     ) -> jax.Array:
         """Where the expert's action is chosen over the policy's, from their
         values: where the expert's is higher (a tie keeps the policy's, as
-        the authors' argmax does)."""
-        return expert_values > policy_values
+        the authors' argmax does); with soft_choice, on a draw on key with
+        probability sigmoid(soft_choice_beta (expert - policy)), the
+        softmax over the two of their _act_ibrl_soft, which samples it in
+        evaluation too (UPSTREAM_BUGS 4)."""
+        if not self.soft_choice:
+            return expert_values > policy_values
+        assert key is not None  # its callers draw one where the choice is soft
+        gap = expert_values - policy_values
+        probability = jax.nn.sigmoid(self.soft_choice_beta * gap)
+        return jax.random.uniform(key, probability.shape) < probability
 
     def eval_metrics(
         self,
@@ -383,6 +402,9 @@ class IBRL(Extension):
         dones, gamma = batch["dones"], discounted("IBRL", batch["gamma"])
         action_key, selection_key = jax.random.split(context.rng)
         q_expert, q_policy = score_next_actions(self, agent_state, batch, action_key)
+        choice_key = None
+        if self.soft_choice:
+            selection_key, choice_key = jax.random.split(selection_key)
         value_critics = batch["critic_subset"]
         size = None if value_critics is None else value_critics.shape[0]
         selection_critics = draw_selection_critics(
@@ -390,7 +412,9 @@ class IBRL(Extension):
         )
         expert_on_selection = take_minimum(q_expert, selection_critics)
         policy_on_selection = take_minimum(q_policy, selection_critics)
-        expert_selected = self.choose_expert(expert_on_selection, policy_on_selection)
+        expert_selected = self.choose_expert(
+            expert_on_selection, policy_on_selection, choice_key
+        )
         expert_value = take_minimum(q_expert, value_critics)
         advantage = expert_value - take_minimum(q_policy, value_critics)
         gap = jax.lax.stop_gradient(

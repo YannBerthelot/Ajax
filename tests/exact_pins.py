@@ -448,6 +448,20 @@ RESIDUAL_STAGE_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         200,
     ),
 }
+# APG's rollout observing features: the expert's action (its gradient kept)
+# and the training progress. Last in the table, so the cases before keep
+# their order.
+APG_FEATURE_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "APG-observe": (
+        APG,
+        {
+            **APG_KW,
+            "expert_policy": push,
+            "extensions": (ExpertActionInput(), TrainingProgressInput()),
+        },
+        80,
+    ),
+}
 OFFLINE.update({"TD3-target-bc-offline"})
 #: The dataset an OFFLINE case trains on, where it is not test_offline's.
 DATASETS = {"TD3-target-bc-offline": long_episodes()}
@@ -663,6 +677,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     **PLUMBING_CASES,
     **EXPERT_REACH_CASES,
     **RESIDUAL_STAGE_CASES,
+    **APG_FEATURE_CASES,
 }
 
 

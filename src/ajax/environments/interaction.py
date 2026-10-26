@@ -1297,7 +1297,8 @@ def collect_experience_from_expert_policy(
         if expert_is_stateful
         else jnp.zeros((1,))  # dummy carry; never read
     )
-    observers, before_training = env_args.observers, {"progress": 0.0}
+    observers = env_args.observers
+    before_training: dict[str, Any] = {"progress": 0.0}
     observer_states = None
     if observers:
         raw = get_raw_obs(env_state=env_state, env=env_args.env, mode=mode)

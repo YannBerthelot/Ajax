@@ -46,6 +46,8 @@ WARMUP = {"SAC", "TD3", "REDQ", "ASAC", "AVG", "DQN"}
 #: The agents whose replay the replay family's collector writes, which runs
 #: the stored action's chooser (StorePolicyAction).
 REPLAY_FAMILY = {"ASAC", "REDQ", "SAC", "TD3", "TQC"}
+#: The collection phases an agent collecting on its own folds itself.
+OWN_FOLDS = {("APG", "observe")}
 
 
 @dataclass(frozen=True)
@@ -268,7 +270,8 @@ def test_an_agent_declares_the_batch_keys_it_passes():
 def test_agents_accept_only_the_phases_they_fold():
     """The base accepts none; every agent the loop's, observe, action (the
     action stage's slots) and eval_action (the shared evaluation's
-    choosers) but where it collects and evaluates on its own,
+    choosers) but where it collects and evaluates on its own (APG's
+    rollout observes the features itself),
     transform_action (a residual policy) the agents whose
     critics score executed actions, and choose_warmup_action those whose
     collection has a uniform warm-up, choose_replay_action those whose
@@ -285,7 +288,8 @@ def test_agents_accept_only_the_phases_they_fold():
         assert LOOP_PHASES.difference(own) <= phases, name
         own_collector = name in ("APG", "UDRL", "DreamerV3", "TDMPC2")
         for phase in own:
-            assert (phase in phases) != own_collector, (name, phase)
+            folded = (name, phase) in OWN_FOLDS or not own_collector
+            assert (phase in phases) == folded, (name, phase)
         assert ("transform_action" in phases) == (name in RESIDUAL), name
         # The warm-up chooser reaches the agents with a uniform warm-up, but
         # TD-MPC2, whose own collector does not run it yet.

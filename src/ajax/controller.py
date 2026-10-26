@@ -78,8 +78,9 @@ class ObserveInputs(NamedTuple):
     tracked expert (in agent units; None without one) and the state its call
     there starts from, the collector's timestep (None in evaluation, which
     passes its frozen ``progress``), the run's horizon (None where the
-    collector keeps none) and, in evaluation, the training progress it
-    holds."""
+    collector keeps none), in evaluation the training progress it holds,
+    and whether the features' gradient flows back to what they read (APG's
+    differentiable rollout); elsewhere they are held constant."""
 
     raw_obs: jax.Array
     expert: Any = None
@@ -87,6 +88,7 @@ class ObserveInputs(NamedTuple):
     timestep: Any = None
     horizon: Any = None
     progress: Any = None
+    differentiable: bool = False
 
 
 @dataclass(frozen=True)

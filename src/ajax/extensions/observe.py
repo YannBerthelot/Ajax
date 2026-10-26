@@ -59,7 +59,9 @@ class ExpertActionInput(Extension):
         if action_count is not None:
             index = flatten_action_column(action, continuous=False)
             action = jax.nn.one_hot(index, action_count)
-        return jax.lax.stop_gradient(action), state
+        if not inputs.differentiable:
+            action = jax.lax.stop_gradient(action)
+        return action, state
 
 
 @dataclass(frozen=True)
@@ -88,7 +90,9 @@ class ExpertStateInput(Extension):
         flat = flatten_expert_state(inputs.expert_state)
         if flat is None:
             raise ValueError("ExpertStateInput reads a stateful expert's state.")
-        return jax.lax.stop_gradient(flat), state
+        if not inputs.differentiable:
+            flat = jax.lax.stop_gradient(flat)
+        return flat, state
 
 
 @struct.dataclass

@@ -21,6 +21,20 @@ PyPI as `ajax-rl`.
   the policy's choice. The action pipelines' result carries the new
   columns (`policy_action_for_expert`, `stored_policy_action`). Runs that
   were accepted before are unchanged, bitwise.
+- **APG logs its expert's return.** Each evaluation also rolls out
+  `eval_expert_policy`, else the agent's `expert_policy`, alone on the same
+  systems, and logs `Eval/episodic mean expert reward` and `Eval/expert
+  bias` (NaN without an expert), as every agent does; APG takes
+  `eval_expert_policy`, which it refused before. Training is unchanged,
+  bitwise; evaluations gain the two keys.
+- **APG observes the observation features.** `ExpertActionInput`,
+  `ExpertStateInput`, `TrainingProgressInput` and `PIDTermsInput` join the
+  observation its controller reads in the differentiable rollout, their
+  memory afresh at each episode start; the expert's features keep their
+  gradient there (`ObserveInputs.differentiable`), as the expert a residual
+  policy acts with does. `closed_loop_rollout` takes `observe` and its
+  `Rollout` keeps `policy_observation`. Runs without features are
+  unchanged, bitwise.
 - **APG's schedule steps its matrices alone**, as its reference does: with
   `lr_schedule="warmup_cosine"` (`contextual_controller`'s default) the
   biases, LayerNorm scales and PID gains keep `learning_rate`. Scheduled

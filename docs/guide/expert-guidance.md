@@ -102,8 +102,8 @@ refused when the agent is built.
 
 Every agent but the world models takes an `expert_policy=`: collection
 tracks it along each trajectory, the extensions read it, and evaluations
-log its return (not yet APG's). DAgger requires one: the expert acts and
-labels every visited state. Which expert extensions each agent runs is in
+log its return. DAgger requires one: the expert acts and labels every
+visited state. Which expert extensions each agent runs is in
 [Compatibility](compatibility.md).
 
 `ImitationLoss` needs a policy's mean action: PPO, APG and UDRL take it with

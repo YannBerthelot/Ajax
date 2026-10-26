@@ -229,5 +229,9 @@ def keep_choice_for_expert(
     handed = jnp.zeros((n_envs, 1), jnp.float32)
     for mask in masks:
         handed = jnp.maximum(handed, as_env_column(mask, n_envs))
-    kept = jnp.where(handed > 0, result.policy_action_for_expert, result.policy_action)
-    return jax.lax.cond(uniform, lambda: result.policy_action, lambda: kept)
+    # One entry per env, against a choice of any layout (a discrete index's
+    # (n_envs,) vector, a continuous action's columns).
+    choice = result.policy_action
+    handed = handed.reshape((n_envs,) + (1,) * (choice.ndim - 1))
+    kept = jnp.where(handed > 0, result.policy_action_for_expert, choice)
+    return jax.lax.cond(uniform, lambda: choice, lambda: kept)

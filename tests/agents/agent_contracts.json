@@ -1176,8 +1176,10 @@
   "stores_expert_actions": false,
   "supported_buffer_fields": [],
   "supported_extension_phases": [
+   "action",
    "actor_loss",
    "actuate",
+   "choose_replay_action",
    "eval_metrics",
    "observe",
    "post_update",

@@ -65,7 +65,6 @@ VARIANTS["ImitationLoss(target='replay', alpha=2.5)"] = (
 )
 
 # Why each gap is open, and the work that closes it.
-ACTION = "the agent's own collector does not run the action stage yet (UDRL's)"
 MC = "MCPretrain binds only on SAC (batch module-reach)"
 CONTEXT = "the agent binds no context for it yet"
 FORM = (
@@ -107,7 +106,6 @@ FORM_GAPS = {
 #: The pinned gaps: reason -> module -> the rows (agents, and "/discrete"
 #: for an agent taking both action kinds) where it is not wired yet.
 GAPS: dict[str, dict[str, str]] = {
-    ACTION: {"EDGEExploration": "UDRL", "JSRLCurriculum": "UDRL UDRL/discrete"},
     MC: {
         "CriticBlend": "TD3 REDQ CrossQ AVG DQN PQN IQL",
         "MCPretrain": "TD3 REDQ TQC CrossQ AVG PPO PPO/discrete DQN PQN IQL",
@@ -167,8 +165,7 @@ GAPS: dict[str, dict[str, str]] = {
         " TDMPC2 TDMPC2MultiTask"
     },
     OWN_STORE: {
-        "StorePolicyAction": "UDRL UDRL/discrete DreamerV3 DreamerV3/discrete TDMPC2"
-        " TDMPC2MultiTask"
+        "StorePolicyAction": "DreamerV3 DreamerV3/discrete TDMPC2 TDMPC2MultiTask"
     },
     PRIOR: dict.fromkeys(
         ("PriorData", "ExpertPrefill"),

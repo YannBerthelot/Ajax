@@ -490,6 +490,21 @@ STORE_REACH_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
 UDRL_WIRING_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "UDRL-expert": (UDRL, {**UDRL_KW, "expert_policy": push}, 128),
     "UDRL-observe": (UDRL, {**UDRL_KW, **OBSERVE}, 128),
+    "UDRL-residual-jsrl": (
+        UDRL,
+        {**UDRL_KW, "expert_policy": push, "extensions": (ResidualPolicy(), JSRL)},
+        128,
+    ),
+    "UDRL-discrete-jsrl": (
+        UDRL,
+        {
+            **UDRL_KW,
+            "env_id": "CartPole-v1",
+            "expert_policy": choose_one,
+            "extensions": (JSRL,),
+        },
+        128,
+    ),
 }
 OFFLINE.update({"TD3-target-bc-offline"})
 #: The dataset an OFFLINE case trains on, where it is not test_offline's.

@@ -26,7 +26,7 @@ experiments.
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Image observations | yes, a CNN encoder (`cnn_image_shape`) |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `actor_loss` , `transform_action`, `actuate`, `observe` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `actor_loss`, `transform_action`, `actuate`, `observe`, `action`, `choose_replay_action` |
 | Resume and checkpoints | yes; a split run equals the uninterrupted one (probe and resume contract) |
 
 ## Example

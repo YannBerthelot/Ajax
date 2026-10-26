@@ -215,8 +215,8 @@ Without it the warm-up is uniform.
 Collection extensions decide, at each step, whether the expert or the policy
 acts. The shared collector runs them around the agent's own action choice,
 on every off-policy agent with an expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC,
-AVG, IQL, DAgger), in two places, which each extension names in its
-`action_slot`:
+AVG, IQL, DAgger, DQN, PQN), and UDRL's collector too, in two places, which
+each extension names in its `action_slot`:
 
 - **Before the warm-up choice** (`"pre_warmup"`): `EDGEExploration` (a
   value-based gate, comparing the expert's action with the one the step
@@ -227,6 +227,11 @@ AVG, IQL, DAgger), in two places, which each extension names in its
   step that enters this region ends the agent's episode in the stored
   transition and pays the expert's value as a reward, in place of the
   bootstrap, whatever its sign.
+
+Where an extension hands the expert a step, UDRL's segment keeps the
+choice that executes the expert's action (the expert's own, or a residual
+of 0), which its actor then fits under the command the step realised:
+Ajax's composition of JSRL and EDGE with UDRL, not a published pairing.
 
 `ResidualPolicy` changes what the policy's action means: the agent executes
 `clip(a_E + scale · a_π, −1, 1)`, in agent units, in collection (before the
@@ -363,7 +368,7 @@ Ajax" marks a feature with no external reference.
 | Imitate the expert, with no reward | the `DAgger` agent | DAgger (Ross, Gordon and Bagnell, 2011); `ImitationLoss` with a replay agent's own expert is its aggregation plus the RL loss |
 | Keep the actor near the expert early on | `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger; PPO, APG, UDRL with a stateless expert), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |
 | Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC, TD3, REDQ, ASAC, AVG) | Q-filtered behaviour cloning (Nair et al., 2018) |
-| Let the expert act while the agent is poor | `JSRLCurriculum` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger, DQN, PQN), `EDGEExploration` (the same with continuous actions), `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
+| Let the expert act while the agent is poor | `JSRLCurriculum` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger, DQN, PQN, UDRL), `EDGEExploration` (the same with continuous actions; on UDRL its fixed gate alone, UDRL having no Q critic), `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
 | Learn a correction to the expert | `ResidualPolicy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL) | residual RL (Johannink et al., 2019) |
 | Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` (SAC) | developed with Ajax |
 | Make the target account for the expert | `IBRL` (SAC, TD3, REDQ, AVG), `LCBGatedBootstrap` (SAC, TD3, REDQ) | IBRL (Hu et al., 2023); the LCB gate developed with Ajax |

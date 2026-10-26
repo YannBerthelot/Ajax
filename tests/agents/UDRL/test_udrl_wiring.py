@@ -1,12 +1,18 @@
 """UDRL's collector wired as the shared one is: each observation of its
-segments carries the observation features before the command."""
+segments carries the observation features before the command, and the
+action stage runs on its steps, the segment keeping the choice the actor
+fits (the expert's own action, or a residual of 0, where the stage handed
+the expert the step)."""
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from ajax import UDRL
 from ajax.agents.UDRL.UDRL import UDRLState
+from ajax.extensions.expert import JSRLCurriculum, ResidualPolicy, StorePolicyAction
+from ajax.extensions.exploration import EDGEExploration
 from ajax.extensions.observe import (
     ExpertActionInput,
     PIDTermsInput,
@@ -14,6 +20,14 @@ from ajax.extensions.observe import (
 )
 
 LIMIT, STEPS, N_ENVS = 5, 16, 2  # Pendulum's episode length here, segment steps
+STARTS = np.arange(STEPS) % LIMIT == 0  # Pendulum's episode starts
+#: The expert acts the first step of each episode, the policy the others.
+FIRST_STEP = JSRLCurriculum(episode_length=1, decay_frac=1e6)
+
+
+def torque(obs: jax.Array) -> jax.Array:
+    """1 in Pendulum's units, half its bound: 0.5 in the agent's."""
+    return jnp.ones(obs.shape[:-1] + (1,))
 
 
 def push_toward_lean(obs: jax.Array) -> jax.Array:
@@ -77,3 +91,51 @@ def test_a_discrete_experts_action_enters_one_hot():
     assert obs.shape[-1] == 4 + 2 + 2
     lean = np.asarray(push_toward_lean(obs[..., :4]))[..., 0]
     np.testing.assert_array_equal(obs[..., 4:6], np.eye(2)[lean])
+
+
+def test_jsrl_hands_the_expert_each_episodes_first_step():
+    """Pendulum: the segment keeps the expert's action, 0.5, at each episode
+    start, the policy's samples elsewhere. CartPole: the expert's index at
+    each start (after a done), in the segment's int column."""
+    _, actions, _ = first_segment(
+        "Pendulum-v1", expert_policy=torque, extensions=(FIRST_STEP,)
+    )
+    np.testing.assert_array_equal(actions[STARTS, :, 0], 0.5)
+    assert (actions[~STARTS, :, 0] != 0.5).all()
+    obs, actions, dones = first_segment(
+        "CartPole-v1", expert_policy=push_toward_lean, extensions=(FIRST_STEP,)
+    )
+    starts = np.concatenate([np.ones((1, N_ENVS), bool), dones[:-1] > 0])
+    lean = np.asarray(push_toward_lean(obs[..., :4]))[..., 0]
+    assert actions.dtype == np.int32
+    np.testing.assert_array_equal(actions[..., 0][starts], lean[starts])
+
+
+def test_under_a_residual_the_segment_keeps_zero_where_the_expert_acted():
+    """The residual executing the expert's action is 0."""
+    extensions = (ResidualPolicy(), FIRST_STEP)
+    _, actions, _ = first_segment(
+        "Pendulum-v1", expert_policy=torque, extensions=extensions
+    )
+    np.testing.assert_array_equal(actions[STARTS, :, 0], 0.0)
+    assert (actions[~STARTS, :, 0] != 0.0).all()
+
+
+def test_store_policy_action_keeps_the_policys_own_choice():
+    """The ablation: where JSRL handed the expert the step, the segment
+    keeps the policy's sample, not the expert's action."""
+    extensions = (FIRST_STEP, StorePolicyAction())
+    _, actions, _ = first_segment(
+        "Pendulum-v1", expert_policy=torque, extensions=extensions
+    )
+    assert (actions[..., 0] != 0.5).all()
+
+
+@pytest.mark.parametrize("fixed_prob, share", [(0.0, 0.0), (1.0, 1.0)])
+def test_edge_s_fixed_gate_hands_the_expert_its_share(fixed_prob, share):
+    """EDGE's fixed gate reads no critic, so it runs beside UDRL's V(s)."""
+    edge = EDGEExploration(gate="fixed", fixed_prob=fixed_prob, decay_frac=0.0)
+    _, actions, _ = first_segment(
+        "Pendulum-v1", total=2 * STEPS, expert_policy=torque, extensions=(edge,)
+    )
+    assert np.mean(actions[..., 0] == 0.5) == share

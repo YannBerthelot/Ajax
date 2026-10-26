@@ -308,7 +308,11 @@ class EDGEExploration(Extension):
     lcb_asymmetric: bool = False
     epsilon_floor: float = 0.0
     name: str = "edge_exploration"
-    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert"})
+    # Its gates score an action at the critic's input beside the observation,
+    # and it has no published form for discrete actions (owner, 10-25).
+    requires: ClassVar[frozenset[str]] = frozenset(
+        {"agent_expert", "continuous_actions"}
+    )
     action_slot: ClassVar[str] = "pre_warmup"
 
     def needs(self) -> frozenset[str]:

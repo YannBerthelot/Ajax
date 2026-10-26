@@ -377,11 +377,6 @@ class SAC(
             "warmup",
         }
     )
-    # The action stage, which the shared collector runs with an expert
-    # (ajax.environments.action_stage).
-    supported_extension_phases = RecurrentReplayAgent.supported_extension_phases.union(
-        {"action"}
-    )
     # Its critic step's target_extras join the shared step's on_target keys.
     phase_batch_keys = {  # noqa: RUF012
         **update_steps.REPLAY_BATCH_KEYS,

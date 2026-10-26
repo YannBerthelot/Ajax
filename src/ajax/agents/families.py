@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import KW_ONLY, dataclass
 from functools import partial
 from typing import Any, ClassVar, Optional, Union
@@ -613,15 +613,24 @@ class DeclaredAgent(ActorCritic):
         self, key: jax.Array, loop: TrainLoop, network_args: NetworkConfig, **options
     ) -> Any:
         """The collector state (init_collector_state), holding a
-        stateful expert's state, with options an agent's own."""
+        stateful expert's state and each env's step in its episode for an
+        extension that reads it (JSRLCurriculum), with options an agent's
+        own."""
         del network_args
         return init_collector_state(
             key,
             env_args=loop.env_args,
             mode=loop.env_args.mode,
             expert_policy=self.expert,
+            count_episode_steps=reads_step_in_episode(loop.extensions),
             **options,
         )
+
+
+def reads_step_in_episode(extensions: Iterable[Extension]) -> bool:
+    """Whether an extension reads each env's step in its episode, which the
+    collector then counts."""
+    return any(extension.reads_step_in_episode for extension in extensions)
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -719,9 +728,7 @@ class ReplayAgent(DeclaredAgent):
             include_next_action="next_action" in fields,
             include_is_expert=stored,
             expert_policy=self.expert,
-            count_episode_steps=any(
-                extension.reads_step_in_episode for extension in loop.extensions
-            ),
+            count_episode_steps=reads_step_in_episode(loop.extensions),
             **options,
         )
 
@@ -1066,9 +1073,9 @@ class OwnIterationAgent(DeclaredAgent):
     dataset: train_offline refuses it.
     """
 
-    # The loop's phases but observe, which no shared collector or evaluation
-    # meets; an agent adds the phases its iteration applies.
-    supported_extension_phases = LOOP_PHASES.difference({"observe"})
+    # The loop's phases but observe and action, which no shared collector
+    # or evaluation meets; an agent adds the phases its iteration applies.
+    supported_extension_phases = LOOP_PHASES.difference({"observe", "action"})
     #: Whether train returns every iteration's output (make_iteration_output),
     #: stacked, logging or not, instead of the evaluations.
     returns_iterations = False

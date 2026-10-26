@@ -396,6 +396,7 @@
 "ajax.agents.families:ReplayAgent",
 "ajax.agents.families:RewardNormalization",
 "ajax.agents.families:TrainContext",
+"ajax.agents.families:reads_step_in_episode",
 "ajax.agents.loop:Collect",
 "ajax.agents.loop:Evaluation",
 "ajax.agents.loop:Init",

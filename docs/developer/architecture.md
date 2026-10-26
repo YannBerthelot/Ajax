@@ -360,8 +360,8 @@ agent without extensions traces nothing extra and never guards a fold.
 | `apply_eval_metrics` | at every evaluation, merged into the logged metrics (`compose_eval_metrics` in `log.py`) |
 | `apply_on_target`, `compute_extensions_critic_loss` | in the agent's critic step; `critic_step` for SAC, TD3, REDQ, ASAC, AVG and IQL |
 | `compute_extensions_actor_loss` | in the agent's actor step; `actor_step` for SAC, TD3, AVG, DAgger and IQL |
-| the `action` phase | SAC's action pipeline only, with an expert policy |
-| `transform_action`, `actuate` | the controller (`env_args.transforms`): the action pipeline before the choice, the shared collector after it (`expert_collect_kwargs`), evaluation, and `executed_actions` where the critics score executed actions |
+| the `action` phase | the shared collector's action stage (`ajax.environments.action_stage`), around the agent's pipeline, with an expert policy |
+| `transform_action`, `actuate` | the controller (`env_args.transforms`): the default pipeline before the choice, the shared collector after it (`expert_collect_kwargs`), evaluation, and `executed_actions` where the critics score executed actions |
 | the `observe` phase | the observers the agent lifts out of its stack (`env_args.observers`): the shared collector, at reset and after each step, PPO's forced reset, the expert prefill and evaluation |
 
 `apply_on_target`, `compute_extensions_critic_loss` and

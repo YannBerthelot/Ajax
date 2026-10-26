@@ -79,6 +79,7 @@
   "stores_expert_actions": true,
   "supported_buffer_fields": [],
   "supported_extension_phases": [
+   "action",
    "actor_loss",
    "actuate",
    "critic_loss",
@@ -161,6 +162,7 @@
    "raw_next_obs"
   ],
   "supported_extension_phases": [
+   "action",
    "actor_loss",
    "actuate",
    "choose_replay_action",
@@ -241,6 +243,7 @@
    "raw_next_obs"
   ],
   "supported_extension_phases": [
+   "action",
    "actor_loss",
    "actuate",
    "choose_warmup_action",
@@ -325,6 +328,7 @@
    "return_to_go"
   ],
   "supported_extension_phases": [
+   "action",
    "actor_loss",
    "actuate",
    "choose_replay_action",
@@ -375,6 +379,7 @@
   "stores_expert_actions": true,
   "supported_buffer_fields": [],
   "supported_extension_phases": [
+   "action",
    "actor_loss",
    "eval_metrics",
    "observe",
@@ -420,6 +425,7 @@
   "stores_expert_actions": false,
   "supported_buffer_fields": [],
   "supported_extension_phases": [
+   "action",
    "choose_warmup_action",
    "critic_loss",
    "eval_metrics",
@@ -538,6 +544,7 @@
    "return_to_go"
   ],
   "supported_extension_phases": [
+   "action",
    "actor_loss",
    "actuate",
    "choose_replay_action",
@@ -597,6 +604,7 @@
   "stores_expert_actions": false,
   "supported_buffer_fields": [],
   "supported_extension_phases": [
+   "action",
    "actor_loss",
    "actuate",
    "critic_loss",
@@ -644,6 +652,7 @@
   "stores_expert_actions": false,
   "supported_buffer_fields": [],
   "supported_extension_phases": [
+   "action",
    "critic_loss",
    "eval_metrics",
    "observe",
@@ -730,6 +739,7 @@
    "return_to_go"
   ],
   "supported_extension_phases": [
+   "action",
    "actor_loss",
    "actuate",
    "choose_replay_action",
@@ -920,6 +930,7 @@
    "return_to_go"
   ],
   "supported_extension_phases": [
+   "action",
    "actor_loss",
    "actuate",
    "choose_replay_action",
@@ -1065,6 +1076,7 @@
    "return_to_go"
   ],
   "supported_extension_phases": [
+   "action",
    "actor_loss",
    "actuate",
    "choose_replay_action",

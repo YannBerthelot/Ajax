@@ -37,8 +37,10 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.agents.recurrent import q_values, sample_replay
+from ajax.controller import executed_fn
 from ajax.environments.interaction import get_pi, policy_pipeline
 from ajax.extensions.base import merge_metrics
+from ajax.extensions.capabilities import NotWired
 from ajax.networks.networks import predict_value
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import Architecture, FloatOrCallable
@@ -114,6 +116,20 @@ class IQL(
         self.value_optimizer_args = self.critic_optimizer_args.replace(
             learning_rate=self.value_learning_rate
         )
+        # Under a residual policy the replay keeps the residual the actor
+        # chose beside the executed action, and the actor fits it: an action
+        # extension executing another action leaves no residual to keep.
+        acting = [
+            type(extension).__name__
+            for extension in self.extension_stack
+            if "action" in extension.implemented_phases()
+        ]
+        if acting and executed_fn(self.env_args) is not None:
+            reason = "executes an action whose residual the replay cannot keep"
+            raise NotWired(
+                f"IQL cannot run {acting} with a residual policy yet: each {reason}.",
+                dict.fromkeys(acting, reason),
+            )
 
     def choose_behaviour(self, context: TrainContext) -> Optional[Callable]:
         # A residual policy acts on the chosen action, so the warm-up draws

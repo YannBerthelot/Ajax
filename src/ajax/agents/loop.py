@@ -86,12 +86,14 @@ from ajax.types import NormalizationInfo
 from ajax.utils import online_normalize
 
 #: The extension phases the loop applies for every agent: a fresh run's
-#: one-shot ``pretrain``, ``post_update`` after each update,
-#: ``eval_metrics`` at each evaluation and ``observe`` wherever the shared
-#: collector and evaluation meet an observation (an agent rolling out on
-#: its own removes it). An agent adds the phases its own update applies
-#: (``ActorCritic.supported_extension_phases``).
-LOOP_PHASES = frozenset({"pretrain", "post_update", "eval_metrics", "observe"})
+#: one-shot pretrain, post_update after each update, eval_metrics at each
+#: evaluation, observe wherever the shared collector and evaluation meet an
+#: observation and action in the shared collector's action stage (an agent
+#: rolling out on its own removes those two). An agent adds the phases its
+#: own update applies (ActorCritic.supported_extension_phases).
+LOOP_PHASES = frozenset(
+    {"pretrain", "post_update", "eval_metrics", "observe", "action"}
+)
 
 
 #: ``init(key) -> agent_state``: a fresh agent state. One-shot pretraining

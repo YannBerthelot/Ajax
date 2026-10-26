@@ -68,7 +68,6 @@ VARIANTS["ImitationLoss(target='replay', alpha=2.5)"] = (
 ACTION = "the agent's own collector does not run the action stage yet (UDRL's)"
 MC = "MCPretrain binds only on SAC (batch module-reach)"
 CONTEXT = "the agent binds no context for it yet"
-EXPERT = "the agent takes no expert_policy yet (expert reach)"
 FORM = (
     "no form for this agent yet (cross-entropy for discrete actors; a policy's encoder)"
 )
@@ -128,13 +127,6 @@ GAPS: dict[str, dict[str, str]] = {
     CONTEXT: {
         "BellmanPretrain": "ASAC DQN IQL",
         "CloningPretrain": "APG PPO UDRL",
-    },
-    EXPERT: {
-        "ExpertPrefill": "DQN",
-        "ExpertValueMetrics": "DQN",
-        "ExpertWarmup": "DQN",
-        "JSRLCurriculum": "DQN PQN",
-        **dict.fromkeys(FEATURES[:2], "DQN PQN"),
     },
     FORM: {
         "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"

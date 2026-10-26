@@ -69,8 +69,9 @@ def test_the_warmup_is_refused_where_it_cannot_act():
         sac(expert_policy=None, extensions=(warmup,))
     with pytest.raises(ValueError, match="one warm-up"):
         sac(extensions=(warmup, ExpertWarmup(fraction=0.2)))
-    # DQN takes no expert yet; TD-MPC2's own collector runs no chooser yet.
-    with pytest.raises(NotWired, match="takes no expert_policy"):
+    # DQN without an expert has none to act with; TD-MPC2's own collector
+    # runs no chooser yet.
+    with pytest.raises(MissingCapability, match="agent_expert"):
         DQN("CartPole-v1", extensions=(warmup,))
     with pytest.raises(NotWired, match="choose_warmup_action"):
         TDMPC2("Pendulum-v1", extensions=(warmup,))

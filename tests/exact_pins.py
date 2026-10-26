@@ -39,6 +39,7 @@ from ajax.extensions.adversarial import AdversarialReward
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import (
     ExpertGains,
+    ExpertValueMetrics,
     ExpertWarmup,
     ImitationLoss,
     JSRLCurriculum,
@@ -414,6 +415,29 @@ PLUMBING_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         200,
     ),
 }
+# DQN and PQN with an expert (an index): the action stage on each, the
+# warm-up's expert mix, the critic at the expert's index and a feature
+# reading the expert. Last in the table, so the cases before keep their order.
+EXPERT_REACH_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "DQN-expert": (
+        DQN,
+        {
+            **DQN_KW,
+            "expert_policy": choose_one,
+            "extensions": (JSRL, ExpertWarmup(fraction=0.5), ExpertValueMetrics()),
+        },
+        240,
+    ),
+    "PQN-jsrl": (
+        PQN,
+        {
+            **PQN_KW,
+            "expert_policy": choose_one,
+            "extensions": (JSRL, ExpertActionInput()),
+        },
+        512,
+    ),
+}
 OFFLINE.update({"TD3-target-bc-offline"})
 #: The dataset an OFFLINE case trains on, where it is not test_offline's.
 DATASETS = {"TD3-target-bc-offline": long_episodes()}
@@ -627,6 +651,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     **OWN_COLLECTOR_CASES,
     **B5_CASES,
     **PLUMBING_CASES,
+    **EXPERT_REACH_CASES,
 }
 
 

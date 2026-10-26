@@ -32,6 +32,7 @@ from flax import struct
 
 from ajax.agents.critics import ValueAuxiliaries, q_gradient_step
 from ajax.agents.families import (
+    ExpertGuided,
     GradientClipping,
     ImageObservations,
     ObservationNormalization,
@@ -63,6 +64,7 @@ class PQN(
     GradientClipping,
     ObservationNormalization,
     RewardNormalization,
+    ExpertGuided,
     ImageObservations,
     OnPolicyAgent,
 ):

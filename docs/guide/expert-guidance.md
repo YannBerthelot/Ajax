@@ -92,24 +92,23 @@ batch (`ImitationLoss`, `IBRL`, `LCBGatedBootstrap`, `CriticBlend`,
 `PhiRefresh`), call it as `expert(obs)`, on raw observations, where no
 expert state exists. A stateful expert is allowed there in one case only:
 when it is the agent's own `expert_policy` (the same object), on an agent
-that stores that expert's actions (SAC, TD3, REDQ, ASAC, AVG, APO). The extensions
+that stores that expert's actions (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG,
+APO, DAgger, DQN). The extensions
 then read the actions the agent stored at collection, computed from the
 expert's tracked state, instead of calling it. Any other stateful expert is
 refused when the agent is built.
 
 ## Which agents take an expert
 
-| Agent | `expert_policy=` | Expert extensions |
-| --- | --- | --- |
-| [SAC](../algorithms/sac.md) | replay prefill, warm-up actions, collection extensions, the expert's evaluation return | all |
-| [TD3](../algorithms/td3.md), [REDQ](../algorithms/redq.md), [ASAC](../algorithms/asac.md), [AVG](../algorithms/avg.md), [APO](../algorithms/apo.md) | the expert's evaluation return | `CloningPretrain`, `ImitationLoss`; `IBRL`, `LCBGatedBootstrap` on TD3, REDQ and AVG; `ExpertValueMetrics` on TD3, REDQ and ASAC |
-| [DAgger](../algorithms/dagger.md) | required: the expert acts and labels every visited state; its evaluation return | `CloningPretrain`, `ImitationLoss` (continuous actions) |
+Every agent but the world models takes an `expert_policy=`: collection
+tracks it along each trajectory, the extensions read it, and evaluations
+log its return (not yet APG's). DAgger requires one: the expert acts and
+labels every visited state. Which expert extensions each agent runs is in
+[Compatibility](compatibility.md).
 
-The other agents (PPO, DQN, PQN, UDRL, APG and the world models) take no
-expert: `CloningPretrain` raises on them when training starts. PPO, APG and
-UDRL with continuous actions take `ImitationLoss` with a stateless expert.
-A discrete policy has no mean action for it, DQN and PQN have no actor, and
-the world models fold no actor phase.
+`ImitationLoss` needs a policy's mean action: PPO, APG and UDRL take it with
+continuous actions and a stateless expert. A discrete policy has no mean
+action, DQN and PQN have no actor, and the world models fold no actor phase.
 
 With an expert, evaluations also log `Eval/episodic mean expert reward`, the
 expert's return on the same episodes as the agent's, and `Eval/expert
@@ -349,7 +348,7 @@ Ajax" marks a feature with no external reference.
 
 | You want to | Use | Method |
 | --- | --- | --- |
-| Start the replay with good experience | `ExpertPrefill(n_steps)` (SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
+| Start the replay with good experience | `ExpertPrefill(n_steps)` (SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL, DQN); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
 | Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, ASAC, DQN, IQL) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
 | Keep the actor near the dataset's actions | `ImitationLoss(None, target="replay", alpha=2.5)` (SAC, TD3, REDQ, ASAC) | TD3+BC (Fujimoto and Gu, 2021) on TD3 |
 | Keep the critic's target near the dataset's actions too | `TargetBC` with TD3+BC's term (TD3) | ReBRAC (Tarasov et al., 2023) |
@@ -359,11 +358,11 @@ Ajax" marks a feature with no external reference.
 | Imitate the expert, with no reward | the `DAgger` agent | DAgger (Ross, Gordon and Bagnell, 2011); `ImitationLoss` with a replay agent's own expert is its aggregation plus the RL loss |
 | Keep the actor near the expert early on | `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger; PPO, APG, UDRL with a stateless expert), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |
 | Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC, TD3, REDQ, ASAC, AVG) | Q-filtered behaviour cloning (Nair et al., 2018) |
-| Let the expert act while the agent is poor | `JSRLCurriculum`, `EDGEExploration` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger), `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
+| Let the expert act while the agent is poor | `JSRLCurriculum` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger, DQN, PQN), `EDGEExploration` (the same with continuous actions), `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
 | Learn a correction to the expert | `ResidualPolicy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL) | residual RL (Johannink et al., 2019) |
 | Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` (SAC) | developed with Ajax |
 | Make the target account for the expert | `IBRL` (SAC, TD3, REDQ, AVG), `LCBGatedBootstrap` (SAC, TD3, REDQ) | IBRL (Hu et al., 2023); the LCB gate developed with Ajax |
-| Measure how the critic rates the expert | `ExpertValueMetrics` (SAC, TD3, REDQ, ASAC) | |
+| Measure how the critic rates the expert | `ExpertValueMetrics` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, IQL, DQN) | |
 
 Some pieces need others. The agent refuses wrong combinations when it is
 built:

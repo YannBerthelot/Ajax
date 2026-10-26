@@ -808,7 +808,6 @@
     "next_action",
     "next_observations",
     "observations",
-    "q_preds",
     "raw_next_observations",
     "recurrent",
     "reward_scale",

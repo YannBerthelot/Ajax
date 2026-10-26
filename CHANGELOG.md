@@ -6,6 +6,12 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **Fixed: EDGE scores the executed action.** Under `ResidualPolicy`,
+  `EDGEExploration`'s scoring gates compared the expert's action with the
+  policy's residual, while every critic is trained on the executed action
+  (the residual through the expert). They now compare it with the action
+  the step would execute, as `IBRL`'s acting does. Runs with EDGE and a
+  residual policy train differently; other EDGE runs do not change.
 - **APG's schedule steps its matrices alone**, as its reference does: with
   `lr_schedule="warmup_cosine"` (`contextual_controller`'s default) the
   biases, LayerNorm scales and PID gains keep `learning_rate`. Scheduled

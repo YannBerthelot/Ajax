@@ -8,8 +8,8 @@ gate: "fixed", "argmax" and "boltzmann" (value-gap gates) or "lcb",
 functions below.
 
 The action stage (ajax.environments.action_stage) hands the gate the
-step's quantities (policy_action, expert_action, observations, ...) as a
-dict through the obs argument, as the batch dict of the on_target and
+step's quantities (post_warmup_action, expert_action, observations, ...)
+as a dict through the obs argument, as the batch dict of the on_target and
 actor_loss phases. The extension picks an action (or returns None to
 defer); the stage owns the bookkeeping (is_expert_flag, the stored
 action). Gate randomness is threaded through obs["gate_rng"] (read and
@@ -299,11 +299,11 @@ class EDGEExploration(Extension):
     * epsilon_floor: the minimum policy-pick probability (Thompson).
 
     The expert is the agent's expert_policy: the gate compares the action
-    collection called it for with the policy's. Evaluations log the share
-    of envs the expert drove on the last collection step
-    (edge/live_expert_frac) and the gate's schedule: edge/beta for the LCB
-    gates, edge/decay for the fixed, argmax and Boltzmann gates (the
-    Thompson gate has none).
+    collection called it for with the one the step would execute.
+    Evaluations log the share of envs the expert drove on the last
+    collection step (edge/live_expert_frac) and the gate's schedule:
+    edge/beta for the LCB gates, edge/decay for the fixed, argmax and
+    Boltzmann gates (the Thompson gate has none).
     """
 
     gate: str = "fixed"
@@ -351,8 +351,9 @@ class EDGEExploration(Extension):
         """Apply the configured EDGE gate to substitute the policy action.
 
         obs is the action stage's dict (the module docstring):
-        policy_action, expert_action, observations (the critics' input, its
-        features included), post_warmup_action and gate_rng.
+        expert_action, observations (the critics' input, its features
+        included), post_warmup_action (the action the step would execute)
+        and gate_rng.
 
         Side effects: writes expert_mask back into obs, which flags the
         steps the expert took (is_expert_flag), and updates obs["gate_rng"]
@@ -386,7 +387,9 @@ class EDGEExploration(Extension):
         expert the step, and the stage's gate_rng after its draws. It scores
         with the frozen expert critic phi* where MCPretrain fitted one, else
         with the agent's live critic."""
-        policy_action = obs["policy_action"]
+        # The action the step would execute, which every critic is trained
+        # on: under a residual policy, the residual through the expert.
+        executed_action = obs["post_warmup_action"]
         expert_action = obs["expert_action"]
         observations = obs["observations"]
         gate_rng = obs["gate_rng"]
@@ -404,7 +407,7 @@ class EDGEExploration(Extension):
         if gate == "thompson":
             mu_e, sigma_e, mu_p, sigma_p = edge_compute_thompson_stats(
                 observations,
-                policy_action,
+                executed_action,
                 expert_action,
                 critic_state,
                 critic_params,
@@ -427,7 +430,7 @@ class EDGEExploration(Extension):
             )
             score_e, score_p = edge_lcb_scores(
                 observations,
-                policy_action,
+                executed_action,
                 expert_action,
                 critic_state,
                 critic_params,
@@ -450,7 +453,7 @@ class EDGEExploration(Extension):
             )
             gap, q_policy = edge_compute_value_gap(
                 observations,
-                policy_action,
+                executed_action,
                 expert_action,
                 critic_state,
                 critic_params,

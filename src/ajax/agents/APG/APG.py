@@ -57,13 +57,26 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.agents.update_steps import apply_post_update
-from ajax.controller import ActingState, policy_action_dim
+from ajax.controller import (
+    ActingState,
+    ObserveInputs,
+    feature_width,
+    init_observers,
+    observe_features,
+    policy_action_dim,
+    reads_agent_expert,
+    restart_observers,
+)
 from ajax.environments.differentiable import (
     Rollout,
     closed_loop_rollout,
     with_transition_gradients,
 )
-from ajax.environments.interaction import act_through_expert, init_collector_state
+from ajax.environments.interaction import (
+    act_through_expert,
+    expert_step,
+    init_collector_state,
+)
 from ajax.environments.system_class import FixedSystem, SystemClass
 from ajax.environments.utils import (
     agent_action_to_env,
@@ -158,7 +171,8 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
             trainer without touching Ajax.
 
     An expert_policy runs in the rollout alongside the controller: a
-    residual policy or gain mode acts through it, its gradient included.
+    residual policy or gain mode acts through it, and the observation
+    features read it, its gradient included.
     """
 
     n_envs: int = 8
@@ -349,6 +363,8 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         )
 
     def init(self, key: jax.Array, context: TrainContext) -> APGState:
+        # The collector holds the expert only where a feature reads it.
+        reads_expert = reads_agent_expert(context.env_args)
         return make_agent_state(
             key,
             context.env_args,
@@ -357,6 +373,7 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
             self.pid,
             self.squash,
             controller_factory=self.controller_factory,
+            expert_policy=self.expert if reads_expert else None,
         )
 
     def iterate(
@@ -382,14 +399,18 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
                 expert_policy=self.expert,
             )
             matching_loss = -returns.mean()
-            # Along the rollout: what the controller saw (APG normalises no
-            # observation, so they are the env's own) and its actions.
+            # Along the rollout: what the controller saw (the env's own
+            # observations, which APG does not normalise, with their features)
+            # and its actions.
+            observations = rollout.obs
+            if rollout.policy_observation is not None:
+                observations = rollout.policy_observation
             actor_batch = {
                 "rollout": rollout,
                 "returns": returns,
                 "actor_params": params,
                 "actor_state": agent_state.actor_state,
-                "observations": rollout.obs,
+                "observations": observations,
                 "raw_observations": rollout.obs,
                 "pi_mean": rollout.policy_action,
             }
@@ -477,9 +498,10 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
     # discrete one with that reason.
     action_space = "any"
     capabilities = frozenset({"actor", "obs_networks", "reward_learning"})
-    # It acts through the run's transform itself (transform_action, actuate).
+    # Its rollout acts through the run's transform (transform_action,
+    # actuate) and observes the features (observe) itself.
     supported_extension_phases = OwnIterationAgent.supported_extension_phases.union(
-        {"actor_loss", "transform_action", "actuate"}
+        {"actor_loss", "transform_action", "actuate", "observe"}
     )
     # Unannotated, as the whole contract, so the dataclass makes it no field.
     phase_batch_keys = {  # noqa: RUF012
@@ -547,9 +569,12 @@ def make_agent_state(
     pid: Optional[PIDHeadConfig],
     squash: bool,
     controller_factory: Optional[ControllerFactory] = None,
+    expert_policy: Any = None,
 ) -> APGState:
-    """A fresh state: the controller, its carry for a stateful one, its
-    optimiser and a collector without an expert (the rollout carries one)."""
+    """A fresh state: the controller, reading the observation and its
+    features, its carry for a stateful one, its optimiser and a collector,
+    holding expert_policy only for a feature reading it (the rollout
+    carries the expert)."""
     training_key, params_key, carry_key, collector_key, evaluation_key = (
         jax.random.split(key, 5)
     )
@@ -557,6 +582,7 @@ def make_agent_state(
         env_args, network_args, pid, squash, factory=controller_factory
     )
     obs_shape, _ = get_state_action_shapes(env_args.env)
+    obs_shape = (*obs_shape[:-1], obs_shape[-1] + feature_width(env_args))
     if controller.stateful:
         carry = controller.initialize_carry(carry_key, env_args.n_envs)
         params = controller.init(
@@ -575,7 +601,7 @@ def make_agent_state(
         hidden_state=carry,
     )
     collector_state = init_collector_state(
-        collector_key, env_args=env_args, mode="gymnax"
+        collector_key, env_args=env_args, mode="gymnax", expert_policy=expert_policy
     )
     return APGState(
         rng=training_key,
@@ -625,31 +651,74 @@ def make_policy_step(
 
 
 def make_step_through_expert(
-    policy_step: Callable, transform: Any, expert_policy: Any, n_systems: int
+    policy_step: Callable,
+    transform: Any,
+    expert_policy: Any,
+    n_systems: int,
+    env_width: Optional[int] = None,
 ) -> Callable:
     """policy_step acting through the run's transform (residual RL, gain
     mode) and the tracked expert, whose state rides in the carry, (actor
-    carry, expert state). The return's gradient runs through the expert too:
+    carry, expert state, then the observers' states with features, whose
+    observations hold env_width columns of the env's own first). The expert
+    is called every step its state is read, as collection calls it (None:
+    nothing reads it). The return's gradient runs through the expert too:
     it is part of the loop the controller acts in."""
 
     def step(carry, obs, resets):
-        actor_carry, expert_state = carry
+        actor_carry, expert_state, *observed = carry
         action, actor_carry = policy_step(actor_carry, obs, resets)
-        acting = ActingState(
-            obs=obs, done=resets, timestep=None, expert_state=expert_state
-        )
-        executed, _, expert_state = act_through_expert(
-            transform,
-            expert_policy,
-            acting,
-            obs,
-            action,
-            n_systems,
-            stop_gradient=False,
-        )
-        return executed, (actor_carry, expert_state)
+        raw_obs = obs if env_width is None else obs[..., :env_width]
+        if expert_policy is not None:
+            acting = ActingState(
+                obs=raw_obs, done=resets, timestep=None, expert_state=expert_state
+            )
+            action, _, expert_state = act_through_expert(
+                transform,
+                expert_policy,
+                acting,
+                raw_obs,
+                action,
+                n_systems,
+                stop_gradient=False,
+            )
+        return action, (actor_carry, expert_state, *observed)
 
     return step
+
+
+def make_rollout_observer(
+    observers: tuple,
+    expert_policy: Any,
+    n_systems: int,
+    timestep: Any,
+    horizon: Any,
+) -> Callable:
+    """(carry, obs, resets) -> (policy observation, carry) for
+    closed_loop_rollout: obs with the observers' features at the timestep
+    and horizon the rollout holds, their states and the expert's in the
+    carry (actor carry, expert state, observer states), fresh at each
+    episode start. The features keep their gradient."""
+
+    def observe(carry, obs, resets):
+        actor_carry, expert_state, observer_states = carry
+        observer_states, expert_state = restart_observers(
+            resets, observers, observer_states, expert_policy, expert_state, n_systems
+        )
+        inputs = ObserveInputs(
+            obs,
+            expert_policy,
+            expert_state,
+            timestep=timestep,
+            horizon=horizon,
+            differentiable=True,
+        )
+        observation, observer_states = observe_features(
+            obs, inputs, observers, observer_states
+        )
+        return observation, (actor_carry, expert_state, observer_states)
+
+    return observe
 
 
 def draw_systems(
@@ -698,13 +767,29 @@ def compute_rollout_returns(
     )
     policy_step = make_policy_step(agent_state.actor_state, params, stateful)
     transform = next(iter(env_args.transforms), None)
-    if transform is not None:
+    observers, observe = env_args.observers, None
+    if transform is not None or observers:
+        # The expert, tracked for the transform or a feature reading it.
+        if transform is None and not reads_agent_expert(env_args):
+            expert_policy = None
         expert_state = None
         if hasattr(expert_policy, "init_state"):
             expert_state = expert_policy.init_state(n_systems)
         carry = (carry, expert_state)
+        env_width = None
+        if observers:
+            carry = (*carry, init_observers(observers, n_systems))
+            collector = agent_state.collector_state
+            observe = make_rollout_observer(
+                observers,
+                expert_policy,
+                n_systems,
+                collector.timestep,
+                collector.max_timesteps,
+            )
+            env_width = get_state_action_shapes(env_args.env)[0][-1]
         policy_step = make_step_through_expert(
-            policy_step, transform, expert_policy, n_systems
+            policy_step, transform, expert_policy, n_systems, env_width
         )
     rollout, _ = closed_loop_rollout(
         policy_step,
@@ -714,6 +799,7 @@ def compute_rollout_returns(
         env_params,
         horizon,
         action_map=lambda action: agent_action_to_env(action, env_args.env, env_params),
+        observe=observe,
     )
     return rollout.reward.sum(0), rollout
 

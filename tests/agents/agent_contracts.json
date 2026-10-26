@@ -29,6 +29,7 @@
    "actor_loss",
    "actuate",
    "eval_metrics",
+   "observe",
    "post_update",
    "pretrain",
    "transform_action"

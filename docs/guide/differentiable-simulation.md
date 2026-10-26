@@ -195,6 +195,14 @@ test bed: gradients are clipped to a global norm of 1 (`max_grad_norm`;
 without it, training across a system class diverged), and actions are
 `tanh`-bounded.
 
+The observation features (`ExpertActionInput`, `ExpertStateInput`,
+`TrainingProgressInput`, `PIDTermsInput`) join each observation the
+controller reads, as they do in the other agents' collection, their memory
+starting afresh with each episode and the progress the collector's
+throughout a rollout. Unlike there, their gradient is kept: the return's
+gradient runs through the expert's action and state the features read, as
+it runs through the expert a residual policy or gain mode acts with.
+
 ## The in-context controller
 
 Busetto, Breschi, Forgione, Piga and Formentin, *One controller to rule them

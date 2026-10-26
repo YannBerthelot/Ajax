@@ -6,6 +6,14 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **APG observes the observation features.** `ExpertActionInput`,
+  `ExpertStateInput`, `TrainingProgressInput` and `PIDTermsInput` join the
+  observation its controller reads in the differentiable rollout, their
+  memory afresh at each episode start; the expert's features keep their
+  gradient there (`ObserveInputs.differentiable`), as the expert a residual
+  policy acts with does. `closed_loop_rollout` takes `observe` and its
+  `Rollout` keeps `policy_observation`. Runs without features are
+  unchanged, bitwise.
 - **APG's schedule steps its matrices alone**, as its reference does: with
   `lr_schedule="warmup_cosine"` (`contextual_controller`'s default) the
   biases, LayerNorm scales and PID gains keep `learning_rate`. Scheduled

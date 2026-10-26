@@ -47,7 +47,7 @@ WARMUP = {"SAC", "TD3", "REDQ", "ASAC", "AVG", "DQN"}
 #: the stored action's chooser (StorePolicyAction).
 REPLAY_FAMILY = {"ASAC", "REDQ", "SAC", "TD3", "TQC", "DQN"}
 #: The collection phases an agent collecting on its own folds itself.
-OWN_FOLDS = {("APG", "observe")}
+OWN_FOLDS = {("APG", "observe"), ("UDRL", "observe")}
 
 
 @dataclass(frozen=True)
@@ -271,7 +271,7 @@ def test_agents_accept_only_the_phases_they_fold():
     """The base accepts none; every agent the loop's, observe, action (the
     action stage's slots) and eval_action (the shared evaluation's
     choosers) but where it collects and evaluates on its own (APG's
-    rollout observes the features itself),
+    rollout and UDRL's collector observe the features themselves),
     transform_action (a residual policy) the agents whose
     critics score executed actions, and choose_warmup_action those whose
     collection has a uniform warm-up, choose_replay_action those whose

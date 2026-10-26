@@ -55,14 +55,22 @@ from ajax.agents.UDRL.buffer import (
     topk_command_stats,
 )
 from ajax.agents.update_steps import apply_post_update
-from ajax.controller import ActingState, Controller, policy_action_dim
+from ajax.controller import (
+    ActingState,
+    feature_width,
+    make_run_controller,
+    policy_action_dim,
+)
 from ajax.environments.interaction import (
     ActionPipelineResult,
     executed_action,
     expert_collect_kwargs,
+    get_final_obs,
     get_pi,
+    get_raw_final_obs,
     get_raw_obs,
     step,
+    step_features,
     update_episodic_return,
 )
 from ajax.environments.obs_norm import update_obs_norm
@@ -277,6 +285,25 @@ class UDRL(
         )
         done = jnp.logical_or(terminated.astype(bool), truncated.astype(bool))
         done = done.astype(jnp.float32)
+        if env_args.observers:
+            # The next observation's features (the reset one's where an
+            # episode ended), from the expert's state after this step's call,
+            # before the command joins them.
+            final_obs = get_final_obs(info, new_env_obs).astype(new_env_obs.dtype)
+            next_columns, _, observer_states = step_features(
+                env_args,
+                mode,
+                self.expert,
+                collector.observer_states,
+                new_env_state,
+                get_raw_final_obs(info, final_obs),
+                expert_state,
+                done > 0,
+                timestep=collector.timestep,
+                horizon=collector.max_timesteps,
+            )
+            new_env_obs = jnp.concatenate([new_env_obs, next_columns], axis=-1)
+            collector = collector.replace(observer_states=observer_states)
         # A fresh exploratory command per env at an episode's end
         # (Algorithm 5): d_r ~ U(R_target, R_target + R_std), d_h = H_target.
         training_key, explore_key = jax.random.split(training_key)
@@ -386,6 +413,7 @@ class UDRL(
         # unchanged.
         next_key, fit_key, extensions_key = jax.random.split(agent_state.rng, 3)
         agent_state = agent_state.replace(rng=next_key)
+        env_width = buffer.obs.shape[-1] - 2 - feature_width(context.env_args)
 
         def fit_batch(
             agent_state: UDRLState, keys: tuple[jax.Array, jax.Array]
@@ -410,11 +438,12 @@ class UDRL(
                 }
                 if extensions:
                     # For the extensions: the env's own observations at the
-                    # batch's rows (the replay holds them raw), and the
-                    # policy's mean action (None for a discrete policy).
+                    # batch's rows (the replay holds them raw, then their
+                    # features and the command), and the policy's mean action
+                    # (None for a discrete policy).
                     pi, _ = get_pi(actor, params, observations)
                     discrete = isinstance(pi, distrax.Categorical)
-                    batch["raw_observations"] = observations[..., :-2]
+                    batch["raw_observations"] = observations[..., :env_width]
                     batch["pi_mean"] = None if discrete else pi.mean()
                 extra, metrics = extensions.compute_extensions_actor_loss(
                     agent_state,
@@ -505,7 +534,7 @@ class UDRL(
             command=EvalCommand(self.command_scale_r, self.command_scale_h),
             expert_policy=self.expert,
             eval_expert_policy=self._in_agent_units(self.eval_expert_policy),
-            controller=Controller(transforms=env_args.transforms),
+            controller=make_run_controller(env_args),
         )
         return {
             "Eval/episodic mean reward": returns,
@@ -530,9 +559,10 @@ class UDRL(
             "reward_learning",
         }
     )
-    # It acts through the run's transform itself (transform_action, actuate).
+    # Its collector acts through the run's transform (transform_action,
+    # actuate) and observes the features (observe) itself.
     supported_extension_phases = OwnIterationAgent.supported_extension_phases.union(
-        {"actor_loss", "transform_action", "actuate"}
+        {"actor_loss", "transform_action", "actuate", "observe"}
     )
     # Unannotated, as the whole contract, so the dataclass makes it no field.
     phase_batch_keys = {  # noqa: RUF012

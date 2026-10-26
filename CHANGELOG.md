@@ -6,6 +6,12 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **UDRL observes the observation features.** `ExpertActionInput`,
+  `ExpertStateInput`, `TrainingProgressInput` and `PIDTermsInput` join each
+  observation of its segments, before the command, in collection and
+  evaluation; UDRL's collector calls the expert through the shared wrapper
+  (the expert first, gain mode last). Runs without features are
+  unchanged, bitwise.
 - **DQN and PQN take an expert.** `expert_policy=` (an index per row) and
   `eval_expert_policy=`: collection tracks the expert, evaluations log its
   return, and `JSRLCurriculum` and the expert's observation features run on

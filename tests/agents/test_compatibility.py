@@ -82,7 +82,6 @@ WARMUP = (
     " seed phase yet, and it takes no expert_policy"
 )
 OWN_STORE = "the agent's own collector does not run choose_replay_action yet"
-OWN_ROLLOUT = "the agent's own collector does not observe features yet (UDRL's command)"
 FEATURES = (
     "ExpertActionInput ExpertStateInput TrainingProgressInput PIDTermsInput".split()
 )
@@ -156,7 +155,6 @@ GAPS: dict[str, dict[str, str]] = {
     },
     IMAGINED: dict.fromkeys(FEATURES[:2], WORLD_ROWS),
     WORLD_FEATURES: dict.fromkeys(FEATURES[2:], WORLD_ROWS),
-    OWN_ROLLOUT: dict.fromkeys(FEATURES, "UDRL UDRL/discrete"),
     CNN: {
         "cnn": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO APO/discrete DAgger"
         " DAgger/discrete IQL"

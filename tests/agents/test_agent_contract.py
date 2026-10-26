@@ -400,13 +400,15 @@ def test_a_run_folds_its_extensions_and_keeps_its_rollout(
 @AGENTS
 def test_a_run_observes_its_features(name: str, extended_run: Any) -> None:
     """The collector's last observation ends with the training progress
-    where it arrived, before the step's 2 envs counted: kept raw, last."""
+    where it arrived, before the step's 2 envs counted: kept raw, the last
+    feature (UDRL's command, its last two columns, follows the features)."""
     run = extended_run(name)
     if "observe" not in run.case.cls.supported_extension_phases:
         pytest.skip(f"{name} rolls out on its own")
     collector = run.state.collector_state
     arrived = (np.asarray(collector.timestep) - 2) / run.case.n_timesteps
-    last = np.asarray(collector.last_obs)[..., -1]
+    column = -3 if name == "UDRL" else -1
+    last = np.asarray(collector.last_obs)[..., column]
     expected = np.broadcast_to(arrived[:, None], last.shape)
     np.testing.assert_allclose(last, expected, rtol=1e-6)
     assert (arrived > 0.5).all(), arrived

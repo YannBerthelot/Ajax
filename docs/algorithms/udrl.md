@@ -26,7 +26,7 @@ experiments.
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Image observations | yes, a CNN encoder (`cnn_image_shape`) |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `actor_loss` , `transform_action`, `actuate` |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `actor_loss` , `transform_action`, `actuate`, `observe` |
 | Resume and checkpoints | yes; a split run equals the uninterrupted one (probe and resume contract) |
 
 ## Example
@@ -73,7 +73,7 @@ training metrics of those iterations
 | `normalize_observations`, `normalize_rewards`, `reward_normalization_gamma` | False, False, None | running normalisation |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | None, 0, None | convolutional encoder for flat image observations, the features after the image, and the encoder's layers; the command joins the encoder's output |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
-| `expert_policy` | `None` | an expert the rollout runs alongside: a residual policy (`ResidualPolicy`) or gain mode (`ExpertGains`) acts through it |
+| `expert_policy` | `None` | an expert the rollout runs alongside: a residual policy (`ResidualPolicy`) or gain mode (`ExpertGains`) acts through it and the observation features read it |
 | `eval_expert_policy` | `None` | an expert whose return each evaluation logs, which takes no other part in the run |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
@@ -108,8 +108,9 @@ Each iteration:
   `command_scale_r` and `command_scale_h` (the paper's LunarLander values), so
   that it is of order one; the replay keeps it unscaled.
 - The policy's encoder ends with a LayerNorm, as Ajax's earlier networks did.
-- The command is carried in the last two entries of the observation; with
-  `cnn_image_shape` the image is flattened in front of them.
+- The command is carried in the last two entries of the observation, after
+  the observation features; with `cnn_image_shape` the image is flattened in
+  front of them.
 
 ## Results
 

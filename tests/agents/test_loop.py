@@ -90,7 +90,9 @@ def _update(state: State) -> tuple[State, Metrics]:
 
 def test_no_update_before_learning_starts() -> None:
     """Before ``learning_starts`` the state is untouched and every metric
-    is a (1,) NaN; from it the update runs, its metrics reshaped to (1,)."""
+    is a (1,) NaN; from it the update runs, its metrics reshaped to (1,).
+    A given timestep (the step's own, for an update without a replay)
+    replaces the steps collected."""
     loop = _loop()
     early, metrics = loop.maybe_update(_state(9), 10, _update)
     assert float(early.value) == 1.0 and metrics.loss.shape == (1,)
@@ -98,6 +100,9 @@ def test_no_update_before_learning_starts() -> None:
     ready, metrics = loop.maybe_update(_state(10), 10, _update)
     assert float(ready.value) == 2.0
     np.testing.assert_array_equal(metrics.loss, [1.0])
+    collected_at = jnp.asarray(8)
+    early, _ = loop.maybe_update(_state(10), 10, _update, collected_at)
+    assert float(early.value) == 1.0
 
 
 @pytest.mark.parametrize(

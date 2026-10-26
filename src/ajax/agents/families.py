@@ -854,13 +854,15 @@ class RecurrentReplayAgent(ReplayAgent):
 @dataclass(kw_only=True, eq=False, repr=False)
 class IncrementalAgent(DeclaredAgent):
     """An agent learning from each step as it comes, without a replay
-    (TrainLoop.off_policy): one step per env per iteration, then, from
-    learning_starts, one update on that step alone (AVG, Vasan et al.,
-    2024). An agent writes init and update, and may record statistics of
-    every collected step (update_step_statistics).
+    (TrainLoop.off_policy): one step per env per iteration, then one update
+    on that step alone, for each step collected from learning_starts on, so
+    never on a warm-up step (AVG, Vasan et al., 2024). An agent writes init
+    and update, and may record statistics of every collected step
+    (update_step_statistics).
 
     Args:
-        learning_starts: The env steps collected before the first update.
+        learning_starts: The env steps collected before the first step the
+            agent learns from.
         expose_recent_rollout: Keep each step on agent_state.last_rollout,
             a one-step rollout, for measurement extensions.
     """

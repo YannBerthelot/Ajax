@@ -454,10 +454,11 @@ class TrainLoop:
         agent_state: Any,
         learning_starts: int,
         update: Callable[[Any], tuple[Any, Any]],
+        timestep: Optional[jax.Array] = None,
     ) -> tuple[Any, Any]:
-        """``update`` and apply ``post_update`` once ``learning_starts`` steps
-        are collected; before, the metrics have the update's structure,
-        filled with NaN (which the logger drops)."""
+        """update and apply post_update once timestep, by default the steps
+        collected, reaches learning_starts; before, the metrics have the
+        update's structure, filled with NaN (which the logger drops)."""
 
         def do_update(agent_state: Any) -> tuple[Any, Any]:
             agent_state, aux = update(agent_state)
@@ -465,8 +466,9 @@ class TrainLoop:
             aux = jax.tree.map(lambda x: jnp.reshape(x, (1,)), aux)
             return self.post_update(agent_state), aux
 
-        ready = agent_state.collector_state.timestep >= learning_starts
-        return run_if(ready, do_update, agent_state)
+        if timestep is None:
+            timestep = agent_state.collector_state.timestep
+        return run_if(timestep >= learning_starts, do_update, agent_state)
 
     def repeat_update(
         self, agent_state: Any, n: Any, update: Callable[[Any], tuple[Any, Any]]
@@ -671,7 +673,8 @@ class TrainLoop:
         by default ``learning_starts``; 0: the policy's from the first step,
         as TQC's authors act), applies ``after_collect(agent_state,
         transition)`` when given, then from ``learning_starts`` runs
-        ``update(agent_state, transition)``, then evaluates the actor
+        ``update(agent_state, transition)`` (without a replay, from the step
+        collected at learning_starts), then evaluates the actor
         (:meth:`evaluate_and_log`). ``expose_rollout`` keeps the step on
         ``agent_state.last_rollout`` as a ``T = 1`` rollout. The budget is
         :attr:`budget` ``// n_envs`` ticks.
@@ -721,9 +724,15 @@ class TrainLoop:
                 agent_state = after_collect(agent_state, transition)
             return agent_state, transition
 
+        # An update without a replay learns from its step alone, so its gate
+        # reads the timestep the step was collected at: it never learns from
+        # a warm-up step. A replay's gate reads the steps it holds.
+        learns_from_its_step = collect_args.get("buffer") is None
+
         def iteration(
             agent_state: Any, index: Any, tick: Any
         ) -> tuple[Any, Optional[dict]]:
+            collected_at = agent_state.collector_state.timestep
             agent_state, experience = collect_step(agent_state, tick)
 
             def step(agent_state: Any) -> tuple[Any, Any]:
@@ -731,7 +740,12 @@ class TrainLoop:
 
             aux = None
             if n_updates is None:
-                agent_state, aux = self.maybe_update(agent_state, learning_starts, step)
+                agent_state, aux = self.maybe_update(
+                    agent_state,
+                    learning_starts,
+                    step,
+                    collected_at if learns_from_its_step else None,
+                )
             else:
                 agent_state = self.repeat_update(
                     agent_state, n_updates(tick, agent_state), step

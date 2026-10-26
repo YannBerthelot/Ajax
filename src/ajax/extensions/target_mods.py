@@ -178,15 +178,52 @@ def score_next_actions(
     return q(next_expert_actions), q(next_actions)
 
 
+def take_minimum(values: jax.Array, critics: Optional[jax.Array]) -> jax.Array:
+    """The minimum of values over its ensemble axis, over the critics indexed
+    by critics (None: all of them)."""
+    if critics is not None:
+        values = values[critics]
+    return jnp.min(values, axis=0)
+
+
+def draw_selection_critics(
+    value_critics: Optional[jax.Array], num_critics: int, key: jax.Array
+) -> Optional[jax.Array]:
+    """The critics IBRL selects the expert's or the policy's action on: a
+    fresh random subset of the size of value_critics, the subset the base
+    target valued on, drawn on key; None (all critics) where the target took
+    all of them. The authors' state critic draws a random pair on each call,
+    one to select and one to value (hengyuan-hu/ibrl rl/critic.py forward_k,
+    rl/q_agent.py:288, :442), a quirk Ajax copies (UPSTREAM_BUGS 1); with
+    no subset both are every critic, as in their two-critic pixel runs."""
+    if value_critics is None:
+        return None
+    shape = value_critics.shape
+    return jax.random.choice(key, num_critics, shape=shape, replace=False)
+
+
 @dataclass(frozen=True)
 class IBRL(Extension):
-    """IBRL bootstrap (Hu, Mirchandani and Sadigh, *Imitation Bootstrapped
-    Reinforcement Learning*, 2023).
+    """IBRL bootstrap (Hu, Mirchandani and Sadigh, Imitation Bootstrapped
+    Reinforcement Learning, 2023), as its authors' code computes it
+    (hengyuan-hu/ibrl 3c457da, rl/q_agent.py update_critic and _act_ibrl).
 
-    Adds ``γ(1-d)·max(min Q_target(s', a_expert') - min Q_target(s', a_π'),
-    0)`` to the Bellman target so the value function is consistent with an
-    argmax(Q_expert, Q_policy) action-selection rule; a_π' is the next action
-    the agent's target scored (score_next_actions).
+    The target bootstraps on the better of the expert's next action a_E and
+    the policy's a', the next action the agent's target scored
+    (score_next_actions): it gains gamma (1 - d) [a_E selected] (min
+    Q_target(s', a_E) - min Q_target(s', a')), the minima over the critics
+    the base target took its minimum over. With all of them, the bonus is
+    max(min Q(s', a_E) - min Q(s', a'), 0). With a random subset of them
+    (REDQ's), a_E is selected on a fresh subset of the same size
+    (draw_selection_critics), as the authors select on one random pair and
+    value on another, so the bonus can be negative. Selection is hard, the
+    authors' "ibrl", not their "ibrl_soft".
+
+    No original form exists for the rest, kept as Ajax's: SAC's, REDQ's and
+    TQC's entropy term stays at a' when the expert is selected; TQC's bonus
+    reads its quantiles' means, while its target pools truncated quantiles;
+    a target without next actions (IQL's V(s')) scores a sample of the
+    online actor instead.
     """
 
     expert_policy: Callable
@@ -197,7 +234,13 @@ class IBRL(Extension):
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "on_target": frozenset(
-            {"dones", "next_a_expert", "next_actions", "raw_next_observations"}
+            {
+                "critic_subset",
+                "dones",
+                "next_a_expert",
+                "next_actions",
+                "raw_next_observations",
+            }
         )
     }
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
@@ -225,15 +268,23 @@ class IBRL(Extension):
     ) -> Any:
         del ext_state
         dones, gamma = batch["dones"], discounted("IBRL", batch["gamma"])
-        action_key, _ = jax.random.split(context.rng)
+        action_key, selection_key = jax.random.split(context.rng)
         q_expert, q_policy = score_next_actions(self, agent_state, batch, action_key)
-        min_q_expert = jnp.min(q_expert, axis=0, keepdims=False)
-        min_q_policy = jnp.min(q_policy, axis=0, keepdims=False)
+        value_critics = batch["critic_subset"]
+        selection_critics = draw_selection_critics(
+            value_critics, q_expert.shape[0], selection_key
+        )
+        expert_selected = take_minimum(q_expert, selection_critics) > take_minimum(
+            q_policy, selection_critics
+        )
+        advantage = take_minimum(q_expert, value_critics) - take_minimum(
+            q_policy, value_critics
+        )
         gap = jax.lax.stop_gradient(
-            gamma * (1.0 - dones) * jnp.maximum(min_q_expert - min_q_policy, 0.0)
+            gamma * (1.0 - dones) * jnp.where(expert_selected, advantage, 0.0)
         )
         metrics = {
-            "ibrl/expert_wins": jnp.mean(min_q_expert > min_q_policy),
+            "ibrl/expert_wins": jnp.mean(expert_selected),
             "ibrl/bonus": jnp.mean(gap),
         }
         return target + gap, metrics
@@ -246,7 +297,11 @@ class LCBGatedBootstrap(Extension):
     Scores the policy and expert next-actions by an LCB rule and
     soft-blends the two TD targets with ``p_expert =
     σ((score_e - score_p)/lcb_temperature)``. ``β`` anneals over training;
-    evaluations log it (``lcb_bootstrap/beta``).
+    evaluations log it (``lcb_bootstrap/beta``). The policy's next action is
+    the one the agent's target scored, as IBRL's, and the two values blended
+    are minima over the critics the base target took its minimum over (all
+    of them, or REDQ's subset), so the blend moves the target from what it
+    valued; the LCB scores read the whole ensemble.
     """
 
     expert_policy: Callable
@@ -260,7 +315,13 @@ class LCBGatedBootstrap(Extension):
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "on_target": frozenset(
-            {"dones", "next_a_expert", "next_actions", "raw_next_observations"}
+            {
+                "critic_subset",
+                "dones",
+                "next_a_expert",
+                "next_actions",
+                "raw_next_observations",
+            }
         )
     }
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
@@ -293,8 +354,8 @@ class LCBGatedBootstrap(Extension):
         q_expert, q_policy = score_next_actions(self, agent_state, batch, action_key)
         beta = self.beta(agent_state.collector_state.timestep, context.total_steps)
         score_e, score_p = lcb_score(q_expert, beta), lcb_score(q_policy, beta)
-        q_min_e = jnp.min(q_expert, axis=0, keepdims=False)
-        q_min_p = jnp.min(q_policy, axis=0, keepdims=False)
+        q_min_e = take_minimum(q_expert, batch["critic_subset"])
+        q_min_p = take_minimum(q_policy, batch["critic_subset"])
         p_expert = jax.nn.sigmoid(
             (score_e - score_p) / jnp.maximum(self.lcb_temperature, 1e-6)
         )

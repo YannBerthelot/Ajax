@@ -145,12 +145,15 @@ def maybe_eval_and_log(
 
 
 def eval_norm_info(agent_state: Any, mode: str) -> Optional[Any]:
-    """The observation statistics the evaluation env normalises with: those
-    the training env's normaliser holds now, ``None`` without one.
+    """The statistics the training env's normaliser holds now, None without
+    one: its reward statistics alone, with which the evaluation reads its
+    rewards in the agent's units. The agent normalises observations itself,
+    in its collector or its networks, and the evaluation reads those
+    statistics there, through the controller or the actor.
 
-    The key is the one ``NormalizeVecObservation.update_state_*`` stores
-    (``ajax/wrappers.py``). Looking for another one evaluates on raw
-    observations an agent trained on normalised ones.
+    The key is the one NormalizeVecObservation.update_state_* stores
+    (ajax/wrappers.py). Looking for another one reads the evaluation's
+    rewards in the env's units.
     """
     env_state = agent_state.collector_state.env_state
     if mode == "brax":

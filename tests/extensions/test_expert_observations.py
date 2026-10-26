@@ -365,7 +365,7 @@ READERS = {  # each reader of phi*, by the function applying it
     "online light pretraining": "light_loss_fn",
     "CriticBlend": "on_target",
     "MCVarianceCorrection": "mc_correction_modify_target",
-    "EDGE": "pipeline",
+    "EDGE": "action",
     "ValueBox": "box_compute_state",
 }
 
@@ -377,7 +377,7 @@ def phi_star_readers() -> dict:
     and whether the critic state they stripped held statistics."""
     import sys
 
-    import ajax.agents.action_pipeline
+    import ajax.extensions.exploration
     from ajax.extensions.expert import OnlineBC
     from ajax.extensions.exploration import EDGEExploration
     from ajax.extensions.target_mods import CriticBlend, MCVarianceCorrection
@@ -395,7 +395,7 @@ def phi_star_readers() -> dict:
     stack += (MCVarianceCorrection(threshold=0.0), ExpertValueMetrics())
     stack += (EDGEExploration(gate="lcb"), ValueBox())
     modules: tuple = (ajax.extensions.expert, ajax.extensions.target_mods)
-    modules += (ajax.extensions.pretrain, ajax.agents.action_pipeline)
+    modules += (ajax.extensions.pretrain, ajax.extensions.exploration)
     with pytest.MonkeyPatch.context() as patch:
         for module in modules:
             patch.setattr(module, "phi_star_critic_state", recording)

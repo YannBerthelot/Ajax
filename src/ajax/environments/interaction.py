@@ -26,6 +26,7 @@ from ajax.controller import (
     restart_observers,
     warmup_expert_flags,
 )
+from ajax.environments.action_stage import apply_action_extensions
 from ajax.environments.obs_norm import (
     apply_obs_norm,
     init_agent_obs_norm,
@@ -803,21 +804,24 @@ def expert_collect_kwargs(
     n_envs: int,
     transform: Any = None,
     warmups: tuple = (),
+    extensions: Any = (),
+    total_timesteps: int = 1,
 ) -> dict:
-    """:func:`collect_experience`'s ``action_pipeline`` and ``next_expert_fn``
-    for an agent storing its expert's actions (``a_expert`` at s,
-    ``next_a_expert`` at s'), the expert called once per step from its state
-    tracked along each trajectory (:func:`expert_step`), before the action is
-    chosen: ``action_pipeline`` (None: the policy's) reads its action on the
-    acting state (``expert_action``), with the same draws, and the stored
-    action and the expert's next state are the call's where the pipeline
-    returns none of its own. The run's ``transform``: a residual one the
-    default pipeline applies before the choice (a pipeline of the agent's
-    applies it itself); an ``actuate`` one (gain mode) executes the chosen
-    action through the expert, which that steps, and the chosen one is
-    stored. The run's warm-up chooser (warmups) runs in the default
-    pipeline; a pipeline of the agent's runs it itself. Without an expert,
-    ``action_pipeline`` alone."""
+    """collect_experience's action_pipeline and next_expert_fn for an agent
+    storing its expert's actions (a_expert at s, next_a_expert at s'), the
+    expert called once per step from its state tracked along each
+    trajectory (expert_step), before the action is chosen: action_pipeline
+    (None: the policy's) reads its action on the acting state
+    (expert_action), with the same draws, and the stored action and the
+    expert's next state are the call's where the pipeline returns none of
+    its own. The run's action extensions act on the pipeline's result (the
+    action stage, apply_action_extensions, over total_timesteps). The run's
+    transform: a residual one the default pipeline applies before the choice
+    (a pipeline of the agent's applies it itself); an actuate one (gain
+    mode) executes the chosen action through the expert, which that steps,
+    and the chosen one is stored. The run's warm-up chooser (warmups) runs
+    in the default pipeline; a pipeline of the agent's runs it itself.
+    Without an expert, action_pipeline alone."""
     if expert_policy is None:
         return {"action_pipeline": action_pipeline}
     inner = action_pipeline or partial(
@@ -827,6 +831,7 @@ def expert_collect_kwargs(
         transform=transform,
         warmups=warmups,
     )
+    inner = apply_action_extensions(inner, extensions, n_envs, total_timesteps)
     actuate = None
     if transform is not None and "actuate" in transform.implemented_phases():
         actuate = transform

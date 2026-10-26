@@ -35,7 +35,6 @@ src/ajax/
 │   ├── loop.py          TrainLoop, the shared loop (brax's forced resets included)
 │   ├── update_steps.py  critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, run_if, run_actor_if, the target update
 │   ├── temperature.py   the entropy temperature every soft actor-critic shares (SoftActorCriticState, update_temperature)
-│   ├── action_pipeline.py  the collection-time action pipeline SAC runs (expert flags, warm-up choice, action-slot extensions)
 │   ├── minibatch.py     the on-policy rollout split (RolloutSplit), minibatches and epochs
 │   ├── critics.py       the Q-critics' regression (continuous and discrete actions)
 │   ├── diagnostics.py   KL, explained variance, policy std
@@ -46,6 +45,7 @@ src/ajax/
 ├── environments/
 │   ├── create.py        build an env from an id (gymnax, Brax, MuJoCo Playground), add Ajax's layers
 │   ├── interaction.py   collect_experience: act, step, store, count
+│   ├── action_stage.py  the action extensions' slots around any agent's pipeline (EDGE, JSRL, ValueBox)
 │   ├── utils.py         env helpers; the [-1, 1] action map; ExpertInAgentUnits
 │   ├── obs_norm.py      agent-side running observation normalisation
 │   ├── row_collector.py the world models' collector: one row per env per tick

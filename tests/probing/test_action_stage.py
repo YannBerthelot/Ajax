@@ -44,15 +44,19 @@ from .verdict import Case, Query, check, params
 CASES: dict[str, Case] = {}
 
 
-def steps_on_one_observation(steps: int, actions: int = 0) -> envs.Spec:
-    """One observation (1), steps per episode, each paying clip(a), or a
-    discrete action's index."""
+def steps_on_one_observation(
+    steps: int, actions: int = 0, floor: float | None = None
+) -> envs.Spec:
+    """One observation (1), steps per episode, each paying clip(a) (its
+    excess over floor, where given), or a discrete action's index."""
 
     def transition(st: envs.State, a: jax.Array, key: Any) -> tuple:
         if actions:
             paid = a.astype(jnp.float32)
         else:
             paid = jnp.clip(a.reshape(-1)[0], -1.0, 1.0)
+        if floor is not None:
+            paid = jnp.maximum(paid - floor, 0.0)
         return st.replace(s=st.s + 1), paid, st.s + 1 >= steps
 
     def obs(st: envs.State) -> jax.Array:
@@ -286,7 +290,54 @@ CASES["q7-ibrl-declines-TD3"] = dataclasses.replace(
     queries=IBRL_DECLINES,
     readings=ibrl_readings("TD3", -1.0, **TD3_HELD),
 )
-ANSWER_DIGEST = "a7d7338019fd"
+
+
+def soft_readings(agent: str, **kw: Any) -> Callable:
+    """The agent on one-step episodes paying the action's excess over 0.9,
+    IBRL choosing softly between its held actor's action (means within
+    +-0.35 on the calibration seeds), paid nothing, and the expert's 1, paid
+    0.1: per seed, the share of the replay's second half storing the
+    expert's action, and of the last evaluation's episodes it took."""
+    env, params = steps_on_one_observation(1, floor=0.9).make()
+
+    def build() -> Any:
+        ibrl = IBRL(expert_policy=Takes(1.0), soft_choice=True)
+        return agents.make(agent, env, params, extensions=(ibrl,), **kw)
+
+    def read(run: runs.Run) -> dict:
+        rows = R.replay_rows(run.state, ("action",))["action"][:, 0, :, 0]
+        last = rows[:, rows.shape[1] // 2 :]
+        return {
+            "rows storing a_E": np.mean(last == 1.0, 1),
+            "evaluation's expert share": run.logged("Eval/expert share"),
+        }
+
+    return runs.readings(build, read, log_every=250, num_episode_test=4000)
+
+
+#: The expert's value tops the policy's by 0.1: chosen on sigmoid(10 x 0.1).
+SOFT_SHARE = float(jax.nn.sigmoid(1.0))
+_SOFT_WRONG = {"the soft draw ignores beta": float(jax.nn.sigmoid(0.1))}
+_SOFT_WRONG.update({"the hard choice where the soft one is on": 1.0})
+IBRL_SOFT = (
+    Query("rows storing a_E", SOFT_SHARE, _SOFT_WRONG),
+    Query("evaluation's expert share", SOFT_SHARE, _SOFT_WRONG),
+)
+CASES["q7-ibrl-soft-TD3"] = Case(
+    "q7-ibrl-soft-TD3",
+    IBRL_SOFT,
+    soft_readings("TD3", **TD3_HELD),
+    2000,
+    (0.064, 0.044),
+    note="ladder 1000-4000 on 1000-1031, 2000-2031: 2000 the first rung; cert 32/32",
+)
+CASES["q7-ibrl-soft-SAC"] = dataclasses.replace(
+    CASES["q7-ibrl-soft-TD3"],
+    id="q7-ibrl-soft-SAC",
+    readings=soft_readings("SAC", **SAC_HELD),
+    tol=(0.084, 0.036),
+)
+ANSWER_DIGEST = "9d79ce09a4dc"
 
 
 @pytest.mark.parametrize("case", params(CASES))

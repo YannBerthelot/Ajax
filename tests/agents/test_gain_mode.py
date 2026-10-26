@@ -13,6 +13,7 @@ import pytest
 from ajax import APG, SAC, UDRL
 from ajax.extensions.capabilities import NotWired
 from ajax.extensions.expert import ExpertGains, ImitationLoss
+from ajax.extensions.exploration import EDGEExploration
 from ajax.extensions.pretrain import CloningPretrain, MCPretrain
 from tests.agents.test_agent_contract import CASES
 from tests.environments import paid_action
@@ -149,18 +150,27 @@ def zero_expert(obs: jax.Array) -> jax.Array:
 
 @pytest.mark.parametrize(
     "extension",
-    [ImitationLoss(zero_expert), CloningPretrain(zero_expert), MCPretrain(zero_expert)],
-    ids=["ImitationLoss", "CloningPretrain", "MCPretrain"],
+    [
+        ImitationLoss(zero_expert),
+        CloningPretrain(zero_expert),
+        MCPretrain(zero_expert),
+        EDGEExploration(),
+    ],
+    ids=["ImitationLoss", "CloningPretrain", "MCPretrain", "EDGEExploration"],
 )
 def test_gain_mode_refuses_an_extension_using_expert_actions_as_the_policys(extension):
     """An expert's actions are env actions, the policy's are gains: cloning
-    them into the actor or scoring them with a critic mixes the two."""
-    with pytest.raises(NotWired, match=type(extension).__name__):
+    them into the actor, scoring them with a critic or executing them in
+    the policy's place (EDGE) mixes the two."""
+    name = type(extension).__name__
+    with pytest.raises(NotWired, match=name) as refused:
         SAC(
             "Pendulum-v1",
             expert_policy=TwoGains(),
             extensions=(ExpertGains(), extension),
         )
+    reason = "uses the expert's env actions where the policy's gains go"
+    assert refused.value.unwired == {name: reason}
 
 
 def test_gain_mode_takes_imitation_of_the_replayed_gains():

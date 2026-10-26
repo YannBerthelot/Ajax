@@ -98,14 +98,14 @@ def test_edge_boltzmann_gate_returns_bool_mask_and_fresh_rng():
 def test_edge_fixed_gate_zero_prob_never_fires():
     rng = jax.random.PRNGKey(0)
     decay = jnp.ones((3, 1))
-    mask, _ = edge_fixed_gate(jnp.zeros((3, 1)), decay, rng, fixed_prob=0.0)
+    mask, _ = edge_fixed_gate(decay, rng, fixed_prob=0.0)
     assert not jnp.any(mask)
 
 
 def test_edge_fixed_gate_full_prob_always_fires():
     rng = jax.random.PRNGKey(0)
     decay = jnp.ones((3, 1))
-    mask, _ = edge_fixed_gate(jnp.zeros((3, 1)), decay, rng, fixed_prob=1.0)
+    mask, _ = edge_fixed_gate(decay, rng, fixed_prob=1.0)
     assert jnp.all(mask)
 
 

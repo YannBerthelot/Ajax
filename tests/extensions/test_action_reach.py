@@ -15,6 +15,7 @@ import pytest
 from ajax import IQL
 from ajax.extensions.capabilities import NotWired
 from ajax.extensions.expert import JSRLCurriculum, ResidualPolicy
+from ajax.extensions.exploration import EDGEExploration
 from tests.agents.test_agent_contract import CASES
 
 #: The expert acts on every step: a horizon far beyond any episode, which
@@ -88,3 +89,24 @@ def test_iql_under_a_residual_policy_refuses_an_action_extension() -> None:
     IQL("Pendulum-v1", expert_policy=_one, extensions=(ALWAYS,))
     with pytest.raises(NotWired, match="residual"):
         IQL("Pendulum-v1", expert_policy=_one, extensions=(ALWAYS, ResidualPolicy()))
+
+
+@pytest.mark.parametrize("gate", ["fixed", "argmax", "lcb", "thompson"])
+@pytest.mark.parametrize(
+    "name", ["SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG", "IQL", "DAgger"]
+)
+def test_edge_runs_its_gates_on_every_continuous_agent(name: str, gate: str) -> None:
+    """Each gate scores the agent's live critic (an ensemble's for the LCB
+    and Thompson gates) and hands the expert some steps of a short run."""
+    case = CASES[name]
+    caps = case.cls.capabilities
+    if gate != "fixed" and "q_critic" not in caps:
+        pytest.skip(f"{name} has no Q critic for the value gates")
+    num_critics = case.kwargs.get("num_critics", getattr(case.cls, "num_critics", 2))
+    if gate in ("lcb", "thompson") and (
+        "critic_ensemble" not in caps or num_critics < 2
+    ):
+        pytest.skip(f"{name} runs no critic ensemble for the {gate} gate")
+    edge = EDGEExploration(gate=gate, fixed_prob=1.0, decay_frac=0.0)
+    state, _ = _run(name, "Pendulum-v1", _one, extensions=(edge,))
+    assert np.isfinite(np.asarray(state.collector_state.last_expert_frac)).all()

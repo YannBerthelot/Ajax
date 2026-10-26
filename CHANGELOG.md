@@ -12,6 +12,11 @@ PyPI as `ajax-rl`.
   (the residual through the expert). They now compare it with the action
   the step would execute, as `IBRL`'s acting does. Runs with EDGE and a
   residual policy train differently; other EDGE runs do not change.
+- **Gain mode refuses `EDGEExploration`** when the agent is built, as it
+  refuses `JSRLCurriculum` and `ValueBox`: EDGE executes the expert's env
+  action where the policy's gains go. It ran unnoticed when the expert had
+  as many gains as the env has action dimensions, and failed when training
+  started otherwise.
 - **APG's schedule steps its matrices alone**, as its reference does: with
   `lr_schedule="warmup_cosine"` (`contextual_controller`'s default) the
   biases, LayerNorm scales and PID gains keep `learning_rate`. Scheduled

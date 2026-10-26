@@ -323,6 +323,10 @@ class EDGEExploration(Extension):
     )
     action_slot: ClassVar[str] = "pre_warmup"
 
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        # It executes the expert's action where the policy's goes.
+        return True
+
     def needs(self) -> frozenset[str]:
         """The value gates compare the critic's values of the two actions;
         the LCB and Thompson gates read its ensemble."""

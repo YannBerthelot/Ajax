@@ -652,6 +652,21 @@ def make_step_through_expert(
     return step
 
 
+def draw_systems(
+    key: jax.Array,
+    env_args: EnvironmentConfig,
+    system_class: Optional[SystemClass],
+    n_systems: int,
+) -> tuple[Any, jax.Array]:
+    """n_systems systems drawn from system_class (the env's own system
+    without one) on key, and the key their rollout takes: a policy and an
+    expert rolled out from the same key meet the same systems."""
+    system_key, rollout_key = jax.random.split(key)
+    if system_class is None:
+        system_class = FixedSystem(env_args.env_params)
+    return system_class.sample(system_key, n_systems), rollout_key
+
+
 def compute_rollout_returns(
     agent_state: APGState,
     params: Any,
@@ -675,10 +690,7 @@ def compute_rollout_returns(
     """
     if stateful is None:
         stateful = agent_state.actor_state.hidden_state is not None
-    system_key, rollout_key = jax.random.split(key)
-    if system_class is None:
-        system_class = FixedSystem(env_args.env_params)
-    env_params = system_class.sample(system_key, n_systems)
+    env_params, rollout_key = draw_systems(key, env_args, system_class, n_systems)
     carry = (
         zeros_carry_like(agent_state.actor_state.hidden_state, n_systems)
         if stateful

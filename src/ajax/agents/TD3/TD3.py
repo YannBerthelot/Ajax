@@ -42,7 +42,7 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.agents.recurrent import RecurrentCarries, actor_dist, q_values, sample_replay
-from ajax.controller import critic_action_units
+from ajax.controller import critic_action_units, leave_unchanged
 from ajax.environments.interaction import Explore, explore_pipeline
 from ajax.extensions.base import merge_metrics
 from ajax.networks.deterministic import get_initialized_td3_actor_critic
@@ -213,8 +213,7 @@ class TD3(
             self.target_noise_clip,
             self.reward_scale,
             carries,
-            context.executed,
-            batch.next_a_expert,
+            context.make_scored_actions(batch).map_next_actions,
         )
         compute_critic_loss_on_batch = partial(
             compute_critic_loss,
@@ -253,6 +252,7 @@ class TD3(
         """The deterministic policy-gradient step on -Q1(s, mu(s)), then
         both targets' Polyak update."""
         actor_key, agent_state = agent_state.get_keys_and_new_state()
+        scored = context.make_scored_actions(batch)
 
         def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
             loss, (aux, pi_mean) = compute_policy_loss(
@@ -261,8 +261,7 @@ class TD3(
                 agent_state.critic_state,
                 batch.obs,
                 carries,
-                context.executed,
-                batch.a_expert,
+                scored.map_actions,
             )
             return loss, aux, pi_mean
 
@@ -323,14 +322,13 @@ def compute_td3_td_target(
     target_noise_clip: float,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
-    executed: Optional[Callable] = None,
-    next_a_expert: Optional[jax.Array] = None,
+    map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     """y = scale r + gamma (1 - d) min_i Q_target_i(s', a') with a' =
     clip(mu_target(s') + clip(N(0, sigma), -c, c), -1, 1), the share of the
     noise samples the clip to [-c, c] changed, and those smoothed next
-    actions, executed (executed, a residual policy's, from the expert's
-    stored next actions)."""
+    actions, as the critics score them (map_next_actions: a residual
+    policy's executed ones, from the expert's stored next actions)."""
     rewards = rewards * reward_scale
     next_action = actor_dist(
         actor_state,
@@ -344,8 +342,7 @@ def compute_td3_td_target(
     clip_fraction = (jnp.abs(noise) > target_noise_clip).mean()
     noise = jnp.clip(noise, -target_noise_clip, target_noise_clip)
     next_action = jnp.clip(next_action + noise, -1.0, 1.0)
-    if executed is not None:
-        next_action = executed(next_action, next_a_expert)
+    next_action = map_next_actions(next_action)
     q_targets = q_values(
         critic_state,
         critic_state.target_params,
@@ -390,13 +387,13 @@ def compute_policy_loss(
     critic_state: LoadedTrainState,
     observations: jax.Array,
     carries: Optional[RecurrentCarries] = None,
-    executed: Optional[Callable] = None,
-    a_expert: Optional[jax.Array] = None,
+    map_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, tuple[PolicyAuxiliaries, jax.Array]]:
-    """TD3 actor loss -Q1(s, mu(s)), at the executed action with a
-    residual policy (executed); also returns mu(s) for extensions."""
+    """TD3 actor loss -Q1(s, mu(s)), at the action the critics score
+    (map_actions: a residual policy's executed one); also returns mu(s) for
+    extensions."""
     actions = actor_dist(actor_state, actor_params, observations, carries).mean()
-    scored = actions if executed is None else executed(actions, a_expert)
+    scored = map_actions(actions)
     q_first = q_values(
         critic_state, critic_state.params, observations, scored, carries
     )[0]  # TD3 uses Q1 only for the actor objective.

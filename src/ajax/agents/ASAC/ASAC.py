@@ -62,7 +62,7 @@ from ajax.agents.temperature import (
     get_alpha,
     update_temperature,
 )
-from ajax.controller import make_scored_action
+from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
 from ajax.networks.memory import zeros_carry_like
 from ajax.networks.networks import (
@@ -284,8 +284,7 @@ class ASAC(
             alpha,
             self.reward_scale,
             carries,
-            context.executed,
-            batch.next_a_expert,
+            context.make_scored_actions(batch).map_next_actions,
         )
 
         def critic_loss(
@@ -330,7 +329,7 @@ class ASAC(
         actor_key, agent_state = agent_state.get_keys_and_new_state()
         alpha = get_alpha(agent_state)
         critic_state = agent_state.critic_state
-        transform = make_scored_action(context.executed, batch.a_expert)
+        scored = context.make_scored_actions(batch)
 
         def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
             loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
@@ -342,7 +341,7 @@ class ASAC(
                 actor_key,
                 carries,
                 jnp.min,
-                transform,
+                scored.map_actions,
             )
             return loss, (loss, log_probs, q_values), policy.mean()
 
@@ -426,21 +425,21 @@ def compute_asac_td_target(
     alpha: jax.Array,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
-    executed: Optional[Callable] = None,
-    next_a_expert: Optional[jax.Array] = None,
+    map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, jax.Array]:
     """r - theta + (1 - done) (min_i Q_target_i(s', a') - alpha (log pi(a'|s')
     - log(1 / nA))) - Q_target(0, 0), r with a termination's penalty.
 
     As the authors' code (darer/ASAC.py:179-205): a termination drops the
     next value and is charged the penalty; the origin shift applies to every
-    row. a' is executed (executed, a residual policy's). Returns the target,
-    no gradient flowing back through it, and the next actions' log-probs.
+    row. a' is the one the critics score (map_next_actions: a residual
+    policy's executed one). Returns the target, no gradient flowing back
+    through it, and the next actions' log-probs.
     """
     rewards = rewards * reward_scale
     sample_key, _ = jax.random.split(rng)
     next_actions, log_probs = sample_next_actions(
-        actor_state, next_observations, sample_key, carries, executed, next_a_expert
+        actor_state, next_observations, sample_key, carries, map_next_actions
     )
     q_targets = q_values(
         critic_states,

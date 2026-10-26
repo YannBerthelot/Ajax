@@ -61,7 +61,6 @@ from ajax.agents.temperature import (
     get_alpha,
     update_temperature,
 )
-from ajax.controller import make_scored_action
 from ajax.extensions.base import merge_metrics
 from ajax.networks.networks import (
     action_value_input,
@@ -202,8 +201,7 @@ class CrossQ(
             agent_state.actor_state,
             batch.next_obs,
             next_key,
-            executed=context.executed,
-            next_a_expert=batch.next_a_expert,
+            map_next_actions=context.make_scored_actions(batch).map_next_actions,
         )
         critic_state = agent_state.critic_state
         rows = jnp.concatenate(
@@ -267,7 +265,7 @@ class CrossQ(
         actor_key, agent_state = agent_state.get_keys_and_new_state()
         alpha = get_alpha(agent_state)
         actor_state, critic_state = agent_state.actor_state, agent_state.critic_state
-        transform = make_scored_action(context.executed, batch.a_expert)
+        scored = context.make_scored_actions(batch)
 
         def policy_loss(params: Any) -> tuple[jax.Array, Any, jax.Array]:
             policy, batch_stats = get_policy_updating_batch_statistics(
@@ -279,7 +277,7 @@ class CrossQ(
                 batch.obs,
                 alpha,
                 actor_key,
-                action_transform=transform,
+                map_actions=scored.map_actions,
             )
             aux = PolicyAuxiliaries(
                 policy_loss=loss, log_pi=log_probs.mean(), q_min=q_values.mean()

@@ -61,7 +61,7 @@ from ajax.agents.temperature import (
     get_alpha,
     update_temperature,
 )
-from ajax.controller import make_scored_action
+from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
 from ajax.networks.utils import TORCH_LINEAR
 from ajax.state import LoadedTrainState, Transition
@@ -257,8 +257,7 @@ class TQC(
             self.top_quantiles_to_drop_per_net * self.num_critics,
             self.reward_scale,
             carries,
-            context.executed,
-            batch.next_a_expert,
+            context.make_scored_actions(batch).map_next_actions,
         )
 
         def critic_loss(
@@ -310,7 +309,7 @@ class TQC(
         actor_key, agent_state = agent_state.get_keys_and_new_state()
         alpha = get_alpha(agent_state)
         critic_state = agent_state.critic_state
-        transform = make_scored_action(context.executed, batch.a_expert)
+        scored = context.make_scored_actions(batch)
 
         def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
             loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
@@ -322,7 +321,7 @@ class TQC(
                 actor_key,
                 carries,
                 jnp.mean,
-                transform,
+                scored.map_actions,
             )
             return loss, (loss, log_probs, q_values), policy.mean()
 
@@ -385,15 +384,14 @@ def compute_tqc_td_target(
     n_drop: int,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
-    executed: Optional[Callable] = None,
-    next_a_expert: Optional[jax.Array] = None,
+    map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, jax.Array]:
     """r + gamma (1 - d)(z - alpha log pi(a'|s')) for every kept target
-    quantile z at a' ~ pi(.|s') (trainer.py:45-53), executed (executed, a
-    residual policy's). Returns the held target atoms and the next actions'
-    log-probs."""
+    quantile z at a' ~ pi(.|s') (trainer.py:45-53), a' as the critics score
+    it (map_next_actions: a residual policy's executed one). Returns the
+    held target atoms and the next actions' log-probs."""
     next_actions, log_probs = sample_next_actions(
-        actor_state, next_observations, rng, carries, executed, next_a_expert
+        actor_state, next_observations, rng, carries, map_next_actions
     )
     next_quantiles = q_values(
         critic_state,

@@ -55,7 +55,7 @@ from ajax.agents.temperature import (
     get_alpha,
     update_temperature,
 )
-from ajax.controller import make_scored_action
+from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
 from ajax.networks.distributions import latent
 from ajax.networks.networks import predict_value
@@ -281,6 +281,7 @@ class SAC(
         critic_key, agent_state = agent_state.get_keys_and_new_state()
         # A truncated row bootstraps on its final observation (bootstrap_obs).
         dones = batch.terminated
+        scored = context.make_scored_actions(batch)
         target_q = compute_td_target(
             actor_state=agent_state.actor_state,
             critic_state=agent_state.critic_state,
@@ -292,10 +293,7 @@ class SAC(
             rng=critic_key,
             recurrent=context.recurrent,
             reward_scale=self.reward_scale,
-            executed=context.executed,
-            next_a_expert=(
-                batch.next_a_expert if context.executed is not None else None
-            ),
+            map_next_actions=scored.map_next_actions,
             carries=carries,
         )
         # The target extensions (MCVarianceCorrection's variance) read the
@@ -365,7 +363,7 @@ class SAC(
         (CleanRL's SAC order; cited from memory, unverified)."""
         actor_key, sample_key, agent_state = agent_state.get_keys_and_new_state(2)
         alpha = get_alpha(agent_state)
-        transform = make_scored_action(context.executed, batch.a_expert)
+        scored = context.make_scored_actions(batch)
 
         def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
             loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
@@ -376,7 +374,7 @@ class SAC(
                 alpha,
                 actor_key,
                 carries,
-                action_transform=transform,
+                map_actions=scored.map_actions,
             )
             aux = PolicyAuxiliaries(
                 policy_loss=loss,
@@ -455,18 +453,16 @@ def sample_next_actions(
     next_observations: jax.Array,
     key: jax.Array,
     carries: Optional[RecurrentCarries] = None,
-    executed: Optional[Callable[[jax.Array, Any], jax.Array]] = None,
-    next_a_expert: Optional[jax.Array] = None,
+    map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, jax.Array]:
     """The bootstrap actions a' ~ pi(.|s') and their log-probabilities,
-    summed over the action dimensions; with a residual policy, the executed
-    ones the critics score, executed(a', next_a_expert)."""
+    summed over the action dimensions; the actions are those the critics
+    score, map_next_actions(a') (a residual policy's executed ones)."""
     next_policy = actor_dist(
         actor_state, actor_state.params, next_observations, carries, bootstrap=True
     )
     next_actions, log_probs = next_policy.sample_and_log_prob(seed=key)
-    if executed is not None:
-        next_actions = executed(next_actions, next_a_expert)
+    next_actions = map_next_actions(next_actions)
     return next_actions, log_probs.sum(-1, keepdims=True)
 
 
@@ -481,8 +477,7 @@ def compute_td_target(
     rng: jax.Array,
     recurrent: bool,
     reward_scale: float = 1.0,
-    executed: Optional[Callable[[jax.Array, Any], jax.Array]] = None,
-    next_a_expert: Optional[jax.Array] = None,
+    map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
     carries: Optional[RecurrentCarries] = None,
 ) -> jax.Array:
     """SAC's Bellman target r + gamma (1 - d)(min_i Q_target_i(s', a') -
@@ -490,17 +485,17 @@ def compute_td_target(
     it; the target extensions (IBRL, CriticBlend, MCVarianceCorrection) may
     change it before the critic loss reads it.
 
-    With a residual policy, executed maps the sampled next actions to the
-    executed ones, from the expert's stored next actions next_a_expert
-    (ajax.controller.executed_fn): the bootstrap is queried where the
-    critic was trained, clip(a_expert(s') + scale * pi(s'), -1, 1). Without
-    it the target Q is out of distribution and training diverges. The
-    carries (sequence replay) are set exactly when recurrent.
+    With a residual policy, map_next_actions maps the sampled next actions
+    to the executed ones, from the expert's stored next actions
+    (ajax.controller.make_scored_actions): the bootstrap is queried where
+    the critic was trained, clip(a_expert(s') + scale * pi(s'), -1, 1).
+    Without it the target Q is out of distribution and training diverges.
+    The carries (sequence replay) are set exactly when recurrent.
     """
     del recurrent
     sample_key, rng = jax.random.split(rng)
     next_actions, log_probs = sample_next_actions(
-        actor_state, next_observations, sample_key, carries, executed, next_a_expert
+        actor_state, next_observations, sample_key, carries, map_next_actions
     )
     q_targets = q_values(
         critic_state,
@@ -543,11 +538,11 @@ def compute_soft_policy_loss(
     rng: jax.Array,
     carries: Optional[RecurrentCarries] = None,
     q_reduce: Callable[..., jax.Array] = jnp.min,
-    action_transform: Optional[Callable[[jax.Array], jax.Array]] = None,
+    map_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, tuple[jax.Array, jax.Array, Any]]:
     """mean(alpha log pi(a|s) - Q(s, a)), a ~ pi(.|s), Q the critics'
-    values reduced by q_reduce over the ensemble axis, at action_transform(a)
-    when given (residual RL scores the executed action).
+    values reduced by q_reduce over the ensemble axis, at map_actions(a),
+    the actions the critics score (residual RL's executed ones).
 
     Returns the loss and (log_probs, q_values, policy). In sequence mode the fresh
     actions are queried at the critic's head, its memory reading the actions
@@ -562,7 +557,7 @@ def compute_soft_policy_loss(
         rng,
         carries,
         q_reduce,
-        action_transform,
+        map_actions,
     )
 
 
@@ -574,14 +569,13 @@ def compute_soft_policy_objective(
     rng: jax.Array,
     carries: Optional[RecurrentCarries] = None,
     q_reduce: Callable[..., jax.Array] = jnp.min,
-    action_transform: Optional[Callable[[jax.Array], jax.Array]] = None,
+    map_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, tuple[jax.Array, jax.Array, Any]]:
     """compute_soft_policy_loss on the policy at observations, however
     the agent computed it (CrossQ's actor in training)."""
     sample_key, rng = jax.random.split(rng)
     actions, log_probs = policy.sample_and_log_prob(seed=sample_key)
-    if action_transform is not None:
-        actions = action_transform(actions)
+    actions = map_actions(actions)
     reduced_q_values = q_reduce(
         q_values(critic_state, critic_state.params, observations, actions, carries),
         axis=0,

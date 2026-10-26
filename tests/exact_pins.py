@@ -462,6 +462,15 @@ APG_FEATURE_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         80,
     ),
 }
+# DQN's replay storing the policy's index (StorePolicyAction). Last in the
+# table, so the cases before keep their order.
+STORE_REACH_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "DQN-store-policy-action": (
+        DQN,
+        {**DQN_KW, "extensions": (StorePolicyAction(),)},
+        240,
+    ),
+}
 OFFLINE.update({"TD3-target-bc-offline"})
 #: The dataset an OFFLINE case trains on, where it is not test_offline's.
 DATASETS = {"TD3-target-bc-offline": long_episodes()}
@@ -678,6 +687,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     **EXPERT_REACH_CASES,
     **RESIDUAL_STAGE_CASES,
     **APG_FEATURE_CASES,
+    **STORE_REACH_CASES,
 }
 
 

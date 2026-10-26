@@ -453,6 +453,7 @@
   ],
   "supported_extension_phases": [
    "action",
+   "choose_replay_action",
    "choose_warmup_action",
    "critic_loss",
    "eval_action",

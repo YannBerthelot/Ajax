@@ -57,7 +57,9 @@ from ajax.agents.UDRL.buffer import (
 from ajax.agents.update_steps import apply_post_update
 from ajax.controller import ActingState, Controller, policy_action_dim
 from ajax.environments.interaction import (
-    act_through_expert,
+    ActionPipelineResult,
+    executed_action,
+    expert_collect_kwargs,
     get_pi,
     get_raw_obs,
     step,
@@ -187,12 +189,38 @@ class UDRL(
             buffer=buffer,
         )
 
+    def make_acting_pipeline(self, context: TrainContext) -> Any:
+        """UDRL's action pipeline (interaction.ActionPipelineResult's): a
+        sample of the actor on the observation with its command scaled,
+        executed through the run's residual transform where it has one."""
+        transform = next(iter(context.env_args.transforms), None)
+        scale_r, scale_h = self.command_scale_r, self.command_scale_h
+
+        def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
+            del rng, uniform, mix_key
+            # Scaled before the actor's forward pass (paper, appendix); the
+            # replay keeps the raw command.
+            obs_for_actor = scale_command(acting.obs, scale_r, scale_h)
+            actor = agent_state.actor_state
+            pi, _ = get_pi(
+                actor_state=actor, actor_params=actor.params, obs=obs_for_actor
+            )
+            action, log_probs = pi.sample_and_log_prob(seed=action_key)
+            return ActionPipelineResult(
+                env_action=executed_action(transform, action, acting, raw_obs),
+                policy_action=action,
+                log_probs=log_probs,
+            )
+
+        return pipeline
+
     def collect_step(
         self, agent_state: UDRLState, context: TrainContext
     ) -> tuple[UDRLState, Transition]:
         """One env step: the actor reads the observation and its command
         (the last two columns of last_obs) scaled, the env steps, and the
-        next observation carries the next command. With an expert the action
+        next observation carries the next command. With an expert, called
+        first as every collector calls it (expert_collect_kwargs), the action
         is executed through the run's transform (residual RL, gain mode) and
         the tracked expert; the segment keeps the policy's own action, which
         the actor fits."""
@@ -210,34 +238,31 @@ class UDRL(
             )
             collector = collector.replace(obs_norm_info=stats)
             agent_state = with_obs_norm(agent_state.replace(collector_state=collector))
-        # Scaled before the actor's forward pass (paper, appendix); the
-        # replay keeps the raw command.
-        last_obs_for_actor = scale_command(
-            last_obs, self.command_scale_r, self.command_scale_h
+        transform = next(iter(env_args.transforms), None)
+        pipeline = expert_collect_kwargs(
+            self.expert, self.make_acting_pipeline(context), False, n_envs, transform
+        )["action_pipeline"]
+        acting = ActingState(
+            obs=last_obs,
+            done=jnp.logical_or(collector.last_terminated, collector.last_truncated),
+            timestep=jnp.asarray(collector.timestep),
+            expert_state=collector.expert_state,
         )
-        pi, new_actor_state = get_pi(
-            actor_state=agent_state.actor_state,
-            actor_params=agent_state.actor_state.params,
-            obs=last_obs_for_actor,
-        )
-        action, log_probs = pi.sample_and_log_prob(seed=action_key)
-        env_action, expert_state = action, collector.expert_state
+        # The env's own observation, which only the expert reads.
+        raw = None
         if self.expert is not None:
-            acting = ActingState(
-                obs=last_obs,
-                done=jnp.logical_or(
-                    collector.last_terminated, collector.last_truncated
-                ),
-                timestep=jnp.asarray(collector.timestep),
-                expert_state=collector.expert_state,
-            )
             raw = get_raw_obs(
                 env_state=collector.env_state, env=env_args.env, mode=mode
             )
-            transform = next(iter(env_args.transforms), None)
-            env_action, _, expert_state = act_through_expert(
-                transform, self.expert, acting, raw, action, n_envs
-            )
+        result = pipeline(agent_state, acting, raw, None, False, None, action_key)
+        action, log_probs, env_action = (
+            result.policy_action,
+            result.log_probs,
+            result.env_action,
+        )
+        expert_state = collector.expert_state
+        if result.new_expert_state is not None:
+            expert_state = result.new_expert_state
         new_env_obs, new_env_state, reward, terminated, truncated, info = (
             jax.lax.stop_gradient(
                 step(
@@ -309,9 +334,7 @@ class UDRL(
         )
         if expert_state is not None:
             collector = collector.replace(expert_state=expert_state)
-        agent_state = agent_state.replace(
-            collector_state=collector, actor_state=new_actor_state, rng=training_key
-        )
+        agent_state = agent_state.replace(collector_state=collector, rng=training_key)
         return agent_state, transition
 
     def iterate(

@@ -84,7 +84,7 @@ where it may act. Every other phase keeps a default that changes nothing.
 | `critic_loss` | at each critic update | add a term to the critic loss, and log metrics | summed |
 | `actor_loss` | at each actor update | add a term to the actor loss, and log metrics | summed |
 | `action` | at each collection step | replace the action the agent would take | the last proposal wins |
-| `eval_action` | at evaluation | replace the evaluation action | no agent runs it yet |
+| `eval_action` | at each evaluation step, on the agents evaluating through the shared loop | replace the executed action | the last proposal wins |
 | `transform_action` | at each collection step, before the action is chosen, in the losses and at evaluation | make the executed action a function of the policy's and the expert's; the replay stores the executed one, which the critics score | one per agent |
 | `actuate` | at each collection step, after the action is chosen, and at evaluation | execute the chosen action through the expert (gain mode); the replay stores the chosen one | one per agent |
 | `choose_warmup_action` | at each warm-up step (before `learning_starts`) | choose the warm-up's actions instead of the uniform ones, and say whether the expert took them (the replay flags those rows) | one per agent; the agents with a uniform warm-up (SAC, TD3, REDQ, ASAC, CrossQ, IQL, AVG) |

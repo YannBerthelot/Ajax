@@ -58,6 +58,7 @@ Each evaluation records:
 | `Eval/mean bias` | the critic's error on those episodes ([below](#the-value-bias)) |
 | `Eval/mean average reward` | APO's long-run reward per step; NaN for the others |
 | `Eval/episodic mean expert reward`, `Eval/expert bias` | with an expert policy: the expert's return on the same episodes, and the agent's minus it; NaN without |
+| `Eval/expert share` | with an extension choosing the evaluation's action (`eval_action`): the share of the evaluated steps it executed the expert's action |
 | `Train/episodic mean reward` | mean return of the training episodes that ended recently |
 | `<group>/<metric>` | the agent's training metrics, such as `value/critic_loss` or `policy/policy_loss` |
 

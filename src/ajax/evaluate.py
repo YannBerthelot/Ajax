@@ -15,6 +15,7 @@ from ajax.controller import (
     init_observers,
     observe_features,
 )
+from ajax.environments.action_stage import choose_in_evaluation
 from ajax.environments.interaction import (
     get_pi,
     get_raw_obs,
@@ -262,6 +263,9 @@ class _EvalCarry(NamedTuple):
     actor_hidden: Any  # the actor's memory; a dummy when feedforward
     command: Any  # a command-conditioned actor's command; a dummy otherwise
     observer_states: Any = None  # the observation features'; None without
+    # (1,): the steps a chooser handed the expert, meaned over running envs;
+    # None without a chooser.
+    expert_steps: Any = None
 
 
 def _init_eval_carry(
@@ -273,6 +277,7 @@ def _init_eval_carry(
     actor_hidden=None,
     command=None,
     observer_states=None,
+    expert_steps=None,
 ) -> _EvalCarry:
     return _EvalCarry(
         rewards=jnp.zeros(num_episodes),
@@ -288,6 +293,7 @@ def _init_eval_carry(
         actor_hidden=jnp.zeros((1,)) if actor_hidden is None else actor_hidden,
         command=jnp.zeros((1,)) if command is None else command,
         observer_states=observer_states,
+        expert_steps=expert_steps,
     )
 
 
@@ -342,6 +348,10 @@ def step_environment(
     actor reads ``command.actor_input(obs, c)``, and each step's reward, in
     the agent's units (``norm_info``, :func:`normalised_reward`), and end
     update ``c``.
+
+    The controller's choosers (an extension's eval_action phase) may then
+    replace the executed action by the expert's (choose_in_evaluation), on
+    the carry's key: a run without one draws no key for them.
     """
 
     controller = Controller() if controller is None else controller
@@ -361,9 +371,8 @@ def step_environment(
         step_keys = env_keys(step_key, mode, obs.shape[0])
         # The expert acts on the environment's own observations, as in
         # collection: not normalised, without the training-fraction column.
-        expert_obs = (
-            _expert_obs(state, env, mode) if expert_policy is not None else None
-        )
+        reads_expert = expert_policy is not None or controller.choosers
+        expert_obs = _expert_obs(state, env, mode) if reads_expert else None
         acting = ActingState(
             obs=obs,
             done=done,
@@ -372,7 +381,7 @@ def step_environment(
             carry=carry.actor_hidden,
             obs_norm=obs_norm,
         )
-        obs_for_actor = controller.observe(acting)
+        observations = obs_for_actor = controller.observe(acting)
         if command is not None:
             obs_for_actor = command.actor_input(obs_for_actor, carry.command)
 
@@ -384,6 +393,25 @@ def step_environment(
         actions, new_expert_state = controller.act(
             raw_actions, acting, expert_policy, expert_obs
         )
+        expert_steps = carry.expert_steps
+        if controller.choosers:
+            expert_action = None
+            if expert_policy is not None:
+                expert_action, _ = call_expert(
+                    expert_policy, carry.expert_state, expert_obs
+                )
+            choice = {
+                "executed_action": actions,
+                "expert_action": expert_action,
+                "observations": observations,  # the critics' input
+                "raw_obs": expert_obs,
+                "gate_rng": rng,
+            }
+            choice, handed = choose_in_evaluation(
+                agent_state, acting, controller.choosers, choice
+            )
+            actions, rng = choice["executed_action"], choice["gate_rng"]
+            expert_steps = expert_steps + (handed * (1 - done)).mean()
         value = (
             carry.value
             if value_estimate is None
@@ -447,6 +475,7 @@ def step_environment(
             actor_hidden=new_actor_hidden,
             command=new_command,
             observer_states=observer_states,
+            expert_steps=expert_steps,
         )
 
     return fn
@@ -617,7 +646,9 @@ def evaluate(
     evaluated steps of the critic's estimate (:class:`ValueEstimate`) minus
     the discounted return realised from the step, in the critic's units:
     the rewards normalised as in training (:func:`normalised_reward`) and
-    scaled. A recurrent critic's memory is not run here: NaN then.
+    scaled. A recurrent critic's memory is not run here: NaN then. A
+    controller with choosers (step_environment) adds a seventh: the share of
+    the evaluated steps they handed the expert.
     """
     expert_policy = ExpertInAgentUnits.wrap(expert_policy, env, env_params)
     eval_expert_policy = ExpertInAgentUnits.wrap(eval_expert_policy, env, env_params)
@@ -666,6 +697,7 @@ def evaluate(
         actor_hidden,
         None if command is None else command.initial(agent_state, num_episodes),
         observer_states,
+        jnp.zeros(1) if controller.choosers else None,
     )
 
     step_fn = step_environment(
@@ -743,7 +775,7 @@ def evaluate(
 
     avg_entropy = final_carry.entropy_sum / jnp.maximum(step_count, 1.0)
 
-    return (
+    outputs = (
         rewards.mean(axis=-1),
         avg_entropy.mean(axis=-1),
         jnp.nanmean(avg_reward),
@@ -751,6 +783,10 @@ def evaluate(
         step_count.mean(),
         expert_reward,
     )
+    if not controller.choosers:
+        return outputs
+    handed = final_carry.expert_steps / jnp.maximum(step_count, 1.0)
+    return (*outputs, handed.mean())
 
 
 def evaluate_policy(

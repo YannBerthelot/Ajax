@@ -64,16 +64,17 @@ def dispatch_action_phase(
     slot: str,
     rng: jax.Array,
     total_steps: int,
+    phase: str = "action",
 ) -> tuple[dict, list]:
-    """Fold the (index, extension) pairs' action phase over step, which
-    they read and write: each proposal that is not None replaces step[slot],
-    in stack order, so the last one wins (JSRL after EDGE). Returns step and
-    the masks of where each handed the expert the step (expert_mask), in
-    the order they were written."""
+    """Fold the (index, extension) pairs' action phase (evaluation's:
+    eval_action) over step, which they read and write: each proposal that
+    is not None replaces step[slot], in stack order, so the last one wins
+    (JSRL after EDGE). Returns step and the masks of where each handed the
+    expert the step (expert_mask), in the order they were written."""
     context = ExtensionContext(step=acting.timestep, rng=rng, total_steps=total_steps)
     masks = []
     for index, extension in indexed_extensions:
-        proposed = extension.action(
+        proposed = getattr(extension, phase)(
             agent_state, agent_state.ext_state[index], step, rng, context
         )
         if proposed is not None:
@@ -91,6 +92,25 @@ def as_env_column(mask: jax.Array, n_envs: int) -> jax.Array:
     if mask.ndim == 0:
         return jnp.broadcast_to(mask, (n_envs, 1))
     return mask.reshape(n_envs, 1)
+
+
+def choose_in_evaluation(
+    agent_state: Any, acting: Any, choosers: tuple, step: dict
+) -> tuple[dict, jax.Array]:
+    """step after the choosers' eval_action phase (dispatch_action_phase):
+    its executed_action, which each may replace, and its gate_rng, on which
+    each draws, as in collection's stage; and per env, 1 where one of them
+    handed the expert the step. Evaluation holds no horizon (total_steps
+    0), as its acting state holds no timestep."""
+    n_envs = step["executed_action"].shape[0]
+    rng = step["gate_rng"]
+    step, masks = dispatch_action_phase(
+        agent_state, acting, choosers, step, "executed_action", rng, 0, "eval_action"
+    )
+    handed = jnp.zeros((n_envs, 1))
+    for mask in masks:
+        handed = jnp.maximum(handed, as_env_column(mask, n_envs))
+    return step, handed[:, 0]
 
 
 def apply_action_extensions(

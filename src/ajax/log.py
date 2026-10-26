@@ -210,7 +210,7 @@ def aux_metrics(aux: Any) -> Dict[str, Any]:
     return metrics
 
 
-def _make_no_op(extra_eval_metrics=None):
+def _make_no_op(extra_eval_metrics=None, choosers=False):
     def no_op(agent_state, aux, *_args):
         fake_metrics_to_log = {
             "timestep": -1,  # must be int
@@ -223,6 +223,8 @@ def _make_no_op(extra_eval_metrics=None):
             "Eval/mean bias": jnp.nan,
             "Train/episodic mean reward": jnp.nan,
         }
+        if choosers:
+            fake_metrics_to_log["Eval/expert share"] = jnp.nan
         aux_keys = aux_metrics(aux).keys()
         fake_metrics_to_log.update(dict.fromkeys(aux_keys, jnp.nan))
         if extra_eval_metrics is not None:
@@ -303,16 +305,11 @@ def evaluate_and_log(
     )
     flag = jnp.logical_and(flag, close_to_end_flag)
 
+    choosers = controller is not None and bool(controller.choosers)
+
     def run_and_log(agent_state: BaseAgentState, aux: Any, index: int):
         eval_key, extra_key = evaluation_keys(agent_state)
-        (
-            eval_rewards,
-            eval_entropy,
-            avg_avg_reward,
-            value_bias,
-            step_count,
-            expert_rewards,
-        ) = evaluate(
+        outputs = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,
             num_episodes=num_episode_test,
@@ -327,6 +324,14 @@ def evaluate_and_log(
             controller=controller,
             value_estimate=value_estimate,
         )
+        (
+            eval_rewards,
+            eval_entropy,
+            avg_avg_reward,
+            value_bias,
+            step_count,
+            expert_rewards,
+        ) = outputs[:6]
         metrics_to_log = {
             "timestep": timestep,
             "Eval/episodic mean reward": eval_rewards.mean(),
@@ -342,6 +347,9 @@ def evaluate_and_log(
             ),
         }
 
+        if choosers:
+            # The share of evaluated steps the choosers handed the expert.
+            metrics_to_log["Eval/expert share"] = outputs[6]
         metrics_to_log.update(aux_metrics(aux))
 
         if extra_eval_metrics is not None:
@@ -352,7 +360,7 @@ def evaluate_and_log(
 
         return metrics_to_log
 
-    no_op_branch = _make_no_op(extra_eval_metrics)
+    no_op_branch = _make_no_op(extra_eval_metrics, choosers)
     metrics_to_log = jax.lax.cond(
         flag, run_and_log, no_op_branch, agent_state, aux, index
     )

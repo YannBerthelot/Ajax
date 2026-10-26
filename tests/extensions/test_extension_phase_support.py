@@ -266,9 +266,10 @@ def test_an_agent_declares_the_batch_keys_it_passes():
 
 
 def test_agents_accept_only_the_phases_they_fold():
-    """The base accepts none; every agent the loop's, observe and action
-    (the action stage's slots) but where it collects on its own, no agent
-    eval_action, transform_action (a residual policy) the agents whose
+    """The base accepts none; every agent the loop's, observe, action (the
+    action stage's slots) and eval_action (the shared evaluation's
+    choosers) but where it collects and evaluates on its own,
+    transform_action (a residual policy) the agents whose
     critics score executed actions, and choose_warmup_action those whose
     collection has a uniform warm-up, choose_replay_action those whose
     replay the replay family writes."""
@@ -280,11 +281,11 @@ def test_agents_accept_only_the_phases_they_fold():
     for name in AGENTS:
         agent = getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)
         phases = agent.supported_extension_phases
-        assert LOOP_PHASES.difference({"observe", "action"}) <= phases, name
-        assert "eval_action" not in phases, name
+        own = {"observe", "action", "eval_action"}
+        assert LOOP_PHASES.difference(own) <= phases, name
         own_collector = name in ("APG", "UDRL", "DreamerV3", "TDMPC2")
-        assert ("observe" in phases) != own_collector, name
-        assert ("action" in phases) != own_collector, name
+        for phase in own:
+            assert (phase in phases) != own_collector, (name, phase)
         assert ("transform_action" in phases) == (name in RESIDUAL), name
         # The warm-up chooser reaches the agents with a uniform warm-up, but
         # TD-MPC2, whose own collector does not run it yet.

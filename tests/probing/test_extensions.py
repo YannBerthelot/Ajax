@@ -129,7 +129,7 @@ class EvalActionOverride(Extension):
     name: str = "p3_eval_action_override"
 
     def eval_action(self, agent_state, ext_state, obs, rng, context):
-        return jnp.zeros(obs.shape[:-1] + (1,))
+        return jnp.zeros_like(obs["executed_action"])
 
 
 def _steps(state: Any) -> Any:
@@ -337,9 +337,9 @@ def test_p3_e4_action_override_raises_at_construction(agent: str) -> None:
     _rejected(agent, ActionOverride())
 
 
-@pytest.mark.parametrize("agent", ("SAC", "PPO", "DQN", "PQN"))
+@pytest.mark.parametrize("agent", ("UDRL", "APG"))
 def test_p3_e5_eval_action_override_raises_at_construction(agent: str) -> None:
-    """No agent folds ``eval_action``: an override is rejected at construction."""
+    """Agents evaluating on their own fold no eval_action: it is rejected."""
     _rejected(agent, EvalActionOverride())
 
 

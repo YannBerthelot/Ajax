@@ -1094,9 +1094,12 @@ class OwnIterationAgent(DeclaredAgent):
     dataset: train_offline refuses it.
     """
 
-    # The loop's phases but observe and action, which no shared collector
-    # or evaluation meets; an agent adds the phases its iteration applies.
-    supported_extension_phases = LOOP_PHASES.difference({"observe", "action"})
+    # The loop's phases but observe, action and eval_action, which no shared
+    # collector or evaluation meets; an agent adds the phases its iteration
+    # applies.
+    supported_extension_phases = LOOP_PHASES.difference(
+        {"observe", "action", "eval_action"}
+    )
     #: Whether train returns every iteration's output (make_iteration_output),
     #: stacked, logging or not, instead of the evaluations.
     returns_iterations = False

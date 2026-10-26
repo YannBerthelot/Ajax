@@ -88,11 +88,12 @@ from ajax.utils import online_normalize
 #: The extension phases the loop applies for every agent: a fresh run's
 #: one-shot pretrain, post_update after each update, eval_metrics at each
 #: evaluation, observe wherever the shared collector and evaluation meet an
-#: observation and action in the shared collector's action stage (an agent
-#: rolling out on its own removes those two). An agent adds the phases its
-#: own update applies (ActorCritic.supported_extension_phases).
+#: observation, action in the shared collector's action stage and
+#: eval_action in the shared evaluation (an agent rolling out on its own
+#: removes those three). An agent adds the phases its own update applies
+#: (ActorCritic.supported_extension_phases).
 LOOP_PHASES = frozenset(
-    {"pretrain", "post_update", "eval_metrics", "observe", "action"}
+    {"pretrain", "post_update", "eval_metrics", "observe", "action", "eval_action"}
 )
 
 
@@ -503,7 +504,9 @@ class TrainLoop:
         in a sweep. An agent storing normalised observations evaluates with
         them normalised by its running statistics, unless its own controller
         says how it acts."""
-        controller = make_run_controller(self.env_args, kwargs.get("controller"))
+        controller = make_run_controller(
+            self.env_args, kwargs.get("controller"), self.extensions
+        )
         if controller != Controller():
             kwargs.update({"controller": controller})
         if self.sweep:

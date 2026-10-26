@@ -17,7 +17,6 @@ from ajax.controller import Controller
 from ajax.evaluate import evaluate
 from ajax.extensions import target_mods
 from ajax.extensions.base import ExtensionContext
-from ajax.extensions.capabilities import NotWired
 from ajax.extensions.expert import ResidualPolicy
 from ajax.extensions.target_mods import IBRL
 from ajax.logging.wandb_logging import LoggingConfig
@@ -171,11 +170,13 @@ def test_the_replay_flags_the_rows_the_experts_action_took(name: str) -> None:
     assert not took[..., :warm].any()
 
 
-def test_iql_under_a_residual_policy_refuses_hybrid_acting():
-    """IQL's replay keeps the residual its actor chose: an executed expert's
-    action leaves none to keep (as for JSRL and EDGE)."""
+def test_iql_under_a_residual_policy_acts_hybrid_only_with_its_own_expert():
+    """IQL's replay keeps the residual its actor chose, 0 where IBRL's
+    expert acted, which reaches the agent's expert's action alone: hybrid
+    acting with another expert is refused, target-only IBRL is not."""
     residual = ResidualPolicy()
-    target_only = IBRL(half, hybrid_acting=False)
+    IQL("Pendulum-v1", expert_policy=half, extensions=(IBRL(half), residual))
+    target_only = IBRL(torque_one, hybrid_acting=False)
     IQL("Pendulum-v1", expert_policy=half, extensions=(target_only, residual))
-    with pytest.raises(NotWired, match="residual"):
-        IQL("Pendulum-v1", expert_policy=half, extensions=(IBRL(half), residual))
+    with pytest.raises(ValueError, match="other than the agent's"):
+        IQL("Pendulum-v1", expert_policy=half, extensions=(IBRL(torque_one), residual))

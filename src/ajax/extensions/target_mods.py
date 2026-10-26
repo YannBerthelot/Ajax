@@ -37,7 +37,7 @@ import jax.numpy as jnp
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.expert import extension_expert_actions, reads_stored_expert_actions
-from ajax.extensions.exploration import lcb_beta, lcb_score
+from ajax.extensions.exploration import lcb_beta, lcb_score, score_action_pair
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.schedule import progress
 
@@ -220,6 +220,18 @@ class IBRL(Extension):
     value on another, so the bonus can be negative. Selection is hard, the
     authors' "ibrl", not their "ibrl_soft".
 
+    With hybrid_acting it also acts as their act_method "ibrl" (every IBRL
+    configuration of theirs): it executes the better of the agent's action
+    and the expert's (choose_action), in collection (the action stage, past
+    the warm-up) and in evaluation (eval_action). The agent's is the one it
+    would execute (TD3's noisy action, a sample; in evaluation its mean);
+    each is scored by the target critics' minimum, over a fresh random
+    subset where the target takes one (REDQ's), as the authors' forward_k
+    draws a random pair per call. The replay flags the steps the expert's
+    action took. The actor's loss ignores the choice, as theirs; their
+    epsilon-greedy choice (ibrl_eps_greedy, 1 in every configuration) is
+    left out.
+
     No original form exists for the rest, kept as Ajax's: SAC's, REDQ's and
     TQC's entropy term stays at a' when the expert is selected; TQC's bonus
     reads its quantiles' means, while its target pools truncated quantiles;
@@ -228,11 +240,14 @@ class IBRL(Extension):
     """
 
     expert_policy: Callable
+    hybrid_acting: bool = False
     reads_stored_expert: bool = False  # bound: the agent's expert
+    critic_subset_size: Optional[int] = None  # bound: REDQ's subset_size
     name: str = "ibrl"
     requires: ClassVar[frozenset[str]] = frozenset(
         {"actor", "discounted", "q_critic", "target_critic"}
     )
+    action_slot: ClassVar[str] = "pre_warmup"
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "on_target": frozenset(
             {
@@ -254,10 +269,88 @@ class IBRL(Extension):
     def uses_expert_actions_as_policy_actions(self) -> bool:
         return True
 
+    def implemented_phases(self) -> frozenset[str]:
+        """Its acting phases only where it acts hybrid."""
+        phases = super().implemented_phases()
+        if self.hybrid_acting:
+            return phases
+        return phases.difference({"action", "eval_action"})
+
     def bind_to_agent(self, **agent_context: Any) -> "IBRL":
-        """Read the expert's stored actions when it is the agent's."""
+        """Read the expert's stored actions when it is the agent's, and act
+        on the target's subset size (REDQ's; None: every critic)."""
         stored = reads_stored_expert_actions(self, agent_context)
-        return dataclasses.replace(self, reads_stored_expert=stored)
+        size = agent_context.get("subset_size")
+        return dataclasses.replace(
+            self, reads_stored_expert=stored, critic_subset_size=size
+        )
+
+    def action(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        obs: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
+    ) -> jax.Array:
+        """Collection's choice, from the action the step would execute."""
+        del ext_state, rng, context
+        return self.choose_action(agent_state, obs, obs["post_warmup_action"])
+
+    def eval_action(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        obs: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
+    ) -> jax.Array:
+        """Evaluation's choice, from the action the agent evaluates with."""
+        del ext_state, rng, context
+        return self.choose_action(agent_state, obs, obs["executed_action"])
+
+    def choose_action(
+        self, agent_state: Any, step: dict, action: jax.Array
+    ) -> jax.Array:
+        """The expert's action where its minimum over the target critics
+        tops action's, else action (hengyuan-hu/ibrl rl/q_agent.py
+        _act_ibrl); a tie keeps action, as their argmax does. Reads step
+        (the stage's dict, or evaluation's) and writes into it where the
+        expert's won (expert_mask) and the key a subset drew on (gate_rng)."""
+        expert_action = extension_expert_actions(
+            self, step["raw_obs"], step["expert_action"]
+        )
+        critic_state = agent_state.critic_state
+        q_expert, q_policy = score_action_pair(
+            step["observations"],
+            action,
+            expert_action,
+            critic_state,
+            critic_state.target_params,
+        )
+        critics = None
+        if self.critic_subset_size is not None:
+            gate_rng, key = jax.random.split(step["gate_rng"])
+            step["gate_rng"] = gate_rng
+            num_critics = q_expert.shape[0]
+            critics = draw_selection_critics(self.critic_subset_size, num_critics, key)
+        expert_won = take_minimum(q_expert, critics) > take_minimum(q_policy, critics)
+        step["expert_mask"] = expert_won
+        return jnp.where(expert_won, expert_action, action)
+
+    def eval_metrics(
+        self,
+        agent_state: Any,
+        ext_state: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
+    ) -> dict:
+        """Where it acts hybrid, the share of envs whose last collection
+        step executed an expert's action (ibrl/expert_frac)."""
+        del ext_state, rng, context
+        if not self.hybrid_acting:
+            return {}
+        return {"ibrl/expert_frac": agent_state.collector_state.last_expert_frac}
 
     def on_target(
         self,

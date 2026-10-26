@@ -138,6 +138,7 @@ over its updates):
 | --- | --- | --- |
 | `ibrl/bonus` | `IBRL` | the mean bonus the target gains |
 | `ibrl/expert_wins` | `IBRL` | the share of the batch where the expert's next action has the higher value |
+| `ibrl/expert_frac` | `IBRL(hybrid_acting=True)` | the share of envs whose last collection step took the expert's action |
 | `lcb_bootstrap/p_expert` | `LCBGatedBootstrap` | the mean weight of the expert's next action in the target |
 | `critic_blend/target_gap` | `CriticBlend` | the mean of the expert's target minus the Bellman target |
 | `mc_variance/replaced_frac` | `MCVarianceCorrection` | the share of targets replaced by `φ*`'s value |

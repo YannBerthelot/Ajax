@@ -203,6 +203,13 @@ def draw_selection_critics(
     return jax.random.choice(key, num_critics, shape=(size,), replace=False)
 
 
+def take_gate_key(step: dict) -> jax.Array:
+    """A fresh key off the step's gate stream (gate_rng), which it advances."""
+    gate_rng, key = jax.random.split(step["gate_rng"])
+    step["gate_rng"] = gate_rng
+    return key
+
+
 @dataclass(frozen=True)
 class IBRL(Extension):
     """IBRL bootstrap (Hu, Mirchandani and Sadigh, Imitation Bootstrapped
@@ -218,7 +225,7 @@ class IBRL(Extension):
     (REDQ's), a_E is selected on a fresh subset of the same size
     (draw_selection_critics), as the authors select on one random pair and
     value on another, so the bonus can be negative. Selection is hard, the
-    authors' "ibrl", not their "ibrl_soft".
+    authors' "ibrl", not their "ibrl_soft" (choose_expert).
 
     With hybrid_acting (the default) it also acts as their act_method
     "ibrl", as every IBRL configuration of theirs does: it executes the
@@ -315,9 +322,9 @@ class IBRL(Extension):
     ) -> jax.Array:
         """The expert's action where its minimum over the target critics
         tops action's, else action (hengyuan-hu/ibrl rl/q_agent.py
-        _act_ibrl); a tie keeps action, as their argmax does. Reads step
-        (the stage's dict, or evaluation's) and writes into it where the
-        expert's won (expert_mask) and the key a subset drew on (gate_rng)."""
+        _act_ibrl), as choose_expert chooses. Reads step (the stage's dict,
+        or evaluation's) and writes into it where the expert's won
+        (expert_mask) and the key a subset drew on (gate_rng)."""
         expert_action = extension_expert_actions(
             self, step["raw_obs"], step["expert_action"]
         )
@@ -331,13 +338,24 @@ class IBRL(Extension):
         )
         critics = None
         if self.critic_subset_size is not None:
-            gate_rng, key = jax.random.split(step["gate_rng"])
-            step["gate_rng"] = gate_rng
             num_critics = q_expert.shape[0]
+            key = take_gate_key(step)
             critics = draw_selection_critics(self.critic_subset_size, num_critics, key)
-        expert_won = take_minimum(q_expert, critics) > take_minimum(q_policy, critics)
+        expert_won = self.choose_expert(
+            take_minimum(q_expert, critics), take_minimum(q_policy, critics)
+        )
         step["expert_mask"] = expert_won
         return jnp.where(expert_won, expert_action, action)
+
+    def choose_expert(
+        self,
+        expert_values: jax.Array,
+        policy_values: jax.Array,
+    ) -> jax.Array:
+        """Where the expert's action is chosen over the policy's, from their
+        values: where the expert's is higher (a tie keeps the policy's, as
+        the authors' argmax does)."""
+        return expert_values > policy_values
 
     def eval_metrics(
         self,
@@ -372,7 +390,7 @@ class IBRL(Extension):
         )
         expert_on_selection = take_minimum(q_expert, selection_critics)
         policy_on_selection = take_minimum(q_policy, selection_critics)
-        expert_selected = expert_on_selection > policy_on_selection
+        expert_selected = self.choose_expert(expert_on_selection, policy_on_selection)
         expert_value = take_minimum(q_expert, value_critics)
         advantage = expert_value - take_minimum(q_policy, value_critics)
         gap = jax.lax.stop_gradient(

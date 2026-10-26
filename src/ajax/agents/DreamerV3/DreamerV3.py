@@ -138,10 +138,10 @@ class DreamerV3(ActorCritic):
             "reward_learning",
         }
     )
-    # Its own collector and encoder: no observation features or action
-    # stage yet.
+    # Its own collector, encoder and evaluation: no observation features,
+    # action stage or evaluation choosers yet.
     supported_extension_phases: frozenset = LOOP_PHASES.difference(
-        {"observe", "action"}
+        {"observe", "action", "eval_action"}
     )
     pretrain_context: frozenset = frozenset({"env_args", "update"})
     extension_context: frozenset = frozenset(

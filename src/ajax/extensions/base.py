@@ -383,7 +383,12 @@ class Extension:
         rng: jax.Array,
         context: ExtensionContext,
     ) -> jax.Array | None:
-        """Override the evaluation-time action; ``None`` defers."""
+        """Override the evaluation-time action; None defers. obs is the
+        shared evaluation's dict (ajax.evaluate.step_environment):
+        executed_action, expert_action (the agent's expert's, None without
+        one), observations (the critics' input), raw_obs and gate_rng, a key
+        to split and write back; expert_mask, written into it, marks where
+        the expert's action was taken."""
         del agent_state, ext_state, obs, rng, context
         return None
 

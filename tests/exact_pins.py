@@ -392,6 +392,9 @@ PLUMBING_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         160,
     ),
     "SAC-ibrl": (SAC, {**SAC40, **IBRL_PUSH}, 160),
+    # IBRL's expert the agent's: collection and evaluation read its tracked
+    # action, not IBRL's call.
+    "SAC-ibrl-agent-expert": (SAC, {**SAC_EXPERT, **IBRL_PUSH}, 160),
     "SAC-lcb": (
         SAC,
         {**SAC_EXPERT, "extensions": (LCBGatedBootstrap(expert_policy=push),)},

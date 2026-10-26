@@ -13,7 +13,11 @@ action in place of the executed one fits half the rows at its own action to
 the expert's reward: Q(1) = (-0.5 + gamma Q(1)) / 2 + 1/2, 0.36, so Q(a_pi)
 - a_pi = -0.64 at a_pi = 1. EDGE's fixed gate hands the expert half the steps
 of one-step episodes: half the rows hold a_E, and a critic scoring the
-policy's action there reads Q(a) = a / 2 - 1/4.
+policy's action there reads Q(a) = a / 2 - 1/4. IBRL's expert takes 1, the
+top of one-step episodes paying clip(a), above any action of the held
+actor: once the target critics have learned Q(a) = a, collection executes
+and flags the expert's action, and evaluation takes it too; an expert
+taking -1, the bottom, is never taken.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ from scipy.stats import norm
 
 from ajax.extensions.expert import JSRLCurriculum
 from ajax.extensions.exploration import EDGEExploration
+from ajax.extensions.target_mods import IBRL
 
 from . import agents, envs, runs
 from . import readouts as R
@@ -216,7 +221,72 @@ CASES["q7-edge-REDQ"] = Case(
     note="ladder 1000-4000: 1000 the first rung, the share binomial over 900"
     " rows; cert 32/32",
 )
-ANSWER_DIGEST = "3d8cc758ae30"
+
+
+@dataclasses.dataclass(frozen=True)
+class Takes:
+    action: float
+
+    def __call__(self, obs: jax.Array) -> jax.Array:
+        return jnp.full(obs.shape[:-1] + (1,), self.action, jnp.float32)
+
+
+def ibrl_readings(agent: str, a_e: float, **kw: Any) -> Callable:
+    """The agent on one-step episodes, IBRL's expert taking a_e, its actor
+    held: per seed, the share of the replay's second half storing the
+    expert's action and flagged as the expert's, and of the last
+    evaluation's steps the expert took."""
+    env, params = steps_on_one_observation(1).make()
+
+    def build() -> Any:
+        ibrl = IBRL(expert_policy=Takes(a_e))
+        return agents.make(agent, env, params, extensions=(ibrl,), **kw)
+
+    def read(run: runs.Run) -> dict:
+        rows = R.replay_rows(run.state, ("action", "is_expert"))
+        half = rows["action"].shape[2] // 2
+        return {
+            "rows storing a_E": np.mean(rows["action"][:, 0, half:, 0] == a_e, 1),
+            "rows flagged": np.mean(rows["is_expert"][:, 0, half:, 0], 1),
+            "evaluation's expert share": run.logged("Eval/expert share"),
+        }
+
+    return runs.readings(build, read, log_every=250)
+
+
+_KEPT = {"IBRL keeps the agent's action": 0.0}
+_UNFLAGGED = {"the expert's rows unflagged": 0.0}
+_PLAIN = {"evaluation acts the plain policy": 0.0}
+IBRL_ACTS = (
+    Query("rows storing a_E", 1.0, _KEPT),
+    Query("rows flagged", 1.0, _UNFLAGGED),
+    Query("evaluation's expert share", 1.0, {**_PLAIN, **_UNFLAGGED}),
+)
+_ALWAYS = {"IBRL takes the expert's action whatever its value": 1.0}
+IBRL_DECLINES = tuple(Query(q.name, 0.0, _ALWAYS) for q in IBRL_ACTS)
+SAC_HELD = {"fixed_alpha": True, "alpha_init": 1e-4, "policy_update_start": 2**30}
+TD3_HELD = {"actor_learning_rate": 0.0}
+_NOTE = "ladder 250-2000 on 1000-1031, 2000-2031: 500 the first rung; cert 32/32"
+CASES["q7-ibrl-acts-TD3"] = Case(
+    "q7-ibrl-acts-TD3",
+    IBRL_ACTS,
+    ibrl_readings("TD3", 1.0, **TD3_HELD),
+    500,
+    (0.02, 0.02, 0.02),
+    note=_NOTE,
+)
+CASES["q7-ibrl-acts-SAC"] = dataclasses.replace(
+    CASES["q7-ibrl-acts-TD3"],
+    id="q7-ibrl-acts-SAC",
+    readings=ibrl_readings("SAC", 1.0, **SAC_HELD),
+)
+CASES["q7-ibrl-declines-TD3"] = dataclasses.replace(
+    CASES["q7-ibrl-acts-TD3"],
+    id="q7-ibrl-declines-TD3",
+    queries=IBRL_DECLINES,
+    readings=ibrl_readings("TD3", -1.0, **TD3_HELD),
+)
+ANSWER_DIGEST = "a7d7338019fd"
 
 
 @pytest.mark.parametrize("case", params(CASES))

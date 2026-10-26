@@ -93,7 +93,7 @@ def test_the_selection_subset_is_a_fresh_one_of_the_targets_size() -> None:
     critics, as many as the target's subset, a new draw per key."""
     assert draw_selection_critics(None, 5, KEY) is None
     keys = jax.random.split(KEY, 50)
-    subsets = [draw_selection_critics(jnp.array([0, 1]), 5, k) for k in keys]
+    subsets = [draw_selection_critics(2, 5, k) for k in keys]
     draws = [np.asarray(subset).tolist() for subset in subsets]
     assert all(len(set(d)) == 2 and set(d).issubset(range(5)) for d in draws)
     assert len({tuple(sorted(d)) for d in draws}) > 1

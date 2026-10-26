@@ -821,9 +821,14 @@ def expert_collect_kwargs(
     mode) executes the chosen action through the expert, which that steps,
     and the chosen one is stored. The run's warm-up chooser (warmups) runs
     in the default pipeline; a pipeline of the agent's runs it itself.
-    Without an expert, action_pipeline alone."""
+    Without an expert, action_pipeline alone, in the action stage where an
+    extension acts there with an expert of its own (IBRL)."""
     if expert_policy is None:
-        return {"action_pipeline": action_pipeline}
+        inner = action_pipeline or partial(
+            policy_pipeline, recurrent=recurrent, n_envs=n_envs
+        )
+        staged = apply_action_extensions(inner, extensions, n_envs, total_timesteps)
+        return {"action_pipeline": action_pipeline if staged is inner else staged}
     inner = action_pipeline or partial(
         policy_pipeline,
         recurrent=recurrent,

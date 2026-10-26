@@ -58,6 +58,7 @@ Each evaluation records:
 | `Eval/mean bias` | the critic's error on those episodes ([below](#the-value-bias)) |
 | `Eval/mean average reward` | APO's long-run reward per step; NaN for the others |
 | `Eval/episodic mean expert reward`, `Eval/expert bias` | with an expert policy: the expert's return on the same episodes, and the agent's minus it; NaN without |
+| `Eval/expert share` | with an extension choosing the evaluation's action (`eval_action`): the share of the evaluated steps it executed the expert's action |
 | `Train/episodic mean reward` | mean return of the training episodes that ended recently |
 | `<group>/<metric>` | the agent's training metrics, such as `value/critic_loss` or `policy/policy_loss` |
 
@@ -137,6 +138,7 @@ over its updates):
 | --- | --- | --- |
 | `ibrl/bonus` | `IBRL` | the mean bonus the target gains |
 | `ibrl/expert_wins` | `IBRL` | the share of the batch where the expert's next action has the higher value |
+| `ibrl/expert_frac` | `IBRL` (with `hybrid_acting`, the default) | the share of envs whose last collection step took the expert's action |
 | `lcb_bootstrap/p_expert` | `LCBGatedBootstrap` | the mean weight of the expert's next action in the target |
 | `critic_blend/target_gap` | `CriticBlend` | the mean of the expert's target minus the Bellman target |
 | `mc_variance/replaced_frac` | `MCVarianceCorrection` | the share of targets replaced by `φ*`'s value |

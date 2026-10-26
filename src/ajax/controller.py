@@ -397,6 +397,9 @@ class Controller:
     observers: tuple = ()
     # The action transforms' extensions (EnvironmentConfig.transforms).
     transforms: tuple = ()
+    # The (index, extension) pairs of the run's stack choosing evaluation's
+    # executed action (their eval_action phase), the index their state's.
+    choosers: tuple = ()
 
     @property
     def actuates(self) -> bool:
@@ -423,8 +426,8 @@ class Controller:
         expert's state after the step: the transforms' (the expert called
         for them, its action 0 without one; gain mode's actuation steps the
         expert itself), else the actor's own. The expert is called every
-        step its state is read, as collection calls it: for a transform, or
-        for the features; otherwise its state is left as it is."""
+        step its state is read, as collection calls it: for a transform, the
+        features or a chooser; otherwise its state is left as it is."""
         if self.transforms:
             expert_actions: Any = 0.0
             expert_state = acting.expert_state
@@ -440,19 +443,27 @@ class Controller:
                     return transform.actuate(actions, inputs)
                 actions = transform.transform_action(actions, inputs)
             return actions, expert_state
-        if self.observers and expert is not None:
+        if (self.observers or self.choosers) and expert is not None:
             _, expert_state = call_expert(expert, acting.expert_state, expert_obs)
             return actions, expert_state
         return actions, acting.expert_state
 
 
 def make_run_controller(
-    env_args: Any, controller: Optional[Controller] = None
+    env_args: Any, controller: Optional[Controller] = None, extensions: Any = ()
 ) -> Controller:
     """How a run acts in evaluation: controller (None: the actor's action
-    on its observation) with the run's features, transforms and, where it
-    stores them so, observations normalised by its running statistics."""
+    on its observation) with the run's features, transforms, the choosers
+    among its extensions and, where it stores them so, observations
+    normalised by its running statistics."""
     controller = controller or Controller()
+    choosers = tuple(
+        (index, extension)
+        for index, extension in enumerate(extensions)
+        if "eval_action" in extension.implemented_phases()
+    )
+    if choosers:
+        controller = replace(controller, choosers=choosers)
     if env_args.store_normalized_obs:
         columns = raw_obs_columns(env_args.env)
         controller = replace(controller, normalize_obs=True, raw_columns=columns)

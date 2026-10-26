@@ -14,6 +14,7 @@ from flax import struct
 from ajax.agents.UDRL.UDRL import EvalCommand
 from ajax.controller import Controller
 from ajax.evaluate import ValueEstimate, evaluate
+from ajax.extensions.base import Extension
 from ajax.extensions.expert import ExpertGains
 from ajax.extensions.observe import ExpertActionInput, TrainingProgressInput
 from ajax.networks.networks import get_initialized_actor_critic
@@ -528,3 +529,40 @@ def test_a_commanded_actor_decays_its_command_by_normalised_rewards(c, length):
         command=EvalCommand(scale_r=0.1, scale_h=0.01),
     )[0]
     np.testing.assert_allclose(returns, 2 * (1 - 0.9**length), rtol=1e-5)
+
+
+@dataclasses.dataclass(frozen=True)
+class _HandsEnvZero(Extension):
+    """A chooser handing the expert evaluation's steps in env 0."""
+
+    name: str = "hands_env_zero"
+
+    def eval_action(self, agent_state, ext_state, obs, rng, context):
+        handed = jnp.arange(obs["executed_action"].shape[0]) == 0
+        obs["expert_mask"] = handed
+        return jnp.where(handed[:, None], obs["expert_action"], obs["executed_action"])
+
+
+@struct.dataclass
+class _OneStatelessExtension:
+    ext_state: Any = ((),)
+
+
+def test_a_chooser_replaces_the_executed_action_and_logs_its_share():
+    """The chooser hands env 0 the expert's action, 1 on Box(-2, 2) (0.5 in
+    agent units), which the identity task pays 1 a step; env 1 keeps the
+    actor's mean t / 10, paid 0.2 t. A seventh output, the share of the
+    evaluated steps it handed the expert: env 0's, half of them."""
+    env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=0.5))
+    out = evaluate(
+        env,
+        _LinearActor(),
+        2,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        expert_policy=_pays_one,
+        agent_state=_OneStatelessExtension(),
+        controller=Controller(choosers=((0, _HandsEnvZero()),)),
+    )
+    np.testing.assert_allclose(out[0], (3 * 1.0 + 0.6) / 2, rtol=1e-5)
+    np.testing.assert_allclose(out[6], 0.5)

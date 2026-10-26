@@ -30,14 +30,16 @@ from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.schedule import progress
 
 
-def _q_pair(
+def score_action_pair(
     obs: jax.Array,
     policy_action: jax.Array,
     expert_action: jax.Array,
     critic_state,
     critic_params,
 ) -> Tuple[jax.Array, jax.Array]:
-    """The critic ensemble's ``Q(s, a_expert)`` and ``Q(s, a_policy)``."""
+    """The critic ensemble's Q(s, a_expert) and Q(s, a_policy) at
+    critic_params (the live critic's, phi*, or the target's), obs the
+    critic's input."""
 
     def q(action: jax.Array) -> jax.Array:
         x = jnp.concatenate([obs, action], axis=-1)
@@ -75,7 +77,9 @@ def edge_compute_value_gap(
 
     Returns (gap, q_policy) — q_policy is reused by the Boltzmann gate.
     """
-    q_e, q_p = _q_pair(obs, policy_action, expert_action, critic_state, critic_params)
+    q_e, q_p = score_action_pair(
+        obs, policy_action, expert_action, critic_state, critic_params
+    )
     q_policy = jnp.min(q_p, axis=0)
     return jnp.min(q_e, axis=0) - q_policy, q_policy
 
@@ -160,7 +164,9 @@ def edge_lcb_scores(
     over-penalises the policy exactly where it explores beyond the
     expert's tube.
     """
-    q_e, q_p = _q_pair(obs, policy_action, expert_action, critic_state, critic_params)
+    q_e, q_p = score_action_pair(
+        obs, policy_action, expert_action, critic_state, critic_params
+    )
     if asymmetric:
         q_min_p, q_max_p = jnp.min(q_p, axis=0), jnp.max(q_p, axis=0)
         return lcb_score(q_e, beta), q_max_p + beta * (q_max_p - q_min_p)
@@ -217,7 +223,9 @@ def edge_compute_thompson_stats(
 ) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """Per-action Q mean / std across critic ensemble: (mu_e, sigma_e,
     mu_p, sigma_p)."""
-    q_e, q_p = _q_pair(obs, policy_action, expert_action, critic_state, critic_params)
+    q_e, q_p = score_action_pair(
+        obs, policy_action, expert_action, critic_state, critic_params
+    )
     mu_e = jnp.mean(q_e, axis=0)
     sigma_e = jnp.std(q_e, axis=0)
     mu_p = jnp.mean(q_p, axis=0)

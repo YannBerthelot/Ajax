@@ -10,6 +10,14 @@ smoothing is test_td3_sfujim's check. Every row matches within the float32-round
 (submaps), and two planted faults fail: IBRL drawing its own next action, and selecting on the pair it
 values on. Pre-registered before its first run: the per-row target, that tolerance, the authors'
 independent pairs kept (UPSTREAM_BUGS 1), their target actor's dropout and 3-step returns left out.
+
+Their acting, QAgent._act_ibrl, ran on a fixed batch of states in both forms and both modes (eval: the
+actor's mean; train: its sample, the noise kept). Ajax's IBRL.choose_action makes the same choice from
+the same candidates and target critics: in eval mode from the authors' mean, in train mode from TD3's
+exploration of that mean, its noise taped to theirs; on the state form its subset draw taped to their
+forward_k pair. Every row's executed action matches within the same tolerance, and two planted faults
+fail: scoring with the live critic, and choosing on every critic instead of the drawn pair.
+Pre-registered (ajax-scratch/ibrl/ACTING_PLAN.md) before its first run.
 """
 
 import functools
@@ -23,12 +31,14 @@ import pytest
 
 from ajax import REDQ, TD3
 from ajax.agents.REDQ.REDQ import compute_redq_td_target
-from ajax.agents.TD3.TD3 import compute_td3_td_target
+from ajax.agents.TD3.TD3 import compute_td3_td_target, make_gaussian_exploration
 from ajax.extensions.base import ExtensionContext
 from ajax.extensions.target_mods import IBRL
 from tests.conformance import kit, originals, submaps
 
 NET = ("16", "relu", "16", "relu")
+FORMS, MODES = ("pair", "state"), ("eval", "train")
+STDDEV = 0.1  # every IBRL config's acting floor, the recorder's
 AGENTS = {"pair": (TD3, {"num_critics": 2}), "state": (REDQ, {"num_critics": 5})}
 #: Ajax's critic layers by the authors' MultiFcQ module index.
 LAYERS = {"layers_0": "net.0", "layers_2": "net.2", "model": "net.4"}
@@ -156,7 +166,7 @@ def records() -> dict:
 def ours(records: dict) -> dict:
     return {
         (form, precision): run(form, records[form], precision)
-        for form in records
+        for form in FORMS
         for precision in ("f32", "f64")
     }
 
@@ -180,3 +190,100 @@ def test_a_planted_fault_fails_the_check(
 ) -> None:
     faulty = run(form, records[form], "f32", fault)
     assert compare(records[form], ours, form, faulty).failures
+
+
+def choose_actions(
+    form: str, record: dict, mode: str, precision: str, fault: Optional[str]
+) -> np.ndarray:
+    """IBRL's executed action per row, on the record's states and target critics: the expert's
+    recorded action against the agent's, the authors' mean (eval) or TD3's exploration of it (train)."""
+    dtype = np.float64 if precision == "f64" else np.float32
+    critics = init_fresh_state(form).critic_state
+    authors = take_authors_critics(critics.target_params, record, dtype)
+    if fault == "live critic":  # Ajax's own init, the live critic's
+        authors = jax.tree.map(lambda leaf: jnp.asarray(leaf, dtype), critics.params)
+    critics = critics.replace(target_params=authors)
+
+    def rows(name: str) -> jax.Array:
+        return jnp.asarray(record[f"{mode}.{precision}.{name}"], dtype)
+
+    states, mean = jnp.asarray(record["batch.state"], dtype), rows("mean")
+    action = mean
+    if mode == "train":
+        policy = SimpleNamespace(mean=lambda: mean)
+        explore = make_gaussian_exploration(STDDEV)
+        action = explore(policy, jax.random.PRNGKey(3), jnp.asarray(0))
+    size = 2 if form == "state" and fault != "every critic" else None
+    ibrl = IBRL(expert_policy=lambda obs: rows("bc_action"), critic_subset_size=size)
+    step = {"observations": states, "raw_obs": states, "expert_action": None}
+    step["gate_rng"] = jax.random.PRNGKey(4)
+    agent_state = SimpleNamespace(critic_state=critics)
+    return np.asarray(ibrl.choose_action(agent_state, step, action))
+
+
+def run_acting(
+    form: str, record: dict, mode: str, precision: str, fault: Optional[str] = None
+) -> np.ndarray:
+    """choose_actions in precision, TD3's noise taped to the authors' and, on the state form, IBRL's
+    subset draw to their forward_k pair."""
+    with kit.recording() as session:  # the draws' keys, the same in either precision
+        choose_actions(form, record, mode, "f32", fault)
+    draws = kit.by_role(session.log)
+    values = {}
+    for role in draws:
+        if role[1].endswith("explore"):
+            values[role] = [record[f"{mode}.draw.noise"]]
+        if role[1].endswith("draw_selection_critics"):
+            values[role] = [record[f"{mode}.draw.selection"]]
+    table = kit.key_table({role: draws[role] for role in values}, values)
+    with jax.enable_x64(precision == "f64"), kit.replaying(table) as replay:
+        out = choose_actions(form, record, mode, precision, fault)
+    assert not replay.misses
+    return out
+
+
+@pytest.fixture(scope="module")
+def ours_acting(records: dict) -> dict:
+    return {
+        (form, mode, precision): run_acting(
+            form, records[f"act_{form}"], mode, precision
+        )
+        for form in FORMS
+        for mode in MODES
+        for precision in ("f32", "f64")
+    }
+
+
+def compare_acting(
+    record: dict, ours: dict, form: str, mode: str, action: np.ndarray
+) -> submaps.Report:
+    theirs = (
+        {"action": record[f"{mode}.f32.action"]},
+        {"action": record[f"{mode}.f64.action"]},
+    )
+    mine = ({"action": ours[form, mode, "f32"]}, {"action": ours[form, mode, "f64"]})
+    nulls = submaps.rounding_null(theirs, mine)
+    return submaps.compare({"action": action}, theirs[0], nulls, context=form)
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("form", FORMS)
+def test_the_acting_matches_the_authors(
+    records: dict, ours_acting: dict, form: str, mode: str
+) -> None:
+    record = records[f"act_{form}"]
+    action = ours_acting[form, mode, "f32"]
+    report = compare_acting(record, ours_acting, form, mode, action)
+    assert not report.failures, str(report)
+
+
+@pytest.mark.parametrize(
+    "form, mode, fault",
+    [("pair", "train", "live critic"), ("state", "eval", "every critic")],
+)
+def test_a_planted_acting_fault_fails_the_check(
+    records: dict, ours_acting: dict, form: str, mode: str, fault: str
+) -> None:
+    record = records[f"act_{form}"]
+    faulty = run_acting(form, record, mode, "f32", fault)
+    assert compare_acting(record, ours_acting, form, mode, faulty).failures

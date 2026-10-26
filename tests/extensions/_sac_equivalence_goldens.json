@@ -30,10 +30,10 @@
     "alpha": 0.9819700121879578
   },
   "test_ibrl_matches_legacy_flag": {
-    "critic": 554.8989868164062,
-    "actor": 267.09564208984375,
-    "target": 535.032958984375,
-    "alpha": 0.9819732904434204
+    "critic": 553.6564331054688,
+    "actor": 267.1892395019531,
+    "target": 535.009033203125,
+    "alpha": 0.981937050819397
   },
   "test_edge_exploration_matches_legacy_flags[fixed]": {
     "critic": 554.7827758789062,

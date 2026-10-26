@@ -3,6 +3,8 @@ rollout appends them to each observation the controller reads, restarting
 their memory at each episode start, and the return's gradient runs through
 what they read, the expert's action included."""
 
+from dataclasses import dataclass
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -10,6 +12,7 @@ import numpy as np
 from ajax import APG
 from ajax.agents.APG.APG import compute_rollout_returns
 from ajax.agents.loop import with_horizon
+from ajax.extensions.base import Extension
 from ajax.extensions.observe import (
     ExpertActionInput,
     PIDTermsInput,
@@ -111,3 +114,33 @@ def test_the_return_differentiates_through_the_features():
         grads = jax.grad(lambda p, i=index: sums(p)[i])(state.actor_state.params)
         norm = float(jnp.sqrt(sum(jnp.sum(g**2) for g in jax.tree.leaves(grads))))
         assert np.isfinite(norm) and norm > 0, name
+
+
+@dataclass(frozen=True)
+class SeesObservations(Extension):
+    """Records the widths of the actor batch's observations, at trace time."""
+
+    name: str = "sees_observations"
+
+    def actor_loss(self, agent_state, ext_state, batch, context):
+        widths = (batch["observations"].shape[-1], batch["raw_observations"].shape[-1])
+        SEEN.append(widths)
+        return 0.0, {}
+
+
+SEEN: list = []
+
+
+def test_the_actor_batch_holds_what_the_controller_read():
+    """An actor-loss extension reads the observations with their features
+    (Pendulum's 3 and the progress) and the env's own as raw_observations."""
+    SEEN.clear()
+    agent = APG(
+        "Pendulum-v1",
+        n_envs=2,
+        horizon=4,
+        actor_architecture=("8", "tanh"),
+        extensions=(TrainingProgressInput(), SeesObservations()),
+    )
+    agent.train(seed=0, n_timesteps=8)
+    assert set(SEEN) == {(4, 3)}

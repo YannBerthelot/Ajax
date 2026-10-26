@@ -1,21 +1,20 @@
-"""Exploration research features as composable :class:`Extension`s.
+"""Exploration research features as composable Extensions.
 
 EDGE (Expert Decayed Guided Exploration) substitutes the expert action
 for the policy action during collection, gated by a value comparison
-that decays over training. :class:`EDGEExploration` selects one of six
-gates with ``gate``: ``"fixed"`` / ``"argmax"`` / ``"boltzmann"``
-(value-gap gates) or ``"lcb"`` / ``"argmax_lcb"`` / ``"thompson"``
-(quality-aware gates); the gate maths are the functions below.
+that decays over training. EDGEExploration selects one of six gates with
+gate: "fixed", "argmax" and "boltzmann" (value-gap gates) or "lcb",
+"argmax_lcb" and "thompson" (quality-aware gates); the gate maths are the
+functions below.
 
-The SAC action pipeline pre-computes the per-step quantities every gate
-needs (``policy_action``, ``expert_action``, ``observations``, ...) and
-passes them through the ``obs`` argument as a dict, as the ``batch`` dict
-of the ``on_target`` / ``actor_loss`` phases. The extension picks an
-action (or returns ``None`` to defer); the pipeline owns the bookkeeping
-(``is_expert_flag``, ``buffer_action``, expert-state threading). Gate
-randomness is threaded through ``obs["gate_rng"]`` (read and overwritten
-in place), the pipeline's own stream, not the framework's per-extension
-``rng`` split (``stack._keys``).
+The action stage (ajax.environments.action_stage) hands the gate the
+step's quantities (policy_action, expert_action, observations, ...) as a
+dict through the obs argument, as the batch dict of the on_target and
+actor_loss phases. The extension picks an action (or returns None to
+defer); the stage owns the bookkeeping (is_expert_flag, the stored
+action). Gate randomness is threaded through obs["gate_rng"] (read and
+overwritten in place), the collector's own stream, not the framework's
+per-extension key.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ import jax
 import jax.numpy as jnp
 
 from ajax.extensions.base import Extension, ExtensionContext
-from ajax.networks.networks import predict_value
+from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.schedule import progress
 
 
@@ -280,22 +279,23 @@ _VALID_GATES = frozenset(
 class EDGEExploration(Extension):
     """Expert Decayed Guided Exploration during collection.
 
-    ``gate`` selects the substitution rule (see module docstring). The
+    gate selects the substitution rule (see the module docstring). The
     other fields:
 
-    * ``decay_frac``      — value-gap gates decay to 0 over this fraction.
-    * ``tau``             — Boltzmann temperature on the value gap.
-    * ``fixed_prob``      — substitution probability for the fixed gate.
-    * ``lcb_beta_init`` / ``lcb_beta_decay_k`` — LCB pessimism schedule.
-    * ``lcb_temperature`` — softmax temperature of the LCB / Thompson gate.
-    * ``lcb_asymmetric``  — LCB on the expert arm, UCB on the policy arm.
-    * ``epsilon_floor``   — minimum policy-pick probability (Thompson).
+    * decay_frac: the value-gap gates decay to 0 over this fraction.
+    * tau: the Boltzmann temperature on the value gap.
+    * fixed_prob: the substitution probability of the fixed gate.
+    * lcb_beta_init, lcb_beta_decay_k: the LCB pessimism schedule.
+    * lcb_temperature: the softmax temperature of the LCB and Thompson gates.
+    * lcb_asymmetric: LCB on the expert arm, UCB on the policy arm.
+    * epsilon_floor: the minimum policy-pick probability (Thompson).
 
-    The expert is SAC's ``expert_policy``: the gate compares the action it
-    gave the pipeline with the policy's. Evaluations log the share of envs
-    the expert drove on the last collection step (``edge/live_expert_frac``)
-    and the gate's schedule: ``edge/beta`` for the LCB gates, ``edge/decay``
-    for the fixed, argmax and Boltzmann gates (the Thompson gate has none).
+    The expert is the agent's expert_policy: the gate compares the action
+    collection called it for with the policy's. Evaluations log the share
+    of envs the expert drove on the last collection step
+    (edge/live_expert_frac) and the gate's schedule: edge/beta for the LCB
+    gates, edge/decay for the fixed, argmax and Boltzmann gates (the
+    Thompson gate has none).
     """
 
     gate: str = "fixed"
@@ -338,25 +338,30 @@ class EDGEExploration(Extension):
     ) -> jax.Array | None:
         """Apply the configured EDGE gate to substitute the policy action.
 
-        ``obs`` is the SAC action pipeline's per-step dict (the module
-        docstring): ``policy_action``, ``expert_action``, ``observations``
-        (the critics' input, augmented with the expert-action dims under
-        ``augment_obs_with_expert_action``), ``critic_params`` and
-        ``critic_state`` (the frozen expert critic if MC pretraining ran,
-        else the live critic), ``post_warmup_action`` and ``gate_rng``.
+        obs is the action stage's dict (the module docstring):
+        policy_action, expert_action, observations (the critics' input, its
+        features included), post_warmup_action and gate_rng. The gate
+        scores with the frozen expert critic phi* where MCPretrain fitted
+        one, else with the agent's live critic.
 
-        Side effects: writes ``_edge_use_expert`` back into ``obs`` for
-        the pipeline's ``is_expert_flag`` bookkeeping, and updates
-        ``obs["gate_rng"]`` for any downstream gate.
+        Side effects: writes expert_mask back into obs, which flags the
+        steps the expert took (is_expert_flag), and updates obs["gate_rng"]
+        for any downstream gate.
         """
         del ext_state, rng  # the gates draw from obs["gate_rng"]
         policy_action = obs["policy_action"]
         expert_action = obs["expert_action"]
         observations = obs["observations"]
-        critic_params = obs["critic_params"]
-        critic_state = obs["critic_state"]
         post_warmup_action = obs["post_warmup_action"]
         gate_rng = obs["gate_rng"]
+        # phi* lives on SACState alone, where MCPretrain binds: getattr is a
+        # deliberate workaround until it reaches every agent's state. phi*
+        # is applied without the agent's statistics.
+        phi_star = getattr(agent_state, "expert_critic_params", None)
+        critic_state = agent_state.critic_state
+        critic_params = critic_state.params
+        if phi_star is not None:
+            critic_state, critic_params = phi_star_critic_state(critic_state), phi_star
 
         gate = self.gate
 
@@ -425,9 +430,9 @@ class EDGEExploration(Extension):
                     gap, decay, gate_rng, self.fixed_prob
                 )
 
-        # The pipeline reads both keys after every ``action`` call.
+        # The stage reads both keys after every action call.
         obs["gate_rng"] = gate_rng
-        obs["_edge_use_expert"] = use_expert_edge.astype(jnp.bool_)
+        obs["expert_mask"] = use_expert_edge.astype(jnp.bool_)
         return jnp.where(use_expert_edge, expert_action, post_warmup_action)
 
     def eval_metrics(

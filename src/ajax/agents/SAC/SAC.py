@@ -34,7 +34,6 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.action_pipeline import check_action_extensions, make_action_pipeline
 from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
@@ -146,30 +145,6 @@ class SAC(
         # recurrent SAC's reference (Ni et al., pomdp-baselines e7c19c3
         # policy_rnn.py:75, :93) keeps torch's, also 1e-8.
         return {"eps": 1e-8}
-
-    def setup(self) -> None:
-        # Gain mode (ExpertGains) acts through the default pipeline, which
-        # dispatches no action extension yet (it runs the warm-up's chooser).
-        check_action_extensions(
-            self.extension_stack,
-            dispatched=self.expert is not None and not self.gain_mode,
-        )
-
-    @property
-    def gain_mode(self) -> bool:
-        """Whether the policy chooses an expert's gains (ExpertGains)."""
-        return self.env_args.policy_action_dim is not None
-
-    def choose_behaviour(self, context: TrainContext) -> Optional[Callable]:
-        # The action phase's pipeline (EDGE, JSRL, ValueBox) with an expert;
-        # gain mode acts through the shared collector's.
-        return make_action_pipeline(
-            expert_policy=None if self.gain_mode else self.expert,
-            recurrent=context.recurrent,
-            env_args=context.env_args,
-            extension_stack=context.extensions,
-            total_timesteps=context.total_timesteps,
-        )
 
     def init(self, key: jax.Array, context: TrainContext) -> SACState:
         """A squashed Gaussian actor, num_critics Q critics with their
@@ -402,10 +377,8 @@ class SAC(
             "warmup",
         }
     )
-    # The action phase reaches only the action pipeline's slots, and
-    # transform_action the pipeline, with an expert policy
-    # (check_action_extensions); choose_warmup_action reaches SAC's pipeline,
-    # or the default one under gain mode.
+    # The action stage, which the shared collector runs with an expert
+    # (ajax.environments.action_stage).
     supported_extension_phases = RecurrentReplayAgent.supported_extension_phases.union(
         {"action"}
     )

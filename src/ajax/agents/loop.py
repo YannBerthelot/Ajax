@@ -408,11 +408,12 @@ class TrainLoop:
 
     # -- the steps of an iteration -----------------------------------------
     def collect_kwargs(self, recurrent: bool, **kwargs: Any) -> dict:
-        """:func:`collect_experience`'s arguments for this run. With the
-        agent's expert, its action pipeline also stores the expert's actions
-        from the expert's tracked state, and gain mode actuates the chosen
-        action through it, and the default pipeline runs the run's warm-up
-        chooser (:func:`expert_collect_kwargs`)."""
+        """collect_experience's arguments for this run. With the agent's
+        expert, its action pipeline also stores the expert's actions from the
+        expert's tracked state, the run's action extensions act on its
+        result, gain mode actuates the chosen action through the expert, and
+        the default pipeline runs the run's warm-up chooser
+        (expert_collect_kwargs)."""
         common = {"recurrent": recurrent, "mode": self.mode, "env_args": self.env_args}
         args = dict(common)
         args.update(kwargs)
@@ -426,7 +427,14 @@ class TrainLoop:
         warmups = self.env_args.warmups
         args.update(
             expert_collect_kwargs(
-                self.expert_policy, pipeline, recurrent, n_envs, transform, warmups
+                self.expert_policy,
+                pipeline,
+                recurrent,
+                n_envs,
+                transform,
+                warmups,
+                self.extensions,
+                self.total_timesteps,
             )
         )
         args.update(expert)

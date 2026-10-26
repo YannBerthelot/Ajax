@@ -136,6 +136,38 @@ def test_the_stage_substitutes_flags_and_stores_in_the_pipelines_layout():
     np.testing.assert_array_equal(warm.is_expert_flag, [[0.0], [0.0]])
 
 
+def _residual_pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, key):
+    """A pipeline storing its choice (0.7) apart from the executed action
+    (0.5), and the choice that executes the expert's action (0)."""
+    return ActionPipelineResult(
+        env_action=jnp.full((N_ENVS, 1), 0.5),
+        policy_action=jnp.full((N_ENVS, 1), 0.7),
+        rng=rng,
+        policy_action_for_expert=jnp.zeros((N_ENVS, 1)),
+    )
+
+
+def test_the_replay_keeps_the_choice_executing_the_expert_where_it_was_handed():
+    """Outside the warm-up the replay's choice column keeps 0, the choice
+    executing the expert's action, in env 0, which the stage handed the
+    expert, and the choice 0.7 in env 1; the choice itself, which
+    StorePolicyAction and the transition read, stays 0.7. In the warm-up
+    the choice stands. A pipeline giving no such choice stores none."""
+    staged = apply_action_extensions(_residual_pipeline, (HandOver(),), N_ENVS, 10)
+    acting = ActingState(
+        obs=jnp.zeros((N_ENVS, 3)),
+        done=jnp.zeros(N_ENVS, bool),
+        timestep=jnp.asarray(0),
+        expert_action=jnp.full((N_ENVS, 1), -0.2),
+    )
+    agent_state, key = SimpleNamespace(ext_state=((),)), jax.random.PRNGKey(0)
+    for uniform, kept in ((False, [[0.0], [0.7]]), (True, [[0.7], [0.7]])):
+        result = staged(agent_state, acting, None, key, jnp.asarray(uniform), key, key)
+        np.testing.assert_allclose(result.stored_policy_action, kept)
+        np.testing.assert_allclose(result.policy_action, 0.7)
+    assert _stage_result(uniform=False).stored_policy_action is None
+
+
 def test_a_mask_for_every_env_becomes_one_column():
     """EDGE's fixed gate draws one decision for every env."""
     np.testing.assert_array_equal(

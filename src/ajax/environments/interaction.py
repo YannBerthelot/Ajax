@@ -527,6 +527,15 @@ class ActionPipelineResult(NamedTuple):
     # 1 where the step entered the value box, which ends the agent's
     # episode whatever the sign of the entry bonus. None: no box.
     box_entry: Optional[jax.Array] = None
+    # The policy action at which the step executes the agent's expert's
+    # action (a residual's 0), from a pipeline storing its choice apart from
+    # the executed action: the replay keeps it where the action stage hands
+    # the expert the step. None: the pipeline stores no such choice.
+    policy_action_for_expert: Optional[jax.Array] = None
+    # The policy action the replay keeps (its policy_action column), where
+    # the action stage handed the expert the step; None: policy_action, the
+    # choice, which StorePolicyAction and the transition keep.
+    stored_policy_action: Optional[jax.Array] = None
 
 
 def policy_pipeline(
@@ -1154,7 +1163,11 @@ def collect_experience(
             a_expert=_a_expert_for_buf,
             next_a_expert=_next_a_expert_for_buf,
             raw_next_obs=raw_final_obs.astype(jnp.float32),
-            policy_action=action,
+            policy_action=(
+                action
+                if result.stored_policy_action is None
+                else result.stored_policy_action
+            ),
             actor_carry=_pre_actor_carry_flat if store_hidden else None,
         )
         buffer_state = buffer.add(buffer_state, row)

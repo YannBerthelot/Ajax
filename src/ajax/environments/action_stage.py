@@ -127,7 +127,9 @@ def apply_action_extensions(
     the expert took: the pipeline's flags, and outside the warm-up any
     slot's mask too. A pipeline storing an action of its own (a discrete
     index's column, DAgger's choice) stores the substituted one, in its
-    layout."""
+    layout; one storing its choice apart from it (IQL's residual) keeps,
+    where a slot handed the expert the step, the choice that executes the
+    expert's action (policy_action_for_expert)."""
     pre_warmup = slotted_extensions(extensions, "pre_warmup")
     post_warmup = slotted_extensions(extensions, "post_warmup")
     if not pre_warmup and not post_warmup:
@@ -199,6 +201,9 @@ def apply_action_extensions(
         stored = result.buffer_action
         if stored is not None:
             stored = env_action.reshape(stored.shape).astype(stored.dtype)
+        kept_choice = result.stored_policy_action
+        if result.policy_action_for_expert is not None:
+            kept_choice = keep_choice_for_expert(result, masks, uniform, n_envs)
         return result._replace(
             env_action=env_action,
             is_expert_flag=jax.lax.cond(uniform, lambda: flags, lambda: substituted),
@@ -207,6 +212,22 @@ def apply_action_extensions(
             entry_bonus=box.get("entry_bonus", result.entry_bonus),
             box_entry=box.get("box_entry", result.box_entry),
             buffer_action=stored,
+            stored_policy_action=kept_choice,
         )
 
     return staged
+
+
+def keep_choice_for_expert(
+    result: Any, masks: list, uniform: jax.Array, n_envs: int
+) -> jax.Array:
+    """The policy actions the replay keeps: outside the warm-up, where a
+    slot's mask handed the expert the step, the one that executes the
+    expert's action (result.policy_action_for_expert), since the step
+    executed it; the choice elsewhere and in the warm-up, whose expert steps
+    the pipeline's choice already holds."""
+    handed = jnp.zeros((n_envs, 1), jnp.float32)
+    for mask in masks:
+        handed = jnp.maximum(handed, as_env_column(mask, n_envs))
+    kept = jnp.where(handed > 0, result.policy_action_for_expert, result.policy_action)
+    return jax.lax.cond(uniform, lambda: result.policy_action, lambda: kept)

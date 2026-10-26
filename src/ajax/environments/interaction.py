@@ -18,9 +18,9 @@ from ajax.controller import (
     WarmupInputs,
     acting_state,
     choose_warmup_actions,
-    expert_action_for_warmup,
     feature_columns,
     feature_width,
+    find_expert_action_in_choice_space,
     init_observers,
     observe_features,
     restart_observers,
@@ -568,7 +568,7 @@ def policy_pipeline(
     action = action.astype(uniform_action.dtype)
     # Traced only with a warm-up chooser: a run without one is unchanged.
     if warmups:
-        expert_action = expert_action_for_warmup(
+        expert_action = find_expert_action_in_choice_space(
             transform, after_choice, acting.expert_action, action
         )
         uniform_action, expert_took = choose_warmup_actions(
@@ -662,7 +662,7 @@ def explore_pipeline(
             # unchanged. The residual acts before the choice, so the
             # expert's action enters as executed.
             if warmups:
-                expert_action = expert_action_for_warmup(
+                expert_action = find_expert_action_in_choice_space(
                     transform, False, acting.expert_action, action
                 )
                 # A discrete expert's (n_envs, 1) index column would broadcast

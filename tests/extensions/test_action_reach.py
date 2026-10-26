@@ -125,7 +125,8 @@ def test_iql_under_a_residual_refuses_an_extension_acting_with_another_expert():
 
 @pytest.mark.parametrize("gate", ["fixed", "argmax", "lcb", "thompson"])
 @pytest.mark.parametrize(
-    "name", ["SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG", "IQL", "DAgger"]
+    "name",
+    ["SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG", "IQL", "DAgger", "UDRL"],
 )
 def test_edge_runs_its_gates_on_every_continuous_agent(name: str, gate: str) -> None:
     """Each gate scores the agent's live critic (an ensemble's for the LCB

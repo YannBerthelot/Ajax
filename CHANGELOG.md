@@ -6,6 +6,18 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **UDRL runs the action stage.** `JSRLCurriculum` and EDGE's fixed gate
+  hand its expert steps, and its segment keeps the choice executing the
+  expert's action (the expert's own, or a residual of 0), which its actor
+  fits; `StorePolicyAction` keeps the policy's own instead. The gates draw
+  on a fourth split of the step's key, taken only with an action extension.
+  Runs without one are unchanged, bitwise.
+- **UDRL observes the observation features.** `ExpertActionInput`,
+  `ExpertStateInput`, `TrainingProgressInput` and `PIDTermsInput` join each
+  observation of its segments, before the command, in collection and
+  evaluation; UDRL's collector calls the expert through the shared wrapper
+  (the expert first, gain mode last). Runs without features are
+  unchanged, bitwise.
 - **DQN and PQN take an expert.** `expert_policy=` (an index per row) and
   `eval_expert_policy=`: collection tracks the expert, evaluations log its
   return, and `JSRLCurriculum` and the expert's observation features run on

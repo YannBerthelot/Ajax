@@ -43,11 +43,11 @@ RESIDUAL = {"SAC", "TD3", "REDQ", "TQC", "CrossQ", "ASAC", "AVG"}
 RESIDUAL.update({"PPO", "APO", "IQL", "APG", "UDRL"})
 #: The agents whose collection runs the warm-up's chooser (ExpertWarmup).
 WARMUP = {"SAC", "TD3", "REDQ", "ASAC", "AVG", "DQN"}
-#: The agents whose replay the replay family's collector writes, which runs
-#: the stored action's chooser (StorePolicyAction).
-REPLAY_FAMILY = {"ASAC", "REDQ", "SAC", "TD3", "TQC", "DQN"}
+#: The agents whose collector runs the stored action's chooser
+#: (StorePolicyAction): the replay family's, and UDRL's own.
+CHOOSES_STORED = {"ASAC", "REDQ", "SAC", "TD3", "TQC", "DQN", "UDRL"}
 #: The collection phases an agent collecting on its own folds itself.
-OWN_FOLDS = {("APG", "observe")}
+OWN_FOLDS = {("APG", "observe"), ("UDRL", "observe"), ("UDRL", "action")}
 
 
 @dataclass(frozen=True)
@@ -271,11 +271,12 @@ def test_agents_accept_only_the_phases_they_fold():
     """The base accepts none; every agent the loop's, observe, action (the
     action stage's slots) and eval_action (the shared evaluation's
     choosers) but where it collects and evaluates on its own (APG's
-    rollout observes the features itself),
+    rollout and UDRL's collector observe the features themselves, and
+    UDRL's runs the action stage),
     transform_action (a residual policy) the agents whose
     critics score executed actions, and choose_warmup_action those whose
     collection has a uniform warm-up, choose_replay_action those whose
-    replay the replay family writes."""
+    collector runs the stored action's chooser."""
     assert ActorCritic.supported_extension_phases == frozenset()
     assert EveryPhase().implemented_phases() == frozenset(PHASES)
     # PPO, on policy, lacks what replacing the executed action needs.
@@ -294,7 +295,7 @@ def test_agents_accept_only_the_phases_they_fold():
         # The warm-up chooser reaches the agents with a uniform warm-up, but
         # TD-MPC2, whose own collector does not run it yet.
         assert ("choose_warmup_action" in phases) == (name in WARMUP), name
-        assert ("choose_replay_action" in phases) == (name in REPLAY_FAMILY), name
+        assert ("choose_replay_action" in phases) == (name in CHOOSES_STORED), name
 
 
 @dataclass(frozen=True)

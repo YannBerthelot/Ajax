@@ -17,7 +17,10 @@ the sampled RL action and the BC action at s'). Their _act_ibrl then runs on a f
 agent in eval mode as their act asserts, eps_greedy 1 (every IBRL config), in each form and mode
 (MODES: eval_mode True, the actor's mean; False, its sample, the noise kept as above): act_<form>.npz
 holds in.*, batch.state, <mode>.draw.* and <mode>.f32.* / <mode>.f64.* (the executed action, the RL
-action, the actor's mean and the BC action).
+action, the actor's mean and the BC action). Each record is made again with act_method "ibrl_soft" (their
+soft choice, which the bootstrap follows), into soft_<form>.npz and act_soft_<form>.npz, one more seam
+kept: torch.Tensor.multinomial, replaced by ATen's own one-sample algorithm (argmax of p / q, q ~ Exp(1)
+per category) so its exponential draws are kept (draw.exponential) and replayed.
 """
 
 import copy
@@ -35,11 +38,17 @@ import torch
 COMMIT = "3c457da"
 SEED, BATCH, OBS, ACTION, WIDTH = 1, 64, 2, 1, 16
 ACT_SEED = 3  # the acting records'
+#: The soft records' (target and acting): at 1 and 3 the critics' gaps between the candidates are too
+#: small for a beta-1 draw to choose otherwise on any row.
+SOFT_SEED = 4
 GAMMA, STDDEV = 0.99, 0.1  # every IBRL config's acting stddev, the target actor's too
 #: num_q critics, of which forward_k draws num_k: the pixel critic's two heads, and the state critic's
 #: random pair (twice per update: selection, then value).
 FORMS = {"pair": (2, 2), "state": (5, 2)}
 MODES = {"eval": True, "train": False}
+BETA = 10  # their soft_ibrl_beta, QAgentConfig's default (no config sets it)
+#: act_method -> the records' file prefix: their hard choice and their soft one.
+METHODS = {"ibrl": "", "ibrl_soft": "soft_"}
 
 
 def print_nothing(module):
@@ -111,20 +120,17 @@ def update(agent, batch: dict, tensor) -> None:
 
 
 def act(agent, batch: dict, tensor, eval_mode: bool) -> dict:
-    """Their _act_ibrl on batch's states in eval mode (as their act asserts): the executed action and
-    the actor's mean."""
+    """Their _act_ibrl, or _act_ibrl_soft as their act_method says, on batch's states in eval mode (as
+    their act asserts): the executed action and the actor's mean."""
     from common_utils import ibrl_utils
 
     obs = {"state": tensor(batch["state"])}
+    settings = {"obs": obs, "eval_mode": eval_mode, "stddev": STDDEV, "clip": None}
     with torch.no_grad(), ibrl_utils.eval_mode(agent):
-        action = agent._act_ibrl(
-            obs=obs,
-            eval_mode=eval_mode,
-            stddev=STDDEV,
-            clip=None,
-            eps_greedy=1,
-            use_target=False,
-        )
+        if agent.cfg.act_method == "ibrl_soft":
+            action = agent._act_ibrl_soft(use_target=False, **settings)
+        else:
+            action = agent._act_ibrl(eps_greedy=1, use_target=False, **settings)
         mean = agent.actor(obs, STDDEV).mean
     return {"action": action.numpy().copy(), "mean": mean.numpy().copy()}
 
@@ -146,6 +152,17 @@ def run(agent, expert, batch: dict, draws: dict, dtype, call=update) -> dict:
     mse_loss = torch.nn.functional.mse_loss
     sample = ibrl_utils.TruncatedNormal.sample
     act = LinearExpert.act
+    multinomial = torch.Tensor.multinomial
+
+    def draw_choice(self, num_samples, replacement=False):
+        assert num_samples == 1 and not replacement
+        if replay:
+            exponential = torch.as_tensor(draws["exponential"], dtype=self.dtype)
+        else:
+            exponential = torch.empty_like(self).exponential_(1)
+            draws["exponential"] = exponential.numpy().copy()
+        kept["probability"] = self.numpy().copy()
+        return (self / exponential).argmax(dim=-1, keepdim=True)
 
     def draw_noise(shape, dtype, device):
         if replay:
@@ -180,6 +197,7 @@ def run(agent, expert, batch: dict, draws: dict, dtype, call=update) -> dict:
     torch.nn.functional.mse_loss = keep_target
     ibrl_utils.TruncatedNormal.sample = keep_rl_action
     LinearExpert.act = keep_bc_action
+    torch.Tensor.multinomial = draw_choice
     try:
 
         def tensor(x):
@@ -192,21 +210,37 @@ def run(agent, expert, batch: dict, draws: dict, dtype, call=update) -> dict:
         torch.nn.functional.mse_loss = mse_loss
         ibrl_utils.TruncatedNormal.sample = sample
         LinearExpert.act = act
+        torch.Tensor.multinomial = multinomial
     assert not pairs, "a replayed pair was not drawn"
     return kept
 
 
-def record(form: str, out: pathlib.Path) -> None:
+def assert_soft_faults_show(f32: dict, draws: dict) -> None:
+    """On the soft choice, both candidates are chosen, and the hard argmax and a beta-1 draw on the
+    same exponentials each choose otherwise on some row."""
+    probability, exponential = f32["probability"], draws["exponential"]
+    chosen = (
+        probability[:, 1] / exponential[:, 1] > probability[:, 0] / exponential[:, 0]
+    )
+    assert chosen.any() and not chosen.all(), "one candidate always chosen: reseed"
+    gap = np.log(probability[:, 1] / probability[:, 0]) / BETA  # Q_bc - Q_rl
+    assert np.any(chosen != (gap > 0)), "the soft choice is the hard one: reseed"
+    uniform = exponential[:, 1] / exponential.sum(1)
+    assert np.any(chosen != (uniform < 1 / (1 + np.exp(-gap)))), "beta 1 agrees: reseed"
+
+
+def record(form: str, out: pathlib.Path, method: str = "ibrl") -> None:
     from rl.actor import FcActorConfig
     from rl.critic import MultiFcQConfig
     from rl.q_agent import QAgent, QAgentConfig
 
     num_q, num_k = FORMS[form]
-    torch.manual_seed(SEED)
-    np.random.seed(SEED)
+    seed = SEED if method == "ibrl" else SOFT_SEED
+    torch.manual_seed(seed)
+    np.random.seed(seed)
     cfg = QAgentConfig(
         device="cpu",
-        act_method="ibrl",
+        act_method=method,
         state_critic=MultiFcQConfig(
             num_q=num_q, num_k=num_k, num_layer=2, hidden_dim=WIDTH
         ),
@@ -219,7 +253,7 @@ def record(form: str, out: pathlib.Path) -> None:
             if name.endswith("biases"):
                 parameter.uniform_(-0.5, 0.5)
     expert = LinearExpert()
-    rng = np.random.default_rng(SEED)
+    rng = np.random.default_rng(seed)
     batch = {
         "state": rng.normal(size=(BATCH, OBS)),
         "action": rng.uniform(-1.0, 1.0, (BATCH, ACTION)),
@@ -238,7 +272,10 @@ def record(form: str, out: pathlib.Path) -> None:
     arrays.update({"batch.gamma": np.asarray(GAMMA), "draw.noise": draws["noise"]})
     for name, pair in zip(("selection", "value"), draws.get("pairs", []), strict=False):
         arrays[f"draw.{name}"] = pair
-    if form == "state":
+    if method == "ibrl_soft":
+        assert_soft_faults_show(f32, draws)
+        arrays["draw.exponential"] = draws["exponential"]
+    elif form == "state":
         selection, value = arrays["draw.selection"], arrays["draw.value"]
         assert set(selection) != set(value), "one pair: reseed"
         with torch.no_grad():
@@ -254,21 +291,23 @@ def record(form: str, out: pathlib.Path) -> None:
         )
     arrays.update({f"f32.{k}": v for k, v in f32.items()})
     arrays.update({f"f64.{k}": v for k, v in f64.items()})
-    np.savez(out / f"{form}.npz", **arrays)
+    np.savez(out / f"{METHODS[method]}{form}.npz", **arrays)
 
 
-def record_acting(form: str, out: pathlib.Path) -> None:
-    """Their _act_ibrl in both modes on one form's agent, the target critics' biases drawn."""
+def record_acting(form: str, out: pathlib.Path, method: str = "ibrl") -> None:
+    """Their _act_ibrl (or _act_ibrl_soft) in both modes on one form's agent, the target critics'
+    biases drawn."""
     from rl.actor import FcActorConfig
     from rl.critic import MultiFcQConfig
     from rl.q_agent import QAgent, QAgentConfig
 
     num_q, num_k = FORMS[form]
-    torch.manual_seed(ACT_SEED)
-    np.random.seed(ACT_SEED)
+    seed = ACT_SEED if method == "ibrl" else SOFT_SEED
+    torch.manual_seed(seed)
+    np.random.seed(seed)
     cfg = QAgentConfig(
         device="cpu",
-        act_method="ibrl",
+        act_method=method,
         state_critic=MultiFcQConfig(
             num_q=num_q, num_k=num_k, num_layer=2, hidden_dim=WIDTH
         ),
@@ -280,7 +319,7 @@ def record_acting(form: str, out: pathlib.Path) -> None:
             if name.endswith("biases"):
                 parameter.uniform_(-0.5, 0.5)
     expert = LinearExpert()
-    batch = {"state": np.random.default_rng(ACT_SEED).normal(size=(BATCH, OBS))}
+    batch = {"state": np.random.default_rng(seed).normal(size=(BATCH, OBS))}
     arrays = {
         f"in.{k}": v.detach().numpy() for k, v in agent.critic_target.named_parameters()
     }
@@ -296,7 +335,10 @@ def record_acting(form: str, out: pathlib.Path) -> None:
         assert expert_won.any() and not expert_won.all(), (
             "one candidate always wins: reseed"
         )
-        if form == "state":
+        if method == "ibrl_soft":
+            assert_soft_faults_show(f32, draws)
+            arrays[f"{mode}.draw.exponential"] = draws["exponential"]
+        elif form == "state":
             with torch.no_grad():
                 s = torch.as_tensor(batch["state"], dtype=torch.float32)
                 q_rl = agent.critic_target(s, torch.as_tensor(rl))
@@ -311,16 +353,17 @@ def record_acting(form: str, out: pathlib.Path) -> None:
             arrays[f"{mode}.draw.selection"] = pair
         arrays.update({f"{mode}.f32.{k}": v for k, v in f32.items()})
         arrays.update({f"{mode}.f64.{k}": v for k, v in f64.items()})
-    np.savez(out / f"act_{form}.npz", **arrays)
+    np.savez(out / f"act_{METHODS[method]}{form}.npz", **arrays)
 
 
 def main(clone: str, out_dir: str) -> None:
     out = pathlib.Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     install_stand_ins(pathlib.Path(clone))
-    for form in FORMS:
-        record(form, out)
-        record_acting(form, out)
+    for method in METHODS:
+        for form in FORMS:
+            record(form, out, method)
+            record_acting(form, out, method)
     versions = {"torch": torch.__version__, "numpy": np.__version__}
     versions.update(python=platform.python_version(), hengyuan_hu_ibrl=COMMIT)
     (out / "versions.json").write_text(json.dumps(versions))

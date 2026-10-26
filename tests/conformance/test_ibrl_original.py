@@ -18,6 +18,12 @@ exploration of that mean, its noise taped to theirs; on the state form its subse
 forward_k pair. Every row's executed action matches within the same tolerance, and two planted faults
 fail: scoring with the live critic, and choosing on every critic instead of the drawn pair.
 Pre-registered (ajax-scratch/ibrl/ACTING_PLAN.md) before its first run.
+
+Both checks run again on their soft choice ("ibrl_soft", act_method and bootstrap alike), against
+records made with it: IBRL(soft_choice=True), its choice's uniform draw taped to the event of their
+multinomial's exponential race, u = q_1 / (q_0 + q_1) (they take BC iff p_1 / q_1 > p_0 / q_0, i.e. iff
+u < p_1). Same tolerance; four planted faults fail: beta ignored (1) and the hard choice, in the target
+and in acting. Pre-registered (ajax-scratch/ibrl/SOFT_PLAN.md) before its first run.
 """
 
 import functools
@@ -37,7 +43,7 @@ from ajax.extensions.target_mods import IBRL
 from tests.conformance import kit, originals, submaps
 
 NET = ("16", "relu", "16", "relu")
-FORMS, MODES = ("pair", "state"), ("eval", "train")
+FORMS, MODES, CHOICES = ("pair", "state"), ("eval", "train"), ("hard", "soft")
 STDDEV = 0.1  # every IBRL config's acting floor, the recorder's
 AGENTS = {"pair": (TD3, {"num_critics": 2}), "state": (REDQ, {"num_critics": 5})}
 #: Ajax's critic layers by the authors' MultiFcQ module index.
@@ -71,8 +77,21 @@ def take_authors_critics(params: Any, record: dict, dtype: Any) -> Any:
     return jax.tree_util.tree_map_with_path(put, params)
 
 
+def make_ibrl(expert: Any, choice: str, fault: Optional[str], **bound: Any) -> IBRL:
+    """IBRL with the record's choice, or a planted fault's."""
+    soft = choice == "soft" and fault != "hard choice"
+    beta = 1.0 if fault == "beta ignored" else 10.0
+    return IBRL(expert_policy=expert, soft_choice=soft, soft_choice_beta=beta, **bound)
+
+
+def take_choice_uniforms(exponential: np.ndarray) -> np.ndarray:
+    """Per row, the uniform whose draw below p_1 is their race's choice of BC."""
+    exponential = exponential.astype(np.float64)
+    return (exponential[:, 1] / exponential.sum(1))[:, None]
+
+
 def compute_target(
-    form: str, record: dict, precision: str, fault: Optional[str]
+    form: str, record: dict, precision: str, fault: Optional[str], choice: str
 ) -> np.ndarray:
     """Ajax's base target with IBRL's bonus, per row, on the record's inputs."""
     dtype = np.float64 if precision == "f64" else np.float32
@@ -124,7 +143,7 @@ def compute_target(
         "dones": dones,
         "gamma": gamma,
     }
-    ibrl = IBRL(expert_policy=lambda observations: expert_actions)
+    ibrl = make_ibrl(lambda observations: expert_actions, choice, fault)
     context = ExtensionContext(
         step=jnp.asarray(0), rng=jax.random.PRNGKey(2), total_steps=1
     )
@@ -133,25 +152,36 @@ def compute_target(
     return np.asarray(target[:, 0])
 
 
+def named(choice: str, form: str) -> str:
+    """A target record's name (an acting record's follows act_)."""
+    return f"soft_{form}" if choice == "soft" else form
+
+
 def run(
-    form: str, record: dict, precision: str, fault: Optional[str] = None
+    form: str,
+    record: dict,
+    precision: str,
+    fault: Optional[str] = None,
+    choice: str = "hard",
 ) -> np.ndarray:
     """compute_target in precision; on the state form, REDQ's subset draw taped to the
     authors' value pair and IBRL's selection draw to their selection pair (fault
-    "one pair": to the value pair)."""
-    if form == "pair":
-        with jax.enable_x64(precision == "f64"):
-            return compute_target(form, record, precision, fault)
+    "one pair": to the value pair); a soft choice's uniform to their race's."""
     with kit.recording() as session:  # the draws' keys, the same in either precision
-        compute_target(form, record, "f32", None)
+        compute_target(form, record, "f32", fault, choice)
     draws = kit.by_role(session.log)
-    [subset_role] = [r for r in draws if r[1].endswith("compute_redq_td_target")]
-    [selection_role] = [r for r in draws if r[1].endswith("draw_selection_critics")]
-    selection = record["draw.value" if fault == "one pair" else "draw.selection"]
-    values = {subset_role: [record["draw.value"]], selection_role: [selection]}
+    selection = record.get("draw.value" if fault == "one pair" else "draw.selection")
+    values = {}
+    for role in draws:
+        if role[1].endswith("compute_redq_td_target"):
+            values[role] = [record["draw.value"]]
+        if role[1].endswith("draw_selection_critics"):
+            values[role] = [selection]
+        if role[1].endswith("choose_expert"):
+            values[role] = [take_choice_uniforms(record["draw.exponential"])]
     table = kit.key_table({role: draws[role] for role in values}, values)
     with jax.enable_x64(precision == "f64"), kit.replaying(table) as replay:
-        out = compute_target(form, record, precision, fault)
+        out = compute_target(form, record, precision, fault, choice)
     assert not replay.misses
     return out
 
@@ -165,35 +195,61 @@ def records() -> dict:
 @pytest.fixture(scope="module")
 def ours(records: dict) -> dict:
     return {
-        (form, precision): run(form, records[form], precision)
+        (choice, form, precision): run(
+            form, records[named(choice, form)], precision, choice=choice
+        )
+        for choice in CHOICES
         for form in FORMS
         for precision in ("f32", "f64")
     }
 
 
-def compare(record: dict, ours: dict, form: str, target: np.ndarray) -> submaps.Report:
+def compare(
+    record: dict, ours: dict, choice: str, form: str, target: np.ndarray
+) -> submaps.Report:
     theirs = ({"target": record["f32.target"]}, {"target": record["f64.target"]})
-    mine = ({"target": ours[form, "f32"]}, {"target": ours[form, "f64"]})
+    mine = (
+        {"target": ours[choice, form, "f32"]},
+        {"target": ours[choice, form, "f64"]},
+    )
     nulls = submaps.rounding_null(theirs, mine)
     return submaps.compare({"target": target}, theirs[0], nulls, context=form)
 
 
-@pytest.mark.parametrize("form", ["pair", "state"])
-def test_the_target_matches_the_authors(records: dict, ours: dict, form: str) -> None:
-    report = compare(records[form], ours, form, ours[form, "f32"])
+@pytest.mark.parametrize("choice", CHOICES)
+@pytest.mark.parametrize("form", FORMS)
+def test_the_target_matches_the_authors(
+    records: dict, ours: dict, form: str, choice: str
+) -> None:
+    record = records[named(choice, form)]
+    report = compare(record, ours, choice, form, ours[choice, form, "f32"])
     assert not report.failures, str(report)
 
 
-@pytest.mark.parametrize("form, fault", [("pair", "own draw"), ("state", "one pair")])
+@pytest.mark.parametrize(
+    "choice, form, fault",
+    [
+        ("hard", "pair", "own draw"),
+        ("hard", "state", "one pair"),
+        ("soft", "pair", "beta ignored"),
+        ("soft", "state", "hard choice"),
+    ],
+)
 def test_a_planted_fault_fails_the_check(
-    records: dict, ours: dict, form: str, fault: str
+    records: dict, ours: dict, choice: str, form: str, fault: str
 ) -> None:
-    faulty = run(form, records[form], "f32", fault)
-    assert compare(records[form], ours, form, faulty).failures
+    record = records[named(choice, form)]
+    faulty = run(form, record, "f32", fault, choice)
+    assert compare(record, ours, choice, form, faulty).failures
 
 
 def choose_actions(
-    form: str, record: dict, mode: str, precision: str, fault: Optional[str]
+    form: str,
+    record: dict,
+    mode: str,
+    precision: str,
+    fault: Optional[str],
+    choice: str,
 ) -> np.ndarray:
     """IBRL's executed action per row, on the record's states and target critics: the expert's
     recorded action against the agent's, the authors' mean (eval) or TD3's exploration of it (train)."""
@@ -214,7 +270,9 @@ def choose_actions(
         explore = make_gaussian_exploration(STDDEV)
         action = explore(policy, jax.random.PRNGKey(3), jnp.asarray(0))
     size = 2 if form == "state" and fault != "every critic" else None
-    ibrl = IBRL(expert_policy=lambda obs: rows("bc_action"), critic_subset_size=size)
+    ibrl = make_ibrl(
+        lambda obs: rows("bc_action"), choice, fault, critic_subset_size=size
+    )
     step = {"observations": states, "raw_obs": states, "expert_action": None}
     step["gate_rng"] = jax.random.PRNGKey(4)
     agent_state = SimpleNamespace(critic_state=critics)
@@ -222,12 +280,17 @@ def choose_actions(
 
 
 def run_acting(
-    form: str, record: dict, mode: str, precision: str, fault: Optional[str] = None
+    form: str,
+    record: dict,
+    mode: str,
+    precision: str,
+    fault: Optional[str] = None,
+    choice: str = "hard",
 ) -> np.ndarray:
     """choose_actions in precision, TD3's noise taped to the authors' and, on the state form, IBRL's
-    subset draw to their forward_k pair."""
+    subset draw to their forward_k pair; a soft choice's uniform to their race's."""
     with kit.recording() as session:  # the draws' keys, the same in either precision
-        choose_actions(form, record, mode, "f32", fault)
+        choose_actions(form, record, mode, "f32", fault, choice)
     draws = kit.by_role(session.log)
     values = {}
     for role in draws:
@@ -235,9 +298,12 @@ def run_acting(
             values[role] = [record[f"{mode}.draw.noise"]]
         if role[1].endswith("draw_selection_critics"):
             values[role] = [record[f"{mode}.draw.selection"]]
+        if role[1].endswith("choose_expert"):
+            exponential = record[f"{mode}.draw.exponential"]
+            values[role] = [take_choice_uniforms(exponential)]
     table = kit.key_table({role: draws[role] for role in values}, values)
     with jax.enable_x64(precision == "f64"), kit.replaying(table) as replay:
-        out = choose_actions(form, record, mode, precision, fault)
+        out = choose_actions(form, record, mode, precision, fault, choice)
     assert not replay.misses
     return out
 
@@ -245,9 +311,10 @@ def run_acting(
 @pytest.fixture(scope="module")
 def ours_acting(records: dict) -> dict:
     return {
-        (form, mode, precision): run_acting(
-            form, records[f"act_{form}"], mode, precision
+        (choice, form, mode, precision): run_acting(
+            form, records[f"act_{named(choice, form)}"], mode, precision, choice=choice
         )
+        for choice in CHOICES
         for form in FORMS
         for mode in MODES
         for precision in ("f32", "f64")
@@ -255,35 +322,44 @@ def ours_acting(records: dict) -> dict:
 
 
 def compare_acting(
-    record: dict, ours: dict, form: str, mode: str, action: np.ndarray
+    record: dict, ours: dict, key: tuple, action: np.ndarray
 ) -> submaps.Report:
+    """key: (choice, form, mode)."""
+    mode = key[2]
     theirs = (
         {"action": record[f"{mode}.f32.action"]},
         {"action": record[f"{mode}.f64.action"]},
     )
-    mine = ({"action": ours[form, mode, "f32"]}, {"action": ours[form, mode, "f64"]})
+    mine = ({"action": ours[(*key, "f32")]}, {"action": ours[(*key, "f64")]})
     nulls = submaps.rounding_null(theirs, mine)
-    return submaps.compare({"action": action}, theirs[0], nulls, context=form)
+    return submaps.compare({"action": action}, theirs[0], nulls, context=key[1])
 
 
+@pytest.mark.parametrize("choice", CHOICES)
 @pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize("form", FORMS)
 def test_the_acting_matches_the_authors(
-    records: dict, ours_acting: dict, form: str, mode: str
+    records: dict, ours_acting: dict, form: str, mode: str, choice: str
 ) -> None:
-    record = records[f"act_{form}"]
-    action = ours_acting[form, mode, "f32"]
-    report = compare_acting(record, ours_acting, form, mode, action)
+    record = records[f"act_{named(choice, form)}"]
+    action = ours_acting[choice, form, mode, "f32"]
+    report = compare_acting(record, ours_acting, (choice, form, mode), action)
     assert not report.failures, str(report)
 
 
 @pytest.mark.parametrize(
-    "form, mode, fault",
-    [("pair", "train", "live critic"), ("state", "eval", "every critic")],
+    "choice, form, mode, fault",
+    [
+        ("hard", "pair", "train", "live critic"),
+        ("hard", "state", "eval", "every critic"),
+        ("soft", "pair", "train", "beta ignored"),
+        ("soft", "state", "eval", "hard choice"),
+    ],
 )
 def test_a_planted_acting_fault_fails_the_check(
-    records: dict, ours_acting: dict, form: str, mode: str, fault: str
+    records: dict, ours_acting: dict, choice: str, form: str, mode: str, fault: str
 ) -> None:
-    record = records[f"act_{form}"]
-    faulty = run_acting(form, record, mode, "f32", fault)
-    assert compare_acting(record, ours_acting, form, mode, faulty).failures
+    record = records[f"act_{named(choice, form)}"]
+    faulty = run_acting(form, record, mode, "f32", fault, choice)
+    key = (choice, form, mode)
+    assert compare_acting(record, ours_acting, key, faulty).failures

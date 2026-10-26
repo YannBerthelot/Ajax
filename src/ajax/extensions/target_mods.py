@@ -19,7 +19,7 @@ The batch on_target reads is the dict the shared critic step builds
 rewards (unscaled), reward_scale, dones, gamma, raw_next_observations (the
 environment's own next observations, which an extension's expert reads:
 an agent keeps them when an extension carries an expert), next_a_expert,
-and SAC's own rng_key and recurrent.
+and SAC's own rng_key.
 """
 
 from __future__ import annotations
@@ -162,7 +162,9 @@ def _next_target_q(
         actor_params=agent_state.actor_state.params,
         obs=next_observations,
         done=batch["dones"],
-        recurrent=batch.get("recurrent", False),
+        # A run with memory refuses every extension (check_recurrent_options):
+        # the actor here is feedforward.
+        recurrent=False,
     )
     key, _ = jax.random.split(rng)
     next_actions, _ = next_pi.sample_and_log_prob(seed=key)

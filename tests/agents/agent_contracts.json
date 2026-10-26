@@ -819,7 +819,6 @@
     "next_observations",
     "observations",
     "raw_next_observations",
-    "recurrent",
     "reward_scale",
     "rewards",
     "rng_key"

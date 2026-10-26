@@ -21,7 +21,6 @@ from ajax.extensions.target_mods import (
     LCBGatedBootstrap,
     MCVarianceCorrection,
 )
-from ajax.networks.networks import predict_value
 
 KEY = jax.random.PRNGKey(0)
 BATCH = 8
@@ -47,7 +46,6 @@ def _setup() -> tuple[Any, dict, jax.Array]:
     obs = jax.random.normal(keys[0], (BATCH, *obs_shape))
     actions = jnp.tanh(jax.random.normal(keys[1], (BATCH, *act_shape)))
     next_obs = jax.random.normal(keys[2], (BATCH, *obs_shape))
-    x = jnp.concatenate((obs, actions), axis=-1)
     batch = {
         "observations": obs,
         "actions": actions,
@@ -56,7 +54,6 @@ def _setup() -> tuple[Any, dict, jax.Array]:
         "reward_scale": 1.0,
         "dones": jnp.zeros((BATCH, 1)),
         "rng_key": KEY,
-        "q_preds": predict_value(critic, critic.params, x),
         "gamma": 0.99,
         "raw_next_observations": next_obs,
         "next_a_expert": None,

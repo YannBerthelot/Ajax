@@ -58,7 +58,6 @@ from ajax.agents.temperature import (
 from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
 from ajax.networks.distributions import latent
-from ajax.networks.networks import predict_value
 from ajax.perf_utils import final_aux_scan
 from ajax.state import LoadedTrainState, Transition
 from ajax.types import Architecture
@@ -296,18 +295,6 @@ class SAC(
             map_next_actions=scored.map_next_actions,
             carries=carries,
         )
-        # The target extensions (MCVarianceCorrection's variance) read the
-        # critics' predictions, from a pass of their own: the target comes
-        # before the gradient-bearing pass.
-        q_preds = None
-        if "on_target" in context.extensions.implemented_phases():
-            q_preds = predict_value(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.critic_state.params,
-                x=jnp.concatenate(
-                    (batch.obs, jax.lax.stop_gradient(batch.action)), axis=-1
-                ),
-            )
 
         def critic_loss(params: FrozenDict, target_q: jax.Array) -> tuple:
             return compute_mean_critic_loss(
@@ -332,12 +319,8 @@ class SAC(
             gamma=self.gamma,
             reward_scale=self.reward_scale,
             # The target's key (IBRL and LCBGatedBootstrap redraw its
-            # next-action sample), the critics' predictions and the memory flag.
-            target_extras={
-                "rng_key": critic_key,
-                "q_preds": q_preds,
-                "recurrent": context.recurrent,
-            },
+            # next-action sample) and the memory flag.
+            target_extras={"rng_key": critic_key, "recurrent": context.recurrent},
         )
         value_aux = ValueAuxiliaries(
             critic_loss=aux.critic_loss,
@@ -429,9 +412,7 @@ class SAC(
     # Its critic step's target_extras join the shared step's on_target keys.
     phase_batch_keys = {  # noqa: RUF012
         **update_steps.REPLAY_BATCH_KEYS,
-        "on_target": update_steps.TARGET_KEYS.union(
-            {"rng_key", "q_preds", "recurrent"}
-        ),
+        "on_target": update_steps.TARGET_KEYS.union({"rng_key", "recurrent"}),
     }
     # MCPretrain's and PhiRefresh's (the expert critic phi*, SACState's
     # fields), and BellmanPretrain's.

@@ -1,27 +1,25 @@
-"""TD-target modifier research features as composable :class:`Extension`s.
+"""TD-target modifier research features as composable Extensions.
 
-These reshape the SAC Bellman target before it enters the critic loss
-(the ``on_target`` phase):
+These reshape the Bellman target before it enters the critic loss (the
+on_target phase):
 
-* :class:`IBRL`               — add the positive gap
-  ``γ(1-d)·max(Q_expert - Q_policy, 0)`` so the value function matches an
-  argmax action-selection policy.
-* :class:`LCBGatedBootstrap`  — soft-blend the policy and expert TD
-  targets by an LCB-scored sigmoid gate.
-* :class:`CriticBlend`        — warmup-decaying blend of the Bellman target
-  with the frozen expert critic's.
-* :class:`MCVarianceCorrection` — replace high-ensemble-variance Bellman
-  targets with the MC-pretrained oracle.
-* :class:`ValueBox`           — value-threshold expert action override
-  during collection (the ``action`` phase).
+* IBRL: add the positive gap gamma (1 - d) max(Q_expert - Q_policy, 0), so
+  the value function matches an argmax action-selection policy.
+* LCBGatedBootstrap: soft-blend the policy and expert TD targets by an
+  LCB-scored sigmoid gate.
+* CriticBlend: a warmup-decaying blend of the Bellman target with the
+  frozen expert critic's.
+* MCVarianceCorrection: replace high-ensemble-variance Bellman targets
+  with the MC-pretrained oracle.
+* ValueBox: a value-threshold expert action override during collection
+  (the action phase).
 
-The ``batch`` argument to ``on_target`` is the dict ``loop.critic_step``
-builds for SAC: ``observations``, ``actions``, ``next_observations``,
-``rewards`` (unscaled), ``reward_scale``, ``dones``, ``gamma``,
-``raw_next_observations`` (the environment's own next observations, which
-an extension's expert reads: SAC keeps them when an extension carries an
-expert), ``next_a_expert``, and SAC's own ``rng_key``, ``q_preds`` and
-``recurrent``.
+The batch on_target reads is the dict the shared critic step builds
+(update_steps.apply_on_target): observations, actions, next_observations,
+rewards (unscaled), reward_scale, dones, gamma, raw_next_observations (the
+environment's own next observations, which an extension's expert reads:
+an agent keeps them when an extension carries an expert), next_a_expert,
+and SAC's own rng_key and recurrent.
 """
 
 from __future__ import annotations
@@ -427,7 +425,7 @@ class MCVarianceCorrection(Extension):
         {"critic_ensemble", "phi_star", "q_critic", "scalar_target"}
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
-        "on_target": frozenset({"actions", "q_preds"})
+        "on_target": frozenset({"actions", "observations"})
     }
 
     def on_target(
@@ -441,7 +439,13 @@ class MCVarianceCorrection(Extension):
         del ext_state, context
         observations = batch["observations"]
         actions = batch["actions"]
-        q_preds = batch["q_preds"]
+        # The critics' predictions at the rows, from a pass of its own, as
+        # KernelRepulsion computes its own: an agent hands on_target none.
+        critic_state = agent_state.critic_state
+        x = jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1)
+        q_preds = predict_value(
+            critic_state=critic_state, critic_params=critic_state.params, x=x
+        )
         q_var = q_preds.var(axis=0)[..., 0]
         corrected = mc_correction_modify_target(
             target,

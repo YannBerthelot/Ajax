@@ -55,7 +55,7 @@ Defaults are read from `AVG.__init__`.
 | `beta_1`, `beta_2` | `0`, `0.999` | Adam's moment decays (AVG uses `beta_1 = 0`; Adam's epsilon is torch's 1e-8) |
 | `actor_architecture`, `critic_architecture` | `("256", "leaky_relu", "256", "leaky_relu")` | hidden layers |
 | `gamma` | `0.99` | discount |
-| `learning_starts` | `0` | steps of uniform random actions before the first update |
+| `learning_starts` | `0` | steps of uniform random actions; AVG learns from each step after them, never from one of these |
 | `alpha_init` | `0.07` | the entropy weight, fixed for the whole run |
 | `num_critics` | `1` | critics; with more, the actor and the target use their minimum |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |

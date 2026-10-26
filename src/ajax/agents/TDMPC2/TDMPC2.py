@@ -136,8 +136,11 @@ class TDMPC2(ActorCritic):
             "warmup",
         }
     )
-    # Its own collector and encoder: no observation features yet.
-    supported_extension_phases: frozenset = LOOP_PHASES.difference({"observe"})
+    # Its own collector and encoder: no observation features or action
+    # stage yet.
+    supported_extension_phases: frozenset = LOOP_PHASES.difference(
+        {"observe", "action"}
+    )
     pretrain_context: frozenset = frozenset({"env_args", "update"})
     # Its row collector steps with the env params as traced values.
     supports_batched_env_params: bool = True

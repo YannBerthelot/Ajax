@@ -231,12 +231,15 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
         self, agent_state: AVGState, transition: Transition, context: TrainContext
     ) -> tuple[AVGState, ValueAuxiliaries, dict]:
         """The critic step on the scaled TD error of the step, at the action
-        executed (the policy's stored one; a residual policy's from the
-        stored expert action)."""
+        the step executed (a residual policy's executed one, or the expert's
+        where an extension handed it the step)."""
         critic_key, agent_state = agent_state.get_keys_and_new_state()
         alpha = get_alpha(agent_state)
         critic_state = agent_state.critic_state
         scored = context.make_scored_actions(transition)
+        # The critic and its extensions read the executed action, as a replay
+        # agent's read the action its rows stored.
+        executed = transition.replace(action=transition.executed_action)
         # Only a termination cuts the bootstrap: the official code passes
         # terminated alone as the update's done (avg.py), so a time limit
         # still bootstraps on the final observation, which next_obs holds
@@ -255,7 +258,6 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             self.reward_scale,
             scored.map_next_actions,
         )
-        action = scored.map_actions(transition.action)
 
         def critic_loss(
             params: FrozenDict, target_q: jax.Array
@@ -264,7 +266,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
                 params,
                 critic_state,
                 transition.obs,
-                action,
+                executed.action,
                 target_q,
                 next_log_probs,
                 agent_state.scaling_coef,
@@ -272,7 +274,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
 
         critic_state, aux, _, metrics = update_steps.critic_step(
             agent_state,
-            transition,
+            executed,
             target_q,
             critic_loss,
             context.extensions,

@@ -1457,6 +1457,21 @@ _GOLDEN.update(
     }
 )
 
+# Re-recorded on macOS ARM CPU once an agent without a replay (AVG) learned
+# from each step collected from learning_starts on, never from a warm-up
+# step: one update fewer, the first on the policy's step. Actor +4.2%,
+# critic +19.5%; a one-tick shift of learning_starts moves this tiny run's
+# critic by 10-20%.
+_GOLDEN.update(
+    {
+        "AVG": {
+            "actor": 5.692246913909912,
+            "critic": 20.000789642333984,
+            "alpha": 0.07000000029802322,
+        },
+    }
+)
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

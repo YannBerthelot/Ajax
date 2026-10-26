@@ -359,7 +359,8 @@ class IncrementalToy(IncrementalAgent):
 
 def test_an_incremental_agent_updates_on_each_step_after_learning_starts():
     """Six ticks of two envs: the statistics see every step, the update
-    runs from learning_starts (4) on, five times; the warm-up acts
+    runs on each step collected from learning_starts (4) on, four times,
+    never on one collected before it; the warm-up acts
     uniformly only for an agent claiming the warmup capability; the
     reference's network settings reach the networks; no offline training."""
     agent = IncrementalToy("Pendulum-v1", n_envs=2)
@@ -368,7 +369,7 @@ def test_an_incremental_agent_updates_on_each_step_after_learning_starts():
     state, _ = agent.train(seed=0, n_timesteps=12)
     assert (np.asarray(state.seen).tolist(), np.asarray(state.n_updates).tolist()) == (
         [6],
-        [5],
+        [4],
     )
     with pytest.raises(ValueError, match="cannot train offline"):
         agent.train_offline(dataset=None, n_updates=1)

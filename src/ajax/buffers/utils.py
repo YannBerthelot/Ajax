@@ -164,6 +164,21 @@ class ReplayBatch(NamedTuple):
     policy_action: Optional[jax.Array] = None
 
 
+def mean_of_written_rows(buffer_state: Any, field: str) -> jax.Array:
+    """The mean of a replay field over the rows written so far, every env's
+    (all of them once the replay is full): for a 0/1 field (is_expert), the
+    share of the rows where it is set. 0 before any row is written."""
+    values = buffer_state.experience[field]  # (n_envs, capacity, ...)
+    capacity = values.shape[1]
+    written = jnp.logical_or(
+        jnp.arange(capacity) < buffer_state.current_index, buffer_state.is_full
+    )
+    written = written.reshape((1, capacity) + (1,) * (values.ndim - 2))
+    written = jnp.broadcast_to(written, values.shape)
+    total = jnp.sum(jnp.where(written, values, 0.0))
+    return total / jnp.maximum(jnp.sum(written), 1)
+
+
 def normalized_rewards(reward: jax.Array, stats: NormalizationInfo) -> jax.Array:
     """The env's own ``reward`` divided by a reward normaliser's statistics,
     which it leaves as they are; while they are empty (no step yet), the

@@ -242,7 +242,8 @@ in its differentiable rollout, whose gradient runs through the residual
 and the expert.
 
 Steps where the expert acted are flagged in the buffer;
-`value/expert_frac_in_buffer` logs their share of each training batch. The
+`replay/expert_share` logs, at each evaluation, their share of the rows the
+replay holds, for every replay agent that keeps the flags. The
 replay keeps the raw observations and these flags only in a run with an
 expert (an agent's `expert_policy`, or one an extension holds); without one
 nothing reads them.

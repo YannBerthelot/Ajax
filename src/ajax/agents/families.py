@@ -47,7 +47,7 @@ from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
 from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_buffer
 from ajax.agents.recurrent import stored_actor_carry_dim, unsupported_recurrent_options
 from ajax.agents.update_steps import REPLAY_BATCH_KEYS, reached
-from ajax.buffers.utils import get_buffer
+from ajax.buffers.utils import get_buffer, mean_of_written_rows
 from ajax.controller import (
     ScoredActions,
     executed_fn,
@@ -627,6 +627,17 @@ class DeclaredAgent(ActorCritic):
         )
 
 
+def measure_replay(agent_state: Any) -> dict:
+    """What each evaluation logs of a replay agent's replay: the share of its
+    rows an expert acted in (replay/expert_share), where the replay keeps the
+    flags (a run with an expert). Read at each evaluation, not each update,
+    over the whole replay, not one batch."""
+    buffer_state = agent_state.collector_state.buffer_state
+    if buffer_state is None or "is_expert" not in buffer_state.experience:
+        return {}
+    return {"replay/expert_share": mean_of_written_rows(buffer_state, "is_expert")}
+
+
 def reads_step_in_episode(extensions: Iterable[Extension]) -> bool:
     """Whether an extension reads each env's step in its episode, which the
     collector then counts."""
@@ -698,6 +709,13 @@ class ReplayAgent(DeclaredAgent):
 
     def _build_family(self) -> None:
         self.buffer = self.make_replay_buffer()
+
+    def evaluation_kwargs(self) -> dict[str, Any]:
+        """DeclaredAgent's, and what each evaluation logs of the replay
+        (measure_replay)."""
+        kwargs = super().evaluation_kwargs()
+        kwargs.update({"agent_metrics": measure_replay})
+        return kwargs
 
     def make_replay_buffer(self) -> BufferType:
         return get_buffer(self.buffer_size, self.batch_size, self.n_envs)

@@ -191,10 +191,6 @@ class SAC(
             self.burn_in,
             self.stored_state,
         )
-        # The share of the rows an expert acted in (no stored flags: none).
-        expert_share = (
-            jnp.zeros(()) if batch.is_expert is None else batch.is_expert.mean()
-        )
 
         def update_critic_once(agent_state: SACState, _: Any) -> tuple:
             agent_state, value_aux, metrics = self.update_critic(
@@ -237,7 +233,7 @@ class SAC(
         return agent_state, AuxiliaryLogs(
             temperature=temperature_aux,
             policy=policy_aux,
-            value=value_aux.replace(expert_frac_in_buffer=expert_share),
+            value=value_aux,
             extensions=merge_metrics(value_metrics, policy_metrics),
         )
 
@@ -302,7 +298,6 @@ class SAC(
             critic_loss=aux.critic_loss,
             q_pred_min=aux.q_pred_min,
             var_preds=aux.var_preds,
-            expert_frac_in_buffer=jnp.zeros(1),
             grad_norm=grad_norm,
         )
         return agent_state.replace(critic_state=critic_state), value_aux, metrics
@@ -604,7 +599,6 @@ class ValueAuxiliaries:
     critic_loss: jax.Array
     q_pred_min: jax.Array  # min over ensemble
     var_preds: jax.Array  # inter-critic variance
-    expert_frac_in_buffer: jax.Array  # fraction of sampled batch flagged as expert
     grad_norm: jax.Array  # before clipping
 
 

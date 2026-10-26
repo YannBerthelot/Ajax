@@ -221,15 +221,6 @@ class SAC(
         expert_share = (
             jnp.zeros(()) if batch.is_expert is None else batch.is_expert.mean()
         )
-        # The expert's actions as collection stored them, from its state along
-        # the trajectory, for a residual policy's executed actions and the
-        # actor-loss extensions' clone target.
-        a_expert = None
-        reads_expert = "actor_loss" in context.extensions.implemented_phases()
-        if batch.a_expert is not None and (
-            context.executed is not None or reads_expert
-        ):
-            a_expert = jax.lax.stop_gradient(batch.a_expert)
 
         def update_critic_once(agent_state: SACState, _: Any) -> tuple:
             agent_state, value_aux, metrics = self.update_critic(
@@ -243,7 +234,7 @@ class SAC(
             update_critic_once, agent_state, length=self.num_critic_updates
         )
         stepped, policy_aux, log_probs, policy_metrics = self.update_actor(
-            agent_state, batch, carries, a_expert, context
+            agent_state, batch, carries, context
         )
         # The actor step runs from the first update, since its log-probs feed
         # the temperature's, and is kept from policy_update_start.
@@ -364,18 +355,17 @@ class SAC(
         agent_state: SACState,
         batch: Transition,
         carries: Optional[RecurrentCarries],
-        a_expert: Optional[jax.Array],
         context: TrainContext,
     ) -> tuple[SACState, PolicyAuxiliaries, jax.Array, dict]:
         """The actor's step on SAC's soft policy loss, the critics scoring a
-        residual policy's executed actions from the expert's stored ones
-        a_expert, which the actor-loss extensions (OnlineBC, ImitationLoss)
-        read as their clone target. Also returns the log-probs of a fresh
+        residual policy's executed actions from the expert's stored ones,
+        which the actor-loss extensions (OnlineBC, ImitationLoss) read as
+        their clone target. Also returns the log-probs of a fresh
         sample of the stepped actor, which the temperature's step reads
         (CleanRL's SAC order; cited from memory, unverified)."""
         actor_key, sample_key, agent_state = agent_state.get_keys_and_new_state(2)
         alpha = get_alpha(agent_state)
-        transform = make_scored_action(context.executed, a_expert)
+        transform = make_scored_action(context.executed, batch.a_expert)
 
         def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
             loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
@@ -406,7 +396,7 @@ class SAC(
             # The replay keeps them only for a run with an expert: None
             # without one, never the observations passed off as raw.
             raw_observations=batch.raw_obs,
-            a_expert=a_expert,
+            a_expert=batch.a_expert,
             actions=batch.action,
             critic_state=agent_state.critic_state,
         )

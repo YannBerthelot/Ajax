@@ -369,7 +369,7 @@ def _sac_update(stack: ExtensionStack) -> Any:
     obs = _obs(agent)
     column = jnp.zeros((obs.shape[0], 1))
     batch = Transition(obs, column, column, column, column, obs, raw_obs=obs)
-    state, *_ = agent.update_actor(state, batch, None, None, context)
+    state, *_ = agent.update_actor(state, batch, None, context)
     return state.actor_state.params
 
 
@@ -440,7 +440,7 @@ def _avg_update(stack: ExtensionStack) -> Any:
     # The pre-squash sample AVG steps through: zeros.
     batch = Transition(obs, column, column, column, column, obs, raw_obs=obs)
     batch = batch.replace(raw_action=column)
-    state, *_ = agent.update_actor(state, batch, None, context)
+    state, *_ = agent.update_actor(state, batch, context)
     return state.actor_state.params
 
 

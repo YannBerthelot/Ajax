@@ -280,6 +280,7 @@ class DQN(
     capabilities = frozenset(
         {
             "discounted",
+            "next_action_target",
             "obs_networks",
             "off_policy",
             "q_critic",

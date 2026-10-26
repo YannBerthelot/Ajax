@@ -178,7 +178,7 @@ def test_the_entropy_terms_are_relative_to_a_uniform_policy_over_the_actions():
             *args, dones, rewards, 0.5, jnp.asarray(alpha), 1.0
         )
 
-    (soft, log_pi), (hard, _) = target(0.2), target(0.0)
+    (soft, log_pi, _), (hard, _, _) = target(0.2), target(0.0)
     want = -0.2 * (log_pi + np.log(2.0)) * (1.0 - dones)
     np.testing.assert_allclose(soft - hard, want, rtol=1e-5, atol=1e-6)
 

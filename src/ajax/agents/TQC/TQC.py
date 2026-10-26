@@ -61,7 +61,7 @@ from ajax.agents.temperature import (
     get_alpha,
     update_temperature,
 )
-from ajax.controller import make_scored_action
+from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
 from ajax.networks.utils import TORCH_LINEAR
 from ajax.state import LoadedTrainState, Transition
@@ -245,7 +245,7 @@ class TQC(
         critic_key, agent_state = agent_state.get_keys_and_new_state()
         # A truncated row bootstraps on its final observation (bootstrap_obs).
         dones = batch.terminated
-        target_q, next_log_probs = compute_tqc_td_target(
+        target_q, next_log_probs, next_actions = compute_tqc_td_target(
             agent_state.actor_state,
             agent_state.critic_state,
             critic_key,
@@ -257,8 +257,7 @@ class TQC(
             self.top_quantiles_to_drop_per_net * self.num_critics,
             self.reward_scale,
             carries,
-            context.executed,
-            batch.next_a_expert,
+            context.make_scored_actions(batch).map_next_actions,
         )
 
         def critic_loss(
@@ -293,6 +292,7 @@ class TQC(
             dones=dones,
             gamma=self.gamma,
             reward_scale=self.reward_scale,
+            next_actions=next_actions,
         )
         return agent_state.replace(critic_state=critic_state), aux, metrics
 
@@ -310,7 +310,7 @@ class TQC(
         actor_key, agent_state = agent_state.get_keys_and_new_state()
         alpha = get_alpha(agent_state)
         critic_state = agent_state.critic_state
-        transform = make_scored_action(context.executed, batch.a_expert)
+        scored = context.make_scored_actions(batch)
 
         def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
             loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
@@ -322,7 +322,7 @@ class TQC(
                 actor_key,
                 carries,
                 jnp.mean,
-                transform,
+                scored.map_actions,
             )
             return loss, (loss, log_probs, q_values), policy.mean()
 
@@ -332,11 +332,8 @@ class TQC(
             context.extensions,
             actor_key,
             context.total_timesteps,
-            observations=batch.obs,
-            raw_observations=batch.raw_obs,
-            a_expert=batch.a_expert,
-            actions=batch.action,
-            critic_state=critic_state,
+            batch,
+            critic_state,
         )
         aux = PolicyAuxiliaries(
             policy_loss=loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()
@@ -352,6 +349,7 @@ class TQC(
             "actor",
             "critic_ensemble",
             "discounted",
+            "next_action_target",
             "distributional_critic",
             "obs_networks",
             "off_policy",
@@ -369,7 +367,9 @@ class TQC(
     )
     extension_context = RecurrentReplayAgent.extension_context.union(BELLMAN_CONTEXT)
     stores_expert_actions = True
-    supported_buffer_fields = frozenset({"raw_next_obs", "return_to_go"})
+    supported_buffer_fields = RecurrentReplayAgent.supported_buffer_fields.union(
+        {"raw_next_obs", "return_to_go"}
+    )
 
 
 # -- TQC's equations, in the order update calls them -------------------------
@@ -385,15 +385,14 @@ def compute_tqc_td_target(
     n_drop: int,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
-    executed: Optional[Callable] = None,
-    next_a_expert: Optional[jax.Array] = None,
-) -> tuple[jax.Array, jax.Array]:
+    map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
+) -> tuple[jax.Array, jax.Array, jax.Array]:
     """r + gamma (1 - d)(z - alpha log pi(a'|s')) for every kept target
-    quantile z at a' ~ pi(.|s') (trainer.py:45-53), executed (executed, a
-    residual policy's). Returns the held target atoms and the next actions'
-    log-probs."""
+    quantile z at a' ~ pi(.|s') (trainer.py:45-53), a' as the critics score
+    it (map_next_actions: a residual policy's executed one). Returns the
+    held target atoms, the next actions' log-probs and the next actions."""
     next_actions, log_probs = sample_next_actions(
-        actor_state, next_observations, rng, carries, executed, next_a_expert
+        actor_state, next_observations, rng, carries, map_next_actions
     )
     next_quantiles = q_values(
         critic_state,
@@ -413,7 +412,7 @@ def compute_tqc_td_target(
         alpha,
         reward_scale,
     )
-    return jax.lax.stop_gradient(target), log_probs
+    return jax.lax.stop_gradient(target), log_probs, next_actions
 
 
 def truncated_quantiles(quantiles: jax.Array, n_drop: int) -> jax.Array:

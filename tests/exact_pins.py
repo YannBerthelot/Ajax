@@ -33,6 +33,7 @@ from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.TD3.TD3 import make_default_action_pipeline
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.agents.UDRL.UDRL import UDRL
+from ajax.buffers.dataset import TransitionDataset
 from ajax.environments.system_class import UniformPerturbation
 from ajax.extensions.adversarial import AdversarialReward
 from ajax.extensions.base import Extension
@@ -44,13 +45,20 @@ from ajax.extensions.expert import (
     ResidualPolicy,
     StorePolicyAction,
 )
+from ajax.extensions.exploration import EDGEExploration
 from ajax.extensions.observe import (
     ExpertActionInput,
     ExpertStateInput,
     TrainingProgressInput,
 )
+from ajax.extensions.offline import TargetBC
 from ajax.extensions.pretrain import BellmanPretrain, ExpertPrefill, MCPretrain
-from ajax.extensions.target_mods import ValueBox
+from ajax.extensions.target_mods import (
+    IBRL,
+    LCBGatedBootstrap,
+    MCVarianceCorrection,
+    ValueBox,
+)
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import MemoryConfig
@@ -343,6 +351,62 @@ B5_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "APG-resume": (APG, {**APG_KW, **SCHEDULE}, 80),
     "APG-resume-kept": (APG, {**APG_KW, **SCHEDULE}, 80),
 }
+
+
+def long_episodes(rows: int = 32, length: int = 8) -> TransitionDataset:
+    """rows transitions on Pendulum's observations in episodes of length
+    steps, so each row but an episode's last has a next action."""
+    rng = np.random.default_rng(0)
+    obs = rng.normal(size=(rows, 3))
+    action = rng.uniform(-1, 1, (rows, 1))
+    ends = np.arange(rows) % length == length - 1
+    rewards = rng.normal(size=rows)
+    return TransitionDataset(
+        obs, action, rewards, ends, np.zeros(rows, bool), np.roll(obs, -1, axis=0)
+    )
+
+
+# The paths the expert plumbing's move touches, pinned before it: the acting
+# gates (JSRL; EDGE on phi* and on the live critic), the target extensions
+# reading the critics' predictions and an expert's next action
+# (MCVarianceCorrection, IBRL on each agent it runs on, LCBGatedBootstrap on
+# the agent's stored expert actions) and TargetBC on the target's next
+# actions, online (every a' unknown: no penalty) and offline.
+JSRL = JSRLCurriculum(episode_length=8, decay_frac=0.5)
+IBRL_PUSH = {"extensions": (IBRL(expert_policy=push),)}
+PLUMBING_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "SAC-jsrl": (SAC, {**SAC_EXPERT, "extensions": (JSRL,)}, 160),
+    "SAC-edge": (
+        SAC,
+        {**SAC_EXPERT, "extensions": (SMALL_MC, EDGEExploration(gate="lcb"))},
+        160,
+    ),
+    "SAC-edge-live": (
+        SAC,
+        {**SAC_EXPERT, "extensions": (EDGEExploration(gate="boltzmann"),)},
+        160,
+    ),
+    "SAC-mc-variance": (
+        SAC,
+        {**SAC_EXPERT, "extensions": (SMALL_MC, MCVarianceCorrection(threshold=0.01))},
+        160,
+    ),
+    "SAC-ibrl": (SAC, {**SAC40, **IBRL_PUSH}, 160),
+    "SAC-lcb": (
+        SAC,
+        {**SAC_EXPERT, "extensions": (LCBGatedBootstrap(expert_policy=push),)},
+        160,
+    ),
+    "TD3-ibrl": (TD3, {**S, **R, **IBRL_PUSH}, 200),
+    "REDQ-ibrl": (REDQ, {**S, **R, **IBRL_PUSH}, 120),
+    "TQC-ibrl": (TQC, {**TQC_KW, **IBRL_PUSH}, 160),
+    "IQL-ibrl": (IQL, {**S, **R, **IBRL_PUSH}, 200),
+    "TD3-target-bc": (TD3, {**S, **R, "extensions": (TargetBC(),)}, 200),
+    "TD3-target-bc-offline": (TD3, {**OFFLINE_KW, "extensions": (TargetBC(),)}, 80),
+}
+OFFLINE.update({"TD3-target-bc-offline"})
+#: The dataset an OFFLINE case trains on, where it is not test_offline's.
+DATASETS = {"TD3-target-bc-offline": long_episodes()}
 #: Trained for their steps, then for as many more from that state (a second
 #: train call): (both calls' options, the second call's steps).
 RESUMED: dict[str, tuple[dict[str, Any], int]] = {
@@ -552,6 +616,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     **SAC_FAMILY_CASES,
     **OWN_COLLECTOR_CASES,
     **B5_CASES,
+    **PLUMBING_CASES,
 }
 
 
@@ -563,6 +628,8 @@ def run(name: str, agent: Any, logging: Any = None) -> tuple[Any, Any]:
     if name in OFFLINE:
         discrete = name == "DQN-offline"  # CartPole's observations, else Pendulum's
         data = episodes(4, discrete=True) if discrete else episodes(3, discrete=False)
+        if name in DATASETS:
+            data = DATASETS[name]
         return agent.train_offline(data, steps, seed=SEEDS, logging_config=logging)
     options = RESUMED.get(name, ({}, 0))[0]
     return agent.train(SEEDS, n_timesteps=steps, logging_config=logging, **options)

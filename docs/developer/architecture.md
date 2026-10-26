@@ -21,8 +21,8 @@ Three ideas shape the code:
   before training or an extra loss term is an `Extension` folded into the
   loop, not a keyword on the agent. The exceptions left are
   `expert_policy` (SAC, TD3, REDQ, AVG, APO), SAC's options that reach its
-  network's input, collection or action pipeline, which extensions do not
-  reach yet, and TD3's `action_pipeline` for a downstream project.
+  network's input or collection, which extensions do not reach yet, and
+  TD3's `action_pipeline` for a downstream project.
 
 ## The package
 
@@ -35,7 +35,6 @@ src/ajax/
 │   ├── loop.py          TrainLoop, the shared loop (brax's forced resets included)
 │   ├── update_steps.py  critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, run_if, run_actor_if, the target update
 │   ├── temperature.py   the entropy temperature every soft actor-critic shares (SoftActorCriticState, update_temperature)
-│   ├── action_pipeline.py  the collection-time action pipeline SAC runs (expert flags, warm-up choice, action-slot extensions)
 │   ├── minibatch.py     the on-policy rollout split (RolloutSplit), minibatches and epochs
 │   ├── critics.py       the Q-critics' regression (continuous and discrete actions)
 │   ├── diagnostics.py   KL, explained variance, policy std
@@ -46,6 +45,7 @@ src/ajax/
 ├── environments/
 │   ├── create.py        build an env from an id (gymnax, Brax, MuJoCo Playground), add Ajax's layers
 │   ├── interaction.py   collect_experience: act, step, store, count
+│   ├── action_stage.py  the action extensions' slots around any agent's pipeline (EDGE, JSRL, ValueBox)
 │   ├── utils.py         env helpers; the [-1, 1] action map; ExpertInAgentUnits
 │   ├── obs_norm.py      agent-side running observation normalisation
 │   ├── row_collector.py the world models' collector: one row per env per tick
@@ -360,8 +360,8 @@ agent without extensions traces nothing extra and never guards a fold.
 | `apply_eval_metrics` | at every evaluation, merged into the logged metrics (`compose_eval_metrics` in `log.py`) |
 | `apply_on_target`, `compute_extensions_critic_loss` | in the agent's critic step; `critic_step` for SAC, TD3, REDQ, ASAC, AVG and IQL |
 | `compute_extensions_actor_loss` | in the agent's actor step; `actor_step` for SAC, TD3, AVG, DAgger and IQL |
-| the `action` phase | SAC's action pipeline only, with an expert policy |
-| `transform_action`, `actuate` | the controller (`env_args.transforms`): the action pipeline before the choice, the shared collector after it (`expert_collect_kwargs`), evaluation, and `executed_actions` where the critics score executed actions |
+| the `action` phase | the shared collector's action stage (`ajax.environments.action_stage`), around the agent's pipeline, with an expert policy |
+| `transform_action`, `actuate` | the controller (`env_args.transforms`): the default pipeline before the choice, the shared collector after it (`expert_collect_kwargs`), evaluation, and `executed_actions` where the critics score executed actions |
 | the `observe` phase | the observers the agent lifts out of its stack (`env_args.observers`): the shared collector, at reset and after each step, PPO's forced reset, the expert prefill and evaluation |
 
 `apply_on_target`, `compute_extensions_critic_loss` and

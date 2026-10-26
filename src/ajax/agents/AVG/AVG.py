@@ -25,7 +25,7 @@ temporal structure without eligibility traces or RTRL.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
@@ -49,6 +49,7 @@ from ajax.agents.temperature import (
     create_alpha_train_state,
     get_alpha,
 )
+from ajax.controller import leave_unchanged
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import merge_metrics
 from ajax.state import AlphaConfig, LoadedTrainState, Transition
@@ -202,11 +203,9 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             agent_state, transition, context
         )
         # The actor step reads the networks from before the critic's, its key
-        # drawn after the critic's; the expert's stored actions reach the
-        # actor-loss extensions in a run with an expert.
-        a_expert = transition.a_expert if self.expert is not None else None
+        # drawn after the critic's.
         policy_updated, policy_aux, policy_metrics = self.update_actor(
-            agent_state.replace(rng=critic_updated.rng), transition, a_expert, context
+            agent_state.replace(rng=critic_updated.rng), transition, context
         )
         stepped = critic_updated.replace(
             actor_state=policy_updated.actor_state, rng=policy_updated.rng
@@ -232,17 +231,21 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
         self, agent_state: AVGState, transition: Transition, context: TrainContext
     ) -> tuple[AVGState, ValueAuxiliaries, dict]:
         """The critic step on the scaled TD error of the step, at the action
-        executed (the policy's stored one; a residual policy's from the
-        stored expert action)."""
+        the step executed (a residual policy's executed one, or the expert's
+        where an extension handed it the step)."""
         critic_key, agent_state = agent_state.get_keys_and_new_state()
         alpha = get_alpha(agent_state)
         critic_state = agent_state.critic_state
+        scored = context.make_scored_actions(transition)
+        # The critic and its extensions read the executed action, as a replay
+        # agent's read the action its rows stored.
+        executed = transition.replace(action=transition.executed_action)
         # Only a termination cuts the bootstrap: the official code passes
         # terminated alone as the update's done (avg.py), so a time limit
         # still bootstraps on the final observation, which next_obs holds
         # (get_final_obs).
         dones = transition.terminated
-        target_q, next_log_probs = compute_avg_td_target(
+        target_q, next_log_probs, next_actions = compute_avg_td_target(
             agent_state.actor_state,
             critic_state,
             critic_state.params,
@@ -253,12 +256,8 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             self.gamma,
             alpha,
             self.reward_scale,
-            context.executed,
-            transition.next_a_expert,
+            scored.map_next_actions,
         )
-        action = transition.action
-        if context.executed is not None:
-            action = context.executed(action, transition.a_expert)
 
         def critic_loss(
             params: FrozenDict, target_q: jax.Array
@@ -267,7 +266,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
                 params,
                 critic_state,
                 transition.obs,
-                action,
+                executed.action,
                 target_q,
                 next_log_probs,
                 agent_state.scaling_coef,
@@ -275,7 +274,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
 
         critic_state, aux, _, metrics = update_steps.critic_step(
             agent_state,
-            transition,
+            executed,
             target_q,
             critic_loss,
             context.extensions,
@@ -285,6 +284,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             dones=dones,
             gamma=self.gamma,
             reward_scale=self.reward_scale,
+            next_actions=next_actions,
         )
         return agent_state.replace(critic_state=critic_state), aux, metrics
 
@@ -292,17 +292,18 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
         self,
         agent_state: AVGState,
         transition: Transition,
-        a_expert: Optional[jax.Array],
         context: TrainContext,
     ) -> tuple[AVGState, PolicyAuxiliaries, dict]:
         """The actor step through the action taken; the extensions also read
-        the env's own observations, the policy's mean action and a_expert,
-        the agent's expert's action from its state (None without one)."""
+        the env's own observations, the policy's mean action and the agent's
+        expert's action from its state (which only an extension holding that
+        expert reads: zeros without one)."""
         actor_key, agent_state = agent_state.get_keys_and_new_state()
         alpha = get_alpha(agent_state)
         actor_state = agent_state.actor_state
         raw_actions = transition.raw_action  # the pre-squash sample, as collected
         assert raw_actions is not None
+        scored = context.make_scored_actions(transition)
 
         def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
             loss, aux = compute_policy_loss(
@@ -312,8 +313,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
                 transition.obs,
                 raw_actions,
                 alpha,
-                context.executed,
-                a_expert,
+                scored.map_actions,
             )
             # The mean action is the extensions' (unused without them,
             # compiled out).
@@ -326,10 +326,8 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             context.extensions,
             actor_key,
             context.total_timesteps,
-            observations=transition.obs,
-            raw_observations=transition.raw_obs,
-            a_expert=a_expert,
-            critic_state=agent_state.critic_state,
+            transition,
+            agent_state.critic_state,
         )
         return agent_state.replace(actor_state=actor_state), aux, metrics
 
@@ -342,6 +340,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             "actor",
             "critic_ensemble",
             "discounted",
+            "next_action_target",
             "obs_networks",
             "off_policy",
             "policy_density",
@@ -424,19 +423,18 @@ def compute_avg_td_target(
     gamma: float,
     alpha: jax.Array,
     reward_scale: float,
-    executed: Optional[Callable] = None,
-    next_a_expert: Optional[jax.Array] = None,
-) -> tuple[jax.Array, jax.Array]:
+    map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
+) -> tuple[jax.Array, jax.Array, jax.Array]:
     """AVG's Bellman target, from the current critic (no target network),
-    at the next action executed (executed, a residual policy's)."""
+    at the next action the critic scores (map_next_actions: a residual
+    policy's executed one), its log-probs and that next action."""
     rewards = rewards * reward_scale
     sample_key, _ = jax.random.split(rng)
     next_actions, next_log_probs = sample_next_actions(
         actor_state,
         next_observations,
         sample_key,
-        executed=executed,
-        next_a_expert=next_a_expert,
+        map_next_actions=map_next_actions,
     )
     q_target = jnp.min(
         q_values(critic_states, critic_params, next_observations, next_actions),
@@ -445,7 +443,7 @@ def compute_avg_td_target(
     target = jax.lax.stop_gradient(
         rewards + (1.0 - dones) * gamma * (q_target - alpha * next_log_probs),
     )
-    return target, next_log_probs
+    return target, next_log_probs, next_actions
 
 
 def compute_critic_loss(
@@ -480,11 +478,10 @@ def compute_policy_loss(
     observations: jax.Array,
     raw_actions: jax.Array,
     alpha: jax.Array,
-    executed: Optional[Callable] = None,
-    a_expert: Optional[jax.Array] = None,
+    map_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, PolicyAuxiliaries]:
-    """alpha log pi(a|s) - Q(s, a) at the action taken (executed, with a
-    residual policy's executed).
+    """alpha log pi(a|s) - Q(s, a) at the action taken, as the critic
+    scores it (map_actions: a residual policy's executed one).
 
     The action is reparameterised with the noise eps of its stored
     pre-squash sample u: a = tanh(mu(s) + sigma(s) eps), eps = (u - mu(s)) /
@@ -496,9 +493,7 @@ def compute_policy_loss(
     eps = jax.lax.stop_gradient((raw_actions - loc) / scale)
     raw = loc + scale * eps
     log_probs = policy.log_prob_from_raw(raw).sum(-1, keepdims=True)
-    action = jnp.tanh(raw)
-    if executed is not None:
-        action = executed(action, a_expert)
+    action = map_actions(jnp.tanh(raw))
     q_pred = jnp.min(
         q_values(critic_states, critic_states.params, observations, action),
         axis=0,

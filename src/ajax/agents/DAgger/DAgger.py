@@ -195,9 +195,7 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
             context.extensions,
             actor_key,
             context.total_timesteps,
-            observations=batch.obs,
-            raw_observations=batch.raw_obs,
-            a_expert=batch.a_expert,
+            batch,
         )
         agent_state = agent_state.replace(
             actor_state=actor_state, n_updates=agent_state.n_updates + 1

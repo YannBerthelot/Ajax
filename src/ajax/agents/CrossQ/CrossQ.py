@@ -61,7 +61,6 @@ from ajax.agents.temperature import (
     get_alpha,
     update_temperature,
 )
-from ajax.controller import make_scored_action
 from ajax.extensions.base import merge_metrics
 from ajax.networks.networks import (
     action_value_input,
@@ -202,8 +201,7 @@ class CrossQ(
             agent_state.actor_state,
             batch.next_obs,
             next_key,
-            executed=context.executed,
-            next_a_expert=batch.next_a_expert,
+            map_next_actions=context.make_scored_actions(batch).map_next_actions,
         )
         critic_state = agent_state.critic_state
         rows = jnp.concatenate(
@@ -238,6 +236,7 @@ class CrossQ(
                 dones=batch.terminated,
                 gamma=self.gamma,
                 reward_scale=self.reward_scale,
+                next_actions=next_actions,
             )
             loss, aux = compute_q_regression_loss(current_q_values, target)
             extra, loss_metrics = update_steps.compute_extensions_critic_loss(
@@ -267,7 +266,7 @@ class CrossQ(
         actor_key, agent_state = agent_state.get_keys_and_new_state()
         alpha = get_alpha(agent_state)
         actor_state, critic_state = agent_state.actor_state, agent_state.critic_state
-        transform = make_scored_action(context.executed, batch.a_expert)
+        scored = context.make_scored_actions(batch)
 
         def policy_loss(params: Any) -> tuple[jax.Array, Any, jax.Array]:
             policy, batch_stats = get_policy_updating_batch_statistics(
@@ -279,7 +278,7 @@ class CrossQ(
                 batch.obs,
                 alpha,
                 actor_key,
-                action_transform=transform,
+                map_actions=scored.map_actions,
             )
             aux = PolicyAuxiliaries(
                 policy_loss=loss, log_pi=log_probs.mean(), q_min=q_values.mean()
@@ -293,11 +292,8 @@ class CrossQ(
                 context.extensions,
                 actor_key,
                 context.total_timesteps,
-                observations=batch.obs,
-                raw_observations=batch.raw_obs,
-                a_expert=batch.a_expert,
-                actions=batch.action,
-                critic_state=critic_state,
+                batch,
+                critic_state,
             )
         )
         actor_state = actor_state.replace(batch_stats=batch_stats)
@@ -322,6 +318,7 @@ class CrossQ(
             "actor",
             "critic_ensemble",
             "discounted",
+            "next_action_target",
             "obs_networks",
             "off_policy",
             "policy_density",
@@ -333,7 +330,9 @@ class CrossQ(
     )
     trains_batch_norm = True
     stores_expert_actions = True
-    supported_buffer_fields = frozenset({"raw_next_obs", "return_to_go"})
+    supported_buffer_fields = ReplayAgent.supported_buffer_fields.union(
+        {"raw_next_obs", "return_to_go"}
+    )
 
 
 # -- CrossQ's own helpers; its equations are SAC's ---------------------------

@@ -136,6 +136,20 @@ def test_the_warmup_draws_each_action_dimension_on_its_own():
     assert (rows.min(0) < -0.5).all() and (rows.max(0) > 0.5).all(), rows
 
 
+def test_the_warmup_draws_each_env_on_its_own():
+    """Before learning_starts each env takes a draw of its own, also with an
+    expert that could take the step (here with no ExpertWarmup): two envs'
+    warm-up rows differ, and each spans the box."""
+    kw = {"learning_starts": 64, "batch_size": 8, "buffer_size": 128}
+    kw.update({"expert_policy": lambda obs: jnp.zeros(obs.shape[:-1] + (1,))})
+    agent = SAC("Pendulum-v1", n_envs=2, **kw)
+    state, _ = agent.train(seed=0, n_timesteps=32)
+    actions = np.asarray(state.collector_state.buffer_state.experience["action"])
+    rows = actions[0, :, :16, 0]  # (envs, rows): 16 warm-up rows per env
+    assert not np.allclose(rows[0], rows[1])
+    assert (rows.min(1) < -0.5).all() and (rows.max(1) > 0.5).all(), rows
+
+
 def test_sac_starts_every_layer_xavier_uniform():
     """haarnoja/sac (tf.contrib's xavier_initializer, uniform at
     tensorflow 1.4) and softlearning (Keras Dense's glorot_uniform) start

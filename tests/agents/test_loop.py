@@ -26,6 +26,7 @@ from ajax.agents.APO.APO import APO
 from ajax.agents.loop import TrainLoop
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.update_steps import (
+    REPLAY_ACTOR_KEYS,
     actor_step,
     apply_on_target,
     compute_extensions_critic_loss,
@@ -89,7 +90,9 @@ def _update(state: State) -> tuple[State, Metrics]:
 
 def test_no_update_before_learning_starts() -> None:
     """Before ``learning_starts`` the state is untouched and every metric
-    is a (1,) NaN; from it the update runs, its metrics reshaped to (1,)."""
+    is a (1,) NaN; from it the update runs, its metrics reshaped to (1,).
+    A given timestep (the step's own, for an update without a replay)
+    replaces the steps collected."""
     loop = _loop()
     early, metrics = loop.maybe_update(_state(9), 10, _update)
     assert float(early.value) == 1.0 and metrics.loss.shape == (1,)
@@ -97,6 +100,9 @@ def test_no_update_before_learning_starts() -> None:
     ready, metrics = loop.maybe_update(_state(10), 10, _update)
     assert float(ready.value) == 2.0
     np.testing.assert_array_equal(metrics.loss, [1.0])
+    collected_at = jnp.asarray(8)
+    early, _ = loop.maybe_update(_state(10), 10, _update, collected_at)
+    assert float(early.value) == 1.0
 
 
 @pytest.mark.parametrize(
@@ -422,9 +428,9 @@ class SquareTerm(Extension):
 
 
 def test_actor_step_steps_down_the_loss_plus_the_extensions_terms() -> None:
-    """The extensions see the rows the agent passes with the differentiated
-    parameters, the mean action and the agent's loss; the actor steps down
-    the sum: d/dw (2w + w^2) at w = 3 is 8."""
+    """The extensions see the rows' entries and the critics the agent passes
+    with the differentiated parameters, the mean action and the agent's
+    loss; the actor steps down the sum: d/dw (2w + w^2) at w = 3 is 8."""
     actor = TrainState.create(
         apply_fn=None, params={"w": jnp.asarray(3.0)}, tx=optax.sgd(0.5)
     )
@@ -432,6 +438,7 @@ def test_actor_step_steps_down_the_loss_plus_the_extensions_terms() -> None:
         collector_state=Collector(jnp.asarray(0)), actor_state=actor, ext_state=((),)
     )
     term = SquareTerm()
+    zeros = jnp.zeros((1, 1))
 
     def policy_loss(params):
         return 2.0 * params["w"], jnp.asarray(1.0), params["w"] + 1.0
@@ -442,17 +449,11 @@ def test_actor_step_steps_down_the_loss_plus_the_extensions_terms() -> None:
         ExtensionStack((term,)),
         jax.random.PRNGKey(0),
         100,
-        observations=jnp.zeros((1, 1)),
+        Transition(zeros, zeros, zeros, zeros, zeros, zeros),
     )
     assert float(stepped.params["w"]) == 3.0 - 0.5 * 8.0 and float(grad_norm) == 8.0
     assert float(aux) == 1.0 and float(jax.tree.leaves(metrics)[0]) == 6.0
-    assert set(term.seen) == {
-        "observations",
-        "actor_params",
-        "actor_state",
-        "pi_mean",
-        "agent_loss",
-    }
+    assert set(term.seen) == set(REPLAY_ACTOR_KEYS)
 
 
 def test_run_if_runs_the_update_only_where_the_condition_holds() -> None:

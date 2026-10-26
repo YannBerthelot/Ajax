@@ -53,7 +53,7 @@ def _target(
             rng=KEY,
             recurrent=False,
             **common,
-        )
+        )[0]
     if name == "REDQ":
         return compute_redq_td_target(
             critic_states=state.critic_state,

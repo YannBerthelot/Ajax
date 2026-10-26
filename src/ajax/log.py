@@ -14,20 +14,30 @@ if TYPE_CHECKING:
 
 
 def compose_eval_metrics(
-    extensions: "ExtensionStack", total_timesteps: int
+    extensions: "ExtensionStack",
+    total_timesteps: int,
+    agent_metrics: Optional[Callable[[Any], dict]] = None,
 ) -> Optional[Callable]:
-    """``(agent_state, rng) -> dict``: the stack's
-    :meth:`ExtensionStack.apply_eval_metrics` at the collector's timestep, the
-    ``extra_eval_metrics`` of :func:`evaluate_and_log` and
-    :func:`maybe_eval_and_log`; ``None`` without extensions, so that their
-    zero-overhead branch stays."""
-    if not extensions:
+    """(agent_state, rng) -> dict: the agent's family's agent_metrics(agent_state)
+    (the replay's expert share) and the stack's apply_eval_metrics at the
+    collector's timestep, the extra_eval_metrics of evaluate_and_log and
+    maybe_eval_and_log; None without either, so that their zero-overhead
+    branch stays."""
+    if not extensions and agent_metrics is None:
         return None
 
     def eval_metrics(agent_state, rng):
-        return extensions.apply_eval_metrics(
-            agent_state, agent_state.collector_state.timestep, rng, total_timesteps
-        )
+        metrics = {} if agent_metrics is None else dict(agent_metrics(agent_state))
+        if extensions:
+            metrics.update(
+                extensions.apply_eval_metrics(
+                    agent_state,
+                    agent_state.collector_state.timestep,
+                    rng,
+                    total_timesteps,
+                )
+            )
+        return metrics
 
     return eval_metrics
 

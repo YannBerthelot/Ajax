@@ -90,6 +90,7 @@ def _one_step() -> tuple[AVG, Any, Transition]:
         truncated=column,
         next_obs=jax.random.normal(keys[2], (1, *obs_shape)),
         raw_action=raw,
+        executed_action=jnp.tanh(raw),  # the policy's own action executed
     )
     return agent, state, transition
 
@@ -144,9 +145,9 @@ def test_a_truncated_step_bootstraps_and_a_terminated_one_does_not(
     td_target = avg_module.compute_avg_td_target
 
     def spy_td_target(*a: Any):
-        target, next_log_probs = td_target(*a)
+        target, next_log_probs, next_actions = td_target(*a)
         targets.append(target)
-        return target, next_log_probs
+        return target, next_log_probs, next_actions
 
     monkeypatch.setattr(avg_module, "compute_avg_td_target", spy_td_target)
     one, zero = jnp.ones((1, 1)), jnp.zeros((1, 1))
@@ -192,3 +193,23 @@ def test_the_actor_loss_takes_the_executed_action(
         executed = transition.reward / paid_action.HIGH
         q = q_values(critic, critic.params, transition.obs, executed).min(0)
         np.testing.assert_allclose(q_min, q.mean(), rtol=1e-5)
+
+
+def test_the_critic_scores_the_action_its_step_executed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The critic regresses at the step's executed action (the expert's,
+    where an action extension handed it the step), not at the policy's."""
+    agent, state, transition = _one_step()
+    executed = jnp.full_like(transition.action, -0.5)
+    seen: dict[str, Any] = {}
+    critic_loss = avg_module.compute_critic_loss
+
+    def spy(params: Any, critics: Any, observations: Any, actions: Any, *rest: Any):
+        seen["actions"] = actions
+        return critic_loss(params, critics, observations, actions, *rest)
+
+    monkeypatch.setattr(avg_module, "compute_critic_loss", spy)
+    step = transition.replace(executed_action=executed)
+    agent.update_critic(state, step, _context(agent))
+    np.testing.assert_array_equal(seen["actions"], executed)

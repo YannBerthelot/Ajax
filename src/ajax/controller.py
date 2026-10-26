@@ -284,20 +284,38 @@ def executed_fn(env_args: Any) -> Optional[Callable[[jax.Array, Any], jax.Array]
     return None
 
 
-def make_scored_action(
-    executed: Optional[Callable[[jax.Array, Any], jax.Array]], a_expert: Any
-) -> Optional[Callable[[jax.Array], jax.Array]]:
-    """actions -> the actions the critics score at rows whose expert's stored
-    actions are a_expert: a residual policy's executed ones (executed,
-    executed_fn's); None without a residual policy, so the learner traces
-    nothing extra."""
+def leave_unchanged(actions: jax.Array) -> jax.Array:
+    """actions as they are: the actions the critics score without a residual
+    policy (a Python identity, which adds nothing to the traced program)."""
+    return actions
+
+
+class ScoredActions(NamedTuple):
+    """The maps from the policy's actions at a batch's rows to those the
+    critics score there: at each row's s (map_actions) and at its s'
+    (map_next_actions). Under a residual policy they are the executed
+    actions, from the expert's actions the rows stored at s and s'; without
+    one, the policy's own (leave_unchanged)."""
+
+    map_actions: Callable[[jax.Array], jax.Array]
+    map_next_actions: Callable[[jax.Array], jax.Array]
+
+
+def make_scored_actions(
+    executed: Optional[Callable[[jax.Array, Any], jax.Array]], batch: Any
+) -> ScoredActions:
+    """The ScoredActions of batch's rows (a Transition), from executed,
+    executed_fn's map (None without a residual policy)."""
     if executed is None:
-        return None
+        return ScoredActions(leave_unchanged, leave_unchanged)
 
-    def scored_action(actions: jax.Array) -> jax.Array:
-        return executed(actions, a_expert)
+    def map_actions(actions: jax.Array) -> jax.Array:
+        return executed(actions, batch.a_expert)
 
-    return scored_action
+    def map_next_actions(actions: jax.Array) -> jax.Array:
+        return executed(actions, batch.next_a_expert)
+
+    return ScoredActions(map_actions, map_next_actions)
 
 
 def policy_action_dim(env_args: Any) -> int:

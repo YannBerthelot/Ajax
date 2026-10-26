@@ -34,7 +34,6 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.action_pipeline import check_action_extensions, make_action_pipeline
 from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
@@ -55,10 +54,9 @@ from ajax.agents.temperature import (
     get_alpha,
     update_temperature,
 )
-from ajax.controller import make_scored_action
+from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
 from ajax.networks.distributions import latent
-from ajax.networks.networks import predict_value
 from ajax.perf_utils import final_aux_scan
 from ajax.state import LoadedTrainState, Transition
 from ajax.types import Architecture
@@ -148,30 +146,6 @@ class SAC(
         # policy_rnn.py:75, :93) keeps torch's, also 1e-8.
         return {"eps": 1e-8}
 
-    def setup(self) -> None:
-        # Gain mode (ExpertGains) acts through the default pipeline, which
-        # dispatches no action extension yet (it runs the warm-up's chooser).
-        check_action_extensions(
-            self.extension_stack,
-            dispatched=self.expert is not None and not self.gain_mode,
-        )
-
-    @property
-    def gain_mode(self) -> bool:
-        """Whether the policy chooses an expert's gains (ExpertGains)."""
-        return self.env_args.policy_action_dim is not None
-
-    def choose_behaviour(self, context: TrainContext) -> Optional[Callable]:
-        # The action phase's pipeline (EDGE, JSRL, ValueBox) with an expert;
-        # gain mode acts through the shared collector's.
-        return make_action_pipeline(
-            expert_policy=None if self.gain_mode else self.expert,
-            recurrent=context.recurrent,
-            env_args=context.env_args,
-            extension_stack=context.extensions,
-            total_timesteps=context.total_timesteps,
-        )
-
     def init(self, key: jax.Array, context: TrainContext) -> SACState:
         """A squashed Gaussian actor, num_critics Q critics with their
         targets, and the temperature."""
@@ -217,19 +191,6 @@ class SAC(
             self.burn_in,
             self.stored_state,
         )
-        # The share of the rows an expert acted in (no stored flags: none).
-        expert_share = (
-            jnp.zeros(()) if batch.is_expert is None else batch.is_expert.mean()
-        )
-        # The expert's actions as collection stored them, from its state along
-        # the trajectory, for a residual policy's executed actions and the
-        # actor-loss extensions' clone target.
-        a_expert = None
-        reads_expert = "actor_loss" in context.extensions.implemented_phases()
-        if batch.a_expert is not None and (
-            context.executed is not None or reads_expert
-        ):
-            a_expert = jax.lax.stop_gradient(batch.a_expert)
 
         def update_critic_once(agent_state: SACState, _: Any) -> tuple:
             agent_state, value_aux, metrics = self.update_critic(
@@ -243,7 +204,7 @@ class SAC(
             update_critic_once, agent_state, length=self.num_critic_updates
         )
         stepped, policy_aux, log_probs, policy_metrics = self.update_actor(
-            agent_state, batch, carries, a_expert, context
+            agent_state, batch, carries, context
         )
         # The actor step runs from the first update, since its log-probs feed
         # the temperature's, and is kept from policy_update_start.
@@ -272,7 +233,7 @@ class SAC(
         return agent_state, AuxiliaryLogs(
             temperature=temperature_aux,
             policy=policy_aux,
-            value=value_aux.replace(expert_frac_in_buffer=expert_share),
+            value=value_aux,
             extensions=merge_metrics(value_metrics, policy_metrics),
         )
 
@@ -290,7 +251,8 @@ class SAC(
         critic_key, agent_state = agent_state.get_keys_and_new_state()
         # A truncated row bootstraps on its final observation (bootstrap_obs).
         dones = batch.terminated
-        target_q = compute_td_target(
+        scored = context.make_scored_actions(batch)
+        target_q, next_actions = compute_td_target(
             actor_state=agent_state.actor_state,
             critic_state=agent_state.critic_state,
             next_observations=batch.next_obs,
@@ -301,24 +263,9 @@ class SAC(
             rng=critic_key,
             recurrent=context.recurrent,
             reward_scale=self.reward_scale,
-            executed=context.executed,
-            next_a_expert=(
-                batch.next_a_expert if context.executed is not None else None
-            ),
+            map_next_actions=scored.map_next_actions,
             carries=carries,
         )
-        # The target extensions (MCVarianceCorrection's variance) read the
-        # critics' predictions, from a pass of their own: the target comes
-        # before the gradient-bearing pass.
-        q_preds = None
-        if "on_target" in context.extensions.implemented_phases():
-            q_preds = predict_value(
-                critic_state=agent_state.critic_state,
-                critic_params=agent_state.critic_state.params,
-                x=jnp.concatenate(
-                    (batch.obs, jax.lax.stop_gradient(batch.action)), axis=-1
-                ),
-            )
 
         def critic_loss(params: FrozenDict, target_q: jax.Array) -> tuple:
             return compute_mean_critic_loss(
@@ -342,19 +289,15 @@ class SAC(
             dones=dones,
             gamma=self.gamma,
             reward_scale=self.reward_scale,
-            # The target's key (IBRL and LCBGatedBootstrap redraw its
-            # next-action sample), the critics' predictions and the memory flag.
-            target_extras={
-                "rng_key": critic_key,
-                "q_preds": q_preds,
-                "recurrent": context.recurrent,
-            },
+            next_actions=next_actions,
+            # The target's key: IBRL and LCBGatedBootstrap redraw its
+            # next-action sample.
+            target_extras={"rng_key": critic_key},
         )
         value_aux = ValueAuxiliaries(
             critic_loss=aux.critic_loss,
             q_pred_min=aux.q_pred_min,
             var_preds=aux.var_preds,
-            expert_frac_in_buffer=jnp.zeros(1),
             grad_norm=grad_norm,
         )
         return agent_state.replace(critic_state=critic_state), value_aux, metrics
@@ -364,18 +307,17 @@ class SAC(
         agent_state: SACState,
         batch: Transition,
         carries: Optional[RecurrentCarries],
-        a_expert: Optional[jax.Array],
         context: TrainContext,
     ) -> tuple[SACState, PolicyAuxiliaries, jax.Array, dict]:
         """The actor's step on SAC's soft policy loss, the critics scoring a
-        residual policy's executed actions from the expert's stored ones
-        a_expert, which the actor-loss extensions (OnlineBC, ImitationLoss)
-        read as their clone target. Also returns the log-probs of a fresh
+        residual policy's executed actions from the expert's stored ones,
+        which the actor-loss extensions (OnlineBC, ImitationLoss) read as
+        their clone target. Also returns the log-probs of a fresh
         sample of the stepped actor, which the temperature's step reads
         (CleanRL's SAC order; cited from memory, unverified)."""
         actor_key, sample_key, agent_state = agent_state.get_keys_and_new_state(2)
         alpha = get_alpha(agent_state)
-        transform = make_scored_action(context.executed, a_expert)
+        scored = context.make_scored_actions(batch)
 
         def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
             loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
@@ -386,7 +328,7 @@ class SAC(
                 alpha,
                 actor_key,
                 carries,
-                action_transform=transform,
+                map_actions=scored.map_actions,
             )
             aux = PolicyAuxiliaries(
                 policy_loss=loss,
@@ -402,13 +344,8 @@ class SAC(
             context.extensions,
             actor_key,
             context.total_timesteps,
-            observations=batch.obs,
-            # The replay keeps them only for a run with an expert: None
-            # without one, never the observations passed off as raw.
-            raw_observations=batch.raw_obs,
-            a_expert=a_expert,
-            actions=batch.action,
-            critic_state=agent_state.critic_state,
+            batch,
+            agent_state.critic_state,
         )
         policy = actor_dist(actor_state, actor_state.params, batch.obs, carries)
         _, log_probs = policy.sample_and_log_prob(seed=sample_key)
@@ -426,6 +363,7 @@ class SAC(
             "actor",
             "critic_ensemble",
             "discounted",
+            "next_action_target",
             "obs_networks",
             "off_policy",
             "policy_density",
@@ -436,19 +374,10 @@ class SAC(
             "warmup",
         }
     )
-    # The action phase reaches only the action pipeline's slots, and
-    # transform_action the pipeline, with an expert policy
-    # (check_action_extensions); choose_warmup_action reaches SAC's pipeline,
-    # or the default one under gain mode.
-    supported_extension_phases = RecurrentReplayAgent.supported_extension_phases.union(
-        {"action"}
-    )
     # Its critic step's target_extras join the shared step's on_target keys.
     phase_batch_keys = {  # noqa: RUF012
         **update_steps.REPLAY_BATCH_KEYS,
-        "on_target": update_steps.TARGET_KEYS.union(
-            {"rng_key", "q_preds", "recurrent"}
-        ),
+        "on_target": update_steps.TARGET_KEYS.union({"rng_key"}),
     }
     # MCPretrain's and PhiRefresh's (the expert critic phi*, SACState's
     # fields), and BellmanPretrain's.
@@ -456,7 +385,9 @@ class SAC(
         BELLMAN_CONTEXT
     ).union({"critic_optimizer_args", "extensions", "network_args", "num_critics"})
     stores_expert_actions = True
-    supported_buffer_fields = frozenset({"raw_next_obs", "return_to_go"})
+    supported_buffer_fields = RecurrentReplayAgent.supported_buffer_fields.union(
+        {"raw_next_obs", "return_to_go"}
+    )
 
 
 # -- SAC's equations, in the order update calls them --------------------------
@@ -465,18 +396,16 @@ def sample_next_actions(
     next_observations: jax.Array,
     key: jax.Array,
     carries: Optional[RecurrentCarries] = None,
-    executed: Optional[Callable[[jax.Array, Any], jax.Array]] = None,
-    next_a_expert: Optional[jax.Array] = None,
+    map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, jax.Array]:
     """The bootstrap actions a' ~ pi(.|s') and their log-probabilities,
-    summed over the action dimensions; with a residual policy, the executed
-    ones the critics score, executed(a', next_a_expert)."""
+    summed over the action dimensions; the actions are those the critics
+    score, map_next_actions(a') (a residual policy's executed ones)."""
     next_policy = actor_dist(
         actor_state, actor_state.params, next_observations, carries, bootstrap=True
     )
     next_actions, log_probs = next_policy.sample_and_log_prob(seed=key)
-    if executed is not None:
-        next_actions = executed(next_actions, next_a_expert)
+    next_actions = map_next_actions(next_actions)
     return next_actions, log_probs.sum(-1, keepdims=True)
 
 
@@ -491,26 +420,26 @@ def compute_td_target(
     rng: jax.Array,
     recurrent: bool,
     reward_scale: float = 1.0,
-    executed: Optional[Callable[[jax.Array, Any], jax.Array]] = None,
-    next_a_expert: Optional[jax.Array] = None,
+    map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
     carries: Optional[RecurrentCarries] = None,
-) -> jax.Array:
+) -> tuple[jax.Array, jax.Array]:
     """SAC's Bellman target r + gamma (1 - d)(min_i Q_target_i(s', a') -
     alpha log pi(a'|s')), a' ~ pi(.|s'), no gradient flowing back through
-    it; the target extensions (IBRL, CriticBlend, MCVarianceCorrection) may
-    change it before the critic loss reads it.
+    it, and the next actions a' it scored; the target extensions (IBRL,
+    CriticBlend, MCVarianceCorrection) may change it before the critic loss
+    reads it.
 
-    With a residual policy, executed maps the sampled next actions to the
-    executed ones, from the expert's stored next actions next_a_expert
-    (ajax.controller.executed_fn): the bootstrap is queried where the
-    critic was trained, clip(a_expert(s') + scale * pi(s'), -1, 1). Without
-    it the target Q is out of distribution and training diverges. The
-    carries (sequence replay) are set exactly when recurrent.
+    With a residual policy, map_next_actions maps the sampled next actions
+    to the executed ones, from the expert's stored next actions
+    (ajax.controller.make_scored_actions): the bootstrap is queried where
+    the critic was trained, clip(a_expert(s') + scale * pi(s'), -1, 1).
+    Without it the target Q is out of distribution and training diverges.
+    The carries (sequence replay) are set exactly when recurrent.
     """
     del recurrent
     sample_key, rng = jax.random.split(rng)
     next_actions, log_probs = sample_next_actions(
-        actor_state, next_observations, sample_key, carries, executed, next_a_expert
+        actor_state, next_observations, sample_key, carries, map_next_actions
     )
     q_targets = q_values(
         critic_state,
@@ -524,7 +453,7 @@ def compute_td_target(
     target = compute_soft_bellman_target(
         min_q_target, log_probs, rewards, dones, gamma, alpha, reward_scale
     )
-    return jax.lax.stop_gradient(target)
+    return jax.lax.stop_gradient(target), next_actions
 
 
 def compute_soft_bellman_target(
@@ -553,11 +482,11 @@ def compute_soft_policy_loss(
     rng: jax.Array,
     carries: Optional[RecurrentCarries] = None,
     q_reduce: Callable[..., jax.Array] = jnp.min,
-    action_transform: Optional[Callable[[jax.Array], jax.Array]] = None,
+    map_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, tuple[jax.Array, jax.Array, Any]]:
     """mean(alpha log pi(a|s) - Q(s, a)), a ~ pi(.|s), Q the critics'
-    values reduced by q_reduce over the ensemble axis, at action_transform(a)
-    when given (residual RL scores the executed action).
+    values reduced by q_reduce over the ensemble axis, at map_actions(a),
+    the actions the critics score (residual RL's executed ones).
 
     Returns the loss and (log_probs, q_values, policy). In sequence mode the fresh
     actions are queried at the critic's head, its memory reading the actions
@@ -572,7 +501,7 @@ def compute_soft_policy_loss(
         rng,
         carries,
         q_reduce,
-        action_transform,
+        map_actions,
     )
 
 
@@ -584,14 +513,13 @@ def compute_soft_policy_objective(
     rng: jax.Array,
     carries: Optional[RecurrentCarries] = None,
     q_reduce: Callable[..., jax.Array] = jnp.min,
-    action_transform: Optional[Callable[[jax.Array], jax.Array]] = None,
+    map_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, tuple[jax.Array, jax.Array, Any]]:
     """compute_soft_policy_loss on the policy at observations, however
     the agent computed it (CrossQ's actor in training)."""
     sample_key, rng = jax.random.split(rng)
     actions, log_probs = policy.sample_and_log_prob(seed=sample_key)
-    if action_transform is not None:
-        actions = action_transform(actions)
+    actions = map_actions(actions)
     reduced_q_values = q_reduce(
         q_values(critic_state, critic_state.params, observations, actions, carries),
         axis=0,
@@ -671,7 +599,6 @@ class ValueAuxiliaries:
     critic_loss: jax.Array
     q_pred_min: jax.Array  # min over ensemble
     var_preds: jax.Array  # inter-critic variance
-    expert_frac_in_buffer: jax.Array  # fraction of sampled batch flagged as expert
     grad_norm: jax.Array  # before clipping
 
 

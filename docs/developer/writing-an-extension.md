@@ -13,8 +13,8 @@ An agent's constructor accepts its algorithm's own hyperparameters plus
 `extensions=()`, and nothing else. The documented exceptions are
 `expert_policy` (SAC, TD3, REDQ, AVG, APO), whose return each evaluation
 logs and which SAC also learns from; SAC's options that reach its network's
-input, its collection or its action pipeline, which extensions do not reach
-yet ([SAC](../algorithms/sac.md#expert-options)); and TD3's
+input or its collection, which extensions do not reach yet
+([SAC](../algorithms/sac.md#expert-options)); and TD3's
 `action_pipeline`, kept for a downstream project. Do not add to them. If a
 new feature seems to need a keyword on an
 agent (`use_critic_blend=True`, an expert's weight), write an extension

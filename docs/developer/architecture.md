@@ -21,8 +21,8 @@ Three ideas shape the code:
   before training or an extra loss term is an `Extension` folded into the
   loop, not a keyword on the agent. The exceptions left are
   `expert_policy` (SAC, TD3, REDQ, AVG, APO), SAC's options that reach its
-  network's input, collection or action pipeline, which extensions do not
-  reach yet, and TD3's `action_pipeline` for a downstream project.
+  network's input or collection, which extensions do not reach yet, and
+  TD3's `action_pipeline` for a downstream project.
 
 ## The package
 

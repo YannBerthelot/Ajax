@@ -193,3 +193,23 @@ def test_the_actor_loss_takes_the_executed_action(
         executed = transition.reward / paid_action.HIGH
         q = q_values(critic, critic.params, transition.obs, executed).min(0)
         np.testing.assert_allclose(q_min, q.mean(), rtol=1e-5)
+
+
+def test_the_critic_scores_the_action_its_step_executed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The critic regresses at the step's executed action (the expert's,
+    where an action extension handed it the step), not at the policy's."""
+    agent, state, transition = _one_step()
+    executed = jnp.full_like(transition.action, -0.5)
+    seen: dict[str, Any] = {}
+    critic_loss = avg_module.compute_critic_loss
+
+    def spy(params: Any, critics: Any, observations: Any, actions: Any, *rest: Any):
+        seen["actions"] = actions
+        return critic_loss(params, critics, observations, actions, *rest)
+
+    monkeypatch.setattr(avg_module, "compute_critic_loss", spy)
+    step = transition.replace(executed_action=executed)
+    agent.update_critic(state, step, _context(agent))
+    np.testing.assert_array_equal(seen["actions"], executed)

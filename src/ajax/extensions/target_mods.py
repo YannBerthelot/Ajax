@@ -220,11 +220,12 @@ class IBRL(Extension):
     value on another, so the bonus can be negative. Selection is hard, the
     authors' "ibrl", not their "ibrl_soft".
 
-    With hybrid_acting it also acts as their act_method "ibrl" (every IBRL
-    configuration of theirs): it executes the better of the agent's action
-    and the expert's (choose_action), in collection (the action stage, past
-    the warm-up) and in evaluation (eval_action). The agent's is the one it
-    would execute (TD3's noisy action, a sample; in evaluation its mean);
+    With hybrid_acting (the default) it also acts as their act_method
+    "ibrl", as every IBRL configuration of theirs does: it executes the
+    better of the agent's action and the expert's (choose_action), in
+    collection (the action stage, past the warm-up) and in evaluation
+    (eval_action). The agent's is the one it would execute (TD3's noisy
+    action, a sample; in evaluation its mean);
     each is scored by the target critics' minimum, over a fresh random
     subset where the target takes one (REDQ's), as the authors' forward_k
     draws a random pair per call. The replay flags the steps the expert's
@@ -240,7 +241,7 @@ class IBRL(Extension):
     """
 
     expert_policy: Callable
-    hybrid_acting: bool = False
+    hybrid_acting: bool = True
     reads_stored_expert: bool = False  # bound: the agent's expert
     critic_subset_size: Optional[int] = None  # bound: REDQ's subset_size
     name: str = "ibrl"

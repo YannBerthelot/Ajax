@@ -80,6 +80,11 @@ replay key (left from a removed expert-batch mix): up to 2.0e-3 (critic),
 BellmanPretrain's golden was re-captured when it came to require a seeded
 replay: it had been recorded on the empty replay expert_buffer_n_steps=0
 left, so it pre-trained on nothing; it now runs on ExpertPrefill(n_steps=40).
+
+IBRL's golden was re-captured when IBRL came to act as its authors' code
+acts (hybrid_acting, on by default: owner, 2026-10-26), executing the
+expert's action where the target critics rate it higher: critic -2.2e-3,
+actor +3.5e-4, target -4.5e-5, alpha -3.6e-5.
 """
 
 from __future__ import annotations

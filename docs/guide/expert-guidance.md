@@ -265,15 +265,16 @@ term of SAC's, REDQ's and TQC's targets stays at the policy's action when
 the expert is selected, TQC's bonus reads its quantiles' means, and IQL,
 whose target scores no next action, scores a sample of its actor.
 
-`IBRL(hybrid_acting=True)` also acts as the authors' code acts: past the
-warm-up it executes the better of the agent's action (TD3's noisy one, a
-sample) and the expert's, each scored by the minimum over the target
-critics (on REDQ, over a fresh random subset of the target's size), and
-the replay flags the rows the expert's action took. Evaluation makes the
-same choice from the agent's evaluation action, its mean. It uses its own
-expert, which need not be the agent's. `ibrl/expert_frac` and
-`Eval/expert share` log how often the expert's action was taken. IQL under
-a residual policy refuses it, as it refuses JSRL and EDGE.
+`IBRL` also acts as the authors' code acts (`hybrid_acting=False` leaves
+the target alone): past the warm-up it executes the better of the agent's
+action (TD3's noisy one, a sample) and the expert's, each scored by the
+minimum over the target critics (on REDQ, over a fresh random subset of the
+target's size), and the replay flags the rows the expert's action took.
+Evaluation makes the same choice from the agent's evaluation action, its
+mean. It uses its own expert, which need not be the agent's.
+`ibrl/expert_frac` and `Eval/expert share` log how often the expert's action
+was taken. IQL under a residual policy refuses it, as it refuses JSRL and
+EDGE.
 `LCBGatedBootstrap` scores the same next actions and blends minima over
 the same critics.
 `CriticBlend` and `MCVarianceCorrection` lean on `φ*`, so they need

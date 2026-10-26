@@ -108,14 +108,16 @@ def test_on_a_subset_it_chooses_on_a_fresh_draw_of_the_targets_size(
 
 
 def test_it_binds_the_targets_subset_size_and_acts_only_when_asked():
-    """REDQ hands its subset size, the others none; without hybrid_acting
-    IBRL has no acting phase (the stage and the evaluation leave it out)."""
+    """REDQ hands its subset size, the others none; IBRL acts by default,
+    and without hybrid_acting has no acting phase (the stage and the
+    evaluation leave it out)."""
     bound = IBRL(expert_policy=half).bind_to_agent(subset_size=2, expert_policy=None)
     assert bound.critic_subset_size == 2
     assert IBRL(expert_policy=half).bind_to_agent().critic_subset_size is None
     acting = {"action", "eval_action"}
-    assert acting <= IBRL(expert_policy=half, hybrid_acting=True).implemented_phases()
-    assert not acting.intersection(IBRL(expert_policy=half).implemented_phases())
+    assert acting.issubset(IBRL(expert_policy=half).implemented_phases())
+    off = IBRL(expert_policy=half, hybrid_acting=False)
+    assert not acting.intersection(off.implemented_phases())
 
 
 def test_evaluation_executes_the_better_of_the_mean_and_the_experts_action():
@@ -173,7 +175,7 @@ def test_iql_under_a_residual_policy_refuses_hybrid_acting():
     """IQL's replay keeps the residual its actor chose: an executed expert's
     action leaves none to keep (as for JSRL and EDGE)."""
     residual = ResidualPolicy()
-    IQL("Pendulum-v1", expert_policy=half, extensions=(IBRL(half), residual))
+    target_only = IBRL(half, hybrid_acting=False)
+    IQL("Pendulum-v1", expert_policy=half, extensions=(target_only, residual))
     with pytest.raises(NotWired, match="residual"):
-        hybrid = IBRL(half, hybrid_acting=True)
-        IQL("Pendulum-v1", expert_policy=half, extensions=(hybrid, residual))
+        IQL("Pendulum-v1", expert_policy=half, extensions=(IBRL(half), residual))

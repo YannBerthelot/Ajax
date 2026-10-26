@@ -276,6 +276,16 @@ mean. It uses its own expert, which need not be the agent's.
 was taken. IQL under a residual policy refuses it, as it refuses JSRL and
 EDGE. `tests/conformance/test_ibrl_original.py` checks the target and the
 acting against the authors' code on fixed inputs.
+
+The choice between the two actions is hard by default (the authors'
+`ibrl`). `IBRL(expert_policy, soft_choice=True)` makes it their
+`ibrl_soft`, in acting and in the target alike: the expert's action is
+taken with probability `sigmoid(β (Q(a_E) − Q(a)))`, `β` being
+`soft_choice_beta` (10 by default, as in their configurations). The target
+can then draw an expert's action worth less than the policy's, so its bonus
+can be negative. The draw happens in evaluation too, as in the authors'
+code, so evaluation can switch between the two actions.
+
 `LCBGatedBootstrap` scores the same next actions and blends minima over
 the same critics.
 `CriticBlend` and `MCVarianceCorrection` lean on `φ*`, so they need

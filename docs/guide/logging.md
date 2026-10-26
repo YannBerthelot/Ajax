@@ -137,7 +137,7 @@ over its updates):
 | Name | Extension | Meaning |
 | --- | --- | --- |
 | `ibrl/bonus` | `IBRL` | the mean bonus the target gains |
-| `ibrl/expert_wins` | `IBRL` | the share of the batch where the expert's next action has the higher value |
+| `ibrl/expert_wins` | `IBRL` | the share of the batch where the target chose the expert's next action (the higher value, or drawn with `soft_choice`) |
 | `ibrl/expert_frac` | `IBRL` (with `hybrid_acting`, the default) | the share of envs whose last collection step took the expert's action |
 | `lcb_bootstrap/p_expert` | `LCBGatedBootstrap` | the mean weight of the expert's next action in the target |
 | `critic_blend/target_gap` | `CriticBlend` | the mean of the expert's target minus the Bellman target |

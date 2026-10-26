@@ -64,12 +64,12 @@ from . import readouts as R
 # + 19, this note + 1.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 160, "runs.py": 250}
 CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 120, "faults/": 239})
-CAPS.update({"test_framework.py": 268, "test_value_chains.py": 1051})
+CAPS.update({"test_framework.py": 270, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 804, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 372, "test_world_models.py": 452})
 CAPS.update({"test_action_box.py": 201, "test_imitation.py": 178})
-CAPS.update({"test_offline.py": 300})
+CAPS.update({"test_offline.py": 300, "test_action_stage.py": 224})
 
 
 def _modules() -> list:
@@ -234,14 +234,16 @@ def test_the_directory_keeps_to_its_budget() -> None:
     for TQC's, 160 for residual RL and gain mode, 1 each for the context rename
     and APG's vector rate, 21 for the scratch copy's cleanup, 19 for SAC's former
     expert defaults passed explicitly, 4 for AVG's first update on the policy's
-    step (the bookkeeping oracle)."""
+    step (the bookkeeping oracle), 225 for the action stage's reach (JSRL on
+    TD3, AVG, DAgger and its discrete twin, EDGE on REDQ, three faults; the four
+    faults of the stored expert action merged into one)."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 7650, total
+    assert total <= 7875, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

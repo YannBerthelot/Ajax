@@ -42,10 +42,11 @@ def _setup() -> tuple[Any, dict, jax.Array]:
         expert_v_max=jnp.asarray(1.0),
     )
     obs_shape, act_shape = get_state_action_shapes(agent.env_args.env)
-    keys = jax.random.split(jax.random.PRNGKey(1), 4)
+    keys = jax.random.split(jax.random.PRNGKey(1), 5)
     obs = jax.random.normal(keys[0], (BATCH, *obs_shape))
     actions = jnp.tanh(jax.random.normal(keys[1], (BATCH, *act_shape)))
     next_obs = jax.random.normal(keys[2], (BATCH, *obs_shape))
+    next_actions = jnp.tanh(jax.random.normal(keys[4], (BATCH, *act_shape)))
     batch = {
         "observations": obs,
         "actions": actions,
@@ -57,6 +58,8 @@ def _setup() -> tuple[Any, dict, jax.Array]:
         "gamma": 0.99,
         "raw_next_observations": next_obs,
         "next_a_expert": None,
+        "next_actions": next_actions,
+        "critic_subset": None,
     }
     return state, batch, jnp.zeros((BATCH, 1))
 

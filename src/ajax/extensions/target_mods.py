@@ -143,12 +143,17 @@ def discounted(name: str, gamma: Any) -> Any:
     return gamma
 
 
-def _next_target_q(
-    ext: Any, agent_state: Any, batch: dict, rng: jax.Array
+def score_next_actions(
+    ext: Any, agent_state: Any, batch: dict, key: jax.Array
 ) -> tuple[jax.Array, jax.Array]:
-    """The target critics' ensemble at ``s'`` for the expert's action and
-    for a policy sample on ``rng``: ``(Q_target(s', a_E), Q_target(s',
-    a'))``."""
+    """The target critics' ensemble at s' for the expert's action and for
+    the policy's, (Q_target(s', a_E), Q_target(s', a')): a' is the next
+    action the agent's target scored (TD3's smoothed target action, the
+    sample SAC's, REDQ's and TQC's targets valued), as the authors' IBRL
+    compares the expert with the action its target values
+    (hengyuan-hu/ibrl rl/q_agent.py:_act_ibrl). A target without next
+    actions (IQL's V(s')) has no original form: a sample of the online
+    actor on key stands in."""
     next_observations = batch["next_observations"]
     critic_state = agent_state.critic_state
 
@@ -159,17 +164,18 @@ def _next_target_q(
     next_expert_actions = expert_next_actions(
         ext, batch["raw_next_observations"], batch["next_a_expert"]
     )
-    next_pi, _ = get_pi(
-        actor_state=agent_state.actor_state,
-        actor_params=agent_state.actor_state.params,
-        obs=next_observations,
-        done=batch["dones"],
-        # A run with memory refuses every extension (check_recurrent_options):
-        # the actor here is feedforward.
-        recurrent=False,
-    )
-    key, _ = jax.random.split(rng)
-    next_actions, _ = next_pi.sample_and_log_prob(seed=key)
+    next_actions = batch["next_actions"]
+    if next_actions is None:
+        next_policy, _ = get_pi(
+            actor_state=agent_state.actor_state,
+            actor_params=agent_state.actor_state.params,
+            obs=next_observations,
+            done=batch["dones"],
+            # A run with memory refuses every extension
+            # (check_recurrent_options): the actor here is feedforward.
+            recurrent=False,
+        )
+        next_actions, _ = next_policy.sample_and_log_prob(seed=key)
     return q(next_expert_actions), q(next_actions)
 
 
@@ -180,7 +186,8 @@ class IBRL(Extension):
 
     Adds ``γ(1-d)·max(min Q_target(s', a_expert') - min Q_target(s', a_π'),
     0)`` to the Bellman target so the value function is consistent with an
-    argmax(Q_expert, Q_policy) action-selection rule.
+    argmax(Q_expert, Q_policy) action-selection rule; a_π' is the next action
+    the agent's target scored (score_next_actions).
     """
 
     expert_policy: Callable
@@ -190,7 +197,9 @@ class IBRL(Extension):
         {"actor", "discounted", "q_critic", "target_critic"}
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
-        "on_target": frozenset({"dones", "next_a_expert", "raw_next_observations"})
+        "on_target": frozenset(
+            {"dones", "next_a_expert", "next_actions", "raw_next_observations"}
+        )
     }
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
@@ -217,9 +226,8 @@ class IBRL(Extension):
     ) -> Any:
         del ext_state
         dones, gamma = batch["dones"], discounted("IBRL", batch["gamma"])
-        # SAC's target hands its own key; the shared critic step, none.
-        rng = batch.get("rng_key", context.rng)
-        q_expert, q_policy = _next_target_q(self, agent_state, batch, rng)
+        action_key, _ = jax.random.split(context.rng)
+        q_expert, q_policy = score_next_actions(self, agent_state, batch, action_key)
         min_q_expert = jnp.min(q_expert, axis=0, keepdims=False)
         min_q_policy = jnp.min(q_policy, axis=0, keepdims=False)
         gap = jax.lax.stop_gradient(
@@ -252,7 +260,9 @@ class LCBGatedBootstrap(Extension):
         {"actor", "critic_ensemble", "discounted", "q_critic", "target_critic"}
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
-        "on_target": frozenset({"dones", "next_a_expert", "raw_next_observations"})
+        "on_target": frozenset(
+            {"dones", "next_a_expert", "next_actions", "raw_next_observations"}
+        )
     }
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     buffer_fields: ClassVar[frozenset[str]] = frozenset({"raw_next_obs"})
@@ -280,8 +290,8 @@ class LCBGatedBootstrap(Extension):
         del ext_state
         # beta anneals as the EDGE gate's, on the collector's timestep.
         dones, gamma = batch["dones"], discounted("LCBGatedBootstrap", batch["gamma"])
-        rng = batch.get("rng_key", context.rng)
-        q_expert, q_policy = _next_target_q(self, agent_state, batch, rng)
+        action_key, _ = jax.random.split(context.rng)
+        q_expert, q_policy = score_next_actions(self, agent_state, batch, action_key)
         beta = self.beta(agent_state.collector_state.timestep, context.total_steps)
         score_e, score_p = lcb_score(q_expert, beta), lcb_score(q_policy, beta)
         q_min_e = jnp.min(q_expert, axis=0, keepdims=False)

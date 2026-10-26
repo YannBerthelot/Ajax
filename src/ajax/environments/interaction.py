@@ -596,6 +596,14 @@ def policy_pipeline(
         is_expert_flag = warmup_expert_flags(took_this_step, action)
     else:
         is_expert_flag = jnp.zeros_like(action[..., :1], dtype=jnp.float32)
+    # The stored choice is apart from the executed action: where the action
+    # stage hands the expert the step, the replay keeps the choice that
+    # executes the expert's action.
+    policy_action_for_expert = None
+    if after_choice:
+        policy_action_for_expert = find_expert_action_in_choice_space(
+            transform, after_choice, acting.expert_action, action
+        )
     return ActionPipelineResult(
         env_action=env_action,
         policy_action=action,
@@ -606,6 +614,7 @@ def policy_pipeline(
         rng=rng,
         new_actor_hidden=agent_state.actor_state.hidden_state,
         raw_action=raw_action,
+        policy_action_for_expert=policy_action_for_expert,
     )
 
 

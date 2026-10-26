@@ -6,6 +6,14 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **IQL under a residual policy takes JSRL, EDGE and IBRL's acting.** Where
+  one hands the agent's expert the step, IQL's replay keeps the residual
+  that executes the expert's action, 0, beside the executed action, which
+  its actor fits; IBRL acting with another expert is refused (a residual
+  need not reach that expert's action). `StorePolicyAction` still stores
+  the policy's choice. The action pipelines' result carries the new
+  columns (`policy_action_for_expert`, `stored_policy_action`). Runs that
+  were accepted before are unchanged, bitwise.
 - **APG's schedule steps its matrices alone**, as its reference does: with
   `lr_schedule="warmup_cosine"` (`contextual_controller`'s default) the
   biases, LayerNorm scales and PID gains keep `learning_rate`. Scheduled

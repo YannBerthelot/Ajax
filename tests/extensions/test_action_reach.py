@@ -3,8 +3,9 @@ agent of the shared collector with an expert. JSRL, its expert acting on
 every step here, has each agent execute and store the expert's action (in
 the agent's own layout: DAgger's discrete index column), flagged as the
 expert's; AVG, which keeps no replay, learns from the step's executed
-action. IQL under a residual policy refuses it (that the agents learn is
-tests/probing's)."""
+action. IQL under a residual policy keeps the residual executing the
+expert's action, 0, and refuses an extension acting with another expert
+(that the agents learn is tests/probing's)."""
 
 from typing import Any
 
@@ -13,9 +14,9 @@ import numpy as np
 import pytest
 
 from ajax import IQL
-from ajax.extensions.capabilities import NotWired
 from ajax.extensions.expert import JSRLCurriculum, ResidualPolicy
 from ajax.extensions.exploration import EDGEExploration
+from ajax.extensions.target_mods import IBRL
 from tests.agents.test_agent_contract import CASES
 
 #: The expert acts on every step: a horizon far beyond any episode, which
@@ -83,12 +84,43 @@ def test_avg_learns_from_the_action_its_step_executed() -> None:
     np.testing.assert_array_equal(np.asarray(state.collector_state.last_expert_frac), 1)
 
 
-def test_iql_under_a_residual_policy_refuses_an_action_extension() -> None:
-    """Its replay keeps the residual the actor chose beside the executed
-    action: a substituted action leaves none to keep."""
-    IQL("Pendulum-v1", expert_policy=_one, extensions=(ALWAYS,))
-    with pytest.raises(NotWired, match="residual"):
-        IQL("Pendulum-v1", expert_policy=_one, extensions=(ALWAYS, ResidualPolicy()))
+@pytest.mark.parametrize(
+    "acting",
+    [
+        JSRLCurriculum(episode_length=16, decay_frac=1e6),
+        EDGEExploration(gate="fixed", fixed_prob=0.5, decay_frac=0.0),
+        IBRL(expert_policy=_one),
+    ],
+    ids=["jsrl", "edge", "ibrl"],
+)
+def test_iql_under_a_residual_keeps_the_residual_each_row_executed(acting) -> None:
+    """IQL's replay keeps, beside each executed action, the residual its
+    actor fits: where the extension handed the agent's expert the step, 0,
+    which executes the expert's action (0.5); the residual chosen elsewhere.
+    Every row executed clip(a_E + residual)."""
+    state, case = _run(
+        "IQL", "Pendulum-v1", _one, extensions=(acting, ResidualPolicy())
+    )
+    rows = state.collector_state.buffer_state.experience
+    stop = case.n_timesteps // 2  # rows per env
+    executed = np.asarray(rows["action"])[..., :stop, 0]
+    kept = np.asarray(rows["policy_action"])[..., :stop, 0]
+    np.testing.assert_allclose(executed, np.clip(0.5 + kept, -1, 1), atol=1e-6)
+    handed = kept == 0.0
+    assert handed.any() and not handed.all()
+    np.testing.assert_array_equal(executed[handed], 0.5)
+
+
+def test_iql_under_a_residual_refuses_an_extension_acting_with_another_expert():
+    """A residual reaches only clip(a_E + residual): another expert's action
+    need not lie in reach, so IQL's replay would have no residual to keep."""
+    IQL("Pendulum-v1", expert_policy=_one, extensions=(IBRL(_one), ResidualPolicy()))
+    with pytest.raises(ValueError, match="other than the agent's"):
+        IQL(
+            "Pendulum-v1",
+            expert_policy=_one,
+            extensions=(IBRL(_first), ResidualPolicy()),
+        )
 
 
 @pytest.mark.parametrize("gate", ["fixed", "argmax", "lcb", "thompson"])

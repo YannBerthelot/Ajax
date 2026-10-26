@@ -414,6 +414,16 @@ PLUMBING_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         200,
     ),
 }
+# IQL's residual policy under the action stage: the replay keeps the
+# residual executing the expert's action where JSRL hands it the step. Last
+# in the table, so the cases before keep their order.
+RESIDUAL_STAGE_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "IQL-residual-jsrl": (
+        IQL,
+        {**S, **R, "expert_policy": push, "extensions": (ResidualPolicy(), JSRL)},
+        200,
+    ),
+}
 OFFLINE.update({"TD3-target-bc-offline"})
 #: The dataset an OFFLINE case trains on, where it is not test_offline's.
 DATASETS = {"TD3-target-bc-offline": long_episodes()}
@@ -627,6 +637,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     **OWN_COLLECTOR_CASES,
     **B5_CASES,
     **PLUMBING_CASES,
+    **RESIDUAL_STAGE_CASES,
 }
 
 

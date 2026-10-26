@@ -236,7 +236,10 @@ executed action. The policy then learns a correction to the expert
 (residual RL). SAC, TD3, REDQ, TQC, CrossQ, ASAC and AVG run it, their
 critics scoring the executed action; PPO and APO too, their ratio reading
 the policy's own sample; and IQL, whose replay also keeps the residual the
-policy chose (its warm-up draws residuals), which its actor fits. UDRL
+policy chose (its warm-up draws residuals), which its actor fits. Where a
+collection extension handed the agent's expert the step, IQL's replay keeps
+the residual that executes the expert's action, 0, which is Ajax's own
+composition of JSRL, EDGE and IBRL with residual IQL. UDRL
 acts through it in its own collector, keeping the policy's action, and APG
 in its differentiable rollout, whose gradient runs through the residual
 and the expert.
@@ -273,8 +276,9 @@ target's size), and the replay flags the rows the expert's action took.
 Evaluation makes the same choice from the agent's evaluation action, its
 mean. It uses its own expert, which need not be the agent's.
 `ibrl/expert_frac` and `Eval/expert share` log how often the expert's action
-was taken. IQL under a residual policy refuses it, as it refuses JSRL and
-EDGE. `tests/conformance/test_ibrl_original.py` checks the target and the
+was taken. IQL under a residual policy takes it with the agent's expert
+only: a residual reaches clip(a_E + residual), and another expert's action
+need not lie in that reach. `tests/conformance/test_ibrl_original.py` checks the target and the
 acting against the authors' code on fixed inputs.
 
 The choice between the two actions is hard by default (the authors'
@@ -370,7 +374,7 @@ built:
 
 | Extension | Needs | Refused |
 | --- | --- | --- |
-| `EDGEExploration`, `JSRLCurriculum`, `ValueBox` | an off-policy agent with an `expert_policy`, without gain mode (`ExpertGains`) and, on IQL, without a residual policy; `EDGEExploration` continuous actions | when built |
+| `EDGEExploration`, `JSRLCurriculum`, `ValueBox` | an off-policy agent with an `expert_policy`, without gain mode (`ExpertGains`); `EDGEExploration` continuous actions; on IQL with a residual policy, `IBRL` acting with the agent's expert only | when built |
 | `ResidualPolicy` | SAC (without gain mode), TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL, with an `expert_policy` | when built |
 | `OnlineBC`, `CriticBlend`, `MCVarianceCorrection`, `ValueBox`, `PhiRefresh` | `MCPretrain` in the stack | when built |
 | `OnlineBC` | SAC with an `expert_policy`, whose actions it clones | when built |

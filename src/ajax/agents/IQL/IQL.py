@@ -40,7 +40,6 @@ from ajax.agents.recurrent import q_values, sample_replay
 from ajax.controller import executed_fn
 from ajax.environments.interaction import get_pi, policy_pipeline
 from ajax.extensions.base import merge_metrics
-from ajax.extensions.capabilities import NotWired
 from ajax.networks.networks import predict_value
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import Architecture, FloatOrCallable
@@ -117,18 +116,24 @@ class IQL(
             learning_rate=self.value_learning_rate
         )
         # Under a residual policy the replay keeps the residual the actor
-        # chose beside the executed action, and the actor fits it: an action
-        # extension executing another action leaves no residual to keep.
-        acting = [
+        # chose beside the executed action, and the actor fits it; where an
+        # action extension executes the agent's expert's action, the residual
+        # 0 (the stage's policy_action_for_expert). A residual reaches only
+        # clip(a_expert + scale r): another expert's action need not lie in
+        # reach, so no residual exists to keep.
+        foreign = [
             type(extension).__name__
             for extension in self.extension_stack
             if "action" in extension.implemented_phases()
+            and any(expert is not self.expert for expert in extension.experts())
         ]
-        if acting and executed_fn(self.env_args) is not None:
-            reason = "executes an action whose residual the replay cannot keep"
-            raise NotWired(
-                f"IQL cannot run {acting} with a residual policy yet: each {reason}.",
-                dict.fromkeys(acting, reason),
+        if foreign and executed_fn(self.env_args) is not None:
+            raise ValueError(
+                f"IQL cannot run {foreign} with a residual policy: each executes"
+                " an expert other than the agent's, whose action a residual,"
+                " reaching only clip(a_expert + scale r), need not reach, so its"
+                " replay has no residual to keep. Give the extension the agent's"
+                " expert_policy."
             )
 
     def choose_behaviour(self, context: TrainContext) -> Optional[Callable]:

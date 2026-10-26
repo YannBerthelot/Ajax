@@ -141,8 +141,8 @@ test-only extensions of known effect, and that an extension implementing a
 phase the agent does not fold is rejected.
 
 Every agent lists the phases it folds in `supported_extension_phases`: the
-shared loop's `LOOP_PHASES` (`pretrain`, `post_update`, `eval_metrics`, in
-`ajax.agents.loop`) plus those its update folds; the base class's default is
+shared loop's `LOOP_PHASES` (`pretrain`, `post_update`, `eval_metrics`,
+`observe`, `action`, in `ajax.agents.loop`) plus those its update folds; the base class's default is
 empty. An extension implementing any other phase is rejected when the agent
 is built instead of being silently ignored. It declares in
 `phase_batch_keys` the keys its folds put in the extensions' batches beyond
@@ -240,7 +240,7 @@ class FOO(GradientClipping, ExpertGuided, ReplayAgent):
         actor_state, actor_aux, _, actor_metrics = update_steps.actor_step(
             agent_state, partial(compute_foo_policy_loss, agent_state),
             context.extensions, actor_key, context.total_timesteps,
-            observations=batch.obs, actions=batch.action,
+            batch, agent_state.critic_state,
         )
         agent_state = agent_state.replace(
             actor_state=actor_state,

@@ -485,6 +485,11 @@ STORE_REACH_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         240,
     ),
 }
+# UDRL with an expert and no transform: the expert called beside the
+# actor. Last in the table, so the cases before keep their order.
+UDRL_WIRING_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "UDRL-expert": (UDRL, {**UDRL_KW, "expert_policy": push}, 128),
+}
 OFFLINE.update({"TD3-target-bc-offline"})
 #: The dataset an OFFLINE case trains on, where it is not test_offline's.
 DATASETS = {"TD3-target-bc-offline": long_episodes()}
@@ -702,6 +707,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     **RESIDUAL_STAGE_CASES,
     **APG_FEATURE_CASES,
     **STORE_REACH_CASES,
+    **UDRL_WIRING_CASES,
 }
 
 

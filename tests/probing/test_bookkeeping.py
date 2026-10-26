@@ -104,11 +104,13 @@ def steps(
     agent: str, n_envs: int, starts: int, learned_alpha: bool = False
 ) -> dict[str, int]:
     """Each optimiser's final ``.step`` from the first post-collection
-    timestep >= ``starts``; AVG never updates its temperature
+    timestep >= ``starts`` (AVG, without a replay, from the step collected
+    at starts); AVG never updates its temperature
     (train_AVG.update_agent), ASAC only when ``learned_alpha``
     (``fixed_alpha=False``), DQN and PQN never their critic_state copy."""
     its = iterations(agent, n_envs)
-    u, rollout = sum(t >= starts for t in its), len(its) * 2 * 2
+    first = starts + n_envs if agent == "AVG" else starts
+    u, rollout = sum(t >= first for t in its), len(its) * 2 * 2
     if agent == "SAC":
         actor, alpha = (sum(t >= max(starts, s) for t in its) for s in (200, 300))
         return {"critic": u, "actor": actor, "alpha": alpha}
@@ -187,7 +189,8 @@ def errors(
 
 def test_p2_oracle_reproduces_the_replayed_counts() -> None:
     """The replayed counts: final timestep 1400/2800, 1408/2816 for rollout
-    agents; 10/20 and 9/19 log events; AVG from timestep 100, 676 updates."""
+    agents; 10/20 and 9/19 log events; AVG from the step collected at
+    timestep 100, 675 updates."""
     for agent, n, final, events in (
         ("SAC", 1, 1400, 10),
         ("SAC", 4, 2800, 20),
@@ -199,7 +202,7 @@ def test_p2_oracle_reproduces_the_replayed_counts() -> None:
     ):
         got = iterations(agent, n)[-1], len(log_timesteps(agent, n))
         assert got == (final, events), agent
-    assert steps("AVG", 4, 100) == {"critic": 676, "actor": 676, "alpha": 0}
+    assert steps("AVG", 4, 100) == {"critic": 675, "actor": 675, "alpha": 0}
 
 
 P2_CELLS = [(a, n, True) for a in P2_AGENTS for n in (1, 4) if (a, n) != ("AVG", 4)]

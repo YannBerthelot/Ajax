@@ -138,6 +138,7 @@ def _env_updates(records: Any, env_id: str, dtype: Any, fault: str | None) -> di
             raw_obs=row(a["obs"]),
             log_prob=log_prob,
             raw_action=raw,
+            executed_action=row(a["action"]),  # the reference executes its action
         )
 
     def one_step(state: Any, t: Transition) -> Any:

@@ -305,7 +305,14 @@ class PQN(
     name = "PQN"
     action_space = "discrete"
     capabilities = frozenset(
-        {"discounted", "obs_networks", "off_policy", "q_critic", "reward_learning"}
+        {
+            "discounted",
+            "next_action_target",
+            "obs_networks",
+            "off_policy",
+            "q_critic",
+            "reward_learning",
+        }
     )
     supported_extension_phases = LOOP_PHASES.union({"on_target", "critic_loss"})
     # Unannotated, as the whole contract, so the dataclass makes it no field.

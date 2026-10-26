@@ -68,6 +68,11 @@ class Transition(Replaceable):
     # The action the policy chose where it differs from the executed one
     # (a residual policy's), for a replay that stores it: IQL's actor fits it.
     policy_action: Optional[jnp.ndarray] = None
+    # The action the step executed, as a replay row stores it (action): a
+    # residual policy's executed one, the expert's where an extension handed
+    # it the step, gain mode's gains. For an agent learning from the step
+    # itself (AVG), whose critic scores it; action holds the policy's.
+    executed_action: Optional[jnp.ndarray] = None
 
     def __len__(self):
         return self.obs.shape[0] if self.obs.ndim > 0 else 1

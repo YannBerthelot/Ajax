@@ -86,12 +86,14 @@ from ajax.types import NormalizationInfo
 from ajax.utils import online_normalize
 
 #: The extension phases the loop applies for every agent: a fresh run's
-#: one-shot ``pretrain``, ``post_update`` after each update,
-#: ``eval_metrics`` at each evaluation and ``observe`` wherever the shared
-#: collector and evaluation meet an observation (an agent rolling out on
-#: its own removes it). An agent adds the phases its own update applies
-#: (``ActorCritic.supported_extension_phases``).
-LOOP_PHASES = frozenset({"pretrain", "post_update", "eval_metrics", "observe"})
+#: one-shot pretrain, post_update after each update, eval_metrics at each
+#: evaluation, observe wherever the shared collector and evaluation meet an
+#: observation and action in the shared collector's action stage (an agent
+#: rolling out on its own removes those two). An agent adds the phases its
+#: own update applies (ActorCritic.supported_extension_phases).
+LOOP_PHASES = frozenset(
+    {"pretrain", "post_update", "eval_metrics", "observe", "action"}
+)
 
 
 #: ``init(key) -> agent_state``: a fresh agent state. One-shot pretraining
@@ -408,11 +410,12 @@ class TrainLoop:
 
     # -- the steps of an iteration -----------------------------------------
     def collect_kwargs(self, recurrent: bool, **kwargs: Any) -> dict:
-        """:func:`collect_experience`'s arguments for this run. With the
-        agent's expert, its action pipeline also stores the expert's actions
-        from the expert's tracked state, and gain mode actuates the chosen
-        action through it, and the default pipeline runs the run's warm-up
-        chooser (:func:`expert_collect_kwargs`)."""
+        """collect_experience's arguments for this run. With the agent's
+        expert, its action pipeline also stores the expert's actions from the
+        expert's tracked state, the run's action extensions act on its
+        result, gain mode actuates the chosen action through the expert, and
+        the default pipeline runs the run's warm-up chooser
+        (expert_collect_kwargs)."""
         common = {"recurrent": recurrent, "mode": self.mode, "env_args": self.env_args}
         args = dict(common)
         args.update(kwargs)
@@ -426,7 +429,14 @@ class TrainLoop:
         warmups = self.env_args.warmups
         args.update(
             expert_collect_kwargs(
-                self.expert_policy, pipeline, recurrent, n_envs, transform, warmups
+                self.expert_policy,
+                pipeline,
+                recurrent,
+                n_envs,
+                transform,
+                warmups,
+                self.extensions,
+                self.total_timesteps,
             )
         )
         args.update(expert)
@@ -446,10 +456,11 @@ class TrainLoop:
         agent_state: Any,
         learning_starts: int,
         update: Callable[[Any], tuple[Any, Any]],
+        timestep: Optional[jax.Array] = None,
     ) -> tuple[Any, Any]:
-        """``update`` and apply ``post_update`` once ``learning_starts`` steps
-        are collected; before, the metrics have the update's structure,
-        filled with NaN (which the logger drops)."""
+        """update and apply post_update once timestep, by default the steps
+        collected, reaches learning_starts; before, the metrics have the
+        update's structure, filled with NaN (which the logger drops)."""
 
         def do_update(agent_state: Any) -> tuple[Any, Any]:
             agent_state, aux = update(agent_state)
@@ -457,8 +468,9 @@ class TrainLoop:
             aux = jax.tree.map(lambda x: jnp.reshape(x, (1,)), aux)
             return self.post_update(agent_state), aux
 
-        ready = agent_state.collector_state.timestep >= learning_starts
-        return run_if(ready, do_update, agent_state)
+        if timestep is None:
+            timestep = agent_state.collector_state.timestep
+        return run_if(timestep >= learning_starts, do_update, agent_state)
 
     def repeat_update(
         self, agent_state: Any, n: Any, update: Callable[[Any], tuple[Any, Any]]
@@ -481,15 +493,16 @@ class TrainLoop:
         aux: Any,
         index: Any,
         recurrent: bool = False,
+        agent_metrics: Optional[Callable[[Any], dict]] = None,
         **kwargs: Any,
     ) -> tuple[Any, Optional[dict]]:
-        """Evaluate and log every ``log_frequency`` steps
-        (:func:`ajax.log.evaluate_and_log`), the extensions' eval metrics
-        included; returns the state and the metrics (``None`` without
-        logging), only in the last fifth of training in a sweep. An agent
-        storing normalised observations evaluates with them normalised by its
-        running statistics, unless its own ``controller`` says how it
-        acts."""
+        """Evaluate and log every log_frequency steps
+        (ajax.log.evaluate_and_log), the agent's family's agent_metrics and
+        the extensions' eval metrics included; returns the state and the
+        metrics (None without logging), only in the last fifth of training
+        in a sweep. An agent storing normalised observations evaluates with
+        them normalised by its running statistics, unless its own controller
+        says how it acts."""
         controller = make_run_controller(self.env_args, kwargs.get("controller"))
         if controller != Controller():
             kwargs.update({"controller": controller})
@@ -508,7 +521,7 @@ class TrainLoop:
             self.log_frequency,
             self.total_timesteps,
             extra_eval_metrics=compose_eval_metrics(
-                self.extensions, self.total_timesteps
+                self.extensions, self.total_timesteps, agent_metrics
             ),
             **kwargs,
         )
@@ -663,7 +676,8 @@ class TrainLoop:
         by default ``learning_starts``; 0: the policy's from the first step,
         as TQC's authors act), applies ``after_collect(agent_state,
         transition)`` when given, then from ``learning_starts`` runs
-        ``update(agent_state, transition)``, then evaluates the actor
+        ``update(agent_state, transition)`` (without a replay, from the step
+        collected at learning_starts), then evaluates the actor
         (:meth:`evaluate_and_log`). ``expose_rollout`` keeps the step on
         ``agent_state.last_rollout`` as a ``T = 1`` rollout. The budget is
         :attr:`budget` ``// n_envs`` ticks.
@@ -713,9 +727,15 @@ class TrainLoop:
                 agent_state = after_collect(agent_state, transition)
             return agent_state, transition
 
+        # An update without a replay learns from its step alone, so its gate
+        # reads the timestep the step was collected at: it never learns from
+        # a warm-up step. A replay's gate reads the steps it holds.
+        learns_from_its_step = collect_args.get("buffer") is None
+
         def iteration(
             agent_state: Any, index: Any, tick: Any
         ) -> tuple[Any, Optional[dict]]:
+            collected_at = agent_state.collector_state.timestep
             agent_state, experience = collect_step(agent_state, tick)
 
             def step(agent_state: Any) -> tuple[Any, Any]:
@@ -723,7 +743,12 @@ class TrainLoop:
 
             aux = None
             if n_updates is None:
-                agent_state, aux = self.maybe_update(agent_state, learning_starts, step)
+                agent_state, aux = self.maybe_update(
+                    agent_state,
+                    learning_starts,
+                    step,
+                    collected_at if learns_from_its_step else None,
+                )
             else:
                 agent_state = self.repeat_update(
                     agent_state, n_updates(tick, agent_state), step

@@ -152,3 +152,44 @@ def test_a_rows_next_action_is_its_episodes_next_rows() -> None:
     np.testing.assert_array_equal(
         next_actions(rows)[:, 0], [1.0, np.nan, 3.0, 4.0, np.nan]
     )
+
+
+def _episodes(rows: int = 32, length: int = 8) -> TransitionDataset:
+    """Pendulum-shaped rows in episodes of length steps: all but each
+    episode's last have a next action."""
+    rng = np.random.default_rng(0)
+    obs = rng.normal(size=(rows, 3))
+    ends = np.arange(rows) % length == length - 1
+    actions = rng.uniform(-1, 1, (rows, 1))
+    cut = np.zeros(rows, bool)
+    return TransitionDataset(
+        obs, actions, rng.normal(size=rows), ends, cut, np.roll(obs, -1, 0)
+    )
+
+
+@pytest.mark.parametrize("name", ["SAC", "TD3", "REDQ", "TQC", "CrossQ"])
+def test_target_bc_reads_the_next_actions_every_target_scores(name: str) -> None:
+    """Every agent whose target scores a next action hands it on: offline on
+    multi-step episodes the penalty is positive where a' is known."""
+    from ajax.logging.wandb_logging import LoggingConfig
+    from tests.agents.test_agent_contract import CASES
+
+    case = CASES[name]
+    kwargs = dict(case.kwargs)
+    kwargs.update({"learning_starts": 0, "extensions": (TargetBC(),)})
+    agent = case.cls(env_id="Pendulum-v1", n_envs=2, **kwargs)
+    logging = LoggingConfig(config={}, log_frequency=4, use_wandb=False)
+    _, logged = agent.train_offline(_episodes(), 8, seed=0, logging_config=logging)
+    assert np.all(np.asarray(logged["target_bc/known_frac"]) > 0)
+    assert np.all(np.asarray(logged["target_bc/penalty"]) > 0)
+
+
+def test_target_bc_refuses_a_target_without_a_next_action_or_a_replay() -> None:
+    """IQL bootstraps on V(s'), at no next action; AVG keeps no replay, which
+    a dataset's next action reaches the target through."""
+    from ajax import AVG, IQL
+
+    with pytest.raises(MissingCapability, match="next_action_target"):
+        IQL("Pendulum-v1", extensions=(TargetBC(),))
+    with pytest.raises(MissingCapability, match="replay"):
+        AVG("Pendulum-v1", extensions=(TargetBC(),))

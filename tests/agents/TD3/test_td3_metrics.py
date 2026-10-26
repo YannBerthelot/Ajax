@@ -137,7 +137,7 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
     _, v_aux, _ = agent.update_critic(state, batch, None, context)
     critic, actor = state.critic_state, state.actor_state
     alpha = jnp.exp(state.alpha.params["log_alpha"])
-    target = compute_td_target(
+    target, _ = compute_td_target(
         actor,
         critic,
         batch.next_obs,
@@ -155,7 +155,7 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
     )(critic.params)
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 
-    _, p_aux, *_ = agent.update_actor(state, batch, None, None, context)
+    _, p_aux, *_ = agent.update_actor(state, batch, None, context)
     policy_key = state.get_keys_and_new_state(2)[0]  # the step's policy key
     p_grads = jax.grad(
         lambda p: compute_soft_policy_loss(

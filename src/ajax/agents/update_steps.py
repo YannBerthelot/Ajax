@@ -20,9 +20,9 @@ from ajax.log import unevaluated
 
 #: The keys of the extensions' batches the shared steps below build, which
 #: an agent on them declares (ActorCritic.phase_batch_keys), with any it
-#: adds: apply_on_target's, compute_extensions_critic_loss's, and those
-#: actor_step adds, and with them the rows' entries a replay agent
-#: passes (REPLAY_ACTOR_KEYS: SAC's, TD3's, CrossQ's and SAC's core's).
+#: adds: apply_on_target's, compute_extensions_critic_loss's, and
+#: actor_step's (ACTOR_STEP_KEYS, and with them the rows' entries,
+#: REPLAY_ACTOR_KEYS, of which an agent declares those its rows hold).
 TARGET_KEYS = frozenset(
     {
         "observations",
@@ -35,6 +35,7 @@ TARGET_KEYS = frozenset(
         "raw_next_observations",
         "next_a_expert",
         "next_action",
+        "next_actions",
     }
 )
 
@@ -212,6 +213,7 @@ def apply_on_target(
     dones: jax.Array,
     gamma: Optional[float],
     reward_scale: float,
+    next_actions: Optional[jax.Array] = None,
     target_extras: Optional[dict] = None,
 ) -> tuple[jax.Array, dict]:
     """target_q with the extensions' on_target applied, no gradient
@@ -220,11 +222,12 @@ def apply_on_target(
     agent whose target comes out of its own critic pass (CrossQ) calls
     inside its loss.
 
-    batch is a Transition. rewards, dones (where the
-    bootstrap is cut), gamma (None for an average-reward agent) and
-    reward_scale are what the target used; target_extras join the
-    extensions' batch (TD3's smoothed next actions). The phase draws on a key
-    derived from key, the step's (derive_extensions_key).
+    batch is a Transition. rewards, dones (where the bootstrap is cut),
+    gamma (None for an average-reward agent), reward_scale and next_actions
+    (the next actions the target scored; None for a target scoring a state
+    value, IQL's V(s')) are what the target used; target_extras join the
+    extensions' batch (SAC's key). The phase draws on a key derived from
+    key, the step's (derive_extensions_key).
     """
     target_batch = {
         "observations": batch.obs,
@@ -240,6 +243,7 @@ def apply_on_target(
         "next_a_expert": batch.next_a_expert,
         # The dataset's action at s' (NaN where unknown); None unstored.
         "next_action": batch.next_action,
+        "next_actions": next_actions,
     }
     target_batch.update(target_extras or {})
     target_key, _ = jax.random.split(derive_extensions_key(key))
@@ -331,26 +335,38 @@ def actor_step(
     extensions: ExtensionStack,
     key: jax.Array,
     total_timesteps: int,
-    **batch: Any,
+    batch: Any,
+    critic_state: Any = None,
 ) -> tuple[Any, Any, jax.Array, dict]:
-    """A replay agent's actor step.
+    """A replay agent's actor step on batch (a Transition).
 
     Steps the actor down policy_loss(params) -> (loss, aux, pi_mean)
     (pi_mean: the policy's mean action at the rows, None for a discrete
     policy) plus the extensions' actor_loss terms, on a key
-    derived from key, the step's (derive_extensions_key). Their batch is
-    batch, the rows' entries the agent passes (observations,
-    raw_observations, actions, a_expert, critic_state), with
-    the differentiated actor_params, the actor_state, pi_mean and
-    agent_loss.
+    derived from key, the step's (derive_extensions_key). Their batch holds
+    the rows' entries (REPLAY_ACTOR_KEYS: their observations, raw
+    observations, actions and the expert's stored actions a_expert, and
+    critic_state, the critics the agent's loss reads, None where it reads
+    none), with the differentiated actor_params, the actor_state, pi_mean
+    and agent_loss. An extension reads only the keys the agent declares
+    (phase_batch_keys), those its rows hold.
     Returns the stepped actor state, aux, the gradients' norm
     (gradient_step) and the phase's metrics.
     """
     actor_state = agent_state.actor_state
+    rows = {
+        "observations": batch.obs,
+        # None where the replay keeps none (a run without an expert), never
+        # the observations passed off as raw.
+        "raw_observations": batch.raw_obs,
+        "actions": batch.action,
+        "a_expert": batch.a_expert,
+        "critic_state": critic_state,
+    }
 
     def total_actor_loss(params: Any) -> tuple[jax.Array, Any]:
         loss, aux, pi_mean = policy_loss(params)
-        actor_batch = dict(batch)
+        actor_batch = dict(rows)
         actor_batch.update(
             {
                 "pi_mean": pi_mean,

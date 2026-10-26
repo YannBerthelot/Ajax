@@ -15,6 +15,7 @@ from ajax.controller import (
     transforms_of,
     warmups_of,
 )
+from ajax.environments.action_stage import check_action_slots
 from ajax.environments.create import prepare_env
 from ajax.environments.system_class import env_params_is_batched
 from ajax.environments.utils import ExpertInAgentUnits
@@ -399,6 +400,8 @@ class ActorCritic:
             replay_action_choosers=choosers,
             policy_action_dim=dim,
         )
+        # The action stage runs an action extension in one of its two slots.
+        check_action_slots(self.extension_stack)
         # Under gain mode the policy chooses gains, and an expert's actions,
         # stored (a_expert) or called again, are env actions: an extension
         # using them as the policy's would mix the two spaces.

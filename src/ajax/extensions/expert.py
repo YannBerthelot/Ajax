@@ -584,22 +584,19 @@ class StorePolicyAction(Extension):
 class JSRLCurriculum(Extension):
     """True JSRL per-episode handoff (Uchendu et al. 2023).
 
-    While ``step_in_episode < H_t`` the expert acts; otherwise the
-    learner does. ``H_t`` decays linearly from ``episode_length`` to 0
-    over the first ``decay_frac`` fraction of training.
+    While step_in_episode < H_t the expert acts; otherwise the learner
+    does. H_t decays linearly from episode_length to 0 over the first
+    decay_frac fraction of training.
 
-    The :meth:`action` phase owns the per-episode substitution. It reads
-    ``post_warmup_action`` and ``expert_action`` off the SAC action
-    pipeline's batch dict (the same dict :class:`EDGEExploration` and
-    :class:`~ajax.extensions.target_mods.ValueBox` use) and per-env
-    ``step_in_episode`` off ``agent_state.collector_state``; the SAC
-    pipeline still owns the ``step_in_episode`` increment/reset (in
-    :func:`collect_experience`). It writes ``_jsrl_use_expert`` back, which
-    the pipeline reads to flag the steps the expert took.
+    The action phase owns the per-episode substitution, in the action
+    stage's pre-warm-up slot (ajax.environments.action_stage). It reads
+    post_warmup_action and expert_action off the stage's dict and each
+    env's step_in_episode off agent_state.collector_state, which
+    collect_experience counts for an extension that reads it. It writes
+    expert_mask back, which flags the steps the expert took.
 
-    Evaluations log the guide horizon ``H_t`` (``jsrl/horizon``) and the
-    share of envs the expert drove on the last collection step
-    (``jsrl/expert_frac``).
+    Evaluations log the guide horizon H_t (jsrl/horizon) and the share of
+    envs the expert drove on the last collection step (jsrl/expert_frac).
     """
 
     episode_length: int = 1000
@@ -609,6 +606,10 @@ class JSRLCurriculum(Extension):
     action_slot: ClassVar[str] = "pre_warmup"
     reads_step_in_episode: ClassVar[bool] = True
 
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        # It executes the expert's action where the policy's goes.
+        return True
+
     def action(
         self,
         agent_state: Any,
@@ -617,7 +618,7 @@ class JSRLCurriculum(Extension):
         rng: jax.Array,
         context: ExtensionContext,
     ) -> jax.Array | None:
-        """Substitute the expert action while ``step_in_episode < H_t``."""
+        """Substitute the expert action while step_in_episode < H_t."""
         del ext_state, rng
         post_warmup_action = obs["post_warmup_action"]
         expert_action = obs["expert_action"]
@@ -628,8 +629,8 @@ class JSRLCurriculum(Extension):
         use_expert_jsrl = use_expert_jsrl.reshape(
             (-1,) + (1,) * (post_warmup_action.ndim - 1)
         )
-        # The pipeline flags the steps the expert took (is_expert_flag).
-        obs["_jsrl_use_expert"] = use_expert_jsrl
+        # The stage flags the steps the expert took (is_expert_flag).
+        obs["expert_mask"] = use_expert_jsrl
         return jnp.where(use_expert_jsrl, expert_action, post_warmup_action)
 
     def horizon(self, timestep: Any, total_steps: int) -> jax.Array:

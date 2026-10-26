@@ -13,8 +13,8 @@ import numpy as np
 import pytest
 
 import ajax.extensions
-from ajax.agents.action_pipeline import _dispatch_actions
 from ajax.controller import ActingState
+from ajax.environments.action_stage import dispatch_action_phase
 from ajax.extensions.base import (
     PHASES,
     Extension,
@@ -202,10 +202,10 @@ def test_state_folds_thread_the_agent_state_in_list_order():
     assert (updated.value, updated.ext_state) == (12, (1, 6))
 
 
-def test_sac_action_dispatch_takes_the_last_proposal():
-    """SAC folds the ``action`` phase itself (action_pipeline), in stack
-    order: each non-None proposal replaces the batch's action, so the last
-    wins; ``None`` defers to the agent's own action."""
+def test_the_action_stage_takes_the_last_proposal():
+    """The action stage folds the action phase in stack order: each
+    proposal that is not None replaces the step's action, so the last wins;
+    None defers to the agent's own action."""
 
     class FixedAction(Extension):
         def __init__(self, value):
@@ -223,7 +223,7 @@ def test_sac_action_dispatch_takes_the_last_proposal():
         batch = {"action": jnp.asarray(0)}
         pairs = list(enumerate(extensions))
         acting = ActingState(obs=None, done=None, timestep=jnp.asarray(0))
-        out = _dispatch_actions(agent, acting, pairs, batch, "action", key, 10)
+        out, _ = dispatch_action_phase(agent, acting, pairs, batch, "action", key, 10)
         return int(out["action"])
 
     assert dispatched(FixedAction(1), Extension(), FixedAction(2)) == 2
@@ -542,5 +542,6 @@ def test_a_phase_naming_its_context_ctx_still_runs():
     assert float(metrics["named_ctx/step"]) == 2.0
     acting = ActingState(obs=None, done=None, timestep=jnp.asarray(step))
     pairs = [(0, _NamedCtx())]
-    out = _dispatch_actions(agent, acting, pairs, {"action": 0.0}, "action", rng, 10)
+    step = {"action": 0.0}
+    out, _ = dispatch_action_phase(agent, acting, pairs, step, "action", rng, 10)
     assert float(out["action"]) == 2.0

@@ -10,7 +10,7 @@ from typing import Any, ClassVar
 import jax.numpy as jnp
 import pytest
 
-from ajax import PPO, SAC
+from ajax import PPO, SAC, TD3
 from ajax.agents.base import ActorCritic
 from ajax.agents.loop import LOOP_PHASES
 from ajax.extensions.base import (
@@ -266,12 +266,12 @@ def test_an_agent_declares_the_batch_keys_it_passes():
 
 
 def test_agents_accept_only_the_phases_they_fold():
-    """The base accepts none; every agent the loop's, ``observe`` but where
-    it collects on its own, no agent ``eval_action``, only SAC ``action``
-    (its pipeline's slots), ``transform_action`` (a residual policy) the
-    agents whose critics score executed actions, and choose_warmup_action
-    those whose collection has a uniform warm-up, choose_replay_action those
-    whose replay the replay family writes."""
+    """The base accepts none; every agent the loop's, observe and action
+    (the action stage's slots) but where it collects on its own, no agent
+    eval_action, transform_action (a residual policy) the agents whose
+    critics score executed actions, and choose_warmup_action those whose
+    collection has a uniform warm-up, choose_replay_action those whose
+    replay the replay family writes."""
     assert ActorCritic.supported_extension_phases == frozenset()
     assert EveryPhase().implemented_phases() == frozenset(PHASES)
     # PPO, on policy, lacks what replacing the executed action needs.
@@ -280,11 +280,11 @@ def test_agents_accept_only_the_phases_they_fold():
     for name in AGENTS:
         agent = getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)
         phases = agent.supported_extension_phases
-        assert LOOP_PHASES.difference({"observe"}) <= phases, name
+        assert LOOP_PHASES.difference({"observe", "action"}) <= phases, name
         assert "eval_action" not in phases, name
         own_collector = name in ("APG", "UDRL", "DreamerV3", "TDMPC2")
         assert ("observe" in phases) != own_collector, name
-        assert ("action" in phases) == (name == "SAC"), name
+        assert ("action" in phases) != own_collector, name
         assert ("transform_action" in phases) == (name in RESIDUAL), name
         # The warm-up chooser reaches the agents with a uniform warm-up, but
         # TD-MPC2, whose own collector does not run it yet.
@@ -304,15 +304,16 @@ def _expert(obs):
     return jnp.zeros(obs.shape[:-1] + (1,))
 
 
-def test_sac_dispatches_action_only_to_its_pipeline_slots():
-    """SAC's pipeline runs ``action`` only for an extension of a slot and only
-    with an expert policy: any other is rejected at construction."""
+@pytest.mark.parametrize("agent", [SAC, TD3])
+def test_the_action_stage_runs_action_only_in_its_slots_with_an_expert(agent):
+    """The action stage runs action only for an extension of a slot and
+    only with an expert policy: any other is rejected at construction."""
     slotted = JSRLCurriculum()
     with pytest.raises(ValueError, match="'unslotted'"):
-        SAC("Pendulum-v1", expert_policy=_expert, extensions=[Unslotted()])
+        agent("Pendulum-v1", expert_policy=_expert, extensions=[Unslotted()])
     with pytest.raises(ValueError, match="expert_policy"):
-        SAC("Pendulum-v1", extensions=[slotted])
-    SAC("Pendulum-v1", expert_policy=_expert, extensions=[slotted])
+        agent("Pendulum-v1", extensions=[slotted])
+    agent("Pendulum-v1", expert_policy=_expert, extensions=[slotted])
 
 
 def test_sac_applies_a_residual_policy_only_through_its_pipeline():

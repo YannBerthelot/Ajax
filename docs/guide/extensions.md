@@ -219,8 +219,9 @@ target cut the bootstrap. `targets` is the target, held constant. The critic
 actor's mean action. `raw_observations` are the environment's own
 observations, before any normalisation; a replay agent keeps them only in a
 run with an expert, and passes `None` otherwise, except UDRL, whose segments
-hold them anyway. An agent's own keys (SAC's `rng_key`, TD3's
-`next_actions`) are in its `phase_batch_keys`.
+hold them anyway. `next_actions` are the next actions the target scored
+(None for a target on a state value, IQL's V(s')). An agent's own keys
+(SAC's `rng_key`) are in its `phase_batch_keys`.
 
 An extension never falls back to adding nothing, so a misplaced extension
 cannot look like a result. One declaring the keys it reads (`batch_keys`) is
@@ -295,7 +296,7 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | `ResidualPolicy` | Executes `clip(a_E + scale · a_π, −1, 1)`: the policy learns a correction on top of the expert. The replay stores the executed action and the critics score it. | `transform_action` | SAC (without gain mode), TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with an expert |
 | `ExpertGains` | Gain mode: the policy's action `a` sets each of the expert's learnable gains to `anchor · 10^a`, and the expert acts with them; the replay and the critics hold the gains. Needs a stateful expert with `learnable_fields` (`register_learnable_gains`). | `actuate` | SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with such an expert, without `ExpertActionInput` |
 | `ExpertWarmup` | During the warm-up, the expert takes a share `fraction` of the steps (one draw per step for every copy) and uniform random actions the others; the replay flags the rows the expert took. It acts in the controller only: no state, no key in the learner. | `choose_warmup_action` | SAC, TD3, REDQ, ASAC, CrossQ, IQL and AVG with an expert and `learning_starts > 0` |
-| `JSRLCurriculum` | The expert acts for the first `H_t` steps of each episode, the policy afterwards; `H_t` shrinks from `episode_length` to 0 over `decay_frac` of training. Logs `jsrl/horizon` and `jsrl/expert_frac`. | `action`, `eval_metrics` | SAC with an expert |
+| `JSRLCurriculum` | The expert acts for the first `H_t` steps of each episode, the policy afterwards; `H_t` shrinks from `episode_length` to 0 over `decay_frac` of training. Logs `jsrl/horizon` and `jsrl/expert_frac`. | `action`, `eval_metrics` | an off-policy agent with an expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger) |
 | `StorePolicyAction` | An off-policy-correctness ablation: the replay stores the action the policy chose, not the one executed, so the rows an expert, a warm-up or a residual acted in no longer hold the action behind their reward and next observation. It acts in the controller only. | `choose_replay_action` | SAC, TD3, TQC, REDQ, ASAC, CrossQ and IQL |
 | `ExpertValueMetrics` | Logs the critic's value at the expert's actions (`value/q_expert_mean`), its gap to the value of the actions taken (`value/q_gap`) and, with `MCPretrain`, its gap to `φ*` (`value/phi_star_q_gap_ood`), on one replay batch per evaluation. | `eval_metrics` | SAC, TD3, REDQ, ASAC with an expert |
 
@@ -311,7 +312,7 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `EDGEExploration` | Lets the expert act in place of the policy, step by step, as a gate (`gate=`) decides. `"fixed"`: with probability `fixed_prob`; `"argmax"`: whenever the critic rates the expert's action higher; `"boltzmann"`: with a probability that grows with that gap. These three fade out over `decay_frac` of training. `"lcb"`, `"argmax_lcb"` and `"thompson"` also weigh the critics' disagreement. Logs `edge/live_expert_frac` and its gate's schedule (`edge/decay` or `edge/beta`). | `action`, `eval_metrics` | SAC with an expert |
+| `EDGEExploration` | Lets the expert act in place of the policy, step by step, as a gate (`gate=`) decides. `"fixed"`: with probability `fixed_prob`; `"argmax"`: whenever the critic rates the expert's action higher; `"boltzmann"`: with a probability that grows with that gap. These three fade out over `decay_frac` of training. `"lcb"`, `"argmax_lcb"` and `"thompson"` also weigh the critics' disagreement. Logs `edge/live_expert_frac` and its gate's schedule (`edge/decay` or `edge/beta`). | `action`, `eval_metrics` | an off-policy agent with an expert, continuous actions (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger) |
 
 **Changing the critic's target** (`ajax.extensions.target_mods`)
 

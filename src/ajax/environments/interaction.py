@@ -26,6 +26,7 @@ from ajax.controller import (
     restart_observers,
     warmup_expert_flags,
 )
+from ajax.environments.action_stage import apply_action_extensions
 from ajax.environments.obs_norm import (
     apply_obs_norm,
     init_agent_obs_norm,
@@ -803,21 +804,24 @@ def expert_collect_kwargs(
     n_envs: int,
     transform: Any = None,
     warmups: tuple = (),
+    extensions: Any = (),
+    total_timesteps: int = 1,
 ) -> dict:
-    """:func:`collect_experience`'s ``action_pipeline`` and ``next_expert_fn``
-    for an agent storing its expert's actions (``a_expert`` at s,
-    ``next_a_expert`` at s'), the expert called once per step from its state
-    tracked along each trajectory (:func:`expert_step`), before the action is
-    chosen: ``action_pipeline`` (None: the policy's) reads its action on the
-    acting state (``expert_action``), with the same draws, and the stored
-    action and the expert's next state are the call's where the pipeline
-    returns none of its own. The run's ``transform``: a residual one the
-    default pipeline applies before the choice (a pipeline of the agent's
-    applies it itself); an ``actuate`` one (gain mode) executes the chosen
-    action through the expert, which that steps, and the chosen one is
-    stored. The run's warm-up chooser (warmups) runs in the default
-    pipeline; a pipeline of the agent's runs it itself. Without an expert,
-    ``action_pipeline`` alone."""
+    """collect_experience's action_pipeline and next_expert_fn for an agent
+    storing its expert's actions (a_expert at s, next_a_expert at s'), the
+    expert called once per step from its state tracked along each
+    trajectory (expert_step), before the action is chosen: action_pipeline
+    (None: the policy's) reads its action on the acting state
+    (expert_action), with the same draws, and the stored action and the
+    expert's next state are the call's where the pipeline returns none of
+    its own. The run's action extensions act on the pipeline's result (the
+    action stage, apply_action_extensions, over total_timesteps). The run's
+    transform: a residual one the default pipeline applies before the choice
+    (a pipeline of the agent's applies it itself); an actuate one (gain
+    mode) executes the chosen action through the expert, which that steps,
+    and the chosen one is stored. The run's warm-up chooser (warmups) runs
+    in the default pipeline; a pipeline of the agent's runs it itself.
+    Without an expert, action_pipeline alone."""
     if expert_policy is None:
         return {"action_pipeline": action_pipeline}
     inner = action_pipeline or partial(
@@ -827,6 +831,7 @@ def expert_collect_kwargs(
         transform=transform,
         warmups=warmups,
     )
+    inner = apply_action_extensions(inner, extensions, n_envs, total_timesteps)
     actuate = None
     if transform is not None and "actuate" in transform.implemented_phases():
         actuate = transform
@@ -947,6 +952,7 @@ def replay_row(
         "next_expert_fn",
         "store_hidden",
         "store_raw_next_obs",
+        "store_executed_action",
         "expert",
     ],
 )
@@ -962,13 +968,15 @@ def collect_experience(
     next_expert_fn: Optional[Callable] = None,
     store_hidden: bool = False,
     store_raw_next_obs: bool = False,
+    store_executed_action: bool = False,
     expert: Any = None,
 ) -> tuple[BaseAgentState, Transition]:
-    """Collect one step of experience. ``store_raw_next_obs`` keeps the
-    env's own next observation on the transition (``raw_next_obs``), for
-    an agent updating on it (AVG) whose extensions read it. ``expert`` (the
-    agent's, in agent units) is what its observation features read
-    (``env_args.observers``).
+    """Collect one step of experience. store_raw_next_obs keeps the env's
+    own next observation on the transition (raw_next_obs), for an agent
+    updating on it (AVG) whose extensions read it; store_executed_action
+    keeps the action the step executed, as a replay row would store it
+    (executed_action), for such an agent's critic. expert (the agent's, in
+    agent units) is what its observation features read (env_args.observers).
 
     Args:
         action_pipeline: Optional callable that handles agent-specific action
@@ -1161,6 +1169,7 @@ def collect_experience(
         raw_next_obs=(
             raw_final_obs.astype(jnp.float32) if store_raw_next_obs else None
         ),
+        executed_action=buffer_action if store_executed_action else None,
     )
 
     # The Train return sums what the env paid, in its own units (a reward

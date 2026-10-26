@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import KW_ONLY, dataclass
 from functools import partial
 from typing import Any, ClassVar, Optional, Union
@@ -47,8 +47,13 @@ from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
 from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_buffer
 from ajax.agents.recurrent import stored_actor_carry_dim, unsupported_recurrent_options
 from ajax.agents.update_steps import REPLAY_BATCH_KEYS, reached
-from ajax.buffers.utils import get_buffer
-from ajax.controller import executed_fn, policy_action_dim
+from ajax.buffers.utils import get_buffer, mean_of_written_rows
+from ajax.controller import (
+    ScoredActions,
+    executed_fn,
+    make_scored_actions,
+    policy_action_dim,
+)
 from ajax.environments.interaction import init_collector_state
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import Extension, ExtensionStack, holds_expert
@@ -125,6 +130,11 @@ class TrainContext:
     #: (actions, a_expert) -> actions the critics score under a residual
     #: policy (controller.executed_fn); None otherwise.
     executed: Optional[Callable] = None
+
+    def make_scored_actions(self, batch: Transition) -> ScoredActions:
+        """The maps to the actions the critics score at batch's rows, at s
+        and at s' (controller.make_scored_actions)."""
+        return make_scored_actions(self.executed, batch)
 
     def make_actor_critic(
         self,
@@ -603,15 +613,35 @@ class DeclaredAgent(ActorCritic):
         self, key: jax.Array, loop: TrainLoop, network_args: NetworkConfig, **options
     ) -> Any:
         """The collector state (init_collector_state), holding a
-        stateful expert's state, with options an agent's own."""
+        stateful expert's state and each env's step in its episode for an
+        extension that reads it (JSRLCurriculum), with options an agent's
+        own."""
         del network_args
         return init_collector_state(
             key,
             env_args=loop.env_args,
             mode=loop.env_args.mode,
             expert_policy=self.expert,
+            count_episode_steps=reads_step_in_episode(loop.extensions),
             **options,
         )
+
+
+def measure_replay(agent_state: Any) -> dict:
+    """What each evaluation logs of a replay agent's replay: the share of its
+    rows an expert acted in (replay/expert_share), where the replay keeps the
+    flags (a run with an expert). Read at each evaluation, not each update,
+    over the whole replay, not one batch."""
+    buffer_state = agent_state.collector_state.buffer_state
+    if buffer_state is None or "is_expert" not in buffer_state.experience:
+        return {}
+    return {"replay/expert_share": mean_of_written_rows(buffer_state, "is_expert")}
+
+
+def reads_step_in_episode(extensions: Iterable[Extension]) -> bool:
+    """Whether an extension reads each env's step in its episode, which the
+    collector then counts."""
+    return any(extension.reads_step_in_episode for extension in extensions)
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -639,6 +669,9 @@ class ReplayAgent(DeclaredAgent):
     learning_starts: int
 
     replays_transitions = True
+    # A dataset's next action, which its replay keeps for a reader (TargetBC);
+    # a collected row's is unknown (NaN).
+    supported_buffer_fields = frozenset({"next_action"})
     # The default pipelines run the warm-up's chooser (choose_warmup_action);
     # an agent replacing them passes it on (choose_behaviour). The shared
     # collector writes the replay (choose_replay_action).
@@ -677,6 +710,13 @@ class ReplayAgent(DeclaredAgent):
     def _build_family(self) -> None:
         self.buffer = self.make_replay_buffer()
 
+    def evaluation_kwargs(self) -> dict[str, Any]:
+        """DeclaredAgent's, and what each evaluation logs of the replay
+        (measure_replay)."""
+        kwargs = super().evaluation_kwargs()
+        kwargs.update({"agent_metrics": measure_replay})
+        return kwargs
+
     def make_replay_buffer(self) -> BufferType:
         return get_buffer(self.buffer_size, self.batch_size, self.n_envs)
 
@@ -709,9 +749,7 @@ class ReplayAgent(DeclaredAgent):
             include_next_action="next_action" in fields,
             include_is_expert=stored,
             expert_policy=self.expert,
-            count_episode_steps=any(
-                extension.reads_step_in_episode for extension in loop.extensions
-            ),
+            count_episode_steps=reads_step_in_episode(loop.extensions),
             **options,
         )
 
@@ -844,13 +882,15 @@ class RecurrentReplayAgent(ReplayAgent):
 @dataclass(kw_only=True, eq=False, repr=False)
 class IncrementalAgent(DeclaredAgent):
     """An agent learning from each step as it comes, without a replay
-    (TrainLoop.off_policy): one step per env per iteration, then, from
-    learning_starts, one update on that step alone (AVG, Vasan et al.,
-    2024). An agent writes init and update, and may record statistics of
-    every collected step (update_step_statistics).
+    (TrainLoop.off_policy): one step per env per iteration, then one update
+    on that step alone, for each step collected from learning_starts on, so
+    never on a warm-up step (AVG, Vasan et al., 2024). An agent writes init
+    and update, and may record statistics of every collected step
+    (update_step_statistics).
 
     Args:
-        learning_starts: The env steps collected before the first update.
+        learning_starts: The env steps collected before the first step the
+            agent learns from.
         expose_recent_rollout: Keep each step on agent_state.last_rollout,
             a one-step rollout, for measurement extensions.
     """
@@ -922,6 +962,12 @@ class IncrementalAgent(DeclaredAgent):
             end_timestep=end_timestep,
         )
         stores_raw_next_obs = "raw_next_obs" in loop.extensions.buffer_fields()
+        # The update learns from the step itself: its critic scores the action
+        # the step executed, as a replay agent's scores its rows' actions.
+        collect_kwargs = {
+            "store_raw_next_obs": stores_raw_next_obs,
+            "store_executed_action": True,
+        }
         return loop.off_policy(
             partial(self.init, context=context),
             partial(self.update, context=context),
@@ -929,7 +975,7 @@ class IncrementalAgent(DeclaredAgent):
             uniform_steps=self.uniform_steps(),
             expose_rollout=self.expose_recent_rollout,
             after_collect=partial(self.update_step_statistics, context=context),
-            collect_kwargs={"store_raw_next_obs": stores_raw_next_obs},
+            collect_kwargs=collect_kwargs,
             eval_kwargs=self.evaluation_kwargs(),
             keeps_actor_metrics=self.keeps_actor_metrics(),
         )
@@ -1048,9 +1094,9 @@ class OwnIterationAgent(DeclaredAgent):
     dataset: train_offline refuses it.
     """
 
-    # The loop's phases but observe, which no shared collector or evaluation
-    # meets; an agent adds the phases its iteration applies.
-    supported_extension_phases = LOOP_PHASES.difference({"observe"})
+    # The loop's phases but observe and action, which no shared collector
+    # or evaluation meets; an agent adds the phases its iteration applies.
+    supported_extension_phases = LOOP_PHASES.difference({"observe", "action"})
     #: Whether train returns every iteration's output (make_iteration_output),
     #: stacked, logging or not, instead of the evaluations.
     returns_iterations = False

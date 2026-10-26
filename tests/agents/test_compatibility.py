@@ -65,7 +65,7 @@ VARIANTS["ImitationLoss(target='replay', alpha=2.5)"] = (
 )
 
 # Why each gap is open, and the work that closes it.
-ACTION = "only SAC folds action and transform_action (batch module-reach)"
+ACTION = "the agent's own collector does not run the action stage yet (UDRL's)"
 MC = "MCPretrain binds only on SAC (batch module-reach)"
 CONTEXT = "the agent binds no context for it yet"
 EXPERT = "the agent takes no expert_policy yet (expert reach)"
@@ -77,7 +77,6 @@ CNN = "the cnn options are not on this agent yet (batch network-reach)"
 MEMORY = "memory is not wired on this agent yet (batch network-reach)"
 DEFERRED = "memory on this agent has no published form (deferred)"
 PRIOR = "the agent's own replay is not handed to its pretraining yet"
-NEXT = "only TD3 hands on_target the next actions its target scored (ReBRAC's TargetBC)"
 REWARD = "only PPO folds the reward phase (GAIL's AdversarialReward)"
 WARMUP = (
     "TD-MPC2's own collector does not run the choose_warmup_action phase in its"
@@ -117,19 +116,14 @@ FORM_GAPS = {
 #: The pinned gaps: reason -> module -> the rows (agents, and "/discrete"
 #: for an agent taking both action kinds) where it is not wired yet.
 GAPS: dict[str, dict[str, str]] = {
-    ACTION: {
-        "EDGEExploration": "TD3 REDQ TQC CrossQ ASAC AVG UDRL UDRL/discrete DAgger"
-        " DAgger/discrete DQN PQN IQL",
-        "JSRLCurriculum": "TD3 REDQ TQC CrossQ ASAC AVG UDRL UDRL/discrete DAgger"
-        " DAgger/discrete DQN PQN IQL",
-        "ValueBox": "TD3 REDQ TQC CrossQ AVG DQN PQN IQL",
-    },
+    ACTION: {"EDGEExploration": "UDRL", "JSRLCurriculum": "UDRL UDRL/discrete"},
     MC: {
         "CriticBlend": "TD3 REDQ CrossQ AVG DQN PQN IQL",
         "MCPretrain": "TD3 REDQ TQC CrossQ AVG PPO PPO/discrete DQN PQN IQL",
         "MCVarianceCorrection": "TD3 REDQ CrossQ IQL",
         "OnlineBC": "TD3 REDQ TQC CrossQ AVG IQL",
         "PhiRefresh": "TD3 REDQ TQC CrossQ DQN IQL",
+        "ValueBox": "TD3 REDQ TQC CrossQ AVG DQN PQN IQL",
     },
     CONTEXT: {
         "BellmanPretrain": "ASAC DQN IQL",
@@ -139,6 +133,7 @@ GAPS: dict[str, dict[str, str]] = {
         "ExpertPrefill": "DQN",
         "ExpertValueMetrics": "DQN",
         "ExpertWarmup": "DQN",
+        "JSRLCurriculum": "DQN PQN",
         **dict.fromkeys(FEATURES[:2], "DQN PQN"),
     },
     FORM: {
@@ -163,9 +158,11 @@ GAPS: dict[str, dict[str, str]] = {
             "TDMPC2 TDMPC2MultiTask",
         ),
         **dict.fromkeys(
-            "EDGEExploration JSRLCurriculum MCPretrain BiasVorePenalty cnn".split(),
+            ("JSRLCurriculum", "MCPretrain", "BiasVorePenalty", "cnn"),
             "TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask",
         ),
+        # EDGE has no discrete form: DreamerV3's discrete row refuses it.
+        "EDGEExploration": "TDMPC2 DreamerV3 TDMPC2MultiTask",
         "BellmanPretrain": "TDMPC2 TDMPC2MultiTask",
         **dict.fromkeys(
             "CloningPretrain ImitationLoss".split(),
@@ -181,7 +178,6 @@ GAPS: dict[str, dict[str, str]] = {
     },
     MEMORY: {"memory": "APO APO/discrete DQN PQN DAgger DAgger/discrete IQL"},
     DEFERRED: {"memory": "AVG CrossQ UDRL UDRL/discrete"},
-    NEXT: {"TargetBC": "SAC REDQ TQC CrossQ AVG IQL"},
     WARMUP: {"ExpertWarmup": "TDMPC2"},
     REWARD: {
         "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO UDRL DAgger IQL DreamerV3"

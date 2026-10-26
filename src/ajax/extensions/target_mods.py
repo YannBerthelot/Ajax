@@ -1,27 +1,25 @@
-"""TD-target modifier research features as composable :class:`Extension`s.
+"""TD-target modifier research features as composable Extensions.
 
-These reshape the SAC Bellman target before it enters the critic loss
-(the ``on_target`` phase):
+These reshape the Bellman target before it enters the critic loss (the
+on_target phase):
 
-* :class:`IBRL`               — add the positive gap
-  ``γ(1-d)·max(Q_expert - Q_policy, 0)`` so the value function matches an
-  argmax action-selection policy.
-* :class:`LCBGatedBootstrap`  — soft-blend the policy and expert TD
-  targets by an LCB-scored sigmoid gate.
-* :class:`CriticBlend`        — warmup-decaying blend of the Bellman target
-  with the frozen expert critic's.
-* :class:`MCVarianceCorrection` — replace high-ensemble-variance Bellman
-  targets with the MC-pretrained oracle.
-* :class:`ValueBox`           — value-threshold expert action override
-  during collection (the ``action`` phase).
+* IBRL: add the positive gap gamma (1 - d) max(Q_expert - Q_policy, 0), so
+  the value function matches an argmax action-selection policy.
+* LCBGatedBootstrap: soft-blend the policy and expert TD targets by an
+  LCB-scored sigmoid gate.
+* CriticBlend: a warmup-decaying blend of the Bellman target with the
+  frozen expert critic's.
+* MCVarianceCorrection: replace high-ensemble-variance Bellman targets
+  with the MC-pretrained oracle.
+* ValueBox: a value-threshold expert action override during collection
+  (the action phase).
 
-The ``batch`` argument to ``on_target`` is the dict ``loop.critic_step``
-builds for SAC: ``observations``, ``actions``, ``next_observations``,
-``rewards`` (unscaled), ``reward_scale``, ``dones``, ``gamma``,
-``raw_next_observations`` (the environment's own next observations, which
-an extension's expert reads: SAC keeps them when an extension carries an
-expert), ``next_a_expert``, and SAC's own ``rng_key``, ``q_preds`` and
-``recurrent``.
+The batch on_target reads is the dict the shared critic step builds
+(update_steps.apply_on_target): observations, actions, next_observations,
+rewards (unscaled), reward_scale, dones, gamma, raw_next_observations (the
+environment's own next observations, which an extension's expert reads:
+an agent keeps them when an extension carries an expert), next_a_expert,
+and SAC's own rng_key.
 """
 
 from __future__ import annotations
@@ -164,7 +162,9 @@ def _next_target_q(
         actor_params=agent_state.actor_state.params,
         obs=next_observations,
         done=batch["dones"],
-        recurrent=batch.get("recurrent", False),
+        # A run with memory refuses every extension (check_recurrent_options):
+        # the actor here is feedforward.
+        recurrent=False,
     )
     key, _ = jax.random.split(rng)
     next_actions, _ = next_pi.sample_and_log_prob(seed=key)
@@ -427,7 +427,7 @@ class MCVarianceCorrection(Extension):
         {"critic_ensemble", "phi_star", "q_critic", "scalar_target"}
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
-        "on_target": frozenset({"actions", "q_preds"})
+        "on_target": frozenset({"actions", "observations"})
     }
 
     def on_target(
@@ -441,7 +441,13 @@ class MCVarianceCorrection(Extension):
         del ext_state, context
         observations = batch["observations"]
         actions = batch["actions"]
-        q_preds = batch["q_preds"]
+        # The critics' predictions at the rows, from a pass of its own, as
+        # KernelRepulsion computes its own: an agent hands on_target none.
+        critic_state = agent_state.critic_state
+        x = jnp.concatenate((observations, jax.lax.stop_gradient(actions)), axis=-1)
+        q_preds = predict_value(
+            critic_state=critic_state, critic_params=critic_state.params, x=x
+        )
         q_var = q_preds.var(axis=0)[..., 0]
         corrected = mc_correction_modify_target(
             target,
@@ -461,27 +467,26 @@ class ValueBox(Extension):
     """Value-threshold expert-action override.
 
     During collection, override the policy action with the expert's
-    whenever the frozen-expert value ``V_expert(s)`` exceeds a curriculum
-    threshold that ramps from ``v_min`` to ``v_max`` over training.
-    Requires :class:`MCPretrain` (which supplies phi*, ``v_min`` and
-    ``v_max``; refused without it).
+    whenever the frozen-expert value V_expert(s) exceeds a curriculum
+    threshold that ramps from v_min to v_max over training. Requires
+    MCPretrain (which supplies phi*, v_min and v_max; refused without it).
 
-    The :meth:`action` phase reads the SAC action pipeline's per-step dict
-    (``env_action``, ``expert_action``, the action of SAC's
-    ``expert_policy``, at which it also measures the expert's value, and
-    ``observations``, the critics' input, augmented when it is) and the box
-    bounds off the agent state (so a resumed run keeps them), and writes
-    ``in_value_box``, ``entry_bonus`` and ``box_entry`` back into the dict
-    for the pipeline to record on the transition. An entry ends the agent's
-    episode: the expert's value, paid as the bonus, replaces the bootstrap,
-    whatever its sign. The override (:func:`box_action_override`) comes
-    after the warmup / post-warmup choice (``action_slot``).
+    The action phase, in the action stage's post-warm-up slot
+    (ajax.environments.action_stage), reads the stage's dict (env_action;
+    expert_action, the action of the agent's expert_policy, at which it
+    also measures the expert's value; observations, the critics' input,
+    augmented when it is) and the box bounds off the agent state (so a
+    resumed run keeps them), and writes in_value_box, entry_bonus and
+    box_entry back into the dict for the collector to record on the
+    transition, and expert_mask, where the expert drove. An entry ends the
+    agent's episode: the expert's value, paid as the bonus, replaces the
+    bootstrap, whatever its sign. The override (box_action_override) comes
+    after the warm-up's choice.
 
-    Evaluations log the threshold (``value_box/threshold``), the share of
-    envs inside the box and the share the expert drove on the last
-    collection step (``value_box/in_box_frac``, ``value_box/expert_frac``);
-    the bounds are :class:`MCPretrain`'s (``mc_pretrain/v_min``,
-    ``mc_pretrain/v_max``).
+    Evaluations log the threshold (value_box/threshold), the share of envs
+    inside the box and the share the expert drove on the last collection
+    step (value_box/in_box_frac, value_box/expert_frac); the bounds are
+    MCPretrain's (mc_pretrain/v_min, mc_pretrain/v_max).
     """
 
     name: str = "value_box"
@@ -489,6 +494,10 @@ class ValueBox(Extension):
         {"agent_expert", "phi_star", "q_critic"}
     )
     action_slot: ClassVar[str] = "post_warmup"
+
+    def uses_expert_actions_as_policy_actions(self) -> bool:
+        # It executes the expert's action where the policy's goes.
+        return True
 
     def action(
         self,
@@ -498,11 +507,11 @@ class ValueBox(Extension):
         rng: jax.Array,
         context: ExtensionContext,
     ) -> jax.Array | None:
-        """Override with ``a_expert`` inside the value box, its bounds the
-        MC-pretrain v_min/v_max on :class:`SACState`; writes
-        ``in_value_box``, ``entry_bonus`` and ``box_entry`` into ``obs`` for
-        the pipeline's bookkeeping (reward shaping, the entry's
-        termination, ``is_expert_flag``).
+        """Override with a_expert inside the value box, its bounds
+        MCPretrain's v_min and v_max on the agent's state; writes
+        in_value_box, entry_bonus, box_entry and expert_mask into obs for
+        the collector's bookkeeping (reward shaping, the entry's
+        termination, is_expert_flag).
         """
         del ext_state, rng
         env_action = obs["env_action"]
@@ -518,6 +527,7 @@ class ValueBox(Extension):
             agent_state.collector_state.last_in_box,
         )
         obs["in_value_box"] = in_value_box
+        obs["expert_mask"] = in_value_box
         obs["entry_bonus"] = entry_bonus
         obs["box_entry"] = box_entered(
             in_value_box, agent_state.collector_state.last_in_box

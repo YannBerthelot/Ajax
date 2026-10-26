@@ -219,8 +219,9 @@ AVG, IQL, DAgger), in two places, which each extension names in its
 `action_slot`:
 
 - **Before the warm-up choice** (`"pre_warmup"`): `EDGEExploration` (a
-  value-based gate) and `JSRLCurriculum` (the expert starts each episode,
-  for a shrinking number of steps).
+  value-based gate, comparing the expert's action with the one the step
+  would execute, which the critics are trained on) and `JSRLCurriculum`
+  (the expert starts each episode, for a shrinking number of steps).
 - **After it** (`"post_warmup"`): `ValueBox`, which lets the expert act
   wherever its value exceeds a threshold that rises over training. The
   step that enters this region ends the agent's episode in the stored

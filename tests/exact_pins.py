@@ -375,6 +375,8 @@ def long_episodes(rows: int = 32, length: int = 8) -> TransitionDataset:
 # actions, online (every a' unknown: no penalty) and offline.
 JSRL = JSRLCurriculum(episode_length=8, decay_frac=0.5)
 IBRL_PUSH = {"extensions": (IBRL(expert_policy=push),)}
+EDGE_ARGMAX = EDGEExploration(gate="argmax", decay_frac=0.0)
+EDGE_SOFT = EDGEExploration(gate="boltzmann", decay_frac=0.0)
 PLUMBING_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "SAC-jsrl": (SAC, {**SAC_EXPERT, "extensions": (JSRL,)}, 160),
     "SAC-edge": (
@@ -412,6 +414,18 @@ PLUMBING_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "TD3-ibrl-soft": (
         TD3,
         {**S, **R, "extensions": (IBRL(push, soft_choice=True),)},
+        200,
+    ),
+    # EDGE's scoring gates under a residual policy, never decaying: the
+    # policy's choice (the residual) and the executed action differ.
+    "SAC-edge-residual": (
+        SAC,
+        {**SAC_EXPERT, "extensions": (ResidualPolicy(), EDGE_ARGMAX)},
+        160,
+    ),
+    "TD3-edge-residual": (
+        TD3,
+        {**S, **R, "expert_policy": push, "extensions": (ResidualPolicy(), EDGE_SOFT)},
         200,
     ),
 }

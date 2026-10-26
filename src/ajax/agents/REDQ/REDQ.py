@@ -308,7 +308,7 @@ class REDQ(
         alpha = get_alpha(agent_state)
         # A truncated row bootstraps on its final observation (bootstrap_obs).
         dones = batch.terminated
-        target_q, next_log_probs, next_actions = compute_redq_td_target(
+        target_q, next_log_probs, next_actions, critic_subset = compute_redq_td_target(
             agent_state.actor_state,
             agent_state.critic_state,
             critic_key,
@@ -349,6 +349,7 @@ class REDQ(
             gamma=self.gamma,
             reward_scale=self.reward_scale,
             next_actions=next_actions,
+            critic_subset=critic_subset,
         )
         return agent_state.replace(critic_state=critic_state), aux, metrics
 
@@ -462,12 +463,12 @@ def compute_redq_td_target(
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
-) -> tuple[jax.Array, jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """REDQ's Bellman target: the minimum over a random subset of the target
     critics, at the next actions the critics score (map_next_actions: a
     residual policy's executed ones). Returns the target, no gradient
-    flowing back through it, the next actions' log-probs and the next
-    actions."""
+    flowing back through it, the next actions' log-probs, the next actions
+    and the subset's indices."""
     rewards = rewards * reward_scale
     sample_key, subset_key = jax.random.split(rng)
     next_actions, log_probs = sample_next_actions(
@@ -489,7 +490,7 @@ def compute_redq_td_target(
     min_q_target = jnp.min(q_targets[sampled_indexes], axis=0)
 
     target = rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs)
-    return jax.lax.stop_gradient(target), log_probs, next_actions
+    return jax.lax.stop_gradient(target), log_probs, next_actions, sampled_indexes
 
 
 def compute_critic_loss(

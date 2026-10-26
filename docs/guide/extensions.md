@@ -203,7 +203,7 @@ theirs:
 
 | Phase | Every agent folding it | The replay actor-critics add |
 | --- | --- | --- |
-| `on_target` | `observations`, `next_observations`, `rewards`, `gamma` | `actions`, `dones`, `reward_scale`, `raw_next_observations`, `next_a_expert`, `next_action` (None where nothing stores them) |
+| `on_target` | `observations`, `next_observations`, `rewards`, `gamma` | `actions`, `dones`, `reward_scale`, `raw_next_observations`, `next_a_expert`, `next_action` (None where nothing stores them), `next_actions`, `critic_subset` |
 | `critic_loss` | `observations`, `targets` | `actions`, `next_observations`, `critic_params`, `critic_state`, `actor_state`, `return_to_go` |
 | `actor_loss` | `actor_params` | `actor_state`, `observations`, `raw_observations`, `pi_mean`, `agent_loss`, `critic_state`; `actions` and `a_expert` on most (None without an `expert_policy`) |
 
@@ -220,8 +220,10 @@ actor's mean action. `raw_observations` are the environment's own
 observations, before any normalisation; a replay agent keeps them only in a
 run with an expert, and passes `None` otherwise, except UDRL, whose segments
 hold them anyway. `next_actions` are the next actions the target scored
-(None for a target on a state value, IQL's V(s')). An agent's own keys
-(SAC's `rng_key`) are in its `phase_batch_keys`.
+(None for a target on a state value, IQL's V(s')). `critic_subset` holds
+the indices of the target critics whose minimum the target took, where it
+took a random subset of them (REDQ's), and None where it took all of them.
+An agent's own keys (SAC's `rng_key`) are in its `phase_batch_keys`.
 
 An extension never falls back to adding nothing, so a misplaced extension
 cannot look like a result. One declaring the keys it reads (`batch_keys`) is

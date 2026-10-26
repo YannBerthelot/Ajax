@@ -19,6 +19,8 @@ The batch on_target reads is the dict the shared critic step builds
 rewards (unscaled), reward_scale, dones, gamma, raw_next_observations (the
 environment's own next observations, which an extension's expert reads:
 an agent keeps them when an extension carries an expert), next_a_expert,
+next_actions (the next actions the target scored), critic_subset (the
+target critics it took its minimum over, where a random subset: REDQ's),
 and SAC's own rng_key.
 """
 

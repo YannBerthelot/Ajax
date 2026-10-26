@@ -114,13 +114,13 @@ def reads_stored_expert_actions(ext: Any, agent_context: dict) -> bool:
     return ext.expert_policy is agent_context.get("expert_policy")
 
 
-def expert_next_actions(ext: Any, raw_next: Any, stored_next: Any) -> jax.Array:
-    """The extension's expert's actions at the replayed rows' s': the
-    stored ones (``reads_stored_expert_actions``), else its call on the
-    raw next observations."""
+def extension_expert_actions(ext: Any, raw_observations: Any, stored: Any) -> jax.Array:
+    """The extension's expert's actions at raw_observations (a replayed
+    batch's s', or the step collection acts on): the stored ones
+    (reads_stored_expert_actions), else its call on the raw observations."""
     if ext.reads_stored_expert:
-        return jax.lax.stop_gradient(stored_next)
-    return jax.lax.stop_gradient(ext.expert_policy(raw_next))
+        return jax.lax.stop_gradient(stored)
+    return jax.lax.stop_gradient(ext.expert_policy(raw_observations))
 
 
 @dataclass(frozen=True)

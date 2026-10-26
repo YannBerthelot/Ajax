@@ -707,6 +707,7 @@
    "gamma",
    "recurrent",
    "reward_scale",
+   "subset_size",
    "update_target_fn",
    "update_value_fn"
   ],

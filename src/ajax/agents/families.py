@@ -568,7 +568,7 @@ class DeclaredAgent(ActorCritic):
         given.update(
             {
                 name: getattr(self, name)
-                for name in ("gamma", "reward_scale", "num_critics")
+                for name in ("gamma", "reward_scale", "num_critics", "subset_size")
                 if name in declared
             }
         )

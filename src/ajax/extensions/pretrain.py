@@ -47,7 +47,7 @@ from ajax.environments.interaction import (
 )
 from ajax.environments.utils import raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
-from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
+from ajax.extensions.expert import extension_expert_actions, reads_stored_expert_actions
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.state import EnvironmentConfig, LoadedTrainState, Transition
 from ajax.types import BufferType, NormalizationInfo
@@ -318,7 +318,7 @@ def refresh_phi_star(
     ext: "PhiRefresh",
 ) -> Any:
     """Periodic self-consistent φ* refresh using expert-flagged buffer transitions.
-    ``ext``'s expert gives the action at s' (expert_next_actions).
+    ``ext``'s expert gives the action at s' (extension_expert_actions).
 
     Target: r + γ * min_k Q_φ*(s′, π*(s′))  — φ* supervises its own bootstraps.
     Non-expert transitions are masked out, so the gradient comes only from
@@ -347,7 +347,7 @@ def refresh_phi_star(
         # The expert's action at s': stored (the agent's expert, from its
         # state), or its call on the raw next observations.
         stored = batch.next_a_expert if ext.reads_stored_expert else None
-        a_expert_next = expert_next_actions(ext, batch.raw_next_obs, stored)
+        a_expert_next = extension_expert_actions(ext, batch.raw_next_obs, stored)
         q_next = predict_value(
             critic_state=expert_critic_state,
             critic_params=expert_critic_state.target_params,

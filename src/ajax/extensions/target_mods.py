@@ -36,7 +36,7 @@ import jax.numpy as jnp
 
 from ajax.environments.interaction import get_pi
 from ajax.extensions.base import Extension, ExtensionContext
-from ajax.extensions.expert import expert_next_actions, reads_stored_expert_actions
+from ajax.extensions.expert import extension_expert_actions, reads_stored_expert_actions
 from ajax.extensions.exploration import lcb_beta, lcb_score
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.schedule import progress
@@ -161,7 +161,7 @@ def score_next_actions(
         x = jnp.concatenate((next_observations, actions), axis=-1)
         return predict_value(critic_state, critic_state.target_params, x)
 
-    next_expert_actions = expert_next_actions(
+    next_expert_actions = extension_expert_actions(
         ext, batch["raw_next_observations"], batch["next_a_expert"]
     )
     next_actions = batch["next_actions"]
@@ -188,19 +188,19 @@ def take_minimum(values: jax.Array, critics: Optional[jax.Array]) -> jax.Array:
 
 
 def draw_selection_critics(
-    value_critics: Optional[jax.Array], num_critics: int, key: jax.Array
+    size: Optional[int], num_critics: int, key: jax.Array
 ) -> Optional[jax.Array]:
     """The critics IBRL selects the expert's or the policy's action on: a
-    fresh random subset of the size of value_critics, the subset the base
-    target valued on, drawn on key; None (all critics) where the target took
-    all of them. The authors' state critic draws a random pair on each call,
-    one to select and one to value (hengyuan-hu/ibrl rl/critic.py forward_k,
-    rl/q_agent.py:288, :442), a quirk Ajax copies (UPSTREAM_BUGS 1); with
-    no subset both are every critic, as in their two-critic pixel runs."""
-    if value_critics is None:
+    fresh random subset of size critics, the size of the subset the base
+    target takes its minimum over, drawn on key; None (all critics) where
+    the target takes all of them (size None). The authors' state critic
+    draws a random pair on each call, one to select and one to value
+    (hengyuan-hu/ibrl rl/critic.py forward_k, rl/q_agent.py:288, :442), a
+    quirk Ajax copies (UPSTREAM_BUGS 1); with no subset both are every
+    critic, as in their two-critic pixel runs."""
+    if size is None:
         return None
-    shape = value_critics.shape
-    return jax.random.choice(key, num_critics, shape=shape, replace=False)
+    return jax.random.choice(key, num_critics, shape=(size,), replace=False)
 
 
 @dataclass(frozen=True)
@@ -272,8 +272,9 @@ class IBRL(Extension):
         action_key, selection_key = jax.random.split(context.rng)
         q_expert, q_policy = score_next_actions(self, agent_state, batch, action_key)
         value_critics = batch["critic_subset"]
+        size = None if value_critics is None else value_critics.shape[0]
         selection_critics = draw_selection_critics(
-            value_critics, q_expert.shape[0], selection_key
+            size, q_expert.shape[0], selection_key
         )
         expert_on_selection = take_minimum(q_expert, selection_critics)
         policy_on_selection = take_minimum(q_policy, selection_critics)
@@ -436,7 +437,7 @@ class CriticBlend(Extension):
     ) -> Any:
         del ext_state
         next_observations = batch["next_observations"]
-        a_expert_next = expert_next_actions(
+        a_expert_next = extension_expert_actions(
             self, batch["raw_next_observations"], batch["next_a_expert"]
         )
         v_expert_next = jax.lax.stop_gradient(

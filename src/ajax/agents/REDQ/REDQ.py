@@ -414,7 +414,11 @@ class REDQ(
             "warmup",
         }
     )
-    extension_context = RecurrentReplayAgent.extension_context.union(BELLMAN_CONTEXT)
+    # The size of the random subset of critics its target takes its minimum
+    # over, which IBRL draws when it acts.
+    extension_context = RecurrentReplayAgent.extension_context.union(
+        BELLMAN_CONTEXT, {"subset_size"}
+    )
     stores_expert_actions = True
     supported_buffer_fields = RecurrentReplayAgent.supported_buffer_fields.union(
         {"raw_next_obs", "return_to_go"}

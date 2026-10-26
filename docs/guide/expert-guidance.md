@@ -274,7 +274,8 @@ Evaluation makes the same choice from the agent's evaluation action, its
 mean. It uses its own expert, which need not be the agent's.
 `ibrl/expert_frac` and `Eval/expert share` log how often the expert's action
 was taken. IQL under a residual policy refuses it, as it refuses JSRL and
-EDGE.
+EDGE. `tests/conformance/test_ibrl_original.py` checks the target and the
+acting against the authors' code on fixed inputs.
 `LCBGatedBootstrap` scores the same next actions and blends minima over
 the same critics.
 `CriticBlend` and `MCVarianceCorrection` lean on `φ*`, so they need

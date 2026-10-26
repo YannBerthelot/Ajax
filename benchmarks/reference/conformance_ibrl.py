@@ -1,4 +1,4 @@
-"""hengyuan-hu/ibrl's critic target, recorded for the IBRL kernel check (tests/conformance/test_ibrl_original.py).
+"""hengyuan-hu/ibrl's critic target and acting, recorded for the IBRL kernel check (tests/conformance/test_ibrl_original.py).
 
 usage, from the repository root:
     uv run --project benchmarks/reference/envs/torch --locked python benchmarks/reference/conformance_ibrl.py CLONE OUT_DIR
@@ -13,10 +13,15 @@ biases drawn (theirs start at zero), and nn.functional.mse_loss wrapped to keep 
 Each of FORMS runs in float32 with its draws kept (the target actor's standard normal noise, then each
 np.random.choice of forward_k: the selection pair, then the value pair), then in float64 with the same
 draws. One .npz per form: in.* (the target critics), batch.*, draw.*, and f32.* and f64.* (the target,
-the sampled RL action and the BC action at s').
+the sampled RL action and the BC action at s'). Their _act_ibrl then runs on a fixed batch of states, the
+agent in eval mode as their act asserts, eps_greedy 1 (every IBRL config), in each form and mode
+(MODES: eval_mode True, the actor's mean; False, its sample, the noise kept as above): act_<form>.npz
+holds in.*, batch.state, <mode>.draw.* and <mode>.f32.* / <mode>.f64.* (the executed action, the RL
+action, the actor's mean and the BC action).
 """
 
 import copy
+import functools
 import importlib.util
 import json
 import pathlib
@@ -29,10 +34,12 @@ import torch
 
 COMMIT = "3c457da"
 SEED, BATCH, OBS, ACTION, WIDTH = 1, 64, 2, 1, 16
+ACT_SEED = 3  # the acting records'
 GAMMA, STDDEV = 0.99, 0.1  # every IBRL config's acting stddev, the target actor's too
 #: num_q critics, of which forward_k draws num_k: the pixel critic's two heads, and the state critic's
 #: random pair (twice per update: selection, then value).
 FORMS = {"pair": (2, 2), "state": (5, 2)}
+MODES = {"eval": True, "train": False}
 
 
 def print_nothing(module):
@@ -90,9 +97,42 @@ class LinearExpert(torch.nn.Module):
         return torch.tanh(self.layer(obs["state"]))
 
 
-def run(agent, expert, batch: dict, draws: dict, dtype) -> dict:
-    """One update_critic on batch in dtype; draws holds the noise and pairs to replay (empty: draw them
-    and keep them in it). Returns the target, the sampled RL action and the BC action."""
+def update(agent, batch: dict, tensor) -> None:
+    """Their update_critic on batch, which hands mse_loss the target."""
+    agent.update_critic(
+        obs={"state": tensor(batch["state"])},
+        reply={"action": tensor(batch["action"])},
+        reward=tensor(batch["reward"]),
+        discount=tensor(GAMMA * (1.0 - batch["dones"])),
+        next_obs={"state": tensor(batch["next_state"])},
+        stddev=STDDEV,
+    )
+    return None
+
+
+def act(agent, batch: dict, tensor, eval_mode: bool) -> dict:
+    """Their _act_ibrl on batch's states in eval mode (as their act asserts): the executed action and
+    the actor's mean."""
+    from common_utils import ibrl_utils
+
+    obs = {"state": tensor(batch["state"])}
+    with torch.no_grad(), ibrl_utils.eval_mode(agent):
+        action = agent._act_ibrl(
+            obs=obs,
+            eval_mode=eval_mode,
+            stddev=STDDEV,
+            clip=None,
+            eps_greedy=1,
+            use_target=False,
+        )
+        mean = agent.actor(obs, STDDEV).mean
+    return {"action": action.numpy().copy(), "mean": mean.numpy().copy()}
+
+
+def run(agent, expert, batch: dict, draws: dict, dtype, call=update) -> dict:
+    """call(agent, batch, tensor) in dtype (their update_critic by default); draws holds the noise and
+    pairs to replay (empty: draw them and keep them in it). Returns what call returns, the target where
+    one was handed to mse_loss, the sampled RL action and the BC action."""
     from common_utils import ibrl_utils
     from rl import critic as critic_module
 
@@ -145,14 +185,7 @@ def run(agent, expert, batch: dict, draws: dict, dtype) -> dict:
         def tensor(x):
             return torch.as_tensor(np.asarray(x), dtype=dtype)
 
-        agent.update_critic(
-            obs={"state": tensor(batch["state"])},
-            reply={"action": tensor(batch["action"])},
-            reward=tensor(batch["reward"]),
-            discount=tensor(GAMMA * (1.0 - batch["dones"])),
-            next_obs={"state": tensor(batch["next_state"])},
-            stddev=STDDEV,
-        )
+        kept.update(call(agent, batch, tensor) or {})
     finally:
         ibrl_utils._standard_normal = standard_normal
         critic_module.np.random.choice = choice
@@ -224,12 +257,70 @@ def record(form: str, out: pathlib.Path) -> None:
     np.savez(out / f"{form}.npz", **arrays)
 
 
+def record_acting(form: str, out: pathlib.Path) -> None:
+    """Their _act_ibrl in both modes on one form's agent, the target critics' biases drawn."""
+    from rl.actor import FcActorConfig
+    from rl.critic import MultiFcQConfig
+    from rl.q_agent import QAgent, QAgentConfig
+
+    num_q, num_k = FORMS[form]
+    torch.manual_seed(ACT_SEED)
+    np.random.seed(ACT_SEED)
+    cfg = QAgentConfig(
+        device="cpu",
+        act_method="ibrl",
+        state_critic=MultiFcQConfig(
+            num_q=num_q, num_k=num_k, num_layer=2, hidden_dim=WIDTH
+        ),
+        state_actor=FcActorConfig(num_layer=2, hidden_dim=WIDTH, dropout=0.0),
+    )
+    agent = QAgent(True, (OBS,), (OBS,), ACTION, "", cfg)
+    with torch.no_grad():
+        for name, parameter in agent.critic_target.named_parameters():
+            if name.endswith("biases"):
+                parameter.uniform_(-0.5, 0.5)
+    expert = LinearExpert()
+    batch = {"state": np.random.default_rng(ACT_SEED).normal(size=(BATCH, OBS))}
+    arrays = {
+        f"in.{k}": v.detach().numpy() for k, v in agent.critic_target.named_parameters()
+    }
+    arrays["batch.state"] = batch["state"]
+    for mode, eval_mode in MODES.items():
+        draws: dict = {}
+        call = functools.partial(act, eval_mode=eval_mode)
+        f32 = run(agent, expert, batch, draws, torch.float32, call)
+        f64 = run(agent, expert, batch, draws, torch.float64, call)
+        rl = f32.get("rl_action", f32["mean"])
+        assert np.all(np.abs(rl) < 1.0 - 1e-6), "the +-(1 - 1e-6) clamp binds"
+        expert_won = f32["action"] == f32["bc_action"]
+        assert expert_won.any() and not expert_won.all(), (
+            "one candidate always wins: reseed"
+        )
+        if form == "state":
+            with torch.no_grad():
+                s = torch.as_tensor(batch["state"], dtype=torch.float32)
+                q_rl = agent.critic_target(s, torch.as_tensor(rl))
+                q_bc = agent.critic_target(s, torch.as_tensor(f32["bc_action"]))
+            every = (q_bc.min(-1)[0] > q_rl.min(-1)[0]).numpy()
+            assert np.any(every != expert_won[:, 0]), (
+                "the pair agrees with every critic: reseed"
+            )
+        if "noise" in draws:
+            arrays[f"{mode}.draw.noise"] = draws["noise"]
+        for pair in draws.get("pairs", []):
+            arrays[f"{mode}.draw.selection"] = pair
+        arrays.update({f"{mode}.f32.{k}": v for k, v in f32.items()})
+        arrays.update({f"{mode}.f64.{k}": v for k, v in f64.items()})
+    np.savez(out / f"act_{form}.npz", **arrays)
+
+
 def main(clone: str, out_dir: str) -> None:
     out = pathlib.Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     install_stand_ins(pathlib.Path(clone))
     for form in FORMS:
         record(form, out)
+        record_acting(form, out)
     versions = {"torch": torch.__version__, "numpy": np.__version__}
     versions.update(python=platform.python_version(), hengyuan_hu_ibrl=COMMIT)
     (out / "versions.json").write_text(json.dumps(versions))

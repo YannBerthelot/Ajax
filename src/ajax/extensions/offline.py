@@ -173,8 +173,17 @@ class TargetBC(Extension):
 
     beta: float = 1.0
     name: str = "target_bc"
+    # The dataset's next action reaches the target through a replay, and the
+    # penalty is on the next actions the target scores.
     requires: ClassVar[frozenset[str]] = frozenset(
-        {"actor", "continuous_actions", "discounted", "q_critic"}
+        {
+            "actor",
+            "continuous_actions",
+            "discounted",
+            "next_action_target",
+            "q_critic",
+            "replay",
+        }
     )
     batch_keys: ClassVar[Mapping[str, frozenset[str]]] = {
         "on_target": frozenset({"dones", "gamma", "next_action", "next_actions"})

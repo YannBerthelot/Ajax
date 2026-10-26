@@ -98,6 +98,7 @@
   "capabilities": [
    "actor",
    "critic_ensemble",
+   "next_action_target",
    "obs_networks",
    "off_policy",
    "policy_density",
@@ -144,6 +145,7 @@
     "gamma",
     "next_a_expert",
     "next_action",
+    "next_actions",
     "next_observations",
     "observations",
     "raw_next_observations",
@@ -159,6 +161,7 @@
   "replays_transitions": true,
   "stores_expert_actions": true,
   "supported_buffer_fields": [
+   "next_action",
    "raw_next_obs"
   ],
   "supported_extension_phases": [
@@ -184,6 +187,7 @@
    "actor",
    "critic_ensemble",
    "discounted",
+   "next_action_target",
    "obs_networks",
    "off_policy",
    "policy_density",
@@ -226,6 +230,7 @@
     "gamma",
     "next_a_expert",
     "next_action",
+    "next_actions",
     "next_observations",
     "observations",
     "raw_next_observations",
@@ -264,6 +269,7 @@
    "actor",
    "critic_ensemble",
    "discounted",
+   "next_action_target",
    "obs_networks",
    "off_policy",
    "policy_density",
@@ -309,6 +315,7 @@
     "gamma",
     "next_a_expert",
     "next_action",
+    "next_actions",
     "next_observations",
     "observations",
     "raw_next_observations",
@@ -324,6 +331,7 @@
   "replays_transitions": true,
   "stores_expert_actions": true,
   "supported_buffer_fields": [
+   "next_action",
    "raw_next_obs",
    "return_to_go"
   ],
@@ -377,7 +385,9 @@
   ],
   "replays_transitions": true,
   "stores_expert_actions": true,
-  "supported_buffer_fields": [],
+  "supported_buffer_fields": [
+   "next_action"
+  ],
   "supported_extension_phases": [
    "action",
    "actor_loss",
@@ -393,6 +403,7 @@
  "DQN": {
   "capabilities": [
    "discounted",
+   "next_action_target",
    "obs_networks",
    "off_policy",
    "q_critic",
@@ -423,7 +434,9 @@
   ],
   "replays_transitions": true,
   "stores_expert_actions": false,
-  "supported_buffer_fields": [],
+  "supported_buffer_fields": [
+   "next_action"
+  ],
   "supported_extension_phases": [
    "action",
    "choose_warmup_action",
@@ -525,6 +538,7 @@
     "gamma",
     "next_a_expert",
     "next_action",
+    "next_actions",
     "next_observations",
     "observations",
     "raw_next_observations",
@@ -540,6 +554,7 @@
   "replays_transitions": true,
   "stores_expert_actions": false,
   "supported_buffer_fields": [
+   "next_action",
    "raw_next_obs",
    "return_to_go"
   ],
@@ -623,6 +638,7 @@
  "PQN": {
   "capabilities": [
    "discounted",
+   "next_action_target",
    "obs_networks",
    "off_policy",
    "q_critic",
@@ -669,6 +685,7 @@
    "actor",
    "critic_ensemble",
    "discounted",
+   "next_action_target",
    "obs_networks",
    "off_policy",
    "policy_density",
@@ -720,6 +737,7 @@
     "gamma",
     "next_a_expert",
     "next_action",
+    "next_actions",
     "next_observations",
     "observations",
     "raw_next_observations",
@@ -735,6 +753,7 @@
   "replays_transitions": true,
   "stores_expert_actions": true,
   "supported_buffer_fields": [
+   "next_action",
    "raw_next_obs",
    "return_to_go"
   ],
@@ -761,6 +780,7 @@
    "actor",
    "critic_ensemble",
    "discounted",
+   "next_action_target",
    "obs_networks",
    "off_policy",
    "policy_density",
@@ -816,6 +836,7 @@
     "gamma",
     "next_a_expert",
     "next_action",
+    "next_actions",
     "next_observations",
     "observations",
     "raw_next_observations",
@@ -832,6 +853,7 @@
   "replays_transitions": true,
   "stores_expert_actions": true,
   "supported_buffer_fields": [
+   "next_action",
    "raw_next_obs",
    "return_to_go"
   ],
@@ -858,6 +880,7 @@
    "actor",
    "critic_ensemble",
    "discounted",
+   "next_action_target",
    "obs_networks",
    "off_policy",
    "q_critic",
@@ -951,6 +974,7 @@
    "actor",
    "critic_ensemble",
    "discounted",
+   "next_action_target",
    "off_policy",
    "policy_density",
    "q_critic",
@@ -985,6 +1009,7 @@
    "actor",
    "critic_ensemble",
    "discounted",
+   "next_action_target",
    "off_policy",
    "policy_density",
    "q_critic",
@@ -1006,6 +1031,7 @@
    "critic_ensemble",
    "discounted",
    "distributional_critic",
+   "next_action_target",
    "obs_networks",
    "off_policy",
    "policy_density",
@@ -1056,6 +1082,7 @@
     "gamma",
     "next_a_expert",
     "next_action",
+    "next_actions",
     "next_observations",
     "observations",
     "raw_next_observations",
@@ -1071,6 +1098,7 @@
   "replays_transitions": true,
   "stores_expert_actions": true,
   "supported_buffer_fields": [
+   "next_action",
    "raw_next_obs",
    "return_to_go"
   ],

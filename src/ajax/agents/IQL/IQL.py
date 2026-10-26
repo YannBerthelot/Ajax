@@ -279,7 +279,9 @@ class IQL(
             {"observations", "raw_observations", "actions", "critic_state"}
         ),
     }
-    supported_buffer_fields = frozenset({"raw_next_obs", "return_to_go"})
+    supported_buffer_fields = ReplayAgent.supported_buffer_fields.union(
+        {"raw_next_obs", "return_to_go"}
+    )
 
 
 # -- IQL's equations, in the order update calls them -------------------------

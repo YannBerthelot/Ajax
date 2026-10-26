@@ -245,7 +245,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
         # still bootstraps on the final observation, which next_obs holds
         # (get_final_obs).
         dones = transition.terminated
-        target_q, next_log_probs = compute_avg_td_target(
+        target_q, next_log_probs, next_actions = compute_avg_td_target(
             agent_state.actor_state,
             critic_state,
             critic_state.params,
@@ -284,6 +284,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             dones=dones,
             gamma=self.gamma,
             reward_scale=self.reward_scale,
+            next_actions=next_actions,
         )
         return agent_state.replace(critic_state=critic_state), aux, metrics
 
@@ -339,6 +340,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             "actor",
             "critic_ensemble",
             "discounted",
+            "next_action_target",
             "obs_networks",
             "off_policy",
             "policy_density",
@@ -422,10 +424,10 @@ def compute_avg_td_target(
     alpha: jax.Array,
     reward_scale: float,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
-) -> tuple[jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array, jax.Array]:
     """AVG's Bellman target, from the current critic (no target network),
     at the next action the critic scores (map_next_actions: a residual
-    policy's executed one)."""
+    policy's executed one), its log-probs and that next action."""
     rewards = rewards * reward_scale
     sample_key, _ = jax.random.split(rng)
     next_actions, next_log_probs = sample_next_actions(
@@ -441,7 +443,7 @@ def compute_avg_td_target(
     target = jax.lax.stop_gradient(
         rewards + (1.0 - dones) * gamma * (q_target - alpha * next_log_probs),
     )
-    return target, next_log_probs
+    return target, next_log_probs, next_actions
 
 
 def compute_critic_loss(

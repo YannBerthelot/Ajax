@@ -658,6 +658,9 @@ class ReplayAgent(DeclaredAgent):
     learning_starts: int
 
     replays_transitions = True
+    # A dataset's next action, which its replay keeps for a reader (TargetBC);
+    # a collected row's is unknown (NaN).
+    supported_buffer_fields = frozenset({"next_action"})
     # The default pipelines run the warm-up's chooser (choose_warmup_action);
     # an agent replacing them passes it on (choose_behaviour). The shared
     # collector writes the replay (choose_replay_action).

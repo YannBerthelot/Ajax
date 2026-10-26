@@ -273,7 +273,7 @@ class ASAC(
         critic_key, agent_state = agent_state.get_keys_and_new_state()
         alpha = get_alpha(agent_state)
         dones = batch.terminated
-        target_q, next_log_probs = compute_asac_td_target(
+        target_q, next_log_probs, next_actions = compute_asac_td_target(
             agent_state.actor_state,
             agent_state.critic_state,
             critic_key,
@@ -313,6 +313,7 @@ class ASAC(
             dones=dones,
             gamma=None,
             reward_scale=self.reward_scale,
+            next_actions=next_actions,
         )
         return agent_state.replace(critic_state=critic_state), aux, metrics
 
@@ -365,6 +366,7 @@ class ASAC(
         {
             "actor",
             "critic_ensemble",
+            "next_action_target",
             "obs_networks",
             "off_policy",
             "policy_density",
@@ -376,7 +378,9 @@ class ASAC(
         }
     )
     stores_expert_actions = True
-    supported_buffer_fields = frozenset({"raw_next_obs"})
+    supported_buffer_fields = RecurrentReplayAgent.supported_buffer_fields.union(
+        {"raw_next_obs"}
+    )
 
 
 # -- ASAC's equations, in the order update calls them ------------------------
@@ -423,7 +427,7 @@ def compute_asac_td_target(
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
-) -> tuple[jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array, jax.Array]:
     """r - theta + (1 - done) (min_i Q_target_i(s', a') - alpha (log pi(a'|s')
     - log(1 / nA))) - Q_target(0, 0), r with a termination's penalty.
 
@@ -431,7 +435,7 @@ def compute_asac_td_target(
     next value and is charged the penalty; the origin shift applies to every
     row. a' is the one the critics score (map_next_actions: a residual
     policy's executed one). Returns the target, no gradient flowing back
-    through it, and the next actions' log-probs.
+    through it, the next actions' log-probs and the next actions.
     """
     rewards = rewards * reward_scale
     sample_key, _ = jax.random.split(rng)
@@ -471,7 +475,7 @@ def compute_asac_td_target(
     logpi0 = uniform_log_prob(next_actions.shape[-1])
     next_value = (1.0 - dones) * (min_q_target - alpha * (log_probs - logpi0))
     target = rewards - theta + next_value - jnp.mean(shift_value)
-    return jax.lax.stop_gradient(target), log_probs
+    return jax.lax.stop_gradient(target), log_probs, next_actions
 
 
 def compute_critic_loss(

@@ -84,7 +84,6 @@ from ajax.environments.utils import (
     get_state_action_shapes,
 )
 from ajax.extensions.base import Extension
-from ajax.extensions.capabilities import NotWired
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import (
     MemoryConfig,
@@ -210,11 +209,6 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
             self.learning_rate, (int, float)
         ):
             raise ValueError("lr_schedule='warmup_cosine' needs a float learning_rate")
-        # Refused, as gain mode's unwired modules are, until APG's evaluation
-        # logs an expert's return.
-        if self.eval_expert_policy is not None:
-            reason = "APG's evaluation does not roll out an expert yet"
-            raise NotWired(f"{reason}.", {"eval_expert_policy": reason})
 
     def actor_critic_args(self) -> dict[str, Any]:
         return {"actor_learning_rate": self.learning_rate}  # the only network
@@ -468,20 +462,32 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
         num_episode_test: int,
     ) -> dict:
         """The deterministic closed-loop return and M-RMSE on
-        num_episode_test fresh systems, over the training horizon."""
+        num_episode_test fresh systems, over the training horizon, and the
+        return of eval_expert_policy, else of the agent's expert, acting
+        alone on the same systems (NaN without one), as every agent's
+        evaluation logs it."""
+        env_args = context.env_args
         returns, _ = compute_rollout_returns(
             agent_state,
             agent_state.actor_state.params,
             key,
-            context.env_args,
+            env_args,
             self.system_class,
             self.horizon,
             num_episode_test,
             expert_policy=self.expert,
         )
+        expert = self._in_agent_units(self.eval_expert_policy) or self.expert
+        expert_return = jnp.asarray(jnp.nan, jnp.float32)
+        if expert is not None:
+            expert_return = compute_expert_returns(
+                expert, key, env_args, self.system_class, self.horizon, num_episode_test
+            ).mean()
         return {
             "Eval/episodic mean reward": returns.mean(),
             "Eval/m_rmse": jnp.sqrt(jnp.maximum(-returns.mean(), 0.0) / self.horizon),
+            "Eval/episodic mean expert reward": expert_return,
+            "Eval/expert bias": returns.mean() - expert_return,
         }
 
     def make_iteration_output(
@@ -802,6 +808,38 @@ def compute_rollout_returns(
         observe=observe,
     )
     return rollout.reward.sum(0), rollout
+
+
+def compute_expert_returns(
+    expert_policy: Any,
+    key: jax.Array,
+    env_args: EnvironmentConfig,
+    system_class: Optional[SystemClass],
+    horizon: int,
+    n_systems: int,
+) -> jax.Array:
+    """expert_policy's closed-loop returns (n_systems,) acting alone, in
+    agent units, on the systems compute_rollout_returns draws from key, its
+    state fresh at each episode start."""
+    env_params, rollout_key = draw_systems(key, env_args, system_class, n_systems)
+    state = None
+    if hasattr(expert_policy, "init_state"):
+        state = expert_policy.init_state(n_systems)
+
+    def act(state: Any, obs: jax.Array, resets: jax.Array) -> tuple:
+        acting = ActingState(obs=obs, done=resets, timestep=None, expert_state=state)
+        return expert_step(expert_policy, acting, obs, n_systems)
+
+    rollout, _ = closed_loop_rollout(
+        act,
+        state,
+        rollout_key,
+        env_args.env,
+        env_params,
+        horizon,
+        action_map=lambda action: agent_action_to_env(action, env_args.env, env_params),
+    )
+    return rollout.reward.sum(0)
 
 
 # -- State and logged metrics -------------------------------------------------

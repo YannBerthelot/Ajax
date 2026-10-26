@@ -6,6 +6,12 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **APG logs its expert's return.** Each evaluation also rolls out
+  `eval_expert_policy`, else the agent's `expert_policy`, alone on the same
+  systems, and logs `Eval/episodic mean expert reward` and `Eval/expert
+  bias` (NaN without an expert), as every agent does; APG takes
+  `eval_expert_policy`, which it refused before. Training is unchanged,
+  bitwise; evaluations gain the two keys.
 - **APG observes the observation features.** `ExpertActionInput`,
   `ExpertStateInput`, `TrainingProgressInput` and `PIDTermsInput` join the
   observation its controller reads in the differentiable rollout, their

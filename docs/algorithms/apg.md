@@ -107,7 +107,7 @@ stages = [  # the nominal pendulum first, then the whole family
 | `system_class` | None | distribution over the environment's parameters; `None` trains on `env_params` only |
 | `controller_factory` | None | builds a custom controller module (see `Controller` in `ajax.agents.APG.networks`) |
 | `expert_policy` | None | an expert the rollout runs alongside: a residual policy (`ResidualPolicy`) or gain mode (`ExpertGains`) acts through it and the observation features read it, the gradient running through the expert too |
-| `eval_expert_policy` | None | refused (`NotWired`) until APG's evaluation rolls out an expert |
+| `eval_expert_policy` | None | the expert whose return each evaluation logs instead of `expert_policy`'s, acting alone on the evaluation's systems |
 | `episode_length`, `action_repeat` | None, 1 | accepted as by every agent; on gymnax environments, the only ones APG takes, the episode length is the environment's and the repeat must be 1 |
 
 `APG.contextual_controller(env, system_class, ...)` sets the paper's values:

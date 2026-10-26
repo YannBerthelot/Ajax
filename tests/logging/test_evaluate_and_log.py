@@ -10,6 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax import controller as controller_module
 from ajax import evaluate as evaluate_module
 from ajax import log
 from ajax.agents.APO.APO import APO
@@ -163,4 +164,42 @@ def test_an_evaluation_keeps_the_actors_own_statistics(monkeypatch):
     monkeypatch.setattr(evaluate_module, "get_pi", acting)
     env, params = gymnax.make("Pendulum-v1")
     evaluate_module.evaluate(env, actor, 1, jax.random.PRNGKey(0), params)
+    assert read and all(info is not None for info in read)
+
+
+def test_an_evaluation_normalises_with_the_collectors_statistics(monkeypatch):
+    """A trained on-policy agent stores its observations normalised:
+    evaluating it through its run's controller normalises the evaluation's
+    observations with the statistics its collector holds, which the
+    evaluation does not drop."""
+    net = ("8", "relu")
+    agent = PPO(
+        "Pendulum-v1",
+        normalize_observations=True,
+        n_steps=16,
+        n_epochs=1,
+        actor_architecture=net,
+        critic_architecture=net,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=32)
+    state = jax.tree.map(lambda x: x[0], state)
+    assert state.collector_state.obs_norm_info is not None
+    read = []
+    normalized_obs = controller_module.normalized_obs
+
+    def normalising(obs, info, *args):
+        read.append(info)
+        return normalized_obs(obs, info, *args)
+
+    monkeypatch.setattr(controller_module, "normalized_obs", normalising)
+    env_args = agent.env_args
+    evaluate_module.evaluate(
+        env_args.env,
+        state.actor_state,
+        1,
+        jax.random.PRNGKey(0),
+        env_args.env_params,
+        agent_state=state,
+        controller=controller_module.make_run_controller(env_args),
+    )
     assert read and all(info is not None for info in read)

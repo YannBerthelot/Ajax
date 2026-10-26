@@ -45,7 +45,7 @@ RESIDUAL.update({"PPO", "APO", "IQL", "APG", "UDRL"})
 WARMUP = {"SAC", "TD3", "REDQ", "ASAC", "AVG", "DQN"}
 #: The agents whose replay the replay family's collector writes, which runs
 #: the stored action's chooser (StorePolicyAction).
-REPLAY_FAMILY = {"ASAC", "REDQ", "SAC", "TD3", "TQC"}
+REPLAY_FAMILY = {"ASAC", "REDQ", "SAC", "TD3", "TQC", "DQN"}
 
 
 @dataclass(frozen=True)

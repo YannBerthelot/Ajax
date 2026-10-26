@@ -10,11 +10,11 @@ from typing import Any
 import numpy as np
 import pytest
 
-from ajax import AVG, PPO, TD3
+from ajax import AVG, DQN, PPO, TD3, DAgger
 from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.expert import StorePolicyAction
 from ajax.networks.memory import MemoryConfig
-from tests.extensions.test_expert_warmup import WARMUP_AGENTS, warmup_rows
+from tests.extensions.test_expert_warmup import WARMUP_AGENTS, push, warmup_rows
 
 REPLAY_AGENTS = {name: WARMUP_AGENTS[name] for name in ("TD3", "CrossQ", "IQL")}
 
@@ -56,3 +56,36 @@ def test_the_learner_holds_nothing_for_it_and_a_recurrent_agent_takes_it():
 def test_an_agent_without_a_replay_refuses_it(cls: Any) -> None:
     with pytest.raises(MissingCapability, match="replay"):
         cls("Pendulum-v1", extensions=(StorePolicyAction(),))
+
+
+def test_dqn_stores_its_policys_index_in_the_warm_up():
+    """DQN's warm-up executes uniform indices; with StorePolicyAction its
+    rows store the epsilon-greedy policy's own, an (n, 1) int column,
+    beside the rewards and observations the executed ones produced."""
+
+    def rows(*extensions: Any) -> Any:
+        agent = DQN(
+            "CartPole-v1",
+            n_envs=2,
+            learning_starts=32,
+            batch_size=8,
+            buffer_size=64,
+            architecture=("8", "relu"),
+            extensions=extensions,
+        )
+        state, _ = agent.train(seed=0, n_timesteps=32)
+        buffer_state = state.collector_state.buffer_state
+        assert buffer_state is not None
+        return {k: np.asarray(v[0]) for k, v in buffer_state.experience.items()}
+
+    executed, stored = rows(), rows(StorePolicyAction())
+    for field in ("obs", "next_obs", "reward"):
+        np.testing.assert_array_equal(stored[field], executed[field], err_msg=field)
+    assert stored["action"].dtype == executed["action"].dtype
+    assert (stored["action"][:, :16] != executed["action"][:, :16]).any()
+
+
+def test_dagger_has_nothing_for_it_to_ablate():
+    """DAgger learns from its expert's labels alone, no stored action."""
+    with pytest.raises(MissingCapability, match="reward_learning"):
+        DAgger("Pendulum-v1", expert_policy=push, extensions=(StorePolicyAction(),))

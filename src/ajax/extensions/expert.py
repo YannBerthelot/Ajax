@@ -569,9 +569,12 @@ class StorePolicyAction(Extension):
     the replay stores the action the policy chose, not the one executed, so
     the rows an expert, a warm-up or a residual acted in no longer hold the
     action that produced their reward and next observation. It acts in the
-    controller only: no state and no key in the learner."""
+    controller only: no state and no key in the learner. An agent learning
+    from an expert's labels alone (DAgger) learns from no stored action:
+    there is nothing to ablate (reward_learning)."""
 
     name: str = "store_policy_action"
+    requires: ClassVar[frozenset[str]] = frozenset({"reward_learning"})
 
     def choose_replay_action(
         self, executed_actions: jax.Array, policy_actions: jax.Array

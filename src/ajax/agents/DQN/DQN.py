@@ -291,9 +291,10 @@ class DQN(
         }
     )
     # Its explore pipeline runs the warm-up's chooser (choose_warmup_action),
-    # once DQN takes the expert ExpertWarmup needs.
+    # once DQN takes the expert ExpertWarmup needs; the replay family's
+    # collector stores what the run's chooser picks (choose_replay_action).
     supported_extension_phases = LOOP_PHASES.union(
-        {"on_target", "critic_loss", "choose_warmup_action"}
+        {"on_target", "critic_loss", "choose_warmup_action", "choose_replay_action"}
     )
     # Unannotated, as the whole contract, so the dataclass makes it no field.
     phase_batch_keys = {  # noqa: RUF012

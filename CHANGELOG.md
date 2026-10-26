@@ -6,6 +6,11 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **DQN takes StorePolicyAction.** Its replay, on the replay family's
+  collector, stores the policy's index where the run picks it; DAgger
+  refuses the ablation as missing a capability (`reward_learning`: it
+  learns from its expert's labels alone, no stored action). Runs without
+  it are unchanged, bitwise.
 - **APG's schedule steps its matrices alone**, as its reference does: with
   `lr_schedule="warmup_cosine"` (`contextual_controller`'s default) the
   biases, LayerNorm scales and PID gains keep `learning_rate`. Scheduled

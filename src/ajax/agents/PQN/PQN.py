@@ -201,6 +201,10 @@ class PQN(
         update, as purejaxql reads it)."""
         del agent_state_at_rollout_start  # a feedforward network replays nothing
         extensions, total_timesteps = context.extensions, context.total_timesteps
+        # Q is fitted at the actions the steps executed, whose rewards and
+        # next observations the targets read: an action extension (JSRL) may
+        # execute another than the policy's column (rollout.action).
+        actions = rollout.executed_action
         next_q = predict_q(
             agent_state.actor_state,
             agent_state.actor_state.params,
@@ -228,7 +232,7 @@ class PQN(
         if extensions:
             target_batch = {
                 "observations": rollout.obs,
-                "actions": rollout.action,
+                "actions": actions,
                 "next_observations": rollout.next_obs,
                 "rewards": rollout.reward,
                 # Where the target cut the bootstrap, as the replay agents pass.
@@ -247,7 +251,7 @@ class PQN(
                 total_timesteps,
             )
         targets = jax.lax.stop_gradient(targets)
-        batch = (rollout.obs, rollout.action, targets)
+        batch = (rollout.obs, actions, targets)
         td_loss_fn = (
             compute_half_mse_td_loss if self.td_loss_fn is None else self.td_loss_fn
         )

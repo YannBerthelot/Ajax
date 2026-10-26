@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from ajax.agents.critics import make_huber_td_loss
+from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.networks import PQNNetwork
 from ajax.agents.PQN.PQN import PQN, compute_half_mse_td_loss
 from ajax.networks.networks import MINATAR_CNN, MNIH_CNN
@@ -14,6 +15,27 @@ def test_PQN_rejects_indivisible_minibatches():
     with pytest.raises(ValueError, match="must be divisible"):
         PQN(env_id="CartPole-v1", n_envs=1, n_steps=7, num_minibatches=2)
     PQN(env_id="CartPole-v1", n_envs=2, n_steps=7, num_minibatches=2)
+
+
+def test_pqn_keeps_the_executed_actions_it_learns_from():
+    """PQN's Q-learning stays correct on actions its policy did not choose,
+    so it fits Q where the steps acted: its rollout keeps the executed
+    actions, the policy's column without an action extension. PPO, whose
+    update needs the policy's own actions, keeps none."""
+    small = {"env_id": "CartPole-v1", "n_envs": 2, "n_steps": 8, "n_epochs": 1}
+    agent = PQN(
+        **small,
+        architecture=("16", "relu"),
+        num_minibatches=2,
+        expose_recent_rollout=True,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=32)
+    rollout = state.last_rollout
+    assert rollout.executed_action.dtype == rollout.action.dtype
+    np.testing.assert_array_equal(rollout.executed_action, rollout.action)
+    ppo = PPO(**small, batch_size=8, expose_recent_rollout=True)
+    state, _ = ppo.train(seed=0, n_timesteps=32)
+    assert state.last_rollout.executed_action is None
 
 
 def test_pqn_huber_loss_smoke():

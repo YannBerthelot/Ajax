@@ -3,9 +3,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import ajax.agents.PQN.PQN as PQN_MODULE
 from ajax.agents.critics import make_huber_td_loss
+from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.networks import PQNNetwork
 from ajax.agents.PQN.PQN import PQN, compute_half_mse_td_loss
+from ajax.extensions.expert import JSRLCurriculum
 from ajax.networks.networks import MINATAR_CNN, MNIH_CNN
 
 
@@ -14,6 +17,57 @@ def test_PQN_rejects_indivisible_minibatches():
     with pytest.raises(ValueError, match="must be divisible"):
         PQN(env_id="CartPole-v1", n_envs=1, n_steps=7, num_minibatches=2)
     PQN(env_id="CartPole-v1", n_envs=2, n_steps=7, num_minibatches=2)
+
+
+def test_pqn_keeps_the_executed_actions_it_learns_from():
+    """PQN's Q-learning stays correct on actions its policy did not choose,
+    so it fits Q where the steps acted: its rollout keeps the executed
+    actions, the policy's column without an action extension. PPO, whose
+    update needs the policy's own actions, keeps none."""
+    small = {"env_id": "CartPole-v1", "n_envs": 2, "n_steps": 8, "n_epochs": 1}
+    agent = PQN(
+        **small,
+        architecture=("16", "relu"),
+        num_minibatches=2,
+        expose_recent_rollout=True,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=32)
+    rollout = state.last_rollout
+    assert rollout.executed_action.dtype == rollout.action.dtype
+    np.testing.assert_array_equal(rollout.executed_action, rollout.action)
+    ppo = PPO(**small, batch_size=8, expose_recent_rollout=True)
+    state, _ = ppo.train(seed=0, n_timesteps=32)
+    assert state.last_rollout.executed_action is None
+
+
+def test_pqn_fits_q_where_the_expert_acted(monkeypatch):
+    """Under JSRL handing its expert (index 0) every step, PQN's TD steps
+    and its extensions' targets get index 0 throughout: the executed column,
+    not the policy's epsilon-greedy choice (uniform at first, so 1 on about
+    half the steps)."""
+    seen = []
+    step = PQN_MODULE.q_gradient_step
+
+    def recording(agent_state, observations, actions, *args):
+        jax.debug.callback(lambda a: seen.append(np.asarray(a)), actions)
+        return step(agent_state, observations, actions, *args)
+
+    monkeypatch.setattr(PQN_MODULE, "q_gradient_step", recording)
+    agent = PQN(
+        env_id="CartPole-v1",
+        n_envs=2,
+        n_steps=8,
+        n_epochs=1,
+        num_minibatches=2,
+        architecture=("16", "relu"),
+        expert_policy=lambda obs: jnp.zeros(obs.shape[:-1] + (1,), jnp.int32),
+        extensions=(JSRLCurriculum(episode_length=1000, decay_frac=1e6),),
+    )
+    agent.train(seed=0, n_timesteps=32)
+    jax.effects_barrier()
+    assert seen
+    for actions in seen:
+        np.testing.assert_array_equal(actions, 0)
 
 
 def test_pqn_huber_loss_smoke():

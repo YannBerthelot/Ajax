@@ -1063,6 +1063,14 @@ class OnPolicyAgent(DeclaredAgent):
             start_timestep=start_timestep,
             end_timestep=end_timestep,
         )
+        # An update that stays correct on actions its policy did not choose
+        # (PQN's Q-learning) learns from the actions the steps executed, which
+        # the action stage may substitute (JSRL): their rewards and next
+        # observations are the rollout's.
+        collect_kwargs = {
+            "action_pipeline": self.choose_behaviour(context),
+            "store_executed_action": "off_policy" in self.capabilities,
+        }
         return loop.on_policy(
             partial(self.init, context=context),
             partial(self.update, context=context),
@@ -1073,7 +1081,7 @@ class OnPolicyAgent(DeclaredAgent):
                 getattr(self, "num_resets_per_eval", 0),
                 getattr(self, "num_evals", 1),
             ),
-            collect_kwargs={"action_pipeline": self.choose_behaviour(context)},
+            collect_kwargs=collect_kwargs,
             eval_kwargs=self.evaluation_kwargs(),
         )
 

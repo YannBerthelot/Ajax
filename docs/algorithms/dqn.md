@@ -123,6 +123,10 @@ Defaults are read from DQN's fields.
   20.
 - **Extensions.** `on_target` extensions reshape the target; `critic_loss`
   extensions add a term to the TD loss, with its gradient.
+- **Expert.** With `expert_policy=` (an index per row), collection tracks
+  the expert and stores its actions, and evaluations log its return.
+  `ExpertPrefill`, `ExpertWarmup`, `JSRLCurriculum`, `ExpertValueMetrics`
+  (Q at the stored index) and the expert's observation features run on it.
 
 ## Results
 

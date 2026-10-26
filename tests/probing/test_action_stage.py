@@ -18,6 +18,14 @@ top of one-step episodes paying clip(a), above any action of the held
 actor: once the target critics have learned Q(a) = a, collection executes
 and flags the expert's action, and evaluation takes it too; an expert
 taking -1, the bottom, is never taken.
+
+On indices (DQN, PQN) the expert takes 0, paid 0, and Q(1) = 1: only the
+policy's terminal steps execute 1. Q(0) mixes the expert's bootstrapped
+first steps with exploration's terminal draws of 0, so no cell reads it.
+Fitting Q at the policy's choice on the expert's steps regresses half of
+Q(1)'s rows on the first step's target: DQN's 0 + gamma Q(1), so Q(1) = 1
+/ (2 - gamma); PQN's Q(lambda) return 0 + gamma ((1 - lambda) Q(1) +
+lambda), so Q(1) = (1 + gamma lambda) / (2 - gamma (1 - lambda)).
 """
 
 from __future__ import annotations
@@ -79,15 +87,15 @@ def first_index(obs: jax.Array) -> jax.Array:
     return jnp.zeros(obs.shape[:-1] + (1,), jnp.int32)
 
 
-def handed_rows(run: runs.Run, start: int) -> dict[str, np.ndarray]:
+def handed_rows(run: runs.Run, start: int, a_e: float = A_E) -> dict[str, np.ndarray]:
     """Per seed, past row start, the share of the first and second steps'
     rows the expert took, as the replay flags them; and the share of the
-    first steps' rows storing its action exactly (a pipeline storing its own
-    action stores the substituted one)."""
+    first steps' rows storing its action a_e exactly (a pipeline storing its
+    own action stores the substituted one)."""
     rows = R.replay_rows(run.state, ("action", "terminated", "is_expert"))
     second = rows["terminated"][:, 0, start:, 0] > 0.5
     took = rows["is_expert"][:, 0, start:, 0] > 0.5
-    stored = rows["action"][:, 0, start:, 0] == A_E
+    stored = rows["action"][:, 0, start:, 0] == a_e
     return {
         "expert share, first steps": np.mean(took, 1, where=~second),
         "expert share, second steps": np.mean(took, 1, where=second),
@@ -101,6 +109,19 @@ def scored(n: R.Nets) -> dict:
         "Q(a_E)": R.critic(n, 1.0, A_E),
         "Q(a_pi) - a_pi": R.critic(n, 1.0, a_pi) - a_pi,
     }
+
+
+def scored_index(n: R.Nets) -> dict:
+    return {"Q(1)": R.q_values(n, 1.0)[1]}
+
+
+def executed_rows(run: runs.Run) -> dict[str, np.ndarray]:
+    """Per seed, the share of the last rollout's first steps executing the
+    expert's index 0 (an on-policy agent keeps no replay)."""
+    rows = R.rollout_rows(run.state, ("executed_action", "terminated"))
+    first = rows["terminated"][..., 0] < 0.5
+    took = rows["executed_action"][..., 0] == 0
+    return {"expert's index executed, first steps": np.mean(took, (1, 2), where=first)}
 
 
 def readings(agent: str, extension: Any, steps: int, **kw: Any) -> Callable:
@@ -117,9 +138,13 @@ def readings(agent: str, extension: Any, steps: int, **kw: Any) -> Callable:
     def read(run: runs.Run) -> dict:
         out = {}
         if run.state.collector_state.buffer_state is not None:
-            out.update(handed_rows(run, start))
+            out.update(handed_rows(run, start, 0 if discrete else A_E))
+        elif run.state.last_rollout is not None:
+            out.update(executed_rows(run))
         if "q_critic" in run.agent.capabilities and not discrete:
             out.update(R.per_seed(scored, R.nets(run.state)))
+        if agents.FAMILY.get(agent) == "dqn":
+            out.update(R.per_seed(scored_index, R.nets(run.state)))
         return out
 
     return runs.readings(build, read)
@@ -188,6 +213,48 @@ CASES["q7-jsrl-DAgger-discrete"] = Case(
     (0.02, 0.02),
     slow=True,
     note="exact: every seed at every rung (200, 400); cert 32/32",
+)
+#: PQN's trace decay (its default, q_lambda).
+LAMBDA = 0.65
+_INDEX_SCORED = "Q is fitted at the policy's index where the expert acted"
+#: Exploration's share of index 0, epsilon / 2, averaged past the warm-up of
+#: DQN's schedule (1 to 0.05 over the first half), greedy on 1.
+_EXPLORED_ZEROS = 0.13
+CASES["q7-jsrl-DQN"] = Case(
+    "q7-jsrl-DQN",
+    (
+        *_HANDED,
+        Query(
+            "stored expert action, first steps",
+            1.0,
+            {"the pipeline's own index stored, not the executed one": _EXPLORED_ZEROS},
+        ),
+        Query("Q(1)", 1.0, {_INDEX_SCORED: 1.0 / (2.0 - GAMMA)}),
+    ),
+    readings("DQN", FIRST_STEP, 2, start=WARM, discrete=True),
+    4000,
+    (0.02, 0.02, 0.02, 0.111),
+    slow=True,
+    ceiling=0.25,
+    note="ladder 1000-8000 on 1000-1031, 2000-2031: no rung within 0.1 (the"
+    " Q-network's spread); 4000 the first within half the gap, the fault's"
+    " answer 0.275 away; cert 32/32",
+)
+CASES["q7-jsrl-PQN"] = Case(
+    "q7-jsrl-PQN",
+    (
+        Query("expert's index executed, first steps", 1.0, {"JSRL not applied": 0.025}),
+        Query(
+            "Q(1)",
+            1.0,
+            {_INDEX_SCORED: (1 + GAMMA * LAMBDA) / (2 - GAMMA * (1 - LAMBDA))},
+        ),
+    ),
+    readings("PQN", FIRST_STEP, 2, discrete=True, expose_recent_rollout=True),
+    8000,
+    (0.02, 0.032),
+    slow=True,
+    note="ladder 1000-16000 on 1000-1031, 2000-2031: 8000 the first rung; cert 32/32",
 )
 EDGE = EDGEExploration(gate="fixed", fixed_prob=0.5, decay_frac=0.0)
 
@@ -337,7 +404,7 @@ CASES["q7-ibrl-soft-SAC"] = dataclasses.replace(
     readings=soft_readings("SAC", **SAC_HELD),
     tol=(0.084, 0.036),
 )
-ANSWER_DIGEST = "9d79ce09a4dc"
+ANSWER_DIGEST = "697b096ae7a0"
 
 
 @pytest.mark.parametrize("case", params(CASES))

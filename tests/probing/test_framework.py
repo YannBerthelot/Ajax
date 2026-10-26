@@ -66,15 +66,16 @@ from . import readouts as R
 # cells, four faults): test_action_stage + 70, faults/ + 4, test_framework
 # + 3 (this note, the budget's). IBRL's soft choice (two cells, two faults):
 # test_action_stage + 51, faults/ + 2, test_framework + 2 (this note; the
-# caps and the budget change in place).
+# caps and the budget change in place). JSRL on DQN and PQN (two cells, one
+# fault): test_action_stage + 67, faults/ + 1, test_framework + 2.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 160, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 120, "faults/": 246})
-CAPS.update({"test_framework.py": 277, "test_value_chains.py": 1051})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 120, "faults/": 247})
+CAPS.update({"test_framework.py": 279, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 852, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 372, "test_world_models.py": 452})
 CAPS.update({"test_action_box.py": 201, "test_imitation.py": 178})
-CAPS.update({"test_offline.py": 300, "test_action_stage.py": 345})
+CAPS.update({"test_offline.py": 300, "test_action_stage.py": 412})
 
 
 def _modules() -> list:
@@ -243,14 +244,15 @@ def test_the_directory_keeps_to_its_budget() -> None:
     TD3, AVG, DAgger and its discrete twin, EDGE on REDQ, three faults; the four
     faults of the stored expert action merged into one), 52 for IBRL on REDQ and
     TD3 (two cells, two faults), 77 for IBRL's acting (three cells, four
-    faults), 55 for IBRL's soft choice (two cells, two faults)."""
+    faults), 55 for IBRL's soft choice (two cells, two faults), 70 for JSRL on
+    DQN and PQN (two cells, one fault)."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8059, total
+    assert total <= 8129, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

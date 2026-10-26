@@ -420,7 +420,12 @@
    "target_critic",
    "warmup"
   ],
-  "extension_context": [],
+  "extension_context": [
+   "actor_optimizer_args",
+   "buffer",
+   "env_args",
+   "expert_policy"
+  ],
   "make_train": "ajax.agents.families:ReplayAgent.make_train",
   "name": "DQN",
   "per_seed_update_counts": false,
@@ -441,7 +446,7 @@
    "update"
   ],
   "replays_transitions": true,
-  "stores_expert_actions": false,
+  "stores_expert_actions": true,
   "supported_buffer_fields": [
    "next_action"
   ],

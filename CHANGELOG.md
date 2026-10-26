@@ -6,6 +6,13 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **DQN and PQN take an expert.** `expert_policy=` (an index per row) and
+  `eval_expert_policy=`: collection tracks the expert, evaluations log its
+  return, and `JSRLCurriculum` and the expert's observation features run on
+  both; DQN, which stores the expert's actions, also takes `ExpertPrefill`,
+  `ExpertWarmup` and `ExpertValueMetrics` (Q at the stored index). PQN now
+  fits Q at the actions its steps executed, the policy's own without an
+  action extension. Runs without an expert are unchanged, bitwise.
 - **APG's schedule steps its matrices alone**, as its reference does: with
   `lr_schedule="warmup_cosine"` (`contextual_controller`'s default) the
   biases, LayerNorm scales and PID gains keep `learning_rate`. Scheduled

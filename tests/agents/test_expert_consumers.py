@@ -24,7 +24,7 @@ import pytest
 import ajax
 import ajax.extensions.pretrain
 from ajax.environments.utils import env_action_to_agent
-from ajax.extensions.observe import TrainingProgressInput
+from ajax.extensions.observe import ExpertStateInput, TrainingProgressInput
 from ajax.extensions.pretrain import CloningPretrain
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.test_agent_contract import CASES
@@ -50,10 +50,12 @@ def expert_action(t):
 
 
 class StrictExpert:
-    """Callable only as ``expert(state, obs)``; its state counts its calls."""
+    """Callable only as ``expert(state, obs)``; its state counts its calls.
+    A discrete one answers an index, an int (n, 1) column."""
 
-    def __init__(self) -> None:
+    def __init__(self, discrete: bool = False) -> None:
         self.calls: list[tuple[np.ndarray, np.ndarray]] = []
+        self.discrete = discrete
 
     def init_state(self, n_envs: int) -> jax.Array:
         return jnp.zeros((n_envs, 1))
@@ -61,13 +63,17 @@ class StrictExpert:
     def __call__(self, state: jax.Array, obs: jax.Array):
         keep = lambda o, s: self.calls.append((np.asarray(o), np.asarray(s)))  # noqa: E731
         jax.debug.callback(keep, obs, state)
-        return expert_action(obs[..., :1]), state + 1
+        action = expert_action(obs[..., :1])
+        return (action.astype(jnp.int32) if self.discrete else action), state + 1
 
 
 @pytest.mark.parametrize("name", EXPERT_AGENTS)
 def test_an_agent_gives_its_expert_raw_observations_and_its_state(name, monkeypatch):
     assert name in CASES, f"{name} takes an expert: give it a row in CASES"
-    case, expert, env = CASES[name], StrictExpert(), IdentityEnv()
+    # A discrete agent (DQN, PQN) on the task's Discrete(2): index 1 pays 1.
+    discrete = CASES[name].cls.action_space == "discrete"
+    case, expert = CASES[name], StrictExpert(discrete)
+    env = IdentityEnv(discrete=discrete)
     takes = inspect.signature(case.cls).parameters
     clones = name in CLONING_AGENTS
     datasets: list[tuple[np.ndarray, np.ndarray]] = []
@@ -115,3 +121,31 @@ def test_an_agent_gives_its_expert_raw_observations_and_its_state(name, monkeypa
     assert evaluated.any()
     returns = np.asarray(out["Eval/episodic mean expert reward"])[evaluated]
     np.testing.assert_allclose(returns, TERMINAL, rtol=1e-6)
+
+
+@pytest.mark.parametrize("name", ["DQN", "PQN"])
+def test_a_discrete_agent_observes_its_experts_state(name):
+    """DQN's replay and PQN's rollout hold the observation the Q-network
+    reads, [t, c] then the expert's state before its call there
+    (ExpertStateInput): its calls since the episode's start, t."""
+    case, expert = CASES[name], StrictExpert(discrete=True)
+    env = IdentityEnv(discrete=True)
+    kwargs = {**case.kwargs, "expert_policy": expert}
+    if name == "PQN":
+        kwargs["expose_recent_rollout"] = True
+    agent = case.cls(
+        env_id=env,
+        env_params=env.default_params,
+        n_envs=N_ENVS,
+        extensions=(ExpertStateInput.for_expert(expert),),
+        **kwargs,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=case.n_timesteps)
+    if name == "DQN":
+        written = int(state.collector_state.buffer_state.current_index[0])
+        obs = state.collector_state.buffer_state.experience["obs"][0, :, :written]
+    else:
+        obs = state.last_rollout.obs[0]
+    obs = np.asarray(obs)
+    assert obs.shape[-1] == 3
+    np.testing.assert_array_equal(obs[..., 2], obs[..., 0])

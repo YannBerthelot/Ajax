@@ -85,6 +85,13 @@ evenly into `num_minibatches`; PQN raises otherwise.
 - **Extensions.** `on_target` extensions reshape the returns before they are
   held fixed; `critic_loss` extensions add a term to every minibatch's TD
   loss.
+- **Expert.** With `expert_policy=` (an index per row), collection tracks
+  the expert, its observation features read it, and evaluations log its
+  return. Under `JSRLCurriculum` the expert acts the first steps of each
+  episode; Q is fitted at the actions the steps executed, whose rewards the
+  returns hold, not at the policy's choice. JSRL with PQN is Ajax's
+  composition, not a published pairing; as with epsilon-greedy, the
+  expert's steps lean PQN's untruncated returns toward its behaviour.
 - **Initialisation.** As the authors' code (`mttga/purejaxql`), which sets
   no initialiser: every Dense layer, the Q head included, starts with
   Flax's default `lecun_normal` kernel and a zero bias.

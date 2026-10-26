@@ -291,11 +291,8 @@ class CrossQ(
                 context.extensions,
                 actor_key,
                 context.total_timesteps,
-                observations=batch.obs,
-                raw_observations=batch.raw_obs,
-                a_expert=batch.a_expert,
-                actions=batch.action,
-                critic_state=critic_state,
+                batch,
+                critic_state,
             )
         )
         actor_state = actor_state.replace(batch_stats=batch_stats)

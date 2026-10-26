@@ -196,10 +196,8 @@ class IQL(
                 context.extensions,
                 actor_key,
                 context.total_timesteps,
-                observations=batch.obs,
-                raw_observations=batch.raw_obs,
-                actions=batch.action,
-                critic_state=critic,
+                batch,
+                critic,
             )
             return state.replace(actor_state=actor_state), (actor_loss, actor_metrics)
 

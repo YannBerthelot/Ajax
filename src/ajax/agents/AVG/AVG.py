@@ -323,10 +323,8 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             context.extensions,
             actor_key,
             context.total_timesteps,
-            observations=transition.obs,
-            raw_observations=transition.raw_obs,
-            a_expert=transition.a_expert,
-            critic_state=agent_state.critic_state,
+            transition,
+            agent_state.critic_state,
         )
         return agent_state.replace(actor_state=actor_state), aux, metrics
 

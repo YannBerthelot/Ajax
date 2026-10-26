@@ -271,11 +271,8 @@ class TD3(
             context.extensions,
             actor_key,
             context.total_timesteps,
-            observations=batch.obs,
-            raw_observations=batch.raw_obs,
-            a_expert=batch.a_expert,
-            actions=batch.action,
-            critic_state=agent_state.critic_state,
+            batch,
+            agent_state.critic_state,
         )
         aux = aux.replace(grad_norm=grad_norm)
         agent_state = update_targets(

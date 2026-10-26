@@ -129,12 +129,12 @@ def edge_boltzmann_gate(
 
 
 def edge_fixed_gate(
-    gap: jax.Array,  # noqa: ARG001 -- the gates' shared (gap, decay, rng) signature
     decay: jax.Array,
     rng: jax.Array,
     fixed_prob: float,
 ) -> Tuple[jax.Array, jax.Array]:
-    """Fixed probability: p = decay * fixed_prob.
+    """Fixed probability: p = decay * fixed_prob, whatever the critic's
+    values (it scores no action).
 
     Returns (use_expert_mask, updated_rng).
     """
@@ -347,24 +347,48 @@ class EDGEExploration(Extension):
         obs: Any,
         rng: jax.Array,
         context: ExtensionContext,
-    ) -> jax.Array | None:
+    ) -> jax.Array:
         """Apply the configured EDGE gate to substitute the policy action.
 
         obs is the action stage's dict (the module docstring):
         policy_action, expert_action, observations (the critics' input, its
-        features included), post_warmup_action and gate_rng. The gate
-        scores with the frozen expert critic phi* where MCPretrain fitted
-        one, else with the agent's live critic.
+        features included), post_warmup_action and gate_rng.
 
         Side effects: writes expert_mask back into obs, which flags the
         steps the expert took (is_expert_flag), and updates obs["gate_rng"]
         for any downstream gate.
         """
         del ext_state, rng  # the gates draw from obs["gate_rng"]
+        if self.gate == "fixed":
+            # The fixed gate draws without a score: it reads no critic, so it
+            # also runs beside one that scores no action (a V(s) network).
+            decay = edge_compute_decay(
+                agent_state.collector_state.timestep,
+                context.total_steps,
+                self.decay_frac,
+            )
+            use_expert_edge, gate_rng = edge_fixed_gate(
+                decay, obs["gate_rng"], self.fixed_prob
+            )
+        else:
+            use_expert_edge, gate_rng = self.choose_by_score(agent_state, obs, context)
+        # The stage reads both keys after every action call.
+        obs["gate_rng"] = gate_rng
+        obs["expert_mask"] = use_expert_edge.astype(jnp.bool_)
+        return jnp.where(
+            use_expert_edge, obs["expert_action"], obs["post_warmup_action"]
+        )
+
+    def choose_by_score(
+        self, agent_state: Any, obs: Any, context: ExtensionContext
+    ) -> Tuple[jax.Array, jax.Array]:
+        """Where a scoring gate (every gate but the fixed one) hands the
+        expert the step, and the stage's gate_rng after its draws. It scores
+        with the frozen expert critic phi* where MCPretrain fitted one, else
+        with the agent's live critic."""
         policy_action = obs["policy_action"]
         expert_action = obs["expert_action"]
         observations = obs["observations"]
-        post_warmup_action = obs["post_warmup_action"]
         gate_rng = obs["gate_rng"]
         # phi* lives on SACState alone, where MCPretrain binds: getattr is a
         # deliberate workaround until it reaches every agent's state. phi*
@@ -433,19 +457,11 @@ class EDGEExploration(Extension):
             )
             if gate == "argmax":
                 use_expert_edge, gate_rng = edge_argmax_gate(gap, decay, gate_rng)
-            elif gate == "boltzmann":
+            else:  # "boltzmann"
                 use_expert_edge, gate_rng = edge_boltzmann_gate(
                     gap, decay, gate_rng, q_policy, self.tau
                 )
-            else:  # "fixed"
-                use_expert_edge, gate_rng = edge_fixed_gate(
-                    gap, decay, gate_rng, self.fixed_prob
-                )
-
-        # The stage reads both keys after every action call.
-        obs["gate_rng"] = gate_rng
-        obs["expert_mask"] = use_expert_edge.astype(jnp.bool_)
-        return jnp.where(use_expert_edge, expert_action, post_warmup_action)
+        return use_expert_edge, gate_rng
 
     def eval_metrics(
         self,

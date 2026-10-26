@@ -365,7 +365,7 @@ READERS = {  # each reader of phi*, by the function applying it
     "online light pretraining": "light_loss_fn",
     "CriticBlend": "on_target",
     "MCVarianceCorrection": "mc_correction_modify_target",
-    "EDGE": "action",
+    "EDGE": "choose_by_score",
     "ValueBox": "box_compute_state",
 }
 

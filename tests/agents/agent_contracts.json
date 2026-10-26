@@ -141,6 +141,7 @@
    ],
    "on_target": [
     "actions",
+    "critic_subset",
     "dones",
     "gamma",
     "next_a_expert",
@@ -226,6 +227,7 @@
    ],
    "on_target": [
     "actions",
+    "critic_subset",
     "dones",
     "gamma",
     "next_a_expert",
@@ -311,6 +313,7 @@
    ],
    "on_target": [
     "actions",
+    "critic_subset",
     "dones",
     "gamma",
     "next_a_expert",
@@ -534,6 +537,7 @@
    ],
    "on_target": [
     "actions",
+    "critic_subset",
     "dones",
     "gamma",
     "next_a_expert",
@@ -733,6 +737,7 @@
    ],
    "on_target": [
     "actions",
+    "critic_subset",
     "dones",
     "gamma",
     "next_a_expert",
@@ -832,6 +837,7 @@
    ],
    "on_target": [
     "actions",
+    "critic_subset",
     "dones",
     "gamma",
     "next_a_expert",
@@ -841,8 +847,7 @@
     "observations",
     "raw_next_observations",
     "reward_scale",
-    "rewards",
-    "rng_key"
+    "rewards"
    ]
   },
   "pretrain_context": [
@@ -927,6 +932,7 @@
    ],
    "on_target": [
     "actions",
+    "critic_subset",
     "dones",
     "gamma",
     "next_a_expert",
@@ -1078,6 +1084,7 @@
    ],
    "on_target": [
     "actions",
+    "critic_subset",
     "dones",
     "gamma",
     "next_a_expert",

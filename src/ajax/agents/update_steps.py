@@ -36,6 +36,7 @@ TARGET_KEYS = frozenset(
         "next_a_expert",
         "next_action",
         "next_actions",
+        "critic_subset",
     }
 )
 
@@ -214,7 +215,7 @@ def apply_on_target(
     gamma: Optional[float],
     reward_scale: float,
     next_actions: Optional[jax.Array] = None,
-    target_extras: Optional[dict] = None,
+    critic_subset: Optional[jax.Array] = None,
 ) -> tuple[jax.Array, dict]:
     """target_q with the extensions' on_target applied, no gradient
     flowing back through it (stop_gradient), and their metrics:
@@ -225,9 +226,10 @@ def apply_on_target(
     batch is a Transition. rewards, dones (where the bootstrap is cut),
     gamma (None for an average-reward agent), reward_scale and next_actions
     (the next actions the target scored; None for a target scoring a state
-    value, IQL's V(s')) are what the target used; target_extras join the
-    extensions' batch (SAC's key). The phase draws on a key derived from
-    key, the step's (derive_extensions_key).
+    value, IQL's V(s')) and critic_subset (the indices of the target critics
+    whose minimum it took, REDQ's random subset; None for a target over all
+    its critics) are what the target used. The phase draws on a key derived
+    from key, the step's (derive_extensions_key).
     """
     target_batch = {
         "observations": batch.obs,
@@ -244,8 +246,8 @@ def apply_on_target(
         # The dataset's action at s' (NaN where unknown); None unstored.
         "next_action": batch.next_action,
         "next_actions": next_actions,
+        "critic_subset": critic_subset,
     }
-    target_batch.update(target_extras or {})
     target_key, _ = jax.random.split(derive_extensions_key(key))
     timestep = agent_state.collector_state.timestep
     target_q, metrics = extensions.apply_on_target(

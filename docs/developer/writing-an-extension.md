@@ -160,8 +160,8 @@ target `on_target` returned, held constant. The critic and actor parameters
 differentiated. `raw_observations` is `None` in a replay agent's run without
 an expert, whose replay does not keep them, and so are the stored fields
 (`next_action`, `return_to_go`, ...) a run does not store. An agent may add
-keys of its own (SAC's `on_target` batch carries `rng_key`, the target's own
-key), and declares them.
+keys of its own (DQN's `critic_loss` batch carries its `q_state`), and
+declares them.
 
 ## A worked example
 

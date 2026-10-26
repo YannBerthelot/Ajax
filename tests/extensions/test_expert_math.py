@@ -144,8 +144,9 @@ def test_ibrl_adds_the_discounted_expert_advantage_where_the_episode_goes_on(
     on and 0 on rows that end; a policy ahead of the expert adds nothing."""
     expert = jnp.full((2, 4, 1), 3.0)
     policy = jnp.full((2, 4, 1), 1.0).at[:, 3].set(5.0)
-    monkeypatch.setattr(target_mods, "_next_target_q", lambda *a: (expert, policy))
+    monkeypatch.setattr(target_mods, "score_next_actions", lambda *a: (expert, policy))
     batch = {"dones": jnp.array([[0.0], [1.0], [0.0], [0.0]]), "gamma": 0.5}
+    batch["critic_subset"] = None
     target, metrics = IBRL(expert_policy=abs).on_target(
         None, None, batch, jnp.zeros((4, 1)), CTX
     )

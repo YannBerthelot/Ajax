@@ -252,6 +252,20 @@ nothing reads them.
 
 Target extensions change what the critic learns towards. `IBRL` and
 `LCBGatedBootstrap` compare the expert's and the policy's next actions.
+
+`IBRL` computes its target as its authors' code does (hengyuan-hu/ibrl):
+the policy's next action is the one the agent's target scored (TD3's
+smoothed target action, the sample SAC's, REDQ's and TQC's targets valued).
+REDQ's target takes the minimum over a random subset of its critics; there
+`IBRL` selects between the two actions on a second random subset of the
+same size and values the selected one on the target's, as the authors'
+code selects on one random pair and values on another, so the bonus can be
+negative. The rest has no original form and is Ajax's own: the entropy
+term of SAC's, REDQ's and TQC's targets stays at the policy's action when
+the expert is selected, TQC's bonus reads its quantiles' means, and IQL,
+whose target scores no next action, scores a sample of its actor.
+`LCBGatedBootstrap` scores the same next actions and blends minima over
+the same critics.
 `CriticBlend` and `MCVarianceCorrection` lean on `φ*`, so they need
 `MCPretrain` in the same stack. `PhiRefresh` refits `φ*` during training on
 the rows where the expert acted.

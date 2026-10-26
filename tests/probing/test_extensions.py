@@ -39,7 +39,7 @@ from .agents import GAMMA
 from .verdict import Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "0b8635816bde"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "280411bc4c0f"  # verdict.digest(CASES): every answer, pinned
 
 
 # --- P3: known-effect extensions ----------------------------------------------
@@ -304,7 +304,7 @@ def _exact(names: Any) -> list:
     return [xparam(a) for a in names]
 
 
-PHASE_EXTENSIONS = {
+PHASE_EXTENSIONS: dict[str, type[Extension]] = {
     "on_target": TargetShift,
     "critic_loss": CriticPull,
     "actor_loss": ActorPull,
@@ -487,11 +487,14 @@ class ShiftedHalfExpert:
 
 
 class ActionChainEnv(continuous.RewardDiscountingEnv):
-    """The chain paying clip(a, -1, 1) at both steps: Q(1, a) = a."""
+    """The chain paying pay(a) = clip(a, -1, 1) at both steps: Q(1, a) = a."""
+
+    def pay(self, action: Any) -> Any:
+        return jnp.clip(jnp.squeeze(action), -1.0, 1.0)
 
     def step_env(self, key: Any, state: Any, action: Any, params: Any) -> Any:
         state = type(state)(x=jnp.float32(state.time + 1), time=state.time + 1)
-        reward = jnp.clip(jnp.squeeze(action), -1.0, 1.0)
+        reward = self.pay(action)
         obs, done = self.get_obs(state), self.is_terminated(state, params)
         info = {"discount": self.discount(state, params)}
         return *jax.lax.stop_gradient((obs, state)), reward, done, info
@@ -590,6 +593,7 @@ CASES["q7-blend-SAC"] = Case(
 )
 _X02 = "gap not masked at the terminal step (X02, target_mods.py:116)"
 IBRL_KW = {"fixed_alpha": True, "alpha_init": 1e-4, "policy_update_start": 2**30}
+EXPERT_ONE = ConstantExpert(1.0)
 CASES["q7-ibrl-SAC"] = Case(
     "q7-ibrl-SAC",
     (
@@ -597,16 +601,60 @@ CASES["q7-ibrl-SAC"] = Case(
         Query("Q(0, 0)", GAMMA, {"IBRL not applied": 0.0, "gap not discounted": 1.0}),
     ),
     q7_readings(
-        "SAC",
-        ActionChainEnv,
-        _ibrl,
-        (IBRL(expert_policy=ConstantExpert(1.0)),),
-        **IBRL_KW,
+        "SAC", ActionChainEnv, _ibrl, (IBRL(expert_policy=EXPERT_ONE),), **IBRL_KW
     ),
     1250,
     (0.02, 0.02, 0.02),
     slow=True,
     note="a_E = 1, the best action; actor frozen at init, alpha 1e-4; cert 32/32",
+)
+
+
+class ActionPeakEnv(ActionChainEnv):
+    """Paying -clip(a, -1, 1)^2: Q(1, a) = -a^2, highest at a = 0."""
+
+    def pay(self, action: Any) -> Any:
+        return -jnp.square(super().pay(action))
+
+
+# IBRL scores the next action the target scored: REDQ's on SAC's chain; on
+# the peak (a_E = 0, its top), TD3's bonus at its online mean mu, not at the
+# smoothed a' = mu + eps, eps ~ N(0, 0.5) clipped to 1, leaves gamma E[mu^2 -
+# a'^2] = -gamma Var(eps). Its actor holds at a zero learning rate.
+_NODES, _WEIGHTS = np.polynomial.hermite_e.hermegauss(64)
+SPREAD = float(_WEIGHTS @ np.clip(0.5 * _NODES, -1, 1) ** 2 / _WEIGHTS.sum())
+TD3_IBRL = {"actor_learning_rate": 0.0, "target_policy_noise": 0.5}
+TD3_IBRL.update({"target_noise_clip": 1.0})
+REDQ_IBRL = {"alpha_init": 1e-4, "alpha_learning_rate": 0.0, "num_critic_updates": 5}
+REDQ_IBRL.update({"policy_update_start": 2**30})
+_OFF = {"IBRL not applied, or at the online mean": -GAMMA * SPREAD}
+_OFF.update({"gap not discounted": (1 - GAMMA) * SPREAD})
+CASES["q7-ibrl-REDQ"] = dataclasses.replace(
+    CASES["q7-ibrl-SAC"],
+    id="q7-ibrl-REDQ",
+    readings=q7_readings(
+        "REDQ", ActionChainEnv, _ibrl, (IBRL(expert_policy=EXPERT_ONE),), **REDQ_IBRL
+    ),
+    budget=625,
+    note="as SAC's; budgets (625, 1250, 2500): 625, worst 0.003; cert 32/32",
+)
+CASES["q7-ibrl-TD3"] = Case(
+    "q7-ibrl-TD3",
+    (
+        Query("Q(1, 0.5)", -0.25, {_X02: GAMMA * SPREAD - 0.25}),
+        Query("Q(0, 0)", 0, _OFF),
+    ),
+    q7_readings(
+        "TD3",
+        ActionPeakEnv,
+        _ibrl,
+        (IBRL(expert_policy=ConstantExpert(0.0)),),
+        **TD3_IBRL,
+    ),
+    1250,
+    (0.024, 0.029),
+    slow=True,
+    note="budgets (625, 1250, 2500): 1250, worst 0.012, 0.014; cert 32/32",
 )
 _BC0 = {"BC weight 0 at observation 1 (v_min/v_max swapped, or no BC)": 0.0}
 _BC1 = {"BC weight 1 at observation 0 (weight stuck at 1, or swapped)": 0.0}

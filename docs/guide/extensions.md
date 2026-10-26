@@ -203,7 +203,7 @@ theirs:
 
 | Phase | Every agent folding it | The replay actor-critics add |
 | --- | --- | --- |
-| `on_target` | `observations`, `next_observations`, `rewards`, `gamma` | `actions`, `dones`, `reward_scale`, `raw_next_observations`, `next_a_expert`, `next_action` (None where nothing stores them) |
+| `on_target` | `observations`, `next_observations`, `rewards`, `gamma` | `actions`, `dones`, `reward_scale`, `raw_next_observations`, `next_a_expert`, `next_action` (None where nothing stores them), `next_actions`, `critic_subset` |
 | `critic_loss` | `observations`, `targets` | `actions`, `next_observations`, `critic_params`, `critic_state`, `actor_state`, `return_to_go` |
 | `actor_loss` | `actor_params` | `actor_state`, `observations`, `raw_observations`, `pi_mean`, `agent_loss`, `critic_state`; `actions` and `a_expert` on most (None without an `expert_policy`) |
 
@@ -220,8 +220,10 @@ actor's mean action. `raw_observations` are the environment's own
 observations, before any normalisation; a replay agent keeps them only in a
 run with an expert, and passes `None` otherwise, except UDRL, whose segments
 hold them anyway. `next_actions` are the next actions the target scored
-(None for a target on a state value, IQL's V(s')). An agent's own keys
-(SAC's `rng_key`) are in its `phase_batch_keys`.
+(None for a target on a state value, IQL's V(s')). `critic_subset` holds
+the indices of the target critics whose minimum the target took, where it
+took a random subset of them (REDQ's), and None where it took all of them.
+An agent's own keys are in its `phase_batch_keys`.
 
 An extension never falls back to adding nothing, so a misplaced extension
 cannot look like a result. One declaring the keys it reads (`batch_keys`) is
@@ -318,7 +320,7 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `IBRL` | Adds `γ(1 − d) · max(Q(s′, a_E) − Q(s′, a′), 0)` to the target, so the values match acting with whichever of expert and policy looks better. Logs `ibrl/bonus` and `ibrl/expert_wins`. | `on_target` | SAC, TD3, REDQ, AVG; refused on an average-reward target (ASAC, APO), which has no discount for the bonus |
+| `IBRL` | Adds `γ(1 − d) · max(Q(s′, a_E) − Q(s′, a′), 0)` to the target, so the values match acting with whichever of expert and policy looks better: `a′` is the next action the target scored, `Q` the minimum over the critics the target took its minimum over. On REDQ the expert is selected on a fresh random subset of critics, so the bonus can be negative ([Expert guidance](expert-guidance.md#critic)). Logs `ibrl/bonus` and `ibrl/expert_wins`. | `on_target` | SAC, TD3, REDQ, TQC, IQL; refused on an average-reward target (ASAC, APO), which has no discount for the bonus |
 | `LCBGatedBootstrap` | Blends the policy's and the expert's next-action values in the target, weighted by a sigmoid of their pessimistic (lower-confidence-bound) scores. Logs its pessimism `lcb_bootstrap/beta` and its mean gate `lcb_bootstrap/p_expert`. | `on_target`, `eval_metrics` | SAC, TD3, REDQ, which have critic ensembles; refused on an average-reward target (ASAC, APO) |
 | `CriticBlend` | Blends the target with a one-step target on `φ*`, `(1 − α) y + α y_E`, with `α` falling from 1 to 0 over `critic_warmup_frac`. Logs `α` as `critic_blend/expert_weight`, and `critic_blend/target_gap`. | `on_target`, `eval_metrics` | SAC with `MCPretrain` |
 | `MCVarianceCorrection` | Where the critics disagree by more than `threshold` (variance), uses `φ*`'s value as the target. Logs `mc_variance/replaced_frac`. | `on_target` | SAC with `MCPretrain` |

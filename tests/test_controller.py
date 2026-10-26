@@ -15,7 +15,7 @@ from ajax.controller import (
     feature_width,
     init_observers,
     make_run_controller,
-    make_scored_action,
+    make_scored_actions,
     observation_layout,
     observe_features,
     observers_of,
@@ -127,14 +127,19 @@ def test_the_critics_score_the_residual_transforms_executed_actions():
         )
 
 
-def test_the_scored_action_is_the_executed_one_under_a_residual_policy_only():
-    """make_scored_action: actions -> executed(actions, a_expert) at the
-    rows' stored expert actions; None without a residual policy."""
-    assert make_scored_action(None, jnp.ones((2, 1))) is None
+def test_the_scored_actions_are_the_executed_ones_under_a_residual_policy_only():
+    """make_scored_actions: at s, actions -> executed(actions, a_expert) at
+    the rows' stored expert actions, at s' at their next ones; the actions
+    themselves without a residual policy."""
+    actions = jnp.full((2, 1), 0.5)
+    batch = SimpleNamespace(a_expert=jnp.full((2, 1), 0.75), next_a_expert=-actions)
+    unchanged = make_scored_actions(None, batch)
+    assert unchanged.map_actions(actions) is actions
+    assert unchanged.map_next_actions(actions) is actions
     residual = SimpleNamespace(transforms=(ResidualPolicy(scale=0.5),))
-    actions, a_expert = jnp.full((2, 1), 0.5), jnp.full((2, 1), 0.75)
-    scored = make_scored_action(executed_fn(residual), a_expert)
-    np.testing.assert_allclose(scored(actions), 0.75 + 0.25)
+    scored = make_scored_actions(executed_fn(residual), batch)
+    np.testing.assert_allclose(scored.map_actions(actions), 0.75 + 0.25)
+    np.testing.assert_allclose(scored.map_next_actions(actions), -0.5 + 0.25)
 
 
 class _Count(Extension):

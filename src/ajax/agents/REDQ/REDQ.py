@@ -59,7 +59,7 @@ from ajax.agents.temperature import (
     get_alpha,
     update_temperature,
 )
-from ajax.controller import critic_action_units, make_scored_action, policy_action_dim
+from ajax.controller import critic_action_units, leave_unchanged, policy_action_dim
 from ajax.extensions.base import merge_metrics
 from ajax.perf_utils import final_aux_scan
 from ajax.schedule import Schedule
@@ -320,8 +320,7 @@ class REDQ(
             self.subset_size,
             self.reward_scale,
             carries,
-            context.executed,
-            batch.next_a_expert,
+            context.make_scored_actions(batch).map_next_actions,
         )
 
         def critic_loss(
@@ -365,7 +364,7 @@ class REDQ(
         actor_key, agent_state = agent_state.get_keys_and_new_state()
         alpha = get_alpha(agent_state)
         critic_state = agent_state.critic_state
-        transform = make_scored_action(context.executed, batch.a_expert)
+        scored = context.make_scored_actions(batch)
 
         def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
             loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
@@ -377,7 +376,7 @@ class REDQ(
                 actor_key,
                 carries,
                 jnp.mean,
-                transform,
+                scored.map_actions,
             )
             return loss, (loss, log_probs, q_values), policy.mean()
 
@@ -461,17 +460,16 @@ def compute_redq_td_target(
     subset_size: int,
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
-    executed: Optional[Callable] = None,
-    next_a_expert: Optional[jax.Array] = None,
+    map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, jax.Array]:
     """REDQ's Bellman target: the minimum over a random subset of the target
-    critics, at the next actions executed (executed, a residual policy's).
-    Returns the target, no gradient flowing back through it, and the next
-    actions' log-probs."""
+    critics, at the next actions the critics score (map_next_actions: a
+    residual policy's executed ones). Returns the target, no gradient
+    flowing back through it, and the next actions' log-probs."""
     rewards = rewards * reward_scale
     sample_key, subset_key = jax.random.split(rng)
     next_actions, log_probs = sample_next_actions(
-        actor_state, next_observations, sample_key, carries, executed, next_a_expert
+        actor_state, next_observations, sample_key, carries, map_next_actions
     )
     # The ensemble axis stays leading in sequence mode too, so the subset
     # sampling is the same.

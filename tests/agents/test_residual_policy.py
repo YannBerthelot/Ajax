@@ -3,6 +3,7 @@ actions: collection executes ``clip(a_expert + scale·a_pi)`` and stores it,
 the critics and the actor score it (that the agents learn the residual is
 tests/probing's)."""
 
+from types import SimpleNamespace
 from typing import Any
 
 import jax
@@ -14,7 +15,7 @@ from ajax import APG, UDRL
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC.SAC import compute_soft_policy_loss, sample_next_actions
 from ajax.agents.TD3.TD3 import compute_td3_td_target
-from ajax.controller import make_scored_action
+from ajax.controller import make_scored_actions
 from ajax.extensions.expert import ResidualPolicy
 from tests.agents.test_agent_contract import CASES
 from tests.environments import paid_action
@@ -164,19 +165,21 @@ def _put(a: jax.Array, a_expert: Any) -> jax.Array:
 def test_the_soft_core_scores_executed_actions():
     """SAC's equations (REDQ, TQC, ASAC, CrossQ, AVG read them): the
     bootstrap's next actions and the actor's objective, at the scored
-    actions make_scored_action gives, are the executed ones."""
+    actions make_scored_actions gives, are the executed ones."""
     state = _initial("REDQ")
     obs, key = jnp.ones((4, 3)), jax.random.PRNGKey(0)
     a_expert = jnp.full((4, 1), 0.25)
-    next_actions, _ = sample_next_actions(
-        state.actor_state, obs, key, executed=_put, next_a_expert=a_expert
+    scored = make_scored_actions(
+        _put, SimpleNamespace(a_expert=a_expert, next_a_expert=-a_expert)
     )
-    np.testing.assert_array_equal(next_actions, 0.25)
+    next_actions, _ = sample_next_actions(
+        state.actor_state, obs, key, map_next_actions=scored.map_next_actions
+    )
+    np.testing.assert_array_equal(next_actions, -0.25)
     actor, critic = state.actor_state, state.critic_state
-    transform = make_scored_action(_put, a_expert)
     alpha = jnp.asarray(1.0)
     _, (_, q, _) = compute_soft_policy_loss(
-        actor.params, actor, critic, obs, alpha, key, None, jnp.min, transform
+        actor.params, actor, critic, obs, alpha, key, None, jnp.min, scored.map_actions
     )
     at_expert = jnp.min(q_values(critic, critic.params, obs, a_expert), axis=0)
     np.testing.assert_allclose(q, at_expert, rtol=1e-6)
@@ -185,6 +188,7 @@ def test_the_soft_core_scores_executed_actions():
 def test_td3s_target_scores_the_executed_next_action():
     state = _initial("TD3")
     obs, zeros = jnp.ones((4, 3)), jnp.zeros((4, 1))
+    rows = SimpleNamespace(a_expert=zeros, next_a_expert=jnp.full((4, 1), 0.25))
     _, _, next_actions = compute_td3_td_target(
         state.actor_state,
         state.critic_state,
@@ -196,7 +200,6 @@ def test_td3s_target_scores_the_executed_next_action():
         0.2,
         0.5,
         1.0,
-        executed=_put,
-        next_a_expert=jnp.full((4, 1), 0.25),
+        map_next_actions=make_scored_actions(_put, rows).map_next_actions,
     )
     np.testing.assert_array_equal(next_actions, 0.25)

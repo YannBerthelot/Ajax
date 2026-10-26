@@ -48,7 +48,12 @@ from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_bu
 from ajax.agents.recurrent import stored_actor_carry_dim, unsupported_recurrent_options
 from ajax.agents.update_steps import REPLAY_BATCH_KEYS, reached
 from ajax.buffers.utils import get_buffer
-from ajax.controller import executed_fn, policy_action_dim
+from ajax.controller import (
+    ScoredActions,
+    executed_fn,
+    make_scored_actions,
+    policy_action_dim,
+)
 from ajax.environments.interaction import init_collector_state
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import Extension, ExtensionStack, holds_expert
@@ -125,6 +130,11 @@ class TrainContext:
     #: (actions, a_expert) -> actions the critics score under a residual
     #: policy (controller.executed_fn); None otherwise.
     executed: Optional[Callable] = None
+
+    def make_scored_actions(self, batch: Transition) -> ScoredActions:
+        """The maps to the actions the critics score at batch's rows, at s
+        and at s' (controller.make_scored_actions)."""
+        return make_scored_actions(self.executed, batch)
 
     def make_actor_critic(
         self,

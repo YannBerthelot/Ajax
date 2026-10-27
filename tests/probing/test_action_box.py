@@ -108,7 +108,7 @@ def _tdmpc2(run: runs.Run) -> dict:
 
 def _dreamer(run: runs.Run) -> dict:
     """The actor's mode after one observe step from a fresh carry."""
-    c, s = run.agent.dreamer_config, run.state
+    c, s = run.agent.model_config, run.state
 
     def one(wm: Any, pi: Any) -> jax.Array:
         model, rssm = dreamer.WorldModel(c, 3), dreamer.RSSM(c)

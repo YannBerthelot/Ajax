@@ -141,7 +141,7 @@ def cartpole():
 
 def test_cartpole_trains_with_finite_outputs_and_per_seed_shapes(cartpole):
     state, agent = cartpole.state, cartpole.agent
-    c = agent.dreamer_config
+    c = agent.model_config
     assert state.world_model_state.params["rssm"]["dynhid0"]["kernel"].shape[0] == 2
     for leaf in jax.tree.leaves(
         (state.world_model_state.params, state.actor_state.params, state.critic_state)
@@ -254,7 +254,7 @@ def test_the_evaluation_draws_from_the_key_it_is_handed(cartpole, monkeypatch):
         jax.tree.map(lambda x: x[0], cartpole.state),
         key,
         env_args=agent.env_args,
-        config=agent.dreamer_config,
+        config=agent.model_config,
         spec=train_DreamerV3.env_spec(agent.env_args),
         num_episode_test=1,
     )
@@ -538,7 +538,7 @@ def test_construction_resolves_the_configuration():
     agent = DreamerV3(
         "CartPole-v1", n_envs=2, model_size="25m", deter=96, return_horizon=50
     )
-    c = agent.dreamer_config
+    c = agent.model_config
     d = MODEL_SIZES["25m"]
     assert (c.units, c.hidden, c.deter, c.classes) == (d, d, 96, d // 16)
     resolved = {
@@ -563,7 +563,7 @@ def test_constructor_defaults_are_the_reference_pinned_configs():
     from ajax.agents.DreamerV3.state import DreamerV3AgentConfig, DreamerV3Config
 
     agent = DreamerV3("CartPole-v1")
-    assert agent.dreamer_config == DreamerV3Config()
+    assert agent.model_config == DreamerV3Config()
     assert agent.agent_config == DreamerV3AgentConfig()
 
 

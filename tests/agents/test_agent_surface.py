@@ -1,9 +1,9 @@
 """The agents' surface, pinned while their files are restructured: every
 public name an agent module defines still imports from its path, every
 agent built on its defaults logs the run config it did (and the world
-models hold the agent_config they did), and every agent class keeps the
-contract the extensions and the loop read off it (a value a family base
-supplies is the one the agent declared).
+models hold the maths configuration, model_config or agent_config, they
+did), and every agent class keeps the contract the extensions and the loop
+read off it (a value a family base supplies is the one the agent declared).
 
 After a deliberate change (a default changed in its own pull request, a new
 name), rewrite the records::
@@ -93,8 +93,9 @@ def canonical(value: Any) -> Any:
 
 
 def configs(name: str) -> dict[str, Any]:
-    """The run config the loggers record and, for an agent with one (the
-    world models), its agent_config, the agent built on its defaults."""
+    """The run config the loggers record and, for an agent with them (the
+    world models), its model_config and agent_config, the agent built on its
+    defaults."""
     cls = getattr(ajax, name)
     if name == "TDMPC2MultiTask":
         agent = _multitask()
@@ -103,8 +104,9 @@ def configs(name: str) -> dict[str, Any]:
     else:
         agent = cls(env_id=OTHERS[name])
     records = {"config": canonical(agent.config)}
-    if hasattr(agent, "agent_config"):
-        records.update({"agent_config": canonical(agent.agent_config)})
+    for config in ("model_config", "agent_config"):
+        if hasattr(agent, config):
+            records.update({config: canonical(getattr(agent, config))})
     return records
 
 

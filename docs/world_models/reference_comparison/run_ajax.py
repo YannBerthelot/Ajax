@@ -103,7 +103,8 @@ def main(argv=None):
         "constructor": _jsonable(
             {k: v for k, v in agent.config.items() if k != "env_params"}
         ),
-        "dreamer_config": _jsonable(dataclasses.asdict(agent.dreamer_config)),
+        # The key keeps its name: compare.py and the dated results read it.
+        "dreamer_config": _jsonable(dataclasses.asdict(agent.model_config)),
         "agent_config": _jsonable(
             {
                 k: getattr(agent.agent_config, k)

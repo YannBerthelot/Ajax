@@ -617,12 +617,13 @@ def run_single_task(
     def skeleton() -> Any:
         return agent.train(seed=seeds, n_timesteps=0)[0]
 
+    # The agent's static maths configuration (TD-MPC2 keeps it as agent_config).
+    maths = agent.model_config if spec.agent == "DreamerV3" else agent.agent_config
     run_spec = {
         "run": dataclasses.asdict(spec),
         "resolved": {
             "config": jsonable(agent.config),
-            "agent_config": jsonable(getattr(agent, "agent_config", None)),
-            "dreamer_config": jsonable(getattr(agent, "dreamer_config", None)),
+            "model_config": jsonable(maths),
         },
     }
     records, state = run_chunked(

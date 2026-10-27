@@ -1,4 +1,4 @@
-"""The acting step (:func:`policy_step`; dreamerv3_spec 7.1, 7.3).
+"""The acting step (:func:`observe_and_act`; dreamerv3_spec 7.1, 7.3).
 
 ``Agent.policy`` (``29eb964:dreamerv3/agent.py:129-164``): one posterior
 filter step from the carried ``(h, z)`` and previous action, reset where
@@ -19,10 +19,10 @@ import pytest
 
 from ajax.agents.DreamerV3.networks import init_actor, init_world_model
 from ajax.agents.DreamerV3.state import DreamerV3Config
-from ajax.agents.DreamerV3.train_DreamerV3 import (
+from ajax.agents.DreamerV3.world_model import (
     PolicyCarry,
-    initial_policy_carry,
-    policy_step,
+    make_initial_carry,
+    observe_and_act,
 )
 
 from .common import OBS_DIM, TINY, perturbed
@@ -45,14 +45,14 @@ def params(config: DreamerV3Config, discrete: bool, seed: int = 0):
     return perturbed(world_model, seed + 1), perturbed(actor, seed + 2)
 
 
-_policy_step = jax.jit(
-    policy_step, static_argnames=("config", "action_dim", "discrete")
+_observe_and_act = jax.jit(
+    observe_and_act, static_argnames=("config", "action_dim", "discrete")
 )
 
 
 def act(config, discrete, carry, obs, is_first, key, seed=0):
     world_model, actor = params(config, discrete, seed)
-    return _policy_step(
+    return _observe_and_act(
         world_model,
         actor,
         carry,
@@ -68,7 +68,7 @@ def act(config, discrete, carry, obs, is_first, key, seed=0):
 def noisy_carry(config: DreamerV3Config, n: int, discrete: bool) -> PolicyCarry:
     """A carry far from the initial (zero) one."""
     rng = np.random.default_rng(0)
-    zero = initial_policy_carry(config, n, ACTIONS, discrete)
+    zero = make_initial_carry(config, n, ACTIONS, discrete)
     classes = rng.integers(0, config.classes, zero.stoch.shape[:-1])
     prevact = (
         jnp.asarray(rng.integers(0, ACTIONS, n), jnp.int32)
@@ -87,7 +87,7 @@ def test_the_policy_samples_the_actor(discrete):
     """Identical features in 256 envs: the actions still vary across envs
     (the reference samples in every mode, dreamerv3_spec 7.3)."""
     n = 256
-    carry = initial_policy_carry(ONE_CLASS, n, ACTIONS, discrete)
+    carry = make_initial_carry(ONE_CLASS, n, ACTIONS, discrete)
     obs = jnp.ones((n, OBS_DIM))
     action, new, _ = act(
         ONE_CLASS, discrete, carry, obs, jnp.ones(n, bool), jax.random.PRNGKey(1)
@@ -111,7 +111,7 @@ def test_is_first_resets_the_carry(discrete):
     n = 64
     obs = jnp.asarray(np.random.default_rng(1).normal(size=(n, OBS_DIM)), jnp.float32)
     key = jax.random.PRNGKey(3)
-    zero = initial_policy_carry(TINY, n, ACTIONS, discrete)
+    zero = make_initial_carry(TINY, n, ACTIONS, discrete)
     noisy = noisy_carry(TINY, n, discrete)
     first = jnp.ones(n, bool)
     from_zero = act(TINY, discrete, zero, obs, first, key)

@@ -433,8 +433,7 @@ Five agents call `bind_to_agent`, when training starts:
   extensions through `env_args.observers`.
 - TD3, REDQ and APO pass `env_args`, `actor_optimizer_args` and
   `expert_policy`, which `CloningPretrain` needs.
-- DreamerV3 passes `env_args`, `agent_config`, `gamma` and
-  `total_timesteps`.
+- DreamerV3 passes `env_args` and `gamma`.
 
 Follow the shipped extensions' pattern. Keep a value the user passed
 explicitly, as `MCPretrain` and `PhiRefresh` do. And raise with a clear

@@ -27,10 +27,12 @@ from ajax.agents.families import (
     ObservationNormalization,
     OnPolicyAgent,
     OwnIterationAgent,
+    OwnReplayAgent,
     RecurrentReplayAgent,
     ReplayAgent,
     TrainContext,
 )
+from ajax.environments.row_collector import init_row_collector_state
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import ImitationLoss
@@ -500,6 +502,99 @@ def test_an_own_iteration_agent_runs_its_iterations_on_the_loop() -> None:
     assert counts(agent.train(0, 4, initial_state=state)[0]) == [1, 5]
     with pytest.raises(TypeError, match="OwnToy.train takes no n_iterations"):
         agent.train(0, 4, n_iterations=1)
+    with pytest.raises(ValueError, match="cannot train offline"):
+        agent.train_offline(dataset=None, n_updates=1)
+
+
+@struct.dataclass(kw_only=True)
+class RowsState(BaseAgentState):
+    stored: Any = 0  # the rows collect stored
+    restarts: Any = 0  # the ticks after_log saw a log written
+
+
+@dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+class ReplayToy(OwnReplayAgent):
+    """Stores n_envs rows a tick in a replay as long as the call's last
+    tick, and updates after every odd tick."""
+
+    actor_architecture: Architecture = NET
+    critic_architecture: Architecture = NET
+
+    def prepare_replay(self, start_tick, end_tick, agent_state):
+        self.prepared = (start_tick, end_tick)
+        return end_tick, agent_state
+
+    def init(self, key, context):
+        rng, init_key, collector_key, eval_rng = jax.random.split(key, 4)
+        actor, critic = context.make_actor_critic(
+            init_key, continuous=True, action_value=False, num_critics=1
+        )
+        zero = jnp.zeros((), jnp.int32)
+        return RowsState(
+            rng=rng,
+            eval_rng=eval_rng,
+            actor_state=actor,
+            critic_state=critic,
+            collector_state=init_row_collector_state(collector_key, context.env_args),
+            stored=zero,
+            restarts=zero,
+        )
+
+    def collect(self, agent_state, tick, context):
+        rows = context.env_args.n_envs
+        collector = agent_state.collector_state
+        collector = collector.replace(
+            rows=collector.rows + rows, timestep=collector.timestep + rows
+        )
+        stored = agent_state.stored + rows
+        return agent_state.replace(collector_state=collector, stored=stored), tick
+
+    def count_updates(self, agent_state, tick, context):
+        return tick % 2
+
+    def update(self, agent_state, experience, context):
+        return agent_state.replace(n_updates=agent_state.n_updates + 1), None
+
+    def report(self, agent_state, aux):
+        return {"timestep": agent_state.collector_state.timestep}
+
+    def evaluate(self, agent_state, key, context, num_episode_test):
+        return {"Eval/replay": jnp.asarray(context.buffer, jnp.float32)}
+
+    def make_after_log(self):
+        def restart(agent_state, logged):
+            return agent_state.replace(restarts=agent_state.restarts + logged)
+
+        return restart
+
+    def check_run(self, agent_state, end_tick):
+        self.checked = end_tick
+
+    name = "ReplayToy"
+
+
+def test_an_own_replay_agent_runs_its_ticks_on_a_replay_sized_per_call() -> None:
+    """Six ticks of 2 envs, evaluated every 4: the replay of the call's ticks
+    reaches the evaluation, after_log sees the log, check_run the last tick;
+    a resume continues at its tick; a horizon ending before the call is
+    refused before prepare_replay; a dataset is refused."""
+    agent = ReplayToy("Pendulum-v1", n_envs=2)
+    logging = LoggingConfig(config={}, log_frequency=8, use_wandb=False)
+    state, rows = agent.train(0, 12, logging_config=logging)
+    assert agent.prepared == (0, 6) and agent.checked == 6
+    assert np.asarray(rows["timestep"]).tolist() == [[8, -1]]  # ticks 3, (7)
+    assert np.asarray(rows["Eval/replay"])[0, 0] == 6.0
+    counts = [state.stored, state.n_updates, state.restarts]
+    assert [int(count[0]) for count in counts] == [12, 3, 1]  # odd ticks 1, 3, 5
+    # A resume donates the state it is given: read each before the next call.
+    state, _ = agent.train(0, 8, initial_state=state)
+    assert agent.prepared == (6, 10) and agent.checked == 10
+    assert [int(state.stored[0]), int(state.n_updates[0])] == [20, 5]  # 7, 9
+    with pytest.raises(ValueError, match="ends before this call does"):
+        agent.train(0, 4, initial_state=state, total_timesteps=22)
+    assert agent.prepared == (6, 10)
+    with pytest.warns(UserWarning, match="n_envs"):
+        agent.train(0, 5)
     with pytest.raises(ValueError, match="cannot train offline"):
         agent.train_offline(dataset=None, n_updates=1)
 

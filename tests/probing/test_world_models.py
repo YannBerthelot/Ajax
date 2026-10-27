@@ -342,7 +342,7 @@ RISKY = envs.Spec(
 def _p_safe(run: runs.Run) -> dict:
     """P(safe): the actor at the filtered posterior's mode of observation 0
     (one observe step from a fresh carry, a zero previous action)."""
-    c, s = run.agent.dreamer_config, run.state
+    c, s = run.agent.model_config, run.state
     model, rssm = dreamer.WorldModel(c, 1), dreamer.RSSM(c)
 
     def one(wm: dict, pi: dict) -> jax.Array:
@@ -416,7 +416,7 @@ def _filtered(c: Any, wm: dict, pi: dict, xs: tuple[float, ...]) -> tuple:
 
 
 def _dreamer_pilot_read(run: runs.Run) -> dict:
-    c, s = run.agent.dreamer_config, run.state
+    c, s = run.agent.model_config, run.state
     critic = dreamer.make_critic(c)
 
     def one(wm: dict, pi: dict, q: dict) -> dict:

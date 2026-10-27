@@ -28,15 +28,19 @@ import jax.numpy as jnp
 from ajax.agents.DreamerV3.distributions import (
     OneHot,
     bernoulli_loss,
+    draw_action_noise,
     draw_onehot_noise,
     symlog_mse,
 )
 from ajax.agents.DreamerV3.networks import (
     RSSM,
+    Actor,
     RSSMFeatures,
     RSSMState,
     WorldModel,
+    encode_action,
     features,
+    initial_state,
     observe,
 )
 from ajax.agents.DreamerV3.state import DreamerV3Config
@@ -255,3 +259,81 @@ def world_model_loss(
         prior_logits=prior_logits,
         tokens=tokens,
     )
+
+
+# -- Acting: the posterior filter on each new observation, then the actor ----
+class PolicyCarry(NamedTuple):
+    """The acting state of ``n`` envs (the reference's ``(lat, act)`` carry).
+
+    ``deter [n, D]`` and the one-hot ``stoch [n, S, C]`` of the last
+    posterior; ``prevact`` the last action, the raw sample: ``[n, A]``
+    float32 (continuous) or ``[n]`` int32 (discrete index). The reference
+    carries it unmasked even at ``is_last`` (the observe step masks it at the
+    next ``is_first``; dreamerv3_spec 7.1).
+    """
+
+    deter: jax.Array
+    stoch: jax.Array
+    prevact: jax.Array
+
+
+def make_initial_carry(
+    config: DreamerV3Config, n_envs: int, action_dim: int, discrete: bool
+) -> PolicyCarry:
+    """Zeros (``Agent.init_policy``, ``29eb964:dreamerv3/agent.py:114-118``)."""
+    state = initial_state(config, (n_envs,))
+    prevact = (
+        jnp.zeros((n_envs,), jnp.int32)
+        if discrete
+        else jnp.zeros((n_envs, action_dim), jnp.float32)
+    )
+    return PolicyCarry(state.deter, state.stoch, prevact)
+
+
+def observe_and_act(
+    world_model_params: Mapping[str, Any],
+    actor_params: Mapping[str, Any],
+    carry: PolicyCarry,
+    obs: jax.Array,
+    is_first: jax.Array,
+    key: jax.Array,
+    *,
+    config: DreamerV3Config,
+    action_dim: int,
+    discrete: bool,
+) -> tuple[jax.Array, PolicyCarry, tuple[jax.Array, jax.Array]]:
+    """One acting step of ``n`` envs: filter ``obs``, then sample the actor.
+
+    ``Agent.policy`` (``29eb964:dreamerv3/agent.py:129-164``; dreamerv3_spec
+    7.1): encode the observation, one-hot the previous action, one RSSM
+    observe step (Algorithm B; ``deter``, ``stoch`` and the previous action
+    are zeroed where ``is_first``) with a **sampled** posterior, then
+    ``a ~ pi(concat(h, z))``, sampled in every mode. Returns the action (raw
+    sample, or its index for a discrete space), the new carry and, for the
+    replay context, the posterior ``(deter [n, D], stoch [n, S])`` as class
+    indices (``agent.py:142-144``). The signature after ``key`` is the row
+    collector's :class:`~ajax.environments.row_collector.PolicyFn` once the
+    parameters are bound.
+    """
+    posterior_key, action_key = jax.random.split(key)
+    n_envs = obs.shape[0]
+    obs = obs.reshape(n_envs, -1)
+    model = WorldModel(config, obs.shape[-1])
+    tokens = model.apply({"params": world_model_params}, obs, method=WorldModel.encode)
+    prevact = encode_action(carry.prevact, action_dim if discrete else None)
+    state, _ = RSSM(config).apply(
+        {"params": world_model_params["rssm"]},
+        RSSMState(carry.deter, carry.stoch),
+        tokens,
+        prevact,
+        is_first,
+        draw_posterior_noise(posterior_key, config, (n_envs,)),
+        method=RSSM.observe_step,
+    )
+    actor_apply: Callable[..., Any] = Actor(config, action_dim, discrete).apply
+    policy = actor_apply({"params": actor_params}, features(state.deter, state.stoch))
+    noise = draw_action_noise(action_key, (n_envs, action_dim), discrete)
+    sample = policy.sample(noise)
+    action = jnp.argmax(sample, -1).astype(jnp.int32) if discrete else sample
+    latent = (state.deter, jnp.argmax(state.stoch, -1).astype(jnp.int32))
+    return action, PolicyCarry(state.deter, state.stoch, action), latent

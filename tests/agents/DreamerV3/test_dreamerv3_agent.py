@@ -15,6 +15,7 @@ posterior written back.
 from __future__ import annotations
 
 import dataclasses
+import importlib
 import inspect
 from types import SimpleNamespace
 from typing import Any
@@ -28,10 +29,8 @@ from flax import struct
 
 from ajax import DreamerV3
 from ajax.agents import loop
-from ajax.agents.DreamerV3 import train_DreamerV3
 from ajax.agents.DreamerV3.replay import ReplayState, StreamReplay
 from ajax.agents.DreamerV3.state import MODEL_SIZES, WIDTHS
-from ajax.agents.DreamerV3.train_DreamerV3 import train_metrics
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt, TargetTweak
@@ -53,6 +52,9 @@ TINY: dict[str, Any] = {
     "batch_length": 8,
     "warmup": 10,
 }
+#: The agent's module, whose names the spies replace (the package exports
+#: the class under the same name).
+AGENT_MODULE = importlib.import_module("ajax.agents.DreamerV3.DreamerV3")
 SEEDS = [0, 1]
 N_ENVS = 4
 ROWS = 480  # 120 ticks
@@ -99,7 +101,7 @@ def cartpole():
     agent = cartpole_agent(extensions=[CounterExt(), MetricExt()])
     logged: list = []
     spied = SimpleNamespace(batches=[], samples=[], writes=[])
-    train_step = train_DreamerV3.train_step
+    train_step = AGENT_MODULE.train_step
     sample, write_back = StreamReplay.sample, StreamReplay.write_back
 
     def record(metrics, index, run_ids):
@@ -127,7 +129,7 @@ def cartpole():
     )
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(loop, "vmap_log", record)
-        patch.setattr(train_DreamerV3, "train_step", train_step_spy)
+        patch.setattr(AGENT_MODULE, "train_step", train_step_spy)
         patch.setattr(StreamReplay, "sample", sample_spy)
         patch.setattr(StreamReplay, "write_back", write_back_spy)
         state, metrics = agent.train(
@@ -141,7 +143,7 @@ def cartpole():
 
 def test_cartpole_trains_with_finite_outputs_and_per_seed_shapes(cartpole):
     state, agent = cartpole.state, cartpole.agent
-    c = agent.dreamer_config
+    c = agent.model_config
     assert state.world_model_state.params["rssm"]["dynhid0"]["kernel"].shape[0] == 2
     for leaf in jax.tree.leaves(
         (state.world_model_state.params, state.actor_state.params, state.critic_state)
@@ -248,14 +250,13 @@ def test_the_evaluation_draws_from_the_key_it_is_handed(cartpole, monkeypatch):
         keys.append(np.asarray(key))
         return jnp.zeros(()), jnp.zeros(())
 
-    monkeypatch.setattr(train_DreamerV3, "evaluate_policy", spy)
+    monkeypatch.setattr(AGENT_MODULE, "evaluate_policy", spy)
     agent, key = cartpole.agent, jax.random.PRNGKey(3)
-    train_DreamerV3.evaluate_dreamer(
+    _, context = agent.make_context(ROWS)
+    agent.evaluate(
         jax.tree.map(lambda x: x[0], cartpole.state),
         key,
-        env_args=agent.env_args,
-        config=agent.dreamer_config,
-        spec=train_DreamerV3.env_spec(agent.env_args),
+        context=context,
         num_episode_test=1,
     )
     np.testing.assert_array_equal(keys, [key])
@@ -415,7 +416,7 @@ def test_resume_continues_the_schedule_and_matches_an_uninterrupted_run(
     # discrete actions, which a different stream or update would flip.
     np.testing.assert_array_equal(short.replay_state.obs, whole.replay_state.obs)
     # A checkpoint skeleton (a 0-tick run) gets the latest run's ring.
-    assert resumer._resolve_replay(0, None) == (100, None)
+    assert resolve(resumer, 0) == (100, None)
 
 
 @struct.dataclass
@@ -438,6 +439,15 @@ def _resumable(rows: int, ring: int) -> _Resumable:
     )
 
 
+def resolve(agent: DreamerV3, n_timesteps: int, state: Any = None) -> tuple:
+    """The ring length of a call of n_timesteps rows from state (a fresh
+    run without one), and the state it resumes from (prepare_replay)."""
+    start = 0 if state is None else agent.resume_iteration_offset(state)
+    end = start + n_timesteps // N_ENVS
+    replay, state = agent.prepare_replay(start, end, state)
+    return replay.capacity, state
+
+
 def test_each_call_resolves_its_ring():
     """Host-side, no training: a fresh run sizes the ring by its own length
     (not an earlier run's), a 0-tick skeleton takes the latest run's, a
@@ -447,17 +457,17 @@ def test_each_call_resolves_its_ring():
         "CartPole-v1", n_envs=N_ENVS, replay_capacity=N_ENVS * 1000, **TINY
     )
     minimal = agent.schedule.min_ring_rows()
-    assert agent._resolve_replay(0, None) == (minimal, None)
+    assert resolve(agent, 0, None) == (minimal, None)
     assert agent.replay_rows_per_env is None
-    assert agent._resolve_replay(N_ENVS * 20, None) == (20, None)
-    assert agent._resolve_replay(N_ENVS * 300, None) == (300, None)
+    assert resolve(agent, N_ENVS * 20, None) == (20, None)
+    assert resolve(agent, N_ENVS * 300, None) == (300, None)
     # The run config records the resolved ring (DESIGN.md section 5.6).
     assert agent.config["replay_rows_per_env"] == 300
     assert agent.config["replay_bytes_per_seed"] == agent.replay_bytes_per_seed > 0
-    assert agent._resolve_replay(N_ENVS * 5000, None) == (1000, None)
-    assert agent._resolve_replay(0, None) == (1000, None)
+    assert resolve(agent, N_ENVS * 5000, None) == (1000, None)
+    assert resolve(agent, 0, None) == (1000, None)
 
-    rows, state = agent._resolve_replay(N_ENVS * 280, _resumable(20, 20))
+    rows, state = resolve(agent, N_ENVS * 280, _resumable(20, 20))
     assert rows == 300 == agent.replay_rows_per_env
     reward = np.asarray(state.replay_state.reward)
     assert reward.shape == (2, N_ENVS, 300)
@@ -466,10 +476,10 @@ def test_each_call_resolves_its_ring():
     assert state.replay_state.stoch.shape == (2, N_ENVS, 300, 4)
 
     long = _resumable(1500, 1000)
-    rows, state = agent._resolve_replay(N_ENVS * 10, long)
+    rows, state = resolve(agent, N_ENVS * 10, long)
     assert rows == 1000 and state is long
     with pytest.raises(ValueError, match="replay_capacity"):
-        agent._resolve_replay(N_ENVS * 10, _resumable(50, 40))
+        resolve(agent, N_ENVS * 10, _resumable(50, 40))
 
 
 @pytest.fixture(scope="module")
@@ -521,7 +531,7 @@ def test_playground_cartpole_with_action_repeat():
     assert not bool(replay.is_terminal.any())
     assert float(jnp.abs(replay.action).max()) > 1.0  # raw samples stored
     np.testing.assert_array_equal(state.n_updates, [agent.schedule.total_updates(100)])
-    logged = train_metrics(jax.tree.map(lambda x: x[0], state), None, action_repeat=2)
+    logged = agent.report(jax.tree.map(lambda x: x[0], state), None)
     assert int(logged["env_frames"]) == 2 * 200
     assert np.isfinite(float(logged["Train/episodic mean reward"]))
 
@@ -538,7 +548,7 @@ def test_construction_resolves_the_configuration():
     agent = DreamerV3(
         "CartPole-v1", n_envs=2, model_size="25m", deter=96, return_horizon=50
     )
-    c = agent.dreamer_config
+    c = agent.model_config
     d = MODEL_SIZES["25m"]
     assert (c.units, c.hidden, c.deter, c.classes) == (d, d, 96, d // 16)
     resolved = {
@@ -548,7 +558,7 @@ def test_construction_resolves_the_configuration():
     assert c.gamma == pytest.approx(0.98)
     assert agent.config["algo_name"] == "DreamerV3"
     assert agent.config["model_size"] == "25m"
-    assert agent.agent_config.train_ratio == 512
+    assert agent.train_ratio == 512
     assert agent.replay_rows_per_env is None and agent.replay_bytes_per_seed == 0
     with pytest.raises(ValueError, match="replay_capacity"):
         DreamerV3("CartPole-v1", n_envs=2, replay_capacity=100)
@@ -560,11 +570,10 @@ def test_constructor_defaults_are_the_reference_pinned_configs():
     """The constructor's defaults are a second copy of the configs' (pinned
     against the reference's ``configs.yaml`` by the parity tests): the two
     must agree field by field."""
-    from ajax.agents.DreamerV3.state import DreamerV3AgentConfig, DreamerV3Config
+    from ajax.agents.DreamerV3.state import DreamerV3Config
 
     agent = DreamerV3("CartPole-v1")
-    assert agent.dreamer_config == DreamerV3Config()
-    assert agent.agent_config == DreamerV3AgentConfig()
+    assert agent.model_config == DreamerV3Config()
 
 
 def test_the_config_is_built_from_the_constructor_arguments():

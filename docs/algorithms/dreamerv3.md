@@ -104,7 +104,10 @@ below.
   24-dimensional observation, so the 250K rows of the DMC protocol take about
   2.1 GB per seed, and about 3.2 GB with the training step's working set.
   `agent.replay_bytes_per_seed` gives the figure after `train`. Running several
-  seeds multiplies it.
+  seeds multiplies it. The replay keeps `min(ceil(replay_capacity / n_envs),
+  rows per env of the run)` rows per env (a capacity in rows, deviation D27),
+  sized again by every `train` call, so that a run split into resumed calls
+  keeps the replay of the uninterrupted run.
 - **Recompilation.** Widths, depths, counts, `bins`, `imag_horizon`,
   `batch_size`, `batch_length`, `train_ratio` and `replay_capacity` fix the
   compiled program; changing one recompiles.

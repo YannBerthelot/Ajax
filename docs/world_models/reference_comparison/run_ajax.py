@@ -103,10 +103,11 @@ def main(argv=None):
         "constructor": _jsonable(
             {k: v for k, v in agent.config.items() if k != "env_params"}
         ),
-        "dreamer_config": _jsonable(dataclasses.asdict(agent.dreamer_config)),
+        # The keys keep their names: compare.py and the dated results read them.
+        "dreamer_config": _jsonable(dataclasses.asdict(agent.model_config)),
         "agent_config": _jsonable(
             {
-                k: getattr(agent.agent_config, k)
+                k: getattr(agent, k)
                 for k in (
                     "train_ratio",
                     "batch_size",
@@ -122,7 +123,7 @@ def main(argv=None):
             "total_updates": int(sched.total_updates(a.rows // agent.env_args.n_envs)),
         },
         "n_envs": agent.env_args.n_envs,
-        "ring_rows": agent._ring_rows(a.rows),
+        "ring_rows": agent.prepare_replay(0, a.rows // agent.n_envs, None)[0].capacity,
         "run": {
             **vars(a),
             "out": provenance.located(out, {"out": out.parent}),

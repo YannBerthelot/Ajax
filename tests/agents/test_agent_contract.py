@@ -35,8 +35,7 @@ from ajax.agents.base import ActorCritic, run_config
 from ajax.agents.CrossQ.CrossQ import CrossQ
 from ajax.agents.DAgger.DAgger import DAgger
 from ajax.agents.DQN.DQN import DQN
-from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
-from ajax.agents.DreamerV3.state import DreamerV3State
+from ajax.agents.DreamerV3.DreamerV3 import DreamerV3, DreamerV3State
 from ajax.agents.IQL.IQL import IQL
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN

@@ -272,15 +272,6 @@
   }
  },
  "DreamerV3": {
-  "agent_config": {
-   "DreamerV3AgentConfig": {
-    "batch_length": 64,
-    "batch_size": 16,
-    "expose_recent_rollout": false,
-    "replay_capacity": 5000000,
-    "train_ratio": 512
-   }
-  },
   "config": {
    "actent": 0.0003,
    "action_repeat": 1,
@@ -341,6 +332,53 @@
    "units": null,
    "warmup": 1000,
    "weight_decay": 0.0
+  },
+  "model_config": {
+   "DreamerV3Config": {
+    "actent": 0.0003,
+    "actor_layers": 3,
+    "actor_scale": 1.0,
+    "actor_unimix": 0.01,
+    "agc": 0.3,
+    "agc_pmin": 0.001,
+    "beta1": 0.9,
+    "beta2": 0.999,
+    "bins": 255,
+    "blocks": 8,
+    "classes": 16,
+    "con_layers": 1,
+    "con_scale": 1.0,
+    "critic_layers": 3,
+    "critic_scale": 1.0,
+    "dec_layers": 3,
+    "deter": 2048,
+    "dyn_scale": 1.0,
+    "enc_layers": 3,
+    "eps": 1e-20,
+    "free_nats": 1.0,
+    "hidden": 256,
+    "imag_horizon": 15,
+    "lam": 0.95,
+    "learning_rate": 4e-05,
+    "maxstd": 1.0,
+    "minstd": 0.1,
+    "rec_scale": 1.0,
+    "rep_scale": 0.1,
+    "repval_lam": 0.95,
+    "repval_scale": 0.3,
+    "retnorm_limit": 1.0,
+    "retnorm_rate": 0.01,
+    "return_horizon": 333.0,
+    "rew_layers": 1,
+    "rew_scale": 1.0,
+    "slow_rate": 0.02,
+    "slowreg": 1.0,
+    "stoch": 32,
+    "unimix": 0.01,
+    "units": 256,
+    "warmup": 1000,
+    "weight_decay": 0.0
+   }
   }
  },
  "IQL": {

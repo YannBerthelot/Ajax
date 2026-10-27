@@ -1,13 +1,16 @@
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 import jax
 import jax.numpy as jnp
+from flax import struct
 from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
 from ajax.controller import Controller
 from ajax.evaluate import ValueEstimate, evaluate
 from ajax.state import BaseAgentState, EnvironmentConfig
+from ajax.types import Replaceable
 
 if TYPE_CHECKING:
     from ajax.extensions.base import ExtensionStack
@@ -152,6 +155,45 @@ def maybe_eval_and_log(
         n_logs=jax.lax.select(flag, agent_state.n_logs + 1, agent_state.n_logs)
     )
     return agent_state, metrics
+
+
+@struct.dataclass
+class MetricsAccumulator(Replaceable):
+    """Sums of the training-step metrics since the last log, and their count.
+
+    The reference logs the mean of each training metric over the updates
+    since its previous log (``embodied.Agg`` in 2411f7d
+    ``embodied/run/train.py:90``, written at ``:114``).
+    """
+
+    total: dict
+    count: jax.Array
+
+    @classmethod
+    def zeros(cls, names: Sequence[str]) -> "MetricsAccumulator":
+        return cls(
+            total={name: jnp.zeros((), jnp.float32) for name in names},
+            count=jnp.zeros((), jnp.int32),
+        )
+
+    def add(self, metrics: dict) -> "MetricsAccumulator":
+        total = {
+            name: value + jnp.asarray(metrics[name], jnp.float32)
+            for name, value in self.total.items()
+        }
+        return self.replace(total=total, count=self.count + 1)
+
+    def mean(self) -> dict:
+        """The means (NaN before the first update since the last log)."""
+        count = self.count.astype(jnp.float32)
+        return {
+            name: jnp.where(self.count > 0, value / jnp.maximum(count, 1.0), jnp.nan)
+            for name, value in self.total.items()
+        }
+
+    def reset_where(self, flag: jax.Array) -> "MetricsAccumulator":
+        """Zeroed where ``flag`` (a log was written), unchanged otherwise."""
+        return jax.tree.map(lambda x: jnp.where(flag, jnp.zeros_like(x), x), self)
 
 
 def eval_norm_info(agent_state: Any, mode: str) -> Optional[Any]:

@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax import struct
 
-from ajax.log import maybe_eval_and_log
+from ajax.log import MetricsAccumulator, maybe_eval_and_log
 
 
 @struct.dataclass
@@ -178,3 +178,17 @@ def test_the_evaluation_stays_a_real_cond_under_the_seed_vmap():
     ).jaxpr
     names = [e.primitive.name for e in jaxpr.eqns]
     assert names.count("cond") == 1
+
+
+def test_the_accumulator_means_the_updates_since_the_last_log():
+    """NaN before an update, the mean of each metric after, zeroed where a
+    log was written."""
+    metrics = MetricsAccumulator.zeros(("loss", "grad"))
+    assert np.isnan(np.asarray(metrics.mean()["loss"]))
+    metrics = metrics.add({"loss": 1.0, "grad": 4}).add({"loss": 3.0, "grad": 2})
+    means = {name: float(value) for name, value in metrics.mean().items()}
+    assert means == {"loss": 2.0, "grad": 3.0}
+    kept = metrics.reset_where(jnp.asarray(False))
+    assert int(kept.count) == 2 and float(kept.total["loss"]) == 4.0
+    restarted = metrics.reset_where(jnp.asarray(True))
+    assert int(restarted.count) == 0 and float(restarted.total["loss"]) == 0.0

@@ -75,6 +75,10 @@ NAMES: tuple[str, ...] = (
     # TD-MPC2's task embeddings, off its initialisation key, apart from the
     # networks' (ajax.agents.TDMPC2.core).
     "task_embeddings",
+    # An evaluation's keys, off eval_rng, per training phase: the offline
+    # updates' count restarts online (ajax.log.evaluation_keys).
+    "online_evaluation",
+    "offline_evaluation",
 )
 
 TAGS: dict[str, int] = {name: make_tag(name) for name in NAMES}

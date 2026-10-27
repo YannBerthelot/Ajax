@@ -6,6 +6,11 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **An evaluation's keys follow its training phase and timestep**
+  (`ajax.log.evaluation_keys`), not its count: the log frequency no longer
+  changes an evaluation's episodes, and the online evaluations after
+  `train_offline` no longer replay the offline ones' keys. Every logged
+  evaluation draws other episodes; training is unchanged.
 - **No key is drawn twice.** The observation noise (gymnax and brax),
   InitialStateWrapper's initial state and ModelReferenceWrapper's reference
   draw on keys derived by name from the key the inner env is handed whole,

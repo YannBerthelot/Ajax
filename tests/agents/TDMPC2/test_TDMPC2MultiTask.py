@@ -516,8 +516,8 @@ def test_evaluation_plans_per_task_without_changing_the_state(runs):
     for key in out:
         np.testing.assert_array_equal(out[key], again[key])
     assert set(out) >= {f"Eval/{name}/mean episodic length" for name in NAMES}
-    # Each evaluation draws fresh keys (ajax.log.evaluation_keys).
-    later = agent.evaluate(state.replace(n_logs=state.n_logs + 1), num_episodes=2)
+    # Each evaluation draws the keys of its update count (evaluation_keys).
+    later = agent.evaluate(state.replace(n_updates=state.n_updates + 1), num_episodes=2)
     assert not np.array_equal(
         later["Eval/reach/episodic mean reward"], out["Eval/reach/episodic mean reward"]
     )

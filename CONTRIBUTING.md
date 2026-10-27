@@ -543,7 +543,9 @@ tests that catch it, measured by planting the fault in a scratch copy and
 running the fast tests that execute its lines (`uv run python -m
 tests.fault_catches SCRATCH [FAMILY ...]`); `tests/probing/test_framework.py`
 checks that each names live tests outside `tests/probing`. A new fault comes
-with its fast catch.
+with its fast catch, and `JAX_PLATFORMS=cpu uv run python -m
+tests.probing.faults SCRATCH ID` shows each node it lists failing on an
+assertion, not crashing ([Testing](docs/developer/testing.md#planted-faults)).
 
 ### The probing tests
 

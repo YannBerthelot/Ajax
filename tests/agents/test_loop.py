@@ -92,9 +92,11 @@ def _update(state: State) -> tuple[State, Metrics]:
 def test_no_update_before_learning_starts() -> None:
     """Before ``learning_starts`` the state is untouched and every metric
     is a (1,) NaN; from it the update runs, its metrics reshaped to (1,).
+    The steps collected count every env's, not the collector's iterations.
     A given timestep (the step's own, for an update without a replay)
     replaces the steps collected."""
-    loop = _loop()
+    two_envs = SimpleNamespace(n_envs=2)
+    loop = dataclasses.replace(_loop(), env_args=two_envs)  # type: ignore[arg-type]
     early, metrics = loop.maybe_update(_state(9), 10, _update)
     assert float(early.value) == 1.0 and metrics.loss.shape == (1,)
     assert np.isnan(metrics.loss).all()
@@ -737,7 +739,7 @@ def test_an_agents_own_evaluation_runs_every_few_ticks() -> None:
     assert int(skipped.n_logs) == 0 and float(skipped.value) == 3.0
     logged, metrics = step(state, 1)
     assert int(metrics["timestep"]) == 7 and float(metrics["Eval/value"]) == 3.0
-    assert int(metrics["count"]) == 5 and int(logged.n_logs) == 1
+    assert int(metrics.get("count", -1)) == 5 and int(logged.n_logs) == 1
     assert float(logged.value) == 0.0
     # Rows for every evaluation a call of 5 ticks can make; none without.
     assert evaluation.count(5) == 3

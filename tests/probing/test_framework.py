@@ -6,9 +6,7 @@ the directory."""
 from __future__ import annotations
 
 import functools
-import glob
 import importlib
-import json
 import math
 import os
 import subprocess
@@ -76,9 +74,12 @@ from . import readouts as R
 # re-calibrate box-ASAC and REDQ's q2 windows of two: test_memory + 6,
 # test_action_box + 6, test_framework + 4 (this note, the budget's). GAIL's
 # signed cell at learning rates 2e-4: test_imitation + 11, test_framework + 2.
+# The strict fault verdict (a node catches by an assertion): faults.py + 29,
+# faults/ - 1 (a stale fault deleted), test_framework + 1 (this note, two
+# imports fewer).
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 160, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 123, "faults/": 248})
-CAPS.update({"test_framework.py": 290, "test_value_chains.py": 1051})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 247})
+CAPS.update({"test_framework.py": 291, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 389, "test_world_models.py": 452})
@@ -256,32 +257,32 @@ def test_the_directory_keeps_to_its_budget() -> None:
     fixed gate reading no critic (one fault), 70 for JSRL on DQN and PQN (two
     cells, one fault), 9 for faults no probe sees and E10's words, 26 for the
     q2 readout read at every carried step and two cells recalibrated, 13 for
-    GAIL's signed cell at learning rates 2e-4."""
+    GAIL's signed cell at learning rates 2e-4, 29 for the strict fault verdict."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8180, total
+    assert total <= 8209, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:
     """The pull-request gate runs the fast tier alone (ci.yml runs no probe:
     the slow tier does, slow.yml), so each planted fault names the fast tests
-    measured to catch it (``python -m tests.fault_catches``): live tests
-    outside tests/probing."""
+    that catch it (``python -m tests.fault_catches``): nodes outside
+    tests/probing that the fast tier collects, parameters and all."""
     ci = open(os.path.join(faults.REPO, ".github", "workflows", "ci.yml")).read()
     assert "pytest tests/probing" not in ci
-    for path in sorted(glob.glob(os.path.join(faults.HERE, "faults", "*.jsonl"))):
-        with open(path) as fh:
-            rows = [json.loads(line) for line in fh if line.strip()]
-        for row in rows:
-            assert row.get("fast"), f"{row['id']} lists no fast catch"
-            for node in row["fast"]:
-                path, test = node.split("::")[0], node.split("::")[1].split("[")[0]
-                source = open(os.path.join(faults.REPO, path)).read()
-                assert "tests/probing/" not in path and f"def {test}(" in source, node
+    catalogue = faults.load().values()
+    files = sorted({node.split("::")[0] for fault in catalogue for node in fault.fast})
+    cmd = [sys.executable, "-m", "pytest", "--collect-only", "-q", "-m", "not slow"]
+    out = subprocess.run(cmd + files, cwd=faults.REPO, capture_output=True, text=True)
+    live = {node for node in out.stdout.splitlines() if "::" in node}
+    for fault in catalogue:
+        assert fault.fast, f"{fault.id} lists no fast catch"
+        dead = [n for n in fault.fast if "tests/probing/" in n or n not in live]
+        assert not dead, (fault.id, dead)
 
 
 def test_every_exported_agent_is_probed() -> None:

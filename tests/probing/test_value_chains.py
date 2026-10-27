@@ -734,8 +734,8 @@ def td3_q(noise: float, clip: float) -> float:
 # The same quadrature: sigma_u 1.2847 a dimension with the Jacobian left out
 # of the target, at the clip e^2 with it dropped everywhere; the batch mean
 # averages s1's and s0's log-probs (summed entropy -0.4105 at s0); untrained,
-# Q ~ 0 leaves -E[r(s0, a)]. A free alpha (442336a) breaks the pin, a
-# precondition of every cell but TD3's.
+# Q ~ 0 leaves -E[r(s0, a)]. Every cell but TD3's asserts its alpha stays
+# pinned, which a free alpha (442336a) breaks.
 SOFT_VALUE = Query(
     "Q(s0, a) - r(s0, a)",
     G * (1.0 + 2.0 * H),
@@ -841,8 +841,8 @@ def _p8_readings(name: str) -> Callable:
             window = tuple(rows[k][:, 0, ::-1][:, :2000] for k in ("obs", "action"))
         n = R.nets(run.state, window, R.env_stats(run))
         out = R.per_seed(functools.partial(_p8_read, name), n)
-        if name != "TD3" and (out["log_alpha"] != 0.0).any():
-            raise RuntimeError(f"alpha moved off its pin: log alpha {out['log_alpha']}")
+        pinned = name == "TD3" or (out["log_alpha"] == 0.0).all()
+        assert pinned, f"alpha moved off its pin: log alpha {out['log_alpha']}"
         return out
 
     return runs.readings(build, read)

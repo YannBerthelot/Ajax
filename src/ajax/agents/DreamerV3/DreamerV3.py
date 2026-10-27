@@ -242,7 +242,9 @@ class DreamerV3(OwnReplayAgent):
 
     def init(self, key: jax.Array, context: TrainContext) -> DreamerV3State:
         """A fresh agent: parameters, optimizers, collector, empty replay."""
-        learner_key, collector_key, rng, eval_rng = jax.random.split(key, 4)
+        learner_key, collector_key, training_key, evaluation_key = jax.random.split(
+            key, 4
+        )
         config, spec, replay = self.model_config, self.spec, context.buffer
         learner = init_learner(
             learner_key, config, spec.obs_dim, spec.action_dim, spec.discrete
@@ -260,8 +262,8 @@ class DreamerV3(OwnReplayAgent):
             self.batch_length,
         )
         return DreamerV3State(
-            rng=rng,
-            eval_rng=eval_rng,
+            rng=training_key,
+            eval_rng=evaluation_key,
             actor_state=learner.actor_state,
             critic_state=learner.critic_state,
             world_model_state=learner.world_model_state,
@@ -285,13 +287,13 @@ class DreamerV3(OwnReplayAgent):
     def collect(
         self, agent_state: DreamerV3State, tick: jax.Array, context: TrainContext
     ) -> tuple[DreamerV3State, jax.Array]:
-        """Act and store one row per env (``driver.py:55-81``,
-        ``replay.py:97-144``).
+        """Act and store one row per env (driver.py:55-81,
+        replay.py:97-144).
 
-        ``tick`` is the absolute, unbatched tick index (the scan input, offset
-        on resume): the row of every env written now is the ``tick``-th of its
-        stream. Returns the state and ``tick``, which locates the replay's newest
-        rows for the tick's updates (:meth:`update`, after the tick's rows:
+        tick is the absolute, unbatched tick index (the scan input, offset
+        on resume): the row of every env written now is the tick-th of its
+        stream. Returns the state and tick, which locates the replay's newest
+        rows for the tick's updates (update, after the tick's rows:
         deviation D3).
         """
         collector_state, row = collect_row(
@@ -320,18 +322,17 @@ class DreamerV3(OwnReplayAgent):
     ) -> tuple[DreamerV3State, None]:
         """One training step on a fresh batch, then the write-back.
 
-        ``tick`` is the absolute, unbatched tick whose rows were added last: the
-        replay holds ``tick + 1`` rows per env. The batch pops the online queue
-        and fills up uniformly
-        (:meth:`~ajax.agents.DreamerV3.replay.StreamReplay.sample`); the
-        learner's step (Algorithm J: replay context, joint gradient, LaProp,
-        slow critic) uses fresh noise; its posterior latents of the trained rows
-        are written back at once (synchronous, deviation D1). The loop folds the
-        Extension ``post_update`` phase after it.
+        tick is the absolute, unbatched tick whose rows were added last: the
+        replay holds tick + 1 rows per env. The batch pops the online queue
+        and fills up uniformly (StreamReplay.sample); the learner's step
+        (Algorithm J: replay context, joint gradient, LaProp, slow critic)
+        uses fresh noise; its posterior latents of the trained rows are
+        written back at once (synchronous, deviation D1). The loop folds the
+        extensions' post_update phase after it.
         """
         config, spec, replay = self.model_config, self.spec, context.buffer
         rows = jnp.asarray(tick, jnp.int32) + 1
-        rng, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
+        training_key, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
         replay_state, index = replay.sample(agent_state.replay_state, rows, sample_key)
         batch = replay.gather(
             replay_state, index, spec.action_dim if spec.discrete else None
@@ -352,7 +353,7 @@ class DreamerV3(OwnReplayAgent):
         )
         learner, entries, metrics = train_step(trained, batch, noise, config=config)
         agent_state = agent_state.replace(
-            rng=rng,
+            rng=training_key,
             world_model_state=learner.world_model_state,
             actor_state=learner.actor_state,
             critic_state=learner.critic_state,
@@ -370,12 +371,12 @@ class DreamerV3(OwnReplayAgent):
         context: TrainContext,
         num_episode_test: int,
     ) -> dict:
-        """Sampled evaluation episodes from a zero carry (``is_first`` first).
+        """Sampled evaluation episodes from a zero carry (is_first first).
 
         The reference's policy samples in every mode (dreamerv3_spec 7.3);
-        :func:`ajax.evaluate.evaluate_policy` runs one episode in each of
-        ``num_episode_test`` freshly reset envs with the training action repeat,
-        from ``key``: fresh at each evaluation (:func:`ajax.log.evaluation_keys`),
+        ajax.evaluate.evaluate_policy runs one episode in each of
+        num_episode_test freshly reset envs with the training action repeat,
+        from key: fresh at each evaluation (ajax.log.evaluation_keys),
         so each draws new initial states and action noise.
         """
         config, spec = self.model_config, self.spec
@@ -394,15 +395,15 @@ class DreamerV3(OwnReplayAgent):
         }
 
     def report(self, agent_state: DreamerV3State, aux: Any) -> dict:
-        """The logged training metrics: house keys, ``env_frames``, losses.
+        """The logged training metrics: house keys, env_frames, losses.
 
-        ``Train/episodic mean reward`` is the rolling mean of the training
+        Train/episodic mean reward is the rolling mean of the training
         episodes' returns, the reference's score (dreamerv3_spec 7.3, 7.7);
-        ``env_frames = rows * action_repeat`` the reference's x-axis, its step
+        env_frames = rows * action_repeat the reference's x-axis, its step
         clock (rows, reset rows included) times the repeat (2411f7d
-        ``dreamerv3/main.py:124-132``, ``embodied/core/logger.py:32``;
-        ``DESIGN.md`` section 2): one row per episode above the simulator's
-        frames; ``Train/n_updates`` the training steps so far; ``Train/<metric>``
+        dreamerv3/main.py:124-132, embodied/core/logger.py:32;
+        DESIGN.md section 2): one row per episode above the simulator's
+        frames; Train/n_updates the training steps so far; Train/<metric>
         the mean of each training metric over the updates since the last log.
         """
         del aux
@@ -427,7 +428,7 @@ class DreamerV3(OwnReplayAgent):
     def restart_train_metrics(
         self, agent_state: DreamerV3State, logged: jax.Array
     ) -> DreamerV3State:
-        """The training metrics' means restart after each log (``train.py:113-121``)."""
+        """The training metrics' means restart after each log (train.py:113-121)."""
         return agent_state.replace(
             train_metrics=agent_state.train_metrics.reset_where(logged)
         )
@@ -466,37 +467,37 @@ class DreamerV3(OwnReplayAgent):
 # -- The tick's schedule and the env's sizes ------------------------------------
 @dataclass(frozen=True)
 class TrainRatio:
-    """When to train: 2411f7d's training-start gate and ``when.Ratio``.
+    """When to train: 2411f7d's training-start gate and when.Ratio.
 
-    The reference (``embodied/run/train.py:26-28``, ``:69-91``;
-    ``embodied/core/when.py:26-42``) runs, after **every transition** (one
-    env's row: ``step += 1``, ``replay.add``, then ``train_step``), nothing
-    while ``len(replay) < batch_size``, and otherwise ``Ratio(step)`` updates
-    with ``Ratio = when.Ratio(train_ratio / (batch_size * batch_length))``.
-    ``Ratio`` returns 1 on its first call; after it, the updates up to
-    transition ``t`` number ``1 + floor((t - t0) r)``, ``t0`` the first call,
-    ``r`` the ratio (``prev`` advances by ``repeats / r``).
+    The reference (embodied/run/train.py:26-28, :69-91;
+    embodied/core/when.py:26-42) runs, after every transition (one
+    env's row: step += 1, replay.add, then train_step), nothing
+    while len(replay) < batch_size, and otherwise Ratio(step) updates
+    with Ratio = when.Ratio(train_ratio / (batch_size * batch_length)).
+    Ratio returns 1 on its first call; after it, the updates up to
+    transition t number 1 + floor((t - t0) r), t0 the first call,
+    r the ratio (prev advances by repeats / r).
 
-    Lockstep envs make both static: transition ``(tick i, env w)`` is step
-    ``s = i n_envs + w + 1``, and a worker's stream yields its first item at
-    its ``batch_length + 1``-th row, so ``len(replay) = s - batch_length
-    n_envs`` from then on and the gate opens at ``t0 = batch_length n_envs +
-    batch_size`` (16 envs: step 1040, the last env of tick 64). The updates
-    of tick ``i`` are the closed form's difference between the ends of ticks
-    ``i`` and ``i - 1``, all run after the tick's rows are added (deviation
-    D3). The closed form is ``Ratio`` in exact arithmetic, with ``r`` the
-    exact fraction of ``train_ratio``. The reference keeps ``prev`` in
-    float64, exact when ``1 / r`` is (a power of two: every reference
-    configuration, ``train_ratio`` 32 ... 1024 over ``16 x 64``); otherwise
+    Lockstep envs make both static: transition (tick i, env w) is step
+    s = i n_envs + w + 1, and a worker's stream yields its first item at
+    its batch_length + 1-th row, so len(replay) = s - batch_length
+    n_envs from then on and the gate opens at t0 = batch_length n_envs +
+    batch_size (16 envs: step 1040, the last env of tick 64). The updates
+    of tick i are the closed form's difference between the ends of ticks
+    i and i - 1, all run after the tick's rows are added (deviation
+    D3). The closed form is Ratio in exact arithmetic, with r the
+    exact fraction of train_ratio. The reference keeps prev in
+    float64, exact when 1 / r is (a power of two: every reference
+    configuration, train_ratio 32 ... 1024 over 16 x 64); otherwise
     its rounding sometimes runs an update one transition late, and the
     closed form is then at most one update ahead (deviation D26). It is
-    evaluated on the absolute, unbatched tick (``DESIGN.md`` principle 2), so
-    the update loop stays a real loop under the seed ``vmap`` and resumes
+    evaluated on the absolute, unbatched tick (DESIGN.md principle 2), so
+    the update loop stays a real loop under the seed vmap and resumes
     correctly.
 
-    The agent's replay ring is sized so that the gate's ``batch_size`` items
-    fit before any row is overwritten (:meth:`min_ring_rows`), which keeps
-    ``len(replay)`` as above until the gate opens.
+    The agent's replay ring is sized so that the gate's batch_size items
+    fit before any row is overwritten (min_ring_rows), which keeps
+    len(replay) as above until the gate opens.
     """
 
     n_envs: int
@@ -521,47 +522,50 @@ class TrainRatio:
 
     @property
     def ratio(self) -> Fraction:
-        """Updates per transition, ``train_ratio / (batch_size * batch_length)``,
+        """Updates per transition, train_ratio / (batch_size * batch_length),
         as an exact fraction (of the float's binary value)."""
         return Fraction(self.train_ratio) / (self.batch_size * self.batch_length)
 
     @property
     def first_update_step(self) -> int:
-        """``t0``: the transition at which ``len(replay)`` reaches ``batch_size``."""
+        """t0: the transition at which len(replay) reaches batch_size."""
         return self.batch_length * self.n_envs + self.batch_size
 
     @property
     def first_update_tick(self) -> int:
-        """The tick whose transitions include ``t0``."""
+        """The tick whose transitions include t0."""
         return (self.first_update_step - 1) // self.n_envs
 
     def min_ring_rows(self) -> int:
-        """Rows per env the ring needs to hold ``batch_size`` items at once."""
+        """Rows per env the ring needs to hold batch_size items at once."""
         return self.batch_length + -(-self.batch_size // self.n_envs)
 
     def updates_until(self, steps: jax.Array) -> jax.Array:
-        """Updates run up to and including transition ``steps`` (int32).
+        """Updates run up to and including transition steps (int32).
 
-        ``0`` before ``t0``, then ``1 + floor((steps - t0) p / q)`` with ``r
-        = p / q``, computed as ``(x // q) p + ((x % q) p) // q`` so that no
-        intermediate exceeds the number of updates or ``p q`` (int32).
-        """
-        p, q = self.ratio.numerator, self.ratio.denominator
-        x = jnp.asarray(steps, jnp.int32) - self.first_update_step
-        later = (x // q) * p + ((x % q) * p) // q
-        return jnp.where(x >= 0, 1 + later, 0)
+        0 before t0, then 1 + floor((steps - t0) r), the ratio r an exact
+        fraction: computed as (since_first // denominator) numerator plus
+        ((since_first % denominator) numerator) // denominator, so that no
+        intermediate exceeds the number of updates or numerator times
+        denominator (int32)."""
+        numerator, denominator = self.ratio.numerator, self.ratio.denominator
+        since_first = jnp.asarray(steps, jnp.int32) - self.first_update_step
+        later = (since_first // denominator) * numerator + (
+            (since_first % denominator) * numerator
+        ) // denominator
+        return jnp.where(since_first >= 0, 1 + later, 0)
 
     def updates_in_tick(self, tick: jax.Array) -> jax.Array:
-        """Updates to run after tick ``tick``'s rows are added (int32)."""
+        """Updates to run after tick tick's rows are added (int32)."""
         tick = jnp.asarray(tick, jnp.int32)
         return self.updates_until((tick + 1) * self.n_envs) - self.updates_until(
             tick * self.n_envs
         )
 
     def total_updates(self, ticks: int) -> int:
-        """Updates after the first ``ticks`` ticks (host-side Python int)."""
-        x = ticks * self.n_envs - self.first_update_step
-        return 0 if x < 0 else 1 + int(x * self.ratio)
+        """Updates after the first ticks ticks (host-side Python int)."""
+        since_first = ticks * self.n_envs - self.first_update_step
+        return 0 if since_first < 0 else 1 + int(since_first * self.ratio)
 
 
 class EnvSpec(NamedTuple):
@@ -594,24 +598,19 @@ def measure_env(env_args: EnvironmentConfig) -> EnvSpec:
 # -- State ---------------------------------------------------------------------
 @struct.dataclass(kw_only=True)
 class DreamerV3State(BaseAgentState):
-    """The DreamerV3 agent's state (``docs/world_models/DESIGN.md`` section 6.6).
-
-    Besides :class:`~ajax.state.BaseAgentState`'s fields -- ``actor_state``
-    (the actor), ``critic_state`` (the critic; ``target_params`` is the slow
-    critic, and its ``step`` counts the slow critic's updates, which
-    :func:`~ajax.agents.DreamerV3.learner.update_slow_critic` reads),
-    ``n_updates`` (training steps so far), ``rng``, ``eval_rng``,
-    ``ext_state`` --:
+    """The DreamerV3 agent's state (docs/world_models/DESIGN.md section 6.6).
+    Beside BaseAgentState's fields, critic_state's target_params is the slow
+    critic, its step counting the slow critic's updates (update_slow_critic
+    reads it).
 
     Attributes:
-        collector_state: the row collector's state; its ``policy_carry`` is
-            the acting posterior and previous action
-            (:class:`~ajax.agents.DreamerV3.world_model.PolicyCarry`).
-        world_model_state: the world model (``enc``, ``rssm``, ``dec``,
-            ``rew``, ``con``) and its LaProp instance.
+        collector_state: the row collector's state; its policy_carry is the
+            acting posterior and previous action (PolicyCarry).
+        world_model_state: the world model (enc, rssm, dec, rew, con) and
+            its LaProp instance.
         retnorm: the return normaliser.
         replay_state: the replay rings and the online-queue counter
-            (:class:`~ajax.agents.DreamerV3.replay.ReplayState`).
+            (ReplayState).
         train_metrics: the training metrics since the last log.
 
     The schedule needs no state of its own: it is a function of the

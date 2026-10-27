@@ -13,14 +13,14 @@ the training loop's shape and the evaluation's value estimate::
         def init(self, key, context): ...
         def update(self, agent_state, context): ...
 
-An agent learning from a replay of transitions is a ReplayAgent,
-one learning from each rollout of its current policy an
-OnPolicyAgent, one whose iteration is its own (a differentiable rollout,
-a replay of segments) an OwnIterationAgent, one storing rows in a replay of
-its own, sized per call (a world model's), an OwnReplayAgent. The shared
-knobs an algorithm may take beyond the ones every agent takes (gradient
-clipping, normalisation, an expert, image observations) are field mixins. The family reads some fields by name
-(DeclaredAgent, ReplayAgent, OnPolicyAgent).
+An agent learning from a replay of transitions is a ReplayAgent, one
+learning from each rollout of its current policy an OnPolicyAgent, one
+whose iteration is its own (a differentiable rollout, a replay of segments)
+an OwnIterationAgent, and one storing rows in a replay of its own, sized
+per call (a world model's), an OwnReplayAgent. The shared knobs an
+algorithm may take beyond the ones every agent takes (gradient clipping,
+normalisation, an expert, image observations) are field mixins. The family
+reads some fields by name (DeclaredAgent, ReplayAgent, OnPolicyAgent).
 Every agent, family and mixin carries the literal @dataclass decorator,
 which the API docs read the constructor from; the contract an agent declares
 for the extensions and the loop (name, capabilities, ...) stays

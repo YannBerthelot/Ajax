@@ -93,11 +93,16 @@ _PARITY_TIMESTEPS = 200
 # key: critic +0.039%, actor +0.039%, target -0.015%, alpha +0.002%.
 # Previous goldens: critic 559.20361328125, actor 267.2802734375, target
 # 535.9905395507812, alpha 0.973141610622406.
+#
+# Re-recorded once collection drew on its own stream of keys, apart from
+# the updates' (RNG stability, two streams): critic -0.07%, actor -0.02%,
+# target -0.02%, alpha -0.002%. Previous goldens: critic 559.4210205078125,
+# actor 267.3836669921875, target 535.9125366210938, alpha 0.973161518573761.
 _GOLDEN = {
-    "critic": 559.4210205078125,
-    "actor": 267.3836669921875,
-    "target": 535.9125366210938,
-    "alpha": 0.973161518573761,
+    "critic": 559.0327758789062,
+    "actor": 267.3338317871094,
+    "target": 535.82421875,
+    "alpha": 0.973139762878418,
 }
 _TOL = 1e-4
 

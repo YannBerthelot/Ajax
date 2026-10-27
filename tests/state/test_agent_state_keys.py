@@ -11,15 +11,20 @@ from ajax.agents.update_steps import derive_extensions_key
 from ajax.state import BaseAgentState
 
 
-def test_drawing_keys_hands_them_out_and_moves_the_new_state_past_them() -> None:
+def test_drawing_keys_hands_them_out_after_the_carry() -> None:
+    """The new state's key is the carry, split first: drawing one key more
+    moves neither it nor the keys before."""
     key = jax.random.PRNGKey(0)
     nets: Any = None  # the networks play no part
     agent_state = BaseAgentState(
         rng=key, actor_state=nets, critic_state=nets, collector_state=nets, eval_rng=key
     )
     first_key, second_key, new_state = agent_state.get_keys_and_new_state(2)
-    drawn = np.stack([first_key, second_key, new_state.rng])
+    drawn = np.stack([new_state.rng, first_key, second_key])
     np.testing.assert_array_equal(drawn, jax.random.split(key, 3))
+    *fewer, fewer_state = agent_state.get_keys_and_new_state(1)
+    np.testing.assert_array_equal(fewer_state.rng, new_state.rng)
+    np.testing.assert_array_equal(fewer[0], first_key)
     # The state drawn from is frozen: it still holds its key.
     np.testing.assert_array_equal(agent_state.rng, key)
     third_key, _ = new_state.get_keys_and_new_state()

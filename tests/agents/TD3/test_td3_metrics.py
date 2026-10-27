@@ -72,8 +72,8 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
     critic = state.critic_state
     q = q_values(critic, critic.params, batch.obs, batch.action)
     np.testing.assert_allclose(v_aux.q_gap, np.mean(np.abs(q[0] - q[1])), rtol=1e-5)
-    # The target noise is drawn on the first of the three keys the step splits.
-    key = jax.random.split(state.rng, 3)[0]
+    # The target noise is drawn on the step's critic key, its first draw.
+    key = state.get_keys_and_new_state()[0]
     target, clip_frac, _ = compute_td3_td_target(
         state.actor_state,
         critic,
@@ -145,7 +145,7 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
         batch.reward,
         0.99,
         alpha,
-        jax.random.split(state.rng, 3)[0],  # the step's target key
+        state.get_keys_and_new_state()[0],  # the step's target key
         False,
     )
     v_grads = jax.grad(

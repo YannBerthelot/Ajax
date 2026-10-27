@@ -317,7 +317,7 @@ gains a leading axis), and makes a checkpoint a matter of saving that pytree.
 
 | Field | What it holds |
 | --- | --- |
-| `rng` | the training key; every random draw splits it (`get_keys_and_new_state(n)` returns `n` keys and the new state) |
+| `rng` | the updates' stream of keys: `get_keys_and_new_state(n)` returns `n` keys and the new state, whose key is the carry, taken first; collection draws on its own stream, `collector_state.rng`, so a draw added on one side leaves the other's keys as they were (`ajax.random_keys`) |
 | `actor_state`, `critic_state` | flax `TrainState`s with target parameters, memory carries and the observation normaliser's statistics |
 | `collector_state` | the environment state, last observation and episode flags, the replay buffer, `timestep`, the rolling episodic return, a stateful expert's internal state |
 | `eval_rng` | the evaluations' key, split apart from `rng` and never advanced: evaluation `n` draws from `fold_in(eval_rng, n)` |

@@ -37,7 +37,14 @@ def make_tag(name: str) -> int:
 
 #: Every name a key is derived by (derive_key), so that the registry's test
 #: sees each tag once.
-NAMES: tuple[str, ...] = ()
+NAMES: tuple[str, ...] = (
+    # The collection's stream of a checkpoint saved before it had its own
+    # (ajax.checkpoint), derived from the updates' stream.
+    "collector",
+    # The forced resets' key, off the collection's stream
+    # (ajax.environments.interaction.force_reset).
+    "forced_reset",
+)
 
 TAGS: dict[str, int] = {name: make_tag(name) for name in NAMES}
 

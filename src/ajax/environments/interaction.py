@@ -47,6 +47,7 @@ from ajax.environments.utils import (
 )
 from ajax.networks.distributions import sample_with_raw
 from ajax.networks.memory import flatten_carry, tree_where_reset
+from ajax.random_keys import derive_key, split_carry_first
 from ajax.schedule import Schedule, at
 from ajax.state import (
     BaseAgentState,
@@ -1010,7 +1011,11 @@ def collect_experience(
                 action_key) -> :class:`ActionPipelineResult`, ``acting`` the
                 step's :class:`~ajax.controller.ActingState`.
     """
-    rng, action_key, step_key, mix_key = jax.random.split(agent_state.rng, 4)
+    # The collection's own stream: an update drawing more or fewer keys
+    # leaves the env steps, the actions' noise and the warm-up as they were.
+    rng, action_key, step_key, mix_key = split_carry_first(
+        agent_state.collector_state.rng, 3
+    )
 
     rng_step = env_keys(step_key, mode, env_args.n_envs)
 
@@ -1242,7 +1247,7 @@ def collect_experience(
         **({"step_in_episode": _new_step_in_ep} if _new_step_in_ep is not None else {}),
     )
 
-    agent_state = agent_state.replace(collector_state=new_collector_state, rng=rng)
+    agent_state = agent_state.replace(collector_state=new_collector_state)
     return agent_state, transition
 
 
@@ -1591,7 +1596,8 @@ def force_reset(
     mode: str,
     expert_policy: Any = None,
 ) -> Any:
-    """Reset every env on a fresh key (brax's ``num_resets_per_eval``).
+    """Reset every env on a key derived from the collection's (brax's
+    ``num_resets_per_eval``).
 
     The reset observations get their features (from fresh observer states)
     and are normalised with the agent's running statistics, which they do
@@ -1603,7 +1609,9 @@ def force_reset(
     observation, as at any episode start, and so does a stateful tracked
     expert (the features of the reset observations read its initial state).
     """
-    reset_key, agent_state = agent_state.get_keys_and_new_state()
+    # A key derived from the collection's, which neither stream advances:
+    # forced resets on or off, every other draw stays.
+    reset_key = derive_key(agent_state.collector_state.rng, "forced_reset")
     saved = normalisation_info(agent_state.collector_state.env_state, mode)
     reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     new_obs, new_env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)

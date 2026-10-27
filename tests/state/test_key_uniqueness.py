@@ -73,17 +73,8 @@ EVALUATE = {
 # The reuses known today, each with the change planned to remove it.
 # A discarded actor step's keys: the actor draws them from the update's
 # stream, and the update keeps the stream from before them until
-# policy_update_start, so the next draws reuse them (options, step 3).
-DISCARDED_SAC_ACTOR = {
-    (
-        "normal ajax/agents/SAC/SAC.py:compute_soft_policy_objective",
-        "split ajax/buffers/utils.py:sample_rows",
-    ),
-    (
-        "normal ajax/agents/SAC/SAC.py:update_actor",
-        "normal ajax/networks/distributions.py:sample_with_raw",
-    ),
-}
+# policy_update_start, so the next update's draws reuse them (options,
+# step 3).
 DISCARDED_ACTOR = {
     (
         "normal ajax/agents/SAC/SAC.py:compute_soft_policy_objective",
@@ -113,21 +104,21 @@ EXPERT_COLLECTION_CARRY = {
     )
 }
 # MCPretrain rolls the expert out on the update stream's key without
-# advancing it, so the update and collection then draw on its keys
-# (extensions by name, step 4), beside the expert collection's own reuse.
+# advancing it, so the updates then draw on its keys (extensions by name,
+# step 4), beside the expert collection's own reuse.
 MC_PRETRAIN_ON_THE_STREAM = EXPERT_COLLECTION_CARRY.union(
     {
         (
-            "split ajax/agents/SAC/SAC.py:update",
+            "fold_in ajax/agents/SAC/SAC.py:update_actor",
             "uniform gymnax/environments/classic_control/pendulum.py:reset_env",
         ),
         (
-            "normal ajax/networks/distributions.py:sample_with_raw",
-            "uniform gymnax/environments/classic_control/pendulum.py:reset_env",
+            "randint ajax/buffers/utils.py:sample_rows",
+            "split gymnax/environments/environment.py:step",
         ),
         (
-            "normal ajax/networks/distributions.py:sample_with_raw",
-            "split ajax/environments/interaction.py:step_fn",
+            "split ajax/agents/SAC/SAC.py:compute_td_target",
+            "uniform gymnax/environments/classic_control/pendulum.py:reset_env",
         ),
     }
 )
@@ -170,7 +161,7 @@ TDMPC2_KW.update({"seed_steps": 4})
 
 #: name: (the agent's class, its arguments, the reuses it still has).
 CASES: dict[str, tuple[Any, dict[str, Any], set]] = {
-    "SAC-warmup-wait": (ajax.SAC, WAIT, DISCARDED_SAC_ACTOR),
+    "SAC-warmup-wait": (ajax.SAC, WAIT, DISCARDED_ACTOR),
     "REDQ-wait": (ajax.REDQ, {**WAIT, "num_critic_updates": 2}, DISCARDED_ACTOR),
     "TQC-wait": (ajax.TQC, WAIT, DISCARDED_ACTOR),
     "ASAC-wait": (ajax.ASAC, WAIT, DISCARDED_ACTOR),

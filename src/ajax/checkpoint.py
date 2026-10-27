@@ -23,8 +23,12 @@ from collections.abc import Iterator
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 from flax import serialization
+
+from ajax.random_keys import derive_key
+from ajax.state import CollectorState
 
 
 def _to_host_numpy(state: Any) -> Any:
@@ -36,9 +40,10 @@ def _to_host_numpy(state: Any) -> Any:
 
 #: The key under which a checkpoint of a pytree states its format, and the
 #: format written now. 1: a replay keeps the environment's own observations
-#: and rewards. A checkpoint without the key is older (0).
+#: and rewards. 2: collection draws on its own stream of keys. A checkpoint
+#: without the key is older (0).
 FORMAT_KEY = "ajax_checkpoint_format"
-FORMAT = 1
+FORMAT = 2
 
 
 def save_checkpoint(state: Any, path: str) -> None:
@@ -68,9 +73,11 @@ def restore_into(skeleton: Any, path: str) -> Any:
         raise FileNotFoundError(f"No checkpoint file at {path}")
     with open(path, "rb") as f:
         state_dict = pickle.load(f)
+    saved_format = 0
     if isinstance(state_dict, dict):
         state_dict = dict(state_dict)
-        _check_raw_replay(skeleton, state_dict, state_dict.pop(FORMAT_KEY, 0))
+        saved_format = state_dict.pop(FORMAT_KEY, 0)
+        _check_raw_replay(skeleton, state_dict, saved_format)
     skeleton_dict = serialization.to_state_dict(skeleton)
     _check_memory_final_norm(skeleton_dict, state_dict)
     _check_log_std_head(skeleton_dict, state_dict)
@@ -84,10 +91,31 @@ def restore_into(skeleton: Any, path: str) -> Any:
     state_dict = _with_agent_obs_stats(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
     _check_leaf_shapes(skeleton, restored)
+    if saved_format < 2:
+        restored = _with_collection_stream(restored)
     return jax.tree.map(
         lambda x: jax.device_put(x) if isinstance(x, np.ndarray) else x,
         restored,
     )
+
+
+def _with_collection_stream(state: Any) -> Any:
+    """A state saved before collection had its own stream of keys (format
+    2) kept as its collector's key the carry of its last collection, an
+    ancestor of the updates' key: resumed as it is, collection would hand
+    out keys the updates already drew. Its stream restarts on a key derived
+    from the updates' ("collector"). The world models' row collectors had a
+    stream of their own already."""
+    if type(state) in (tuple, list) and state:  # (state, logs) as saved
+        return type(state)([_with_collection_stream(state[0]), *state[1:]])
+    collector = getattr(state, "collector_state", None)
+    if type(collector) is not CollectorState:
+        return state
+    keys = jnp.asarray(state.rng)
+    seeds = keys.reshape(-1, keys.shape[-1])  # one key per seed
+    derived = jax.vmap(lambda key: derive_key(key, "collector"))(seeds)
+    collector = collector.replace(rng=derived.reshape(keys.shape))
+    return state.replace(collector_state=collector)
 
 
 def _check_leaf_shapes(skeleton: Any, restored: Any) -> None:

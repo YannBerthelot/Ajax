@@ -49,6 +49,7 @@ from ajax.environments.utils import raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.extensions.expert import extension_expert_actions, reads_stored_expert_actions
 from ajax.networks.networks import phi_star_critic_state, predict_value
+from ajax.random_keys import EXPERT_PREFILL_KEY_TAG
 from ajax.state import EnvironmentConfig, LoadedTrainState, Transition
 from ajax.types import BufferType, NormalizationInfo
 
@@ -1065,13 +1066,6 @@ def store_expert_transitions(
 
     buffer_state, _ = jax.lax.scan(add_step, buffer_state, transitions)
     return buffer_state
-
-
-#: The prefill's own stream off the pretrain key. CloningPretrain and
-#: MCPretrain roll the expert out on split(key, n), and under the
-#: partitionable threefry split(key, n)[i] equals fold_in(key, i): a small
-#: tag would reuse one of their keys, a 32-bit one no realistic n reaches.
-EXPERT_PREFILL_KEY_TAG = 0x70726566
 
 
 @dataclass(frozen=True)

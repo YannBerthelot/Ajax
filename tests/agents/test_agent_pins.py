@@ -1473,6 +1473,111 @@ _GOLDEN.update(
 )
 
 
+# Re-recorded on macOS ARM CPU once collection drew on its own stream of
+# keys, apart from the updates' (RNG stability, two streams): every agent
+# but APG and the world models collects on other keys from its first step.
+_GOLDEN.update(
+    {
+        "APO-nudge": {
+            "actor": 9.208744049072266,
+            "critic": 8.00665283203125,
+            "nudge": 0.27262088656425476,
+        },
+        "ASAC": {
+            "actor": 17.279373168945312,
+            "critic": 27.431352615356445,
+            "alpha": 0.19999998807907104,
+        },
+        "AVG": {
+            "actor": 5.699617862701416,
+            "critic": 16.358848571777344,
+            "alpha": 0.07000000029802322,
+        },
+        "CrossQ": {
+            "actor": 132.81370544433594,
+            "critic": 272.3625793457031,
+            "alpha": 0.991431474685669,
+        },
+        "DAgger-nudge": {
+            "actor": 2.6644744873046875,
+            "n_updates": 93.0,
+            "nudge": 0.24705980718135834,
+        },
+        "DQN": {
+            "actor": 9.234021186828613,
+            "target": 9.199348449707031,
+        },
+        "DQN-dueling-nudge": {
+            "actor": 9.526229858398438,
+            "target": 9.497961044311523,
+            "nudge": 0.24489787220954895,
+        },
+        "IQL-nudge": {
+            "actor": 7.979248523712158,
+            "critic": 19.814210891723633,
+            "value": 7.837644577026367,
+            "n_updates": 91.0,
+            "nudge": 0.26969558000564575,
+        },
+        "PPO-discrete-nudge": {
+            "actor": 7.15655517578125,
+            "critic": 8.98699951171875,
+            "nudge": 0.32986703515052795,
+        },
+        "PPO-env-split": {
+            "actor": 5.999892234802246,
+            "critic": 7.155003070831299,
+        },
+        "PPO-env-split-nudge": {
+            "actor": 5.724305629730225,
+            "critic": 7.2285380363464355,
+            "nudge": 0.32986703515052795,
+        },
+        "PPO-flat": {
+            "actor": 6.060274600982666,
+            "critic": 7.253013610839844,
+        },
+        "PPO-unroll": {
+            "actor": 6.0275068283081055,
+            "critic": 7.287555694580078,
+        },
+        "PQN-nudge": {
+            "actor": 34.01963424682617,
+            "nudge": 0.2308862805366516,
+        },
+        "REDQ": {
+            "actor": 10.606958389282227,
+            "critic": 36.87134552001953,
+            "alpha": 0.9880779981613159,
+        },
+        "SAC-mcc": {
+            "actor": 8.32678508758545,
+            "critic": 15.669421195983887,
+            "alpha": 0.975998044013977,
+        },
+        "TD3": {
+            "actor": 15.428991317749023,
+            "critic": 27.092100143432617,
+        },
+        "TQC": {
+            "actor": 17.25847625732422,
+            "critic": 45.27690124511719,
+            "alpha": 0.9727964997291565,
+        },
+        "TQC-nudge": {
+            "actor": 17.08976936340332,
+            "critic": 42.52906036376953,
+            "alpha": 0.972938060760498,
+            "nudge": -0.03677361458539963,
+        },
+        "UDRL-nudge": {
+            "actor": 21.72692108154297,
+            "nudge": 0.27258771657943726,
+        },
+    }
+)
+
+
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]
     agent = agent_cls(**kwargs)

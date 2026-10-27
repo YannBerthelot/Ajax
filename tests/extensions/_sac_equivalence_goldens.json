@@ -1,9 +1,9 @@
 {
   "test_empty_stack_matches_legacy_plain_sac": {
-    "critic": 554.41455078125,
-    "actor": 267.0654296875,
-    "target": 535.0372314453125,
-    "alpha": 0.981950581073761
+    "critic": 552.5646362304688,
+    "actor": 267.0806884765625,
+    "target": 535.0310668945312,
+    "alpha": 0.9819244146347046
   },
   "test_expert_policy_matches_legacy_expert_policy": {
     "critic": 553.8643188476562,
@@ -18,10 +18,10 @@
     "alpha": 0.981991171836853
   },
   "test_residual_policy_matches_legacy_use_residual_rl": {
-    "critic": 554.42529296875,
-    "actor": 266.9722595214844,
-    "target": 535.0279541015625,
-    "alpha": 0.9820232391357422
+    "critic": 551.194580078125,
+    "actor": 267.0721435546875,
+    "target": 535.036865234375,
+    "alpha": 0.9818586111068726
   },
   "test_jsrl_curriculum_matches_legacy_flag": {
     "critic": 554.8567504882812,
@@ -30,10 +30,10 @@
     "alpha": 0.9819700121879578
   },
   "test_ibrl_matches_legacy_flag": {
-    "critic": 553.6564331054688,
-    "actor": 267.1892395019531,
-    "target": 535.009033203125,
-    "alpha": 0.981937050819397
+    "critic": 554.3179931640625,
+    "actor": 267.0708312988281,
+    "target": 535.0142822265625,
+    "alpha": 0.9818682670593262
   },
   "test_edge_exploration_matches_legacy_flags[fixed]": {
     "critic": 554.7827758789062,
@@ -54,10 +54,10 @@
     "alpha": 0.98191237449646
   },
   "test_edge_exploration_matches_legacy_flags[lcb]": {
-    "critic": 554.4898681640625,
-    "actor": 267.1247253417969,
-    "target": 535.0210571289062,
-    "alpha": 0.9819419384002686
+    "critic": 555.4505615234375,
+    "actor": 267.1163330078125,
+    "target": 535.0512084960938,
+    "alpha": 0.9818741083145142
   },
   "test_edge_exploration_matches_legacy_flags[argmax_lcb]": {
     "critic": 553.8699340820312,
@@ -102,10 +102,10 @@
     "alpha": 0.9818972945213318
   },
   "test_value_box_matches_legacy_flag": {
-    "critic": 555.6207885742188,
-    "actor": 267.16607666015625,
-    "target": 535.0834350585938,
-    "alpha": 0.9819740056991577
+    "critic": 554.9931030273438,
+    "actor": 267.09442138671875,
+    "target": 535.089599609375,
+    "alpha": 0.9818881154060364
   },
   "test_phi_refresh_matches_legacy_flag": {
     "critic": 558.4526977539062,

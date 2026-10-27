@@ -75,9 +75,9 @@ from . import readouts as R
 # test_action_box + 6, test_framework + 4 (this note, the budget's). GAIL's
 # signed cell at learning rates 2e-4: test_imitation + 11, test_framework + 2.
 # The strict fault verdict (a node catches by an assertion): faults.py + 29,
-# faults/ - 1 (a stale fault deleted), test_framework + 2 (this note and the
-# budget's, two imports fewer). The q5 cells' unmapped-collector fault:
-# faults/ + 1, this note + 1.
+# faults/ - 1 (a stale fault deleted), test_framework + 1 (this note, two
+# imports fewer). The q5 cells' unmapped-collector fault: faults/ + 1,
+# test_framework + 2 (this note, the budget's).
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 160, "runs.py": 250}
 CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 248})
 CAPS.update({"test_framework.py": 293, "test_value_chains.py": 1051})
@@ -258,8 +258,8 @@ def test_the_directory_keeps_to_its_budget() -> None:
     fixed gate reading no critic (one fault), 70 for JSRL on DQN and PQN (two
     cells, one fault), 9 for faults no probe sees and E10's words, 26 for the
     q2 readout read at every carried step and two cells recalibrated, 13 for
-    GAIL's signed cell at learning rates 2e-4, 30 for the strict fault verdict,
-    2 for the q5 cells' unmapped-collector fault."""
+    GAIL's signed cell at learning rates 2e-4, 29 for the strict fault verdict,
+    3 for the q5 cells' unmapped-collector fault."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True

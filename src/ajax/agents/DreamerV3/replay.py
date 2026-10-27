@@ -56,6 +56,7 @@ unbatched; only the stored rows and the popped-item counter are per seed.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import NamedTuple, Optional
 
@@ -64,9 +65,12 @@ import jax.numpy as jnp
 from flax import struct
 
 from ajax.agents.DreamerV3.networks import encode_action
+from ajax.agents.DreamerV3.state import DreamerV3Config
 from ajax.agents.DreamerV3.world_model import PosteriorEntries, ReplayContextBatch
 from ajax.environments.row_collector import Row
 from ajax.types import Replaceable
+
+logger = logging.getLogger(__name__)
 
 #: Largest number of classes whose indices fit the uint8 storage.
 _UINT8_CLASSES = 256
@@ -381,7 +385,45 @@ def grow_rings(state: ReplayState, rows: int, capacity: int) -> ReplayState:
     return state.replace(**{name: pad(getattr(state, name)) for name in RING_FIELDS})
 
 
-def bytes_per_row(
+def count_ring_rows(rows_per_env: int, capacity_rows: int, min_rows: int) -> int:
+    """The ring length C for a run of rows_per_env rows per env in all: the
+    capacity's rows per env or the run's, whichever is fewer, never below
+    min_rows, the ring the first batch needs (a run too short to reach the
+    first update keeps that minimal ring)."""
+    return max(min(capacity_rows, rows_per_env), min_rows)
+
+
+def size_ring(state: ReplayState, seen: int, wanted: int) -> tuple[int, ReplayState]:
+    """The ring length a resumed run continues with, and the state holding
+    that ring (DESIGN.md sections 5.5, 5.6, 6.3).
+
+    seen is the rows per env the state holds so far, wanted the ring the
+    uninterrupted run of all the rows keeps (count_ring_rows). A shorter
+    ring was sized by an earlier, shorter call and has overwritten nothing,
+    so it grows to that length exactly (grow_rings); a ring at least that
+    long is kept. Host-side, before a resumed run.
+    """
+    held = int(jnp.shape(state.obs)[jnp.ndim(state.popped) + 1])
+    if wanted <= held:
+        return held, state
+    if seen > held:
+        raise ValueError(
+            f"The state's replay keeps the last {held} of its {seen}"
+            f" rows per env, but this agent's replay_capacity keeps"
+            f" {wanted} for the resumed run: resume with the"
+            " replay_capacity that produced the state."
+        )
+    logger.info(
+        "DreamerV3 replay: growing the state's ring from %d to %d rows per env"
+        " for the resumed run, which has seen %d.",
+        held,
+        wanted,
+        seen,
+    )
+    return wanted, grow_rings(state, seen, wanted)
+
+
+def count_row_bytes(
     obs_dim: int, action_dim: int, discrete: bool, deter: int, stoch: int, classes: int
 ) -> int:
     """Bytes one stored row takes (all envs' rings: times ``n_envs * C``)."""
@@ -391,12 +433,30 @@ def bytes_per_row(
     return 4 * obs_dim + action + 4 + flags + 4 * deter + stoch_bytes
 
 
+def count_replay_bytes(
+    n_envs: int,
+    rows_per_env: int,
+    obs_dim: int,
+    action_dim: int,
+    discrete: bool,
+    config: DreamerV3Config,
+) -> int:
+    """Bytes of one seed's replay: n_envs rings of rows_per_env rows."""
+    row = count_row_bytes(
+        obs_dim, action_dim, discrete, config.deter, config.stoch, config.classes
+    )
+    return row * rows_per_env * n_envs
+
+
 __all__ = [
     "RING_FIELDS",
     "BatchIndex",
     "ReplayState",
     "StreamReplay",
-    "bytes_per_row",
+    "count_replay_bytes",
+    "count_ring_rows",
+    "count_row_bytes",
     "grow_rings",
+    "size_ring",
     "stoch_dtype",
 ]

@@ -35,6 +35,7 @@ force the reference's own draws
 from __future__ import annotations
 
 from collections.abc import Mapping
+from functools import lru_cache
 from typing import Any, Callable, NamedTuple
 
 import jax
@@ -552,3 +553,54 @@ def train_step(
     metrics["opt_param_norm"] = optax.global_norm(learner_params(new_state))
     metrics["opt_grad_steps"] = wm_state.step
     return new_state, aux.entries, metrics
+
+
+@lru_cache(maxsize=32)
+def list_train_metrics(
+    config: DreamerV3Config,
+    obs_dim: int,
+    action_dim: int,
+    discrete: bool,
+    batch_size: int,
+    batch_length: int,
+) -> tuple[str, ...]:
+    """The names of train_step's metrics, from an abstract evaluation on
+    shapes (nothing is computed).
+
+    Cached: the abstract trace of the training step takes seconds, and its
+    arguments (a frozen dataclass and plain values) are hashable.
+    """
+    length = batch_length + 1
+
+    # Abstract arrays: jax.eval_shape takes them where arrays go.
+    def shape(*dims: int, dtype: Any = jnp.float32) -> Any:
+        return jax.ShapeDtypeStruct(dims, dtype)
+
+    key = shape(2, dtype=jnp.uint32)
+    learner = jax.eval_shape(
+        lambda init_key: init_learner(init_key, config, obs_dim, action_dim, discrete),
+        key,
+    )
+    flag = shape(batch_size, length, dtype=bool)
+    batch = ReplayContextBatch(
+        obs=shape(batch_size, length, obs_dim),
+        action=shape(batch_size, length, action_dim),
+        reward=shape(batch_size, length),
+        is_first=flag,
+        is_last=flag,
+        is_terminal=flag,
+        context_deter=shape(batch_size, config.deter),
+        context_stoch=shape(batch_size, config.stoch, dtype=jnp.int32),
+    )
+    noise = jax.eval_shape(
+        lambda noise_key: draw_train_noise(
+            noise_key, config, batch_size, batch_length, action_dim, discrete
+        ),
+        key,
+    )
+
+    def measure(state: Any, replayed: Any, train_noise: Any) -> Any:
+        return train_step(state, replayed, train_noise, config=config)[2]
+
+    metrics = jax.eval_shape(measure, learner, batch, noise)
+    return tuple(metrics)

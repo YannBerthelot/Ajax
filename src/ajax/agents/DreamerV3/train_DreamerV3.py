@@ -38,7 +38,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
-from functools import lru_cache, partial
+from functools import partial
 from typing import Any, Callable, NamedTuple, Optional
 
 import jax
@@ -50,6 +50,7 @@ from ajax.agents.DreamerV3.learner import (
     LearnerState,
     draw_train_noise,
     init_learner,
+    list_train_metrics,
     train_step,
 )
 from ajax.agents.DreamerV3.networks import (
@@ -67,7 +68,7 @@ from ajax.agents.DreamerV3.state import (
     DreamerV3Config,
     DreamerV3State,
 )
-from ajax.agents.DreamerV3.world_model import ReplayContextBatch, draw_posterior_noise
+from ajax.agents.DreamerV3.world_model import draw_posterior_noise
 from ajax.agents.loop import Evaluation, TrainLoop
 from ajax.environments.row_collector import collect_row, init_row_collector_state
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
@@ -308,50 +309,6 @@ def learner_state(agent_state: DreamerV3State) -> LearnerState:
     )
 
 
-@lru_cache(maxsize=32)
-def train_metric_keys(
-    config: DreamerV3Config, spec: EnvSpec, batch_size: int, batch_length: int
-) -> tuple[str, ...]:
-    """Names of :func:`~ajax.agents.DreamerV3.learner.train_step`'s metrics
-    (abstract evaluation on shapes; nothing is computed).
-
-    Cached: the abstract trace of the training step takes seconds, and its
-    arguments (a frozen dataclass, a named tuple, ints) are hashable.
-    """
-    f32, length = jnp.float32, batch_length + 1
-
-    # Abstract arrays: jax.eval_shape takes them where arrays go.
-    def shape(*dims: int, dtype: Any = f32) -> Any:
-        return jax.ShapeDtypeStruct(dims, dtype)
-
-    key = shape(2, dtype=jnp.uint32)
-    learner = jax.eval_shape(
-        lambda k: init_learner(k, config, spec.obs_dim, spec.action_dim, spec.discrete),
-        key,
-    )
-    flag = shape(batch_size, length, dtype=bool)
-    batch = ReplayContextBatch(
-        obs=shape(batch_size, length, spec.obs_dim),
-        action=shape(batch_size, length, spec.action_dim),
-        reward=shape(batch_size, length),
-        is_first=flag,
-        is_last=flag,
-        is_terminal=flag,
-        context_deter=shape(batch_size, config.deter),
-        context_stoch=shape(batch_size, config.stoch, dtype=jnp.int32),
-    )
-    noise = jax.eval_shape(
-        lambda k: draw_train_noise(
-            k, config, batch_size, batch_length, spec.action_dim, spec.discrete
-        ),
-        key,
-    )
-    metrics = jax.eval_shape(
-        lambda s, x, n: train_step(s, x, n, config=config)[2], learner, batch, noise
-    )
-    return tuple(metrics)
-
-
 def init_dreamer(
     key: jax.Array,
     env_args: EnvironmentConfig,
@@ -580,8 +537,13 @@ def make_train(
         batch_length=agent_config.batch_length,
         train_ratio=agent_config.train_ratio,
     )
-    metric_keys = train_metric_keys(
-        config, spec, agent_config.batch_size, agent_config.batch_length
+    metric_keys = list_train_metrics(
+        config,
+        spec.obs_dim,
+        spec.action_dim,
+        spec.discrete,
+        agent_config.batch_size,
+        agent_config.batch_length,
     )
     stack = ExtensionStack(extensions).bind_to_agent(
         env_args=env_args,

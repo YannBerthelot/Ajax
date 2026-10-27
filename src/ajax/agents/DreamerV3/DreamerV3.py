@@ -15,11 +15,10 @@ import logging
 from collections.abc import Sequence
 from typing import Any, Callable, Optional, Union
 
-import numpy as np
 from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config, run_horizon, shared_counters
-from ajax.agents.DreamerV3.replay import bytes_per_row, grow_rings
+from ajax.agents.DreamerV3.replay import count_replay_bytes, count_ring_rows, size_ring
 from ajax.agents.DreamerV3.state import (
     DreamerV3AgentConfig,
     DreamerV3Config,
@@ -259,9 +258,10 @@ class DreamerV3(ActorCritic):
         never below the ring the first batch needs (a run too short to
         reach the first update keeps that minimal ring).
         """
-        rows_per_env = int(n_timesteps) // self.env_args.n_envs
-        return max(
-            min(self._capacity_rows, rows_per_env), self.schedule.min_ring_rows()
+        return count_ring_rows(
+            int(n_timesteps) // self.env_args.n_envs,
+            self._capacity_rows,
+            self.schedule.min_ring_rows(),
         )
 
     def _resolve_replay(
@@ -277,10 +277,9 @@ class DreamerV3(ActorCritic):
           (the minimal ring before any run); it records nothing.
         * A resumed run continues the uninterrupted run of all its rows: it
           needs the ring :meth:`_ring_rows` gives for the rows so far plus
-          this call's. A shorter ring was sized by an earlier, shorter call
-          and has overwritten nothing, so it grows to that length exactly
-          (:func:`~ajax.agents.DreamerV3.replay.grow_rings`); a ring at
-          least that long is kept. The result is recorded.
+          this call's, to which the state's ring grows
+          (:func:`~ajax.agents.DreamerV3.replay.size_ring`). The result is
+          recorded.
         """
         n_envs = self.env_args.n_envs
         ticks = int(n_timesteps) // n_envs
@@ -291,27 +290,11 @@ class DreamerV3(ActorCritic):
             rows = self._ring_rows(n_timesteps)
             self._record_replay_rows(rows)
             return rows, None
-        replay_state = state.replay_state
-        held = int(np.shape(replay_state.obs)[np.ndim(replay_state.popped) + 1])
         done = self.resume_iteration_offset(state)
         wanted = self._ring_rows((done + ticks) * n_envs)
-        if wanted > held:
-            if done > held:
-                raise ValueError(
-                    f"The state's replay keeps the last {held} of its {done}"
-                    f" rows per env, but this agent's replay_capacity keeps"
-                    f" {wanted} for the resumed run: resume with the"
-                    " replay_capacity that produced the state."
-                )
-            logger.info(
-                "DreamerV3 replay: growing the state's ring from %d to %d rows"
-                " per env for the resumed run of %d rows per env.",
-                held,
-                wanted,
-                done + ticks,
-            )
-            state = state.replace(replay_state=grow_rings(replay_state, done, wanted))
-            held = wanted
+        held, replay_state = size_ring(state.replay_state, done, wanted)
+        if replay_state is not state.replay_state:
+            state = state.replace(replay_state=replay_state)
         self._record_replay_rows(held)
         return held, state
 
@@ -334,11 +317,14 @@ class DreamerV3(ActorCritic):
         if self.replay_rows_per_env is None:
             return 0
         spec = env_spec(self.env_args)
-        c = self.dreamer_config
-        row = bytes_per_row(
-            spec.obs_dim, spec.action_dim, spec.discrete, c.deter, c.stoch, c.classes
+        return count_replay_bytes(
+            self.env_args.n_envs,
+            self.replay_rows_per_env,
+            spec.obs_dim,
+            spec.action_dim,
+            spec.discrete,
+            self.dreamer_config,
         )
-        return row * self.replay_rows_per_env * self.env_args.n_envs
 
     def resume_iteration_offset(self, initial_state: BaseAgentState) -> int:
         """The absolute tick of a resumed run, equal across seeds

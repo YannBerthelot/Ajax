@@ -21,10 +21,13 @@ from ajax.agents.DreamerV3.replay import (
     BatchIndex,
     ReplayState,
     StreamReplay,
-    bytes_per_row,
+    count_replay_bytes,
+    count_ring_rows,
+    count_row_bytes,
     grow_rings,
     stoch_dtype,
 )
+from ajax.agents.DreamerV3.state import DreamerV3Config
 from ajax.agents.DreamerV3.world_model import (
     PosteriorEntries,
     draw_posterior_noise,
@@ -372,5 +375,13 @@ def test_ring_geometry_is_validated_and_sized():
         StreamReplay(2, 4, 1, 4)
     with pytest.raises(ValueError, match="batch_size"):
         StreamReplay(2, 8, 0, 4)
-    # 12m on a 24-dim observation with 6 actions: 8.3 KB per row.
-    assert bytes_per_row(24, 6, False, 2048, 32, 16) == 8351
+    # 12m on a 24-dim observation with 6 actions: 8.3 KB per row, 16 rings
+    # of 1000 rows of them per seed.
+    assert count_row_bytes(24, 6, False, 2048, 32, 16) == 8351
+    assert (
+        count_replay_bytes(16, 1000, 24, 6, False, DreamerV3Config())
+        == 8351 * 1000 * 16
+    )
+    # The run's rows per env, at most the capacity's, at least a first batch.
+    rows = [count_ring_rows(run, 300, 10) for run in (4, 120, 5000)]
+    assert rows == [10, 120, 300]

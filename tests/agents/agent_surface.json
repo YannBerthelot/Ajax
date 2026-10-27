@@ -394,6 +394,7 @@
 "ajax.agents.families:ObservationNormalization",
 "ajax.agents.families:OnPolicyAgent",
 "ajax.agents.families:OwnIterationAgent",
+"ajax.agents.families:OwnReplayAgent",
 "ajax.agents.families:PolicyUpdateStart",
 "ajax.agents.families:RecurrentReplayAgent",
 "ajax.agents.families:ReplayAgent",

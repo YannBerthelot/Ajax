@@ -16,9 +16,10 @@ the training loop's shape and the evaluation's value estimate::
 An agent learning from a replay of transitions is a ReplayAgent,
 one learning from each rollout of its current policy an
 OnPolicyAgent, one whose iteration is its own (a differentiable rollout,
-a replay of segments) an OwnIterationAgent. The shared knobs an algorithm may take beyond the
-ones every agent takes (gradient clipping, normalisation, an expert, image
-observations) are field mixins. The family reads some fields by name
+a replay of segments) an OwnIterationAgent, one storing rows in a replay of
+its own, sized per call (a world model's), an OwnReplayAgent. The shared
+knobs an algorithm may take beyond the ones every agent takes (gradient
+clipping, normalisation, an expert, image observations) are field mixins. The family reads some fields by name
 (DeclaredAgent, ReplayAgent, OnPolicyAgent).
 Every agent, family and mixin carries the literal @dataclass decorator,
 which the API docs read the constructor from; the contract an agent declares
@@ -40,7 +41,7 @@ import jax.numpy as jnp
 from gymnax import EnvParams
 
 from ajax.agents import update_steps
-from ajax.agents.base import ActorCritic
+from ajax.agents.base import ActorCritic, run_horizon, shared_counters
 from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
 
 # Imported under another name: ReplayAgent's own hook is make_replay_buffer.
@@ -55,6 +56,7 @@ from ajax.controller import (
     policy_action_dim,
 )
 from ajax.environments.interaction import init_collector_state
+from ajax.environments.row_collector import resume_tick
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import Extension, ExtensionStack, holds_expert
 from ajax.networks.memory import MemoryConfig
@@ -100,7 +102,8 @@ class TrainContext:
     - the network and optimiser configs (network_args,
       actor_optimizer_args, critic_optimizer_args);
     - the extensions, bound to this run;
-    - the replay buffer, for a replay agent (None on-policy);
+    - the replay: a replay agent's buffer, an own-replay agent's own (None
+      on-policy);
     - how to build the collector (make_collector);
     - the run's horizon (total_timesteps);
     - whether the run is recurrent (its networks have memory);
@@ -125,7 +128,8 @@ class TrainContext:
     #: make_collector(key, **options): the collector state, its replay storing
     #: what the run needs (options: init_collector_state's, an agent's).
     make_collector: Callable[..., Any]
-    buffer: Optional[BufferType] = None
+    #: A replay agent's BufferType, or an own-replay agent's replay.
+    buffer: Any = None
     recurrent: bool = False
     #: (actions, a_expert) -> actions the critics score under a residual
     #: policy (controller.executed_fn); None otherwise.
@@ -1218,4 +1222,193 @@ class OwnIterationAgent(DeclaredAgent):
             evaluations=evaluation.count(n_iterations),
             resume=resume,
             returns_iterations=self.returns_iterations,
+        )
+
+
+@dataclass(kw_only=True, eq=False, repr=False)
+class OwnReplayAgent(DeclaredAgent):
+    """An agent storing rows in a replay of its own (TrainLoop.off_policy's
+    hooks): each tick its row collector acts and stores one row per env, it
+    runs the updates its schedule gives the absolute tick, and the loop
+    evaluates on its cadence, logs and resumes. DreamerV3 trains on windows
+    of the replay at a train ratio (Hafner et al., 2023).
+
+    It is no ReplayAgent: its replay holds rows, not transitions, sized for
+    each call (prepare_replay), and it takes no dataset. It assumes the row
+    collector (ajax.environments.row_collector): a resumed run starts at the
+    tick of the rows it counted, and each env copy may carry its own system.
+
+    An agent writes prepare_replay, init, collect, count_updates, update,
+    report and evaluate; it may count its ticks (count_ticks), restart what
+    it logs after each log (make_after_log) and check a call (check_run).
+    """
+
+    # The own-iteration family's phases: no shared collector or evaluation
+    # meets an observation.
+    supported_extension_phases = OwnIterationAgent.supported_extension_phases
+    pretrain_context = frozenset({"env_args", "update"})
+    supports_batched_env_params = True
+
+    def prepare_replay(
+        self, start_tick: int, end_tick: int, agent_state: Any
+    ) -> tuple[Any, Any]:
+        """The replay of a call training from tick start_tick to end_tick,
+        and the state it resumes from (None for a fresh run), its replay
+        moved into that replay's shapes. The agent records the sizes."""
+        raise NotImplementedError
+
+    def init(self, key: jax.Array, context: TrainContext) -> Any:
+        """A fresh agent state, on the agent's own key layout."""
+        raise NotImplementedError
+
+    def collect(
+        self, agent_state: Any, tick: jax.Array, context: TrainContext
+    ) -> tuple[Any, Any]:
+        """Act and store one row per env at the absolute tick: (agent_state,
+        what update reads)."""
+        raise NotImplementedError
+
+    def count_updates(
+        self, agent_state: Any, tick: jax.Array, context: TrainContext
+    ) -> jax.Array:
+        """The updates run after the tick's rows (an int32 count)."""
+        raise NotImplementedError
+
+    def update(
+        self, agent_state: Any, experience: Any, context: TrainContext
+    ) -> tuple[Any, Any]:
+        """One update on the replay; the loop folds post_update after it."""
+        raise NotImplementedError
+
+    def report(self, agent_state: Any, aux: Any) -> dict:
+        """The training metrics an evaluation logs, timestep included."""
+        raise NotImplementedError
+
+    def evaluate(
+        self,
+        agent_state: Any,
+        key: jax.Array,
+        context: TrainContext,
+        num_episode_test: int,
+    ) -> dict:
+        """The policy's evaluation metrics, on num_episode_test episodes."""
+        raise NotImplementedError
+
+    def count_ticks(self, n_timesteps: int, start_tick: int) -> int:
+        """The ticks of n_timesteps from start_tick: one row per env each."""
+        del start_tick
+        return n_timesteps // self.env_args.n_envs
+
+    def make_after_log(self) -> Optional[Callable[[Any, jax.Array], Any]]:
+        """What runs on every tick after the logging gate (Evaluation's
+        after_log). None by default: an identity would still trace the gate."""
+        return None
+
+    def check_run(self, agent_state: Any, end_tick: int) -> None:
+        """Check the state a call ended with, at tick end_tick."""
+        del agent_state, end_tick
+
+    def resume_iteration_offset(self, initial_state: Any) -> int:
+        """The absolute tick of a resumed run, equal across seeds
+        (row_collector.resume_tick), so that every schedule of the tick
+        continues instead of restarting."""
+        return resume_tick(initial_state.collector_state, self.env_args.n_envs)
+
+    def train(
+        self,
+        seed: Union[int, Sequence[int]] = 42,
+        n_timesteps: int = int(1e6),
+        num_episode_test: int = 10,
+        logging_config: Any = None,
+        on_ids_ready: Optional[Callable] = None,
+        initial_state: Any = None,
+        total_timesteps: Optional[int] = None,
+        **kwargs: Any,
+    ) -> tuple[Any, Any]:
+        """ActorCritic.train on the call's replay (prepare_replay), which
+        continues the replay of the uninterrupted run when it resumes."""
+        state = initial_state
+        if isinstance(state, tuple) and len(state) == 2:
+            state = state[0]
+        # Refused before prepare_replay records the replay's sizes on the
+        # agent: a refused call leaves the agent as it was.
+        start = 0
+        if state is not None:
+            counters = shared_counters(state, self.per_seed_update_counts)
+            start = int(counters.get("timestep", 0))
+        run_horizon(start, n_timesteps, total_timesteps)
+        start_tick = 0 if state is None else self.resume_iteration_offset(state)
+        end_tick = start_tick + self.count_ticks(n_timesteps, start_tick)
+        replay, state = self.prepare_replay(start_tick, end_tick, state)
+        agent_state, out = super().train(
+            seed=seed,
+            n_timesteps=n_timesteps,
+            num_episode_test=num_episode_test,
+            logging_config=logging_config,
+            on_ids_ready=on_ids_ready,
+            initial_state=state,
+            total_timesteps=total_timesteps,
+            replay=replay,
+            start_tick=start_tick,
+            **kwargs,
+        )
+        self.check_run(agent_state, end_tick)
+        return agent_state, out
+
+    def make_train(
+        self,
+        env_args: EnvironmentConfig,
+        actor_optimizer_args: OptimizerConfig,
+        critic_optimizer_args: OptimizerConfig,
+        network_args: NetworkConfig,
+        total_timesteps: int,
+        num_episode_test: int,
+        run_ids: Optional[Sequence[str]] = None,
+        logging_config: Any = None,
+        start_timestep: int = 0,
+        end_timestep: Optional[int] = None,
+        extensions: Sequence[Extension] = (),
+        *,
+        replay: Any,
+        start_tick: int = 0,
+    ) -> Callable:
+        """The train function ActorCritic.train builds: off_policy's ticks of
+        the agent's collect, count_updates and update on the call's replay,
+        evaluating every log_frequency timesteps. It takes no dataset
+        (train_offline refuses it)."""
+        loop, context = self.make_context(
+            total_timesteps,
+            num_episode_test,
+            env_args=env_args,
+            actor_optimizer_args=actor_optimizer_args,
+            critic_optimizer_args=critic_optimizer_args,
+            network_args=network_args,
+            extensions=extensions,
+            run_ids=run_ids,
+            logging_config=logging_config,
+            start_timestep=start_timestep,
+            end_timestep=end_timestep,
+        )
+        context = dataclasses.replace(context, buffer=replay)
+        loop.warn_if_partial(env_args.n_envs, "n_envs")
+        log_frequency = loop.log_frequency
+        evaluation = Evaluation(
+            metrics=self.report,
+            every=log_frequency and max(self.count_ticks(log_frequency, 0), 1),
+            evaluate=partial(
+                self.evaluate, context=context, num_episode_test=num_episode_test
+            ),
+            after_log=self.make_after_log(),
+        )
+
+        def count_updates(tick: jax.Array, agent_state: Any) -> jax.Array:
+            return self.count_updates(agent_state, tick, context)
+
+        return loop.off_policy(
+            partial(self.init, context=context),
+            partial(self.update, context=context),
+            collect=partial(self.collect, context=context),
+            n_updates=count_updates,
+            evaluation=evaluation,
+            num_ticks=self.count_ticks(loop.budget, start_tick),
         )

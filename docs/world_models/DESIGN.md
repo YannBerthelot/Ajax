@@ -193,7 +193,7 @@ not reproduced (registered).
   Slice conversion (rows are obs-aligned, §5.2): obs rows `s..s+H`, actions rows
   `s..s+H−1`, rewards rows `s+1..s+H`. The sampler cannot draw from zero episodes
   (build-time assertion that the burst happens after ≥ 1 committed round).
-- **Schedule** `n_updates(i)` (static, 5 lines in `train_TDMPC2.py`), one
+- **Schedule** `n_updates(i)` (static, 5 lines of `FixedLengthSchedule` in `TDMPC2.py`), one
   `fori_loop(0, n_updates(i), update)` per tick:
   - seed phase: random actions on every stepping tick up to and including the stepping
     tick on which total env steps first exceed S, and at least one round has been

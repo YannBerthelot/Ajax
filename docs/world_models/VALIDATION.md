@@ -113,7 +113,7 @@ probe knows how many episodes each env ended in the chunk, checks that against
 the window's write position (a termination raises) and averages them. A chunk of
 625 ticks ends 1 or 2 of the 501-row episodes per env (16-32 episodes).
 
-**TD-MPC2 metric.** `evaluate_tdmpc2`, the agent's own evaluation (planner in
+**TD-MPC2 metric.** `TDMPC2.evaluate`, the agent's own evaluation (planner in
 `eval_mode`, a rebuilt env, fresh initial states), vmapped over the seeds after
 each chunk, with key `fold_in(PRNGKey(seed), agent_steps)` (a resumed run uses
 the uninterrupted run's keys). The reference also

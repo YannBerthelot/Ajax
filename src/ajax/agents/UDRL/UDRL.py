@@ -250,18 +250,13 @@ class UDRL(
         mode = env_args.mode
         collector = agent_state.collector_state
         # An action extension (JSRL, EDGE) acts in the action stage, its gates
-        # drawing on a fourth key, after the carry and the agent's own two,
-        # which it leaves as they were. The keys are the collection's.
+        # drawing on keys it derives from the collection's carry, as in
+        # collect_experience.
         acts = any(
             "action" in extension.implemented_phases()
             for extension in context.extensions
         )
-        gate_key = None
-        if acts:
-            keys = split_carry_first(collector.rng, 3)
-            collection_key, action_key, step_key, gate_key = keys
-        else:
-            collection_key, action_key, step_key = split_carry_first(collector.rng, 2)
+        collection_key, action_key, step_key = split_carry_first(collector.rng, 2)
         step_keys = env_keys(step_key, mode, n_envs)
         last_obs = collector.last_obs  # (n_envs, env's columns + 2)
         # The observation statistics take each observation once, when it is
@@ -294,7 +289,9 @@ class UDRL(
             raw = get_raw_obs(
                 env_state=collector.env_state, env=env_args.env, mode=mode
             )
-        result = pipeline(agent_state, acting, raw, gate_key, False, None, action_key)
+        result = pipeline(
+            agent_state, acting, raw, collection_key, False, None, action_key
+        )
         log_probs, env_action = result.log_probs, result.env_action
         # The segment keeps the choice the actor fits: the one executing the
         # expert's action where the stage handed it the step, unless the

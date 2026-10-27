@@ -20,6 +20,7 @@ from ajax.extensions.base import ExtensionContext
 from ajax.extensions.expert import ResidualPolicy
 from ajax.extensions.target_mods import IBRL
 from ajax.logging.wandb_logging import LoggingConfig
+from ajax.random_keys import derive_key
 from ajax.wrappers import InitialStateWrapper
 from tests.agents.test_agent_contract import CASES
 from tests.environments.identity_env import IdentityEnv
@@ -66,7 +67,6 @@ def step(action: jax.Array, executed: str = "post_warmup_action") -> dict:
         "expert_action": None,
         "observations": jnp.zeros((3, 2)),
         "raw_obs": jnp.zeros((3, 2)),
-        "gate_rng": KEY,
     }
 
 
@@ -74,28 +74,28 @@ def test_collection_executes_the_expert_where_the_target_critics_rate_it_higher(
     """Rows acting -1, 0.5 and 1 against the expert's 0.5: on the target's
     critics (Q = a) the expert's wins the first alone (a tie keeps the
     agent's); the live critic would pick it on the last. Every critic is
-    read, no key is drawn."""
+    read, and the step's dict gets its mask alone."""
     ibrl = IBRL(expert_policy=half, hybrid_acting=True)
     taken = step(jnp.array([[-1.0], [0.5], [1.0]]))
     chosen = ibrl.action(Learner(), (), taken, KEY, CONTEXT)
     np.testing.assert_allclose(chosen, [[0.5], [0.5], [1.0]])
     np.testing.assert_array_equal(taken.get("expert_mask"), [[True], [False], [False]])
-    assert taken["gate_rng"] is KEY
+    assert set(taken).difference(step(jnp.zeros(1))) == {"expert_mask"}
 
 
 def test_on_a_subset_it_chooses_on_a_fresh_draw_of_the_targets_size(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """REDQ's subset size bound, it draws critics (2, 3 here) on the step's
-    key and chooses on their minimum: the expert's wins rows 0 and 1, where
-    every critic's minimum would pick it on row 1 alone."""
+    """REDQ's subset size bound, it draws critics (2, 3 here) on a key
+    derived from its own and chooses on their minimum: the expert's wins
+    rows 0 and 1, where every critic's minimum would pick it on row 1 alone."""
     monkeypatch.setattr(
         target_mods, "score_action_pair", lambda *a: (Q_EXPERT, Q_POLICY)
     )
     drawn = []
 
     def draw(size: int, num_critics: int, key: jax.Array) -> jax.Array:
-        drawn.append((size, num_critics))
+        drawn.append((size, num_critics, key))
         return jnp.array([2, 3])
 
     monkeypatch.setattr(target_mods, "draw_selection_critics", draw)
@@ -103,7 +103,9 @@ def test_on_a_subset_it_chooses_on_a_fresh_draw_of_the_targets_size(
     taken = step(jnp.zeros((3, 1)))
     ibrl.action(Learner(), (), taken, KEY, CONTEXT)
     np.testing.assert_array_equal(taken["expert_mask"][:, 0], [True, True, False])
-    assert drawn == [(2, 4)] and taken["gate_rng"] is not KEY
+    [(size, num_critics, key)] = drawn
+    assert (size, num_critics) == (2, 4)
+    np.testing.assert_array_equal(key, derive_key(KEY, "critic_subset"))
 
 
 def test_it_binds_the_targets_subset_size_and_acts_only_when_asked():
@@ -135,7 +137,7 @@ def test_evaluation_executes_the_better_of_the_mean_and_the_experts_action():
         env.default_params,
         expert_policy=_pays_one,
         agent_state=Learner(),
-        controller=Controller(choosers=((0, ibrl),)),
+        controller=Controller(choosers=((0, "ibrl#0", ibrl),)),
     )
     np.testing.assert_allclose(out[0], 3.0, rtol=1e-6)
     np.testing.assert_allclose(out[6], 1.0)

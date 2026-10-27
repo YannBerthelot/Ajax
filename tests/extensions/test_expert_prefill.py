@@ -186,6 +186,7 @@ def test_the_prefill_key_is_no_split_of_the_pretrain_key():
 @struct.dataclass
 class Recorded:
     ext_state: tuple = ()
+    rng: Any = None  # the agent's key, which the stack lends its pretraining
 
 
 class Writes(Extension):
@@ -212,7 +213,7 @@ def test_the_replays_seeders_pretrain_first_in_stack_order():
         Seeds("seed2", order),
     ]
     stack = ExtensionStack(writers)
-    state = Recorded(ext_state=((), (), (), ()))
+    state = Recorded(ext_state=((), (), (), ()), rng=jax.random.PRNGKey(1))
     stack.apply_pretrain(state, jnp.asarray(0), jax.random.PRNGKey(0), 1)
     assert order == ["seed1", "seed2", "a", "b"]
 

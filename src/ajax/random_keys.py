@@ -57,6 +57,14 @@ NAMES: tuple[str, ...] = (
     # A recurrent network's initial carry, off its initialisation key
     # (ajax.networks.networks.init_network_state).
     "memory_carry",
+    # The action stage's key, off the collection's or the evaluation's
+    # carry, from which each of its extensions' keys derives by its key name
+    # (ajax.environments.action_stage).
+    "action_stage",
+    # IBRL's draws off its own key: the critics it selects on, and its soft
+    # choice (ajax.extensions.target_mods.IBRL).
+    "critic_subset",
+    "soft_choice",
 )
 
 TAGS: dict[str, int] = {name: make_tag(name) for name in NAMES}
@@ -74,7 +82,6 @@ EXPERT_PREFILL_KEY_TAG = 0x70726566
 #: same key hands out at that index. They stay until the change that moves
 #: the runs they key anyway names them.
 LEGACY_SMALL_TAGS: dict[str, int] = {
-    "UDRL's action-stage gate key, split(key, 4)[3] (agents/UDRL/UDRL.py)": 3,
     "TD-MPC2's task embeddings (agents/TDMPC2/core.py)": 1,
     "the observation noise, gymnax and brax (wrappers.py)": 0,
 }
@@ -84,6 +91,14 @@ def derive_key(key: jax.Array, name: str) -> jax.Array:
     """The key named name of a step on key: no split of key, and no other
     name, hands it out. name must be registered (NAMES)."""
     return jax.random.fold_in(key, TAGS[name])
+
+
+def derive_extension_key(key: jax.Array, key_name: str) -> jax.Array:
+    """The key of the extension of key_name (its name and occurrence in its
+    stack, ajax.extensions.base.extension_key_names) off key. Its tag is
+    made as a registered name's, from a name the extension's author chose,
+    which the occurrence's "#" keeps apart from every registered name."""
+    return jax.random.fold_in(key, make_tag(key_name))
 
 
 def split_carry_first(key: jax.Array, n: int) -> tuple[jax.Array, ...]:

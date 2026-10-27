@@ -6,6 +6,19 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **Each extension draws on keys of its own, by name.** In every phase an
+  extension's key is derived from its name and its occurrence among the
+  stack's extensions of that name (`ajax.extensions.base.extension_key_names`),
+  so adding, removing or moving another extension changes none of its keys.
+  A pretrain or post_update running the agent's own steps (BellmanPretrain,
+  PriorData, PhiRefresh, MCPretrain's rollout) draws on a key lent off the
+  agent's, which then gets its own back. The action stage's extensions (EDGE's
+  gates, IBRL's choice) and evaluation's choosers draw on keys derived from
+  the step's instead of advancing the collection's or the evaluation's
+  stream, and IBRL's subset and soft choice draw by name, so either option
+  leaves the other's draw. `ActionPipelineResult.rng` is removed: a
+  pipeline's key argument is the action stage's. Runs with extensions draw
+  other numbers; runs without keep theirs.
 - **Options and extensions no longer move the updates' keys.** A key
   that exists only under an option, a count or an extension is derived by
   name or index instead of drawn from the stream: the extensions'

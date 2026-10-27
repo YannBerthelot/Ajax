@@ -12,9 +12,8 @@ step's quantities (post_warmup_action, expert_action, observations, ...)
 as a dict through the obs argument, as the batch dict of the on_target and
 actor_loss phases. The extension picks an action (or returns None to
 defer); the stage owns the bookkeeping (is_expert_flag, the stored
-action). Gate randomness is threaded through obs["gate_rng"] (read and
-overwritten in place), the collector's own stream, not the framework's
-per-extension key.
+action). A gate draws on the extension's own key, which the stage derives
+from the collection's.
 """
 
 from __future__ import annotations
@@ -99,16 +98,9 @@ def edge_compute_decay(
     return jnp.maximum(1.0 - train_frac / decay_frac, 0.0)
 
 
-def edge_argmax_gate(
-    gap: jax.Array,
-    decay: jax.Array,
-    rng: jax.Array,
-) -> Tuple[jax.Array, jax.Array]:
-    """Deterministic: use expert whenever gap > 0 and decay > 0.
-
-    Returns (use_expert_mask, unchanged_rng).
-    """
-    return (gap > 0.0) & (decay > 0.0), rng
+def edge_argmax_gate(gap: jax.Array, decay: jax.Array) -> jax.Array:
+    """Deterministic: use expert whenever gap > 0 and decay > 0."""
+    return (gap > 0.0) & (decay > 0.0)
 
 
 def edge_boltzmann_gate(
@@ -117,30 +109,22 @@ def edge_boltzmann_gate(
     rng: jax.Array,
     q_policy: jax.Array,
     tau: float,
-) -> Tuple[jax.Array, jax.Array]:
-    """Adaptive: p = decay * sigmoid(gap / (tau * |Q|)).
-
-    Returns (use_expert_mask, updated_rng).
-    """
+) -> jax.Array:
+    """Adaptive: p = decay * sigmoid(gap / (tau * |Q|)), drawn on rng."""
     q_scale = jax.lax.stop_gradient(jnp.abs(q_policy).mean() + 1e-6)
     p_expert = decay * jax.nn.sigmoid(gap / (tau * q_scale))
-    rng, key = jax.random.split(rng)
-    return jax.random.uniform(key, shape=p_expert.shape) < p_expert, rng
+    return jax.random.uniform(rng, shape=p_expert.shape) < p_expert
 
 
 def edge_fixed_gate(
     decay: jax.Array,
     rng: jax.Array,
     fixed_prob: float,
-) -> Tuple[jax.Array, jax.Array]:
+) -> jax.Array:
     """Fixed probability: p = decay * fixed_prob, whatever the critic's
-    values (it scores no action).
-
-    Returns (use_expert_mask, updated_rng).
-    """
+    values (it scores no action), drawn on rng."""
     p = decay * fixed_prob
-    rng, key = jax.random.split(rng)
-    return jax.random.uniform(key, shape=p.shape) < p, rng
+    return jax.random.uniform(rng, shape=p.shape) < p
 
 
 def edge_lcb_scores(
@@ -173,11 +157,7 @@ def edge_lcb_scores(
     return lcb_score(q_e, beta), lcb_score(q_p, beta)
 
 
-def edge_lcb_argmax_gate(
-    score_expert: jax.Array,
-    score_policy: jax.Array,
-    rng: jax.Array,
-) -> Tuple[jax.Array, jax.Array]:
+def edge_lcb_argmax_gate(score_expert: jax.Array, score_policy: jax.Array) -> jax.Array:
     """Deterministic argmax gate over LCB scores.
 
     use_expert = score_e > score_p.
@@ -187,7 +167,7 @@ def edge_lcb_argmax_gate(
     so the (gating form, scoring rule) ablation can vary one axis at
     a time. Used by the ``argmax_lcb`` corner of the 2x2.
     """
-    return score_expert > score_policy, rng
+    return score_expert > score_policy
 
 
 def edge_lcb_gate(
@@ -195,8 +175,8 @@ def edge_lcb_gate(
     score_policy: jax.Array,
     rng: jax.Array,
     temperature: float,
-) -> Tuple[jax.Array, jax.Array]:
-    """Stochastic Boltzmann gate over LCB scores.
+) -> jax.Array:
+    """Stochastic Boltzmann gate over LCB scores, drawn on rng.
 
     p(use_expert) = sigmoid((score_e - score_p) / temperature).
 
@@ -209,9 +189,7 @@ def edge_lcb_gate(
     """
     delta = (score_expert - score_policy) / jnp.maximum(temperature, 1e-6)
     p_expert = jax.nn.sigmoid(delta)
-    rng, key = jax.random.split(rng)
-    use_expert = jax.random.uniform(key, shape=p_expert.shape) < p_expert
-    return use_expert, rng
+    return jax.random.uniform(rng, shape=p_expert.shape) < p_expert
 
 
 def edge_compute_thompson_stats(
@@ -241,8 +219,9 @@ def edge_thompson_gate(
     rng: jax.Array,
     temperature: float = 1.0,
     epsilon_floor: float = 0.0,
-) -> Tuple[jax.Array, jax.Array]:
-    """Thompson-sampling gate, with optional epsilon floor on policy picks.
+) -> jax.Array:
+    """Thompson-sampling gate, with optional epsilon floor on policy picks,
+    drawn on rng.
 
     Treat each candidate's Q as Gaussian(mu, (temperature * sigma)^2),
     draw one sample per side, pick whichever is larger. Equivalent to
@@ -263,7 +242,7 @@ def edge_thompson_gate(
     Set carefully on brittle envs: too high crashes the agent, too low
     starves the policy of evaluation data. ~0.001-0.05 is a sane range.
     """
-    rng, key_e, key_p, key_floor = jax.random.split(rng, 4)
+    key_e, key_p, key_floor = jax.random.split(rng, 3)
     scale = jnp.maximum(temperature, 1e-6)
     q_tilde_e = mu_e + scale * sigma_e * jax.random.normal(key_e, mu_e.shape)
     q_tilde_p = mu_p + scale * sigma_p * jax.random.normal(key_p, mu_p.shape)
@@ -275,7 +254,7 @@ def edge_thompson_gate(
         )
     else:
         use_expert = use_expert_thompson
-    return use_expert, rng
+    return use_expert
 
 
 _VALID_GATES = frozenset(
@@ -356,14 +335,13 @@ class EDGEExploration(Extension):
 
         obs is the action stage's dict (the module docstring):
         expert_action, observations (the critics' input, its features
-        included), post_warmup_action (the action the step would execute)
-        and gate_rng.
+        included) and post_warmup_action (the action the step would
+        execute). The gate draws on rng, the extension's own key.
 
         Side effects: writes expert_mask back into obs, which flags the
-        steps the expert took (is_expert_flag), and updates obs["gate_rng"]
-        for any downstream gate.
+        steps the expert took (is_expert_flag).
         """
-        del ext_state, rng  # the gates draw from obs["gate_rng"]
+        del ext_state
         if self.gate == "fixed":
             # The fixed gate draws without a score: it reads no critic, so it
             # also runs beside one that scores no action (a V(s) network).
@@ -372,23 +350,23 @@ class EDGEExploration(Extension):
                 context.total_steps,
                 self.decay_frac,
             )
-            use_expert_edge, gate_rng = edge_fixed_gate(
-                decay, obs["gate_rng"], self.fixed_prob
-            )
+            use_expert_edge = edge_fixed_gate(decay, rng, self.fixed_prob)
         else:
-            use_expert_edge, gate_rng = self.choose_by_score(agent_state, obs, context)
-        # The stage reads both keys after every action call.
-        obs["gate_rng"] = gate_rng
+            use_expert_edge = self.choose_by_score(agent_state, obs, rng, context)
         obs["expert_mask"] = use_expert_edge.astype(jnp.bool_)
         return jnp.where(
             use_expert_edge, obs["expert_action"], obs["post_warmup_action"]
         )
 
     def choose_by_score(
-        self, agent_state: Any, obs: Any, context: ExtensionContext
-    ) -> Tuple[jax.Array, jax.Array]:
+        self,
+        agent_state: Any,
+        obs: Any,
+        rng: jax.Array,
+        context: ExtensionContext,
+    ) -> jax.Array:
         """Where a scoring gate (every gate but the fixed one) hands the
-        expert the step, and the stage's gate_rng after its draws. It scores
+        expert the step, drawing on rng, the extension's key. It scores
         with the frozen expert critic phi* where MCPretrain fitted one, else
         with the agent's live critic."""
         # The action the step would execute, which every critic is trained
@@ -396,7 +374,6 @@ class EDGEExploration(Extension):
         executed_action = obs["post_warmup_action"]
         expert_action = obs["expert_action"]
         observations = obs["observations"]
-        gate_rng = obs["gate_rng"]
         # phi* lives on SACState alone, where MCPretrain binds: getattr is a
         # deliberate workaround until it reaches every agent's state. phi*
         # is applied without the agent's statistics.
@@ -416,12 +393,12 @@ class EDGEExploration(Extension):
                 critic_state,
                 critic_params,
             )
-            use_expert_edge, gate_rng = edge_thompson_gate(
+            use_expert_edge = edge_thompson_gate(
                 mu_e,
                 sigma_e,
                 mu_p,
                 sigma_p,
-                gate_rng,
+                rng,
                 self.lcb_temperature,
                 epsilon_floor=self.epsilon_floor,
             )
@@ -442,12 +419,10 @@ class EDGEExploration(Extension):
                 asymmetric=self.lcb_asymmetric,
             )
             if gate == "argmax_lcb":
-                use_expert_edge, gate_rng = edge_lcb_argmax_gate(
-                    score_e, score_p, gate_rng
-                )
+                use_expert_edge = edge_lcb_argmax_gate(score_e, score_p)
             else:
-                use_expert_edge, gate_rng = edge_lcb_gate(
-                    score_e, score_p, gate_rng, self.lcb_temperature
+                use_expert_edge = edge_lcb_gate(
+                    score_e, score_p, rng, self.lcb_temperature
                 )
         else:
             decay = edge_compute_decay(
@@ -463,12 +438,12 @@ class EDGEExploration(Extension):
                 critic_params,
             )
             if gate == "argmax":
-                use_expert_edge, gate_rng = edge_argmax_gate(gap, decay, gate_rng)
+                use_expert_edge = edge_argmax_gate(gap, decay)
             else:  # "boltzmann"
-                use_expert_edge, gate_rng = edge_boltzmann_gate(
-                    gap, decay, gate_rng, q_policy, self.tau
+                use_expert_edge = edge_boltzmann_gate(
+                    gap, decay, rng, q_policy, self.tau
                 )
-        return use_expert_edge, gate_rng
+        return use_expert_edge
 
     def eval_metrics(
         self,

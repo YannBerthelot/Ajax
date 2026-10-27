@@ -71,20 +71,6 @@ EVALUATE = {
 }
 
 # The reuses known today, each with the change planned to remove it.
-# Every extension of a phase gets the phase's one key: the pretraining,
-# the target, the losses and post_update (extensions by name, step 4).
-SHARED_PHASE_KEYS = {
-    (
-        f"normal ajax/extensions/base.py:{phase}",
-        f"normal ajax/extensions/base.py:{phase}",
-    )
-    for phase in (
-        "apply_pretrain",
-        "apply_on_target",
-        "_compute_extensions_loss",
-        "apply_post_update",
-    )
-}
 # The expert's collection carries its env step's key as its next key, so
 # env 0's key is split again at the next step (known reuse, step 5).
 EXPERT_COLLECTION_CARRY = {
@@ -93,25 +79,6 @@ EXPERT_COLLECTION_CARRY = {
         "uniform gymnax/environments/classic_control/pendulum.py:reset_env",
     )
 }
-# MCPretrain rolls the expert out on the update stream's key without
-# advancing it, so the updates then draw on its keys (extensions by name,
-# step 4), beside the expert collection's own reuse.
-MC_PRETRAIN_ON_THE_STREAM = EXPERT_COLLECTION_CARRY.union(
-    {
-        (
-            "fold_in ajax/agents/SAC/SAC.py:update",
-            "uniform gymnax/environments/classic_control/pendulum.py:reset_env",
-        ),
-        (
-            "fold_in ajax/agents/update_steps.py:step_on_its_key",
-            "uniform gymnax/environments/classic_control/pendulum.py:reset_env",
-        ),
-        (
-            "randint ajax/buffers/utils.py:sample_rows",
-            "split gymnax/environments/environment.py:step",
-        ),
-    }
-)
 # The observation noise folds the reset's key at index 0, which the reset's
 # own draw spans (known reuse, step 5).
 OBSERVATION_NOISE = {
@@ -149,21 +116,13 @@ CASES: dict[str, tuple[Any, dict[str, Any], set]] = {
     "TD3-delay": (ajax.TD3, {**REPLAY, "policy_delay": 2}, set()),
     "CrossQ-delay": (ajax.CrossQ, {**CROSSQ, "learning_starts": 4}, set()),
     "DQN-gradient-steps": (ajax.DQN, {**DQN, "learning_starts": 4}, set()),
-    "PPO-forced-reset": (
-        ajax.PPO,
-        {**PPO, "extensions": TWO_DRAWING},
-        SHARED_PHASE_KEYS,
-    ),
-    "SAC-every-phase": (
-        ajax.SAC,
-        {**SAC, "extensions": TWO_DRAWING},
-        SHARED_PHASE_KEYS,
-    ),
+    "PPO-forced-reset": (ajax.PPO, {**PPO, "extensions": TWO_DRAWING}, set()),
+    "SAC-every-phase": (ajax.SAC, {**SAC, "extensions": TWO_DRAWING}, set()),
     "SAC-prior-data-bellman": (ajax.SAC, {**SAC, "extensions": PRETRAINING}, set()),
     "SAC-mc-pretrain": (
         ajax.SAC,
         {**SAC_EXPERT, "extensions": (SMALL_MC,)},
-        MC_PRETRAIN_ON_THE_STREAM,
+        EXPERT_COLLECTION_CARRY,
     ),
     "SAC-expert-prefill": (
         ajax.SAC,

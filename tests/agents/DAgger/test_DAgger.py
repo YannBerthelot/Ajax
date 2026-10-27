@@ -94,7 +94,9 @@ def test_the_actor_learns_the_experts_labels_not_the_actions_taken(env_id):
     learner visits). From the second tick on (beta 0) the actor acts alone, so
     its executed actions are its own: fitting them would hold it where it
     started, while fitting the labels moves it towards the expert's action.
-    The discrete expert picks the action the untrained actor does not."""
+    The discrete expert picks the action the untrained actor does not: fitting
+    the labels takes it to that action (1.0 on seeds 0-3), fitting its own
+    samples leaves it near 0.5 (0.40-0.58), hence a 0.25 margin."""
     continuous = env_id == "Pendulum-v1"
     kwargs = {"n_envs": N_ENVS, "iteration_steps": N_ENVS, "batch_size": 8}
     kwargs.update({"buffer_size": 256, "actor_learning_rate": 1e-2})
@@ -118,7 +120,7 @@ def test_the_actor_learns_the_experts_labels_not_the_actions_taken(env_id):
         assert after < 0.5 * before, (before, after)
     else:
         before, after = (_pi(s, obs).probs[:, label].mean() for s in (init, state))
-        assert after > before + 0.05, (before, after)
+        assert after > before + 0.25, (before, after)
 
 
 def test_it_refuses_no_expert_and_a_decay_outside_the_unit_interval():

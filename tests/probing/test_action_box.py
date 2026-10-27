@@ -25,7 +25,7 @@ from . import readouts as R
 from .verdict import Case, Query, check, params
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "509c57f7da0c"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "af3378ef3468"  # verdict.digest(CASES): every answer, pinned
 ENV, PARAMS = envs.action_box().make()
 CONTEXTS = jnp.eye(3)  # up, down, inside
 
@@ -145,7 +145,7 @@ CELLS: dict[str, tuple] = {  # agent: family, budget, tolerances, overrides
     "TD3": ("none", 20_000, (0.02, 0.02, 0.164), {}),
     "PPO": ("none", 25_000, (0.02, 0.02, 0.219), {"log_std_init": -1.0}),
     "REDQ": ("auto", 10_000, (0.057, 0.052, 0.232), {"num_critic_updates": 5}),
-    "ASAC": ("ASAC", 20_000, (0.043, 0.074, 0.215), dict.fromkeys(LR3, 1e-4)),
+    "ASAC": ("ASAC", 60_000, (0.062, 0.083, 0.233), dict.fromkeys(LR3, 1e-4)),
     "AVG": ("AVG", 20_000, (0.026, 0.045, 0.239), LR3),
     "APO": ("none", 300_000, (0.02, 0.02, 0.145), dict.fromkeys(LR3, 1e-4)),
     "APG": ("none", 5000, (0.02, 0.02, 0.065), {"horizon": 1}),
@@ -159,6 +159,9 @@ NOTES = {  # beyond choose's pick: owner decisions, rungs ruled out and why
     " steps; that is PPO's behaviour, not a defect, so the cell starts at -1",
     "REDQ": "at its reference init 5,000 too few: twice its worst inside error 0.257",
     "AVG": "re-laddered at its reference initialisation on 20,000 and 40,000 only",
+    "ASAC": "with keys derived by name, 20,000 read 45 of the ladder's 64 seeds"
+    " within (50 before): a few seeds' inside action stays near the edge, 2.8,"
+    " up to 30,000; at 40,000 twice its worst inside error, 0.378, passed 0.25",
     "APO": "at 3e-4 100,000 qualifies but certifies 28/32, and the inside action"
     " drifts past it (0.60-1.68 at 150,000-300,000); at 1e-4, 200,000: 0.293",
     "DreamerV3": "owner: judged on the edges only; its inside action, 1.67 to"
@@ -168,6 +171,8 @@ NOTES = {  # beyond choose's pick: owner decisions, rungs ruled out and why
     " (0.486 in the 32-seed ladder), twice its error 0.479 past 0.25; at 32,000"
     " the same 8 read twice the worst error 0.019",
 }
+CERTIFIED = dict.fromkeys(CELLS, 32)  # seeds 3000-3031 within, at calibration
+CERTIFIED["ASAC"] = 31
 READ, EDGES_ONLY = {"DreamerV3": _dreamer, "TDMPC2": _tdmpc2}, ("DreamerV3",)
 for agent, (family, budget, tol, kw) in CELLS.items():
     spec = dataclasses.replace(envs.action_box(), gradients=agent == "APG")
@@ -175,7 +180,8 @@ for agent, (family, budget, tol, kw) in CELLS.items():
     build = functools.partial(agents.make, agent, *spec.make(), preset=preset, **kw)
     reads = runs.readings(build, READ.get(agent, _actor))
     queries = _queries(ALPHA[family])[: 2 if agent in EDGES_ONLY else 3]
-    note = f"{NOTES[agent]}; cert 32/32" if agent in NOTES else "cert 32/32"
+    certified = f"cert {CERTIFIED[agent]}/32"
+    note = f"{NOTES[agent]}; {certified}" if agent in NOTES else certified
     CASES[f"box-{agent}"] = Case(
         f"box-{agent}", queries, reads, budget, tol, slow=True, ceiling=0.25, note=note
     )

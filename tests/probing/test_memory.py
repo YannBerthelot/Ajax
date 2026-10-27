@@ -188,6 +188,11 @@ def test_p0b_recurrent_sac_trains_on_a_one_feature_observation() -> None:
 
 ALPHA, L = 1.0, 16
 BUDGET = {"SAC": 1500, "REDQ": 1500, "ASAC": 1500, "TD3": 6000}
+# REDQ with windows of two: at 1500 steps its actor's spread over seeds,
+# about 0.05, is the half gap to the double-counting fault (0.047), and
+# seeds 3000-3031 read 26/32 within; at 6000 the ladder's seeds 1000-1031
+# and 2000-2031 read 63/64.
+LONGER_BUDGET = {("REDQ", "gru", 2): 6000}
 O0 = jnp.array([1.0, 0.0])
 SLOPE = "Q(o0, 0.5) - Q(o0, -0.5)"
 CURVATURE = "Q(o0, 0.5) - (Q(o0, 0.2) + Q(o0, 0.8)) / 2"
@@ -317,7 +322,8 @@ def _q2_case(
 ) -> None:
     cell = f"q2-{part}-{agent}-{kind}" + "-L2" * (length == 2)
     reads, slow = _q2_readings(agent, kind, length), (agent, kind) != ("SAC", "gru")
-    CASES[cell] = Case(cell, qs, reads, BUDGET[agent], slow=slow, **kw)
+    budget = LONGER_BUDGET.get((agent, kind, length), BUDGET[agent])
+    CASES[cell] = Case(cell, qs, reads, budget, slow=slow, **kw)
 
 
 for agent in BUDGET:

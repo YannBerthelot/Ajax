@@ -72,13 +72,16 @@ from . import readouts as R
 # Faults no probe sees, caught by their fast tests alone: faults.py + 3,
 # test_framework + 3 (this note, the budget's); E10 in the extension
 # check's words: test_extensions + 3 (the caps and the budget in place).
+# The q2 readout read at every carried step: test_memory + 11. Keys by name
+# re-calibrate box-ASAC and REDQ's q2 windows of two: test_memory + 6,
+# test_action_box + 6, test_framework + 4 (this note, the budget's).
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 160, "runs.py": 250}
 CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 123, "faults/": 248})
-CAPS.update({"test_framework.py": 284, "test_value_chains.py": 1051})
+CAPS.update({"test_framework.py": 288, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
-CAPS.update({"test_memory.py": 372, "test_world_models.py": 452})
-CAPS.update({"test_action_box.py": 201, "test_imitation.py": 178})
+CAPS.update({"test_memory.py": 389, "test_world_models.py": 452})
+CAPS.update({"test_action_box.py": 207, "test_imitation.py": 178})
 CAPS.update({"test_offline.py": 300, "test_action_stage.py": 412})
 
 
@@ -250,14 +253,15 @@ def test_the_directory_keeps_to_its_budget() -> None:
     TD3 (two cells, two faults), 77 for IBRL's acting (three cells, four
     faults), 55 for IBRL's soft choice (two cells, two faults), 3 for EDGE's
     fixed gate reading no critic (one fault), 70 for JSRL on DQN and PQN (two
-    cells, one fault), 9 for faults no probe sees and E10's words."""
+    cells, one fault), 9 for faults no probe sees and E10's words, 26 for the
+    q2 readout read at every carried step and two cells recalibrated."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8141, total
+    assert total <= 8167, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

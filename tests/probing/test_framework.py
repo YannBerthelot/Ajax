@@ -75,10 +75,11 @@ from . import readouts as R
 # test_action_box + 6, test_framework + 4 (this note, the budget's). The
 # strict fault verdict (a node catches by an assertion): faults.py + 29,
 # faults/ - 1 (a stale fault deleted), test_framework + 2 (this note and the
-# budget's, two imports fewer).
+# budget's, two imports fewer). The q5 cells' unmapped-collector fault:
+# faults/ + 1, this note + 1.
 CAPS = {"verdict.py": 255, "envs.py": 252, "agents.py": 160, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 247})
-CAPS.update({"test_framework.py": 290, "test_value_chains.py": 1051})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 248})
+CAPS.update({"test_framework.py": 291, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 389, "test_world_models.py": 452})
@@ -256,14 +257,14 @@ def test_the_directory_keeps_to_its_budget() -> None:
     fixed gate reading no critic (one fault), 70 for JSRL on DQN and PQN (two
     cells, one fault), 9 for faults no probe sees and E10's words, 26 for the
     q2 readout read at every carried step and two cells recalibrated, 30 for
-    the strict fault verdict."""
+    the strict fault verdict, 2 for the q5 cells' unmapped-collector fault."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8197, total
+    assert total <= 8199, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

@@ -345,27 +345,41 @@ module has a catalogue, `faults/<module>.jsonl`, with one line per fault:
 {"id": "P0a-D01-DQN", "path": "agents/DQN/DQN.py",
  "old": "    max_q_next = jnp.max(q_next, axis=-1, keepdims=True)\n",
  "new": "    max_q_next = jnp.mean(q_next, axis=-1, keepdims=True)\n",
- "catches": ["test_value_chains.py::test_learns[p0a-DQN]"]}
+ "catches": ["test_value_chains.py::test_learns[p0a-DQN]"],
+ "fast": ["tests/agents/test_agent_pins.py::test_a_tiny_run_reproduces_its_recorded_fingerprint[DQN]"]}
 ```
 
 `path` is under `src/ajax`; `old` must occur exactly once; `catches` lists
-every test node that fails with the fault planted, and is empty for a fault
-no probe can see, which its fast tests alone catch. The runner copies the
-repository to a scratch directory, plants the fault there (your checkout is
-never modified), checks that Python imports the copy, and runs the listed
-nodes with the compile cache off. A non-zero exit means caught:
+the probe nodes that catch the fault, and is empty for a fault no probe can
+see; `fast` lists the fast tests that catch it, which every fault has, since
+the pull-request gate runs no probe. A parametrized node is named with its
+parameters. The runner copies the repository to a scratch directory, plants
+the fault there (your checkout is never modified), checks that Python imports
+the copy, runs the listed nodes with the compile cache off, and prints OK
+when every one failed on an assertion, otherwise CHECK with the nodes that
+did not (passed, not run, or the error they crashed with):
 
 ```bash
 JAX_PLATFORMS=cpu uv run python -m tests.probing.faults /tmp/faults P0a-D01-DQN P0a-gather-up
-# {'P0a-D01-DQN': 'caught', 'P0a-gather-up': 'caught'}
+# P0a-D01-DQN: OK
+# P0a-gather-up: OK
 ```
+
+A node catches a fault when it fails on an assertion, or on pytest's
+`Failed` (a refusal `pytest.raises` expected that did not come). Any other
+error is a crash, not a catch: a probe that crashed measured nothing, so a
+probe's check on what the library does is an assertion, and a fast test can
+crash only because the planted text meets its stand-in state, which the bug
+the fault stands for would not. An entry's `raises` names the one error its
+fast tests may fail with instead, where the bug itself cannot run in their
+setting (`faults.py` lists the cases).
 
 CI does not plant faults; `test_framework.py` runs
 `test_every_planted_fault_applies_once_and_names_live_nodes`, which checks
 that each `old` text still occurs once and that each listed node still
 exists. This is why a change under `src/ajax` runs `test_framework.py`
 before the push: when a change moves the code a fault edits, update the
-fault's line and run it again. The catalogue holds 209 faults across eight
+fault's line and run it again. The catalogue holds 247 faults across twelve
 modules.
 
 ### Known defects

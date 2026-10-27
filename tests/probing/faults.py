@@ -3,15 +3,22 @@
 ``faults/<module>.jsonl`` holds the faults a scenario module catches (an
 edit others catch too: once, all its catches listed): an ``id``, a ``path``
 under src/ajax, the ``old`` text (exactly one occurrence), its ``new``
-replacement, ``catches``, the nodes the old measured record shows failing
-with it planted (none where no probe can see it), and ``fast``, the fast
-tests measured to catch it (``python -m tests.fault_catches``), which every
-fault lists: the pull-request gate runs the fast tier alone. ``run`` copies
-the repository to a scratch directory, plants the fault there and runs those
-nodes, so the checkout is never modified, then removes the copy; a non-zero
-exit means caught::
+replacement, ``catches``, the probe nodes that catch it (none where no probe
+can see it), and ``fast``, the fast tests that catch it (``python -m
+tests.fault_catches`` finds them), which every fault lists: the pull-request
+gate runs the fast tier alone. Nodes are named with their parameters. ``run``
+plants the fault in a scratch copy of the repository (the checkout is never
+modified), runs those nodes there and removes the copy; ``missed`` names those
+that did not catch it, and the command prints OK or CHECK per fault::
 
     JAX_PLATFORMS=cpu uv run python -m tests.probing.faults SCRATCH ID [ID ...]
+
+A node catches a fault by failing on an assertion (CAUGHT), not by crashing:
+a probe that crashed measured nothing (its checks on the library assert), and
+a fast test may crash only because the planted text meets its stand-in state,
+which the bug would not. ``raises`` names the error a fault's fast tests may
+fail with instead where the bug cannot run in their setting: TD-MPC2's
+multi-task tests swap tasks of different shapes (q10's tasks share one).
 """
 
 from __future__ import annotations
@@ -21,14 +28,19 @@ import dataclasses
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 from collections.abc import Iterable, Iterator
+from subprocess import CompletedProcess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 COPIED = ("src", "tests", "benchmarks", "docs", "pyproject.toml")
+#: How a node catching a fault fails: an assert (pytest names a bare one
+#: "assert"), or pytest's Failed (a refusal pytest.raises expected did not come).
+CAUGHT = ("AssertionError", "assert", "Failed")
 #: Never copied, at any depth: the run needs none of them, and the reference
 #: implementations' environments (benchmarks/reference/envs/*/.venv) are 1-3.5 GB.
 SKIPPED = frozenset({".git", ".venv", ".claude", "site", "__pycache__"}).union(
@@ -44,10 +56,15 @@ class Fault:
     new: str
     catches: tuple[str, ...]
     fast: tuple[str, ...] = ()
+    raises: str = ""
 
     @property
     def file(self) -> str:
         return os.path.join("src", "ajax", self.path)
+
+    @property
+    def nodes(self) -> list[str]:
+        return [f"tests/probing/{n}" for n in self.catches] + list(self.fast)
 
 
 def load() -> dict[str, Fault]:
@@ -96,28 +113,40 @@ def scratch_copy(repo: str, root: str, names: Iterable[str]) -> Iterator[None]:
         shutil.rmtree(root, ignore_errors=True)
 
 
-def run(fault: Fault | None, scratch: str, *pytest_args: str) -> int:
-    """Run the fault's catches (or pytest_args) on a scratch copy with the fault
-    planted (None: the clean copy)."""
+def run(fault: Fault | None, scratch: str, *pytest_args: str) -> CompletedProcess:
+    """pytest, its output captured, on a scratch copy with the fault planted
+    (None: the clean copy): the fault's nodes, then pytest_args."""
     root = os.path.join(scratch, fault.id if fault else "clean")
     env = dict(os.environ, PYTHONPATH=os.path.join(root, "src"), JAX_PLATFORMS="cpu")
-    env["AJAX_NO_COMPILE_CACHE"] = "1"
+    env.update(AJAX_NO_COMPILE_CACHE="1", COLUMNS="400")  # summary lines whole
     probe = [sys.executable, "-c", "import ajax; print(ajax.__file__)"]
-    nodes = [f"tests/probing/{n}" for n in fault.catches] if fault else []
-    if fault is not None and not nodes and not pytest_args:
-        raise ValueError(f"no probe catches {fault.id}: run its fast tests")
-    cmd = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", *nodes]
-    cmd += pytest_args
+    nodes = fault.nodes if fault else []
+    if fault is not None and not nodes:
+        raise ValueError(f"{fault.id} lists no node")
+    cmd = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", "-rfEp"]
+    cmd += ["--tb=line", *nodes, *pytest_args]
+    cmd += ["-n", str(min(len(nodes), 4))] if len(nodes) > 1 else []
     with scratch_copy(REPO, root, COPIED):
         if fault is not None:
             plant(fault, root)
         where = subprocess.run(probe, env=env, cwd=root, capture_output=True, text=True)
         if not where.stdout.strip().startswith(root):
             raise RuntimeError(f"imported {where.stdout.strip()}, not the copy")
-        return subprocess.run(cmd, env=env, cwd=root).returncode
+        return subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True)
+
+
+def missed(fault: Fault, stdout: str) -> dict[str, str]:
+    """Each of the fault's nodes that did not catch it, and how it ended
+    (pytest's summary): PASSED, not run, or the error it crashed with."""
+    summary = re.findall(r"^(PASSED|FAILED|ERROR) (\S+)(?: - (\w+))?", stdout, re.M)
+    ended = {node: error or outcome for outcome, node, error in summary}
+    ends = {node: ended.get(node, "not run") for node in fault.nodes}
+    excused = {node: fault.raises for node in fault.fast if fault.raises}
+    return {n: e for n, e in ends.items() if e not in CAUGHT and e != excused.get(n)}
 
 
 if __name__ == "__main__":
     catalogue = load()
-    codes = {i: run(catalogue[i], sys.argv[1]) for i in sys.argv[2:]}
-    print({i: "caught" if code else "SURVIVED" for i, code in codes.items()})
+    for i in sys.argv[2:]:
+        missing = missed(catalogue[i], run(catalogue[i], sys.argv[1]).stdout)
+        print(f"{i}: CHECK {missing}" if missing else f"{i}: OK", flush=True)

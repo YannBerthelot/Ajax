@@ -71,16 +71,6 @@ EVALUATE = {
 }
 
 # The reuses known today, each with the change planned to remove it.
-# A discarded actor step's keys: the actor draws them from the update's
-# stream, and the update keeps the stream from before them until
-# policy_update_start, so the next update's draws reuse them (options,
-# step 3).
-DISCARDED_ACTOR = {
-    (
-        "normal ajax/agents/SAC/SAC.py:compute_soft_policy_objective",
-        "split ajax/buffers/utils.py:sample_rows",
-    )
-}
 # Every extension of a phase gets the phase's one key: the pretraining,
 # the target, the losses and post_update (extensions by name, step 4).
 SHARED_PHASE_KEYS = {
@@ -109,16 +99,16 @@ EXPERT_COLLECTION_CARRY = {
 MC_PRETRAIN_ON_THE_STREAM = EXPERT_COLLECTION_CARRY.union(
     {
         (
-            "fold_in ajax/agents/SAC/SAC.py:update_actor",
+            "fold_in ajax/agents/SAC/SAC.py:update",
+            "uniform gymnax/environments/classic_control/pendulum.py:reset_env",
+        ),
+        (
+            "fold_in ajax/agents/update_steps.py:step_on_its_key",
             "uniform gymnax/environments/classic_control/pendulum.py:reset_env",
         ),
         (
             "randint ajax/buffers/utils.py:sample_rows",
             "split gymnax/environments/environment.py:step",
-        ),
-        (
-            "split ajax/agents/SAC/SAC.py:compute_td_target",
-            "uniform gymnax/environments/classic_control/pendulum.py:reset_env",
         ),
     }
 )
@@ -130,16 +120,6 @@ OBSERVATION_NOISE = {
         "uniform gymnax/environments/classic_control/pendulum.py:reset_env",
     )
 }
-# ExpertWarmup's decision folds the uniform actions' key at index 1, an
-# index their draw spans (a legacy small tag, step 3).
-WARMUP_DECISION = {
-    (
-        "fold_in ajax/extensions/expert.py:choose_warmup_action",
-        "uniform ajax/environments/interaction.py:pipeline",
-    )
-}
-
-
 SAC_EXPERT: dict[str, Any] = {**SAC, "expert_policy": push}
 CROSSQ: dict[str, Any] = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_width": 8}
 CROSSQ.update({"critic_width": 8, "buffer_size": 64, "batch_size": 4})
@@ -161,10 +141,10 @@ TDMPC2_KW.update({"seed_steps": 4})
 
 #: name: (the agent's class, its arguments, the reuses it still has).
 CASES: dict[str, tuple[Any, dict[str, Any], set]] = {
-    "SAC-warmup-wait": (ajax.SAC, WAIT, DISCARDED_ACTOR),
-    "REDQ-wait": (ajax.REDQ, {**WAIT, "num_critic_updates": 2}, DISCARDED_ACTOR),
-    "TQC-wait": (ajax.TQC, WAIT, DISCARDED_ACTOR),
-    "ASAC-wait": (ajax.ASAC, WAIT, DISCARDED_ACTOR),
+    "SAC-warmup-wait": (ajax.SAC, WAIT, set()),
+    "REDQ-wait": (ajax.REDQ, {**WAIT, "num_critic_updates": 2}, set()),
+    "TQC-wait": (ajax.TQC, WAIT, set()),
+    "ASAC-wait": (ajax.ASAC, WAIT, set()),
     "AVG-wait": (ajax.AVG, {**INCREMENTAL, "policy_update_start": 8}, set()),
     "TD3-delay": (ajax.TD3, {**REPLAY, "policy_delay": 2}, set()),
     "CrossQ-delay": (ajax.CrossQ, {**CROSSQ, "learning_starts": 4}, set()),
@@ -198,7 +178,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], set]] = {
     "TD3-jsrl-warmup": (
         ajax.TD3,
         {**REPLAY, "expert_policy": push, "extensions": GATES},
-        WARMUP_DECISION,
+        set(),
     ),
     "SAC-ibrl-evaluation": (
         ajax.SAC,

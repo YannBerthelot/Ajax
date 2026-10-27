@@ -457,10 +457,12 @@
 "ajax.agents.update_steps:compute_extensions_critic_loss",
 "ajax.agents.update_steps:compute_gradients",
 "ajax.agents.update_steps:critic_step",
+"ajax.agents.update_steps:derive_actor_key",
 "ajax.agents.update_steps:derive_extensions_key",
 "ajax.agents.update_steps:gradient_step",
 "ajax.agents.update_steps:reached",
 "ajax.agents.update_steps:run_actor_if",
 "ajax.agents.update_steps:run_if",
+"ajax.agents.update_steps:scan_on_indexed_keys",
 "ajax.agents.update_steps:update_target_networks"
 ]

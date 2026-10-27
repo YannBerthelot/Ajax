@@ -30,6 +30,7 @@ from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.observe import ExpertActionInput
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.networks.q_networks import q_network_value
+from ajax.random_keys import derive_key
 from ajax.schedule import progress
 
 
@@ -556,9 +557,9 @@ class ExpertWarmup(Extension):
     def choose_warmup_action(
         self, uniform_actions: jax.Array, inputs: Any
     ) -> tuple[jax.Array, jax.Array]:
-        # Its own key: on the uniform actions' key the decision would reuse
-        # their first draw (env 0, dimension 0).
-        decision_key = jax.random.fold_in(inputs.key, 1)
+        # A key of its own, derived by name: a small index would be one of
+        # the counters the uniform actions' draw on that key uses.
+        decision_key = derive_key(inputs.key, "warmup_decision")
         expert_took = jax.random.uniform(decision_key) < self.fraction
         actions = jnp.where(expert_took, inputs.expert_action, uniform_actions)
         return actions, expert_took

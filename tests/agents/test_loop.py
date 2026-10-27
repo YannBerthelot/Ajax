@@ -141,15 +141,14 @@ def test_the_collector_acts_uniformly_until_uniform_steps(uniform_steps, uniform
     assert seen == uniform
 
 
-def test_post_update_draws_a_key_only_with_extensions() -> None:
-    """No extension: the state as it was, its key unused. One: folded once,
-    on a fresh key split from the state's."""
+def test_post_update_leaves_the_updates_key() -> None:
+    """No extension: the state as it was. One: folded once, on a key derived
+    from the state's, which stays as it was."""
     state = _state(0)
     assert _loop().post_update(state) is state
     counted = _loop(CounterExt()).post_update(_state(0, (jnp.asarray(0),)))
     assert int(counted.ext_state[0]) == 1
-    _, rng = jax.random.split(state.rng)
-    np.testing.assert_array_equal(counted.rng, rng)
+    np.testing.assert_array_equal(counted.rng, state.rng)
 
 
 def test_a_resumed_call_trains_its_budget_toward_the_run_horizon() -> None:

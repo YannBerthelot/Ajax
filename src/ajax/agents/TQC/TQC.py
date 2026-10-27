@@ -307,7 +307,7 @@ class TQC(
         every critic's quantiles (trainer.py:61), the critics scoring a
         residual policy's executed actions; also returns its sample's
         log-probs, which the temperature step reads."""
-        actor_key, agent_state = agent_state.get_keys_and_new_state()
+        actor_key = update_steps.derive_actor_key(agent_state)
         alpha = get_alpha(agent_state)
         critic_state = agent_state.critic_state
         scored = context.make_scored_actions(batch)

@@ -6,6 +6,16 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **Options and extensions no longer move the updates' keys.** A key
+  that exists only under an option, a count or an extension is derived by
+  name or index instead of drawn from the stream: the extensions'
+  post_update, an actor that steps on some updates only (policy_delay,
+  policy_update_start), several critic or gradient steps per update
+  (num_critic_updates, n_gradient_steps), PPO's and APO's minibatches,
+  ExpertWarmup's decision and a recurrent network's initial carry. Runs that
+  differ by one of them share every other draw, and SAC, REDQ, TQC, ASAC
+  and AVG no longer draw a dropped actor step's keys again before
+  policy_update_start. The agents using any of these draw other numbers.
 - **Updates and collection draw on two streams of keys.** Collection draws
   on its own key, `collector_state.rng`, and the updates on the agent
   state's, each handing out its keys after its carry

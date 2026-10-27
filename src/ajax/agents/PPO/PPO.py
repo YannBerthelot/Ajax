@@ -70,6 +70,7 @@ from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.networks.distributions import policy_entropy, recompute_log_prob
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import predict_value
+from ajax.random_keys import derive_key, split_by_index
 from ajax.schedule import Schedule, at
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import Architecture, FloatOrCallable, InitializationFunction
@@ -294,8 +295,14 @@ class PPO(
             batch.update({"targets": value_targets, "gae": gae})
 
         def cut_rollout_into_minibatches(epoch_key: jax.Array) -> dict:
-            """One epoch's partition of the rollout."""
-            return split.cut_into_minibatches(batch, epoch_key, memories)
+            """One epoch's partition of the rollout, each minibatch with a key
+            for its entropy sample and its extensions, derived from the
+            epoch's: the number of minibatches moves no other draw."""
+            minibatches = split.cut_into_minibatches(batch, epoch_key, memories)
+            minibatch_keys = derive_key(epoch_key, "minibatch_entropy")
+            entropy_keys = split_by_index(minibatch_keys, split.num_minibatches)
+            minibatches.update({"entropy_key": entropy_keys})
+            return minibatches
 
         step_on_minibatch = partial(self.minibatch_step, split=split, context=context)
         agent_state, aux = run_epochs(
@@ -374,7 +381,7 @@ class PPO(
         each network's gradient of the sum is the gradient of its own loss."""
         # The minibatch's key: a squashed policy's entropy is sampled with it,
         # and the extensions' keys below are derived from it.
-        entropy_key, agent_state = agent_state.get_keys_and_new_state()
+        entropy_key = minibatch["entropy_key"]
         target_metrics: dict = {}
         critic, actor = agent_state.critic_state, agent_state.actor_state
         extensions, total_timesteps = context.extensions, context.total_timesteps

@@ -11,6 +11,9 @@ restructure must reproduce it.
 The relative tolerance absorbs CPU platform drift (fp32 reduction order
 differs between CI's Linux x86 and macOS ARM); an algorithmic change moves a
 fingerprint far more.
+
+Characterization tests: they pin current behaviour, not verified against a
+spec, and may encode bugs; a refactor guard, never proof of correctness.
 """
 
 from dataclasses import dataclass
@@ -1872,3 +1875,223 @@ def test_a_tiny_run_reproduces_its_recorded_fingerprint(name: str) -> None:
     for key, golden in _GOLDEN[name].items():
         rel = abs(got[key] - golden) / max(abs(golden), 1.0)
         assert rel < _TOL, f"{name} {key}: got {got[key]!r}, golden {golden!r}"
+
+
+# Re-recorded on macOS ARM CPU once every env's resets were keyed by episode
+# (RNG stability, episode keys): each run starts and steps its episodes on
+# other keys.
+_GOLDEN.update(
+    {
+        "APG-nudge": {
+            "actor": 35.84657669067383,
+            "n_updates": 5.0,
+            "nudge": 0.8785082697868347,
+        },
+        "APG-pid-nudge": {
+            "actor": 36.84217834472656,
+            "n_updates": 5.0,
+            "nudge": 0.8785082697868347,
+        },
+        "APO-nudge": {
+            "actor": 9.13095474243164,
+            "critic": 8.05007553100586,
+            "target": 9.211957931518555,
+            "n_updates": 5.0,
+            "nudge": 0.8785082697868347,
+        },
+        "ASAC": {
+            "actor": 17.27933692932129,
+            "critic": 27.503591537475586,
+            "target": 17.321802139282227,
+            "n_updates": 0.0,
+            "alpha": 0.19999998807907104,
+        },
+        "AVG": {
+            "actor": 5.643533706665039,
+            "critic": 17.76322364807129,
+            "target": 5.000000476837158,
+            "n_updates": 0.0,
+            "alpha": 0.07000000029802322,
+        },
+        "CrossQ": {
+            "actor": 132.8204803466797,
+            "critic": 271.1706237792969,
+            "target": 133.31524658203125,
+            "n_updates": 91.0,
+            "alpha": 0.9723634719848633,
+        },
+        "DAgger-nudge": {
+            "actor": 2.7699289321899414,
+            "critic": 4.999999523162842,
+            "target": 3.0001308917999268,
+            "n_updates": 93.0,
+            "nudge": 0.9774792790412903,
+        },
+        "DQN": {
+            "actor": 9.106924057006836,
+            "critic": 8.621588706970215,
+            "target": 9.078692436218262,
+            "n_updates": 109.0,
+        },
+        "DQN-dueling-nudge": {
+            "actor": 9.507379531860352,
+            "critic": 9.092710494995117,
+            "target": 9.482611656188965,
+            "n_updates": 109.0,
+            "nudge": 0.9068649411201477,
+        },
+        "DreamerV3-drift": {
+            "actor": 92.456298828125,
+            "critic": 95.05998229980469,
+            "world_model": 548.9129638671875,
+            "n_updates": 61.0,
+            "drift": 0.5100106000900269,
+        },
+        "IQL-nudge": {
+            "actor": 8.025843620300293,
+            "critic": 19.829771041870117,
+            "value": 7.917448043823242,
+            "target": 8.0,
+            "n_updates": 91.0,
+            "nudge": 1.0078387260437012,
+        },
+        "PPO-discrete-nudge": {
+            "actor": 7.250933647155762,
+            "critic": 8.975752830505371,
+            "target": 8.000201225280762,
+            "n_updates": 5.0,
+            "nudge": 0.8785082697868347,
+        },
+        "PPO-env-split": {
+            "actor": 6.051539421081543,
+            "critic": 7.1972222328186035,
+            "target": 6.0001020431518555,
+            "n_updates": 5.0,
+        },
+        "PPO-env-split-nudge": {
+            "actor": 5.6332526206970215,
+            "critic": 7.161618709564209,
+            "target": 6.0001020431518555,
+            "n_updates": 5.0,
+            "nudge": 0.8785082697868347,
+        },
+        "PPO-flat": {
+            "actor": 6.003330230712891,
+            "critic": 7.231827259063721,
+            "target": 6.0001020431518555,
+            "n_updates": 3.0,
+        },
+        "PPO-gru": {
+            "actor": 57.02423095703125,
+            "critic": 54.61772918701172,
+            "target": 56.98634719848633,
+            "n_updates": 5.0,
+        },
+        "PPO-mcc": {
+            "actor": 4.007291316986084,
+            "critic": 5.075912952423096,
+            "target": 4.000099182128906,
+            "n_updates": 3.0,
+        },
+        "PPO-unroll": {
+            "actor": 6.006885051727295,
+            "critic": 7.250239372253418,
+            "target": 6.0001020431518555,
+            "n_updates": 3.0,
+        },
+        "PQN": {
+            "actor": 34.02022933959961,
+            "critic": 34.03536605834961,
+            "target": 34.03536605834961,
+            "n_updates": 9.0,
+        },
+        "PQN-nudge": {
+            "actor": 34.020225524902344,
+            "critic": 34.03536605834961,
+            "target": 34.03536605834961,
+            "n_updates": 9.0,
+            "nudge": 0.8256397247314453,
+        },
+        "REDQ": {
+            "actor": 10.62346363067627,
+            "critic": 36.932762145996094,
+            "target": 10.68629264831543,
+            "n_updates": 0.0,
+            "alpha": 0.9872119426727295,
+        },
+        "SAC": {
+            "actor": 10.58867359161377,
+            "critic": 17.932748794555664,
+            "target": 10.68629264831543,
+            "n_updates": 0.0,
+            "alpha": 0.9744771122932434,
+        },
+        "SAC-expert": {
+            "actor": 10.587984085083008,
+            "critic": 17.91284942626953,
+            "target": 10.68629264831543,
+            "n_updates": 0.0,
+            "alpha": 0.9746769666671753,
+        },
+        "SAC-gru": {
+            "actor": 53.79410934448242,
+            "critic": 124.17153930664062,
+            "target": 52.7663688659668,
+            "n_updates": 0.0,
+            "alpha": 0.9758204817771912,
+        },
+        "SAC-mcc": {
+            "actor": 8.320406913757324,
+            "critic": 15.497808456420898,
+            "target": 8.329099655151367,
+            "n_updates": 0.0,
+            "alpha": 0.9759957194328308,
+        },
+        "TD3": {
+            "actor": 15.418506622314453,
+            "critic": 27.09539031982422,
+            "target": 15.265251159667969,
+            "n_updates": 91.0,
+        },
+        "TD3-mcc": {
+            "actor": 17.516809463500977,
+            "critic": 28.63946533203125,
+            "target": 17.338119506835938,
+            "n_updates": 91.0,
+        },
+        "TDMPC2-drift": {
+            "actor": 32.238319396972656,
+            "world_model": 162.49891662597656,
+            "n_updates": 39.0,
+            "drift": 0.5062060952186584,
+        },
+        "TDMPC2MultiTask-drift": {
+            "actor": 32.23353576660156,
+            "world_model": 161.12286376953125,
+            "n_updates": 12.0,
+            "drift": 0.4896028935909271,
+        },
+        "TQC": {
+            "actor": 17.295066833496094,
+            "critic": 45.290157318115234,
+            "target": 17.321802139282227,
+            "n_updates": 0.0,
+            "alpha": 0.972418487071991,
+        },
+        "TQC-nudge": {
+            "actor": 17.15433692932129,
+            "critic": 43.00996398925781,
+            "target": 17.321802139282227,
+            "n_updates": 0.0,
+            "alpha": 0.9724184274673462,
+            "nudge": 0.8450943231582642,
+        },
+        "UDRL-nudge": {
+            "actor": 21.741743087768555,
+            "critic": 23.000001907348633,
+            "target": 22.000200271606445,
+            "n_updates": 4.0,
+            "nudge": 0.8760150671005249,
+        },
+    }
+)

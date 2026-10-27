@@ -9,6 +9,9 @@ machine, a restructure that changes nothing reproduces both exactly::
 ``compare`` prints per case BITWISE or each differing leaf's largest relative
 gap, and whether the program's text is the same. test_agent_pins'
 fingerprints hold to 1e-3 across platforms; these hold to the bit on one.
+
+Characterization tests: they pin current behaviour, not verified against a
+spec, and may encode bugs; a refactor guard, never proof of correctness.
 """
 
 from __future__ import annotations

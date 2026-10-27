@@ -1,5 +1,8 @@
 """Behaviour-equivalence tests for the SAC ``extensions=`` surface.
 
+Characterization tests: they pin current behaviour, not verified against a
+spec, and may encode bugs; a refactor guard, never proof of correctness.
+
 For each migrated extension, configuring SAC via the new
 ``extensions=[...]`` surface must produce the :func:`_agent_fingerprint`
 the pre-Phase-5 legacy-flag surface produced.

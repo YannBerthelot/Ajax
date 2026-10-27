@@ -1823,6 +1823,19 @@ _GOLDEN.update(
     }
 )
 
+# Re-recorded on macOS ARM CPU once TD-MPC2's task embeddings drew on a key
+# of their own instead of the policy's initialisation key (RNG stability,
+# no key drawn twice); it had moved within the tolerance.
+_GOLDEN.update(
+    {
+        "TDMPC2MultiTask-drift": {
+            "actor": 32.23353576660156,
+            "world_model": 161.12286376953125,
+            "drift": 0.4896028935909271,
+        },
+    }
+)
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

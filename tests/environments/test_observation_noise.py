@@ -9,13 +9,15 @@ from gymnax import make as make_gymnax_env
 
 from ajax.environments.create import build_env_from_id
 from ajax.environments.interaction import reset, step
+from ajax.random_keys import derive_key
 from ajax.wrappers import ObservationNoiseWrapper, ObservationNoiseWrapperBrax
 
 SCALE = jnp.array([1.0, 2.0, 0.5])
 
 
 def _draw(key, shape, sigma=0.1):
-    return sigma * SCALE * jax.random.normal(jax.random.fold_in(key, 0), shape)
+    noise_key = derive_key(key, "observation_noise")
+    return sigma * SCALE * jax.random.normal(noise_key, shape)
 
 
 def test_gymnax_noise_is_drawn_per_call_and_leaves_the_env_unchanged():

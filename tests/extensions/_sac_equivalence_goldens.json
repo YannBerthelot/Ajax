@@ -12,10 +12,10 @@
     "alpha": 0.9818669557571411
   },
   "test_online_bc_matches_legacy_flag": {
-    "critic": 558.68505859375,
-    "actor": 267.1645812988281,
-    "target": 535.1568603515625,
-    "alpha": 0.9818525314331055
+    "critic": 558.5145874023438,
+    "actor": 267.16400146484375,
+    "target": 535.1478881835938,
+    "alpha": 0.981852650642395
   },
   "test_residual_policy_matches_legacy_use_residual_rl": {
     "critic": 551.2583618164062,
@@ -78,10 +78,10 @@
     "alpha": 0.9818669557571411
   },
   "test_mc_pretrain_matches_legacy_flag": {
-    "critic": 558.5932006835938,
-    "actor": 267.1560363769531,
-    "target": 535.1570434570312,
-    "alpha": 0.9818722009658813
+    "critic": 558.4440307617188,
+    "actor": 267.15386962890625,
+    "target": 535.14794921875,
+    "alpha": 0.9818726778030396
   },
   "test_bellman_pretrain_matches_legacy_flag": {
     "critic": 554.3927001953125,
@@ -90,27 +90,27 @@
     "alpha": 0.9817734360694885
   },
   "test_critic_blend_matches_legacy_flag": {
-    "critic": 558.4321899414062,
-    "actor": 267.1550598144531,
-    "target": 535.1481323242188,
-    "alpha": 0.9818325042724609
+    "critic": 558.2671508789062,
+    "actor": 267.1528625488281,
+    "target": 535.140625,
+    "alpha": 0.9818317890167236
   },
   "test_mc_variance_correction_matches_legacy_flag": {
-    "critic": 535.996337890625,
-    "actor": 266.984375,
-    "target": 534.6227416992188,
-    "alpha": 0.9818409085273743
+    "critic": 535.8626098632812,
+    "actor": 266.9864196777344,
+    "target": 534.6124877929688,
+    "alpha": 0.9818413853645325
   },
   "test_value_box_matches_legacy_flag": {
-    "critic": 554.1672973632812,
-    "actor": 267.1519470214844,
-    "target": 535.0834350585938,
-    "alpha": 0.981867253780365
+    "critic": 553.7091064453125,
+    "actor": 267.13519287109375,
+    "target": 535.0791625976562,
+    "alpha": 0.9818681478500366
   },
   "test_phi_refresh_matches_legacy_flag": {
-    "critic": 558.5932006835938,
-    "actor": 267.1560363769531,
-    "target": 535.1570434570312,
-    "alpha": 0.9818722009658813
+    "critic": 558.4440307617188,
+    "actor": 267.15386962890625,
+    "target": 535.14794921875,
+    "alpha": 0.9818726778030396
   }
 }

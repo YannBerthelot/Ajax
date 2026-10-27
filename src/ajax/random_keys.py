@@ -65,6 +65,16 @@ NAMES: tuple[str, ...] = (
     # choice (ajax.extensions.target_mods.IBRL).
     "critic_subset",
     "soft_choice",
+    # A wrapper's own draws, off the key its inner env is handed whole, so
+    # wrapping an env leaves the env's draws as they were (ajax.wrappers:
+    # the observation noise, InitialStateWrapper's initial state;
+    # ajax.environments.model_reference: the reference trajectory).
+    "observation_noise",
+    "initial_state",
+    "reference",
+    # TD-MPC2's task embeddings, off its initialisation key, apart from the
+    # networks' (ajax.agents.TDMPC2.core).
+    "task_embeddings",
 )
 
 TAGS: dict[str, int] = {name: make_tag(name) for name in NAMES}
@@ -77,14 +87,6 @@ EXTENSIONS_KEY_TAG = 0x45585453
 #: the registry: "pref". CloningPretrain and MCPretrain roll the expert out
 #: on split(key, n), so a small tag would reuse one of their keys.
 EXPERT_PREFILL_KEY_TAG = 0x70726566
-
-#: Small tags still folded in where they are, each the key a split of the
-#: same key hands out at that index. They stay until the change that moves
-#: the runs they key anyway names them.
-LEGACY_SMALL_TAGS: dict[str, int] = {
-    "TD-MPC2's task embeddings (agents/TDMPC2/core.py)": 1,
-    "the observation noise, gymnax and brax (wrappers.py)": 0,
-}
 
 
 def derive_key(key: jax.Array, name: str) -> jax.Array:

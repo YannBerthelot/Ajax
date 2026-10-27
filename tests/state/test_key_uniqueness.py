@@ -70,23 +70,6 @@ EVALUATE = {
     "logging_config": LoggingConfig(config={}, log_frequency=4, use_wandb=False)
 }
 
-# The reuses known today, each with the change planned to remove it.
-# The expert's collection carries its env step's key as its next key, so
-# env 0's key is split again at the next step (known reuse, step 5).
-EXPERT_COLLECTION_CARRY = {
-    (
-        "split gymnax/environments/environment.py:step",
-        "uniform gymnax/environments/classic_control/pendulum.py:reset_env",
-    )
-}
-# The observation noise folds the reset's key at index 0, which the reset's
-# own draw spans (known reuse, step 5).
-OBSERVATION_NOISE = {
-    (
-        "fold_in ajax/wrappers.py:_noise",
-        "uniform gymnax/environments/classic_control/pendulum.py:reset_env",
-    )
-}
 SAC_EXPERT: dict[str, Any] = {**SAC, "expert_policy": push}
 CROSSQ: dict[str, Any] = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_width": 8}
 CROSSQ.update({"critic_width": 8, "buffer_size": 64, "batch_size": 4})
@@ -122,12 +105,12 @@ CASES: dict[str, tuple[Any, dict[str, Any], set]] = {
     "SAC-mc-pretrain": (
         ajax.SAC,
         {**SAC_EXPERT, "extensions": (SMALL_MC,)},
-        EXPERT_COLLECTION_CARRY,
+        set(),
     ),
     "SAC-expert-prefill": (
         ajax.SAC,
         {**SAC_EXPERT, "extensions": (ExpertPrefill(n_steps=8),)},
-        EXPERT_COLLECTION_CARRY,
+        set(),
     ),
     "SAC-edge": (
         ajax.SAC,
@@ -147,7 +130,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], set]] = {
     "SAC-observation-noise": (
         ajax.SAC,
         {**SAC, "env_id": NOISY_PENDULUM},
-        OBSERVATION_NOISE,
+        set(),
     ),
     "DreamerV3": (DreamerV3, DREAMER, set()),
     "TDMPC2": (TDMPC2, TDMPC2_KW, set()),

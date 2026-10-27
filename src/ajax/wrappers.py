@@ -16,6 +16,7 @@ from ajax.environments.utils import (
     per_env,
     raw_obs_columns,
 )
+from ajax.random_keys import derive_key
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.utils import online_normalize
 
@@ -227,20 +228,20 @@ class InitialStateWrapper(GymnaxWrapper):
         self.init_state_fn = init_state_fn
 
     def reset(self, key, params=None):
-        """Reset the inner env, then replace its state."""
-        key_env, key_init = jax.random.split(key)
-        _, state = self._env.reset(key_env, params)
-        state = self.init_state_fn(key_init, state, params)
+        """Reset the inner env, then replace its state. The inner env gets
+        the key whole, the initial state one derived from it, so the
+        wrapper leaves the env's own draws as they were."""
+        _, state = self._env.reset(key, params)
+        state = self.init_state_fn(derive_key(key, "initial_state"), state, params)
         return self._env.get_obs(state, params), state
 
     def step(self, key, state, action, params=None):
         """Step the inner env; where it auto-reset, replace the reset state."""
-        key_step, key_init = jax.random.split(key)
         obs, state, reward, terminated, truncated, info = self._env.step(
-            key_step, state, action, params
+            key, state, action, params
         )
         done = jnp.logical_or(terminated, truncated)
-        start = self.init_state_fn(key_init, state, params)
+        start = self.init_state_fn(derive_key(key, "initial_state"), state, params)
         state = jax.tree.map(lambda s, x: jnp.where(done, s, x), start, state)
         obs = jnp.where(done, self._env.get_obs(start, params), obs)
         return obs, state, reward, terminated, truncated, info
@@ -853,7 +854,7 @@ class ObservationNoiseWrapper(GymnaxWrapper):
         self.scale = scale
 
     def _noise(self, key: jax.Array, obs: jax.Array) -> jax.Array:
-        draw = jax.random.normal(jax.random.fold_in(key, 0), jnp.shape(obs))
+        draw = jax.random.normal(derive_key(key, "observation_noise"), jnp.shape(obs))
         return self.sigma * jnp.asarray(self.scale) * draw
 
     def reset(self, key, params=None):
@@ -893,7 +894,7 @@ class ObservationNoiseWrapperBrax(BraxWrapper):
         return state.replace(obs=state.obs + noise, info=info)
 
     def reset(self, rng: jax.Array) -> "State":
-        return self._noisy(self.env.reset(rng), jax.random.fold_in(rng, 0))
+        return self._noisy(self.env.reset(rng), derive_key(rng, "observation_noise"))
 
     def step(self, state: "State", action: jax.Array) -> "State":
         key = state.info[self._RNG_KEY][0]

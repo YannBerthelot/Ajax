@@ -6,6 +6,14 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **No key is drawn twice.** The observation noise (gymnax and brax),
+  InitialStateWrapper's initial state and ModelReferenceWrapper's reference
+  draw on keys derived by name from the key the inner env is handed whole,
+  so wrapping an env leaves the env's own draws as they were. The expert's
+  collection (ExpertPrefill, MCPretrain, CloningPretrain, recorded datasets)
+  splits its carry first instead of carrying an env's step key on, and
+  TD-MPC2's task embeddings no longer draw on the policy's initialisation
+  key. Runs with these draw other numbers.
 - **Each extension draws on keys of its own, by name.** In every phase an
   extension's key is derived from its name and its occurrence among the
   stack's extensions of that name (`ajax.extensions.base.extension_key_names`),

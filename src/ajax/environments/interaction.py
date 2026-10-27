@@ -1292,7 +1292,7 @@ def collect_experience_from_expert_policy(
     expert_policy = ExpertInAgentUnits.wrap(
         expert_policy, env_args.env, env_args.env_params
     )
-    reset_key, step_key, rng = jax.random.split(rng, 3)
+    reset_key, carry_key = jax.random.split(rng)
     reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
 
@@ -1319,10 +1319,9 @@ def collect_experience_from_expert_policy(
 
     def step_fn(carry, _):
         env_state, rng, last_obs, expert_state, observer_states = carry
-        # The step's key is also the one carried to the next step: the
-        # stream the goldens pin.
-        rng = jax.random.split(rng)[0]
-        rng_step = env_keys(rng, mode, env_args.n_envs)
+        # The carry first, then the step's key, which no later step splits.
+        rng, env_step_key = split_carry_first(rng, 1)
+        rng_step = env_keys(env_step_key, mode, env_args.n_envs)
 
         # The expert reads the raw env obs (NOT normalized).
         raw_obs = get_raw_obs(
@@ -1414,7 +1413,7 @@ def collect_experience_from_expert_policy(
 
     _, transitions = jax.lax.scan(
         step_fn,
-        (env_state, step_key, last_obs, init_expert_state, observer_states),
+        (env_state, carry_key, last_obs, init_expert_state, observer_states),
         length=n_timesteps,
     )
 

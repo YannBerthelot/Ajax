@@ -11,7 +11,6 @@ from ajax import random_keys
 from ajax.random_keys import (
     EXPERT_PREFILL_KEY_TAG,
     EXTENSIONS_KEY_TAG,
-    LEGACY_SMALL_TAGS,
     NAMED_TAG_BIT,
     TAGS,
     derive_key,
@@ -79,8 +78,7 @@ def test_a_tag_is_the_names_crc32_with_the_top_bit_set() -> None:
 
 def test_the_registry_holds_each_tag_once_past_every_index() -> None:
     """Named tags are distinct, lie past any split's index, and meet neither
-    tag kept from before the registry; the legacy small tags are indices a
-    split also hands out, listed until their sites take names."""
+    tag kept from before the registry."""
     assert TAGS == {name: make_tag(name) for name in random_keys.NAMES}
     named = list(TAGS.values())
     assert len(set(named)) == len(named)
@@ -88,7 +86,6 @@ def test_the_registry_holds_each_tag_once_past_every_index() -> None:
     kept = {EXTENSIONS_KEY_TAG, EXPERT_PREFILL_KEY_TAG}
     assert len(kept) == 2 and not kept.intersection(named)
     assert all(tag >= 2**20 for tag in kept)  # past any realistic split
-    assert all(tag < 16 for tag in LEGACY_SMALL_TAGS.values())
 
 
 def test_the_tags_kept_from_before_hold_their_values() -> None:

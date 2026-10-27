@@ -349,7 +349,8 @@ module has a catalogue, `faults/<module>.jsonl`, with one line per fault:
 ```
 
 `path` is under `src/ajax`; `old` must occur exactly once; `catches` lists
-every test node that fails with the fault planted. The runner copies the
+every test node that fails with the fault planted, and is empty for a fault
+no probe can see, which its fast tests alone catch. The runner copies the
 repository to a scratch directory, plants the fault there (your checkout is
 never modified), checks that Python imports the copy, and runs the listed
 nodes with the compile cache off. A non-zero exit means caught:

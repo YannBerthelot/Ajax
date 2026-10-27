@@ -20,6 +20,7 @@ from ajax.environments.utils import agent_episode_length
 from ajax.extensions.observe import PIDTermsInput, TrainingProgressInput
 from ajax.networks.memory import MEMORY_KINDS, MemoryCell, MemoryConfig, init_carry
 from ajax.state import EnvironmentConfig
+from ajax.wrappers import InitialStateWrapper
 
 
 def env_args_for(env_id, n_envs, **build_kwargs):
@@ -361,6 +362,44 @@ def test_static_mode_on_fixed_length_gymnax_pendulum():
     first_state = jax.tree.map(lambda x: x[0, 0], run.env_states)
     obs, *_ = env.step(jax.random.PRNGKey(0), first_state, jnp.array([1.0]), params)
     np.testing.assert_allclose(np.asarray(rows.obs[1, 0]), np.asarray(obs), atol=1e-6)
+
+
+def at_rest_at_one(key, state, params):
+    return state.replace(
+        theta=jnp.ones_like(state.theta), theta_dot=jnp.zeros_like(state.theta_dot)
+    )
+
+
+@pytest.mark.parametrize("reset_mode", ["static", "dynamic"])
+def test_every_episode_starts_from_the_task_wrappers_initial_state(reset_mode):
+    """A task wrapper holding Pendulum at rest at theta = 1 starts every
+    episode, the later ones too: the static mode's held tick resets the env
+    as built, wrappers included, and the dynamic mode keeps the wrapper's
+    auto-reset."""
+    n_envs = 2
+    env, env_params = build_env_from_id("Pendulum-v1")
+    env_args = EnvironmentConfig(
+        env=InitialStateWrapper(env, at_rest_at_one),
+        env_params=env_params,
+        n_envs=n_envs,
+        continuous=True,
+    )
+    T = agent_episode_length(env_args.env, env_params, 1)
+    run = run_collector(
+        env_args,
+        hold_half,
+        2 * (T + 1) + 1,
+        reset_mode=reset_mode,
+        episode_length=T,
+        timestep_unit="env_steps",
+        carry=jnp.zeros((), jnp.int32),
+    )
+    first = np.asarray(run.rows.is_first)
+    np.testing.assert_array_equal(first.sum(axis=0), 3)
+    at_rest = [np.cos(1.0), np.sin(1.0), 0.0]
+    np.testing.assert_allclose(
+        np.asarray(run.rows.obs)[first], [at_rest] * 6, rtol=1e-6
+    )
 
 
 def test_per_env_params_map_each_action_to_its_own_systems_bounds():

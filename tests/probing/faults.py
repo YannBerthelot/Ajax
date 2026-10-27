@@ -4,11 +4,12 @@
 edit others catch too: once, all its catches listed): an ``id``, a ``path``
 under src/ajax, the ``old`` text (exactly one occurrence), its ``new``
 replacement, ``catches``, the nodes the old measured record shows failing
-with it planted, and ``fast``, the fast tests measured to catch it
-(``python -m tests.fault_catches``), which every fault lists: the
-pull-request gate runs the fast tier alone. ``run`` copies the repository to a scratch
-directory, plants the fault there and runs those nodes, so the checkout is
-never modified, then removes the copy; a non-zero exit means caught::
+with it planted (none where no probe can see it), and ``fast``, the fast
+tests measured to catch it (``python -m tests.fault_catches``), which every
+fault lists: the pull-request gate runs the fast tier alone. ``run`` copies
+the repository to a scratch directory, plants the fault there and runs those
+nodes, so the checkout is never modified, then removes the copy; a non-zero
+exit means caught::
 
     JAX_PLATFORMS=cpu uv run python -m tests.probing.faults SCRATCH ID [ID ...]
 """
@@ -103,6 +104,8 @@ def run(fault: Fault | None, scratch: str, *pytest_args: str) -> int:
     env["AJAX_NO_COMPILE_CACHE"] = "1"
     probe = [sys.executable, "-c", "import ajax; print(ajax.__file__)"]
     nodes = [f"tests/probing/{n}" for n in fault.catches] if fault else []
+    if fault is not None and not nodes and not pytest_args:
+        raise ValueError(f"no probe catches {fault.id}: run its fast tests")
     cmd = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", *nodes]
     cmd += pytest_args
     with scratch_copy(REPO, root, COPIED):

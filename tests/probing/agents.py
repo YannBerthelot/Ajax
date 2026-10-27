@@ -117,7 +117,7 @@ def digest() -> str:
     return hashlib.sha256(repr(sorted(PRESETS.items())).encode()).hexdigest()[:12]
 
 
-def agent_class(name: str) -> type:
+def agent_class(name: str) -> type[Any]:
     if name in ajax.__all__:
         return getattr(ajax, name)
     return getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)

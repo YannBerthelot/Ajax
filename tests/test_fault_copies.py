@@ -39,3 +39,10 @@ def test_a_run_leaves_nothing_in_its_scratch_directory(
     monkeypatch.setattr(faults.subprocess, "run", pytest_fails)
     assert faults.run(None, str(tmp_path)) == 1
     assert list(tmp_path.iterdir()) == []
+
+
+def test_a_fault_no_probe_catches_has_no_probe_run(tmp_path: Path) -> None:
+    fault = faults.Fault("unseen", "module.py", "old", "new", catches=())
+    with pytest.raises(ValueError, match="no probe catches unseen"):
+        faults.run(fault, str(tmp_path))
+    assert list(tmp_path.iterdir()) == []

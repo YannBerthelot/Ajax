@@ -322,6 +322,16 @@ def test_the_action_stage_runs_action_only_in_its_slots_with_an_expert(agent):
     agent("Pendulum-v1", expert_policy=_expert, extensions=[slotted])
 
 
+def test_the_phase_check_names_an_unfolded_phase_before_the_action_stage():
+    """A SAC that does not fold action refuses an action extension in the
+    phase check's words, though the action stage refuses it too (it declares
+    no slot): the construction-time check runs first."""
+    phases = frozenset(PHASES).difference({"action"})
+    restricted = type("SAC", (SAC,), {"supported_extension_phases": phases})
+    with pytest.raises(ValueError, match=r"folds no \['action'\] phase"):
+        restricted("Pendulum-v1", extensions=[Unslotted()])
+
+
 def test_sac_applies_a_residual_policy_only_through_its_pipeline():
     """ResidualPolicy needs the pipeline SAC runs with an expert policy and
     without the gain policy; otherwise it is rejected at construction."""

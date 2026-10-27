@@ -274,9 +274,9 @@ def choose_actions(
         lambda obs: rows("bc_action"), choice, fault, critic_subset_size=size
     )
     step = {"observations": states, "raw_obs": states, "expert_action": None}
-    step["gate_rng"] = jax.random.PRNGKey(4)
     agent_state = SimpleNamespace(critic_state=critics)
-    return np.asarray(ibrl.choose_action(agent_state, step, action))
+    key = jax.random.PRNGKey(4)  # IBRL's own key, as the action stage hands it
+    return np.asarray(ibrl.choose_action(agent_state, step, action, key))
 
 
 def run_acting(

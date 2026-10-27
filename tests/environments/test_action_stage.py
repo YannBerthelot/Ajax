@@ -57,7 +57,6 @@ def _discrete_pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, key)
     return ActionPipelineResult(
         env_action=chosen[:, 0],
         policy_action=chosen,
-        rng=rng,
         buffer_action=chosen,
     )
 
@@ -142,7 +141,6 @@ def _residual_pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, key)
     return ActionPipelineResult(
         env_action=jnp.full((N_ENVS, 1), 0.5),
         policy_action=jnp.full((N_ENVS, 1), 0.7),
-        rng=rng,
         policy_action_for_expert=jnp.zeros((N_ENVS, 1)),
     )
 

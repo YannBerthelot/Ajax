@@ -842,7 +842,12 @@ class TrainLoop:
             collector = collector.replace(timestep=collector.timestep + 1)
             agent_state = agent_state.replace(collector_state=collector)
             return self.evaluate_and_log(
-                agent_state, aux, index, recurrent, **(eval_kwargs or {})
+                agent_state,
+                aux,
+                index,
+                recurrent,
+                phase="offline",
+                **(eval_kwargs or {}),
             )
 
         return self.train(

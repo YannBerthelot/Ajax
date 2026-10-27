@@ -1,6 +1,7 @@
 import brax.envs
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 from brax.envs.base import Env as BraxEnv
 from brax.envs.base import State
@@ -476,6 +477,37 @@ def test_initial_state_wrapper_overrides_reset_state():
         keys[0], jax.tree.map(lambda x: x[0], states), jnp.zeros(1), params
     )
     assert obs2.shape == (3,) and jnp.isfinite(r)
+
+
+def test_a_wrapper_leaves_its_envs_draws_as_they_were():
+    """The wrappers drawing of their own hand the inner env the key whole
+    and draw on keys derived from it: the env resets and steps as unwrapped
+    (an initial state left as it is)."""
+    from gymnax import make as _make
+
+    from ajax.environments.model_reference import (
+        LinearReferenceModel,
+        ModelReferenceWrapper,
+        StepReference,
+    )
+    from ajax.wrappers import InitialStateWrapper, ObservationNoiseWrapper
+
+    env, params = _make("Pendulum-v1")
+    reference = StepReference(8, -1.0, 1.0, 2, 4)
+    wrappers = (
+        InitialStateWrapper(env, lambda key, state, params: state),
+        ObservationNoiseWrapper(env, 0.1),
+        ModelReferenceWrapper(env, reference, LinearReferenceModel.first_order()),
+    )
+    key, action = jax.random.PRNGKey(3), jnp.ones(1)
+    _, plain = env.reset(key, params)
+    stepped = env.step(key, plain, action, params)[1]
+    for wrapper in wrappers:
+        _, state = wrapper.reset(key, params)
+        after = wrapper.step(key, state, action, params)[1]
+        inner = (getattr(s, "env_state", s) for s in (state, after))
+        for got, want in zip(inner, (plain, stepped), strict=True):
+            jax.tree.map(np.testing.assert_array_equal, got, want)
 
 
 @pytest.mark.parametrize("env_id", ["Pendulum-v1", "fast"])

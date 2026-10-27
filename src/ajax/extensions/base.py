@@ -25,6 +25,11 @@ Design contract
   identity / ``0.0`` / ``{}`` / unchanged-state, so an extension is
   exactly as invasive as the phases it overrides, and an empty
   :class:`ExtensionStack` is genuinely zero-cost.
+* **Keys by name.** In every phase an extension draws on a key of its
+  own, derived from its name and occurrence (extension_key_names), so
+  adding, removing or moving another extension changes none of its keys.
+  Where its pretrain or post_update runs the agent's own steps, the stack
+  lends it a key off the agent's and takes the agent's back after.
 
 Phases
 ------
@@ -83,6 +88,7 @@ import jax.numpy as jnp
 from flax import struct
 
 from ajax.extensions.capabilities import PHASE_NEEDS, check_capabilities
+from ajax.random_keys import derive_extension_key
 
 
 @struct.dataclass
@@ -386,9 +392,9 @@ class Extension:
         """Override the evaluation-time action; None defers. obs is the
         shared evaluation's dict (ajax.evaluate.step_environment):
         executed_action, expert_action (the agent's expert's, None without
-        one), observations (the critics' input), raw_obs and gate_rng, a key
-        to split and write back; expert_mask, written into it, marks where
-        the expert's action was taken."""
+        one), observations (the critics' input) and raw_obs; expert_mask,
+        written into it, marks where the expert's action was taken. rng is
+        the extension's own key."""
         del agent_state, ext_state, obs, rng, context
         return None
 
@@ -543,6 +549,23 @@ def merge_metrics(*metrics: dict) -> dict:
     return merged
 
 
+def extension_key_names(extensions: Sequence[Extension]) -> tuple[str, ...]:
+    """Each extension's key name, "name#occurrence": its name (its class's
+    qualified name where it keeps the base's) and how many extensions of
+    that name come before it in the stack, so two of one class get keys of
+    their own."""
+    seen: dict[str, int] = {}
+    names = []
+    for extension in extensions:
+        name = extension.name
+        if name == Extension.name:
+            name = type(extension).__qualname__
+        occurrence = seen.get(name, 0)
+        seen[name] = occurrence + 1
+        names.append(f"{name}#{occurrence}")
+    return tuple(names)
+
+
 class ExtensionStack:
     """A folded, immutable collection of extensions.
 
@@ -584,8 +607,9 @@ class ExtensionStack:
         return frozenset().union(*(e.buffer_fields for e in self.extensions))
 
     def _keys(self, rng: jax.Array) -> tuple[jax.Array, ...]:
-        """One sub-key per extension (an empty stack splits nothing)."""
-        return tuple(jax.random.split(rng, len(self.extensions)))
+        """Each extension's key off rng, by its key name (extension_key_names)."""
+        names = extension_key_names(self.extensions)
+        return tuple(derive_extension_key(rng, name) for name in names)
 
     # Each apply method builds its phase's ExtensionContext and reads (and,
     # for state-threading phases, writes) agent_state.ext_state, in list
@@ -635,9 +659,11 @@ class ExtensionStack:
         (``env_args``, ``update``, ``buffer``)."""
         if not self.extensions:
             return agent_state
-        context = ExtensionContext(
-            step=step, rng=rng, total_steps=total_steps, **run_fields
-        )
+        keys, updates_key = self._keys(rng), agent_state.rng
+        # A pretrain running the agent's own steps (BellmanPretrain,
+        # PriorData's updates) draws on a key lent off the agent's, which
+        # then gets its own back: no extension moves the updates' stream.
+        lent_keys = self._keys(updates_key)
         ext_states = list(agent_state.ext_state)
         # The replay's seeders (ExpertPrefill, PriorData) run first, in stack
         # order, since the other pretraining (BellmanPretrain) reads what
@@ -646,9 +672,14 @@ class ExtensionStack:
         order = [index for index, seed in enumerate(seeds) if seed]
         order.extend(index for index, seed in enumerate(seeds) if not seed)
         for index in order:
-            agent_state, ext_states[index] = self.extensions[index].pretrain(
-                agent_state, ext_states[index], context
+            context = ExtensionContext(
+                step=step, rng=keys[index], total_steps=total_steps, **run_fields
             )
+            lent = agent_state.replace(rng=lent_keys[index])
+            agent_state, ext_states[index] = self.extensions[index].pretrain(
+                lent, ext_states[index], context
+            )
+            agent_state = agent_state.replace(rng=updates_key)
         return agent_state.replace(ext_state=tuple(ext_states))
 
     def apply_post_update(
@@ -662,12 +693,15 @@ class ExtensionStack:
         ``agent_state``."""
         if not self.extensions:
             return agent_state
-        context = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
+        # On a key lent off the agent's, as the pretraining (apply_pretrain).
+        keys, updates_key = self._keys(rng), agent_state.rng
+        lent_keys = self._keys(updates_key)
         ext_states = list(agent_state.ext_state)
         for i, ext in enumerate(self.extensions):
-            agent_state, ext_states[i] = ext.post_update(
-                agent_state, ext_states[i], context
-            )
+            context = ExtensionContext(step=step, rng=keys[i], total_steps=total_steps)
+            lent = agent_state.replace(rng=lent_keys[i])
+            agent_state, ext_states[i] = ext.post_update(lent, ext_states[i], context)
+            agent_state = agent_state.replace(rng=updates_key)
         return agent_state.replace(ext_state=tuple(ext_states))
 
     def apply_reward(
@@ -709,10 +743,10 @@ class ExtensionStack:
         target and the extensions' metrics."""
         if not self.extensions:
             return target, {}
-        context = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         metrics: dict = {}
-        ext_states = agent_state.ext_state
+        ext_states, keys = agent_state.ext_state, self._keys(rng)
         for i, ext in enumerate(self.extensions):
+            context = ExtensionContext(step=step, rng=keys[i], total_steps=total_steps)
             out = ext.on_target(agent_state, ext_states[i], batch, target, context)
             target, ext_metrics = phase_output(out)
             metrics = merge_metrics(metrics, ext_metrics)
@@ -757,11 +791,11 @@ class ExtensionStack:
     ) -> tuple[jax.Array | float, dict]:
         if not self.extensions:
             return 0.0, {}
-        context = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         total: jax.Array | float = 0.0
         metrics: dict = {}
-        ext_states = agent_state.ext_state
+        ext_states, keys = agent_state.ext_state, self._keys(rng)
         for i, ext in enumerate(self.extensions):
+            context = ExtensionContext(step=step, rng=keys[i], total_steps=total_steps)
             out = getattr(ext, phase)(agent_state, ext_states[i], batch, context)
             term, ext_metrics = phase_output(out)
             total = total + term
@@ -775,14 +809,14 @@ class ExtensionStack:
         rng: jax.Array,
         total_steps: int,
     ) -> dict:
-        """The extensions' evaluation metrics, merged (each
-        extension gets its own key; the context carries ``rng``)."""
+        """The extensions' evaluation metrics, merged (each extension gets
+        its own key, which its context carries too)."""
         if not self.extensions:
             return {}
-        context = ExtensionContext(step=step, rng=rng, total_steps=total_steps)
         out: dict = {}
         ext_states, keys = agent_state.ext_state, self._keys(rng)
         for i, ext in enumerate(self.extensions):
+            context = ExtensionContext(step=step, rng=keys[i], total_steps=total_steps)
             out.update(ext.eval_metrics(agent_state, ext_states[i], keys[i], context))
         return out
 

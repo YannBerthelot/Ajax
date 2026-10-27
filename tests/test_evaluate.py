@@ -11,8 +11,10 @@ import pytest
 from brax.envs import create as create_brax_env
 from flax import struct
 
+from ajax import evaluate as evaluation
 from ajax.agents.UDRL.UDRL import EvalCommand
 from ajax.controller import Controller
+from ajax.environments.interaction import step as environment_step
 from ajax.evaluate import ValueEstimate, evaluate
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import ExpertGains
@@ -562,7 +564,42 @@ def test_a_chooser_replaces_the_executed_action_and_logs_its_share():
         env.default_params,
         expert_policy=_pays_one,
         agent_state=_OneStatelessExtension(),
-        controller=Controller(choosers=((0, _HandsEnvZero()),)),
+        controller=Controller(choosers=((0, "hands_env_zero#0", _HandsEnvZero()),)),
     )
     np.testing.assert_allclose(out[0], (3 * 1.0 + 0.6) / 2, rtol=1e-5)
     np.testing.assert_allclose(out[6], 0.5)
+
+
+def test_a_chooser_leaves_the_rollouts_keys(monkeypatch) -> None:
+    """A chooser draws on keys derived from the step's (the action stage's):
+    the environment steps on the keys it steps on without one."""
+    stepped: dict[str, list] = {"plain": [], "chosen": []}
+    env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=0.5))
+    chooser = (0, "hands_env_zero#0", _HandsEnvZero())
+    for name, controller in (
+        ("plain", Controller()),
+        ("chosen", Controller(choosers=(chooser,))),
+    ):
+
+        def spied(keys: Any, *args: Any, name: str = name) -> Any:
+            jax.debug.callback(lambda k: stepped[name].append(np.asarray(k)), keys)
+            return environment_step(keys, *args)
+
+        monkeypatch.setattr(evaluation, "step", spied)
+        jax.clear_caches()  # a trace kept from before would step unseen
+        evaluate(
+            env,
+            _LinearActor(),
+            2,
+            jax.random.PRNGKey(0),
+            env.default_params,
+            expert_policy=_pays_one,
+            agent_state=_OneStatelessExtension(),
+            controller=controller,
+        )
+        jax.effects_barrier()
+    jax.clear_caches()  # no trace keeps the spy past the test
+    assert stepped["plain"]
+    np.testing.assert_array_equal(
+        np.stack(stepped["plain"]), np.stack(stepped["chosen"])
+    )

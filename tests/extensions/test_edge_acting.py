@@ -41,7 +41,6 @@ def step(policy: list, executed: list, expert: list) -> dict:
         "post_warmup_action": jnp.array(executed)[:, None],
         "expert_action": jnp.array(expert)[:, None],
         "observations": jnp.zeros((len(policy), 3)),
-        "gate_rng": KEY,
     }
 
 
@@ -67,7 +66,7 @@ def residual_step(agent_state, acting, raw_obs, key, uniform, mix_key, action_ke
     """A residual policy's pipeline: the step executes the residual through
     the expert, clip(a_E + a_pi)."""
     executed = jnp.clip(acting.expert_action + RESIDUAL, -1.0, 1.0)
-    return ActionPipelineResult(env_action=executed, policy_action=RESIDUAL, rng=key)
+    return ActionPipelineResult(env_action=executed, policy_action=RESIDUAL)
 
 
 def run_stage(edge: EDGEExploration, critic_state: Any) -> ActionPipelineResult:

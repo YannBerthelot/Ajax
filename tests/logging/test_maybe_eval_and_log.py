@@ -7,6 +7,7 @@ import numpy as np
 from flax import struct
 
 from ajax.log import MetricsAccumulator, maybe_eval_and_log
+from ajax.random_keys import derive_key
 
 
 @struct.dataclass
@@ -137,18 +138,19 @@ def test_disabled_logging_does_not_even_trace_the_evaluation():
     assert metrics is None and int(state.n_logs) == 0
 
 
-def test_each_evaluation_draws_fresh_keys_from_its_count():
-    """``eval_key, extra_key = split(fold_in(eval_rng, n_logs))`` (APG's
-    order): the evaluation and the extensions' metrics draw new keys at
-    each evaluation."""
+def test_each_evaluation_draws_the_keys_of_its_timestep():
+    """``eval_key, extra_key = split(fold_in(online key, timestep))``
+    (APG's order), the timestep the metrics log: the evaluation and the
+    extensions' metrics draw new keys at each evaluation."""
     state = State(
         eval_rng=jax.random.PRNGKey(5), n_logs=jnp.int32(0), value=jnp.float32(0.0)
     )
     draws = []
     for iteration in range(2):
+        timestep = 10 * (iteration + 1)
         state, metrics = maybe_eval_and_log(
             state,
-            jnp.int32(1),
+            jnp.int32(timestep),
             0,
             jnp.int32(iteration),
             metrics_fn=metrics_fn,
@@ -160,7 +162,8 @@ def test_each_evaluation_draws_fresh_keys_from_its_count():
             log_fn=lambda metrics, index: None,
             every=1,
         )
-        keys = jax.random.split(jax.random.fold_in(jax.random.PRNGKey(5), iteration))
+        online = derive_key(jax.random.PRNGKey(5), "online_evaluation")
+        keys = jax.random.split(jax.random.fold_in(online, timestep))
         eval_draw, extra_draw = (jax.random.uniform(key) for key in keys)
         np.testing.assert_array_equal(metrics["Eval/key"], eval_draw)
         np.testing.assert_array_equal(metrics["Eval/extra"], extra_draw)

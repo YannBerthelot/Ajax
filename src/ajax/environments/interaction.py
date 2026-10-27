@@ -493,9 +493,8 @@ class ActionPipelineResult(NamedTuple):
 
     The first two fields are required. The others default to ``None``, and
     ``collect_experience`` then falls back: zero log-probs, no expert acting,
-    no value box, the key it handed the pipeline, the env action stored, no
-    expert state or action threaded, and the actor's carry as the pipeline
-    found it.
+    no value box, the env action stored, no expert state or action
+    threaded, and the actor's carry as the pipeline found it.
     """
 
     # Executed in the environment once agent_action_to_env maps it onto the
@@ -506,7 +505,6 @@ class ActionPipelineResult(NamedTuple):
     is_expert_flag: Optional[jax.Array] = None  # 1 where an expert acted
     in_value_box: Optional[jax.Array] = None  # value-box membership
     entry_bonus: Optional[jax.Array] = None  # value-box entry bonus
-    rng: Optional[jax.Array] = None  # the collector's key after its draws
     # A stateful expert's state after this step (PID integrator, CPG phase).
     new_expert_state: Optional[Any] = None
     # Written to the replay buffer instead of env_action: a gain policy's
@@ -563,7 +561,9 @@ def policy_pipeline(
     fitting its own stored actions: IQL's). The run's warm-up chooser
     (warmups: ExpertWarmup) may take a warm-up step instead of the uniform
     action, the expert's action entering in the space the warm-up draws,
-    and the replay flags the steps the expert took."""
+    and the replay flags the steps the expert took. rng, the collection's
+    carry, is the action stage's (apply_action_extensions)."""
+    del rng
     action, log_probs, raw_action, agent_state = get_action_and_log_probs(
         action_key=action_key,
         agent_state=agent_state,
@@ -612,7 +612,6 @@ def policy_pipeline(
         is_expert_flag=is_expert_flag,
         in_value_box=no_box,
         entry_bonus=no_box,
-        rng=rng,
         new_actor_hidden=agent_state.actor_state.hidden_state,
         raw_action=raw_action,
         policy_action_for_expert=policy_action_for_expert,
@@ -661,6 +660,7 @@ def explore_pipeline(
     """
 
     def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
+        del rng  # the collection's carry, the action stage's
         actor = agent_state.actor_state.replace(hidden_state=acting.carry)
         pi, actor = get_pi(actor, actor.params, acting.obs, acting.done, recurrent)
         action = explore(pi, action_key, acting.timestep)
@@ -704,7 +704,6 @@ def explore_pipeline(
             env_action=env_action,
             policy_action=action[:, None] if discrete else action,
             is_expert_flag=is_expert_flag,
-            rng=rng,
             buffer_action=env_action[:, None] if discrete else None,
             new_actor_hidden=actor.hidden_state if recurrent else None,
         )
@@ -1009,7 +1008,9 @@ def collect_experience(
             the warm-up, the policy's action after.
             Signature: (agent_state, acting, raw_obs, rng, uniform, mix_key,
                 action_key) -> :class:`ActionPipelineResult`, ``acting`` the
-                step's :class:`~ajax.controller.ActingState`.
+                step's :class:`~ajax.controller.ActingState`, ``rng`` the
+                collection's carry, which only the action stage derives its
+                key from (apply_action_extensions).
     """
     # The collection's own stream: an update drawing more or fewer keys
     # leaves the env steps, the actions' noise and the warm-up as they were.
@@ -1071,7 +1072,6 @@ def collect_experience(
     is_expert_flag = zeros if result.is_expert_flag is None else result.is_expert_flag
     in_value_box = zeros if result.in_value_box is None else result.in_value_box
     entry_bonus = zeros if result.entry_bonus is None else result.entry_bonus
-    rng = rng if result.rng is None else result.rng
     new_expert_state = result.new_expert_state
     # A recurrent actor's memory would stay frozen without its advanced carry.
     if result.new_actor_hidden is not None:
@@ -1292,7 +1292,7 @@ def collect_experience_from_expert_policy(
     expert_policy = ExpertInAgentUnits.wrap(
         expert_policy, env_args.env, env_args.env_params
     )
-    reset_key, step_key, rng = jax.random.split(rng, 3)
+    reset_key, carry_key = jax.random.split(rng)
     reset_keys = env_keys(reset_key, mode, env_args.n_envs)
     last_obs, env_state = reset(reset_keys, env_args.env, mode, env_args.env_params)
 
@@ -1319,10 +1319,9 @@ def collect_experience_from_expert_policy(
 
     def step_fn(carry, _):
         env_state, rng, last_obs, expert_state, observer_states = carry
-        # The step's key is also the one carried to the next step: the
-        # stream the goldens pin.
-        rng = jax.random.split(rng)[0]
-        rng_step = env_keys(rng, mode, env_args.n_envs)
+        # The carry first, then the step's key, which no later step splits.
+        rng, env_step_key = split_carry_first(rng, 1)
+        rng_step = env_keys(env_step_key, mode, env_args.n_envs)
 
         # The expert reads the raw env obs (NOT normalized).
         raw_obs = get_raw_obs(
@@ -1414,7 +1413,7 @@ def collect_experience_from_expert_policy(
 
     _, transitions = jax.lax.scan(
         step_fn,
-        (env_state, step_key, last_obs, init_expert_state, observer_states),
+        (env_state, carry_key, last_obs, init_expert_state, observer_states),
         length=n_timesteps,
     )
 

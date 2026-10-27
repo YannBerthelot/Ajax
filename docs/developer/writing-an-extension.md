@@ -444,12 +444,18 @@ the same way.
 
 ## Randomness
 
-`init_state` and `eval_metrics` give each extension a key of its own, the
-`rng` argument. The other phases pass one `context` to every extension of the
-stack, so two extensions drawing from `context.rng` in the same phase draw the
-same numbers: split it with a constant of your own (`jax.random.fold_in`)
-when that matters. SAC's action pipeline passes the same key as `rng` to
-every `action` extension too.
+Every phase gives each extension a key of its own, derived from its name and
+its occurrence among the stack's extensions of that name
+(`extension_key_names`, `ajax.extensions.base`): the `rng` argument of
+`init_state`, `action`, `eval_action` and `eval_metrics`, and `context.rng`
+in the other phases. Adding, removing or moving another extension leaves an
+extension's keys as they were, and two extensions of one class get keys of
+their own. A `pretrain` or `post_update` running the agent's own steps,
+which draw on `agent_state.rng`, gets a key the stack lends off the agent's
+and hands back after, so no extension moves the agent's streams. For
+several draws in one phase, derive each key by a registered name
+(`ajax.random_keys.derive_key`) or by its index in a loop (`fold_index`),
+rather than split one key in a count an option can change.
 
 Each fold's key is one no other fold gets and one the agent draws nothing
 else on (`tests/extensions/test_phase_contract.py` checks both on every

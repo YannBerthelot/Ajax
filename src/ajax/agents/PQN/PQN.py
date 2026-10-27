@@ -222,10 +222,8 @@ class PQN(
             self.q_lambda,
         )
         # The carried key first, as purejaxql splits it (rng, _rng =
-        # jax.random.split(rng), pqn_gymnax.py:318): the reverse of
-        # get_keys_and_new_state's order, kept so PQN draws its reference's keys.
-        training_key, update_key = jax.random.split(agent_state.rng)
-        agent_state = agent_state.replace(rng=training_key)
+        # jax.random.split(rng), pqn_gymnax.py:318).
+        update_key, agent_state = agent_state.get_keys_and_new_state()
         # The extensions reshape the targets before the gradient is stopped
         # there (stop_gradient below), on a key derived from the update's,
         # then add their loss terms, on keys derived from each epoch's: one

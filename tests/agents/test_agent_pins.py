@@ -1473,6 +1473,272 @@ _GOLDEN.update(
 )
 
 
+# Re-recorded on macOS ARM CPU once collection drew on its own stream of
+# keys, apart from the updates' (RNG stability, two streams): every agent
+# but APG and the world models collects on other keys from its first step.
+_GOLDEN.update(
+    {
+        "APO-nudge": {
+            "actor": 9.208744049072266,
+            "critic": 8.00665283203125,
+            "nudge": 0.27262088656425476,
+        },
+        "ASAC": {
+            "actor": 17.279373168945312,
+            "critic": 27.431352615356445,
+            "alpha": 0.19999998807907104,
+        },
+        "AVG": {
+            "actor": 5.699617862701416,
+            "critic": 16.358848571777344,
+            "alpha": 0.07000000029802322,
+        },
+        "CrossQ": {
+            "actor": 132.81370544433594,
+            "critic": 272.3625793457031,
+            "alpha": 0.991431474685669,
+        },
+        "DAgger-nudge": {
+            "actor": 2.6644744873046875,
+            "n_updates": 93.0,
+            "nudge": 0.24705980718135834,
+        },
+        "DQN": {
+            "actor": 9.234021186828613,
+            "target": 9.199348449707031,
+        },
+        "DQN-dueling-nudge": {
+            "actor": 9.526229858398438,
+            "target": 9.497961044311523,
+            "nudge": 0.24489787220954895,
+        },
+        "IQL-nudge": {
+            "actor": 7.979248523712158,
+            "critic": 19.814210891723633,
+            "value": 7.837644577026367,
+            "n_updates": 91.0,
+            "nudge": 0.26969558000564575,
+        },
+        "PPO-discrete-nudge": {
+            "actor": 7.15655517578125,
+            "critic": 8.98699951171875,
+            "nudge": 0.32986703515052795,
+        },
+        "PPO-env-split": {
+            "actor": 5.999892234802246,
+            "critic": 7.155003070831299,
+        },
+        "PPO-env-split-nudge": {
+            "actor": 5.724305629730225,
+            "critic": 7.2285380363464355,
+            "nudge": 0.32986703515052795,
+        },
+        "PPO-flat": {
+            "actor": 6.060274600982666,
+            "critic": 7.253013610839844,
+        },
+        "PPO-unroll": {
+            "actor": 6.0275068283081055,
+            "critic": 7.287555694580078,
+        },
+        "PQN-nudge": {
+            "actor": 34.01963424682617,
+            "nudge": 0.2308862805366516,
+        },
+        "REDQ": {
+            "actor": 10.606958389282227,
+            "critic": 36.87134552001953,
+            "alpha": 0.9880779981613159,
+        },
+        "SAC-mcc": {
+            "actor": 8.32678508758545,
+            "critic": 15.669421195983887,
+            "alpha": 0.975998044013977,
+        },
+        "TD3": {
+            "actor": 15.428991317749023,
+            "critic": 27.092100143432617,
+        },
+        "TQC": {
+            "actor": 17.25847625732422,
+            "critic": 45.27690124511719,
+            "alpha": 0.9727964997291565,
+        },
+        "TQC-nudge": {
+            "actor": 17.08976936340332,
+            "critic": 42.52906036376953,
+            "alpha": 0.972938060760498,
+            "nudge": -0.03677361458539963,
+        },
+        "UDRL-nudge": {
+            "actor": 21.72692108154297,
+            "nudge": 0.27258771657943726,
+        },
+    }
+)
+
+# Re-recorded on macOS ARM CPU once a key that exists only under an option,
+# a count or an extension was derived from the updates' stream instead of
+# drawn from it (RNG stability, options derived): post_update, the actors
+# stepping on some updates only, the critic and gradient steps of an
+# update, PPO's minibatches and a recurrent network's initialisation.
+_GOLDEN.update(
+    {
+        "TD3": {
+            "actor": 15.434488296508789,
+            "critic": 27.076087951660156,
+        },
+        "PPO-flat": {
+            "actor": 6.064049243927002,
+            "critic": 7.255941867828369,
+        },
+        "PQN": {
+            "actor": 34.01955795288086,
+        },
+        "REDQ": {
+            "actor": 10.601743698120117,
+            "critic": 36.88267517089844,
+            "alpha": 0.9881779551506042,
+        },
+        "TD3-mcc": {
+            "actor": 17.50005340576172,
+            "critic": 28.541522979736328,
+        },
+        "APG-nudge": {
+            "actor": 35.83683395385742,
+            "nudge": 0.2893992066383362,
+        },
+        "APG-pid-nudge": {
+            "actor": 36.83320999145508,
+            "nudge": 0.2893992066383362,
+        },
+        "APO-nudge": {
+            "actor": 9.211648941040039,
+            "critic": 8.004209518432617,
+            "nudge": 0.2893992066383362,
+        },
+        "ASAC": {
+            "actor": 17.286836624145508,
+            "critic": 27.400625228881836,
+            "alpha": 0.19999998807907104,
+        },
+        "AVG": {
+            "actor": 5.708703994750977,
+            "critic": 16.378173828125,
+            "alpha": 0.07000000029802322,
+        },
+        "CrossQ": {
+            "actor": 132.7928009033203,
+            "critic": 271.0707702636719,
+            "alpha": 0.9945012927055359,
+        },
+        "DAgger-nudge": {
+            "actor": 2.6691598892211914,
+            "n_updates": 93.0,
+            "nudge": 0.2295195609331131,
+        },
+        "DQN": {
+            "actor": 9.219489097595215,
+            "target": 9.188282012939453,
+        },
+        "DQN-dueling-nudge": {
+            "actor": 9.528470039367676,
+            "target": 9.50475788116455,
+            "nudge": 0.1878361850976944,
+        },
+        "DreamerV3-drift": {
+            "actor": 92.45883178710938,
+            "critic": 95.06118774414062,
+            "world_model": 548.8960571289062,
+            "drift": 0.42779606580734253,
+        },
+        "IQL-nudge": {
+            "actor": 7.987946510314941,
+            "critic": 19.81747055053711,
+            "value": 7.8533034324646,
+            "n_updates": 91.0,
+            "nudge": 0.23643162846565247,
+        },
+        "PPO-discrete-nudge": {
+            "actor": 7.167176723480225,
+            "critic": 8.987273216247559,
+            "nudge": 0.2893992066383362,
+        },
+        "PPO-env-split": {
+            "actor": 6.005931854248047,
+            "critic": 7.144556522369385,
+        },
+        "PPO-env-split-nudge": {
+            "actor": 5.698896884918213,
+            "critic": 7.228152275085449,
+            "nudge": 0.2893992066383362,
+        },
+        "PPO-gru": {
+            "actor": 56.976600646972656,
+            "critic": 54.06492614746094,
+        },
+        "PPO-mcc": {
+            "actor": 4.014926433563232,
+            "critic": 5.063150882720947,
+        },
+        "PPO-unroll": {
+            "actor": 6.0429229736328125,
+            "critic": 7.287036418914795,
+        },
+        "PQN-nudge": {
+            "actor": 34.01955795288086,
+            "nudge": 0.2564679682254791,
+        },
+        "SAC": {
+            "actor": 10.553373336791992,
+            "critic": 17.92226219177246,
+            "alpha": 0.975172758102417,
+        },
+        "SAC-expert": {
+            "actor": 10.564706802368164,
+            "critic": 17.913509368896484,
+            "alpha": 0.9744182229042053,
+        },
+        "SAC-gru": {
+            "actor": 53.93084716796875,
+            "critic": 124.7246322631836,
+            "alpha": 0.9758566617965698,
+        },
+        "SAC-mcc": {
+            "actor": 8.314657211303711,
+            "critic": 15.659331321716309,
+            "alpha": 0.9759971499443054,
+        },
+        "TDMPC2-drift": {
+            "actor": 32.21207046508789,
+            "world_model": 162.46780395507812,
+            "n_updates": 39.0,
+            "drift": 0.3034195303916931,
+        },
+        "TDMPC2MultiTask-drift": {
+            "actor": 32.235618591308594,
+            "world_model": 161.13490295410156,
+            "drift": 0.32355231046676636,
+        },
+        "TQC": {
+            "actor": 17.284345626831055,
+            "critic": 45.293575286865234,
+            "alpha": 0.9728698134422302,
+        },
+        "TQC-nudge": {
+            "actor": 17.08138084411621,
+            "critic": 42.586246490478516,
+            "alpha": 0.9728695154190063,
+            "nudge": 0.1506771594285965,
+        },
+        "UDRL-nudge": {
+            "actor": 21.729793548583984,
+            "nudge": 0.29911208152770996,
+        },
+    }
+)
+
+
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]
     agent = agent_cls(**kwargs)

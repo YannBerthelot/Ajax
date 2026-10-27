@@ -109,13 +109,13 @@ def update_step(
     extensions' post_update (ajax.agents.update_steps.apply_post_update;
     step = updates done, total_steps = the run's updates when this train
     call ends)."""
-    rng, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
+    sample_key, noise_key, agent_state = agent_state.get_keys_and_new_state(2)
     batch, task = dataset.sample(sample_key, config.batch_size, config.horizon)
     noise = core.draw_update_noise(
         noise_key, config, config.batch_size, tasks.action_dim
     )
     agent_state, metrics = multitask.update(
-        agent_state.replace(rng=rng), batch, task, noise, config=config, tasks=tasks
+        agent_state, batch, task, noise, config=config, tasks=tasks
     )
     agent_state = agent_state.replace(
         n_updates=agent_state.n_updates + 1, update_metrics=metrics

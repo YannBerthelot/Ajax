@@ -32,6 +32,7 @@ from ajax.networks.utils import (
     parse_initialization,
     uniform_init,
 )
+from ajax.random_keys import derive_key
 from ajax.state import (
     LOG_STD_BOUNDS,
     EnvironmentConfig,
@@ -781,7 +782,10 @@ def init_network_state(
         variables = dict(network.init(key, init_x))
         hidden_state = None
     else:
-        init_key, carry_key = jax.random.split(key)
+        # The parameters initialise on key as without memory, so a layer
+        # both networks have starts from the same weights; the carry draws
+        # on a key derived from it.
+        carry_key = derive_key(key, "memory_carry")
         # The live carry is batch-sized to n_envs; the init forward pass
         # uses a carry matching init_x's (possibly smaller) batch — param
         # shapes don't depend on the batch dim, so init with batch=1 obs
@@ -792,7 +796,7 @@ def init_network_state(
         )
         variables = dict(
             network.init(
-                init_key,
+                key,
                 init_x[None, ...],
                 hidden_state=init_carry_batch,
                 done=jnp.zeros((1, init_x.shape[0]), dtype=bool),

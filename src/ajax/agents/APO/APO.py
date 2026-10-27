@@ -60,6 +60,7 @@ from ajax.extensions.base import merge_metrics
 from ajax.networks.distributions import policy_entropy, recompute_log_prob
 from ajax.networks.networks import predict_value
 from ajax.networks.utils import TORCH_LINEAR
+from ajax.random_keys import derive_key, split_by_index
 from ajax.schedule import Schedule, at
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import Architecture, FloatOrCallable, InitializationFunction
@@ -314,9 +315,8 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
             for its entropy sample, derived from the epoch's key so the agent's
             own key stream is drawn as before."""
             minibatches = get_minibatches_from_batch(batch, epoch_key, num_minibatches)
-            entropy_keys = jax.random.split(
-                jax.random.fold_in(epoch_key, 1), num_minibatches
-            )
+            minibatch_keys = derive_key(epoch_key, "minibatch_entropy")
+            entropy_keys = split_by_index(minibatch_keys, num_minibatches)
             minibatches.update({"entropy_key": entropy_keys})
             return minibatches
 

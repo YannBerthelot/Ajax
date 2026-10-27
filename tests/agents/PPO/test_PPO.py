@@ -14,6 +14,7 @@ from ajax.environments.interaction import (
 from ajax.extensions.observe import TrainingProgressInput
 from ajax.networks.memory import MEMORY_KINDS, MemoryConfig, zeros_carry_like
 from ajax.networks.networks import get_initialized_actor_critic
+from ajax.random_keys import derive_key
 from tests.agents.extension_stubs import RawProgress
 from tests.probing import readouts
 
@@ -47,7 +48,7 @@ def test_a_forced_reset_keeps_the_normaliser_statistics(env_id, mode):
     stats = state.collector_state.obs_norm_info
     jax.tree.map(np.testing.assert_array_equal, after.obs_norm_info, stats)
 
-    key = jax.random.split(state.rng)[0]
+    key = derive_key(state.collector_state.rng, "forced_reset")
     keys = jax.random.split(key, 2) if mode == "gymnax" else key
     task = strip_ajax_wrappers(agent.env_args.env)[0]
     raw, _ = reset(keys, task, mode, agent.env_args.env_params)

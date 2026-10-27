@@ -249,7 +249,7 @@ class TD3(
     ) -> tuple[TD3State, tuple[PolicyAuxiliaries, dict]]:
         """The deterministic policy-gradient step on -Q1(s, mu(s)), then
         both targets' Polyak update."""
-        actor_key, agent_state = agent_state.get_keys_and_new_state()
+        actor_key = update_steps.derive_actor_key(agent_state)
         scored = context.make_scored_actions(batch)
 
         def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:

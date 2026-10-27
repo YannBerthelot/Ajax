@@ -388,7 +388,7 @@ class TDMPC2(OwnReplayAgent):
         logged quantities kept on update_metrics. The loop folds post_update
         after it."""
         config, buffer = self.model_config, context.buffer
-        training_key, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
+        sample_key, noise_key, agent_state = agent_state.get_keys_and_new_state(2)
         replay = agent_state.buffer_state
         if isinstance(buffer, EpisodicBuffer):
             assert isinstance(replay, EpisodicBufferState)
@@ -404,7 +404,7 @@ class TDMPC2(OwnReplayAgent):
             noise_key, config, config.batch_size, buffer.action_dim
         )
         agent_state, metrics = core.update(
-            agent_state.replace(rng=training_key),
+            agent_state,
             batch,
             noise,
             config=config,

@@ -154,4 +154,9 @@ the steps the whole run does.
       before PPO took ppo2's one clip over both networks, and APO's two
       before APO took its official code's, into an optimiser without the
       clip: the clip holds no data, so the moments and step counts are
-      kept. Another agent's is refused.
+      kept. Another agent's is refused;
+    - a state saved before collection drew on its own stream of keys
+      (checkpoint format 2, 2026-10-27): its collector's key restarts from
+      one derived from the updates' key, since the one it held was an
+      ancestor of the updates' key and would hand out keys they had already
+      drawn.

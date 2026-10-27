@@ -17,6 +17,8 @@ import optax
 
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.log import unevaluated
+from ajax.perf_utils import final_aux_scan
+from ajax.random_keys import EXTENSIONS_KEY_TAG, derive_key, fold_index
 
 #: The keys of the extensions' batches the shared steps below build, which
 #: an agent on them declares (ActorCritic.phase_batch_keys), with any it
@@ -74,14 +76,40 @@ REPLAY_BATCH_KEYS: dict[str, frozenset[str]] = {
 def apply_post_update(
     extensions: ExtensionStack, agent_state: Any, step: Any, total_steps: int
 ) -> Any:
-    """Apply the extensions' post_update at step on a fresh key split
-    from agent_state.rng (no key is drawn without extensions)."""
+    """Apply the extensions' post_update at step on a key derived from the
+    updates' stream, which it leaves as it was: a run with extensions draws
+    every other key as the run without them."""
     if not extensions:
         return agent_state
-    post_update_key, training_key = jax.random.split(agent_state.rng)
-    return extensions.apply_post_update(
-        agent_state.replace(rng=training_key), step, post_update_key, total_steps
+    post_update_key = derive_key(agent_state.rng, "post_update")
+    return extensions.apply_post_update(agent_state, step, post_update_key, total_steps)
+
+
+def derive_actor_key(agent_state: Any) -> jax.Array:
+    """The key of an actor step that counts on some updates only (a policy
+    delay, policy_update_start), derived from the updates' stream without
+    advancing it: the stream's next keys are the same whether the step ran,
+    or ran and was dropped, and a dropped step's keys are never drawn again."""
+    return derive_key(agent_state.rng, "actor")
+
+
+def scan_on_indexed_keys(
+    step: Callable[[Any, Any], tuple[Any, Any]], agent_state: Any, length: int
+) -> tuple[Any, Any]:
+    """final_aux_scan of step(agent_state, None) -> (agent_state, aux) over
+    length steps, the i-th on the updates' stream restarted from one of its
+    keys folded with i; then the stream goes on after that one key. It
+    advances once whatever the length, so a count of steps (SAC's and REDQ's
+    critic updates, DQN's gradient steps) moves no later draw."""
+    steps_key, agent_state = agent_state.get_keys_and_new_state()
+
+    def step_on_its_key(state: Any, index: jax.Array) -> tuple[Any, Any]:
+        return step(state.replace(rng=fold_index(steps_key, index)), None)
+
+    stepped, aux = final_aux_scan(
+        step_on_its_key, agent_state, length=length, xs=jnp.arange(length)
     )
+    return stepped.replace(rng=agent_state.rng), aux
 
 
 def run_if(condition: Any, update: Callable[[Any], Any], state: Any) -> Any:
@@ -161,13 +189,6 @@ def run_actor_if(
 
     # The branches close over the state, as run_if's do.
     return jax.lax.cond(condition, step_and_keep, skip)
-
-
-#: The tag a step's key is folded with to derive its extensions' key. Under
-#: JAX's partitionable threefry, folding a key with a number gives the key
-#: that splitting it gives at that index, so the tag lies far past any
-#: split's length: no key a step splits off its own reaches the extensions.
-EXTENSIONS_KEY_TAG = 0x45585453  # "EXTS"
 
 
 def derive_extensions_key(key: jax.Array) -> jax.Array:

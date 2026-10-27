@@ -79,6 +79,7 @@ from ajax.environments.utils import agent_action_to_env, env_keys, raw_obs_colum
 from ajax.evaluate import evaluate
 from ajax.log import eval_norm_info
 from ajax.networks.distributions import Squash
+from ajax.random_keys import split_carry_first
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import Architecture
 from ajax.wrappers import RAW_REWARD_KEY
@@ -249,18 +250,18 @@ class UDRL(
         mode = env_args.mode
         collector = agent_state.collector_state
         # An action extension (JSRL, EDGE) acts in the action stage, its gates
-        # drawing on a fourth key: split(k, 4)[:3] is split(k, 3), so the
-        # agent's own draws are unchanged.
+        # drawing on a fourth key, after the carry and the agent's own two,
+        # which it leaves as they were. The keys are the collection's.
         acts = any(
             "action" in extension.implemented_phases()
             for extension in context.extensions
         )
         gate_key = None
         if acts:
-            keys = jax.random.split(agent_state.rng, 4)
-            training_key, action_key, step_key, gate_key = keys
+            keys = split_carry_first(collector.rng, 3)
+            collection_key, action_key, step_key, gate_key = keys
         else:
-            training_key, action_key, step_key = jax.random.split(agent_state.rng, 3)
+            collection_key, action_key, step_key = split_carry_first(collector.rng, 2)
         step_keys = env_keys(step_key, mode, n_envs)
         last_obs = collector.last_obs  # (n_envs, env's columns + 2)
         # The observation statistics take each observation once, when it is
@@ -341,7 +342,7 @@ class UDRL(
             collector = collector.replace(observer_states=observer_states)
         # A fresh exploratory command per env at an episode's end
         # (Algorithm 5): d_r ~ U(R_target, R_target + R_std), d_h = H_target.
-        training_key, explore_key = jax.random.split(training_key)
+        collection_key, explore_key = split_carry_first(collection_key, 1)
         explore_noise = jax.random.uniform(
             explore_key, shape=(n_envs,), minval=0.0, maxval=1.0
         )
@@ -385,7 +386,7 @@ class UDRL(
             collector.episodic_return_state, paid, done > 0
         )
         collector = collector.replace(
-            rng=training_key,
+            rng=collection_key,
             _env_state=new_env_state,
             last_obs=new_last_obs,
             timestep=collector.timestep + n_envs,
@@ -405,7 +406,7 @@ class UDRL(
             collector = collector.replace(
                 last_expert_frac=jnp.mean(result.is_expert_flag)
             )
-        agent_state = agent_state.replace(collector_state=collector, rng=training_key)
+        agent_state = agent_state.replace(collector_state=collector)
         return agent_state, transition
 
     def iterate(
@@ -452,11 +453,9 @@ class UDRL(
             agent_state.command_target_return_std, top_return_std
         )
         new_target_horizon = refresh(agent_state.command_target_horizon, top_horizon)
-        # A third key for the extensions: split(k, 3)[:2] is split(k) under
-        # JAX's default partitionable threefry, so the agent's own draws are
-        # unchanged.
-        next_key, fit_key, extensions_key = jax.random.split(agent_state.rng, 3)
-        agent_state = agent_state.replace(rng=next_key)
+        # A second key for the extensions, after the agent's own, which it
+        # leaves as it was.
+        fit_key, extensions_key, agent_state = agent_state.get_keys_and_new_state(2)
         env_width = buffer.obs.shape[-1] - 2 - feature_width(context.env_args)
 
         def fit_batch(

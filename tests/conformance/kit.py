@@ -18,6 +18,9 @@ make that possible without changing the code under test:
   tracing; :func:`capture_scan` does the same for a ``lax.scan`` body (an original's step function)
   and :func:`stashing` keeps the outputs of named scans (carry and stacked), such as the rollout;
   :func:`substituting` gives named scans such outputs in place of running them.
+
+A second tape, recording_key_uses, logs every use of a key (a draw, a split, a fold_in), from which
+tests/state/test_key_uniqueness.py finds the keys that hand out related numbers twice.
 """
 
 from __future__ import annotations
@@ -76,7 +79,7 @@ def _resolved(filename: str) -> pathlib.Path:
     return pathlib.Path(filename).resolve()
 
 
-def _call_site() -> str:
+def _call_site(passed_over: tuple[str, ...] = ()) -> str:
     # Frames walked directly: inspect.stack() reads every frame's source lines, which made the tape
     # two thirds of a traced step's time.
     here = inspect.currentframe()
@@ -86,7 +89,11 @@ def _call_site() -> str:
         if _resolved(f.f_code.co_filename) != _HERE:
             frames.append((f.f_code.co_filename, f.f_code.co_name))
         f = f.f_back
-    owned = [f for f in frames if any(o in f[0] for o in OWNERS)]
+    owned = [
+        f
+        for f in frames
+        if any(o in f[0] for o in OWNERS) and not any(p in f[0] for p in passed_over)
+    ]
     other = [f for f in frames if "/jax/" not in f[0]]
     for filename, function in owned or other:
         short = (
@@ -204,6 +211,104 @@ def key_table(
     return {r: (np.stack([k for k, _ in keys[r]]), np.stack(values[r])) for r in keys}
 
 
+# --- key uses --------------------------------------------------------------------------------------
+
+#: The indices a sampler's draw is taken to span: the counters of its values, far fewer than the tag
+#: of a named key (ajax.random_keys), so a key a draw used may still be folded with a name.
+DRAW_SPAN = 2**20
+#: The uses that hand keys out rather than numbers.
+DERIVATIONS = ("split", "fold_in")
+#: The helpers that hand keys out, passed over when a use is named by its caller.
+KEY_HELPERS = ("/src/ajax/state.py", "/src/ajax/random_keys.py")
+
+
+@dataclasses.dataclass
+class KeyUses:
+    """Every use of a key while a program ran: (what, site, key, datum). A sampler's draw spans the
+    indices 0 to DRAW_SPAN, a split into n keys 0 to n, and a fold_in its datum alone: under JAX's
+    partitionable threefry the keys fold_in(key, i) and split(key, n)[i] and a draw's i-th value
+    come from one counter, i. A key drawn on and also split or folded at an index the draw spans, or
+    drawn on twice, hands out related numbers. Two splits or folds of one key hand out the same keys,
+    whose own uses show any reuse."""
+
+    log: list = dataclasses.field(default_factory=list)
+
+    def shared(self) -> set[tuple[str, ...]]:
+        """The pairs of uses (what at site) of one key that hand out related numbers, each once."""
+        uses: dict[bytes, list] = collections.defaultdict(list)
+        for what, site, keys, data in self.log:
+            for index in np.ndindex(*keys.shape[:-1]):
+                datum = int(np.broadcast_to(data, keys.shape[:-1])[index])
+                first_index = datum if what == "fold_in" else 0
+                uses[keys[index].tobytes()].append(
+                    (f"{what} {site}", what, first_index)
+                )
+        pairs = set()
+        for key_uses in uses.values():
+            draws = [use for use in key_uses if use[1] not in DERIVATIONS]
+            derived = [use for use in key_uses if use[1] in DERIVATIONS]
+            for i, (drawn, _, _) in enumerate(draws):
+                for other, _, _ in draws[i + 1 :]:
+                    pairs.add(tuple(sorted((drawn, other))))
+                for other, _, first_index in derived:
+                    if first_index < DRAW_SPAN:  # an index the draw spans
+                        pairs.add(tuple(sorted((drawn, other))))
+        return pairs
+
+
+@contextlib.contextmanager
+def recording_key_uses() -> Iterator[KeyUses]:
+    """Log every use of a key (each sampler's draw, split and fold_in) while a program traced inside
+    runs, through a callback beside the key: a branch not taken logs nothing. A sampler's own calls
+    to another (choice's to permutation) are its draw's, not uses of their own."""
+    # depth: how many wrapped calls the trace is inside, so that a sampler's own calls log nothing.
+    uses, depth = KeyUses(), [0]
+    names = [name for name in (*SAMPLERS, *DERIVATIONS) if hasattr(_random, name)]
+    originals = {name: getattr(_random, name) for name in names}
+
+    def log_use(what: str, key: jax.Array, datum: Any) -> None:
+        site = _call_site(KEY_HELPERS)
+
+        def append(key_data: np.ndarray, data: np.ndarray) -> None:
+            uses.log.append((what, site, np.asarray(key_data), np.asarray(data)))
+
+        jax.debug.callback(append, _key_data(key), jnp.asarray(datum, jnp.uint32))
+
+    def wrap(name: str, original: Callable) -> Callable:
+        def use(key: jax.Array, *args: Any, **kwargs: Any) -> jax.Array:
+            if depth[0]:
+                return original(key, *args, **kwargs)
+            depth[0] += 1
+            try:
+                out = original(key, *args, **kwargs)
+            finally:
+                depth[0] -= 1
+            if name == "split":
+                num = args[0] if args else kwargs.get("num", 2)
+                log_use(name, key, int(np.prod(num)))
+            elif name == "fold_in":
+                log_use(name, key, args[0] if args else kwargs["data"])
+            else:
+                log_use(name, key, 0)
+            return out
+
+        return use
+
+    jax.clear_caches()
+    try:
+        for name, original in originals.items():
+            setattr(_random, name, wrap(name, original))
+            if hasattr(jax.random, name):
+                setattr(jax.random, name, getattr(_random, name))
+        yield uses
+    finally:
+        for name, original in originals.items():
+            setattr(_random, name, original)
+            if hasattr(jax.random, name):
+                setattr(jax.random, name, original)
+        jax.clear_caches()
+
+
 # --- steps -----------------------------------------------------------------------------------------
 
 
@@ -221,7 +326,9 @@ class Step:
     fresh: Callable[[jax.Array], Any]
 
 
-def capture_step(agent: Any, n_timesteps: int) -> Step:
+def capture_step(agent: Any, n_timesteps: int, **train_options: Any) -> Step:
+    """The agent's step as its train builds it for n_timesteps, with train_options (a logging
+    configuration makes the iteration evaluate)."""
     import ajax.agents.loop as loop
 
     got: dict = {}
@@ -237,7 +344,7 @@ def capture_step(agent: Any, n_timesteps: int) -> Step:
     # much of the project it sees).
     loop.TrainLoop.train = grab  # type: ignore[method-assign, assignment]
     try:
-        agent.train(seed=[0], n_timesteps=n_timesteps)
+        agent.train(seed=[0], n_timesteps=n_timesteps, **train_options)
     except _Captured:
         pass
     finally:

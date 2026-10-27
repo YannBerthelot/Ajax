@@ -20,6 +20,7 @@ import jax.numpy as jnp
 from ajax.environments.obs_norm import normalized_obs
 from ajax.environments.utils import critic_action_units as env_critic_action_units
 from ajax.environments.utils import get_action_dim, raw_obs_columns
+from ajax.extensions.base import extension_key_names
 from ajax.networks.memory import flatten_carry, tree_where_reset
 from ajax.types import NormalizationInfo
 
@@ -401,8 +402,9 @@ class Controller:
     observers: tuple = ()
     # The action transforms' extensions (EnvironmentConfig.transforms).
     transforms: tuple = ()
-    # The (index, extension) pairs of the run's stack choosing evaluation's
-    # executed action (their eval_action phase), the index their state's.
+    # The (index, key name, extension) triples of the run's stack choosing
+    # evaluation's executed action (their eval_action phase): the index is
+    # their state's, the key name their keys' (extension_key_names).
     choosers: tuple = ()
 
     @property
@@ -461,8 +463,9 @@ def make_run_controller(
     among its extensions and, where it stores them so, observations
     normalised by its running statistics."""
     controller = controller or Controller()
+    names = extension_key_names(extensions)
     choosers = tuple(
-        (index, extension)
+        (index, names[index], extension)
         for index, extension in enumerate(extensions)
         if "eval_action" in extension.implemented_phases()
     )

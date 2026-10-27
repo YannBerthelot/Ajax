@@ -351,7 +351,7 @@ def step_environment(
 
     The controller's choosers (an extension's eval_action phase) may then
     replace the executed action by the expert's (choose_in_evaluation), on
-    the carry's key: a run without one draws no key for them.
+    keys derived from the carry's: they move no other draw.
     """
 
     controller = Controller() if controller is None else controller
@@ -405,12 +405,11 @@ def step_environment(
                 "expert_action": expert_action,
                 "observations": observations,  # the critics' input
                 "raw_obs": expert_obs,
-                "gate_rng": rng,
             }
             choice, handed = choose_in_evaluation(
-                agent_state, acting, controller.choosers, choice
+                agent_state, acting, controller.choosers, choice, rng
             )
-            actions, rng = choice["executed_action"], choice["gate_rng"]
+            actions = choice["executed_action"]
             expert_steps = expert_steps + (handed * (1 - done)).mean()
         value = (
             carry.value

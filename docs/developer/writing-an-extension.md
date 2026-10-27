@@ -75,7 +75,7 @@ extensions were given.
 | `critic_loss(agent_state, ext_state, batch, context)` | a term added to the critic loss, or `(term, metrics)` | summed | SAC, TD3, TQC, REDQ, ASAC, CrossQ, IQL, AVG, DQN, PQN, PPO, APO |
 | `actor_loss(agent_state, ext_state, batch, context)` | a term added to the actor loss, or `(term, metrics)` | summed | SAC, TD3, TQC, REDQ, ASAC, CrossQ, IQL, AVG, PPO, APO, APG, UDRL |
 | `action(agent_state, ext_state, obs, rng, context)` | an action, or `None` to defer | the last non-`None` wins | the off-policy agents on the shared collector, with an expert policy, in the action stage (`action_slot`, below) |
-| `eval_action(agent_state, ext_state, obs, rng, context)` | an action, or `None`; `obs` is the evaluation's dict (`executed_action`, `expert_action`, `observations`, `raw_obs`, `gate_rng`), and `expert_mask` written into it counts towards `Eval/expert share` | the last non-`None` wins | the agents on the shared evaluation (all but APG, UDRL, DreamerV3, TDMPC2) |
+| `eval_action(agent_state, ext_state, obs, rng, context)` | an action, or `None`; `obs` is the evaluation's dict (`executed_action`, `expert_action`, `observations`, `raw_obs`), and `expert_mask` written into it counts towards `Eval/expert share` | the last non-`None` wins | the agents on the shared evaluation (all but APG, UDRL, DreamerV3, TDMPC2) |
 | `transform_action(actions, inputs)` | the executed action, from the policy's and the expert's (`ajax.controller.TransformInputs`): before the action is chosen; the replay stores it and the critics score it | one per agent | SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with an expert policy, in collection, their losses and evaluation |
 | `actuate(actions, inputs)` | `(env_actions, expert_state)`: the chosen action executed through the expert; the replay stores the chosen one, and `policy_action_dim(env_args, expert)` gives its width where it is not the env's | one per agent | SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with an expert policy (gain mode), in collection and evaluation |
 | `choose_warmup_action(uniform_actions, inputs)` | `(actions, expert_took)`: the actions a warm-up step takes instead of the uniform ones, and whether the expert took them (`ajax.controller.WarmupInputs`) | one per agent | the agents with a uniform warm-up (SAC, TD3, REDQ, ASAC, CrossQ, IQL, AVG), before `learning_starts` |
@@ -444,12 +444,18 @@ the same way.
 
 ## Randomness
 
-`init_state` and `eval_metrics` give each extension a key of its own, the
-`rng` argument. The other phases pass one `context` to every extension of the
-stack, so two extensions drawing from `context.rng` in the same phase draw the
-same numbers: split it with a constant of your own (`jax.random.fold_in`)
-when that matters. SAC's action pipeline passes the same key as `rng` to
-every `action` extension too.
+Every phase gives each extension a key of its own, derived from its name and
+its occurrence among the stack's extensions of that name
+(`extension_key_names`, `ajax.extensions.base`): the `rng` argument of
+`init_state`, `action`, `eval_action` and `eval_metrics`, and `context.rng`
+in the other phases. Adding, removing or moving another extension leaves an
+extension's keys as they were, and two extensions of one class get keys of
+their own. A `pretrain` or `post_update` running the agent's own steps,
+which draw on `agent_state.rng`, gets a key the stack lends off the agent's
+and hands back after, so no extension moves the agent's streams. For
+several draws in one phase, derive each key by a registered name
+(`ajax.random_keys.derive_key`) or by its index in a loop (`fold_index`),
+rather than split one key in a count an option can change.
 
 Each fold's key is one no other fold gets and one the agent draws nothing
 else on (`tests/extensions/test_phase_contract.py` checks both on every

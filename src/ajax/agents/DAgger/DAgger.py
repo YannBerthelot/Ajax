@@ -125,7 +125,7 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
         def pipeline(
             agent_state, acting, raw_obs, collector_key, uniform, mix_key, action_key
         ):
-            del raw_obs, uniform, action_key
+            del raw_obs, collector_key, uniform, action_key
             actor = agent_state.actor_state
             policy = get_pi(actor, actor.params, acting.obs)[0]
             own = choose_learner_action(policy, continuous)
@@ -142,7 +142,6 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
                 is_expert_flag=use_expert.astype(jnp.float32),
                 in_value_box=zeros,
                 entry_bonus=zeros,
-                rng=collector_key,
                 buffer_action=action,
                 a_expert=a_expert,
             )

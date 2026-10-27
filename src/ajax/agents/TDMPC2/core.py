@@ -112,6 +112,7 @@ from ajax.agents.TDMPC2.optim import (
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2UpdateState
 from ajax.distributional import TwoHot
 from ajax.normalizers import RunningScale
+from ajax.random_keys import derive_key
 from ajax.state import LoadedTrainState
 from ajax.types import FloatOrCallable
 
@@ -698,9 +699,10 @@ def create_update_state(
     )["params"]
     pi_params = policy.init(pi_key, jnp.zeros((1, config.latent_dim)), emb)["params"]
     if num_tasks:
-        # A key of its own, so the single-task keys above are unchanged.
+        # A key of its own, so the single-task keys above are unchanged and
+        # none of them is drawn again.
         table = jax.random.uniform(
-            jax.random.fold_in(key, 1),
+            derive_key(key, "task_embeddings"),
             (num_tasks, task_dim),
             minval=-0.02,
             maxval=0.02,

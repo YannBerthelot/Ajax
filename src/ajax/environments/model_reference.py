@@ -33,6 +33,7 @@ import jax.numpy as jnp
 from flax import struct
 from gymnax.environments import spaces
 
+from ajax.random_keys import derive_key
 from ajax.wrappers import _FINAL_OBS_KEYS, GymnaxWrapper
 
 
@@ -211,9 +212,10 @@ class ModelReferenceWrapper(GymnaxWrapper):
         return spaces.Box(-jnp.inf, jnp.inf, (dim,), jnp.float32)
 
     def reset(self, key, params=None):
-        k_env, k_ref = jax.random.split(key)
-        raw_obs, env_state = self._env.reset(k_env, params)
-        state = self._fresh_task(k_ref, raw_obs, env_state)
+        # The plant gets the key whole, the reference one derived from it, so
+        # the wrapper leaves the plant's own draws as they were.
+        raw_obs, env_state = self._env.reset(key, params)
+        state = self._fresh_task(derive_key(key, "reference"), raw_obs, env_state)
         return self._controller_obs(state, raw_obs), state
 
     def _fresh_task(self, key, raw_obs, env_state) -> ModelReferenceState:
@@ -228,9 +230,8 @@ class ModelReferenceWrapper(GymnaxWrapper):
         )
 
     def step(self, key, state: ModelReferenceState, action, params=None):
-        k_env, k_ref = jax.random.split(key)
         raw_obs, env_state, _, terminated, truncated, info = self._env.step(
-            k_env, state.env_state, action, params
+            key, state.env_state, action, params
         )
         # The plant auto-resets on done: raw_obs is then the next episode's
         # first observation, and the step's outcome, which the reward
@@ -253,7 +254,7 @@ class ModelReferenceWrapper(GymnaxWrapper):
             t=t_next,
         )
         # Start a fresh task on the plant's new episode.
-        fresh = self._fresh_task(k_ref, raw_obs, env_state)
+        fresh = self._fresh_task(derive_key(key, "reference"), raw_obs, env_state)
         state = jax.tree.map(lambda a, b: jax.lax.select(done, a, b), fresh, continued)
         # The final observation in the controller's view, as wide as obs: a
         # collector bootstraps a time limit on it.

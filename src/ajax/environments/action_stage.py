@@ -8,8 +8,9 @@ uniform or expert steps keep theirs; ValueBox overrides whichever action
 was chosen after it. Each reads and writes a dict of the step's quantities
 (its obs argument), proposes the action of its slot, and writes where it
 handed the expert the step (expert_mask), which the replay flags
-(is_expert). The pre-warm-up gates draw on a key threaded through the dict
-(gate_rng), the collector's own stream.
+(is_expert). Each draws on a key of its own, derived by its key name
+(extension_key_names) from the stage's, which the stage derives from the
+collection's carry: a gate drawing more or fewer keys moves no other draw.
 
 The collector applies the stage to the agent's pipeline, after the expert's
 call and before gain mode's actuation (expert_collect_kwargs); without an
@@ -23,7 +24,8 @@ from typing import Any, Callable
 import jax
 import jax.numpy as jnp
 
-from ajax.extensions.base import ExtensionContext
+from ajax.extensions.base import ExtensionContext, extension_key_names
+from ajax.random_keys import derive_extension_key, derive_key
 
 #: The stage's slots for an action extension: before the warm-up's choice
 #: (EDGEExploration, JSRLCurriculum) and after it (ValueBox).
@@ -31,11 +33,12 @@ ACTION_SLOTS = ("pre_warmup", "post_warmup")
 
 
 def slotted_extensions(extensions: Any, slot: str) -> tuple:
-    """The (index, extension) pairs of the stack's extensions acting in
-    slot, in stack order: those with an action phase (IBRL has one only
-    where it acts)."""
+    """The (index, key name, extension) triples of the stack's extensions
+    acting in slot, in stack order: those with an action phase (IBRL has
+    one only where it acts)."""
+    names = extension_key_names(extensions)
     return tuple(
-        (index, extension)
+        (index, names[index], extension)
         for index, extension in enumerate(extensions)
         if "action" in extension.implemented_phases()
         and getattr(extension, "action_slot", None) == slot
@@ -61,23 +64,27 @@ def check_action_slots(extensions: Any) -> None:
 def dispatch_action_phase(
     agent_state: Any,
     acting: Any,
-    indexed_extensions: tuple,
+    named_extensions: tuple,
     step: dict,
     slot: str,
-    rng: jax.Array,
+    stage_key: jax.Array,
     total_steps: int,
     phase: str = "action",
 ) -> tuple[dict, list]:
-    """Fold the (index, extension) pairs' action phase (evaluation's:
-    eval_action) over step, which they read and write: each proposal that
-    is not None replaces step[slot], in stack order, so the last one wins
-    (JSRL after EDGE). Returns step and the masks of where each handed the
-    expert the step (expert_mask), in the order they were written."""
-    context = ExtensionContext(step=acting.timestep, rng=rng, total_steps=total_steps)
+    """Fold the (index, key name, extension) triples' action phase
+    (evaluation's: eval_action) over step, which they read and write, each
+    on its key off stage_key: each proposal that is not None replaces
+    step[slot], in stack order, so the last one wins (JSRL after EDGE).
+    Returns step and the masks of where each handed the expert the step
+    (expert_mask), in the order they were written."""
     masks = []
-    for index, extension in indexed_extensions:
+    for index, key_name, extension in named_extensions:
+        key = derive_extension_key(stage_key, key_name)
+        context = ExtensionContext(
+            step=acting.timestep, rng=key, total_steps=total_steps
+        )
         proposed = getattr(extension, phase)(
-            agent_state, agent_state.ext_state[index], step, rng, context
+            agent_state, agent_state.ext_state[index], step, key, context
         )
         if proposed is not None:
             step[slot] = proposed
@@ -97,17 +104,25 @@ def as_env_column(mask: jax.Array, n_envs: int) -> jax.Array:
 
 
 def choose_in_evaluation(
-    agent_state: Any, acting: Any, choosers: tuple, step: dict
+    agent_state: Any, acting: Any, choosers: tuple, step: dict, rng: jax.Array
 ) -> tuple[dict, jax.Array]:
-    """step after the choosers' eval_action phase (dispatch_action_phase):
-    its executed_action, which each may replace, and its gate_rng, on which
-    each draws, as in collection's stage; and per env, 1 where one of them
-    handed the expert the step. Evaluation holds no horizon (total_steps
-    0), as its acting state holds no timestep."""
+    """step after the choosers' eval_action phase (dispatch_action_phase),
+    each drawing on its key off the stage's, derived from rng (the
+    rollout's carry) as in collection's stage: its executed_action, which
+    each may replace; and per env, 1 where one of them handed the expert the
+    step. Evaluation holds no horizon (total_steps 0), as its acting state
+    holds no timestep."""
     n_envs = step["executed_action"].shape[0]
-    rng = step["gate_rng"]
+    stage_key = derive_key(rng, "action_stage")
     step, masks = dispatch_action_phase(
-        agent_state, acting, choosers, step, "executed_action", rng, 0, "eval_action"
+        agent_state,
+        acting,
+        choosers,
+        step,
+        "executed_action",
+        stage_key,
+        0,
+        "eval_action",
     )
     handed = jnp.zeros((n_envs, 1))
     for mask in masks:
@@ -129,7 +144,9 @@ def apply_action_extensions(
     index's column, DAgger's choice) stores the substituted one, in its
     layout; one storing its choice apart from it (IQL's residual) keeps,
     where a slot handed the expert the step, the choice that executes the
-    expert's action (policy_action_for_expert)."""
+    expert's action (policy_action_for_expert). The extensions' keys derive
+    from the stage's, itself derived from the pipeline's key (rng, the
+    collection's carry), which it leaves as it is."""
     pre_warmup = slotted_extensions(extensions, "pre_warmup")
     post_warmup = slotted_extensions(extensions, "post_warmup")
     if not pre_warmup and not post_warmup:
@@ -147,7 +164,7 @@ def apply_action_extensions(
         if expert_action is not None:
             expert_action = expert_action.reshape(env_action.shape)
             expert_action = expert_action.astype(env_action.dtype)
-        gate_rng = rng if result.rng is None else result.rng
+        stage_key = derive_key(rng, "action_stage")
         masks = []
         if pre_warmup:
             step = {
@@ -157,7 +174,6 @@ def apply_action_extensions(
                 # The critics' input, its features included.
                 "observations": acting.obs,
                 "raw_obs": raw_obs,
-                "gate_rng": gate_rng,
             }
             step, masks = dispatch_action_phase(
                 agent_state,
@@ -165,10 +181,10 @@ def apply_action_extensions(
                 pre_warmup,
                 step,
                 "post_warmup_action",
-                gate_rng,
+                stage_key,
                 total_timesteps,
             )
-            proposed, gate_rng = step["post_warmup_action"], step["gate_rng"]
+            proposed = step["post_warmup_action"]
             env_action = jax.lax.cond(
                 uniform, lambda: result.env_action, lambda: proposed
             )
@@ -185,7 +201,7 @@ def apply_action_extensions(
                 post_warmup,
                 step,
                 "env_action",
-                gate_rng,
+                stage_key,
                 total_timesteps,
             )
             env_action = box["env_action"]
@@ -207,7 +223,6 @@ def apply_action_extensions(
         return result._replace(
             env_action=env_action,
             is_expert_flag=jax.lax.cond(uniform, lambda: flags, lambda: substituted),
-            rng=gate_rng,
             in_value_box=box.get("in_value_box", result.in_value_box),
             entry_bonus=box.get("entry_bonus", result.entry_bonus),
             box_entry=box.get("box_entry", result.box_entry),

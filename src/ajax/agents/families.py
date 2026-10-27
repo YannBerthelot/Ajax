@@ -1308,6 +1308,13 @@ class OwnReplayAgent(DeclaredAgent):
         """Check the state a call ended with, at tick end_tick."""
         del agent_state, end_tick
 
+    def value_estimate(self) -> Optional[ValueEstimate]:
+        """None: the agent evaluates itself (evaluate), so the shared
+        evaluation's critic estimate is never compared; a world model's
+        critic reads its latent state, not the observation that estimate
+        passes."""
+        return None
+
     def resume_iteration_offset(self, initial_state: Any) -> int:
         """The absolute tick of a resumed run, equal across seeds
         (row_collector.resume_tick), so that every schedule of the tick

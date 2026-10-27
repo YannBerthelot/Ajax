@@ -494,12 +494,6 @@ class TDMPC2(OwnReplayAgent):
         del configs
         return {"gamma": self.resolved_gamma}
 
-    def value_estimate(self) -> None:
-        """None: the Q ensemble reads the world model's latent state, not the
-        observation an evaluation's estimate passes (critic_state is None),
-        and the own-replay family's evaluation compares no estimate."""
-        return None
-
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "TDMPC2"
     capabilities = frozenset(

@@ -324,7 +324,7 @@ class DreamerV3State(BaseAgentState):
     Attributes:
         collector_state: the row collector's state; its ``policy_carry`` is
             the acting posterior and previous action
-            (:class:`~ajax.agents.DreamerV3.train_DreamerV3.PolicyCarry`).
+            (:class:`~ajax.agents.DreamerV3.world_model.PolicyCarry`).
         world_model_state: the world model (``enc``, ``rssm``, ``dec``,
             ``rew``, ``con``) and its LaProp instance.
         retnorm: the return normaliser.

@@ -7,7 +7,7 @@ DESIGN.md`` sections 6.4-6.6, deviations D1-D3 and D6, on the shared
 off-policy loop (:meth:`ajax.agents.loop.TrainLoop.off_policy`). One scan
 iteration (a *tick*) is one vector step of the ``n_envs`` workers:
 
-1. **Act** (:func:`policy_step`; dreamerv3_spec 7.1, 2411f7d
+1. **Act** (:func:`.world_model.observe_and_act`; dreamerv3_spec 7.1, 2411f7d
    ``dreamerv3/agent.py:145-180`` = ``29eb964:dreamerv3/agent.py:129-164``):
    the posterior filter -- one RSSM observe step from the carried ``(h, z)``
    and previous action, reset where ``is_first`` -- then a **sample** of the
@@ -35,7 +35,7 @@ included); the collector's ``timestep`` advances by ``n_envs`` per tick.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from functools import partial
@@ -45,7 +45,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ajax.agents.DreamerV3.distributions import draw_action_noise
 from ajax.agents.DreamerV3.learner import (
     LearnerState,
     draw_train_noise,
@@ -53,22 +52,13 @@ from ajax.agents.DreamerV3.learner import (
     list_train_metrics,
     train_step,
 )
-from ajax.agents.DreamerV3.networks import (
-    RSSM,
-    Actor,
-    RSSMState,
-    WorldModel,
-    encode_action,
-    features,
-    initial_state,
-)
 from ajax.agents.DreamerV3.replay import StreamReplay
 from ajax.agents.DreamerV3.state import (
     DreamerV3AgentConfig,
     DreamerV3Config,
     DreamerV3State,
 )
-from ajax.agents.DreamerV3.world_model import draw_posterior_noise
+from ajax.agents.DreamerV3.world_model import make_initial_carry, observe_and_act
 from ajax.agents.loop import Evaluation, TrainLoop
 from ajax.environments.row_collector import collect_row, init_row_collector_state
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
@@ -179,91 +169,16 @@ class TrainRatio:
         return 0 if x < 0 else 1 + int(x * self.ratio)
 
 
-class PolicyCarry(NamedTuple):
-    """The acting state of ``n`` envs (the reference's ``(lat, act)`` carry).
-
-    ``deter [n, D]`` and the one-hot ``stoch [n, S, C]`` of the last
-    posterior; ``prevact`` the last action, the raw sample: ``[n, A]``
-    float32 (continuous) or ``[n]`` int32 (discrete index). The reference
-    carries it unmasked even at ``is_last`` (the observe step masks it at the
-    next ``is_first``; dreamerv3_spec 7.1).
-    """
-
-    deter: jax.Array
-    stoch: jax.Array
-    prevact: jax.Array
-
-
-def initial_policy_carry(
-    config: DreamerV3Config, n: int, action_dim: int, discrete: bool
-) -> PolicyCarry:
-    """Zeros (``Agent.init_policy``, ``29eb964:dreamerv3/agent.py:114-118``)."""
-    state = initial_state(config, (n,))
-    prevact = (
-        jnp.zeros((n,), jnp.int32)
-        if discrete
-        else jnp.zeros((n, action_dim), jnp.float32)
-    )
-    return PolicyCarry(state.deter, state.stoch, prevact)
-
-
-def policy_step(
-    world_model_params: Mapping[str, Any],
-    actor_params: Mapping[str, Any],
-    carry: PolicyCarry,
-    obs: jax.Array,
-    is_first: jax.Array,
-    key: jax.Array,
-    *,
-    config: DreamerV3Config,
-    action_dim: int,
-    discrete: bool,
-) -> tuple[jax.Array, PolicyCarry, tuple[jax.Array, jax.Array]]:
-    """One acting step of ``n`` envs: filter ``obs``, then sample the actor.
-
-    ``Agent.policy`` (``29eb964:dreamerv3/agent.py:129-164``; dreamerv3_spec
-    7.1): encode the observation, one-hot the previous action, one RSSM
-    observe step (Algorithm B; ``deter``, ``stoch`` and the previous action
-    are zeroed where ``is_first``) with a **sampled** posterior, then
-    ``a ~ pi(concat(h, z))``, sampled in every mode. Returns the action (raw
-    sample, or its index for a discrete space), the new carry and, for the
-    replay context, the posterior ``(deter [n, D], stoch [n, S])`` as class
-    indices (``agent.py:142-144``). The signature after ``key`` is the row
-    collector's :class:`~ajax.environments.row_collector.PolicyFn` once the
-    parameters are bound.
-    """
-    post_key, action_key = jax.random.split(key)
-    n = obs.shape[0]
-    obs = obs.reshape(n, -1)
-    model = WorldModel(config, obs.shape[-1])
-    tokens = model.apply({"params": world_model_params}, obs, method=WorldModel.encode)
-    prevact = encode_action(carry.prevact, action_dim if discrete else None)
-    state, _ = RSSM(config).apply(
-        {"params": world_model_params["rssm"]},
-        RSSMState(carry.deter, carry.stoch),
-        tokens,
-        prevact,
-        is_first,
-        draw_posterior_noise(post_key, config, (n,)),
-        method=RSSM.observe_step,
-    )
-    actor_apply: Callable[..., Any] = Actor(config, action_dim, discrete).apply
-    policy = actor_apply({"params": actor_params}, features(state.deter, state.stoch))
-    sample = policy.sample(draw_action_noise(action_key, (n, action_dim), discrete))
-    action = jnp.argmax(sample, -1).astype(jnp.int32) if discrete else sample
-    latent = (state.deter, jnp.argmax(state.stoch, -1).astype(jnp.int32))
-    return action, PolicyCarry(state.deter, state.stoch, action), latent
-
-
 def bind_policy(
     agent_state: DreamerV3State,
     config: DreamerV3Config,
     action_dim: int,
     discrete: bool,
 ) -> Callable:
-    """:func:`policy_step` with the agent's current parameters bound."""
+    """:func:`~ajax.agents.DreamerV3.world_model.observe_and_act` with the
+    agent's current parameters bound."""
     return partial(
-        policy_step,
+        observe_and_act,
         agent_state.world_model_state.params,
         agent_state.actor_state.params,
         config=config,
@@ -322,9 +237,7 @@ def init_dreamer(
     learner = init_learner(
         learner_key, config, spec.obs_dim, spec.action_dim, spec.discrete
     )
-    carry = initial_policy_carry(
-        config, env_args.n_envs, spec.action_dim, spec.discrete
-    )
+    carry = make_initial_carry(config, env_args.n_envs, spec.action_dim, spec.discrete)
     return DreamerV3State(
         rng=rng,
         eval_rng=eval_rng,
@@ -418,7 +331,7 @@ def evaluate_dreamer(
     mean_return, mean_length = evaluate_policy(
         env_args,
         bind_policy(agent_state, config, spec.action_dim, spec.discrete),
-        lambda n: initial_policy_carry(config, n, spec.action_dim, spec.discrete),
+        lambda n: make_initial_carry(config, n, spec.action_dim, spec.discrete),
         num_episode_test,
         key,
     )
@@ -588,13 +501,10 @@ def make_train(
 
 __all__ = [
     "EnvSpec",
-    "PolicyCarry",
     "TrainRatio",
     "bind_policy",
     "collect",
     "env_spec",
-    "initial_policy_carry",
     "make_train",
-    "policy_step",
     "update",
 ]

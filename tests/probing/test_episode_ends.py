@@ -753,9 +753,9 @@ def _sign_changes(state: Any) -> np.ndarray:
 
 
 def _p9_run(agent: str, kw: dict) -> Callable:
-    """Odd parts (SAC, DQN: target networks); raises if the envs end in
-    lockstep on most seeds (0.026 a seed with per-env keys) or a replay
-    env's resets repeat their sign."""
+    """Odd parts (SAC, DQN: target networks); fails if the envs end in
+    lockstep on most seeds (0.026 a seed with per-env keys) and raises if a
+    replay env's resets repeat their sign."""
 
     def value(n: R.Nets, x: list) -> jax.Array:
         if agent == "DQN":
@@ -774,8 +774,8 @@ def _p9_run(agent: str, kw: dict) -> Callable:
         out = R.per_seed(one, R.nets(run.state, stats=R.env_stats(run)))
         last = np.stack([R.field(run.state, f) for f in "sc"], -1)  # raw (s, c)
         lockstep = (last == last[:, :1]).all(axis=(1, 2))
-        if lockstep.sum() > len(lockstep) // 2:
-            raise RuntimeError(f"4 envs in lockstep on {lockstep.sum()} seeds")
+        # Asserted: only envs sharing their keys stay in lockstep, a library defect.
+        assert lockstep.mean() <= 0.5, f"4 envs in lockstep on {lockstep.sum()} seeds"
         if agent in ("SAC", "DQN"):
             out["sign change"] = _sign_changes(run.state)
             if not ((out["sign change"] > 0.3) & (out["sign change"] < 0.7)).all():

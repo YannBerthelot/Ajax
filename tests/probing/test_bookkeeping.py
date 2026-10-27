@@ -30,7 +30,7 @@ from . import readouts as R
 from .verdict import STAGE_1, Case, Query, check, params, xparam
 
 CASES: dict[str, Case] = {}
-ANSWER_DIGEST = "231ad9710367"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "29f42af83c35"  # verdict.digest(CASES): every answer, pinned
 L = 7
 
 
@@ -706,7 +706,8 @@ def test_q4_episode_start_rows_store_the_reset_obs_and_reset_expert_state() -> N
 # (MAPPED); an unmapped collector clips [-1, 1] to [0, 1] (none above 1,
 # PPO's Gaussian 0.159). An unmapped evaluation: the PPO train == eval test.
 # The flag cells: SAC and TD3 read exactly 0 on 96 seeds (both cells draw
-# the same warm-up).
+# the same warm-up). The flag queries' wrong answers need a normalisation-gated
+# clip and one more fault: alone, the gate moves no action (mapped first).
 
 
 def _paid(st: envs.State, a: jax.Array, key: Any) -> tuple:
@@ -724,8 +725,7 @@ def q5_run(agent: str, seeds: tuple, budget: int, paid: bool = False, **kw: Any)
     return run, R.record(run.state, "first_a")[:, 0]
 
 
-W = {"ClipAction(-1, 1) only under a normalisation flag": 0.3173}
-W |= {"collector maps to the box, training clip stays +-1": 0.5}
+W = {"collector maps to the box, training clip stays +-1": 0.5}
 UNIT = Query("share outside [-1, 1], cell A minus cell B", 0.0, W)
 W = {"training clip made bounds-aware, collector unmapped": 0.5}
 BOX = Query("share outside [0, 2], cell A minus cell B", 0.0, W)

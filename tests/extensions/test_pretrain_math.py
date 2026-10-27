@@ -159,6 +159,14 @@ def test_mc_pretrain_binds_the_agents_discount_and_reward_scale():
     assert (bound.env_args, bound.gamma, bound.reward_scale) == (env, 0.9, 2.0)
 
 
+def test_sac_hands_mc_pretrain_its_own_discount_and_reward_scale():
+    """The context SAC binds its extensions to (make_context)."""
+    ext = MCPretrain(expert_policy=abs)
+    agent = SAC("Pendulum-v1", gamma=0.9, reward_scale=2.0, extensions=(ext,))
+    (bound,) = agent.make_context(64)[0].extensions.extensions
+    assert (bound.gamma, bound.reward_scale) == (0.9, 2.0)
+
+
 def test_mc_returns_carry_the_reward_scale():
     """phi* fits G_t = sum_k gamma^k c r_{t+k}, the rewards scaled by the
     agent's reward_scale c as its critic's targets are. On one-step episodes

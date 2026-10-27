@@ -440,7 +440,7 @@ def make_train(
     actor_optimizer_args: OptimizerConfig,
     critic_optimizer_args: OptimizerConfig,
     network_args: NetworkConfig,
-    agent_config: TDMPC2Config,
+    model_config: TDMPC2Config,
     total_timesteps: int,
     num_episode_test: int,
     run_ids: Optional[Sequence[str]] = None,
@@ -479,7 +479,7 @@ def make_train(
     tick) and wait for a sampleable episode.
     """
     del actor_optimizer_args, critic_optimizer_args, network_args
-    config = agent_config
+    config = model_config
     loop = TrainLoop.create(
         env_args,
         total_timesteps,

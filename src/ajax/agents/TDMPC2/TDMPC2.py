@@ -248,7 +248,7 @@ class TDMPC2(ActorCritic):
         if not self.env_args.continuous:
             raise ValueError("TD-MPC2 only supports continuous action spaces.")
 
-        self.agent_config: TDMPC2Config = TDMPC2Config.from_arguments(self.config)
+        self.model_config: TDMPC2Config = TDMPC2Config.from_arguments(self.config)
         env, params = self.env_args.env, self.env_args.env_params
         obs_shape, _ = get_state_action_shapes(env)
         if len(obs_shape) != 1:
@@ -297,7 +297,7 @@ class TDMPC2(ActorCritic):
         # paper-era mode's follow the tick, in step.
         self.per_seed_update_counts = episodic
         self.train_kwargs = {
-            "agent_config": self.agent_config,
+            "model_config": self.model_config,
             "gamma": self.gamma,
             "schedule": self.schedule,
             "learning_rate": learning_rate,
@@ -315,7 +315,7 @@ class TDMPC2(ActorCritic):
                 "agent_episode_length": self.agent_episode_length,
                 "resolved_gamma": self.gamma,
                 "resolved_seed_steps": self.seed_steps,
-                **self.agent_config.resolved(self.action_dim),
+                **self.model_config.resolved(self.action_dim),
             }
         )
 
@@ -335,14 +335,14 @@ class TDMPC2(ActorCritic):
         """The ring of a call that ends after ``total_timesteps`` env steps of
         the run (rows in the episodic mode); records its capacity and size
         (class docstring)."""
-        capacity = replay_capacity(self.agent_config.buffer_size, total_timesteps)
+        capacity = replay_capacity(self.model_config.buffer_size, total_timesteps)
         buffer = make_episode_buffer(
             capacity,
             self.env_args.n_envs,
             self.agent_episode_length,
             self.obs_dim,
             self.action_dim,
-            self.agent_config.episodic,
+            self.model_config.episodic,
         )
         self.replay_capacity = capacity
         self.replay_bytes_per_seed = buffer.nbytes
@@ -425,12 +425,12 @@ class TDMPC2(ActorCritic):
             start_tick=start_tick,
             **kwargs,
         )
-        if not self.agent_config.episodic:
+        if not self.model_config.episodic:
             refuse_terminations(result[0], self.agent_episode_length)
         elif end_tick > self.schedule.seed_tick + self.agent_episode_length:
             # By then every episode running at the seed tick has ended, so
             # an episode of horizon + 1 rows would have been drawn from.
-            refuse_untrained(result[0], self.agent_config.horizon)
+            refuse_untrained(result[0], self.model_config.horizon)
         return result
 
 

@@ -1,9 +1,9 @@
 """The agents' surface, pinned while their files are restructured: every
 public name an agent module defines still imports from its path, every
 agent built on its defaults logs the run config it did (and the world
-models hold the maths configuration, model_config or agent_config, they
-did), and every agent class keeps the contract the extensions and the loop
-read off it (a value a family base supplies is the one the agent declared).
+models hold the maths configuration, model_config, they did), and every
+agent class keeps the contract the extensions and the loop read off it (a
+value a family base supplies is the one the agent declared).
 
 After a deliberate change (a default changed in its own pull request, a new
 name), rewrite the records::
@@ -39,6 +39,8 @@ CONTRACTS = HERE / "agent_contracts.json"
 #: The exported agents test_agent_contract has no row for: the env each is
 #: built on (TDMPC2MultiTask on the pins' two toy tasks).
 OTHERS = {"APG": "Pendulum-v1", "TDMPC2": "Pendulum-v1", "DreamerV3": "CartPole-v1"}
+#: The agents holding a static maths configuration (model_config).
+WORLD_MODELS = ("DreamerV3", "TDMPC2", "TDMPC2MultiTask")
 #: ActorCritic's class attributes an agent declares for the extensions and
 #: the loop (with its make_train, :func:`contract`).
 CONTRACT = (
@@ -93,9 +95,8 @@ def canonical(value: Any) -> Any:
 
 
 def configs(name: str) -> dict[str, Any]:
-    """The run config the loggers record and, for an agent with them (the
-    world models), its model_config and agent_config, the agent built on its
-    defaults."""
+    """The run config the loggers record and, for a world model, its
+    model_config, the agent built on its defaults."""
     cls = getattr(ajax, name)
     if name == "TDMPC2MultiTask":
         agent = _multitask()
@@ -104,9 +105,8 @@ def configs(name: str) -> dict[str, Any]:
     else:
         agent = cls(env_id=OTHERS[name])
     records = {"config": canonical(agent.config)}
-    for config in ("model_config", "agent_config"):
-        if hasattr(agent, config):
-            records.update({config: canonical(getattr(agent, config))})
+    if name in WORLD_MODELS:  # read by name: a renamed attribute fails here
+        records.update({"model_config": canonical(agent.model_config)})
     return records
 
 

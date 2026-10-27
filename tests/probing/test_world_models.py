@@ -78,7 +78,7 @@ def _q10_agent() -> Any:
 def _q10_values(agent: Any, wm: Any, target_q: Any, pi: Any, key: Any) -> dict:
     """One seed's Q_i(+1), Q_i(-1), the TD target's V_i = E_{a ~ pi_i}[min_k
     Qbar_k(a)] and the policy's E[s_i a] (256 draws), at each task's context."""
-    config, tasks, out = agent.agent_config, agent.tasks, []
+    config, tasks, out = agent.model_config, agent.tasks, []
     apply, decode = make_world_model(config).apply, config.two_hot.decode
     pi_apply = make_policy_prior(config, tasks.action_dim).apply
     obs, ends = envs.one_hot(0, tasks.obs_dim), jnp.array([[1.0], [-1.0]])
@@ -217,7 +217,7 @@ def _best(v: dict) -> str:
 def _q12_read(agent: Any, s: Any, key: jax.Array) -> dict:
     """At s0: the plan gap of planner.estimate_value (no noise, no dropout),
     the Q, reward and rolled-reward gaps of +1 over -1, both returns."""
-    config, wm, pi = agent.agent_config, s.world_model_state, s.actor_state.params
+    config, wm, pi = agent.model_config, s.world_model_state, s.actor_state.params
 
     def apply(*args: Any, **kw: Any) -> jax.Array:
         return wm.apply_fn({"params": wm.params}, *args, **kw)

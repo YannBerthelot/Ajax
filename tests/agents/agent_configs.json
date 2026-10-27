@@ -671,41 +671,6 @@
   }
  },
  "TDMPC2": {
-  "agent_config": {
-   "TDMPC2Config": {
-    "batch_size": 256,
-    "buffer_size": 1000000,
-    "consistency_coef": 20.0,
-    "dropout": 0.01,
-    "enc_dim": 256,
-    "entropy_coef": 0.0001,
-    "episodic": false,
-    "expose_recent_rollout": false,
-    "grad_clip_norm": 20.0,
-    "horizon": 3,
-    "iterations": 6,
-    "latent_dim": 512,
-    "log_std_max": 2.0,
-    "log_std_min": -10.0,
-    "max_std": 2.0,
-    "min_std": 0.05,
-    "mlp_dim": 512,
-    "num_bins": 101,
-    "num_elites": 64,
-    "num_enc_layers": 2,
-    "num_pi_trajs": 24,
-    "num_q": 5,
-    "num_samples": 512,
-    "reward_coef": 0.1,
-    "rho": 0.5,
-    "simnorm_dim": 8,
-    "tau": 0.01,
-    "temperature": 0.5,
-    "termination_coef": 1.0,
-    "value_coef": 0.1,
-    "vmax": 10.0
-   }
-  },
   "config": {
    "action_repeat": 1,
    "agent_episode_length": 200,
@@ -764,12 +729,10 @@
    "value_coef": 0.1,
    "vmax": 10.0,
    "weight_decay": 0.0
-  }
- },
- "TDMPC2MultiTask": {
-  "agent_config": {
+  },
+  "model_config": {
    "TDMPC2Config": {
-    "batch_size": 1024,
+    "batch_size": 256,
     "buffer_size": 1000000,
     "consistency_coef": 20.0,
     "dropout": 0.01,
@@ -801,7 +764,9 @@
     "value_coef": 0.1,
     "vmax": 10.0
    }
-  },
+  }
+ },
+ "TDMPC2MultiTask": {
   "config": {
    "action_repeat": 1,
    "algo_name": "TDMPC2MultiTask",
@@ -863,6 +828,41 @@
    "value_coef": 0.1,
    "vmax": 10.0,
    "weight_decay": 0.0
+  },
+  "model_config": {
+   "TDMPC2Config": {
+    "batch_size": 1024,
+    "buffer_size": 1000000,
+    "consistency_coef": 20.0,
+    "dropout": 0.01,
+    "enc_dim": 256,
+    "entropy_coef": 0.0001,
+    "episodic": false,
+    "expose_recent_rollout": false,
+    "grad_clip_norm": 20.0,
+    "horizon": 3,
+    "iterations": 6,
+    "latent_dim": 512,
+    "log_std_max": 2.0,
+    "log_std_min": -10.0,
+    "max_std": 2.0,
+    "min_std": 0.05,
+    "mlp_dim": 512,
+    "num_bins": 101,
+    "num_elites": 64,
+    "num_enc_layers": 2,
+    "num_pi_trajs": 24,
+    "num_q": 5,
+    "num_samples": 512,
+    "reward_coef": 0.1,
+    "rho": 0.5,
+    "simnorm_dim": 8,
+    "tau": 0.01,
+    "temperature": 0.5,
+    "termination_coef": 1.0,
+    "value_coef": 0.1,
+    "vmax": 10.0
+   }
   }
  },
  "TQC": {

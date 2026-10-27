@@ -83,7 +83,7 @@ def test_value_is_the_discounted_sum_through_time_limits(constant_reward):
     for seed_state in _per_seed(state):
         wm = seed_state.world_model_state
         z = _latents(seed_state, len(actions))
-        q = agent.agent_config.two_hot.decode(
+        q = agent.model_config.two_hot.decode(
             core.q_logits(wm.apply_fn, wm.params, z, actions)
         )  # [num_q, 5]
         np.testing.assert_allclose(q, target, rtol=0.1)
@@ -96,19 +96,19 @@ def test_planner_plays_the_rewarding_action(reward_is_action):
     for i, seed_state in enumerate(_per_seed(state)):
         wm = seed_state.world_model_state
         z = _latents(seed_state, len(actions))
-        reward = agent.agent_config.two_hot.decode(
+        reward = agent.model_config.two_hot.decode(
             wm.apply_fn({"params": wm.params}, z, actions, method="reward_logits")
         )
         np.testing.assert_allclose(reward[2:], [0.0, 0.5, 1.0], atol=0.1)
         n = 8
         action, _, _ = plan_for_envs(
-            jnp.zeros((n, agent.agent_config.horizon, 1)),
+            jnp.zeros((n, agent.model_config.horizon, 1)),
             jnp.ones((n, 1)),
             jnp.ones(n, bool),
             jax.random.PRNGKey(i),
             wm_params=wm.params,
             pi_params=seed_state.actor_state.params,
-            config=agent.agent_config,
+            config=agent.model_config,
             gamma=agent.gamma,
             eval_mode=True,
         )

@@ -128,7 +128,7 @@ _MISSING = object()
 
 def _read_back(agent: Any, key: str) -> Any:
     """An override's value as the agent holds it, where it holds one."""
-    for name in ("model_config", "agent_config", "env_args", "network_args"):
+    for name in ("model_config", "env_args", "network_args"):
         if hasattr(getattr(agent, name, None), key):
             return getattr(getattr(agent, name), key)
     return getattr(agent, "train_kwargs", {}).get(key, getattr(agent, key, _MISSING))

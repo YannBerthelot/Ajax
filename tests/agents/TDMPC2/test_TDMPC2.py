@@ -180,9 +180,9 @@ def test_episode_length_derived_defaults():
     assert agent.agent_episode_length == 200
     assert agent.gamma == pytest.approx(0.975)  # (40 - 1) / 40
     assert agent.seed_steps == 1000  # max(1000, 5 T)
-    assert agent.agent_config == TDMPC2Config.from_model_size(5)
+    assert agent.model_config == TDMPC2Config.from_model_size(5)
     small = TDMPC2("Pendulum-v1", model_size=1, mlp_dim=64, gamma=0.9, seed_steps=7)
-    assert (small.agent_config.latent_dim, small.agent_config.mlp_dim) == (128, 64)
+    assert (small.model_config.latent_dim, small.model_config.mlp_dim) == (128, 64)
     assert (small.gamma, small.seed_steps) == (0.9, 7)
     # The 1000 floor of the seed phase (T = 10: 5 T = 50) and the discount
     # heuristic's arguments (T / denom, clipped to [min, max]).
@@ -251,7 +251,7 @@ def test_every_hyperparameter_reaches_the_config():
     }
     agent = TDMPC2("Pendulum-v1", **overrides)
     for name, value in overrides.items():
-        assert getattr(agent.agent_config, name) == value, name
+        assert getattr(agent.model_config, name) == value, name
 
     def lr(step):
         return 1e-3
@@ -508,7 +508,7 @@ def test_evaluation_runs_the_planner_for_whole_episodes(pendulum):
             s,
             k,
             env_args=agent.env_args,
-            config=agent.agent_config,
+            config=agent.model_config,
             gamma=agent.gamma,
             num_episodes=2,
         )
@@ -554,13 +554,13 @@ def test_evaluation_plans_with_the_agents_discount(pendulum, monkeypatch):
             s,
             k,
             env_args=agent.env_args,
-            config=agent.agent_config,
+            config=agent.model_config,
             gamma=agent.gamma,
             num_episodes=1,
         )
     )
     evaluate(state, jax.random.PRNGKey(0))
-    assert agent.gamma != agent.agent_config.rho
+    assert agent.gamma != agent.model_config.rho
     assert seen == [(agent.gamma, True)]
 
 

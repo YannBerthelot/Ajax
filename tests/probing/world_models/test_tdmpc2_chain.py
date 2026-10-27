@@ -48,11 +48,11 @@ def _chain_values(agent, state):
         apply = functools.partial(wm.apply_fn, {"params": wm.params})
         z = apply(jax.nn.one_hot(jnp.arange(3), 4), method="encode")
         a = jnp.zeros((3, 1))
-        q = agent.agent_config.two_hot.decode(
+        q = agent.model_config.two_hot.decode(
             core.q_logits(wm.apply_fn, wm.params, z, a)
         )
         p = None
-        if agent.agent_config.episodic:
+        if agent.model_config.episodic:
             p = jax.nn.sigmoid(
                 apply(apply(z, a, method="next"), method="termination_logits")
             )

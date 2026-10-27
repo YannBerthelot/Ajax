@@ -329,10 +329,9 @@ def refresh_phi_star(
     reward_stats = reward_statistics(agent_state.collector_state.env_state)
     expert_critic_state = agent_state.expert_critic_state
 
-    # Three keys: the first once drew a diagnostic batch; splitting three
-    # keeps the refresh's key and the agent's stream unchanged.
-    _, refresh_key, new_rng = jax.random.split(agent_state.rng, 3)
-    agent_state = agent_state.replace(rng=new_rng)
+    # The key the stack lends post_update (ExtensionStack.apply_post_update),
+    # which then hands the agent its own back.
+    refresh_key = agent_state.rng
 
     def refresh_step(carry, _):
         expert_critic_state, step_key = carry

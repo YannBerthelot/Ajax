@@ -104,6 +104,23 @@ per seed and evaluation, kept whether or not a backend (`use_wandb`,
 Without one it does not evaluate and returns `(state, None)`; APG returns
 every update's metrics instead. `initial_state=state` continues a run.
 
+### Random keys
+
+A key comes from a name, not from its turn in line, so a run that differs by
+one flag, option or extension draws every other number as before
+(`ajax.random_keys`). An agent keeps two streams, its updates'
+(`agent_state.rng`) and its collection's (`collector_state.rng`), each
+advanced once per update or collection step, carry first, for one step key
+(`split_carry_first(rng, 1)`, `get_keys_and_new_state()`). Any other key of a
+step is derived from the step's: by a name registered in `NAMES` (`derive_key`), or
+by its index in an inner loop (`fold_index`). A key that exists only under a
+flag, an option, a condition, a count or an extension is derived, never drawn
+from a stream. `tests/test_repo_hygiene.py` refuses a `fold_in` at a literal
+index (it is a split's key) and counts the keys handed out by position (a
+`jax.random.split`, or a stream advance handing out more than one key): a
+new one fails, so advance a stream with `split_carry_first(rng, 1)` and
+derive its other keys.
+
 ## Extensions
 
 An extension is a research feature (an expert to learn from, an exploration
@@ -132,8 +149,8 @@ and never guards a call.
 | `on_target(agent_state, ext_state, batch, target, context)` | transforms the TD or value target | SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, DQN, PQN, PPO, APO |
 | `critic_loss(agent_state, ext_state, batch, context)` | adds a term to the critic loss | SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, DQN, PQN, PPO, APO |
 | `actor_loss(agent_state, ext_state, batch, context)` | adds a term to the actor loss | SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, PPO, APO, APG, UDRL |
-| `action(agent_state, ext_state, obs, rng, context)` | overrides the collection action (`None` defers) | SAC with an `expert_policy`, for extensions with an `action_slot` |
-| `eval_action(agent_state, ext_state, obs, rng, context)` | overrides the evaluation action | no agent yet |
+| `action(agent_state, ext_state, obs, rng, context)` | overrides the collection action (`None` defers) | every agent but APG and the world models, in the action stage (`action_slot`) |
+| `eval_action(agent_state, ext_state, obs, rng, context)` | overrides the evaluation action | every agent but APG, UDRL and the world models |
 | `post_update(agent_state, ext_state, context)` | runs after each update | every agent |
 | `eval_metrics(agent_state, ext_state, rng, context)` | adds metrics to each evaluation | every agent |
 

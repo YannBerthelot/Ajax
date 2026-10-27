@@ -68,44 +68,39 @@ def test_edge_decay_linear_reaches_zero_at_decay_frac():
 
 
 def test_edge_argmax_gate_strictly_positive_gap_and_decay():
-    rng = jax.random.PRNGKey(0)
     gap = jnp.array([-1.0, 0.0, 0.5, 1.0])
-    decay = jnp.asarray(0.5)
-    mask, rng_out = edge_argmax_gate(gap, decay, rng)
+    mask = edge_argmax_gate(gap, jnp.asarray(0.5))
     assert jnp.array_equal(mask, jnp.array([False, False, True, True]))
-    # argmax gate does not consume the rng.
-    assert jnp.array_equal(rng_out, rng)
 
 
 def test_edge_argmax_gate_disabled_when_decay_zero():
-    mask, _ = edge_argmax_gate(
-        jnp.array([2.0, 3.0]), jnp.asarray(0.0), jax.random.PRNGKey(0)
-    )
+    mask = edge_argmax_gate(jnp.array([2.0, 3.0]), jnp.asarray(0.0))
     assert jnp.array_equal(mask, jnp.array([False, False]))
 
 
-def test_edge_boltzmann_gate_returns_bool_mask_and_fresh_rng():
+def test_edge_boltzmann_gate_draws_a_bool_mask_on_its_key():
     rng = jax.random.PRNGKey(0)
     gap = jnp.array([[2.0], [2.0], [2.0]])
     decay = jnp.asarray(1.0)
     q_policy = jnp.ones_like(gap)
-    mask, rng_out = edge_boltzmann_gate(gap, decay, rng, q_policy, tau=1.0)
+    mask = edge_boltzmann_gate(gap, decay, rng, q_policy, tau=1.0)
     assert mask.dtype == jnp.bool_
     assert mask.shape == gap.shape
-    assert not jnp.array_equal(rng_out, rng)
+    p_expert = jax.nn.sigmoid(gap / (jnp.abs(q_policy).mean() + 1e-6))
+    assert jnp.array_equal(mask, jax.random.uniform(rng, gap.shape) < p_expert)
 
 
 def test_edge_fixed_gate_zero_prob_never_fires():
     rng = jax.random.PRNGKey(0)
     decay = jnp.ones((3, 1))
-    mask, _ = edge_fixed_gate(decay, rng, fixed_prob=0.0)
+    mask = edge_fixed_gate(decay, rng, fixed_prob=0.0)
     assert not jnp.any(mask)
 
 
 def test_edge_fixed_gate_full_prob_always_fires():
     rng = jax.random.PRNGKey(0)
     decay = jnp.ones((3, 1))
-    mask, _ = edge_fixed_gate(decay, rng, fixed_prob=1.0)
+    mask = edge_fixed_gate(decay, rng, fixed_prob=1.0)
     assert jnp.all(mask)
 
 

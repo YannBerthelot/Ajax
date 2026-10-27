@@ -1738,6 +1738,104 @@ _GOLDEN.update(
     }
 )
 
+# Re-recorded on macOS ARM CPU once each extension drew on keys of its own,
+# derived from its name (RNG stability, extensions by name): the stubs'
+# initial states and post_update draws (Nudge, Drift), and SAC-expert's
+# ExpertPrefill rollout.
+_GOLDEN.update(
+    {
+        "APG-nudge": {
+            "actor": 35.83683395385742,
+            "nudge": 0.8785082697868347,
+        },
+        "APG-pid-nudge": {
+            "actor": 36.83320999145508,
+            "nudge": 0.8785082697868347,
+        },
+        "APO-nudge": {
+            "actor": 9.211639404296875,
+            "critic": 8.004192352294922,
+            "nudge": 0.8785082697868347,
+        },
+        "DAgger-nudge": {
+            "actor": 2.6691598892211914,
+            "n_updates": 93.0,
+            "nudge": 0.9774792790412903,
+        },
+        "DQN-dueling-nudge": {
+            "actor": 9.529121398925781,
+            "target": 9.505367279052734,
+            "nudge": 0.9068649411201477,
+        },
+        "DreamerV3-drift": {
+            "actor": 92.45883178710938,
+            "critic": 95.06118774414062,
+            "world_model": 548.8960571289062,
+            "drift": 0.5100106000900269,
+        },
+        "IQL-nudge": {
+            "actor": 7.987946510314941,
+            "critic": 19.817363739013672,
+            "value": 7.853305339813232,
+            "n_updates": 91.0,
+            "nudge": 1.0078387260437012,
+        },
+        "PPO-discrete-nudge": {
+            "actor": 7.167261123657227,
+            "critic": 8.987314224243164,
+            "nudge": 0.8785082697868347,
+        },
+        "PPO-env-split-nudge": {
+            "actor": 5.698873043060303,
+            "critic": 7.228157043457031,
+            "nudge": 0.8785082697868347,
+        },
+        "PQN-nudge": {
+            "actor": 34.019554138183594,
+            "nudge": 0.8256397247314453,
+        },
+        "SAC-expert": {
+            "actor": 10.56264591217041,
+            "critic": 17.889917373657227,
+            "alpha": 0.9843722581863403,
+        },
+        "TDMPC2-drift": {
+            "actor": 32.21207046508789,
+            "world_model": 162.46780395507812,
+            "n_updates": 39.0,
+            "drift": 0.5062060952186584,
+        },
+        "TDMPC2MultiTask-drift": {
+            "actor": 32.235618591308594,
+            "world_model": 161.13490295410156,
+            "drift": 0.4896028935909271,
+        },
+        "TQC-nudge": {
+            "actor": 17.08138084411621,
+            "critic": 42.586246490478516,
+            "alpha": 0.9728695154190063,
+            "nudge": 0.8450943231582642,
+        },
+        "UDRL-nudge": {
+            "actor": 21.729793548583984,
+            "nudge": 0.8760150671005249,
+        },
+    }
+)
+
+# Re-recorded on macOS ARM CPU once TD-MPC2's task embeddings drew on a key
+# of their own instead of the policy's initialisation key (RNG stability,
+# no key drawn twice); it had moved within the tolerance.
+_GOLDEN.update(
+    {
+        "TDMPC2MultiTask-drift": {
+            "actor": 32.23353576660156,
+            "world_model": 161.12286376953125,
+            "drift": 0.4896028935909271,
+        },
+    }
+)
+
 
 def fingerprint(name: str) -> dict[str, float]:
     agent_cls, kwargs, steps = _CASES[name]

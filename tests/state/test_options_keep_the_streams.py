@@ -6,8 +6,9 @@ updates' stream and the collection's end where they end without it: with
 extensions or without; an actor step that counts on every update or on some
 (a policy delay, policy_update_start); one critic step per update or several
 (SAC's and REDQ's num_critic_updates, DQN's n_gradient_steps); one PPO
-minibatch or several. With memory or without, a network's encoder starts
-from the same weights."""
+minibatch or several; an action stage's extension drawing on its own keys
+(EDGE's gate, IBRL's soft choice) or none. With memory or without, a
+network's encoder starts from the same weights."""
 
 from typing import Any
 
@@ -19,7 +20,9 @@ import pytest
 
 import ajax
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
+from ajax.extensions.exploration import EDGEExploration
 from ajax.extensions.instrumentation import ConditioningMetrics
+from ajax.extensions.target_mods import IBRL
 from ajax.networks.memory import MemoryConfig
 from ajax.networks.networks import Actor, init_network_state
 from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
@@ -76,6 +79,25 @@ def test_an_extension_moves_neither_stream(name: str, extension: Any) -> None:
     (ConditioningMetrics) leave both streams where they end without them."""
     cls, kwargs, steps = EXTENDED[name]
     assert_same_streams(cls, kwargs, {"extensions": (extension,)}, steps)
+
+
+def push(obs: jax.Array) -> jax.Array:
+    """An expert pushing at half the torque."""
+    return 0.5 * jnp.ones(obs.shape[:-1] + (1,))
+
+
+#: The action stage's extensions, each drawing on its own keys there (and
+#: IBRL in its target too).
+ACTING = {
+    "EDGE": EDGEExploration(gate="boltzmann"),
+    "IBRL": IBRL(push, hybrid_acting=True, soft_choice=True),
+}
+
+
+@pytest.mark.parametrize("name", ACTING)
+def test_an_acting_extension_moves_neither_stream(name: str) -> None:
+    kwargs = {**SAC, "expert_policy": push}
+    assert_same_streams(ajax.SAC, kwargs, {"extensions": (ACTING[name],)}, 16)
 
 
 #: name: (the agent, its arguments, the option changed, the env steps).

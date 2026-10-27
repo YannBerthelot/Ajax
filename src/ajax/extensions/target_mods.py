@@ -39,6 +39,7 @@ from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.expert import extension_expert_actions, reads_stored_expert_actions
 from ajax.extensions.exploration import lcb_beta, lcb_score, score_action_pair
 from ajax.networks.networks import phi_star_critic_state, predict_value
+from ajax.random_keys import derive_key
 from ajax.schedule import progress
 
 
@@ -203,13 +204,6 @@ def draw_selection_critics(
     return jax.random.choice(key, num_critics, shape=(size,), replace=False)
 
 
-def take_gate_key(step: dict) -> jax.Array:
-    """A fresh key off the step's gate stream (gate_rng), which it advances."""
-    gate_rng, key = jax.random.split(step["gate_rng"])
-    step["gate_rng"] = gate_rng
-    return key
-
-
 @dataclass(frozen=True)
 class IBRL(Extension):
     """IBRL bootstrap (Hu, Mirchandani and Sadigh, Imitation Bootstrapped
@@ -310,8 +304,8 @@ class IBRL(Extension):
         context: ExtensionContext,
     ) -> jax.Array:
         """Collection's choice, from the action the step would execute."""
-        del ext_state, rng, context
-        return self.choose_action(agent_state, obs, obs["post_warmup_action"])
+        del ext_state, context
+        return self.choose_action(agent_state, obs, obs["post_warmup_action"], rng)
 
     def eval_action(
         self,
@@ -322,18 +316,18 @@ class IBRL(Extension):
         context: ExtensionContext,
     ) -> jax.Array:
         """Evaluation's choice, from the action the agent evaluates with."""
-        del ext_state, rng, context
-        return self.choose_action(agent_state, obs, obs["executed_action"])
+        del ext_state, context
+        return self.choose_action(agent_state, obs, obs["executed_action"], rng)
 
     def choose_action(
-        self, agent_state: Any, step: dict, action: jax.Array
+        self, agent_state: Any, step: dict, action: jax.Array, key: jax.Array
     ) -> jax.Array:
         """The expert's action where its minimum over the target critics
         tops action's, else action (hengyuan-hu/ibrl rl/q_agent.py
         _act_ibrl), or chosen as choose_expert chooses. Reads step (the
         stage's dict, or evaluation's) and writes into it where the expert's
-        won (expert_mask) and the stream a subset or a soft choice drew on
-        (gate_rng)."""
+        won (expert_mask). The subset and the soft choice draw on keys
+        derived from key by name, so either option leaves the other's draw."""
         expert_action = extension_expert_actions(
             self, step["raw_obs"], step["expert_action"]
         )
@@ -348,9 +342,11 @@ class IBRL(Extension):
         critics = None
         if self.critic_subset_size is not None:
             num_critics = q_expert.shape[0]
-            key = take_gate_key(step)
-            critics = draw_selection_critics(self.critic_subset_size, num_critics, key)
-        choice_key = take_gate_key(step) if self.soft_choice else None
+            subset_key = derive_key(key, "critic_subset")
+            critics = draw_selection_critics(
+                self.critic_subset_size, num_critics, subset_key
+            )
+        choice_key = derive_key(key, "soft_choice") if self.soft_choice else None
         expert_won = self.choose_expert(
             take_minimum(q_expert, critics), take_minimum(q_policy, critics), choice_key
         )
@@ -402,9 +398,10 @@ class IBRL(Extension):
         dones, gamma = batch["dones"], discounted("IBRL", batch["gamma"])
         action_key, selection_key = jax.random.split(context.rng)
         q_expert, q_policy = score_next_actions(self, agent_state, batch, action_key)
+        # Derived, so a soft choice leaves the selection's draw as it was.
         choice_key = None
         if self.soft_choice:
-            selection_key, choice_key = jax.random.split(selection_key)
+            choice_key = derive_key(context.rng, "soft_choice")
         value_critics = batch["critic_subset"]
         size = None if value_critics is None else value_critics.shape[0]
         selection_critics = draw_selection_critics(

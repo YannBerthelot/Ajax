@@ -13,6 +13,7 @@ from ajax.controller import Controller
 from ajax.evaluate import evaluate
 from ajax.extensions import target_mods
 from ajax.extensions.target_mods import IBRL
+from ajax.random_keys import derive_key
 from ajax.wrappers import InitialStateWrapper
 from tests.environments.identity_env import IdentityEnv
 from tests.extensions.test_ibrl_acting import CONTEXT, KEY, Learner, half, step
@@ -57,8 +58,8 @@ def test_a_large_beta_is_the_hard_choice():
 def test_collection_samples_the_choice_on_the_steps_stream(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """The acting choice draws on the step's gate stream, which it advances,
-    and flags the rows the expert's action took."""
+    """The acting choice draws on a key derived from its own, and flags the
+    rows the expert's action took."""
     q_expert, q_policy = jnp.full((2, ROWS, 1), 0.1), jnp.zeros((2, ROWS, 1))
     monkeypatch.setattr(
         target_mods, "score_action_pair", lambda *a: (q_expert, q_policy)
@@ -70,7 +71,8 @@ def test_collection_samples_the_choice_on_the_steps_stream(
     flagged = np.asarray(taken["expert_mask"])
     np.testing.assert_allclose(flagged.mean(), jax.nn.sigmoid(1.0), atol=0.01)
     np.testing.assert_array_equal(np.asarray(chosen) == 0.5, flagged)
-    assert not np.array_equal(taken["gate_rng"], KEY)
+    uniform = jax.random.uniform(derive_key(KEY, "soft_choice"), flagged.shape)
+    np.testing.assert_array_equal(flagged, uniform < jax.nn.sigmoid(1.0))
 
 
 def test_evaluation_samples_the_choice_too():
@@ -89,7 +91,7 @@ def test_evaluation_samples_the_choice_too():
         env.default_params,
         expert_policy=_pays_one,
         agent_state=Learner(),
-        controller=Controller(choosers=((0, ibrl),)),
+        controller=Controller(choosers=((0, "ibrl#0", ibrl),)),
     )
     want = np.mean(jax.nn.sigmoid(2.0 * (0.5 - jnp.arange(3) / 10)))
     np.testing.assert_allclose(out[6], want, atol=0.01)

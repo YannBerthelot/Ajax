@@ -381,7 +381,11 @@ class TDMPC2MultiTask:
                 num_episodes=num_episodes,
             )
             self._eval_fns[cache_key] = jax.jit(
-                jax.vmap(lambda state: evaluate(state, evaluation_keys(state)[0]))
+                jax.vmap(
+                    lambda state: evaluate(
+                        state, evaluation_keys(state, state.n_updates, "offline")[0]
+                    )
+                )
             )
         return self._eval_fns[cache_key]
 
@@ -438,7 +442,7 @@ class TDMPC2MultiTask:
             stack = self.extension_stack
 
             def extra(s: TDMPC2MultiTaskState) -> dict:
-                key = evaluation_keys(s)[1]
+                key = evaluation_keys(s, s.n_updates, "offline")[1]
                 return stack.apply_eval_metrics(s, s.n_updates, key, total)
 
             self._extra_eval_fns[total] = jax.jit(jax.vmap(extra))

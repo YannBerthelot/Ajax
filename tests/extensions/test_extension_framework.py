@@ -14,15 +14,17 @@ import pytest
 
 import ajax.extensions
 from ajax.controller import ActingState
-from ajax.environments.action_stage import dispatch_action_phase
+from ajax.environments.action_stage import dispatch_action_phase, slotted_extensions
 from ajax.extensions.base import (
     PHASES,
     Extension,
     ExtensionContext,
     ExtensionStack,
+    extension_key_names,
 )
 from ajax.extensions.expert import ExpertValueMetrics, ImitationLoss
 from ajax.extensions.target_mods import IBRL
+from ajax.random_keys import derive_extension_key
 
 
 def _context(step: int = 0) -> ExtensionContext:
@@ -35,6 +37,7 @@ def _context(step: int = 0) -> ExtensionContext:
 class _FakeAgentState:
     ext_state: tuple = ()
     value: float = 0.0
+    rng: typing.Any = dataclasses.field(default_factory=lambda: jax.random.PRNGKey(9))
 
     def replace(self, **kw):
         from dataclasses import replace as _r
@@ -175,9 +178,12 @@ def test_eval_metrics_merge_with_a_key_per_extension():
     stack, rng = ExtensionStack([Metric("a/x"), Metric("b/y")]), jax.random.PRNGKey(0)
     out = stack.apply_eval_metrics(_FakeAgentState(ext_state=((), ())), 0, rng, 100)
     assert set(out) == {"a/x", "b/y", "a/x/context", "b/y/context"}
-    for key, want in zip(("a/x", "b/y"), jax.random.split(rng, 2), strict=True):
+    names = extension_key_names(stack.extensions)  # two of one class
+    assert len(set(names)) == 2
+    for key, name in zip(("a/x", "b/y"), names, strict=True):
+        want = derive_extension_key(rng, name)
         np.testing.assert_array_equal(out[key], want)
-        np.testing.assert_array_equal(out[f"{key}/context"], rng)
+        np.testing.assert_array_equal(out[f"{key}/context"], want)
 
 
 def test_state_folds_thread_the_agent_state_in_list_order():
@@ -221,9 +227,10 @@ def test_the_action_stage_takes_the_last_proposal():
 
     def dispatched(*extensions):
         batch = {"action": jnp.asarray(0)}
-        pairs = list(enumerate(extensions))
+        names = extension_key_names(extensions)
+        named = tuple(zip(range(len(extensions)), names, extensions, strict=False))
         acting = ActingState(obs=None, done=None, timestep=jnp.asarray(0))
-        out, _ = dispatch_action_phase(agent, acting, pairs, batch, "action", key, 10)
+        out, _ = dispatch_action_phase(agent, acting, named, batch, "action", key, 10)
         return int(out["action"])
 
     assert dispatched(FixedAction(1), Extension(), FixedAction(2)) == 2
@@ -352,7 +359,7 @@ def test_fold_init_builds_the_states_then_pretrains_at_step_zero():
     )
     assert int(out.ext_state[0]["seen"]) == 0
     np.testing.assert_array_equal(out.ext_state[0]["key"], want.ext_state[0]["key"])
-    np.testing.assert_array_equal(out.ext_state[0]["pre"], pretrain_key)
+    np.testing.assert_array_equal(out.ext_state[0]["pre"], want.ext_state[0]["pre"])
 
 
 def test_fold_init_states_writes_ext_state():
@@ -541,7 +548,88 @@ def test_a_phase_naming_its_context_ctx_still_runs():
     assert float(after.ext_state[0]) == 102.0
     assert float(metrics["named_ctx/step"]) == 2.0
     acting = ActingState(obs=None, done=None, timestep=jnp.asarray(step))
-    pairs = [(0, _NamedCtx())]
+    named = [(0, "named_ctx#0", _NamedCtx())]
     step = {"action": 0.0}
-    out, _ = dispatch_action_phase(agent, acting, pairs, step, "action", rng, 10)
+    out, _ = dispatch_action_phase(agent, acting, named, step, "action", rng, 10)
     assert float(out["action"]) == 2.0
+
+
+#: (a KeySeen's state, phase) -> the keys it got there, as text.
+SEEN: dict[tuple[str, str], str] = {}
+
+
+def as_text(*keys: typing.Any) -> str:
+    return str([np.asarray(key).tolist() for key in keys])
+
+
+@dataclass(frozen=True)
+class KeySeen(Extension):
+    """Keeps in SEEN the keys each phase hands it (in pretrain and
+    post_update, the agent's too, which it then moves); its state is the
+    key its initial state got."""
+
+    name: str = "key_seen"
+    action_slot: typing.ClassVar[str] = "pre_warmup"
+
+    def init_state(self, agent_state, rng):
+        return as_text(rng)
+
+    def pretrain(self, agent_state, ext_state, context):
+        SEEN[(ext_state, "pretrain")] = as_text(context.rng, agent_state.rng)
+        return agent_state.replace(rng=None), ext_state
+
+    def post_update(self, agent_state, ext_state, context):
+        SEEN[(ext_state, "post_update")] = as_text(context.rng, agent_state.rng)
+        return agent_state.replace(rng=None), ext_state
+
+    def on_target(self, agent_state, ext_state, batch, target, context):
+        SEEN[(ext_state, "on_target")] = as_text(context.rng)
+        return target
+
+    def eval_metrics(self, agent_state, ext_state, rng, context):
+        SEEN[(ext_state, "eval_metrics")] = as_text(rng, context.rng)
+        return {}
+
+    def action(self, agent_state, ext_state, obs, rng, context):
+        SEEN[(ext_state, "action")] = as_text(rng, context.rng)
+
+
+def keys_seen(*names: str) -> dict[tuple[str, str], str]:
+    """The keys of a stack of KeySeen of names, by key name and phase."""
+    SEEN.clear()
+    stack, key = (
+        ExtensionStack([KeySeen(name) for name in names]),
+        jax.random.PRNGKey(1),
+    )
+    agent = stack.apply_init(_FakeAgentState(), key, 10)
+    after = stack.apply_post_update(agent, 0, key, 10)
+    for state in (agent, after):  # the agent's key back after each lent one
+        np.testing.assert_array_equal(state.rng, _FakeAgentState().rng)
+    stack.apply_on_target(agent, None, jnp.zeros(()), 0, key, 10)
+    stack.apply_eval_metrics(agent, 0, key, 10)
+    acting = ActingState(jnp.zeros(()), jnp.zeros(()), jnp.asarray(0))
+    named = slotted_extensions(stack, "pre_warmup")
+    dispatch_action_phase(agent, acting, named, {}, "action", key, 10)
+    by_state = dict(
+        zip(agent.ext_state, extension_key_names(stack.extensions), strict=False)
+    )
+    seen = {(by_state[state], phase): keys for (state, phase), keys in SEEN.items()}
+    seen.update({(name, "init_state"): state for state, name in by_state.items()})
+    return seen
+
+
+def test_an_extension_keeps_its_keys_whatever_its_stack_holds_beside_it():
+    """(a, c) and (b, a, d, c): a and c get the same keys in every phase,
+    the agent's key lent to them included; two of one name get their own."""
+    alone, among = keys_seen("a", "c"), keys_seen("b", "a", "d", "c")
+    assert len(alone) == 2 * 6 and alone.items() <= among.items()
+    own = str(np.asarray(_FakeAgentState().rng).tolist())
+    assert own not in alone[("a#0", "pretrain")] + alone[("a#0", "post_update")]
+    twice = keys_seen("a", "a")
+    for phase in ("init_state", "pretrain", "post_update", "on_target", "action"):
+        assert twice[("a#0", phase)] != twice[("a#1", phase)]
+    assert extension_key_names([Extension(), KeySeen("a"), KeySeen("a")]) == (
+        "Extension#0",
+        "a#0",
+        "a#1",
+    )

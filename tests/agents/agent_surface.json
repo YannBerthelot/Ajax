@@ -138,7 +138,6 @@
 "ajax.agents.DreamerV3.state:DreamerV3State",
 "ajax.agents.DreamerV3.state:LearningRate",
 "ajax.agents.DreamerV3.state:MODEL_SIZES",
-"ajax.agents.DreamerV3.state:MetricsAccumulator",
 "ajax.agents.DreamerV3.state:WIDTHS",
 "ajax.agents.DreamerV3.train_DreamerV3:EnvSpec",
 "ajax.agents.DreamerV3.train_DreamerV3:PolicyCarry",

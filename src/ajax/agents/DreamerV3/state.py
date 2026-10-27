@@ -30,17 +30,16 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 import jax
-import jax.numpy as jnp
 from flax import struct
 
 from ajax.distributional import TwoHot
 from ajax.environments.row_collector import RowCollectorState
 from ajax.normalizers import ReturnNormalizer
 from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
-from ajax.types import Replaceable
 
 if TYPE_CHECKING:
     from ajax.agents.DreamerV3.replay import ReplayState
+    from ajax.log import MetricsAccumulator
 
 #: A learning rate: a constant, or a schedule of the optimizer's update count.
 LearningRate = Union[float, Callable[[jax.Array], jax.Array]]
@@ -309,44 +308,6 @@ class DreamerV3AgentConfig(BaseAgentConfig):
     batch_size: int = struct.field(pytree_node=False, default=16)
     batch_length: int = struct.field(pytree_node=False, default=64)
     replay_capacity: int = struct.field(pytree_node=False, default=5_000_000)
-
-
-@struct.dataclass
-class MetricsAccumulator(Replaceable):
-    """Sums of the training-step metrics since the last log, and their count.
-
-    The reference logs the mean of each training metric over the updates
-    since its previous log (``embodied.Agg`` in 2411f7d
-    ``embodied/run/train.py:90``, written at ``:114``).
-    """
-
-    total: dict
-    count: jax.Array
-
-    @classmethod
-    def zeros(cls, keys) -> MetricsAccumulator:
-        return cls(
-            total={k: jnp.zeros((), jnp.float32) for k in keys},
-            count=jnp.zeros((), jnp.int32),
-        )
-
-    def add(self, metrics: dict) -> MetricsAccumulator:
-        total = {
-            k: v + jnp.asarray(metrics[k], jnp.float32) for k, v in self.total.items()
-        }
-        return self.replace(total=total, count=self.count + 1)
-
-    def mean(self) -> dict:
-        """The means (NaN before the first update since the last log)."""
-        count = self.count.astype(jnp.float32)
-        return {
-            k: jnp.where(self.count > 0, v / jnp.maximum(count, 1.0), jnp.nan)
-            for k, v in self.total.items()
-        }
-
-    def reset_where(self, flag: jax.Array) -> MetricsAccumulator:
-        """Zeroed where ``flag`` (a log was written), unchanged otherwise."""
-        return jax.tree.map(lambda x: jnp.where(flag, jnp.zeros_like(x), x), self)
 
 
 @struct.dataclass(kw_only=True)

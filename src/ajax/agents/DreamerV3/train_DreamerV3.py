@@ -66,7 +66,6 @@ from ajax.agents.DreamerV3.state import (
     DreamerV3AgentConfig,
     DreamerV3Config,
     DreamerV3State,
-    MetricsAccumulator,
 )
 from ajax.agents.DreamerV3.world_model import ReplayContextBatch, draw_posterior_noise
 from ajax.agents.loop import Evaluation, TrainLoop
@@ -74,6 +73,7 @@ from ajax.environments.row_collector import collect_row, init_row_collector_stat
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.evaluate import evaluate_policy
 from ajax.extensions.base import Extension, ExtensionStack
+from ajax.log import MetricsAccumulator
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig
 

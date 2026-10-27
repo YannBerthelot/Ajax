@@ -20,7 +20,8 @@ at the start of the update unless stated:
    heads, ``y = r + gamma * Q``.
 2. World-model loss and gradients (:func:`world_model_loss`).
 3. Clip with the paper-era norm: the previous update's post-clip policy
-   gradient counts in the world-model clip norm (:func:`clip_grad_norm`).
+   gradient counts in the world-model clip norm
+   (:func:`~ajax.agents.TDMPC2.optim.clip_grad_norm`).
 4. World-model Adam step (encoder learning rate scaled by 0.3).
 5. Policy loss on the *pre-step* latents of step 2 with the *post-step*
    online Q (:func:`policy_loss`), RunningScale updated before dividing.
@@ -103,9 +104,13 @@ import optax
 from flax import struct
 
 from ajax.agents.TDMPC2.networks import make_policy_prior, make_world_model
+from ajax.agents.TDMPC2.optim import (
+    clip_grad_norm,
+    make_policy_tx,
+    make_world_model_tx,
+)
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2UpdateState
 from ajax.distributional import TwoHot
-from ajax.networks.utils import get_adam_tx
 from ajax.normalizers import RunningScale
 from ajax.state import LoadedTrainState
 from ajax.types import FloatOrCallable
@@ -114,8 +119,6 @@ Params = Any
 IntLike = Union[int, jax.Array]
 ApplyFn = Callable[..., Any]
 
-# torch.nn.utils.clip_grad_norm_ adds this to the norm before dividing.
-_CLIP_EPS = 1e-6
 # math.py:35-37, the tanh-squash correction log(relu(1 - a^2) + 1e-6).
 _SQUASH_EPS = 1e-6
 _HALF_LOG_2PI = 0.5 * float(np.log(2.0 * np.pi))
@@ -654,72 +657,6 @@ def policy_loss(
     return loss, (q_scale, aux)
 
 
-def clip_grad_norm(
-    grads: Params, max_norm: float, extra_sq_norm: Union[float, jax.Array] = 0.0
-) -> tuple[Params, jax.Array]:
-    """``torch.nn.utils.clip_grad_norm_``: clipped gradients and the pre-clip norm.
-
-    ``norm = sqrt(||grads||^2 + extra_sq_norm)``;
-    ``grads * min(1, max_norm / (norm + 1e-6))``. ``extra_sq_norm`` adds the
-    squared norm of gradients that are not returned: the paper-era
-    world-model clip runs over ``model.parameters()``, which include the
-    policy prior's stale post-clip gradients of the previous update
-    (``tdmpc2.py:184, 236, 271``; deviations.md §2).
-    """
-    norm = jnp.sqrt(optax.tree_utils.tree_norm(grads, squared=True) + extra_sq_norm)
-    coef = jnp.minimum(1.0, max_norm / (norm + _CLIP_EPS))
-    return jax.tree_util.tree_map(lambda g: g * coef, grads), norm
-
-
-def _scaled_lr(learning_rate: FloatOrCallable, scale: float) -> FloatOrCallable:
-    if callable(learning_rate):
-        schedule = learning_rate
-        return lambda count: schedule(count) * scale
-    return learning_rate * scale
-
-
-def make_world_model_tx(
-    learning_rate: FloatOrCallable = 3e-4,
-    enc_lr_scale: float = 0.3,
-    weight_decay: float = 0.0,
-) -> optax.GradientTransformation:
-    """World-model Adam with the encoder's learning rate scaled (``tdmpc2.py:21-27``).
-
-    Two parameter groups (``optax.multi_transform``): ``encoder`` at
-    ``learning_rate * enc_lr_scale``, everything else (dynamics, reward, Q
-    and, multi-task, the task embedding: ``tdmpc2.py:26``) at
-    ``learning_rate``; torch Adam defaults
-    (betas 0.9 / 0.999, eps 1e-8; tdmpc2_spec 2.9). Clipping is not part of
-    the transformation: :func:`update` clips once over all world-model
-    gradients, with the paper-era norm, before the groups. ``weight_decay``
-    (Ajax's; the reference has none) is :func:`get_adam_tx`'s on both
-    groups, so the encoder's is multiplied by its scaled learning rate.
-    """
-
-    def labels(params: Params) -> dict[str, str]:
-        return {k: "encoder" if k == "encoder" else "rest" for k in params}
-
-    return optax.multi_transform(
-        {
-            "encoder": get_adam_tx(
-                _scaled_lr(learning_rate, enc_lr_scale),
-                eps=1e-8,
-                weight_decay=weight_decay,
-            ),
-            "rest": get_adam_tx(learning_rate, eps=1e-8, weight_decay=weight_decay),
-        },
-        labels,
-    )
-
-
-def make_policy_tx(
-    learning_rate: FloatOrCallable = 3e-4, eps: float = 1e-5, weight_decay: float = 0.0
-) -> optax.GradientTransformation:
-    """Policy Adam(eps 1e-5) (``tdmpc2.py:28``); clipped in :func:`update`;
-    ``weight_decay`` as :func:`make_world_model_tx`'s."""
-    return get_adam_tx(learning_rate, eps=eps, weight_decay=weight_decay)
-
-
 def create_update_state(
     key: jax.Array,
     config: TDMPC2Config,
@@ -918,3 +855,31 @@ def update(
         "pi_grad_norm": pi_grad_norm,
     }
     return new_state, aux
+
+
+def make_zero_update_metrics(
+    learner: TDMPC2UpdateState,
+    config: TDMPC2Config,
+    gamma: Union[float, jax.Array],
+    obs_dim: int,
+    action_dim: int,
+    task: Optional[TaskContext] = None,
+) -> dict[str, jax.Array]:
+    """Zeros with the structure of :func:`update`'s logged quantities
+    (``task``: a batch's multi-task conditioning; ``None``: single
+    task)."""
+    horizon, batch_size = config.horizon, config.batch_size
+    batch = TDMPC2Batch(
+        obs=jnp.zeros((horizon + 1, batch_size, obs_dim)),
+        action=jnp.zeros((horizon, batch_size, action_dim)),
+        reward=jnp.zeros((horizon, batch_size)),
+        terminated=jnp.zeros((horizon, batch_size)) if config.episodic else None,
+    )
+    noise = draw_update_noise(jax.random.PRNGKey(0), config, batch_size, action_dim)
+
+    def logged(state: Any) -> dict[str, jax.Array]:
+        _, metrics = update(state, batch, noise, config=config, gamma=gamma, task=task)
+        return metrics
+
+    shapes = jax.eval_shape(logged, learner)
+    return jax.tree.map(lambda shape: jnp.zeros(shape.shape, shape.dtype), shapes)

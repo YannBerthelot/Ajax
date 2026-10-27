@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 from flax import struct
 
-from ajax.agents.TDMPC2 import core
+from ajax.agents.TDMPC2 import core, optim
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2UpdateState
 from ajax.normalizers import RunningScale
 from ajax.state import LoadedTrainState
@@ -98,7 +98,7 @@ def test_clip_grad_norm_is_torch_clip_grad_norm(scale):
     stale = [scale * rng.normal(size=(5,)).astype(np.float32)]
     max_norm = 2.0 * scale  # binds; at 1e-7 the +1e-6 dominates the coefficient
     expected, expected_norm = _torch_clip_grad_norm(grads, max_norm, stale)
-    clipped, norm = core.clip_grad_norm(
+    clipped, norm = optim.clip_grad_norm(
         [jnp.asarray(g) for g in grads],
         max_norm,
         extra_sq_norm=float(np.sum(stale[0].astype(np.float64) ** 2)),
@@ -106,7 +106,7 @@ def test_clip_grad_norm_is_torch_clip_grad_norm(scale):
     np.testing.assert_allclose(norm, expected_norm, rtol=1e-6)
     for c, e in zip(clipped, expected, strict=False):
         np.testing.assert_allclose(c, e, rtol=1e-5)
-    unclipped, _ = core.clip_grad_norm(
+    unclipped, _ = optim.clip_grad_norm(
         [jnp.asarray(g) for g in grads], 1e3 * scale + 1.0
     )
     for u, g in zip(unclipped, grads, strict=False):
@@ -404,7 +404,7 @@ def test_paper_era_td_target_has_q_dropout(state, batch, noise):
 @pytest.mark.parametrize("schedule", [False, True])
 def test_world_model_adam_scales_the_encoder_learning_rate(state, schedule):
     lr = (lambda count: 3e-4 * 0.5 ** (count / 10)) if schedule else 3e-4
-    tx = core.make_world_model_tx(lr, enc_lr_scale=0.3)
+    tx = optim.make_world_model_tx(lr, enc_lr_scale=0.3)
     params = state.world_model_state.params
     grads = jax.tree_util.tree_map(jnp.ones_like, params)
     updates, _ = tx.update(grads, tx.init(params), params)
@@ -417,7 +417,7 @@ def test_world_model_adam_scales_the_encoder_learning_rate(state, schedule):
 
 
 def test_policy_adam_uses_eps_1e5(state):
-    tx = core.make_policy_tx(3e-4)
+    tx = optim.make_policy_tx(3e-4)
     params = state.actor_state.params
     grads = jax.tree_util.tree_map(lambda x: jnp.full_like(x, 1e-5), params)
     updates, _ = tx.update(grads, tx.init(params), params)

@@ -36,21 +36,19 @@ src/ajax/
 ```
 
 **Agent anatomy.** A declared agent (SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL,
-AVG, PPO, APO, PQN, DreamerV3) is one file,
+AVG, PPO, APO, PQN, DreamerV3, TDMPC2) is one file,
 `src/ajax/agents/<AGENT>/<AGENT>.py`: its hyperparameters as dataclass
 fields, its `init` and `update`, its equations, its state and metrics, on
 a family of `agents/families.py` that builds the rest (the constructor, the
-run config, the replay or the rollouts, the train function). DreamerV3's
-folder also holds its maths by role: the networks, the world model, the
-actor-critic, the learner, the optimiser, the replay and the configuration.
-TD-MPC2's folder holds `TDMPC2.py`, the public class (the paper's
-hyperparameters and `extensions=`; it names its `make_train` and fills
-`train_kwargs`, which `get_make_train()` binds);
-`train_TDMPC2.py`, the algorithm and a `make_train` that hands its
-initialisation and update to `TrainLoop`; `state.py`, `TDMPC2State` and
-`TDMPC2Config`; and a `core.py`: the maths TDMPC2MultiTask imports instead
-of copying, under the lineage rule below. A declared
-parent's equations are in its one file: APO imports PPO's from
+run config, the replay or the rollouts, the train function). The world
+models' folders also hold their maths by role. DreamerV3's: the networks,
+the world model, the actor-critic, the learner, the optimiser, the replay
+and the configuration. TD-MPC2's: the networks, one update (`core.py`), the
+optimisers, the planner, the replay and the configuration, which
+`TDMPC2MultiTask` imports instead of copying, under the lineage rule below;
+the multi-task agent, offline and off the families, keeps its own host loop
+(`TDMPC2MultiTask.py`) and train function (`train_TDMPC2MultiTask.py`). A
+declared parent's equations are in its one file: APO imports PPO's from
 `PPO/PPO.py`; TQC, REDQ, ASAC, CrossQ and AVG import SAC's from
 `SAC/SAC.py`.
 
@@ -92,9 +90,10 @@ Every Ajax env step maps the action onto them (`agent_action_to_env`), and
 `ActorCritic` reads an expert, written in env units, in the same `[-1, 1]`
 (`ExpertInAgentUnits`): replay, losses and extensions see one unit.
 
-The world models (DreamerV3, on the own-replay family, and TDMPC2) also give
+The world models (DreamerV3 and TDMPC2, on the own-replay family) also give
 `off_policy` their own `collect(agent_state, tick)`, `n_updates(tick,
-agent_state)` (such as a train ratio) and `Evaluation`. UDRL runs its own iteration on `TrainLoop.train`; APG
+agent_state)` (a train ratio, a burst) and `Evaluation`. UDRL runs its own
+iteration on `TrainLoop.train`; APG
 and the offline `TDMPC2MultiTask` call `build_resumable_train` themselves,
 with `fresh_state` and the `post_update` fold.
 
@@ -191,10 +190,8 @@ does; an on-policy agent on `OnPolicyAgent`, as PPO, APO and PQN do (read
 `agents/PPO/PPO.py` first, and the on-policy family below); an agent whose
 iteration is its own on `OwnIterationAgent`, as UDRL and APG do (the
 own-iteration family below); an agent storing rows in a replay of its own,
-sized for each call, on `OwnReplayAgent`, as DreamerV3 does (the own-replay
-family below). TD-MPC2 keeps the older three-file form (`state.py`,
-`train_TDMPC2.py` with a `make_train`, `TDMPC2.py`) until its batch moves
-it.
+sized for each call, on `OwnReplayAgent`, as DreamerV3 and TD-MPC2 do (the
+own-replay family below).
 
 **1. `FOO/FOO.py`, the one file.** Its hyperparameters are the fields of a
 dataclass, declared once with the paper's defaults: the family generates the
@@ -368,11 +365,12 @@ call's replay (sized for the call, a resumed state's replay moved into it),
 which `make_train` puts in `context.buffer`. Each tick,
 `collect(agent_state, tick, context)` stores one row per env,
 `count_updates(agent_state, tick, context)` gives the updates of the
-absolute tick (DreamerV3's train ratio) and `update(agent_state, tick,
-context)` runs one; `report` and `evaluate` are as in the own-iteration
-family. An agent may count its ticks its own way (`count_ticks`), restart
-what it logs after each log (`make_after_log`) and check a finished call
-(`check_run`). It assumes the row collector: a resumed run starts at the
+absolute tick (DreamerV3's train ratio, TD-MPC2's seed-phase burst) and
+`update(agent_state, tick, context)` runs one; `report` and `evaluate` are
+as in the own-iteration family. An agent may count its ticks its own way
+(`count_ticks`), restart what it logs after each log (`make_after_log`)
+and check a finished call (`check_run`, TD-MPC2's refusal of
+terminations). It assumes the row collector: a resumed run starts at the
 tick of the rows it counted. `train_offline` refuses it.
 
 Do **not** add a field for a feature (`use_critic_blend=True`, ...): it

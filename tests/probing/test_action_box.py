@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from ajax.agents.DreamerV3 import networks as dreamer
-from ajax.agents.TDMPC2.train_TDMPC2 import planner_policy
+from ajax.agents.TDMPC2.planner import plan_for_envs
 from ajax.environments.utils import agent_action_to_env
 
 from . import agents, envs, oracles, runs
@@ -89,16 +89,16 @@ def _actor(run: runs.Run) -> dict:
 
 
 def _tdmpc2(run: runs.Run) -> dict:
-    """The evaluation planner's first decision (eval_mode, a zero warm
-    start), averaged over 16 envs of each context: it picks an elite at
-    random."""
+    """The evaluation planner's first decision (eval_mode, a zero warm start),
+    averaged over 16 envs of each context: it picks an elite at random."""
     agent, s, obs = run.agent, run.state, jnp.repeat(CONTEXTS, 16, 0)
-    kw = {"config": agent.agent_config, "gamma": agent.gamma, "eval_mode": True}
+    kw = {"config": agent.model_config, "gamma": agent.resolved_gamma}
+    kw.update({"eval_mode": True})
 
     def one(wm: Any, pi: Any, key: jax.Array) -> jax.Array:
-        carry = jnp.zeros((48, agent.agent_config.horizon, 1))
+        carry = jnp.zeros((48, agent.model_config.horizon, 1))
         first = jnp.ones(48, bool)
-        a = planner_policy(carry, obs, first, key, wm_params=wm, pi_params=pi, **kw)
+        a = plan_for_envs(carry, obs, first, key, wm_params=wm, pi_params=pi, **kw)
         return _to_env(a[0]).reshape(3, 16).mean(1)
 
     keys = jax.random.split(R.KEY, len(run.seeds))

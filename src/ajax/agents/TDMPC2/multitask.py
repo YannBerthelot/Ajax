@@ -46,8 +46,8 @@ import numpy as np
 
 from ajax.agents.TDMPC2 import core
 from ajax.agents.TDMPC2.core import IntLike
+from ajax.agents.TDMPC2.planner import plan_for_envs
 from ajax.agents.TDMPC2.state import TDMPC2Config
-from ajax.agents.TDMPC2.train_TDMPC2 import planner_policy
 from ajax.types import FloatOrCallable
 
 # Paper Table 8-9 (deviation T14: the code's 64 for mt30 at 5/19/48M).
@@ -258,14 +258,14 @@ def task_planner_policy(
     """The planner acting in task ``task``'s own env, for
     :func:`ajax.evaluate.evaluate_policy` (the row-collector protocol).
 
-    The single-task :func:`ajax.agents.TDMPC2.train_TDMPC2.planner_policy`
-    with the task's context and discount: ``obs [m, obs_dims[task]]`` is
+    The single-task :func:`ajax.agents.TDMPC2.planner.plan_for_envs` with
+    the task's context and discount: ``obs [m, obs_dims[task]]`` is
     zero-padded, each env plans with its own draws and warm start ``carry =
     prev_mean [m, H, A_max]`` (``t0 = is_first``), and the env gets the
     prefix ``action[:, :action_dims[task]]`` (``MultitaskWrapper.step``,
     ``envs/wrappers/multitask.py:55-57``).
     """
-    action, prev_mean, _ = planner_policy(
+    action, prev_mean, _ = plan_for_envs(
         carry,
         pad_observation(obs, tasks.obs_dim),
         is_first,

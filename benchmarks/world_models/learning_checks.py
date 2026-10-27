@@ -244,6 +244,19 @@ def statistic(
     return curve[:, inside].mean(axis=1)
 
 
+def resolved_values(name: str, agent: Any) -> dict:
+    """What the agent derived from its env: DreamerV3's discount; TD-MPC2's
+    episode length, discount and seed phase (its gamma and seed_steps fields
+    hold the caller's values, None where they are derived)."""
+    if name == "TDMPC2":
+        return {
+            "agent_episode_length": agent.agent_episode_length,
+            "gamma": agent.resolved_gamma,
+            "seed_steps": agent.resolved_seed_steps,
+        }
+    return {"gamma": agent.gamma}
+
+
 def run_check(name: str, check: Check, seeds: list[int], smoke: bool) -> dict:
     """Train ``check`` for every seed (one vmapped run) and judge it."""
     import jax
@@ -316,11 +329,7 @@ def run_check(name: str, check: Check, seeds: list[int], smoke: bool) -> dict:
         "bar": check.bar,
         "passed": bool(np.all(judged > check.bar)),
         "n_updates": np.asarray(state.n_updates).tolist(),
-        "resolved": {
-            key: getattr(agent, key)
-            for key in ("agent_episode_length", "gamma", "seed_steps")
-            if hasattr(agent, key)
-        },
+        "resolved": resolved_values(check.agent, agent),
         "wall_s": round(wall, 1),
         "provenance": provenance(),
     }

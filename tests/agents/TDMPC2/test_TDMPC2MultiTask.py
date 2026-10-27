@@ -196,7 +196,7 @@ def test_surface_follows_the_paper_multitask_protocol():
     planner iterates for the padded action dim."""
     dataset = make_dataset()
     agent = TDMPC2MultiTask(dataset)
-    assert agent.agent_config == TDMPC2Config.from_model_size(5, batch_size=1024)
+    assert agent.model_config == TDMPC2Config.from_model_size(5, batch_size=1024)
     assert agent.task_dim == 96
     # 10 evaluation episodes per task (offline_trainer.py:22-39, eval_episodes).
     for method, name in (
@@ -321,7 +321,7 @@ def test_update_step_updates_on_the_sampled_batch_and_its_tasks(monkeypatch):
     are what :func:`multitask.update` receives (a stub records them), with
     the agent's config and task set; then the update count advances."""
     agent = TDMPC2MultiTask(make_dataset(), **TINY)
-    config, tasks, dataset = agent.agent_config, agent.tasks, agent.dataset
+    config, tasks, dataset = agent.model_config, agent.tasks, agent.dataset
     received: dict = {}
 
     def update_stub(state, batch, task, noise, *, config, tasks):
@@ -385,7 +385,7 @@ def test_a_fresh_train_function_starts_as_the_agent_does(monkeypatch):
     seeds = jnp.asarray(SEEDS)
     index = jnp.arange(len(SEEDS))
     train = train_TDMPC2MultiTask.make_train(
-        agent.agent_config,
+        agent.model_config,
         agent.tasks,
         2,
         task_dim=agent.task_dim,

@@ -13,6 +13,7 @@ fresh resets) with logging captured in-process.
 from __future__ import annotations
 
 import dataclasses
+import importlib
 import inspect
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -25,10 +26,14 @@ import pytest
 
 from ajax import TDMPC2, TDMPC2MultiTask
 from ajax.agents import loop
-from ajax.agents.TDMPC2 import core, train_TDMPC2
-from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
-from ajax.agents.TDMPC2.TDMPC2 import refuse_terminations
-from ajax.agents.TDMPC2.train_TDMPC2 import Schedule, evaluate_tdmpc2, planner_policy
+from ajax.agents.TDMPC2 import core
+from ajax.agents.TDMPC2.planner import plan_for_envs
+from ajax.agents.TDMPC2.state import TDMPC2Config
+from ajax.agents.TDMPC2.TDMPC2 import (
+    FixedLengthSchedule,
+    TDMPC2State,
+    refuse_terminations,
+)
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.logging.wandb_logging import LoggingConfig
@@ -37,6 +42,9 @@ from tests.agents.extension_stubs import TargetTweak
 from .common import TINY_AGENT
 from .toy_envs import ConstantRewardEnv, TerminatingEnv
 
+#: The agent's module, whose names the spies replace (the package exports
+#: the class under the same name).
+AGENT_MODULE = importlib.import_module("ajax.agents.TDMPC2.TDMPC2")
 # A tiny model and planner; everything else at the paper defaults. More
 # elites than policy-prior trajectories, so that the MPPI statistics (and
 # with them the warm start) shape the decisions of an untrained model.
@@ -56,7 +64,7 @@ PENDULUM_S, FIRST, RESUMED = 40, 2 * 26, 2 * 35
 # A continuation short enough that the rounding of two separately compiled
 # programs has not grown (see the resume test): 10 steps per env.
 SHORT = 2 * 10
-SEED_STEP = 20  # Schedule.seed_step: max(40 // 2, T)
+SEED_STEP = 20  # FixedLengthSchedule.seed_step: max(40 // 2, T)
 
 
 @dataclass(frozen=True)
@@ -99,7 +107,7 @@ class MetricExt(Extension):
         return {"ext_smoke/x": jnp.asarray(1.0)}
 
 
-def _scheduled_updates(schedule: Schedule, n_ticks: int) -> int:
+def _scheduled_updates(schedule: FixedLengthSchedule, n_ticks: int) -> int:
     return int(np.sum(np.asarray(schedule.n_updates(np.arange(n_ticks)))))
 
 
@@ -151,7 +159,9 @@ def pendulum(tmp_path_factory):
     full_short, _ = _pendulum_agent().train(
         seed=SEEDS, n_timesteps=FIRST + SHORT, num_episode_test=2
     )
-    schedule = Schedule(n_envs=N_ENVS, episode_length=PENDULUM_T, seed_steps=PENDULUM_S)
+    schedule = FixedLengthSchedule(
+        n_envs=N_ENVS, episode_length=PENDULUM_T, seed_steps=PENDULUM_S
+    )
     return SimpleNamespace(
         agent=agent,
         resumer=resumer,
@@ -177,20 +187,26 @@ def pendulum(tmp_path_factory):
 def test_episode_length_derived_defaults():
     agent = TDMPC2("Pendulum-v1")
     assert agent.agent_episode_length == 200
-    assert agent.gamma == pytest.approx(0.975)  # (40 - 1) / 40
-    assert agent.seed_steps == 1000  # max(1000, 5 T)
-    assert agent.agent_config == TDMPC2Config.from_model_size(5)
+    assert agent.resolved_gamma == pytest.approx(0.975)  # (40 - 1) / 40
+    assert agent.resolved_seed_steps == 1000  # max(1000, 5 T)
+    # The fields keep the caller's values: None, derived.
+    assert (agent.gamma, agent.seed_steps) == (None, None)
+    assert agent.model_config == TDMPC2Config.from_model_size(5)
     small = TDMPC2("Pendulum-v1", model_size=1, mlp_dim=64, gamma=0.9, seed_steps=7)
-    assert (small.agent_config.latent_dim, small.agent_config.mlp_dim) == (128, 64)
-    assert (small.gamma, small.seed_steps) == (0.9, 7)
+    assert (small.model_config.latent_dim, small.model_config.mlp_dim) == (128, 64)
+    assert (small.resolved_gamma, small.resolved_seed_steps) == (0.9, 7)
     # The 1000 floor of the seed phase (T = 10: 5 T = 50) and the discount
     # heuristic's arguments (T / denom, clipped to [min, max]).
     short = TDMPC2(ConstantRewardEnv(length=10))
-    assert short.seed_steps == 1000
-    assert short.gamma == pytest.approx(0.95)  # (2 - 1) / 2 clipped up
-    assert TDMPC2("Pendulum-v1", discount_denom=10).gamma == pytest.approx(0.95)
-    assert TDMPC2("Pendulum-v1", discount_max=0.97).gamma == pytest.approx(0.97)
-    assert TDMPC2("Pendulum-v1", discount_min=0.98).gamma == pytest.approx(0.98)
+    assert short.resolved_seed_steps == 1000
+    assert short.resolved_gamma == pytest.approx(0.95)  # (2 - 1) / 2 clipped up
+    for name, value, gamma in (
+        ("discount_denom", 10, 0.95),
+        ("discount_max", 0.97, 0.97),
+        ("discount_min", 0.98, 0.98),
+    ):
+        derived = TDMPC2("Pendulum-v1", **{name: value})
+        assert derived.resolved_gamma == pytest.approx(gamma), name
     assert agent.supported_extension_phases == {
         "pretrain",
         "post_update",
@@ -207,7 +223,6 @@ def test_the_config_is_built_from_the_constructor_arguments():
     got = TDMPC2Config.from_arguments(arguments)
     assert got == TDMPC2Config.from_model_size(1, rho=0.3)
     fields = {f.name for f in dataclasses.fields(TDMPC2Config)}
-    fields.discard("expose_recent_rollout")  # BaseAgentConfig's
     multitask = {"buffer_size", "episodic", "termination_coef"}
     for agent, unused in ((TDMPC2, set()), (TDMPC2MultiTask, multitask)):
         parameters = set(inspect.signature(agent.__init__).parameters)
@@ -219,8 +234,8 @@ def test_the_config_is_built_from_the_constructor_arguments():
 
 def test_every_hyperparameter_reaches_the_config():
     """Each static kwarg of DESIGN 4.1 lands in TDMPC2Config; the schedulable
-    learning rate and the optimizer constants reach make_train; the values
-    actually used are in the run config next to the raw arguments."""
+    learning rate and the optimizer constants are the agent's fields; the
+    values actually used are in the run config next to the raw arguments."""
     overrides = {
         "simnorm_dim": 4,
         "num_bins": 51,
@@ -250,18 +265,14 @@ def test_every_hyperparameter_reaches_the_config():
     }
     agent = TDMPC2("Pendulum-v1", **overrides)
     for name, value in overrides.items():
-        assert getattr(agent.agent_config, name) == value, name
+        assert getattr(agent.model_config, name) == value, name
 
     def lr(step):
         return 1e-3
 
-    keywords = (
-        TDMPC2("Pendulum-v1", learning_rate=lr, enc_lr_scale=0.5, pi_eps=1e-6)
-        .get_make_train()
-        .keywords
-    )
-    assert keywords["learning_rate"] is lr
-    assert (keywords["enc_lr_scale"], keywords["pi_eps"]) == (0.5, 1e-6)
+    scheduled = TDMPC2("Pendulum-v1", learning_rate=lr, enc_lr_scale=0.5, pi_eps=1e-6)
+    assert scheduled.learning_rate is lr
+    assert (scheduled.enc_lr_scale, scheduled.pi_eps) == (0.5, 1e-6)
     ratio = TDMPC2("Pendulum-v1", n_envs=4, updates_per_step=0.5).schedule
     assert (ratio.updates_per_step, ratio.updates_per_tick) == (0.5, 2)
 
@@ -289,8 +300,8 @@ def test_every_hyperparameter_reaches_the_config():
 def test_playground_defaults_follow_the_paper_dmc_protocol():
     agent = TDMPC2("CartpoleBalance", episode_length=1000, action_repeat=2)
     assert agent.agent_episode_length == 500
-    assert agent.gamma == pytest.approx(0.99)
-    assert agent.seed_steps == 2500
+    assert agent.resolved_gamma == pytest.approx(0.99)
+    assert agent.resolved_seed_steps == 2500
 
 
 def test_discrete_actions_are_rejected():
@@ -326,13 +337,13 @@ def test_resume_offset_needs_equal_tick_counts():
 
 @pytest.fixture(scope="module")
 def decide():
-    """A jitted planner_policy of an untrained tiny model (Pendulum shapes)."""
+    """A jitted plan_for_envs of an untrained tiny model (Pendulum shapes)."""
     config = TDMPC2Config.from_model_size(1, **TINY)
     learner = core.create_update_state(jax.random.PRNGKey(0), config, 3, 1)
 
     @jax.jit
     def run(carry, obs, is_first, key):
-        return planner_policy(
+        return plan_for_envs(
             carry,
             obs,
             is_first,
@@ -502,15 +513,9 @@ def test_a_new_agent_resumes_a_checkpoint_as_the_uninterrupted_run(pendulum):
 def test_evaluation_runs_the_planner_for_whole_episodes(pendulum):
     agent = pendulum.agent
     state = jax.tree.map(lambda x: x[0], pendulum.resumed)
+    _, context = agent.make_context(FIRST)
     evaluate = jax.jit(
-        lambda s, k: evaluate_tdmpc2(
-            s,
-            k,
-            env_args=agent.env_args,
-            config=agent.agent_config,
-            gamma=agent.gamma,
-            num_episodes=2,
-        )
+        lambda s, k: agent.evaluate(s, k, context=context, num_episode_test=2)
     )
     key = jax.random.PRNGKey(0)
     out = evaluate(state, key)
@@ -539,28 +544,22 @@ def test_evaluation_plans_with_the_agents_discount(pendulum, monkeypatch):
     handed (the agent's, 0.95 at T = 20), not another constant of the config
     such as the planning horizon's rho (0.5)."""
     seen = []
-    policy = train_TDMPC2._policy
-
-    def spy(agent_state, config, gamma, eval_mode):
-        seen.append((gamma, eval_mode))
-        return policy(agent_state, config, gamma, eval_mode)
-
-    monkeypatch.setattr(train_TDMPC2, "_policy", spy)
     agent = pendulum.agent
+    policy = agent.make_planner_policy
+
+    def spy(agent_state, gamma, eval_mode):
+        seen.append((gamma, eval_mode))
+        return policy(agent_state, gamma, eval_mode)
+
+    monkeypatch.setattr(agent, "make_planner_policy", spy)
     state = jax.tree.map(lambda x: x[0], pendulum.first)
+    _, context = agent.make_context(FIRST)
     evaluate = jax.jit(
-        lambda s, k: evaluate_tdmpc2(
-            s,
-            k,
-            env_args=agent.env_args,
-            config=agent.agent_config,
-            gamma=agent.gamma,
-            num_episodes=1,
-        )
+        lambda s, k: agent.evaluate(s, k, context=context, num_episode_test=1)
     )
     evaluate(state, jax.random.PRNGKey(0))
-    assert agent.gamma != agent.agent_config.rho
-    assert seen == [(agent.gamma, True)]
+    assert agent.resolved_gamma != agent.model_config.rho
+    assert seen == [(agent.resolved_gamma, True)]
 
 
 def test_fixed_length_episodes_are_collected_in_the_static_reset_mode(monkeypatch):
@@ -579,7 +578,7 @@ def test_fixed_length_episodes_are_collected_in_the_static_reset_mode(monkeypatc
         seen.append(reset_mode)
         raise Traced
 
-    monkeypatch.setattr(train_TDMPC2, "collect_row", spy)
+    monkeypatch.setattr(AGENT_MODULE, "collect_row", spy)
     with pytest.raises(Traced):
         _pendulum_agent().train(seed=SEEDS, n_timesteps=FIRST)
     assert seen == ["static"]
@@ -598,9 +597,9 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
 
     def planner_spy(carry, obs, is_first, key, **kwargs):
         planner_calls.add((kwargs["eval_mode"], obs.shape[0]))
-        return planner_policy(carry, obs, is_first, key, **kwargs)
+        return plan_for_envs(carry, obs, is_first, key, **kwargs)
 
-    monkeypatch.setattr(train_TDMPC2, "planner_policy", planner_spy)
+    monkeypatch.setattr(AGENT_MODULE, "plan_for_envs", planner_spy)
 
     # Run-time record of every update's batch and noise, per seed.
     updates: dict = {}
@@ -637,7 +636,7 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
     )
     jax.effects_barrier()
 
-    schedule = Schedule(n_envs=N_ENVS, episode_length=20, seed_steps=40)
+    schedule = FixedLengthSchedule(n_envs=N_ENVS, episode_length=20, seed_steps=40)
     expected = _scheduled_updates(schedule, schedule.num_ticks(120))
     assert expected == 40 + N_ENVS * (60 - 21)
     np.testing.assert_array_equal(state.n_updates, expected)

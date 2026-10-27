@@ -599,6 +599,18 @@ def test_an_own_replay_agent_runs_its_ticks_on_a_replay_sized_per_call() -> None
         agent.train_offline(dataset=None, n_updates=1)
 
 
+def test_an_own_replay_agent_compares_no_value_estimate() -> None:
+    """Its evaluation is its own: even a discounted Q-critic (a world
+    model's, reading a latent state) gives no estimate to compare."""
+
+    @dataclasses.dataclass(kw_only=True, eq=False, repr=False)
+    class DiscountedReplayToy(ReplayToy):
+        gamma: float = 0.99
+        capabilities = frozenset({"discounted", "q_critic"})
+
+    assert DiscountedReplayToy("Pendulum-v1", n_envs=2).value_estimate() is None
+
+
 def test_an_agent_says_what_its_memory_cannot_take() -> None:
     """A run with memory refuses extensions (check_recurrent_options),
     unless the agent carries them through its memory, as APG's rollout."""

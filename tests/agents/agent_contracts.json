@@ -1008,7 +1008,7 @@
    "warmup"
   ],
   "extension_context": [],
-  "make_train": "ajax.agents.TDMPC2.train_TDMPC2:make_train",
+  "make_train": "ajax.agents.families:OwnReplayAgent.make_train",
   "name": "TDMPC2",
   "per_seed_update_counts": false,
   "phase_batch_keys": {},

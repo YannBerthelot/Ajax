@@ -21,7 +21,6 @@ from ajax.agents.TDMPC2 import core
 from ajax.agents.TDMPC2.dataset import TaskEpisodes, pool_tasks
 from ajax.agents.TDMPC2.networks import make_policy_prior, make_world_model
 from ajax.agents.TDMPC2.planner import estimate_value
-from ajax.agents.TDMPC2.train_TDMPC2 import evaluate_tdmpc2
 
 from . import agents, envs, runs
 from .verdict import STAGE_1, Case, Query, check, params
@@ -78,7 +77,7 @@ def _q10_agent() -> Any:
 def _q10_values(agent: Any, wm: Any, target_q: Any, pi: Any, key: Any) -> dict:
     """One seed's Q_i(+1), Q_i(-1), the TD target's V_i = E_{a ~ pi_i}[min_k
     Qbar_k(a)] and the policy's E[s_i a] (256 draws), at each task's context."""
-    config, tasks, out = agent.agent_config, agent.tasks, []
+    config, tasks, out = agent.model_config, agent.tasks, []
     apply, decode = make_world_model(config).apply, config.two_hot.decode
     pi_apply = make_policy_prior(config, tasks.action_dim).apply
     obs, ends = envs.one_hot(0, tasks.obs_dim), jnp.array([[1.0], [-1.0]])
@@ -217,7 +216,7 @@ def _best(v: dict) -> str:
 def _q12_read(agent: Any, s: Any, key: jax.Array) -> dict:
     """At s0: the plan gap of planner.estimate_value (no noise, no dropout),
     the Q, reward and rolled-reward gaps of +1 over -1, both returns."""
-    config, wm, pi = agent.agent_config, s.world_model_state, s.actor_state.params
+    config, wm, pi = agent.model_config, s.world_model_state, s.actor_state.params
 
     def apply(*args: Any, **kw: Any) -> jax.Array:
         return wm.apply_fn({"params": wm.params}, *args, **kw)
@@ -237,12 +236,12 @@ def _q12_read(agent: Any, s: Any, key: jax.Array) -> dict:
     n, cfg = actions.shape[1], config.replace(dropout=0.0)
     z = jnp.broadcast_to(z0, (n, z0.shape[-1]))
     args = (z, actions, jnp.zeros((n, 1)), jnp.arange(2), KEY)
-    v = estimate_value(wm.params, pi, *args, config=cfg, gamma=agent.gamma)
+    v = estimate_value(wm.params, pi, *args, config=cfg, gamma=agent.resolved_gamma)
     best = jnp.stack(
         [jnp.max(v[np.flatnonzero([k == p for k, _ in seqs])]) for p in PLANS]
     )
-    kw = {"env_args": agent.env_args, "config": config, "gamma": agent.gamma}
-    ev = evaluate_tdmpc2(s, jax.random.split(key)[1], num_episodes=8, **kw)
+    _, context = agent.make_context(0)
+    ev = agent.evaluate(s, jax.random.split(key)[1], context, num_episode_test=8)
     out |= {"rolled R gap": rolled[0] - rolled[1], "plan gap": best[0] - best[1:].max()}
     out["eval return"] = ev[f"Eval/{RET}"]
     return out | {"train return": s.collector_state.episodic_mean_return}

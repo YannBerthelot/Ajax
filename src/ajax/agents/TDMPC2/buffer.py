@@ -356,7 +356,7 @@ class EpisodeBuffer:
         ``RandomCropTensorDict(H + 1)``, independent per sample), then
         :func:`slice_batch`. ``tick`` is the tick whose row was written last
         (unbatched); the schedule guarantees at least one committed episode
-        (:attr:`~ajax.agents.TDMPC2.train_TDMPC2.Schedule.seed_step`).
+        (:attr:`~ajax.agents.TDMPC2.TDMPC2.FixedLengthSchedule.seed_step`).
         """
         self.check_layout(state)
         if horizon > self.episode_length:
@@ -614,11 +614,39 @@ class EpisodicBuffer:
         return slice_batch(state, env, start, horizon)
 
 
+def make_episode_buffer(
+    capacity: int,
+    n_envs: int,
+    episode_length: int,
+    obs_dim: int,
+    action_dim: int,
+    episodic: bool,
+) -> EpisodeBuffer | EpisodicBuffer:
+    """The replay of capacity env steps (rows in the episodic mode): the
+    ring of whole T + 1-row episodes, or the episodic mode's per-env rings
+    of variable-length episodes."""
+    if episodic:
+        return EpisodicBuffer.create(
+            buffer_size=capacity,
+            n_envs=n_envs,
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+        )
+    return EpisodeBuffer.create(
+        capacity=capacity,
+        n_envs=n_envs,
+        episode_length=episode_length,
+        obs_dim=obs_dim,
+        action_dim=action_dim,
+    )
+
+
 __all__ = [
     "EpisodeBuffer",
     "EpisodeBufferState",
     "EpisodicBuffer",
     "EpisodicBufferState",
+    "make_episode_buffer",
     "replay_capacity",
     "slice_batch",
 ]

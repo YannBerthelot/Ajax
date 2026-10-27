@@ -43,7 +43,6 @@ from ajax.agents.TDMPC2 import core, multitask
 from ajax.agents.TDMPC2.dataset import MultiTaskDataset
 from ajax.agents.TDMPC2.multitask import TaskSet
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2MultiTaskState
-from ajax.agents.TDMPC2.train_TDMPC2 import update_metrics_zeros
 from ajax.agents.update_steps import apply_post_update
 from ajax.evaluate import evaluate_policy
 from ajax.extensions.base import Extension, ExtensionStack
@@ -84,7 +83,7 @@ def init_TDMPC2MultiTask(
         world_model_state=learner.world_model_state,
         q_scale=learner.q_scale,
         pi_gradnorm_sq=learner.pi_gradnorm_sq,
-        update_metrics=update_metrics_zeros(
+        update_metrics=core.make_zero_update_metrics(
             learner,
             config,
             tasks.discount(task),

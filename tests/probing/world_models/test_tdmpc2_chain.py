@@ -48,11 +48,11 @@ def _chain_values(agent, state):
         apply = functools.partial(wm.apply_fn, {"params": wm.params})
         z = apply(jax.nn.one_hot(jnp.arange(3), 4), method="encode")
         a = jnp.zeros((3, 1))
-        q = agent.agent_config.two_hot.decode(
+        q = agent.model_config.two_hot.decode(
             core.q_logits(wm.apply_fn, wm.params, z, a)
         )
         p = None
-        if agent.agent_config.episodic:
+        if agent.model_config.episodic:
             p = jax.nn.sigmoid(
                 apply(apply(z, a, method="next"), method="termination_logits")
             )
@@ -73,13 +73,13 @@ def test_the_paper_era_agent_learns_a_continuing_chain_instead():
     learned: the values of a chain that never ends."""
     agent = TDMPC2(ChainEnv(), **CHAIN)
     budget = ROWS * 3 // 4  # about as many updates as the episodic run
-    buffer = agent._replay_buffer(budget)
+    replay, _ = agent.prepare_replay(0, agent.count_ticks(budget, 0), None)
     state, _ = ActorCritic.train(
         agent,
         seed=CHAIN_SEEDS,
         n_timesteps=budget,
         num_episode_test=1,
-        buffer=buffer,
+        replay=replay,
         start_tick=0,
     )
     assert np.all(np.asarray(state.collector_state.n_offschedule_dones) > 0)

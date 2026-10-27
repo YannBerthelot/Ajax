@@ -20,7 +20,7 @@ from ajax.agents.TDMPC2 import core, planner
 from ajax.agents.TDMPC2.buffer import EpisodicBuffer, EpisodicBufferState
 from ajax.agents.TDMPC2.networks import make_world_model
 from ajax.agents.TDMPC2.state import TDMPC2Config
-from ajax.agents.TDMPC2.train_TDMPC2 import EpisodicSchedule
+from ajax.agents.TDMPC2.TDMPC2 import EpisodicSchedule
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.environments.row_collector import Row
 

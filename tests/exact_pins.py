@@ -68,6 +68,8 @@ from ajax.schedule import linear
 from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
 from tests.agents.extension_stubs import CounterExt, MetricExt
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
+from tests.agents.TDMPC2.toy_envs import ChainEnv
+from tests.agents.test_agent_pins import _multitask
 from tests.agents.test_offline import episodes
 from tests.modules import setpoint_env
 
@@ -532,6 +534,28 @@ WORLD_MODEL_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "DreamerV3-keyed": (DreamerV3, {**DREAMER, "extensions": (LoopKeyed(),)}, 80),
 }
+# TD-MPC2's paths its declaration moves: the episodic mode (on the
+# terminating chain), a resume growing the ring from 40 to 80 env steps, two
+# envs at half an update per env step, a scheduled learning rate with the
+# encoder's scale and weight decay, and the extensions it binds, counting,
+# logging and drawing keys; the multi-task agent shares its maths (its
+# leaves only: it builds its own chunked programs). Last in the table.
+CHAIN = {**TDMPC2_TINY, "env_id": ChainEnv(), "n_envs": 2, "seed_steps": 20}
+TDMPC2_LR = {"learning_rate": linear(3e-4, 1e-4, 40), "enc_lr_scale": 0.5}
+TDMPC2_LR.update({"weight_decay": 0.01})
+TDMPC2_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "TDMPC2-episodic": (TDMPC2, {**CHAIN, "episodic": True}, 80),
+    "TDMPC2-resume": (TDMPC2, TDMPC2_KW, 40),
+    "TDMPC2-envs": (TDMPC2, {**TDMPC2_KW, "n_envs": 2, "updates_per_step": 0.5}, 40),
+    "TDMPC2-lr": (TDMPC2, {**TDMPC2_KW, **TDMPC2_LR}, 40),
+    "TDMPC2-extensions": (
+        TDMPC2,
+        {**TDMPC2_KW, "extensions": (CounterExt(), MetricExt())},
+        40,
+    ),
+    "TDMPC2-keyed": (TDMPC2, {**TDMPC2_KW, "extensions": (LoopKeyed(),)}, 40),
+    "TDMPC2MultiTask": (_multitask, {**TDMPC2_TINY, "task_dim": 4}, 40),
+}
 OFFLINE.update({"TD3-target-bc-offline"})
 #: The dataset an OFFLINE case trains on, where it is not test_offline's.
 DATASETS = {"TD3-target-bc-offline": long_episodes()}
@@ -544,6 +568,7 @@ RESUMED: dict[str, tuple[dict[str, Any], int]] = {
         80,
     ),
     "DreamerV3-resume": ({}, 80),
+    "TDMPC2-resume": ({}, 40),
 }
 CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "TD3": (TD3, {**S, **R}, 200),
@@ -752,6 +777,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     **STORE_REACH_CASES,
     **UDRL_WIRING_CASES,
     **WORLD_MODEL_CASES,
+    **TDMPC2_CASES,
 }
 
 
@@ -828,6 +854,8 @@ def program(name: str) -> str:
     ``train`` vmaps over the seeds (logging off: its run ids vary)."""
     cls, kwargs, _ = CASES[name]
     agent, built = cls(**kwargs), []
+    if not hasattr(agent, "get_make_train"):
+        return ""  # TDMPC2MultiTask: chunked programs of its own, not one
     make_train = agent.get_make_train
 
     def spy() -> Any:

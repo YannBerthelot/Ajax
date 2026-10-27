@@ -466,21 +466,14 @@ class TrainEpisodeProbe(Probe):
 def tdmpc2_evaluator(agent: Any, num_episodes: int) -> Callable[[Any, Any], dict]:
     """``(states, keys) -> metrics``: ``num_episodes`` evaluation episodes of
     the planner in ``eval_mode`` per seed
-    (:func:`~ajax.agents.TDMPC2.train_TDMPC2.evaluate_tdmpc2`, the agent's
-    own evaluation, tdmpc2_spec 4.21), every seed at once."""
+    (:meth:`~ajax.agents.TDMPC2.TDMPC2.TDMPC2.evaluate`, the agent's own
+    evaluation, tdmpc2_spec 4.21), every seed at once."""
     import jax
 
-    from ajax.agents.TDMPC2.train_TDMPC2 import evaluate_tdmpc2
+    _, context = agent.make_context(0)
 
     def evaluate(state: Any, key: Any) -> dict:
-        return evaluate_tdmpc2(
-            state,
-            key,
-            env_args=agent.env_args,
-            config=agent.agent_config,
-            gamma=agent.gamma,
-            num_episodes=num_episodes,
-        )
+        return agent.evaluate(state, key, context, num_episode_test=num_episodes)
 
     return jax.jit(jax.vmap(evaluate))
 
@@ -617,13 +610,12 @@ def run_single_task(
     def skeleton() -> Any:
         return agent.train(seed=seeds, n_timesteps=0)[0]
 
-    # The agent's static maths configuration (TD-MPC2 keeps it as agent_config).
-    maths = agent.model_config if spec.agent == "DreamerV3" else agent.agent_config
     run_spec = {
         "run": dataclasses.asdict(spec),
         "resolved": {
             "config": jsonable(agent.config),
-            "model_config": jsonable(maths),
+            # The agent's static maths configuration.
+            "model_config": jsonable(agent.model_config),
         },
     }
     records, state = run_chunked(

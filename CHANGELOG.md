@@ -23,6 +23,24 @@ PyPI as `ajax-rl`.
   (now `replay.count_row_bytes`); `MetricsAccumulator` to `ajax.log`. Its
   extension context drops `agent_config` and `total_timesteps`, which no
   extension read. Training is unchanged, bitwise.
+- **TD-MPC2 is a declared agent** on the own-replay family, read from
+  `agents/TDMPC2/TDMPC2.py`: its keywords are fixed fields, keyword-only
+  after `env_id`. The `gamma` and `seed_steps` fields keep the values
+  passed (`None`: derived from the episode length); the values used are
+  `agent.resolved_gamma` and `agent.resolved_seed_steps` (read
+  `agent.gamma` for the derived discount no more). `agent.agent_config` is
+  renamed `agent.model_config`, on `TDMPC2MultiTask` too, and
+  `TDMPC2Config` no longer subclasses `BaseAgentConfig` (its
+  `expose_recent_rollout` is gone). Deleted, without a deprecation path:
+  `train_TDMPC2` and `agent.train_kwargs`'s entries. The names moved:
+  `Schedule` (now `FixedLengthSchedule`), `EpisodicSchedule` and
+  `TDMPC2State` to `TDMPC2.py`; `planner_policy` (now
+  `planner.plan_for_envs`); `update_metrics_zeros` (now
+  `core.make_zero_update_metrics`); `clip_grad_norm`, `make_world_model_tx`
+  and `make_policy_tx` from `core` to `TDMPC2/optim.py`; the ring's creation
+  to `buffer.make_episode_buffer`. `agents.TDMPC2` no longer re-exports
+  the classes (import them from `ajax` or their modules). Its extensions
+  are bound, to an empty context. Training is unchanged, bitwise.
 - **UDRL runs the action stage.** `JSRLCurriculum` and EDGE's fixed gate
   hand its expert steps, and its segment keeps the choice executing the
   expert's action (the expert's own, or a residual of 0), which its actor

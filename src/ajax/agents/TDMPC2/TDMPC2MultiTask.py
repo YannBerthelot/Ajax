@@ -215,7 +215,7 @@ class TDMPC2MultiTask:
             discount_max=discount_max,
         )
         self.task_dim = int(task_dim)
-        self.agent_config: TDMPC2Config = TDMPC2Config.from_arguments(self.config)
+        self.model_config: TDMPC2Config = TDMPC2Config.from_arguments(self.config)
         self.learning_rate = learning_rate
         self.enc_lr_scale = float(enc_lr_scale)
         self.pi_eps = float(pi_eps)
@@ -240,7 +240,7 @@ class TDMPC2MultiTask:
                 "dataset_episodes": dataset.num_episodes,
                 "dataset_rows": dataset.rows,
                 "dataset_bytes": dataset.nbytes,
-                **self.agent_config.resolved(self.tasks.action_dim),
+                **self.model_config.resolved(self.tasks.action_dim),
             }
         )
 
@@ -316,7 +316,7 @@ class TDMPC2MultiTask:
         cache_key = (num_updates, total)
         if cache_key not in self._train_fns:
             train = make_train(
-                self.agent_config,
+                self.model_config,
                 self.tasks,
                 num_updates,
                 task_dim=self.task_dim,
@@ -349,7 +349,7 @@ class TDMPC2MultiTask:
         resumed path of a single training program (:meth:`_train_fn`)."""
         if total not in self._init_fns:
             init = make_init(
-                self.agent_config,
+                self.model_config,
                 self.tasks,
                 task_dim=self.task_dim,
                 learning_rate=self.learning_rate,
@@ -372,7 +372,7 @@ class TDMPC2MultiTask:
             evaluate = partial(
                 evaluate_task,
                 env_args=self.eval_env_args[task],
-                config=self.agent_config,
+                config=self.model_config,
                 tasks=self.tasks,
                 task=task,
                 num_episodes=num_episodes,

@@ -412,12 +412,15 @@ def test_p3_e8_post_update_runs_after_the_update(agent: str) -> None:
 
 @pytest.mark.parametrize("agent", _exact(BOOKKEEPING))
 def test_p3_e10_undeclared_phase_raises_at_construction(agent: str) -> None:
-    """An agent declaring every phase but ``action`` rejects an extension
-    implementing it at construction, naming the phase."""
+    """An agent declaring every phase but action rejects an extension
+    implementing it at construction, in the extension check's words (the phase;
+    on-policy agents, the off_policy it needs), not the action stage's (no slot)."""
     cls = agents.agent_class(agent)
     phases = frozenset(PHASES) - {"action"}
     restricted = type(cls.__name__, (cls,), {"supported_extension_phases": phases})
-    with pytest.raises(ValueError, match="action"):
+    off_policy = ActionOverride().needs().issubset(cls.capabilities)
+    words = r"folds no \['action'\] phase" if off_policy else "needs off_policy"
+    with pytest.raises(ValueError, match=words):
         small(agent, 1, (ActionOverride(),), restricted)
 
 

@@ -45,7 +45,7 @@ agent = TDMPC2("Pendulum-v1", model_size=1, num_samples=64, num_elites=8,
 logging = LoggingConfig(config={}, log_frequency=600, use_wandb=False)
 state, evaluations = agent.train(seed=0, n_timesteps=1_200, num_episode_test=2,
                                  logging_config=logging)
-print(agent.gamma)  # 0.975, derived from Pendulum's 200-step episodes
+print(agent.resolved_gamma)  # 0.975, derived from Pendulum's 200-step episodes
 print(evaluations["Eval/episodic mean reward"])
 ```
 
@@ -105,9 +105,18 @@ Every default is the paper's (`config.yaml` at `5f6fade`).
   training.
 - **Replay memory** is sized at each `train` call for the steps the run will
   have taken: `min(buffer_size, total)` (T26), in the episodic mode as well
-  (T29). At full capacity it takes 124 MB per seed on DMC Walker. A run
-  trained in chunks, or restored from a checkpoint by a new agent, replays
-  exactly what the uninterrupted run does.
+  (T29). The ring holds `R = ceil(capacity / (T * n_envs)) + 1` rounds of one
+  episode per environment, `R * n_envs * (T + 1) * (obs_dim + A + 1) * 4`
+  bytes per seed: at full capacity, 124 MB on DMC Walker (observations 24,
+  actions 6, T = 500). `agent.replay_capacity` and
+  `agent.replay_bytes_per_seed` give the figures after `train` (also in the
+  run config). A run trained in chunks, or restored from a checkpoint by a
+  new agent, replays exactly what the uninterrupted run does.
+- **Recompilation.** The architecture (`model_size` and the widths),
+  `simnorm_dim`, `num_bins`, `vmax`, `horizon`, `batch_size`, `buffer_size`,
+  `seed_steps` and the planner's sizes fix the compiled program; changing one
+  recompiles. The other hyperparameters are plain floats, and
+  `learning_rate` may be a schedule.
 - **Actions.** The planner's actions lie in `[-1, 1]`; Ajax maps them onto
   the environment's bounds, as the reference scales its actions.
 - **Several environments.** `n_envs > 1` plans for each environment separately

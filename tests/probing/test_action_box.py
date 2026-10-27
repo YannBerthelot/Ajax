@@ -89,11 +89,11 @@ def _actor(run: runs.Run) -> dict:
 
 
 def _tdmpc2(run: runs.Run) -> dict:
-    """The evaluation planner's first decision (eval_mode, a zero warm
-    start), averaged over 16 envs of each context: it picks an elite at
-    random."""
+    """The evaluation planner's first decision (eval_mode, a zero warm start),
+    averaged over 16 envs of each context: it picks an elite at random."""
     agent, s, obs = run.agent, run.state, jnp.repeat(CONTEXTS, 16, 0)
-    kw = {"config": agent.model_config, "gamma": agent.gamma, "eval_mode": True}
+    kw = {"config": agent.model_config, "gamma": agent.resolved_gamma}
+    kw.update({"eval_mode": True})
 
     def one(wm: Any, pi: Any, key: jax.Array) -> jax.Array:
         carry = jnp.zeros((48, agent.model_config.horizon, 1))

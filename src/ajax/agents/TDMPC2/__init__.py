@@ -2,9 +2,10 @@
 
 The world model (:mod:`.networks`), the static configuration and states
 (:mod:`.state`), one training update (:mod:`.core`) and the MPPI planner
-(:mod:`.planner`) as pure functions; the b67b21c episode replay buffer
-(:mod:`.buffer`), the online training loop (:mod:`.train_TDMPC2`) and the
-agent class :class:`TDMPC2` (:mod:`.TDMPC2`). Multi-task: the
+(:mod:`.planner`) as pure functions, and their optimisers (:mod:`.optim`); the
+b67b21c episode replay buffer (:mod:`.buffer`) and the agent class
+:class:`TDMPC2` (:mod:`.TDMPC2`: its tick, acting, storing, the schedule's
+updates and logging). Multi-task: the
 task-conditioning mechanisms (:mod:`.multitask`), the offline datasets
 (:mod:`.dataset`), the offline training loop (:mod:`.train_TDMPC2MultiTask`)
 and the agent class :class:`TDMPC2MultiTask` (:mod:`.TDMPC2MultiTask`). See

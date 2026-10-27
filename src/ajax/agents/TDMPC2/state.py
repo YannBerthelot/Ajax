@@ -3,9 +3,8 @@
 :class:`TDMPC2Config` holds the static hyperparameters of the world model, of
 one training update, of the MPPI planner (tdmpc2_spec §1-§3) and of the online
 loop's replay (§4), with the paper-era defaults of
-``nicklashansen/tdmpc2@5f6fade:tdmpc2/config.yaml``. It is the agent's
-``<AGENT>Config`` of the agent anatomy (``CONTRIBUTING.md``): a
-:class:`~ajax.state.BaseAgentConfig` whose own fields are all static
+``nicklashansen/tdmpc2@5f6fade:tdmpc2/config.yaml``: the agents' maths and
+planner configuration (their ``model_config``). Its fields are all static
 (``pytree_node=False``), so it is hashable and jitted functions take it as a
 static argument. Not in it: the learning rates, which are schedulable
 (``float | Callable``) and live in the optimizers
@@ -34,7 +33,7 @@ from ajax.agents.TDMPC2.networks import MODEL_SIZE
 from ajax.distributional import TwoHot
 from ajax.environments.row_collector import RowCollectorState
 from ajax.normalizers import RunningScale
-from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
+from ajax.state import BaseAgentState, LoadedTrainState
 from ajax.types import Replaceable
 
 if TYPE_CHECKING:  # buffer.py builds core.TDMPC2Batch; core imports this module
@@ -47,7 +46,7 @@ def _static(default: Any) -> Any:
 
 
 @struct.dataclass(kw_only=True)
-class TDMPC2Config(BaseAgentConfig):
+class TDMPC2Config(Replaceable):
     """Static TD-MPC2 hyperparameters (defaults: the 5M single-task model).
 
     Architecture (tdmpc2_spec 1.20; prefer :meth:`from_model_size`):
@@ -86,7 +85,7 @@ class TDMPC2Config(BaseAgentConfig):
         temperature: multiplies the elite values in the MPPI score
             ``exp(temperature (V - max V))`` (0.5).
 
-    Online loop (tdmpc2_spec §4; :mod:`ajax.agents.TDMPC2.train_TDMPC2`):
+    Online loop (tdmpc2_spec §4; :class:`ajax.agents.TDMPC2.TDMPC2.TDMPC2`):
         batch_size: sub-trajectories of ``horizon + 1`` rows per update (256).
         buffer_size: replay capacity in env steps (1,000,000), clamped to the
             run length (:func:`ajax.agents.TDMPC2.buffer.replay_capacity`).

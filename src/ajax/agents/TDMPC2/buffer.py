@@ -356,7 +356,7 @@ class EpisodeBuffer:
         ``RandomCropTensorDict(H + 1)``, independent per sample), then
         :func:`slice_batch`. ``tick`` is the tick whose row was written last
         (unbatched); the schedule guarantees at least one committed episode
-        (:attr:`~ajax.agents.TDMPC2.train_TDMPC2.Schedule.seed_step`).
+        (:attr:`~ajax.agents.TDMPC2.TDMPC2.FixedLengthSchedule.seed_step`).
         """
         self.check_layout(state)
         if horizon > self.episode_length:

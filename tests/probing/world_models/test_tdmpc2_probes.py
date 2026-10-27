@@ -78,7 +78,7 @@ def reward_is_action():
 def test_value_is_the_discounted_sum_through_time_limits(constant_reward):
     agent, state = constant_reward
     assert state.ext_state == ()  # no extensions: no extension state
-    target = 1.0 / (1.0 - agent.gamma)
+    target = 1.0 / (1.0 - agent.resolved_gamma)
     actions = jnp.linspace(-1.0, 1.0, 5)[:, None]
     for seed_state in _per_seed(state):
         wm = seed_state.world_model_state
@@ -109,7 +109,7 @@ def test_planner_plays_the_rewarding_action(reward_is_action):
             wm_params=wm.params,
             pi_params=seed_state.actor_state.params,
             config=agent.model_config,
-            gamma=agent.gamma,
+            gamma=agent.resolved_gamma,
             eval_mode=True,
         )
         assert np.all(np.asarray(action) > 0.9)

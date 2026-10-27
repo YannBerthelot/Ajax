@@ -21,7 +21,6 @@ from ajax.agents.TDMPC2 import core
 from ajax.agents.TDMPC2.dataset import TaskEpisodes, pool_tasks
 from ajax.agents.TDMPC2.networks import make_policy_prior, make_world_model
 from ajax.agents.TDMPC2.planner import estimate_value
-from ajax.agents.TDMPC2.train_TDMPC2 import evaluate_tdmpc2
 
 from . import agents, envs, runs
 from .verdict import STAGE_1, Case, Query, check, params
@@ -237,12 +236,12 @@ def _q12_read(agent: Any, s: Any, key: jax.Array) -> dict:
     n, cfg = actions.shape[1], config.replace(dropout=0.0)
     z = jnp.broadcast_to(z0, (n, z0.shape[-1]))
     args = (z, actions, jnp.zeros((n, 1)), jnp.arange(2), KEY)
-    v = estimate_value(wm.params, pi, *args, config=cfg, gamma=agent.gamma)
+    v = estimate_value(wm.params, pi, *args, config=cfg, gamma=agent.resolved_gamma)
     best = jnp.stack(
         [jnp.max(v[np.flatnonzero([k == p for k, _ in seqs])]) for p in PLANS]
     )
-    kw = {"env_args": agent.env_args, "config": config, "gamma": agent.gamma}
-    ev = evaluate_tdmpc2(s, jax.random.split(key)[1], num_episodes=8, **kw)
+    _, context = agent.make_context(0)
+    ev = agent.evaluate(s, jax.random.split(key)[1], context, num_episode_test=8)
     out |= {"rolled R gap": rolled[0] - rolled[1], "plan gap": best[0] - best[1:].max()}
     out["eval return"] = ev[f"Eval/{RET}"]
     return out | {"train return": s.collector_state.episodic_mean_return}

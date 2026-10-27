@@ -73,13 +73,13 @@ def test_the_paper_era_agent_learns_a_continuing_chain_instead():
     learned: the values of a chain that never ends."""
     agent = TDMPC2(ChainEnv(), **CHAIN)
     budget = ROWS * 3 // 4  # about as many updates as the episodic run
-    buffer = agent._replay_buffer(budget)
+    replay, _ = agent.prepare_replay(0, agent.count_ticks(budget, 0), None)
     state, _ = ActorCritic.train(
         agent,
         seed=CHAIN_SEEDS,
         n_timesteps=budget,
         num_episode_test=1,
-        buffer=buffer,
+        replay=replay,
         start_tick=0,
     )
     assert np.all(np.asarray(state.collector_state.n_offschedule_dones) > 0)

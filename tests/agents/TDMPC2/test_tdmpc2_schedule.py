@@ -4,7 +4,7 @@
 ``nicklashansen/tdmpc2@b67b21c:tdmpc2/trainer/online_trainer.py:67-117``
 (unchanged at 5f6fade) with the agent and buffer replaced by recorders and
 the env by :class:`toy_envs.CounterEnv`'s dynamics. The static
-:class:`~ajax.agents.TDMPC2.train_TDMPC2.Schedule` must reproduce it for one
+:class:`~ajax.agents.TDMPC2.TDMPC2.FixedLengthSchedule` must reproduce it for one
 env (``DESIGN.md`` §4.4), and the real row collector + episode ring must
 store exactly the reference's episodes. ``n_envs > 1`` is checked against a
 port of the documented generalisation (deviation T7).
@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 from ajax.agents.TDMPC2.buffer import EpisodeBuffer, slice_batch
-from ajax.agents.TDMPC2.train_TDMPC2 import Schedule
+from ajax.agents.TDMPC2.TDMPC2 import FixedLengthSchedule
 from ajax.environments.row_collector import collect_row, init_row_collector_state
 from ajax.state import EnvironmentConfig
 
@@ -113,7 +113,9 @@ def test_one_env_reproduces_the_reference_loop(episode_length, seed_steps):
     trace, _ = reference_online_loop(
         steps, seed_steps, episode_length, np.zeros(steps + 1)
     )
-    schedule = Schedule(n_envs=1, episode_length=episode_length, seed_steps=seed_steps)
+    schedule = FixedLengthSchedule(
+        n_envs=1, episode_length=episode_length, seed_steps=seed_steps
+    )
     buffer = EpisodeBuffer.create(
         capacity=10**7, n_envs=1, episode_length=episode_length, obs_dim=2, action_dim=1
     )
@@ -137,7 +139,7 @@ def test_many_envs_follow_the_documented_generalisation(
 ):
     steps_per_env = max(seed_steps // n_envs, episode_length) + 2 * episode_length + 3
     trace = generalised_loop(steps_per_env, seed_steps, episode_length, n_envs)
-    schedule = Schedule(
+    schedule = FixedLengthSchedule(
         n_envs=n_envs, episode_length=episode_length, seed_steps=seed_steps
     )
     buffer = EpisodeBuffer.create(
@@ -156,7 +158,7 @@ def test_many_envs_follow_the_documented_generalisation(
 def test_short_seed_phases_wait_for_the_first_episode():
     """S < T would make the reference sample an empty buffer; Ajax keeps
     acting randomly until the first round is committed."""
-    schedule = Schedule(n_envs=1, episode_length=10, seed_steps=3)
+    schedule = FixedLengthSchedule(n_envs=1, episode_length=10, seed_steps=3)
     assert schedule.seed_step == 10
     assert schedule.seed_tick == 11  # the first step of the second episode
     assert int(schedule.n_updates(11)) == 3
@@ -178,22 +180,22 @@ def test_updates_per_step_scales_the_updates_per_tick(n_envs, ratio, per_tick):
     """``max(1, round(n r))`` updates on every stepping tick after the
     burst (deviation T28); the burst and the other ticks are unchanged."""
     kwargs = {"n_envs": n_envs, "episode_length": 10, "seed_steps": 30}
-    schedule = Schedule(**kwargs, updates_per_step=ratio)
+    schedule = FixedLengthSchedule(**kwargs, updates_per_step=ratio)
     assert schedule.updates_per_tick == per_tick
     ticks = np.arange(schedule.num_ticks(100 * n_envs))
     after = (ticks > schedule.seed_tick) & ~np.asarray(schedule.is_held(ticks))
     got = np.asarray(schedule.n_updates(ticks))
     np.testing.assert_array_equal(got[after], per_tick)
-    reference = np.asarray(Schedule(**kwargs).n_updates(ticks))
+    reference = np.asarray(FixedLengthSchedule(**kwargs).n_updates(ticks))
     np.testing.assert_array_equal(got[~after], reference[~after])
     assert got[schedule.seed_tick] == 30
     for bad in (0.0, -1.0):
         with pytest.raises(ValueError, match="updates_per_step"):
-            Schedule(**kwargs, updates_per_step=bad)
+            FixedLengthSchedule(**kwargs, updates_per_step=bad)
 
 
 def test_held_ticks_and_tick_counts():
-    schedule = Schedule(n_envs=2, episode_length=4, seed_steps=8)
+    schedule = FixedLengthSchedule(n_envs=2, episode_length=4, seed_steps=8)
     ticks = np.arange(20)
     np.testing.assert_array_equal(np.asarray(schedule.is_held(ticks)), ticks % 5 == 4)
     assert all(bool(schedule.random_phase(t)) for t in (4, 9, 14))  # held: no planning
@@ -214,7 +216,7 @@ def test_held_ticks_and_tick_counts():
         start = schedule.num_ticks(first)
         assert start + schedule.num_ticks(30 - first, start) == schedule.num_ticks(30)
     with pytest.raises(ValueError):
-        Schedule(n_envs=0, episode_length=4, seed_steps=1)
+        FixedLengthSchedule(n_envs=0, episode_length=4, seed_steps=1)
 
 
 @pytest.mark.parametrize("n_envs", [1, 2])
@@ -228,7 +230,7 @@ def test_collector_and_ring_store_the_reference_episodes(n_envs):
     env_args = EnvironmentConfig(
         env=env, env_params=env.default_params, n_envs=n_envs, continuous=True
     )
-    schedule = Schedule(n_envs=n_envs, episode_length=T, seed_steps=S)
+    schedule = FixedLengthSchedule(n_envs=n_envs, episode_length=T, seed_steps=S)
     buffer = EpisodeBuffer.create(
         capacity=steps_per_env * n_envs,
         n_envs=n_envs,

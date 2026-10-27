@@ -50,7 +50,6 @@ import pytest
 
 from ajax.agents.TDMPC2 import core
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2UpdateState
-from ajax.state import BaseAgentConfig
 
 from .common import td_target_of
 from .reference_params import (
@@ -133,13 +132,8 @@ def test_config_defaults_are_the_paper_defaults(paper_config):
     ``config.yaml``'s (``e9f5932``: ``episodic: false``, ``termination_coef:
     1``; deviation T29)."""
     default = TDMPC2Config()
-    base = {f.name for f in dataclasses.fields(BaseAgentConfig)}
     latest = {"episodic": False, "termination_coef": 1.0}
-    names = [
-        f.name
-        for f in dataclasses.fields(default)
-        if f.name not in base and f.name not in latest
-    ]
+    names = [f.name for f in dataclasses.fields(default) if f.name not in latest]
     assert {n: getattr(default, n) for n in names} == {
         n: paper_config[n] for n in names
     }

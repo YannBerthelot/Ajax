@@ -66,6 +66,7 @@ from ajax.networks.memory import MemoryConfig
 from ajax.networks.q_networks import DuelingQNetwork
 from ajax.schedule import linear
 from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
+from tests.agents.extension_stubs import CounterExt, MetricExt
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
 from tests.agents.test_offline import episodes
 from tests.modules import setpoint_env
@@ -126,6 +127,17 @@ class ValueKeyed(Keyed):
 class ActorKeyed(Keyed):
     on_target = Extension.on_target
     critic_loss = Extension.critic_loss
+
+
+@dataclass(frozen=True)
+class LoopKeyed(ActorKeyed):
+    """Keyed in the loop's phases alone, which the world models fold: its
+    evaluation metric draws on its key too."""
+
+    actor_loss = Extension.actor_loss
+
+    def eval_metrics(self, agent_state, ext_state, rng, context):
+        return {"keyed": ext_state + 0.01 * jax.random.normal(rng)}
 
 
 def push(obs: jax.Array) -> jax.Array:
@@ -506,6 +518,20 @@ UDRL_WIRING_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         128,
     ),
 }
+# DreamerV3's paths its declaration moves: acting on continuous actions, a
+# resume growing the ring from 40 to 80 rows per env, and the extensions it
+# binds, counting, logging and drawing keys. Last in the table, so the cases
+# before keep their order.
+WORLD_MODEL_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "DreamerV3-continuous": (DreamerV3, {**DREAMER, "env_id": "Pendulum-v1"}, 80),
+    "DreamerV3-resume": (DreamerV3, {**DREAMER, "replay_capacity": 1000}, 80),
+    "DreamerV3-extensions": (
+        DreamerV3,
+        {**DREAMER, "extensions": (CounterExt(), MetricExt())},
+        80,
+    ),
+    "DreamerV3-keyed": (DreamerV3, {**DREAMER, "extensions": (LoopKeyed(),)}, 80),
+}
 OFFLINE.update({"TD3-target-bc-offline"})
 #: The dataset an OFFLINE case trains on, where it is not test_offline's.
 DATASETS = {"TD3-target-bc-offline": long_episodes()}
@@ -517,6 +543,7 @@ RESUMED: dict[str, tuple[dict[str, Any], int]] = {
         {"reset_optimizer_on_resume": False, "total_timesteps": 160},
         80,
     ),
+    "DreamerV3-resume": ({}, 80),
 }
 CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "TD3": (TD3, {**S, **R}, 200),
@@ -724,6 +751,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     **APG_FEATURE_CASES,
     **STORE_REACH_CASES,
     **UDRL_WIRING_CASES,
+    **WORLD_MODEL_CASES,
 }
 
 

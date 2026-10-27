@@ -50,6 +50,7 @@ from ajax.extensions.exploration import EDGEExploration
 from ajax.extensions.observe import (
     ExpertActionInput,
     ExpertStateInput,
+    PIDTermsInput,
     TrainingProgressInput,
 )
 from ajax.extensions.offline import TargetBC
@@ -556,6 +557,14 @@ TDMPC2_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "TDMPC2-keyed": (TDMPC2, {**TDMPC2_KW, "extensions": (LoopKeyed(),)}, 40),
     "TDMPC2MultiTask": (_multitask, {**TDMPC2_TINY, "task_dim": 4}, 40),
 }
+# The world models with both features they take: the training progress and a
+# PID's terms on obs[1] - obs[0]. Last in the table.
+PID_TERMS = PIDTermsInput(current_idx=(0,), target_idx=(1,))
+WORLD_FEATURES = {"extensions": (TrainingProgressInput(), PID_TERMS)}
+WORLD_FEATURE_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "DreamerV3-features": (DreamerV3, {**DREAMER, **WORLD_FEATURES}, 80),
+    "TDMPC2-features": (TDMPC2, {**TDMPC2_KW, **WORLD_FEATURES}, 40),
+}
 OFFLINE.update({"TD3-target-bc-offline"})
 #: The dataset an OFFLINE case trains on, where it is not test_offline's.
 DATASETS = {"TD3-target-bc-offline": long_episodes()}
@@ -778,6 +787,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     **UDRL_WIRING_CASES,
     **WORLD_MODEL_CASES,
     **TDMPC2_CASES,
+    **WORLD_FEATURE_CASES,
 }
 
 

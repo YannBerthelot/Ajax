@@ -39,6 +39,7 @@ from ajax.agents.update_steps import (
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.evaluate import evaluate
 from ajax.extensions.base import Extension, ExtensionStack, merge_metrics
+from ajax.log import evaluation_keys
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.state import Transition
 from ajax.types import Replaceable
@@ -625,7 +626,7 @@ class _HalfTorque:
         return jnp.clip(-0.5 * obs[..., :1], -1.0, 1.0), state
 
 
-def _expert_rows(normalize_observations: bool) -> tuple[Any, Any, np.ndarray]:
+def _expert_rows(normalize_observations: bool) -> tuple[Any, Any, Any, Any]:
     agent = SAC(
         "Pendulum-v1",
         n_envs=2,
@@ -639,7 +640,8 @@ def _expert_rows(normalize_observations: bool) -> tuple[Any, Any, np.ndarray]:
     state, rows = agent.train(
         seed=SEEDS, n_timesteps=BUDGET, num_episode_test=2, logging_config=_config()
     )
-    return agent, state, np.asarray(rows["Eval/episodic mean expert reward"])
+    expert_returns = np.asarray(rows["Eval/episodic mean expert reward"])
+    return agent, state, expert_returns, np.asarray(rows["timestep"])
 
 
 @pytest.mark.parametrize("normalize", [False, True], ids=["raw", "normalised"])
@@ -650,16 +652,16 @@ def test_each_evaluation_reports_the_experts_return_on_its_episodes(
     ``evaluate`` earns on the agent's episodes (its key), an observation
     normaliser or not (the expert acts on the environment's own
     observations)."""
-    agent, state, rows = _expert_rows(normalize_observations=normalize)
+    agent, state, rows, timesteps = _expert_rows(normalize_observations=normalize)
     for seed in range(len(SEEDS)):
-        actor_state = jax.tree.map(lambda x, s=seed: x[s], state.actor_state)
+        seed_state = jax.tree.map(lambda x, s=seed: x[s], state)
         for n_logs in range(4):
-            key = jax.random.fold_in(state.eval_rng[seed], n_logs)
+            key = evaluation_keys(seed_state, timesteps[seed, n_logs])[0]
             expert_return = evaluate(
                 agent.env_args.env,
-                actor_state,
+                seed_state.actor_state,
                 2,
-                jax.random.split(key)[0],
+                key,
                 agent.env_args.env_params,
                 expert_policy=agent.expert_policy,
             )[-1]

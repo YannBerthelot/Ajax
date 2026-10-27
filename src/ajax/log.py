@@ -9,6 +9,7 @@ from jax.tree_util import Partial as partial
 
 from ajax.controller import Controller
 from ajax.evaluate import ValueEstimate, evaluate
+from ajax.random_keys import derive_key
 from ajax.state import BaseAgentState, EnvironmentConfig
 from ajax.types import Replaceable
 
@@ -80,15 +81,17 @@ def gated_log_callback(log_fn: Callable, flag: Any, metrics: dict, index: Any) -
     jax.debug.callback(_gated, flag, metrics, index)
 
 
-def evaluation_keys(agent_state: Any) -> tuple[jax.Array, jax.Array]:
+def evaluation_keys(
+    agent_state: Any, progress: Any, phase: str = "online"
+) -> tuple[jax.Array, jax.Array]:
     """``(eval_key, extra_key)``: the keys of the policy's evaluation and of
-    the extensions' ``eval_metrics`` at the evaluation ``agent_state.n_logs``
-    counts up to, ``split(fold_in(eval_rng, n_logs))``. Each evaluation
-    draws fresh initial states and noise, deterministically per seed and
-    apart from training (``eval_rng`` is split apart from ``rng``)."""
-    eval_key, extra_key = jax.random.split(
-        jax.random.fold_in(agent_state.eval_rng, agent_state.n_logs)
-    )
+    the extensions' ``eval_metrics`` at ``progress`` (the env steps
+    collected; offline, the updates done, a count online restarts) in
+    ``phase`` ("online" or "offline"): fresh at each evaluation, whatever
+    the log frequency, and apart from training (``eval_rng`` is split apart
+    from ``rng``)."""
+    phase_key = derive_key(agent_state.eval_rng, f"{phase}_evaluation")
+    eval_key, extra_key = jax.random.split(jax.random.fold_in(phase_key, progress))
     return eval_key, extra_key
 
 
@@ -120,7 +123,7 @@ def maybe_eval_and_log(
     (the agent's training metrics, e.g. ``timestep`` and losses) updated
     with ``evaluate_fn(agent_state, eval_key)`` and, when given,
     ``extra_eval_metrics(agent_state, extra_key)`` (:func:`evaluation_keys`:
-    fresh at each evaluation); they are sent to ``log_fn``
+    those of the timestep the metrics log); they are sent to ``log_fn``
     through :func:`gated_log_callback` and ``agent_state.n_logs`` is
     incremented. Otherwise the same structure is returned filled with NaN
     (``-1`` for integer leaves) and ``n_logs`` is unchanged; never so
@@ -136,8 +139,8 @@ def maybe_eval_and_log(
     flag = jnp.logical_and(enabled, (iteration + 1) % (every or 1) == 0)
 
     def run(agent_state, aux, index):
-        eval_key, extra_key = evaluation_keys(agent_state)
         metrics = dict(metrics_fn(agent_state, aux))
+        eval_key, extra_key = evaluation_keys(agent_state, metrics["timestep"])
         metrics.update(evaluate_fn(agent_state, eval_key))
         if extra_eval_metrics is not None:
             metrics.update(extra_eval_metrics(agent_state, extra_key))
@@ -299,6 +302,7 @@ def _make_no_op(extra_eval_metrics=None, choosers=False):
         "sweep",
         "extra_eval_metrics",
         "controller",
+        "phase",
         "value_estimate",
     ],
 )
@@ -321,9 +325,11 @@ def evaluate_and_log(
     extra_eval_metrics: Optional[Callable] = None,
     controller: Optional[Controller] = None,
     value_estimate: Optional[ValueEstimate] = None,
+    phase: str = "online",
 ) -> tuple[BaseAgentState, Optional[dict]]:
-    """Evaluate and log every ``log_frequency`` collected steps, each
-    evaluation from fresh keys (:func:`evaluation_keys`); returns the
+    """Evaluate and log every ``log_frequency`` collected steps (offline:
+    updates, ``phase``), each evaluation from the keys of its timestep
+    (:func:`evaluation_keys`); returns the
     state (one more ``n_logs`` per evaluation) and the logged metrics, or
     the same structure filled with NaN (``-1``: the timestep) between
     evaluations. Without logging (``log`` false) the evaluation is not even
@@ -350,7 +356,7 @@ def evaluate_and_log(
     choosers = controller is not None and bool(controller.choosers)
 
     def run_and_log(agent_state: BaseAgentState, aux: Any, index: int):
-        eval_key, extra_key = evaluation_keys(agent_state)
+        eval_key, extra_key = evaluation_keys(agent_state, timestep, phase)
         outputs = evaluate(
             env_args.env,
             actor_state=agent_state.actor_state,

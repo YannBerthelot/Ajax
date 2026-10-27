@@ -2,6 +2,7 @@
 config (with or without a backend) and do not even trace the evaluation
 without one."""
 
+from types import SimpleNamespace
 from typing import Any
 
 import gymnax
@@ -203,3 +204,31 @@ def test_an_evaluation_normalises_with_the_collectors_statistics(monkeypatch):
         controller=controller_module.make_run_controller(env_args),
     )
     assert read and all(info is not None for info in read)
+
+
+def test_an_evaluation_draws_the_keys_of_its_phase_and_timestep() -> None:
+    """Not of how many evaluations came before: the log frequency leaves the
+    keys at a timestep as they were, and the offline updates' count, which
+    restarts online, keys apart from the online steps'."""
+    state = SimpleNamespace(eval_rng=jax.random.PRNGKey(5), n_logs=0)
+    keys = log.evaluation_keys(state, 64)
+    later = log.evaluation_keys(SimpleNamespace(eval_rng=state.eval_rng, n_logs=3), 64)
+    np.testing.assert_array_equal(np.stack(keys), np.stack(later))
+    offline = log.evaluation_keys(state, 64, "offline")
+    assert not np.array_equal(np.stack(keys), np.stack(offline))
+
+
+def test_the_log_frequency_leaves_the_evaluations_at_a_timestep() -> None:
+    """Logging every 16 or every 32 steps, the evaluations at 32 and 64 are
+    the same (the training is: evaluations draw apart from it)."""
+    cls, kwargs = AGENTS["SAC"]
+    rows = {}
+    for every in (16, 32):
+        config = LoggingConfig(config={}, log_frequency=every, use_wandb=False)
+        _, out = cls(**kwargs).train(seed=0, n_timesteps=BUDGET, logging_config=config)
+        timesteps = np.asarray(out["timestep"])[0]
+        returns = np.asarray(out["Eval/episodic mean reward"])[0]
+        rows[every] = dict(zip(timesteps.tolist(), returns.tolist(), strict=False))
+    assert rows[32] and all(
+        rows[16][t] == pytest.approx(r) for t, r in rows[32].items()
+    )

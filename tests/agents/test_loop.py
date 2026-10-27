@@ -94,7 +94,8 @@ def test_no_update_before_learning_starts() -> None:
     The steps collected count every env's, not the collector's iterations.
     A given timestep (the step's own, for an update without a replay)
     replaces the steps collected."""
-    loop = dataclasses.replace(_loop(), env_args=SimpleNamespace(n_envs=2))
+    two_envs = SimpleNamespace(n_envs=2)
+    loop = dataclasses.replace(_loop(), env_args=two_envs)  # type: ignore[arg-type]
     early, metrics = loop.maybe_update(_state(9), 10, _update)
     assert float(early.value) == 1.0 and metrics.loss.shape == (1,)
     assert np.isnan(metrics.loss).all()

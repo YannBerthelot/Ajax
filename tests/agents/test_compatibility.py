@@ -84,14 +84,16 @@ OWN_STORE = "the agent's own collector does not run choose_replay_action yet"
 FEATURES = (
     "ExpertActionInput ExpertStateInput TrainingProgressInput PIDTermsInput".split()
 )
-# The expert features cannot reach a world model's imagined steps; training
-# progress and PID terms could, once its collector and imagination run them.
+# The expert features cannot reach a world model's imagined steps; the
+# training progress and PID terms join the observations it collects, and
+# imagination reads latents alone.
 IMAGINED = (
     "imagination has no observation for the expert to read: inherent, refused"
     " as unwired"
 )
-WORLD_FEATURES = (
-    "the world model's collector and its imagination have no feature stage yet"
+LOGGED = (
+    "it trains offline on logged observations, which hold no feature columns:"
+    " inherent, refused as unwired"
 )
 WORLD_ROWS = "TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask"
 
@@ -152,7 +154,7 @@ GAPS: dict[str, dict[str, str]] = {
         ),
     },
     IMAGINED: dict.fromkeys(FEATURES[:2], WORLD_ROWS),
-    WORLD_FEATURES: dict.fromkeys(FEATURES[2:], WORLD_ROWS),
+    LOGGED: dict.fromkeys(FEATURES[2:], "TDMPC2MultiTask"),
     CNN: {
         "cnn": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO APO/discrete DAgger"
         " DAgger/discrete IQL"

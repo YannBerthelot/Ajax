@@ -36,6 +36,7 @@ from ajax.agents.TDMPC2.TDMPC2 import (
 )
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions.base import Extension, ExtensionContext
+from ajax.extensions.observe import PIDTermsInput, TrainingProgressInput
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.extension_stubs import TargetTweak
 
@@ -211,6 +212,7 @@ def test_episode_length_derived_defaults():
         "pretrain",
         "post_update",
         "eval_metrics",
+        "observe",
     }
 
 
@@ -302,6 +304,29 @@ def test_playground_defaults_follow_the_paper_dmc_protocol():
     assert agent.agent_episode_length == 500
     assert agent.resolved_gamma == pytest.approx(0.99)
     assert agent.resolved_seed_steps == 2500
+
+
+def test_the_encoder_reads_the_features():
+    """Each stored row holds its features after Pendulum's 3 columns (the
+    progress, then a PID's e, I and D on obs[1] - obs[0]), which the encoder
+    reads; the logged evaluations add them at the progress the state holds."""
+    pid = PIDTermsInput(current_idx=(0,), target_idx=(1,))
+    agent = TDMPC2(
+        "Pendulum-v1",
+        env_params=PENDULUM_PARAMS,
+        seed_steps=PENDULUM_T,
+        extensions=(TrainingProgressInput(), pid),
+        **TINY,
+    )
+    logging = LoggingConfig(config={}, log_frequency=PENDULUM_T, use_wandb=False)
+    state, evaluations = agent.train(seed=0, n_timesteps=40, logging_config=logging)
+    encoder = state.world_model_state.params["encoder"]
+    assert agent.obs_dim == encoder["trunk"]["Dense_0"]["kernel"].shape[-2] == 3 + 4
+    obs = np.asarray(state.buffer_state.obs[0])
+    progress, error = obs[..., 3], obs[..., 4]
+    np.testing.assert_allclose(error, obs[..., 1] - obs[..., 0], rtol=1e-6, atol=1e-6)
+    assert 0 < progress.max() < 1
+    assert np.isfinite(evaluations["Eval/episodic mean reward"]).all()
 
 
 def test_discrete_actions_are_rejected():

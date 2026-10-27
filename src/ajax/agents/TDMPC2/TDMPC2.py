@@ -55,6 +55,7 @@ from ajax.agents.TDMPC2.buffer import (
 )
 from ajax.agents.TDMPC2.planner import plan_for_envs
 from ajax.agents.TDMPC2.state import TDMPC2Config
+from ajax.controller import feature_width
 from ajax.environments.row_collector import (
     RowCollectorState,
     collect_row,
@@ -105,8 +106,9 @@ class TDMPC2(OwnReplayAgent):
     steps plus one per finished episode). Observations and rewards are the
     env's raw values, as in the reference.
 
-    Extensions: pretrain, post_update (after every update, step = env steps)
-    and eval_metrics (with init_state).
+    Extensions: pretrain, post_update (after every update, step = env steps),
+    eval_metrics (with init_state) and observe (the observation features,
+    which the row collector and the evaluation append and the encoder reads).
     """
 
     #: Simulator steps per episode of a brax or playground env.
@@ -169,7 +171,8 @@ class TDMPC2(OwnReplayAgent):
             raise ValueError(
                 f"TD-MPC2 takes flat state observations, got shape {obs_shape}"
             )
-        self.obs_dim = int(obs_shape[0])
+        # The env's columns, then the observation features the collector appends.
+        self.obs_dim = int(obs_shape[0]) + feature_width(self.env_args)
         self.action_dim = int(get_action_dim(env, params))
         # T, in agent steps: never the episode_length argument directly.
         self.agent_episode_length = agent_episode_length(
@@ -432,6 +435,7 @@ class TDMPC2(OwnReplayAgent):
             lambda n_envs: jnp.zeros((n_envs, horizon, self.action_dim)),
             num_episode_test,
             key,
+            agent_state=agent_state,
         )
         return {
             "Eval/episodic mean reward": mean_return,
@@ -510,6 +514,10 @@ class TDMPC2(OwnReplayAgent):
             "reward_learning",
             "warmup",
         }
+    )
+    # Its row collector and evaluation append the observation features.
+    supported_extension_phases = OwnReplayAgent.supported_extension_phases.union(
+        {"observe"}
     )
 
 

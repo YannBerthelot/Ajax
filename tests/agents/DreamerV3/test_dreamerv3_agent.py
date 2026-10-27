@@ -32,6 +32,7 @@ from ajax.agents import loop
 from ajax.agents.DreamerV3.replay import ReplayState, StreamReplay
 from ajax.agents.DreamerV3.state import MODEL_SIZES, WIDTHS
 from ajax.checkpoint import restore_into, save_checkpoint
+from ajax.extensions.observe import PIDTermsInput, TrainingProgressInput
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.extension_stubs import METRIC, CounterExt, MetricExt, TargetTweak
 
@@ -243,23 +244,22 @@ def test_logs_at_the_cadence_with_house_and_train_metrics(cartpole):
 def test_the_evaluation_draws_from_the_key_it_is_handed(cartpole, monkeypatch):
     """The episodes draw from the key the shared path hands the evaluation,
     fresh at each one (``ajax.log.evaluation_keys``), not from a key of
-    their own."""
+    their own; the agent state goes with it, for the features' progress."""
     keys: list = []
+    states: list = []
 
-    def spy(env_args, policy, init_carry, num_episodes, key):
+    def spy(env_args, policy, init_carry, num_episodes, key, agent_state):
         keys.append(np.asarray(key))
+        states.append(agent_state)
         return jnp.zeros(()), jnp.zeros(())
 
     monkeypatch.setattr(AGENT_MODULE, "evaluate_policy", spy)
     agent, key = cartpole.agent, jax.random.PRNGKey(3)
     _, context = agent.make_context(ROWS)
-    agent.evaluate(
-        jax.tree.map(lambda x: x[0], cartpole.state),
-        key,
-        context=context,
-        num_episode_test=1,
-    )
+    state = jax.tree.map(lambda x: x[0], cartpole.state)
+    agent.evaluate(state, key, context=context, num_episode_test=1)
     np.testing.assert_array_equal(keys, [key])
+    assert len(states) == 1 and states[0] is state
 
 
 def _per_update(records: list, n_updates: int) -> list:
@@ -507,6 +507,34 @@ def test_pendulum_trains_on_raw_continuous_actions(pendulum):
     assert not bool(replay.is_first[0, :, 1:].any() | replay.is_last.any())
 
 
+@pytest.mark.parametrize("env_id, env_width", [("CartPole-v1", 4), ("Pendulum-v1", 3)])
+def test_the_world_model_reads_and_reconstructs_the_features(env_id, env_width):
+    """Each stored row holds its features after the env's columns (the
+    progress, then a PID's e, I and D on obs[1] - obs[0]), which the encoder
+    reads and the decoder reconstructs; the logged evaluations add them at
+    the progress the state holds."""
+    pid = PIDTermsInput(current_idx=(0,), target_idx=(1,))
+    agent = DreamerV3(
+        env_id,
+        n_envs=2,
+        train_ratio=8,
+        extensions=(TrainingProgressInput(), pid),
+        **TINY,
+    )
+    logging = LoggingConfig(config={}, log_frequency=40, use_wandb=False)
+    state, evaluations = agent.train(seed=0, n_timesteps=80, logging_config=logging)
+    width = agent.spec.obs_dim
+    params = state.world_model_state.params
+    assert width == env_width + 4
+    assert params["enc"]["Dense_0"]["kernel"].shape[-2] == width
+    assert params["dec"]["out"]["bias"].shape[-1] == width
+    obs = np.asarray(state.replay_state.obs[0])
+    progress, error = obs[..., env_width], obs[..., env_width + 1]
+    np.testing.assert_allclose(error, obs[..., 1] - obs[..., 0], rtol=1e-6, atol=1e-6)
+    assert np.all(np.diff(progress, axis=-1) >= 0) and 0 < progress.max() < 1
+    assert np.isfinite(evaluations["Eval/episodic mean reward"]).all()
+
+
 def test_playground_cartpole_with_action_repeat():
     """Action repeat 2 and 40 simulator steps: 20 agent steps per episode,
     so rows ``0, 21, 42, ...`` start episodes and ``20, 41, ...`` end them
@@ -540,7 +568,7 @@ def test_unsupported_extension_phases_are_rejected():
     with pytest.raises(ValueError, match="on_target"):
         cartpole_agent(extensions=[TargetTweak()])
     assert DreamerV3.supported_extension_phases == frozenset(
-        {"pretrain", "post_update", "eval_metrics"}
+        {"pretrain", "post_update", "eval_metrics", "observe"}
     )
 
 
@@ -589,6 +617,21 @@ def test_the_config_is_built_from_the_constructor_arguments():
     for field in dataclasses.fields(DreamerV3Config):
         default = parameters[field.name].default
         assert default is None if field.name in WIDTHS else default == field.default
+
+
+def test_a_rank_2_observation_with_features_is_refused(monkeypatch):
+    """The features join a rank-2 observation's last axis, which the flat
+    width the encoder reads does not count yet: refused at construction."""
+    shapes = AGENT_MODULE.get_state_action_shapes
+    monkeypatch.setattr(
+        AGENT_MODULE,
+        "get_state_action_shapes",
+        lambda env: ((2, 2), shapes(env)[1]),
+    )
+    with pytest.raises(ValueError, match="rank-2"):
+        DreamerV3(
+            "CartPole-v1", n_envs=2, extensions=(TrainingProgressInput(),), **TINY
+        )
 
 
 def test_image_observations_are_refused_at_construction():

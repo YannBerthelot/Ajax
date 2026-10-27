@@ -28,7 +28,7 @@ version choice and every departure from the reference.
 | Environments | gymnax, Brax, MuJoCo Playground |
 | Observations | flat vectors only; the environment must not normalise observations or rewards |
 | Several seeds in one call | yes, `train(seed=[...])` |
-| Extension phases | `pretrain`, `post_update` (after every update), `eval_metrics` |
+| Extension phases | `pretrain`, `post_update` (after every update), `eval_metrics`, `observe` (the features join the observation the encoder reads and the decoder reconstructs) |
 | Resume and checkpoints | yes; a resumed run continues the schedules and the replay, and equals the uninterrupted run (test) |
 
 ## Example

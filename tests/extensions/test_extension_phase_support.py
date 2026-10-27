@@ -48,6 +48,7 @@ WARMUP = {"SAC", "TD3", "REDQ", "ASAC", "AVG", "DQN"}
 CHOOSES_STORED = {"ASAC", "REDQ", "SAC", "TD3", "TQC", "DQN", "UDRL"}
 #: The collection phases an agent collecting on its own folds itself.
 OWN_FOLDS = {("APG", "observe"), ("UDRL", "observe"), ("UDRL", "action")}
+OWN_FOLDS.update({("DreamerV3", "observe"), ("TDMPC2", "observe")})
 
 
 @dataclass(frozen=True)
@@ -271,8 +272,8 @@ def test_agents_accept_only_the_phases_they_fold():
     """The base accepts none; every agent the loop's, observe, action (the
     action stage's slots) and eval_action (the shared evaluation's
     choosers) but where it collects and evaluates on its own (APG's
-    rollout and UDRL's collector observe the features themselves, and
-    UDRL's runs the action stage),
+    rollout and the collectors of UDRL and the world models observe the
+    features themselves, and UDRL's runs the action stage),
     transform_action (a residual policy) the agents whose
     critics score executed actions, and choose_warmup_action those whose
     collection has a uniform warm-up, choose_replay_action those whose

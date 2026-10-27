@@ -53,6 +53,12 @@ PyPI as `ajax-rl`.
   evaluation; UDRL's collector calls the expert through the shared wrapper
   (the expert first, gain mode last). Runs without features are
   unchanged, bitwise.
+- **The world models observe the training progress and PID terms.**
+  `TrainingProgressInput` and `PIDTermsInput` join each observation DreamerV3
+  and TD-MPC2 collect and evaluate: their encoders read them, and DreamerV3's
+  decoder reconstructs them with the env's columns. `TDMPC2MultiTask`, which
+  trains on logged observations, refuses them. Runs without features are
+  unchanged, bitwise.
 - **DQN and PQN take an expert.** `expert_policy=` (an index per row) and
   `eval_expert_policy=`: collection tracks the expert, evaluations log its
   return, and `JSRLCurriculum` and the expert's observation features run on

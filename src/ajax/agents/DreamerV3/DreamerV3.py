@@ -61,6 +61,7 @@ from ajax.agents.DreamerV3.replay import (
 from ajax.agents.DreamerV3.state import DreamerV3Config, LearningRate
 from ajax.agents.DreamerV3.world_model import make_initial_carry, observe_and_act
 from ajax.agents.families import OwnReplayAgent, TrainContext
+from ajax.controller import feature_width
 from ajax.environments.row_collector import (
     RowCollectorState,
     collect_row,
@@ -388,6 +389,7 @@ class DreamerV3(OwnReplayAgent):
             ),
             num_episode_test,
             key,
+            agent_state=agent_state,
         )
         return {
             "Eval/episodic mean reward": mean_return,
@@ -458,8 +460,11 @@ class DreamerV3(OwnReplayAgent):
             "reward_learning",
         }
     )
-    # The family's phases: its own collector, encoder and evaluation take no
-    # observation features, action stage or evaluation choosers yet.
+    # Its row collector and evaluation append the observation features
+    # (observe); they run no action stage or evaluation chooser yet.
+    supported_extension_phases = OwnReplayAgent.supported_extension_phases.union(
+        {"observe"}
+    )
     extension_context = frozenset({"env_args", "gamma"})
     action_space = "any"
 
@@ -580,7 +585,10 @@ def measure_env(env_args: EnvironmentConfig) -> EnvSpec:
     """The env's sizes for the model. Observations of rank 1 or 2 are
     flattened, as the reference's vector encoder concatenates its keys'
     features (DictConcat, dreamerv3_spec.md 2.9); images (rank 3) need the
-    reference's CNN encoder, out of scope here (DESIGN.md), and raise."""
+    reference's CNN encoder, out of scope here (DESIGN.md), and raise. The
+    run's observation features (env_args.observers) widen the observation:
+    the row collector stores them with it, so the encoder reads them and the
+    decoder reconstructs them, as any other column."""
     obs_shape, _ = get_state_action_shapes(env_args.env)
     if len(obs_shape) > 2:
         raise ValueError(
@@ -588,8 +596,14 @@ def measure_env(env_args: EnvironmentConfig) -> EnvSpec:
             f" {tuple(obs_shape)}: image observations need the CNN encoder,"
             " which is out of scope (docs/world_models/DESIGN.md)."
         )
+    if len(obs_shape) == 2 and feature_width(env_args):
+        raise ValueError(
+            "DreamerV3 cannot take observation features with the rank-2"
+            f" observation {tuple(obs_shape)} yet: the collector appends them on"
+            " its last axis, which the encoder's flat width does not count."
+        )
     return EnvSpec(
-        obs_dim=int(np.prod(obs_shape)),
+        obs_dim=int(np.prod(obs_shape)) + feature_width(env_args),
         action_dim=int(get_action_dim(env_args.env, env_args.env_params)),
         discrete=not env_args.continuous,
     )

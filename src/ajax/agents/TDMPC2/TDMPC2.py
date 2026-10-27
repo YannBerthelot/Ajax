@@ -293,11 +293,12 @@ class TDMPC2(OwnReplayAgent):
             pi_eps=float(self.pi_eps),
             weight_decay=float(self.weight_decay),
         )
-        prev_mean = jnp.zeros(
+        # The planner's warm-start mean per env (the reference's prev_mean).
+        planner_carry = jnp.zeros(
             (context.env_args.n_envs, config.horizon, self.action_dim)
         )
         collector_state = init_row_collector_state(
-            collector_key, context.env_args, policy_carry=prev_mean
+            collector_key, context.env_args, policy_carry=planner_carry
         )
         return TDMPC2State(
             rng=training_key,
@@ -319,10 +320,10 @@ class TDMPC2(OwnReplayAgent):
     def collect(
         self, agent_state: TDMPC2State, tick: jax.Array, context: TrainContext
     ) -> tuple[TDMPC2State, jax.Array]:
-        """Act and store one row per env on the absolute, unbatched tick
-        ``tick``; returns the state and ``tick``, which locates the buffer's
-        newest rows for the tick's updates (:func:`update`). The episodic mode
-        collects in the dynamic reset mode, counting rows."""
+        """Act and store one row per env on the absolute, unbatched tick;
+        returns the state and the tick, which locates the replay's newest rows
+        for the tick's updates. The episodic mode collects in the dynamic
+        reset mode, counting rows."""
         previous_collector = agent_state.collector_state
         collector_state, row = collect_row(
             previous_collector,
@@ -379,9 +380,9 @@ class TDMPC2(OwnReplayAgent):
     def update(
         self, agent_state: TDMPC2State, tick: jax.Array, context: TrainContext
     ) -> tuple[TDMPC2State, None]:
-        """One ``agent.update(buffer)`` after tick ``tick``'s rows: a fresh batch
-        and fresh noise, then :func:`core.update` (tdmpc2_spec §2), its logged
-        quantities kept on ``update_metrics``. The loop folds ``post_update``
+        """The reference's agent.update(buffer) after the tick's rows: a fresh
+        batch and fresh noise, then core.update (tdmpc2_spec section 2), its
+        logged quantities kept on update_metrics. The loop folds post_update
         after it."""
         config, buffer = self.model_config, context.buffer
         training_key, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
@@ -418,17 +419,12 @@ class TDMPC2(OwnReplayAgent):
         context: TrainContext,
         num_episode_test: int,
     ) -> dict:
-        """Mean return and length of ``num_episodes`` evaluation episodes.
-
-        :func:`ajax.evaluate.evaluate_policy` (a rebuilt env with the training
-        action repeat and episode length) with the planner in ``eval_mode``: no
-        final exploration noise, everything else stochastic as in the reference
-        (``online_trainer.py:27-48``, tdmpc2_spec 4.21). The planner carry starts
-        at zeros, separate from the training one (deviation T9). ``key`` is
-        fresh at each evaluation (:func:`ajax.log.evaluation_keys`): each starts
-        from new initial states, as the reference's resets of its running env
-        do.
-        """
+        """Mean return and length of num_episode_test episodes of the planner
+        in eval_mode (no final exploration noise, everything else stochastic:
+        online_trainer.py:27-48, tdmpc2_spec 4.21) on a rebuilt env, its carry
+        from zeros, apart from the training one (deviation T9). The key is
+        fresh at each evaluation (ajax.log.evaluation_keys), so each starts
+        from new initial states, as the reference's resets of its env do."""
         horizon = self.model_config.horizon
         mean_return, mean_length = evaluate_policy(
             context.env_args,
@@ -443,7 +439,7 @@ class TDMPC2(OwnReplayAgent):
         }
 
     def report(self, agent_state: TDMPC2State, aux: Any) -> dict:
-        """The house keys, ``env_frames`` and the last update's quantities."""
+        """The house keys, env_frames and the last update's quantities."""
         del aux
         collector_state = agent_state.collector_state
         metrics = {
@@ -525,9 +521,9 @@ class TDMPC2(OwnReplayAgent):
 
 def refuse_untrained(state: Any, horizon: int) -> None:
     """Raise if an episodic run never updated: the replay only draws
-    episodes of at least ``horizon + 1`` rows (the reference's
-    strict-length slices), and every episode ended within ``horizon``
-    agent steps (``state``'s per-seed update counts)."""
+    episodes of at least horizon + 1 rows (the reference's strict-length
+    slices), and every episode ended within horizon agent steps (the state's
+    per-seed update counts)."""
     n_updates = np.asarray(jax.device_get(state.n_updates)).reshape(-1)
     if np.any(n_updates == 0):
         raise ValueError(
@@ -540,8 +536,8 @@ def refuse_untrained(state: Any, horizon: int) -> None:
 
 def refuse_terminations(state: Any, episode_length: int) -> None:
     """Raise if a paper-era run's env ended an episode off its
-    ``episode_length``-step schedule or terminated on its last step
-    (``state``'s per-seed counters; deviation T10)."""
+    episode_length-step schedule or terminated on its last step (the state's
+    per-seed counters; deviation T10)."""
     offschedule = np.asarray(
         jax.device_get(state.collector_state.n_offschedule_dones)
     ).reshape(-1)
@@ -560,33 +556,25 @@ def refuse_terminations(state: Any, episode_length: int) -> None:
 # -- The tick's schedules --------------------------------------------------------
 @dataclasses.dataclass(frozen=True)
 class FixedLengthSchedule:
-    """The static seed-phase / burst / update schedule (``DESIGN.md`` §4.4).
+    """The paper-era mode's seed phase, burst and updates (DESIGN.md section
+    4.4), for n lockstep envs, episodes of T agent steps, S seed steps and r
+    updates per env step after the burst (the reference's 1; deviation T28).
 
-    On the absolute tick ``i`` (period ``P = T + 1``; stepping ticks
-    ``i mod P < T`` advance every env by one step, the held tick does not):
+    On the absolute tick i (period P = T + 1; stepping ticks i mod P < T
+    advance every env by one step, the held tick does not):
 
-    * the *seed tick* is the stepping tick of per-env step
-      ``k_S = max(S div n, T)``, the first stepping tick after which the
-      total env steps ``n (k + 1)`` exceed ``S`` and at least one round
-      (``n`` episodes) is committed. For one env ``k_S = S`` (``S >= T`` is
-      the reference's ``max(1000, 5 T)``): steps ``0 .. S`` act randomly
-      (``online_trainer.py:97-100``);
-    * actions are uniform random on every tick up to the seed tick (and on
-      held ticks, whose action is discarded, so the planner never runs
-      there);
-    * ``n_updates(i)`` is ``S`` on the seed tick (the pretraining burst,
-      ``online_trainer.py:105-112``), :attr:`updates_per_tick` on later
-      stepping ticks and 0 otherwise.
+    - the seed tick is the stepping tick of per-env step k_S = max(S div n,
+      T), the first after which the total env steps n (k + 1) exceed S and at
+      least one round (n episodes) is committed. For one env k_S = S (S >= T
+      is the reference's max(1000, 5 T)): steps 0 .. S act randomly
+      (online_trainer.py:97-100);
+    - actions are uniform random on every tick up to the seed tick, and on
+      held ticks, whose action is discarded, so the planner never runs there;
+    - n_updates(i) is S on the seed tick (the pretraining burst,
+      online_trainer.py:105-112), updates_per_tick on later stepping ticks
+      and 0 otherwise.
 
-    The methods accept Python ints, NumPy arrays and traced (unbatched)
-    ticks.
-
-    Attributes:
-        n_envs: lockstep envs ``n``.
-        episode_length: ``T`` agent steps.
-        seed_steps: ``S`` (the reference's ``max(1000, 5 T)`` by default).
-        updates_per_step: ``r``, updates per env step after the burst (the
-            reference's 1; deviation T28).
+    The methods take Python ints, NumPy arrays and traced (unbatched) ticks.
     """
 
     n_envs: int
@@ -607,48 +595,43 @@ class FixedLengthSchedule:
 
     @property
     def updates_per_tick(self) -> int:
-        """Updates per stepping tick after the burst: ``max(1, round(n r))``
-        (Python's ``round``, halves to even); ``n`` for the reference's
-        ``r = 1``. At least one, so a small ``r`` never stops training."""
+        """Updates per stepping tick after the burst: max(1, round(n r))
+        (Python's round, halves to even); n for the reference's r = 1. At
+        least one, so a small r never stops training."""
         return max(1, round(self.n_envs * self.updates_per_step))
 
     @property
     def period(self) -> int:
-        """Ticks per episode, ``T + 1``."""
+        """Ticks per episode, T + 1."""
         return self.episode_length + 1
 
     def tick_of_step(self, step: int) -> int:
-        """Tick of per-env env step ``step`` (``(step div T) P + step mod T``).
-
-        Also the number of ticks, from tick 0, that take ``step`` env steps
-        per env (a trailing held tick included after a whole episode).
-        """
-        t = self.episode_length
-        return (step // t) * self.period + step % t
+        """The tick of per-env env step step, (step div T) P + step mod T:
+        also the number of ticks from tick 0 that take step env steps per env
+        (a trailing held tick included after a whole episode)."""
+        length = self.episode_length
+        return (step // length) * self.period + step % length
 
     def steps_before(self, tick: int) -> int:
-        """Per-env env steps taken by ticks ``0 .. tick - 1``."""
+        """Per-env env steps taken by ticks 0 .. tick - 1."""
         return (tick // self.period) * self.episode_length + min(
             tick % self.period, self.episode_length
         )
 
     def num_ticks(self, n_timesteps: int, start_tick: int = 0) -> int:
-        """Ticks of a run of ``n_timesteps`` env steps (``n_timesteps div n``
-        per env) starting at absolute tick ``start_tick`` (a resume).
-
-        A split run covers exactly the ticks of an uninterrupted one: the run
-        ends on the tick of its last env step, plus the held tick when that
-        step ends an episode.
-        """
+        """Ticks of a run of n_timesteps env steps (n_timesteps div n per
+        env) from the absolute tick start_tick (a resume). A split run covers
+        exactly the ticks of an uninterrupted one: the run ends on the tick of
+        its last env step, plus the held tick when that step ends an
+        episode."""
         end_step = self.steps_before(start_tick) + n_timesteps // self.n_envs
         return self.tick_of_step(end_step) - start_tick
 
     @property
     def seed_step(self) -> int:
-        """``k_S``: the per-env env step of the seed tick. At least ``T``, so
-        the seed tick follows the first committed round: the sampler never
-        draws from an empty buffer (committed rounds only grow with the
-        tick)."""
+        """k_S: the per-env env step of the seed tick. At least T, so the seed
+        tick follows the first committed round: the sampler never draws from
+        an empty replay (committed rounds only grow with the tick)."""
         return max(self.seed_steps // self.n_envs, self.episode_length)
 
     @property
@@ -673,13 +656,13 @@ class EpisodicSchedule:
     """The episodic mode's schedule (deviation T29).
 
     The dynamic reset mode holds an env for the tick of its final
-    observation, so ticks are not env steps. With ``k_S = max(S div n, T)``:
-    random actions on ticks ``0 .. k_S`` (the seed phase counts rows, held
-    ones included; at least ``T + 1`` ticks, so every env has finished an
-    episode); the burst of ``S`` on tick ``k_S``, then, on a tick that
-    stepped ``stepped > 0`` envs, ``max(1, round(stepped r))`` updates
-    (``r = updates_per_step``, T28: one per env step by default); a run of
-    ``n_timesteps`` rows lasts ``n_timesteps div n`` ticks.
+    observation, so ticks are not env steps. With k_S = max(S div n, T):
+    random actions on ticks 0 .. k_S (the seed phase counts rows, held ones
+    included; at least T + 1 ticks, so every env has finished an episode);
+    the burst of S on tick k_S, then, on a tick that stepped stepped > 0
+    envs, max(1, round(stepped r)) updates (r = updates_per_step, T28: one
+    per env step by default); a run of n_timesteps rows lasts n_timesteps
+    div n ticks.
     """
 
     n_envs: int
@@ -722,29 +705,25 @@ class EpisodicSchedule:
 # -- State ---------------------------------------------------------------------
 @struct.dataclass(kw_only=True)
 class TDMPC2State(BaseAgentState):
-    """The TD-MPC2 agent state (``DESIGN.md`` §4.5).
-
-    Keyword-only so the narrowed ``critic_state`` default can sit before the
-    new required fields. Carries the four :class:`TDMPC2UpdateState`
-    attributes, so :func:`ajax.agents.TDMPC2.core.update` takes it directly.
+    """The TD-MPC2 agent's state (DESIGN.md section 4.5), keyword-only so
+    the narrowed critic_state default can sit before the new required fields.
+    It carries the four attributes of state.TDMPC2UpdateState, so core.update
+    takes it directly.
 
     Attributes:
-        critic_state: ``None``; the Q ensemble belongs to the world model.
-        collector_state: the row collector's state; ``policy_carry`` is the
-            planner's per-env warm-start mean ``prev_mean [n_envs, H, A]``.
-            ``collector_state.timestep`` counts env (agent) steps.
-        buffer_state: the episode replay ring
-            (:class:`~ajax.agents.TDMPC2.buffer.EpisodeBuffer`; the episodic
-            mode's :class:`~ajax.agents.TDMPC2.buffer.EpisodicBuffer`).
-        update_metrics: the last update's logged quantities
-            (:func:`ajax.agents.TDMPC2.core.update`), kept across ticks
-            without updates (held ticks, seed phase) for logging, as the
-            reference keeps its last ``train_metrics``.
+        critic_state: None; the Q ensemble belongs to the world model.
+        collector_state: the row collector's state; its policy_carry is the
+            planner's per-env warm-start mean prev_mean [n_envs, H, A], its
+            timestep counts env (agent) steps.
+        buffer_state: the episode ring (buffer.EpisodeBuffer; the episodic
+            mode's buffer.EpisodicBuffer).
+        update_metrics: the last update's logged quantities, kept across
+            ticks without updates (held ticks, seed phase) for logging, as
+            the reference keeps its last train_metrics.
         n_terminations: true terminations on scheduled episode ends
-            (``is_terminal`` rows); with the collector's
-            ``n_offschedule_dones`` it makes the agent refuse terminating
-            tasks after ``train`` (deviation T10). The episodic mode counts
-            every termination.
+            (is_terminal rows), which with the collector's
+            n_offschedule_dones make the agent refuse terminating tasks after
+            train (deviation T10); every termination in the episodic mode.
     """
 
     critic_state: Optional[LoadedTrainState] = None  # type: ignore[assignment]
@@ -755,12 +734,3 @@ class TDMPC2State(BaseAgentState):
     buffer_state: EpisodeBufferState | EpisodicBufferState
     update_metrics: dict[str, jax.Array]
     n_terminations: jax.Array
-
-
-__all__ = [
-    "TDMPC2",
-    "EpisodicSchedule",
-    "FixedLengthSchedule",
-    "refuse_terminations",
-    "refuse_untrained",
-]

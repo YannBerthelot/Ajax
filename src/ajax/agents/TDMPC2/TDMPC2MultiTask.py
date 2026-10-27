@@ -118,14 +118,17 @@ class TDMPC2MultiTask:
 
     Extensions: ``pretrain``, ``post_update`` (folded after every update,
     ``step`` = updates done) and ``eval_metrics`` (with ``init_state``), the
-    phases of the single-task agent; the others are rejected at
-    construction.
+    phases of the single-task agent but observe (its dataset holds no feature
+    columns); the others are rejected at construction.
     """
 
     name: str = "TDMPC2MultiTask"
     # It trains on a dataset and never acts while it learns: no warm-up.
     capabilities: frozenset = TDMPC2.capabilities.difference({"warmup"})
-    supported_extension_phases: frozenset = TDMPC2.supported_extension_phases
+    # It trains offline on logged observations, which hold no feature columns.
+    supported_extension_phases: frozenset = (
+        TDMPC2.supported_extension_phases.difference({"observe"})
+    )
 
     def __init__(
         self,

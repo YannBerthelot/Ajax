@@ -29,7 +29,7 @@ every version choice and every departure from the reference.
 | Observations | flat vectors, raw (no normalisation) | flat vectors of different sizes per task |
 | Terminating episodes | refused, unless `episodic=True` | no |
 | Several seeds in one call | yes | yes |
-| Extension phases | `pretrain`, `post_update`, `eval_metrics` | the same |
+| Extension phases | `pretrain`, `post_update`, `eval_metrics`, `observe` | the same but `observe`: its dataset holds no feature columns |
 | Resume and checkpoints | yes; a checkpoint restored by a new agent equals the uninterrupted run (test) | yes, the same |
 
 ## Example

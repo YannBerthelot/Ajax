@@ -31,7 +31,7 @@ src/ajax/
 ├── __init__.py          the 14 exported agents; configures the compile cache on import
 ├── agents/
 │   ├── base.py          ActorCritic: environment and network setup, extensions=, train(); run_config
-│   ├── families.py      declared agents (fields as hyperparameters); the replay, incremental and on-policy families' train functions
+│   ├── families.py      declared agents (fields as hyperparameters); the replay, incremental, on-policy, own-iteration and own-replay families' train functions
 │   ├── loop.py          TrainLoop, the shared loop (brax's forced resets included)
 │   ├── update_steps.py  critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, run_if, run_actor_if, the target update
 │   ├── temperature.py   the entropy temperature every soft actor-critic shares (SoftActorCriticState, update_temperature)
@@ -66,7 +66,7 @@ src/ajax/
 └── _compile_cache.py    the persistent JAX compile cache
 ```
 
-A declared agent (every agent but DreamerV3 and TD-MPC2) is one file,
+A declared agent (every agent but TD-MPC2) is one file,
 `<AGENT>/<AGENT>.py`: its hyperparameters as dataclass fields, its `init`,
 `update` and equations, its state and metrics, on a family of
 `agents/families.py` that builds its constructor, run config, collection
@@ -76,20 +76,23 @@ DAgger), one update on each step as it comes (`IncrementalAgent`: AVG),
 rollouts (`OnPolicyAgent`: PPO, APO, PQN) or an iteration of its own
 (`OwnIterationAgent`: UDRL's segment and replay of segments, APG's
 gradient step through a differentiable rollout; the agent writes
-`iterate`, `report` and `evaluate`, the loop resumes and logs). Knobs
+`iterate`, `report` and `evaluate`, the loop resumes and logs) or rows in
+a replay of its own, sized for each call (`OwnReplayAgent`: DreamerV3; the
+agent writes `prepare_replay`, `collect`, `count_updates`, `update`,
+`report` and `evaluate` on `loop.off_policy`'s hooks). Knobs
 several agents share are mixins of fields (`EntropyTemperature`,
 `PolicyUpdateStart`, `ExpertGuided`, ...), and an agent changes what its
 family does by overriding a few hooks (`network_settings`,
 `evaluation_kwargs`, `uniform_steps`, `keeps_actor_metrics`,
-`check_recurrent_options`, ...). Every other agent package
-`src/ajax/agents/<AGENT>/` holds:
+`check_recurrent_options`, ...). TD-MPC2's package `src/ajax/agents/TDMPC2/`
+holds:
 
 | File | What it holds |
 | --- | --- |
-| `<AGENT>.py` | the public class: the paper's hyperparameters and `extensions=`; its `make_train` and `train_kwargs` |
-| `train_<AGENT>.py` | the algorithm, and a `make_train` that hands its initialisation and update to `TrainLoop` |
-| `state.py` | `<AGENT>State` and `<AGENT>Config` |
-| `core.py` | (TDMPC2) the maths that descendants import instead of copying |
+| `TDMPC2.py` | the public class: the paper's hyperparameters and `extensions=`; its `make_train` and `train_kwargs` |
+| `train_TDMPC2.py` | the algorithm, and a `make_train` that hands its initialisation and update to `TrainLoop` |
+| `state.py` | `TDMPC2State` and `TDMPC2Config` |
+| `core.py` | the maths that descendants import instead of copying |
 
 The lineage is explicit: TQC, REDQ, ASAC, CrossQ and AVG import SAC's
 equations from `SAC/SAC.py`; APO imports PPO's from `PPO/PPO.py`; the
@@ -139,7 +142,7 @@ agent = SAC("Pendulum-v1", extensions=(...))     ActorCritic.__init__
 
 agent.train(seed=[0, 1], n_timesteps=..., logging_config=..., initial_state=...)
   ├─ get_make_train()(env_args, ..., total_timesteps, logging_config)
-  │    └─ make_train                              train_<AGENT>.py, with train_kwargs and the extensions
+  │    └─ make_train                              train_TDMPC2.py, with train_kwargs and the extensions
   │                                               (a declared agent: its family's make_train over its init and update)
   │         ├─ TrainLoop.create(...)              budget, extensions, logging
   │         └─ loop.off_policy(init, update, ...) or loop.on_policy(...)
@@ -195,8 +198,8 @@ first thing in `DeclaredAgent.__post_init__`: each field as passed, and
 [`run_config`](../../src/ajax/agents/base.py) keeps the constructor's
 arguments, drops `self`, `__class__` and any names passed in `exclude`
 (`TDMPC2MultiTask` leaves out its dataset and evaluation envs), and adds
-`algo_name`. DreamerV3 and TD-MPC2 then add the settings they resolve from
-those arguments. With a
+`algo_name`. DreamerV3 (in its setup) and TD-MPC2 then add the settings
+they resolve from those arguments. With a
 `LoggingConfig`, `train` merges `agent.config` into `logging_config.config`,
 which is what W&B and TensorBoard record for the run.
 
@@ -252,7 +255,7 @@ agent at once. The probes check it end to end: a planted fault that runs
 | --- | --- | --- | --- |
 | `loop.off_policy(init, update, learning_starts, ...)` | SAC, TD3, TQC, REDQ, ASAC, CrossQ, IQL, AVG, DQN | one step per env (a *tick*); from `learning_starts` on, one `update(state, transition)` | `budget // n_envs` ticks |
 | `loop.on_policy(init, update, n_steps, ...)` | PPO, APO, PQN | an `n_steps` rollout per env from the agent state `agent_state_at_rollout_start`, then `update(agent_state, rollout, agent_state_at_rollout_start)` | `budget // (n_envs * n_steps) + 1` rollouts |
-| `loop.off_policy(..., collect=, n_updates=, evaluation=)` | DreamerV3, TDMPC2 | the agent's own `collect(state, tick)`, then `n_updates(tick, state)` updates (a train ratio, a burst), then the agent's own `Evaluation` | `budget // n_envs` ticks, or `num_ticks` |
+| `loop.off_policy(..., collect=, n_updates=, evaluation=)` | DreamerV3 (`OwnReplayAgent`), TDMPC2 | the agent's own `collect(state, tick)`, then `n_updates(tick, state)` updates (a train ratio, a burst), then the agent's own `Evaluation` | `budget // n_envs` ticks, or `num_ticks` |
 
 Before `learning_starts`, the off-policy shape acts uniformly at random
 (until `uniform_steps` instead, when an agent's reference acts with its policy
@@ -444,8 +447,9 @@ runs to the run's horizon, `train`'s `total_timesteps` (by default the
 call's end; the loop's `total_timesteps`), so a resumed run continues where
 it stopped instead of restarting its schedules, and a run whose calls are
 all told its horizon follows the schedules of one call. Agents whose
-schedules depend on the absolute tick (the world models) also pass an
-iteration offset. A run split in two, on a new agent instance, ends in the
+schedules depend on the absolute tick (the world models: the own-replay
+family reads it off the row collector, `OwnReplayAgent.resume_iteration_offset`)
+also pass an iteration offset. A run split in two, on a new agent instance, ends in the
 state one uninterrupted call reaches (`tests/agents/test_resume_contract.py`).
 [`checkpoint.py`](../../src/ajax/checkpoint.py) saves a state's arrays to disk
 and grafts them back onto a fresh skeleton; see

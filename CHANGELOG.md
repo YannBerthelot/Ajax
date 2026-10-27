@@ -6,6 +6,23 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **DreamerV3 is a declared agent**, read from `agents/DreamerV3/DreamerV3.py`
+  on a new family, `OwnReplayAgent` (`ajax.agents.families`): each tick its
+  row collector stores one row per env in a replay of its own, sized for
+  each `train` call (`prepare_replay`), and it runs the updates its
+  schedule gives the absolute tick. Its keywords are fixed fields,
+  keyword-only after `env_id`; `gamma` is derived, no keyword.
+  `agent.dreamer_config` is renamed `agent.model_config`. Deleted, without
+  a deprecation path: `train_DreamerV3`, `DreamerV3AgentConfig` and
+  `agent.agent_config` (its four fields are DreamerV3's) and
+  `agent.train_kwargs`'s entries. The names moved: `TrainRatio`, `EnvSpec`,
+  `env_spec` (now `measure_env`) and `DreamerV3State` to `DreamerV3.py`;
+  `policy_step` (now `observe_and_act`), `PolicyCarry` and
+  `initial_policy_carry` (now `make_initial_carry`) to `world_model.py`;
+  `train_metric_keys` (now `learner.list_train_metrics`); `bytes_per_row`
+  (now `replay.count_row_bytes`); `MetricsAccumulator` to `ajax.log`. Its
+  extension context drops `agent_config` and `total_timesteps`, which no
+  extension read. Training is unchanged, bitwise.
 - **UDRL runs the action stage.** `JSRLCurriculum` and EDGE's fixed gate
   hand its expert steps, and its segment keeps the choice executing the
   expert's action (the expert's own, or a residual of 0), which its actor

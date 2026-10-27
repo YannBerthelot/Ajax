@@ -12,10 +12,10 @@
     "alpha": 0.9818669557571411
   },
   "test_online_bc_matches_legacy_flag": {
-    "critic": 558.6971435546875,
-    "actor": 267.16265869140625,
-    "target": 535.1505737304688,
-    "alpha": 0.9818569421768188
+    "critic": 558.68505859375,
+    "actor": 267.1645812988281,
+    "target": 535.1568603515625,
+    "alpha": 0.9818525314331055
   },
   "test_residual_policy_matches_legacy_use_residual_rl": {
     "critic": 551.2583618164062,
@@ -36,10 +36,10 @@
     "alpha": 0.9818545579910278
   },
   "test_edge_exploration_matches_legacy_flags[fixed]": {
-    "critic": 555.947021484375,
-    "actor": 267.16680908203125,
-    "target": 535.0569458007812,
-    "alpha": 0.9818762540817261
+    "critic": 555.1537475585938,
+    "actor": 267.1471252441406,
+    "target": 535.054931640625,
+    "alpha": 0.9818669557571411
   },
   "test_edge_exploration_matches_legacy_flags[argmax]": {
     "critic": 555.1513061523438,
@@ -48,16 +48,16 @@
     "alpha": 0.9818633794784546
   },
   "test_edge_exploration_matches_legacy_flags[boltzmann]": {
-    "critic": 555.947021484375,
-    "actor": 267.16680908203125,
-    "target": 535.0569458007812,
-    "alpha": 0.9818762540817261
+    "critic": 555.1537475585938,
+    "actor": 267.1471252441406,
+    "target": 535.054931640625,
+    "alpha": 0.9818669557571411
   },
   "test_edge_exploration_matches_legacy_flags[lcb]": {
-    "critic": 555.3975830078125,
-    "actor": 267.1402893066406,
-    "target": 535.0541381835938,
-    "alpha": 0.9818980097770691
+    "critic": 555.13232421875,
+    "actor": 267.13482666015625,
+    "target": 535.0536499023438,
+    "alpha": 0.9818832278251648
   },
   "test_edge_exploration_matches_legacy_flags[argmax_lcb]": {
     "critic": 554.89892578125,
@@ -66,10 +66,10 @@
     "alpha": 0.9818545579910278
   },
   "test_edge_exploration_matches_legacy_flags[thompson]": {
-    "critic": 554.5553588867188,
-    "actor": 267.1467590332031,
-    "target": 535.0398559570312,
-    "alpha": 0.9818666577339172
+    "critic": 555.1817626953125,
+    "actor": 267.1092834472656,
+    "target": 535.0485229492188,
+    "alpha": 0.981866717338562
   },
   "test_lcb_gated_bootstrap_matches_legacy_flag": {
     "critic": 555.1558837890625,
@@ -78,39 +78,39 @@
     "alpha": 0.9818669557571411
   },
   "test_mc_pretrain_matches_legacy_flag": {
-    "critic": 558.632568359375,
-    "actor": 267.15936279296875,
-    "target": 535.1495971679688,
-    "alpha": 0.9818738698959351
+    "critic": 558.5932006835938,
+    "actor": 267.1560363769531,
+    "target": 535.1570434570312,
+    "alpha": 0.9818722009658813
   },
   "test_bellman_pretrain_matches_legacy_flag": {
-    "critic": 558.1409301757812,
-    "actor": 267.312744140625,
-    "target": 535.2509765625,
-    "alpha": 0.9820195436477661
+    "critic": 554.3927001953125,
+    "actor": 267.0058288574219,
+    "target": 535.161865234375,
+    "alpha": 0.9817734360694885
   },
   "test_critic_blend_matches_legacy_flag": {
-    "critic": 558.39794921875,
-    "actor": 267.152099609375,
-    "target": 535.1407470703125,
-    "alpha": 0.981840193271637
+    "critic": 558.4321899414062,
+    "actor": 267.1550598144531,
+    "target": 535.1481323242188,
+    "alpha": 0.9818325042724609
   },
   "test_mc_variance_correction_matches_legacy_flag": {
-    "critic": 536.209716796875,
-    "actor": 266.9892883300781,
-    "target": 534.6199340820312,
-    "alpha": 0.9818350672721863
+    "critic": 535.996337890625,
+    "actor": 266.984375,
+    "target": 534.6227416992188,
+    "alpha": 0.9818409085273743
   },
   "test_value_box_matches_legacy_flag": {
-    "critic": 555.156005859375,
-    "actor": 267.156005859375,
-    "target": 535.0748291015625,
-    "alpha": 0.9818627834320068
+    "critic": 554.1672973632812,
+    "actor": 267.1519470214844,
+    "target": 535.0834350585938,
+    "alpha": 0.981867253780365
   },
   "test_phi_refresh_matches_legacy_flag": {
-    "critic": 558.8174438476562,
-    "actor": 267.1289978027344,
-    "target": 535.1679077148438,
-    "alpha": 0.9819043874740601
+    "critic": 558.5932006835938,
+    "actor": 267.1560363769531,
+    "target": 535.1570434570312,
+    "alpha": 0.9818722009658813
   }
 }

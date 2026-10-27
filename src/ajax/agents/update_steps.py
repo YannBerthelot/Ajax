@@ -17,6 +17,7 @@ import optax
 
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.log import unevaluated
+from ajax.random_keys import EXTENSIONS_KEY_TAG
 
 #: The keys of the extensions' batches the shared steps below build, which
 #: an agent on them declares (ActorCritic.phase_batch_keys), with any it
@@ -161,13 +162,6 @@ def run_actor_if(
 
     # The branches close over the state, as run_if's do.
     return jax.lax.cond(condition, step_and_keep, skip)
-
-
-#: The tag a step's key is folded with to derive its extensions' key. Under
-#: JAX's partitionable threefry, folding a key with a number gives the key
-#: that splitting it gives at that index, so the tag lies far past any
-#: split's length: no key a step splits off its own reaches the extensions.
-EXTENSIONS_KEY_TAG = 0x45585453  # "EXTS"
 
 
 def derive_extensions_key(key: jax.Array) -> jax.Array:

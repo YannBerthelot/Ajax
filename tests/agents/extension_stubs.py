@@ -1,5 +1,5 @@
 """Extension stubs the agent tests share: a counter of the ``post_update``
-folds, a constant evaluation metric, an ``on_target`` pass-through (a
+folds, draws on every phase's key, a constant evaluation metric, an ``on_target`` pass-through (a
 phase the world-model agents refuse) and the training progress as a raw
 observation feature. Frozen dataclasses, so hashable: an
 extension stack is a static argument of the jitted train function."""
@@ -7,6 +7,7 @@ extension stack is a static argument of the jitted train function."""
 from dataclasses import dataclass
 from typing import ClassVar
 
+import jax
 import jax.numpy as jnp
 
 from ajax.extensions.base import Extension
@@ -26,6 +27,33 @@ class CounterExt(Extension):
 
     def post_update(self, agent_state, ext_state, context):
         return agent_state, ext_state + 1
+
+
+@dataclass(frozen=True)
+class DrawEveryPhase(Extension):
+    """Draws on the key each of its phases is given (pretraining, the
+    target, the critic's and the actor's losses, post_update) and changes
+    nothing with it, so that a tape of key uses sees each key."""
+
+    name: str = "draw_every_phase"
+
+    def init_state(self, agent_state, rng):
+        return jnp.zeros(())
+
+    def pretrain(self, agent_state, ext_state, context):
+        return agent_state, ext_state + 0.0 * jax.random.normal(context.rng)
+
+    def on_target(self, agent_state, ext_state, batch, target, context):
+        return target + 0.0 * jax.random.normal(context.rng)
+
+    def critic_loss(self, agent_state, ext_state, batch, context):
+        return 0.0 * jax.random.normal(context.rng)
+
+    def actor_loss(self, agent_state, ext_state, batch, context):
+        return 0.0 * jax.random.normal(context.rng), {}
+
+    def post_update(self, agent_state, ext_state, context):
+        return agent_state, ext_state + 0.0 * jax.random.normal(context.rng)
 
 
 @dataclass(frozen=True)

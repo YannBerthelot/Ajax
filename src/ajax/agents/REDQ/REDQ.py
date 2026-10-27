@@ -61,7 +61,6 @@ from ajax.agents.temperature import (
 )
 from ajax.controller import critic_action_units, leave_unchanged, policy_action_dim
 from ajax.extensions.base import merge_metrics
-from ajax.perf_utils import final_aux_scan
 from ajax.schedule import Schedule
 from ajax.state import LoadedTrainState, Transition
 from ajax.types import Architecture
@@ -255,11 +254,12 @@ class REDQ(
             )
 
         # A carry-only scan: only the last critic step's metrics, batch and
-        # critics before it are kept (perf_utils.final_aux_scan).
-        agent_state, last = final_aux_scan(
+        # critics before it are kept, each step on a key of its index
+        # (update_steps.scan_on_indexed_keys).
+        agent_state, last = update_steps.scan_on_indexed_keys(
             update_critic_on_a_fresh_batch,
             read_temperature(agent_state),
-            length=self.num_critic_updates,
+            self.num_critic_updates,
         )
         value_aux, value_metrics, batch, carries, critics_before = last
         critic_state = agent_state.critic_state
@@ -363,7 +363,7 @@ class REDQ(
         """The actor step on alpha log pi(a|s) - mean_i Q_i(s, a), the
         critics scoring a residual policy's executed actions; also returns
         its sample's log-probs, which the temperature step reads."""
-        actor_key, agent_state = agent_state.get_keys_and_new_state()
+        actor_key = update_steps.derive_actor_key(agent_state)
         alpha = get_alpha(agent_state)
         critic_state = agent_state.critic_state
         scored = context.make_scored_actions(batch)

@@ -57,7 +57,7 @@ from ajax.agents.temperature import (
 from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
 from ajax.networks.distributions import latent
-from ajax.perf_utils import final_aux_scan
+from ajax.random_keys import split_by_index
 from ajax.state import LoadedTrainState, Transition
 from ajax.types import Architecture
 
@@ -198,10 +198,10 @@ class SAC(
             )
             return agent_state, (value_aux, metrics)
 
-        # A carry-only scan that keeps the last step's metrics alone
-        # (perf_utils.final_aux_scan).
-        agent_state, (value_aux, value_metrics) = final_aux_scan(
-            update_critic_once, agent_state, length=self.num_critic_updates
+        # A carry-only scan that keeps the last step's metrics alone, each
+        # step on a key of its index (update_steps.scan_on_indexed_keys).
+        agent_state, (value_aux, value_metrics) = update_steps.scan_on_indexed_keys(
+            update_critic_once, agent_state, self.num_critic_updates
         )
         stepped, policy_aux, log_probs, policy_metrics = self.update_actor(
             agent_state, batch, carries, context
@@ -312,7 +312,9 @@ class SAC(
         their clone target. Also returns the log-probs of a fresh
         sample of the stepped actor, which the temperature's step reads
         (CleanRL's SAC order; cited from memory, unverified)."""
-        actor_key, sample_key, agent_state = agent_state.get_keys_and_new_state(2)
+        actor_key, sample_key = split_by_index(
+            update_steps.derive_actor_key(agent_state), 2
+        )
         alpha = get_alpha(agent_state)
         scored = context.make_scored_actions(batch)
 

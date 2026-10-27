@@ -263,7 +263,7 @@ class CrossQ(
         """The actor step in training, the critics read with their running
         statistics (at the executed actions, a residual policy's), then the
         temperature's on the same samples (sbx/sac/sac.py:355-400)."""
-        actor_key, agent_state = agent_state.get_keys_and_new_state()
+        actor_key = update_steps.derive_actor_key(agent_state)
         alpha = get_alpha(agent_state)
         actor_state, critic_state = agent_state.actor_state, agent_state.critic_state
         scored = context.make_scored_actions(batch)

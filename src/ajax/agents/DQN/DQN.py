@@ -43,7 +43,11 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.agents.loop import LOOP_PHASES
-from ajax.agents.update_steps import derive_extensions_key, run_if
+from ajax.agents.update_steps import (
+    derive_extensions_key,
+    run_if,
+    scan_on_indexed_keys,
+)
 from ajax.buffers.utils import get_batch_from_buffer
 from ajax.environments.interaction import (
     epsilon_greedy,
@@ -60,7 +64,6 @@ from ajax.networks.q_networks import (
     q_network_value,
 )
 from ajax.networks.utils import TORCH_LINEAR
-from ajax.perf_utils import final_aux_scan
 from ajax.schedule import linear
 from ajax.state import BaseAgentState, LoadedTrainState
 from ajax.types import Architecture
@@ -197,8 +200,9 @@ class DQN(
         def step(agent_state: DQNState, _: Any) -> tuple[DQNState, AuxiliaryLogs]:
             return self.update_q_network(agent_state, context)
 
-        # Carry-only scan: only the final step's metrics are materialised.
-        return final_aux_scan(step, agent_state, length=self.n_gradient_steps)
+        # Carry-only scan: only the final step's metrics are materialised,
+        # each step on a key of its index (update_steps.scan_on_indexed_keys).
+        return scan_on_indexed_keys(step, agent_state, self.n_gradient_steps)
 
     def update_q_network(
         self, agent_state: DQNState, context: TrainContext

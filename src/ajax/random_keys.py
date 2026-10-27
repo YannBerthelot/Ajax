@@ -44,6 +44,19 @@ NAMES: tuple[str, ...] = (
     # The forced resets' key, off the collection's stream
     # (ajax.environments.interaction.force_reset).
     "forced_reset",
+    # The extensions' post_update key, off the updates' stream
+    # (ajax.agents.update_steps.apply_post_update).
+    "post_update",
+    # An actor step's key when the step counts on some updates only
+    # (ajax.agents.update_steps.derive_actor_key).
+    "actor",
+    # PPO's and APO's minibatch keys, off each epoch's key.
+    "minibatch_entropy",
+    # ExpertWarmup's decision, off the uniform actions' key.
+    "warmup_decision",
+    # A recurrent network's initial carry, off its initialisation key
+    # (ajax.networks.networks.init_network_state).
+    "memory_carry",
 )
 
 TAGS: dict[str, int] = {name: make_tag(name) for name in NAMES}
@@ -61,8 +74,6 @@ EXPERT_PREFILL_KEY_TAG = 0x70726566
 #: same key hands out at that index. They stay until the change that moves
 #: the runs they key anyway names them.
 LEGACY_SMALL_TAGS: dict[str, int] = {
-    "APO's minibatch entropy keys (agents/APO/APO.py)": 1,
-    "ExpertWarmup's decision (extensions/expert.py)": 1,
     "UDRL's action-stage gate key, split(key, 4)[3] (agents/UDRL/UDRL.py)": 3,
     "TD-MPC2's task embeddings (agents/TDMPC2/core.py)": 1,
     "the observation noise, gymnax and brax (wrappers.py)": 0,

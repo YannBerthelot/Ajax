@@ -327,7 +327,7 @@ class ASAC(
         """The actor step on alpha log pi(a|s) - min_i Q_i(s, a), the
         critics scoring a residual policy's executed actions; also returns
         its sample's log-probs (the temperature and theta read them)."""
-        actor_key, agent_state = agent_state.get_keys_and_new_state()
+        actor_key = update_steps.derive_actor_key(agent_state)
         alpha = get_alpha(agent_state)
         critic_state = agent_state.critic_state
         scored = context.make_scored_actions(batch)

@@ -12,6 +12,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 
+from ajax.agents import update_steps
 from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import TrainContext
 from ajax.agents.recurrent import q_values
@@ -20,6 +21,7 @@ from ajax.agents.TD3.TD3 import TD3, compute_policy_loss, compute_td3_td_target
 from ajax.environments.interaction import init_collector_state
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.base import ExtensionStack
+from ajax.random_keys import split_by_index
 from ajax.state import Transition
 
 KEY = jax.random.PRNGKey(0)
@@ -156,7 +158,8 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
     np.testing.assert_allclose(v_aux.grad_norm, optax.global_norm(v_grads), rtol=1e-6)
 
     _, p_aux, *_ = agent.update_actor(state, batch, None, context)
-    policy_key = state.get_keys_and_new_state(2)[0]  # the step's policy key
+    # The step's policy key, derived from the updates' stream.
+    policy_key = split_by_index(update_steps.derive_actor_key(state), 2)[0]
     p_grads = jax.grad(
         lambda p: compute_soft_policy_loss(
             p, actor, critic, batch.obs, alpha, policy_key

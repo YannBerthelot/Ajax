@@ -202,14 +202,11 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
         critic_updated, value_aux, value_metrics = self.update_critic(
             agent_state, transition, context
         )
-        # The actor step reads the networks from before the critic's, its key
-        # drawn after the critic's.
+        # The actor step reads the networks from before the critic's.
         policy_updated, policy_aux, policy_metrics = self.update_actor(
-            agent_state.replace(rng=critic_updated.rng), transition, context
+            agent_state, transition, context
         )
-        stepped = critic_updated.replace(
-            actor_state=policy_updated.actor_state, rng=policy_updated.rng
-        )
+        stepped = critic_updated.replace(actor_state=policy_updated.actor_state)
         agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
             self.policy_update_due(agent_state.collector_state.timestep),
             lambda _: (stepped, (policy_aux, policy_metrics)),
@@ -298,7 +295,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
         the env's own observations, the policy's mean action and the agent's
         expert's action from its state (which only an extension holding that
         expert reads: zeros without one)."""
-        actor_key, agent_state = agent_state.get_keys_and_new_state()
+        actor_key = update_steps.derive_actor_key(agent_state)
         alpha = get_alpha(agent_state)
         actor_state = agent_state.actor_state
         raw_actions = transition.raw_action  # the pre-squash sample, as collected

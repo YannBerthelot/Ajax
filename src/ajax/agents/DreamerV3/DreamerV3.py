@@ -42,6 +42,7 @@ from typing import Any, Callable, NamedTuple, Optional
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import struct
 
 from ajax.agents.DreamerV3.learner import (
     LearnerState,
@@ -51,19 +52,25 @@ from ajax.agents.DreamerV3.learner import (
     train_step,
 )
 from ajax.agents.DreamerV3.replay import (
+    ReplayState,
     StreamReplay,
     count_replay_bytes,
     count_ring_rows,
     size_ring,
 )
-from ajax.agents.DreamerV3.state import DreamerV3Config, DreamerV3State, LearningRate
+from ajax.agents.DreamerV3.state import DreamerV3Config, LearningRate
 from ajax.agents.DreamerV3.world_model import make_initial_carry, observe_and_act
 from ajax.agents.families import OwnReplayAgent, TrainContext
-from ajax.environments.row_collector import collect_row, init_row_collector_state
+from ajax.environments.row_collector import (
+    RowCollectorState,
+    collect_row,
+    init_row_collector_state,
+)
 from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.evaluate import evaluate_policy
 from ajax.log import MetricsAccumulator
-from ajax.state import EnvironmentConfig
+from ajax.normalizers import ReturnNormalizer
+from ajax.state import BaseAgentState, EnvironmentConfig, LoadedTrainState
 
 logger = logging.getLogger(__name__)
 
@@ -584,4 +591,38 @@ def measure_env(env_args: EnvironmentConfig) -> EnvSpec:
     )
 
 
-__all__ = ["DreamerV3", "EnvSpec", "TrainRatio", "measure_env"]
+# -- State ---------------------------------------------------------------------
+@struct.dataclass(kw_only=True)
+class DreamerV3State(BaseAgentState):
+    """The DreamerV3 agent's state (``docs/world_models/DESIGN.md`` section 6.6).
+
+    Besides :class:`~ajax.state.BaseAgentState`'s fields -- ``actor_state``
+    (the actor), ``critic_state`` (the critic; ``target_params`` is the slow
+    critic, and its ``step`` counts the slow critic's updates, which
+    :func:`~ajax.agents.DreamerV3.learner.update_slow_critic` reads),
+    ``n_updates`` (training steps so far), ``rng``, ``eval_rng``,
+    ``ext_state`` --:
+
+    Attributes:
+        collector_state: the row collector's state; its ``policy_carry`` is
+            the acting posterior and previous action
+            (:class:`~ajax.agents.DreamerV3.world_model.PolicyCarry`).
+        world_model_state: the world model (``enc``, ``rssm``, ``dec``,
+            ``rew``, ``con``) and its LaProp instance.
+        retnorm: the return normaliser.
+        replay_state: the replay rings and the online-queue counter
+            (:class:`~ajax.agents.DreamerV3.replay.ReplayState`).
+        train_metrics: the training metrics since the last log.
+
+    The schedule needs no state of its own: it is a function of the
+    absolute tick, the scan input.
+    """
+
+    collector_state: RowCollectorState
+    world_model_state: LoadedTrainState
+    retnorm: ReturnNormalizer
+    replay_state: ReplayState
+    train_metrics: MetricsAccumulator
+
+
+__all__ = ["DreamerV3", "DreamerV3State", "EnvSpec", "TrainRatio", "measure_env"]

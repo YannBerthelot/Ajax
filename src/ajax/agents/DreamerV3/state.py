@@ -18,8 +18,7 @@ of :class:`DreamerV3Config` with that value as its default. The parity tests
 pin these defaults against the reference's own configuration.
 
 The agent declares them, with the hyperparameters of its training loop (the
-train ratio, the batch geometry and the replay capacity), as its fields,
-and this module holds its state (:class:`DreamerV3State`).
+train ratio, the batch geometry and the replay capacity), as its fields.
 """
 
 from __future__ import annotations
@@ -27,19 +26,11 @@ from __future__ import annotations
 import inspect
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 import jax
-from flax import struct
 
 from ajax.distributional import TwoHot
-from ajax.environments.row_collector import RowCollectorState
-from ajax.normalizers import ReturnNormalizer
-from ajax.state import BaseAgentState, LoadedTrainState
-
-if TYPE_CHECKING:
-    from ajax.agents.DreamerV3.replay import ReplayState
-    from ajax.log import MetricsAccumulator
 
 #: A learning rate: a constant, or a schedule of the optimizer's update count.
 LearningRate = Union[float, Callable[[jax.Array], jax.Array]]
@@ -283,36 +274,3 @@ class DreamerV3Config:
         """The reward and critic two-hot codec, ``symexp_twohot`` over
         ``bins`` bins (:meth:`~ajax.distributional.TwoHot.dreamerv3`)."""
         return TwoHot.dreamerv3(self.bins)
-
-
-@struct.dataclass(kw_only=True)
-class DreamerV3State(BaseAgentState):
-    """The DreamerV3 agent's state (``docs/world_models/DESIGN.md`` section 6.6).
-
-    Besides :class:`~ajax.state.BaseAgentState`'s fields -- ``actor_state``
-    (the actor), ``critic_state`` (the critic; ``target_params`` is the slow
-    critic, and its ``step`` counts the slow critic's updates, which
-    :func:`~ajax.agents.DreamerV3.learner.update_slow_critic` reads),
-    ``n_updates`` (training steps so far), ``rng``, ``eval_rng``,
-    ``ext_state`` --:
-
-    Attributes:
-        collector_state: the row collector's state; its ``policy_carry`` is
-            the acting posterior and previous action
-            (:class:`~ajax.agents.DreamerV3.world_model.PolicyCarry`).
-        world_model_state: the world model (``enc``, ``rssm``, ``dec``,
-            ``rew``, ``con``) and its LaProp instance.
-        retnorm: the return normaliser.
-        replay_state: the replay rings and the online-queue counter
-            (:class:`~ajax.agents.DreamerV3.replay.ReplayState`).
-        train_metrics: the training metrics since the last log.
-
-    The schedule needs no state of its own: it is a function of the
-    absolute tick, the scan input.
-    """
-
-    collector_state: RowCollectorState
-    world_model_state: LoadedTrainState
-    retnorm: ReturnNormalizer
-    replay_state: ReplayState
-    train_metrics: MetricsAccumulator

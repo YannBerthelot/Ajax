@@ -6,6 +6,15 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **Updates and collection draw on two streams of keys.** Collection draws
+  on its own key, `collector_state.rng`, and the updates on the agent
+  state's, each handing out its keys after its carry
+  (`ajax.random_keys`): an update drawing more or fewer keys leaves the env
+  steps, the action noise and the warm-up as they were, and a forced reset
+  draws on a key derived from the collection's. Every agent but APG and the
+  world models draws other numbers from the same seed. Checkpoints are
+  written in format 2; an older one restores with the collection's key
+  derived from the updates'.
 - **DreamerV3 is a declared agent**, read from `agents/DreamerV3/DreamerV3.py`
   on a new family, `OwnReplayAgent` (`ajax.agents.families`): each tick its
   row collector stores one row per env in a replay of its own, sized for

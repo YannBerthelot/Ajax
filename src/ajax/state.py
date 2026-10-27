@@ -19,6 +19,7 @@ from gymnax import EnvParams
 
 from ajax.environments.utils import get_env_type
 from ajax.networks.memory import MemoryConfig
+from ajax.random_keys import split_carry_first
 from ajax.schedule import progress
 from ajax.types import EnvStateType, EnvType, InitializationFunction, Replaceable
 from ajax.wrappers import NormalizationInfo
@@ -153,6 +154,7 @@ class RollinEpisodicMeanRewardState(Replaceable):
 class CollectorState(Replaceable):
     """The variables necessary to interact with the environment and collect the transitions"""
 
+    # The collection's stream of keys, advanced once per collection step.
     rng: jax.Array
     _env_state: EnvStateType
     last_obs: jnp.ndarray
@@ -265,6 +267,9 @@ def with_batch_stats(train_state: Any, params: Any) -> Any:
 
 @struct.dataclass
 class BaseAgentState(Replaceable):
+    # The updates' stream of keys; collection draws on its own
+    # (collector_state.rng), so a draw added on either side leaves the
+    # other's keys as they were (ajax.random_keys).
     rng: jax.Array
     actor_state: LoadedTrainState
     critic_state: LoadedTrainState
@@ -304,14 +309,17 @@ class BaseAgentState(Replaceable):
     added_fields: ClassVar[frozenset[str]] = frozenset({"last_actor_metrics"})
 
     def get_keys_and_new_state(self, n: int = 1) -> tuple:
-        """Draw n fresh random keys from the training key (rng).
+        """Draw n fresh random keys from the updates' key (rng).
 
         Returns the drawn keys, then a new agent state whose key has moved
         past them: shuffle_key, agent_state = agent_state.get_keys_and_new_state().
-        The state it is called on is untouched (it is frozen), so drawing from
-        it again would hand out the same keys: carry on with the state returned.
+        The new key is the carry, taken first (random_keys.split_carry_first),
+        so a step drawing one key more or less leaves the stream's next keys
+        as they were. The state it is called on is untouched (it is frozen),
+        so drawing from it again would hand out the same keys: carry on with
+        the state returned.
         """
-        *keys, training_key = jax.random.split(self.rng, n + 1)
+        training_key, *keys = split_carry_first(self.rng, n)
         return (*keys, self.replace(rng=training_key))
 
 

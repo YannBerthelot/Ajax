@@ -333,7 +333,7 @@ class DreamerV3(OwnReplayAgent):
         """
         config, spec, replay = self.model_config, self.spec, context.buffer
         rows = jnp.asarray(tick, jnp.int32) + 1
-        training_key, sample_key, noise_key = jax.random.split(agent_state.rng, 3)
+        sample_key, noise_key, agent_state = agent_state.get_keys_and_new_state(2)
         replay_state, index = replay.sample(agent_state.replay_state, rows, sample_key)
         batch = replay.gather(
             replay_state, index, spec.action_dim if spec.discrete else None
@@ -354,7 +354,6 @@ class DreamerV3(OwnReplayAgent):
         )
         learner, entries, metrics = train_step(trained, batch, noise, config=config)
         agent_state = agent_state.replace(
-            rng=training_key,
             world_model_state=learner.world_model_state,
             actor_state=learner.actor_state,
             critic_state=learner.critic_state,

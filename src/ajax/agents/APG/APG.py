@@ -375,8 +375,7 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
     ) -> tuple[APGState, APGAuxiliaries]:
         """One update on a closed-loop rollout through the simulator, then
         the extensions' post_update."""
-        training_key, rollout_key, extensions_key = jax.random.split(agent_state.rng, 3)
-        agent_state = agent_state.replace(rng=training_key)
+        rollout_key, extensions_key, agent_state = agent_state.get_keys_and_new_state(2)
         env_args = context.env_args
         horizon = self.horizon
         timestep = agent_state.collector_state.timestep

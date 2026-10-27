@@ -765,11 +765,11 @@ def _without_format(path: str) -> None:
     stated their format."""
     import pickle
 
-    from ajax.checkpoint import FORMAT_KEY
+    from ajax.checkpoint import FORMAT, FORMAT_KEY
 
     with open(path, "rb") as fh:
         saved = pickle.load(fh)
-    assert saved.pop(FORMAT_KEY) == 1
+    assert saved.pop(FORMAT_KEY) == FORMAT
     with open(path, "wb") as fh:
         pickle.dump(saved, fh)
 
@@ -883,3 +883,57 @@ def test_a_udrl_buffer_the_env_normalised_is_refused(tmp_path):
     _resaved(path, env_normalised)
     with pytest.raises(ValueError, match="environment normalised"):
         restore_into(state, path)
+
+
+def test_a_checkpoint_from_before_the_collections_own_stream_restarts_it(tmp_path):
+    """A state saved before collection had its own stream of keys (format 1)
+    held, as its collector's key, the carry of its last collection, an
+    ancestor of the updates' key: it restores with that stream restarted on
+    the key derived from the updates' ("collector"). A checkpoint of the
+    current format keeps the key it saved."""
+    import pickle
+
+    from ajax.agents.SAC.SAC import SAC
+    from ajax.checkpoint import FORMAT_KEY
+    from ajax.random_keys import derive_key
+
+    net = ("8", "relu")
+    kw = {"n_envs": 2, "actor_architecture": net, "critic_architecture": net}
+    kw.update({"learning_starts": 100, "batch_size": 4, "buffer_size": 40})
+    state, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=[0, 1], n_timesteps=16)
+    path = str(tmp_path / "state.pkl")
+    save_checkpoint((state, jnp.zeros(3)), path)  # a state saved with its logs
+    kept = restore_into((state, jnp.zeros(3)), path)[0]
+    np.testing.assert_array_equal(kept.collector_state.rng, state.collector_state.rng)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    saved[FORMAT_KEY] = 1
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    restored = restore_into((state, jnp.zeros(3)), path)[0]
+    derived = jax.vmap(lambda key: derive_key(key, "collector"))(state.rng)
+    np.testing.assert_array_equal(restored.collector_state.rng, derived)
+    np.testing.assert_array_equal(restored.rng, state.rng)
+
+
+def test_a_row_collector_keeps_its_own_stream_from_an_older_checkpoint(tmp_path):
+    """The world models' row collectors had a stream of their own before
+    format 2: an older checkpoint keeps it."""
+    import pickle
+
+    from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
+    from ajax.checkpoint import FORMAT_KEY
+    from tests.agents.TDMPC2.common import TINY_AGENT
+
+    state, _ = TDMPC2(**TINY_AGENT, env_id="Pendulum-v1").train(seed=0, n_timesteps=0)
+    path = str(tmp_path / "state.pkl")
+    save_checkpoint(state, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    saved[FORMAT_KEY] = 1
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    restored = restore_into(state, path)
+    np.testing.assert_array_equal(
+        restored.collector_state.rng, state.collector_state.rng
+    )

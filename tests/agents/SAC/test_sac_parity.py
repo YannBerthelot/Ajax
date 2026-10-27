@@ -98,11 +98,17 @@ _PARITY_TIMESTEPS = 200
 # the updates' (RNG stability, two streams): critic -0.07%, actor -0.02%,
 # target -0.02%, alpha -0.002%. Previous goldens: critic 559.4210205078125,
 # actor 267.3836669921875, target 535.9125366210938, alpha 0.973161518573761.
+#
+# Re-recorded once SAC's critic steps ran on keys of their index and its
+# actor on a key derived from the updates' stream (RNG stability, options
+# derived): critic +0.25%, actor -0.025%, target +0.024%, alpha -0.009%.
+# Previous goldens: critic 559.0327758789062, actor 267.3338317871094,
+# target 535.82421875, alpha 0.973139762878418.
 _GOLDEN = {
-    "critic": 559.0327758789062,
-    "actor": 267.3338317871094,
-    "target": 535.82421875,
-    "alpha": 0.973139762878418,
+    "critic": 560.4334106445312,
+    "actor": 267.26690673828125,
+    "target": 535.9512939453125,
+    "alpha": 0.9730521440505981,
 }
 _TOL = 1e-4
 

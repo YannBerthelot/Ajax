@@ -343,8 +343,8 @@ def test_q2_oracle_reproduces_the_verified_answers() -> None:
 @pytest.mark.parametrize("kind", MEMORY_KINDS)
 def test_q2_readout_matches_an_episode_start_inside_a_window(kind: str) -> None:
     """Inside a window with obs-aligned resets an episode's first step reads
-    what the fresh-carry readouts read; a second step, whose carry holds a0,
-    does not (untrained SAC, seed 0)."""
+    what the fresh-carry readouts read; the second steps, whose carry holds
+    the step before, do not (untrained SAC, seed 0)."""
     run = runs.train(_q2_agent("SAC", kind, L, 16), (0,), 0)
     n = jax.tree.map(lambda x: x[0], R.nets(run.state))
     obs, acts = (
@@ -356,10 +356,21 @@ def test_q2_readout_matches_an_episode_start_inside_a_window(kind: str) -> None:
     q = R.critic_sequence(n, x, resets)[:, 0]
     np.testing.assert_allclose(q[starts], _q0(n, acts[starts]), atol=1e-5)
     one = jnp.ones((1, 1), bool)
-    fresh = R.critic_sequence(
-        n, _q_input(obs[1:2, None], acts[1:2, None, None], one), one
-    )
-    assert abs(q[1] - fresh[0, 0]) > 1e-4
+    gaps = []
+    for step in (1, 3, 5):
+        fresh = R.critic_sequence(
+            n,
+            _q_input(
+                obs[step : step + 1, None], acts[step : step + 1, None, None], one
+            ),
+            one,
+        )
+        gaps.append(abs(q[step] - fresh[0, 0]))
+    # The largest gap: the carry's effect on one reading of an untrained
+    # network can nearly cancel by chance (5e-5 for a GRU on one seed, where
+    # the other two read 1e-2 and 3e-3), while a carry that is ignored or
+    # reset leaves all three at zero.
+    assert max(gaps) > 1e-4
     a = jnp.clip(R.actor_sequence(n, obs[:, None], resets).mean().reshape(-1), -1, 1)
     np.testing.assert_allclose(a[starts], _a0(n), atol=1e-5)
 

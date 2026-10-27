@@ -1,4 +1,4 @@
-"""TD-MPC2 static configuration, learner state and agent state.
+"""TD-MPC2 static configuration, learner state and the multi-task agent's state.
 
 :class:`TDMPC2Config` holds the static hyperparameters of the world model, of
 one training update, of the MPPI planner (tdmpc2_spec §1-§3) and of the online
@@ -16,15 +16,15 @@ tdmpc2_spec 2.20 and 4.3), which the agent resolves once it knows its env
 :class:`TDMPC2UpdateState` is the part of the agent state one update reads and
 writes. :func:`ajax.agents.TDMPC2.core.update` only accesses these four
 attributes and ``replace``, so the agent state carries them as fields of its
-own (:class:`TDMPC2State`, ``DESIGN.md`` §4.5) and is passed to ``update``
-directly.
+own (:class:`~ajax.agents.TDMPC2.TDMPC2.TDMPC2State`, ``DESIGN.md`` §4.5)
+and is passed to ``update`` directly.
 """
 
 from __future__ import annotations
 
 import inspect
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 import jax
 from flax import struct
@@ -35,9 +35,6 @@ from ajax.environments.row_collector import RowCollectorState
 from ajax.normalizers import RunningScale
 from ajax.state import BaseAgentState, LoadedTrainState
 from ajax.types import Replaceable
-
-if TYPE_CHECKING:  # buffer.py builds core.TDMPC2Batch; core imports this module
-    from ajax.agents.TDMPC2.buffer import EpisodeBufferState, EpisodicBufferState
 
 
 def _static(default: Any) -> Any:
@@ -227,47 +224,10 @@ class TDMPC2UpdateState(Replaceable):
 
 
 @struct.dataclass(kw_only=True)
-class TDMPC2State(BaseAgentState):
-    """The TD-MPC2 agent state (``DESIGN.md`` §4.5).
-
-    Keyword-only so the narrowed ``critic_state`` default can sit before the
-    new required fields. Carries the four :class:`TDMPC2UpdateState`
-    attributes, so :func:`ajax.agents.TDMPC2.core.update` takes it directly.
-
-    Attributes:
-        critic_state: ``None``; the Q ensemble belongs to the world model.
-        collector_state: the row collector's state; ``policy_carry`` is the
-            planner's per-env warm-start mean ``prev_mean [n_envs, H, A]``.
-            ``collector_state.timestep`` counts env (agent) steps.
-        buffer_state: the episode replay ring
-            (:class:`~ajax.agents.TDMPC2.buffer.EpisodeBuffer`; the episodic
-            mode's :class:`~ajax.agents.TDMPC2.buffer.EpisodicBuffer`).
-        update_metrics: the last update's logged quantities
-            (:func:`ajax.agents.TDMPC2.core.update`), kept across ticks
-            without updates (held ticks, seed phase) for logging, as the
-            reference keeps its last ``train_metrics``.
-        n_terminations: true terminations on scheduled episode ends
-            (``is_terminal`` rows); with the collector's
-            ``n_offschedule_dones`` it makes the agent refuse terminating
-            tasks after ``train`` (deviation T10). The episodic mode counts
-            every termination.
-    """
-
-    critic_state: Optional[LoadedTrainState] = None  # type: ignore[assignment]
-    world_model_state: LoadedTrainState
-    q_scale: RunningScale
-    pi_gradnorm_sq: jax.Array
-    collector_state: RowCollectorState
-    buffer_state: EpisodeBufferState | EpisodicBufferState
-    update_metrics: dict[str, jax.Array]
-    n_terminations: jax.Array
-
-
-@struct.dataclass(kw_only=True)
 class TDMPC2MultiTaskState(BaseAgentState):
     """The offline multi-task TD-MPC2 state (``DESIGN.md`` §7).
 
-    :class:`TDMPC2State` without the env interaction: the dataset is not part
+    :class:`~ajax.agents.TDMPC2.TDMPC2.TDMPC2State` without the env interaction: the dataset is not part
     of the state (it is shared by every seed, an argument of the jitted
     program), and nothing is collected. Carries the four
     :class:`TDMPC2UpdateState` attributes, so

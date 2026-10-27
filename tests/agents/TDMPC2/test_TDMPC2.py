@@ -28,8 +28,12 @@ from ajax import TDMPC2, TDMPC2MultiTask
 from ajax.agents import loop
 from ajax.agents.TDMPC2 import core
 from ajax.agents.TDMPC2.planner import plan_for_envs
-from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
-from ajax.agents.TDMPC2.TDMPC2 import FixedLengthSchedule, refuse_terminations
+from ajax.agents.TDMPC2.state import TDMPC2Config
+from ajax.agents.TDMPC2.TDMPC2 import (
+    FixedLengthSchedule,
+    TDMPC2State,
+    refuse_terminations,
+)
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.logging.wandb_logging import LoggingConfig

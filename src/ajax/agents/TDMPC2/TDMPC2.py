@@ -41,6 +41,7 @@ from typing import Any, Callable, Optional
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import struct
 
 from ajax.agents.families import OwnReplayAgent, TrainContext
 from ajax.agents.TDMPC2 import core
@@ -53,14 +54,20 @@ from ajax.agents.TDMPC2.buffer import (
     replay_capacity,
 )
 from ajax.agents.TDMPC2.planner import plan_for_envs
-from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
-from ajax.environments.row_collector import collect_row, init_row_collector_state
+from ajax.agents.TDMPC2.state import TDMPC2Config
+from ajax.environments.row_collector import (
+    RowCollectorState,
+    collect_row,
+    init_row_collector_state,
+)
 from ajax.environments.utils import (
     agent_episode_length,
     get_action_dim,
     get_state_action_shapes,
 )
 from ajax.evaluate import evaluate_policy
+from ajax.normalizers import RunningScale
+from ajax.state import BaseAgentState, LoadedTrainState
 from ajax.types import FloatOrCallable
 
 logger = logging.getLogger(__name__)
@@ -710,6 +717,44 @@ class EpisodicSchedule:
         return jnp.where(tick == self.seed_tick, self.seed_steps, after).astype(
             jnp.int32
         )
+
+
+# -- State ---------------------------------------------------------------------
+@struct.dataclass(kw_only=True)
+class TDMPC2State(BaseAgentState):
+    """The TD-MPC2 agent state (``DESIGN.md`` §4.5).
+
+    Keyword-only so the narrowed ``critic_state`` default can sit before the
+    new required fields. Carries the four :class:`TDMPC2UpdateState`
+    attributes, so :func:`ajax.agents.TDMPC2.core.update` takes it directly.
+
+    Attributes:
+        critic_state: ``None``; the Q ensemble belongs to the world model.
+        collector_state: the row collector's state; ``policy_carry`` is the
+            planner's per-env warm-start mean ``prev_mean [n_envs, H, A]``.
+            ``collector_state.timestep`` counts env (agent) steps.
+        buffer_state: the episode replay ring
+            (:class:`~ajax.agents.TDMPC2.buffer.EpisodeBuffer`; the episodic
+            mode's :class:`~ajax.agents.TDMPC2.buffer.EpisodicBuffer`).
+        update_metrics: the last update's logged quantities
+            (:func:`ajax.agents.TDMPC2.core.update`), kept across ticks
+            without updates (held ticks, seed phase) for logging, as the
+            reference keeps its last ``train_metrics``.
+        n_terminations: true terminations on scheduled episode ends
+            (``is_terminal`` rows); with the collector's
+            ``n_offschedule_dones`` it makes the agent refuse terminating
+            tasks after ``train`` (deviation T10). The episodic mode counts
+            every termination.
+    """
+
+    critic_state: Optional[LoadedTrainState] = None  # type: ignore[assignment]
+    world_model_state: LoadedTrainState
+    q_scale: RunningScale
+    pi_gradnorm_sq: jax.Array
+    collector_state: RowCollectorState
+    buffer_state: EpisodeBufferState | EpisodicBufferState
+    update_metrics: dict[str, jax.Array]
+    n_terminations: jax.Array
 
 
 __all__ = [

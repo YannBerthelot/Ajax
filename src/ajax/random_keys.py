@@ -79,6 +79,11 @@ NAMES: tuple[str, ...] = (
     # updates' count restarts online (ajax.log.evaluation_keys).
     "online_evaluation",
     "offline_evaluation",
+    # An env's episodes, off the key its reset is handed, and each episode's
+    # start, off the episode's key, whose steps draw at their indices
+    # (ajax.wrappers.episode_start_key).
+    "episodes",
+    "episode_start",
 )
 
 TAGS: dict[str, int] = {name: make_tag(name) for name in NAMES}

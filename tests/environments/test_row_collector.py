@@ -20,7 +20,7 @@ from ajax.environments.utils import agent_episode_length
 from ajax.extensions.observe import PIDTermsInput, TrainingProgressInput
 from ajax.networks.memory import MEMORY_KINDS, MemoryCell, MemoryConfig, init_carry
 from ajax.state import EnvironmentConfig
-from ajax.wrappers import InitialStateWrapper
+from ajax.wrappers import EPISODE_INDEX_KEY, InitialStateWrapper
 
 
 def env_args_for(env_id, n_envs, **build_kwargs):
@@ -590,9 +590,15 @@ def uniform_policy(carry, obs, is_first, key):
     return action, carry, None
 
 
-def test_dynamic_mode_on_brax_inverted_pendulum():
+@pytest.mark.parametrize("episode_keys", [True, False])
+def test_dynamic_mode_on_brax_inverted_pendulum(episode_keys):
     n_envs, episode_length, n_ticks = 4, 20, 300
-    env_args = env_args_for("inverted_pendulum", n_envs, episode_length=episode_length)
+    env_args = env_args_for(
+        "inverted_pendulum",
+        n_envs,
+        episode_length=episode_length,
+        episode_keys=episode_keys,
+    )
     run = run_collector(env_args, uniform_policy, n_ticks, reset_mode="dynamic")
     state, rows = run.state, run.rows
     check_row_conventions(rows)
@@ -616,12 +622,18 @@ def test_dynamic_mode_on_brax_inverted_pendulum():
         starts = np.stack([obs[s, e] for s, _ in eps])
         assert len(np.unique(starts, axis=0)) == len(starts)
         n_episodes += len(eps)
+        if episode_keys:
+            # each env counts the episodes it ended, its held ticks none; the
+            # last end's row comes a tick after it, so it may not be read yet
+            index = int(state._env_state.info[EPISODE_INDEX_KEY][e])
+            assert len(eps) <= index <= len(eps) + 1
     assert n_episodes >= 10 * n_envs
-    # the batch-shared reset seed stays one seed for the whole batch
-    seed_rows = np.asarray(run.env_states.info["rng"])
-    np.testing.assert_array_equal(
-        seed_rows, np.broadcast_to(seed_rows[:, :1], seed_rows.shape)
-    )
+    if not episode_keys:
+        # the batch-shared reset seed stays one seed for the whole batch
+        seed_rows = np.asarray(run.env_states.info["rng"])
+        np.testing.assert_array_equal(
+            seed_rows, np.broadcast_to(seed_rows[:, :1], seed_rows.shape)
+        )
     assert (
         held_state_is_bit_identical(run.env_states, rows, n_envs) >= n_episodes - n_envs
     )

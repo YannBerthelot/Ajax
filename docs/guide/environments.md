@@ -56,6 +56,26 @@ env, _ = build_env_from_id("CartpoleBalance", n_envs=4, episode_length=1_000, fr
 agent = SAC(env, n_envs=4)
 ```
 
+### Episode keys
+
+Every environment's resets are keyed by episode: copy `i`'s `k`-th episode
+starts on a key of `(i, k)` alone, and on gymnax its steps draw on keys of
+`(i, k, step)`. Two runs that differ by an option, an extension or their
+updates then start each copy's `k`-th episode from the same state, even where
+their actions end the episodes at other steps. `episode_keys=False` keeps
+each backend's own auto-reset, as runs made before episode keys did:
+
+```python
+from ajax.environments.create import build_env_from_id, with_episode_keys
+
+env, params = build_env_from_id("Pendulum-v1", episode_keys=False)
+# An environment you built yourself:
+env = with_episode_keys(my_gymnax_env, on=False)
+```
+
+A gymnax environment that overrides gymnax's own `step` or `reset` (bsuite's
+DeepSea) is refused with episode keys on, since they would bypass it.
+
 `build_env_from_id(..., differentiable_reset=True)` lets `jax.grad` flow
 through the reset itself, for instance to physics parameters, at the cost of
 computing a reset at every step. Without it, gradients still flow through

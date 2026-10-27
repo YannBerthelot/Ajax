@@ -34,7 +34,7 @@ from flax import struct
 from gymnax.environments import spaces
 
 from ajax.random_keys import derive_key
-from ajax.wrappers import _FINAL_OBS_KEYS, GymnaxWrapper
+from ajax.wrappers import _FINAL_OBS_KEYS, GymnaxWrapper, episode_draws_key
 
 
 @struct.dataclass
@@ -212,10 +212,12 @@ class ModelReferenceWrapper(GymnaxWrapper):
         return spaces.Box(-jnp.inf, jnp.inf, (dim,), jnp.float32)
 
     def reset(self, key, params=None):
-        # The plant gets the key whole, the reference one derived from it, so
-        # the wrapper leaves the plant's own draws as they were.
+        # The plant gets the key whole, the reference one derived from it (from
+        # the episode's start key under episode keys), so the wrapper leaves
+        # the plant's own draws as they were.
         raw_obs, env_state = self._env.reset(key, params)
-        state = self._fresh_task(derive_key(key, "reference"), raw_obs, env_state)
+        reference_key = derive_key(episode_draws_key(env_state, key), "reference")
+        state = self._fresh_task(reference_key, raw_obs, env_state)
         return self._controller_obs(state, raw_obs), state
 
     def _fresh_task(self, key, raw_obs, env_state) -> ModelReferenceState:
@@ -254,7 +256,8 @@ class ModelReferenceWrapper(GymnaxWrapper):
             t=t_next,
         )
         # Start a fresh task on the plant's new episode.
-        fresh = self._fresh_task(derive_key(key, "reference"), raw_obs, env_state)
+        reference_key = derive_key(episode_draws_key(env_state, key), "reference")
+        fresh = self._fresh_task(reference_key, raw_obs, env_state)
         state = jax.tree.map(lambda a, b: jax.lax.select(done, a, b), fresh, continued)
         # The final observation in the controller's view, as wide as obs: a
         # collector bootstraps a time limit on it.

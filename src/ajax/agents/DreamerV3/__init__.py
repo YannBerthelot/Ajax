@@ -10,9 +10,9 @@ world-model loss with the replay context), :mod:`.actor_critic`
 :mod:`.learner` (one training step: joint gradient, three optimizers, slow
 critic) and :mod:`.state` (static hyperparameters, size presets and the
 agent state). The agent: :mod:`.replay` (the stream replay with the replay
-context, online queue and latent write-back), :mod:`.train_DreamerV3` (the
-acting, update and schedule of its training loop) and
-:class:`.DreamerV3.DreamerV3`. See ``docs/world_models/DESIGN.md`` section 6.
+context, online queue and latent write-back) and :class:`.DreamerV3.DreamerV3`
+(its tick: acting, storing, the train ratio's updates and logging). See
+``docs/world_models/DESIGN.md`` section 6.
 """
 
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3

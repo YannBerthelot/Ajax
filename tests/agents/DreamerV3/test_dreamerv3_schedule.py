@@ -1,6 +1,6 @@
 """The DreamerV3 update schedule against a port of the 2411f7d driver loop.
 
-``TrainRatio`` (``train_DreamerV3.py``) is static arithmetic on the tick; the
+``TrainRatio`` (``DreamerV3.py``) is static arithmetic on the tick; the
 oracle is the transition-level reference loop (``reference_loop.py``:
 ``train.py`` + ``when.Ratio`` + ``Replay.add``). Pinned: the first update's
 tick, the per-tick counts and the totals for ``n_envs`` in ``{1, 4, 16,
@@ -14,8 +14,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax.agents.DreamerV3.DreamerV3 import TrainRatio
 from ajax.agents.DreamerV3.replay import StreamReplay
-from ajax.agents.DreamerV3.train_DreamerV3 import TrainRatio
 
 from .reference_loop import Ratio, reference_train_loop
 

@@ -127,7 +127,7 @@ class StreamReplay:
     Attributes:
         n_envs: number of env streams.
         capacity: ``C``, rows kept per env (resolved by
-            :meth:`~ajax.agents.DreamerV3.DreamerV3.DreamerV3._resolve_replay`).
+            :meth:`~ajax.agents.DreamerV3.DreamerV3.DreamerV3.prepare_replay`).
         batch_size: ``B``, windows per batch.
         batch_length: ``T``, trained rows per window; a window has ``L = T +
             1`` rows, the first being context (2411f7d ``batch_length: 65``

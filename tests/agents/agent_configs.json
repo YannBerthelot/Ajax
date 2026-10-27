@@ -272,15 +272,6 @@
   }
  },
  "DreamerV3": {
-  "agent_config": {
-   "DreamerV3AgentConfig": {
-    "batch_length": 64,
-    "batch_size": 16,
-    "expose_recent_rollout": false,
-    "replay_capacity": 5000000,
-    "train_ratio": 512
-   }
-  },
   "config": {
    "actent": 0.0003,
    "action_repeat": 1,

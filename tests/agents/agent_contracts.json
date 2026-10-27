@@ -478,12 +478,10 @@
    "v_critic"
   ],
   "extension_context": [
-   "agent_config",
    "env_args",
-   "gamma",
-   "total_timesteps"
+   "gamma"
   ],
-  "make_train": "ajax.agents.DreamerV3.train_DreamerV3:make_train",
+  "make_train": "ajax.agents.families:OwnReplayAgent.make_train",
   "name": "DreamerV3",
   "per_seed_update_counts": false,
   "phase_batch_keys": {},

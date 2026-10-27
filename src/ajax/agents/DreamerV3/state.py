@@ -17,9 +17,9 @@ optimizer -- is the same at all sizes (2411f7d ``configs.yaml``:
 of :class:`DreamerV3Config` with that value as its default. The parity tests
 pin these defaults against the reference's own configuration.
 
-The agent adds the hyperparameters of its training loop --
-the train ratio, the batch geometry and the replay capacity --
-(:class:`DreamerV3AgentConfig`) and its state (:class:`DreamerV3State`).
+The agent declares them, with the hyperparameters of its training loop (the
+train ratio, the batch geometry and the replay capacity), as its fields,
+and this module holds its state (:class:`DreamerV3State`).
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from flax import struct
 from ajax.distributional import TwoHot
 from ajax.environments.row_collector import RowCollectorState
 from ajax.normalizers import ReturnNormalizer
-from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState
+from ajax.state import BaseAgentState, LoadedTrainState
 
 if TYPE_CHECKING:
     from ajax.agents.DreamerV3.replay import ReplayState
@@ -283,31 +283,6 @@ class DreamerV3Config:
         """The reward and critic two-hot codec, ``symexp_twohot`` over
         ``bins`` bins (:meth:`~ajax.distributional.TwoHot.dreamerv3`)."""
         return TwoHot.dreamerv3(self.bins)
-
-
-@struct.dataclass(kw_only=True)
-class DreamerV3AgentConfig(BaseAgentConfig):
-    """Hyperparameters of the DreamerV3 training loop (static).
-
-    Attributes:
-        train_ratio: replayed steps trained per collected row, the
-            reference's ``run.train_ratio`` (2411f7d ``configs.yaml:52``;
-            512 in the ``dmc_proprio`` preset, ``:233-237``): an update every
-            ``batch_size * batch_length / train_ratio`` rows
-            (``embodied/run/train.py:26-28``; dreamerv3_spec 6.1).
-        batch_size: windows per training batch ``B`` (``batch_size: 16``).
-        batch_length: trained rows per window ``T``; a window has ``T + 1``
-            rows, the first being the replay context (2411f7d
-            ``batch_length: 65`` with ``replay_context: 1``).
-        replay_capacity: rows kept, summed over envs (Table 4: 5e6; the
-            ring per env: :meth:`~ajax.agents.DreamerV3.DreamerV3.DreamerV3.
-            _resolve_replay`, deviation D27).
-    """
-
-    train_ratio: float = struct.field(pytree_node=False, default=512.0)
-    batch_size: int = struct.field(pytree_node=False, default=16)
-    batch_length: int = struct.field(pytree_node=False, default=64)
-    replay_capacity: int = struct.field(pytree_node=False, default=5_000_000)
 
 
 @struct.dataclass(kw_only=True)

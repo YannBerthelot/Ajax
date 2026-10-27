@@ -89,16 +89,21 @@ DEMO = 0.6  # the demonstrations' action at s = 1, times s
 
 
 def gail_readings(
-    demo: float, read: Callable[[R.Nets, float], Any], label: str = "a"
+    demo: float,
+    read: Callable[[R.Nets, float], Any],
+    label: str = "a",
+    **overrides: Any,
 ) -> Any:
-    """GAIL on demonstrations acting ``demo`` s at s = +-1, ``read`` at both."""
+    """GAIL on demonstrations acting ``demo`` s at s = +-1, ``read`` at both,
+    PPO taking overrides."""
     s = np.repeat([-1.0, 1.0], 32)[:, None]
     ends = np.ones(64, bool)
     demos = TransitionDataset(s, demo * s, np.zeros(64), ends, ~ends, s)
 
     def build() -> Any:
         env = envs.package(envs.SignedActionEnv)
-        return agents.make("PPO", *env, extensions=(AdversarialReward(demos),))
+        extensions = (AdversarialReward(demos),)
+        return agents.make("PPO", *env, extensions=extensions, **overrides)
 
     def readings(run: runs.Run) -> dict:
         def at(n: R.Nets) -> dict:
@@ -145,11 +150,17 @@ CASES: dict[str, Case] = {
             Query(f"a({x:g})", DEMO * x, {"the env's reward": x, "untrained": 0.0})
             for x in (-1.0, 1.0)
         ),
-        gail_readings(DEMO, R.action),
-        32000,
-        (0.069, 0.065),
-        note="ladder 2000-32000 on 1000-1031, 16000-32000 on 2000-2031: 32000; cert 32/32,"
-        " 30/32 once the discriminator read the executed action",
+        # PPO at learning rates 2e-4: at its 3e-4 a seed in 16 ends a mean past
+        # the bound, where every sample runs as the bound and nothing brings it
+        # back (sigma e^-1, as on the action box: 57/64; e^0.5: 57/64).
+        gail_readings(
+            DEMO, R.action, actor_learning_rate=2e-4, critic_learning_rate=2e-4
+        ),
+        128_000,
+        (0.073, 0.064),
+        note="at 3e-4: 32000, cert 32/32, 30/32 once the discriminator read the"
+        " executed action, 27/32 on keys derived by name; at 2e-4, ladder"
+        " 64000-192000 on 1000-1031, 2000-2031: 128000; cert 32/32",
     ),
     "gail-saturating-PPO": Case(
         "gail-saturating-PPO",
@@ -170,7 +181,7 @@ CASES: dict[str, Case] = {
         note="ladder 1000-32000 on 1000-1031, 2000-2031: medians 1.0 from 2000",
     ),
 }
-ANSWER_DIGEST = "f38efbeb2ff3"
+ANSWER_DIGEST = "9aab053e60f4"
 
 
 @pytest.mark.parametrize("case", params(CASES))

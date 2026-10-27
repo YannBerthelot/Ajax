@@ -26,9 +26,10 @@ import pytest
 from ajax import TDMPC2, TDMPC2MultiTask
 from ajax.agents import loop
 from ajax.agents.TDMPC2 import core, train_TDMPC2
+from ajax.agents.TDMPC2.planner import plan_for_envs
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
 from ajax.agents.TDMPC2.TDMPC2 import refuse_terminations
-from ajax.agents.TDMPC2.train_TDMPC2 import Schedule, evaluate_tdmpc2, planner_policy
+from ajax.agents.TDMPC2.train_TDMPC2 import Schedule, evaluate_tdmpc2
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.logging.wandb_logging import LoggingConfig
@@ -326,13 +327,13 @@ def test_resume_offset_needs_equal_tick_counts():
 
 @pytest.fixture(scope="module")
 def decide():
-    """A jitted planner_policy of an untrained tiny model (Pendulum shapes)."""
+    """A jitted plan_for_envs of an untrained tiny model (Pendulum shapes)."""
     config = TDMPC2Config.from_model_size(1, **TINY)
     learner = core.create_update_state(jax.random.PRNGKey(0), config, 3, 1)
 
     @jax.jit
     def run(carry, obs, is_first, key):
-        return planner_policy(
+        return plan_for_envs(
             carry,
             obs,
             is_first,
@@ -598,9 +599,9 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
 
     def planner_spy(carry, obs, is_first, key, **kwargs):
         planner_calls.add((kwargs["eval_mode"], obs.shape[0]))
-        return planner_policy(carry, obs, is_first, key, **kwargs)
+        return plan_for_envs(carry, obs, is_first, key, **kwargs)
 
-    monkeypatch.setattr(train_TDMPC2, "planner_policy", planner_spy)
+    monkeypatch.setattr(train_TDMPC2, "plan_for_envs", planner_spy)
 
     # Run-time record of every update's batch and noise, per seed.
     updates: dict = {}

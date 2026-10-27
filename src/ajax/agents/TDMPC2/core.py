@@ -855,3 +855,31 @@ def update(
         "pi_grad_norm": pi_grad_norm,
     }
     return new_state, aux
+
+
+def make_zero_update_metrics(
+    learner: TDMPC2UpdateState,
+    config: TDMPC2Config,
+    gamma: Union[float, jax.Array],
+    obs_dim: int,
+    action_dim: int,
+    task: Optional[TaskContext] = None,
+) -> dict[str, jax.Array]:
+    """Zeros with the structure of :func:`update`'s logged quantities
+    (``task``: a batch's multi-task conditioning; ``None``: single
+    task)."""
+    horizon, batch_size = config.horizon, config.batch_size
+    batch = TDMPC2Batch(
+        obs=jnp.zeros((horizon + 1, batch_size, obs_dim)),
+        action=jnp.zeros((horizon, batch_size, action_dim)),
+        reward=jnp.zeros((horizon, batch_size)),
+        terminated=jnp.zeros((horizon, batch_size)) if config.episodic else None,
+    )
+    noise = draw_update_noise(jax.random.PRNGKey(0), config, batch_size, action_dim)
+
+    def logged(state: Any) -> dict[str, jax.Array]:
+        _, metrics = update(state, batch, noise, config=config, gamma=gamma, task=task)
+        return metrics
+
+    shapes = jax.eval_shape(logged, learner)
+    return jax.tree.map(lambda shape: jnp.zeros(shape.shape, shape.dtype), shapes)

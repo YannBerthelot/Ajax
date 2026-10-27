@@ -28,7 +28,7 @@ import pytest
 
 from ajax import TDMPC2
 from ajax.agents.TDMPC2 import core
-from ajax.agents.TDMPC2.train_TDMPC2 import planner_policy
+from ajax.agents.TDMPC2.planner import plan_for_envs
 from tests.agents.TDMPC2.toy_envs import ConstantRewardEnv, RewardIsActionEnv
 
 PROBE = {
@@ -101,7 +101,7 @@ def test_planner_plays_the_rewarding_action(reward_is_action):
         )
         np.testing.assert_allclose(reward[2:], [0.0, 0.5, 1.0], atol=0.1)
         n = 8
-        action, _, _ = planner_policy(
+        action, _, _ = plan_for_envs(
             jnp.zeros((n, agent.agent_config.horizon, 1)),
             jnp.ones((n, 1)),
             jnp.ones(n, bool),

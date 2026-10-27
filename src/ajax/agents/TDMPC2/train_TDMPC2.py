@@ -70,7 +70,7 @@ from ajax.agents.TDMPC2.buffer import (
     EpisodicBuffer,
     EpisodicBufferState,
 )
-from ajax.agents.TDMPC2.planner import draw_plan_noise, plan
+from ajax.agents.TDMPC2.planner import plan_for_envs
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
 from ajax.environments.row_collector import collect_row, init_row_collector_state
 from ajax.environments.utils import get_action_dim
@@ -240,81 +240,17 @@ class EpisodicSchedule:
         )
 
 
-def planner_policy(
-    carry: jax.Array,
-    obs: jax.Array,
-    is_first: jax.Array,
-    key: jax.Array,
-    *,
-    wm_params: Any,
-    pi_params: Any,
-    config: TDMPC2Config,
-    gamma: Union[float, jax.Array],
-    eval_mode: bool,
-    task: Optional[core.TaskContext] = None,
-) -> tuple[jax.Array, jax.Array, None]:
-    """The row collector's policy: one MPPI decision per env.
-
-    :func:`ajax.agents.TDMPC2.planner.plan` vmapped over the leading env
-    axis of ``obs [m, obs_dim]``, ``is_first [m]`` (the reference's ``t0``)
-    and the warm-start carry ``prev_mean [m, H, A]``, each env with its own
-    draws. Returns ``(action [m, A], new prev_mean, None)``. ``task`` is
-    the multi-task conditioning of one task shared by the envs
-    (:func:`ajax.agents.TDMPC2.multitask.task_planner_policy`); ``None`` is
-    the single-task planner.
-    """
-    n, action_dim = carry.shape[0], carry.shape[-1]
-    noise = jax.vmap(lambda k: draw_plan_noise(k, config, action_dim))(
-        jax.random.split(key, n)
-    )
-    decide = partial(plan, config=config, gamma=gamma, eval_mode=eval_mode, task=task)
-    action, prev_mean, _ = jax.vmap(decide, in_axes=(None, None, 0, 0, 0, 0))(
-        wm_params, pi_params, obs, carry, is_first, noise
-    )
-    return action, prev_mean, None
-
-
 def _policy(
     agent_state: TDMPC2State, config: TDMPC2Config, gamma: float, eval_mode: bool
 ) -> Callable:
     return partial(
-        planner_policy,
+        plan_for_envs,
         wm_params=agent_state.world_model_state.params,
         pi_params=agent_state.actor_state.params,
         config=config,
         gamma=gamma,
         eval_mode=eval_mode,
     )
-
-
-def update_metrics_zeros(
-    learner: core.TDMPC2UpdateState,
-    config: TDMPC2Config,
-    gamma: Union[float, jax.Array],
-    obs_dim: int,
-    action_dim: int,
-    task: Optional[core.TaskContext] = None,
-) -> dict[str, jax.Array]:
-    """Zeros with the structure of :func:`core.update`'s logged quantities
-    (``task``: a batch's multi-task conditioning; ``None``: single
-    task)."""
-    h, b = config.horizon, config.batch_size
-    batch = core.TDMPC2Batch(
-        obs=jnp.zeros((h + 1, b, obs_dim)),
-        action=jnp.zeros((h, b, action_dim)),
-        reward=jnp.zeros((h, b)),
-        terminated=jnp.zeros((h, b)) if config.episodic else None,
-    )
-    noise = core.draw_update_noise(jax.random.PRNGKey(0), config, b, action_dim)
-
-    def logged(state: Any) -> dict[str, jax.Array]:
-        _, metrics = core.update(
-            state, batch, noise, config=config, gamma=gamma, task=task
-        )
-        return metrics
-
-    shapes = jax.eval_shape(logged, learner)
-    return jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), shapes)
 
 
 def init_TDMPC2(
@@ -357,7 +293,7 @@ def init_TDMPC2(
         pi_gradnorm_sq=learner.pi_gradnorm_sq,
         collector_state=collector_state,
         buffer_state=buffer.init(),
-        update_metrics=update_metrics_zeros(
+        update_metrics=core.make_zero_update_metrics(
             learner, config, gamma, obs_dim, action_dim
         ),
         n_terminations=jnp.zeros((), jnp.int32),
@@ -611,8 +547,6 @@ __all__ = [
     "evaluate_tdmpc2",
     "init_TDMPC2",
     "make_train",
-    "planner_policy",
     "train_metrics",
     "update",
-    "update_metrics_zeros",
 ]

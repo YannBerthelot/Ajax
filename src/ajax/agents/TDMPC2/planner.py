@@ -63,6 +63,7 @@ persisted (deviation T15; the reference writes it into its parameters).
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, Callable, NamedTuple, Optional, Union
 
 import jax
@@ -565,3 +566,37 @@ def plan(
         eval_mode=eval_mode,
         task=task,
     )
+
+
+def plan_for_envs(
+    carry: jax.Array,
+    obs: jax.Array,
+    is_first: jax.Array,
+    key: jax.Array,
+    *,
+    wm_params: Any,
+    pi_params: Any,
+    config: TDMPC2Config,
+    gamma: Union[float, jax.Array],
+    eval_mode: bool,
+    task: Optional[TaskContext] = None,
+) -> tuple[jax.Array, jax.Array, None]:
+    """The row collector's policy: one MPPI decision per env.
+
+    :func:`plan` vmapped over the leading env axis of ``obs [m, obs_dim]``,
+    ``is_first [m]`` (the reference's ``t0``) and the warm-start carry
+    ``prev_mean [m, H, A]``, each env with its own draws. Returns
+    ``(action [m, A], new prev_mean, None)``. ``task`` is the multi-task
+    conditioning of one task shared by the envs
+    (:func:`ajax.agents.TDMPC2.multitask.task_planner_policy`); ``None`` is
+    the single-task planner.
+    """
+    n_envs, action_dim = carry.shape[0], carry.shape[-1]
+    noise = jax.vmap(lambda env_key: draw_plan_noise(env_key, config, action_dim))(
+        jax.random.split(key, n_envs)
+    )
+    decide = partial(plan, config=config, gamma=gamma, eval_mode=eval_mode, task=task)
+    action, prev_mean, _ = jax.vmap(decide, in_axes=(None, None, 0, 0, 0, 0))(
+        wm_params, pi_params, obs, carry, is_first, noise
+    )
+    return action, prev_mean, None

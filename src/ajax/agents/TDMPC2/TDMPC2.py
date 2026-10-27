@@ -21,7 +21,12 @@ from gymnax import EnvParams
 
 from ajax.agents.base import ActorCritic, run_config, run_horizon, shared_counters
 from ajax.agents.loop import LOOP_PHASES
-from ajax.agents.TDMPC2.buffer import EpisodeBuffer, EpisodicBuffer, replay_capacity
+from ajax.agents.TDMPC2.buffer import (
+    EpisodeBuffer,
+    EpisodicBuffer,
+    make_episode_buffer,
+    replay_capacity,
+)
 from ajax.agents.TDMPC2.core import discount_from_episode_length
 from ajax.agents.TDMPC2.state import TDMPC2Config, TDMPC2State
 from ajax.agents.TDMPC2.train_TDMPC2 import EpisodicSchedule, Schedule, make_train
@@ -330,23 +335,15 @@ class TDMPC2(ActorCritic):
         """The ring of a call that ends after ``total_timesteps`` env steps of
         the run (rows in the episodic mode); records its capacity and size
         (class docstring)."""
-        buffer: EpisodeBuffer | EpisodicBuffer
         capacity = replay_capacity(self.agent_config.buffer_size, total_timesteps)
-        if self.agent_config.episodic:
-            buffer = EpisodicBuffer.create(
-                buffer_size=capacity,
-                n_envs=self.env_args.n_envs,
-                obs_dim=self.obs_dim,
-                action_dim=self.action_dim,
-            )
-        else:
-            buffer = EpisodeBuffer.create(
-                capacity=capacity,
-                n_envs=self.env_args.n_envs,
-                episode_length=self.agent_episode_length,
-                obs_dim=self.obs_dim,
-                action_dim=self.action_dim,
-            )
+        buffer = make_episode_buffer(
+            capacity,
+            self.env_args.n_envs,
+            self.agent_episode_length,
+            self.obs_dim,
+            self.action_dim,
+            self.agent_config.episodic,
+        )
         self.replay_capacity = capacity
         self.replay_bytes_per_seed = buffer.nbytes
         self.config.update(

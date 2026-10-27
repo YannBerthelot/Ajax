@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from ajax.agents.DreamerV3 import networks as dreamer
-from ajax.agents.TDMPC2.train_TDMPC2 import planner_policy
+from ajax.agents.TDMPC2.planner import plan_for_envs
 from ajax.environments.utils import agent_action_to_env
 
 from . import agents, envs, oracles, runs
@@ -98,7 +98,7 @@ def _tdmpc2(run: runs.Run) -> dict:
     def one(wm: Any, pi: Any, key: jax.Array) -> jax.Array:
         carry = jnp.zeros((48, agent.agent_config.horizon, 1))
         first = jnp.ones(48, bool)
-        a = planner_policy(carry, obs, first, key, wm_params=wm, pi_params=pi, **kw)
+        a = plan_for_envs(carry, obs, first, key, wm_params=wm, pi_params=pi, **kw)
         return _to_env(a[0]).reshape(3, 16).mean(1)
 
     keys = jax.random.split(R.KEY, len(run.seeds))

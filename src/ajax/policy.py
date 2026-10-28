@@ -345,3 +345,38 @@ def evaluation_policy(
         return agent_action_to_env(acted.actions, env, env_params), carry
 
     return PolicyParts(initial, step, reads_reward=command is not None)
+
+
+def row_collector_policy(
+    env_args: Any,
+    agent_state: Any,
+    policy_fn: Callable,
+    init_carry_fn: Callable[[int], Any],
+) -> PolicyParts:
+    """The policy evaluate_policy runs, the world models' row collector's:
+    policy_fn(carry, obs, is_first, key) -> (action, carry, extras) on the
+    observation with the run's features, from init_carry_fn(n_envs), is_first
+    where an episode starts; its action mapped onto the environment's
+    bounds."""
+    env, env_params, observers = env_args.env, env_args.env_params, env_args.observers
+    progress_now = frozen_progress(agent_state)
+
+    def initial(n_envs: int) -> PolicyCarry:
+        states = init_observers(observers, n_envs) if observers else None
+        return PolicyCarry(init_carry_fn(n_envs), observer_states=states)
+
+    def step(obs, carry, starts, reward, key):
+        del reward  # a world model reads its rewards in training only
+        observer_states = carry.observer_states
+        if observers:
+            fresh = init_observers(observers, obs.shape[0])
+            observer_states = tree_where_reset(starts, fresh, observer_states)
+            inputs = ObserveInputs(obs.astype(jnp.float32), progress=progress_now)
+            obs, observer_states = observe_features(
+                obs, inputs, observers, observer_states
+            )
+        action, memory, _ = policy_fn(carry.memory, obs, starts, key)
+        action = agent_action_to_env(action, env, env_params)
+        return action, PolicyCarry(memory, observer_states=observer_states)
+
+    return PolicyParts(initial, step)

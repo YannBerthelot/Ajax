@@ -71,6 +71,7 @@ from ajax.environments.utils import get_action_dim, get_state_action_shapes
 from ajax.evaluate import evaluate_policy
 from ajax.log import MetricsAccumulator
 from ajax.normalizers import ReturnNormalizer
+from ajax.policy import PolicyParts, row_collector_policy
 from ajax.state import BaseAgentState, EnvironmentConfig, LoadedTrainState
 
 logger = logging.getLogger(__name__)
@@ -394,6 +395,23 @@ class DreamerV3(OwnReplayAgent):
             "Eval/episodic mean reward": mean_return,
             "Eval/mean episodic length": mean_length,
         }
+
+    def policy_parts(self) -> Callable[[Any], PolicyParts]:
+        """As its evaluation acts: the row collector's sampling policy, from
+        a zero carry."""
+        config, spec = self.model_config, self.spec
+
+        def parts(agent_state: DreamerV3State) -> PolicyParts:
+            return row_collector_policy(
+                self.env_args,
+                agent_state,
+                self.make_policy(agent_state),
+                lambda n_envs: make_initial_carry(
+                    config, n_envs, spec.action_dim, spec.discrete
+                ),
+            )
+
+        return parts
 
     def report(self, agent_state: DreamerV3State, aux: Any) -> dict:
         """The logged training metrics: house keys, env_frames, losses.

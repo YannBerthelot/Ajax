@@ -418,6 +418,19 @@ class TDMPC2MultiTask:
         )
         return out
 
+    def policy(self, agent_state: Any, seed_index: int = 0) -> Any:
+        """Not yet: its planner acts for a task, which a policy does not take."""
+        raise NotImplementedError(
+            "TDMPC2MultiTask's planner acts for one task of its set, which"
+            " agent.policy and agent.predict do not take yet; agent.evaluate"
+            " runs it on every task."
+        )
+
+    def predict(self, agent_state: Any, observation: Any, **kwargs: Any) -> Any:
+        """Not yet, as policy."""
+        del observation, kwargs
+        return self.policy(agent_state)
+
     def _log_metrics(
         self, state: TDMPC2MultiTaskState, num_episodes: int, total: int
     ) -> dict[str, np.ndarray]:

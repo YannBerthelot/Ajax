@@ -92,6 +92,7 @@ from ajax.networks.memory import (
     zeros_carry_like,
 )
 from ajax.networks.utils import get_adam_tx
+from ajax.policy import PolicyCarry, PolicyParts
 from ajax.schedule import warmup_cosine_schedule
 from ajax.state import (
     BaseAgentState,
@@ -489,6 +490,32 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
             "Eval/expert bias": returns.mean() - expert_return,
         }
 
+    def policy_parts(self) -> Callable[[Any], PolicyParts]:
+        """As its evaluation's rollout acts (make_closed_loop_policy), its
+        action mapped onto the env's bounds."""
+        env_args, expert = self.env_args, self.expert
+
+        def parts(agent_state: APGState) -> PolicyParts:
+            def acting(n_envs: int) -> tuple:
+                params = agent_state.actor_state.params
+                return make_closed_loop_policy(
+                    agent_state, params, env_args, n_envs, expert_policy=expert
+                )
+
+            def step(obs, carry, starts, reward, key):
+                del reward, key  # it reads neither
+                _, policy_step, observe = acting(obs.shape[0])
+                memory = carry.memory
+                if observe is not None:
+                    obs, memory = observe(memory, obs, starts)
+                action, memory = policy_step(memory, obs, starts)
+                action = agent_action_to_env(action, env_args.env, env_args.env_params)
+                return action, PolicyCarry(memory)
+
+            return PolicyParts(lambda n_envs: PolicyCarry(acting(n_envs)[0]), step)
+
+        return parts
+
     def make_iteration_output(
         self, aux: APGAuxiliaries, evaluations: Optional[dict]
     ) -> APGAuxiliaries:
@@ -757,14 +784,42 @@ def compute_rollout_returns(
     The controller acts in [-1, 1], mapped onto each system's action bounds
     (agent_action_to_env, differentiable): Rollout.action is what the env
     received, Rollout.policy_action the controller's, through the run's
-    transform and expert_policy where it has one.
+    transform and expert_policy where it has one (make_closed_loop_policy).
+    """
+    env_params, rollout_key = draw_systems(key, env_args, system_class, n_systems)
+    carry, policy_step, observe = make_closed_loop_policy(
+        agent_state, params, env_args, n_systems, stateful, expert_policy
+    )
+    rollout, _ = closed_loop_rollout(
+        policy_step,
+        carry,
+        rollout_key,
+        env_args.env,
+        env_params,
+        horizon,
+        action_map=lambda action: agent_action_to_env(action, env_args.env, env_params),
+        observe=observe,
+    )
+    return rollout.reward.sum(0), rollout
+
+
+def make_closed_loop_policy(
+    agent_state: APGState,
+    params: Any,
+    env_args: EnvironmentConfig,
+    n_systems: int,
+    stateful: Optional[bool] = None,
+    expert_policy: Any = None,
+) -> tuple[Any, Callable, Optional[Callable]]:
+    """(carry, policy_step, observe) of the controller on params acting on
+    n_systems envs, for closed_loop_rollout: through the run's transform and
+    expert_policy where it has one, observing the run's features.
 
     stateful (a static flag) defaults to whether the actor carries a hidden
     state, which make_agent_state sets exactly for a stateful controller.
     """
     if stateful is None:
         stateful = agent_state.actor_state.hidden_state is not None
-    env_params, rollout_key = draw_systems(key, env_args, system_class, n_systems)
     carry = (
         zeros_carry_like(agent_state.actor_state.hidden_state, n_systems)
         if stateful
@@ -796,17 +851,7 @@ def compute_rollout_returns(
         policy_step = make_step_through_expert(
             policy_step, transform, expert_policy, n_systems, env_width
         )
-    rollout, _ = closed_loop_rollout(
-        policy_step,
-        carry,
-        rollout_key,
-        env_args.env,
-        env_params,
-        horizon,
-        action_map=lambda action: agent_action_to_env(action, env_args.env, env_params),
-        observe=observe,
-    )
-    return rollout.reward.sum(0), rollout
+    return carry, policy_step, observe
 
 
 def compute_expert_returns(

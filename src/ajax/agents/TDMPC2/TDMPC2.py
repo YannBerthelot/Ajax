@@ -68,6 +68,7 @@ from ajax.environments.utils import (
 )
 from ajax.evaluate import evaluate_policy
 from ajax.normalizers import RunningScale
+from ajax.policy import PolicyParts, row_collector_policy
 from ajax.state import BaseAgentState, LoadedTrainState
 from ajax.types import FloatOrCallable
 
@@ -441,6 +442,21 @@ class TDMPC2(OwnReplayAgent):
             "Eval/episodic mean reward": mean_return,
             "Eval/mean episodic length": mean_length,
         }
+
+    def policy_parts(self) -> Callable[[Any], PolicyParts]:
+        """As its evaluation acts: the planner in eval_mode, its carry from
+        zeros."""
+        horizon = self.model_config.horizon
+
+        def parts(agent_state: TDMPC2State) -> PolicyParts:
+            return row_collector_policy(
+                self.env_args,
+                agent_state,
+                self.make_planner_policy(agent_state, self.resolved_gamma, True),
+                lambda n_envs: jnp.zeros((n_envs, horizon, self.action_dim)),
+            )
+
+        return parts
 
     def report(self, agent_state: TDMPC2State, aux: Any) -> dict:
         """The house keys, env_frames and the last update's quantities."""

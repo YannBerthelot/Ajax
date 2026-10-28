@@ -60,6 +60,7 @@ RUN_CAPABILITIES: Mapping[str, str] = {
     "phi_star": "add MCPretrain(expert_policy=...), which fits phi*, to the extensions",
     "seeded_replay": "add ExpertPrefill or PriorData, which fill the replay before training",
     "warmup_steps": "set learning_starts above 0",
+    "stored_steps": "a replay, or the last rollout an on-policy or incremental agent keeps",
 }
 
 #: The capabilities each phase needs; the others need none.
@@ -103,11 +104,13 @@ def run_capabilities(
     has_expert: bool,
     num_critics: int | None = None,
     learning_starts: int | None = None,
+    keeps_rollout: bool = False,
 ) -> frozenset[str]:
     """A run's capabilities: its ``algorithm``'s, without ``critic_ensemble``
     when ``num_critics`` (the agent's option, where it has one) is below 2,
-    and those its environment's actions, its expert and its warm-up steps
-    (learning_starts, where the agent has one) give."""
+    and those its environment's actions, its expert, its warm-up steps
+    (learning_starts, where the agent has one) and its replay or kept
+    rollout (``keeps_rollout``) give."""
     caps = frozenset(algorithm)
     if num_critics is not None and num_critics < 2:
         caps = caps.difference({"critic_ensemble"})
@@ -119,6 +122,7 @@ def run_capabilities(
         "discrete_actions": not continuous,
         "agent_expert": has_expert,
         "warmup_steps": "warmup" in caps and bool(learning_starts),
+        "stored_steps": "replay" in caps or keeps_rollout,
     }
     return caps.union({name for name, given in derived.items() if given})
 

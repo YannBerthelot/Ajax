@@ -1428,7 +1428,8 @@ def preallocate_last_rollout(
 ) -> BaseAgentState:
     """``agent_state`` with a zero ``last_rollout`` shaped like one rollout.
 
-    An agent exposing its latest rollout (``expose_recent_rollout``) writes
+    An agent exposing its latest rollout (an extension reading it, or
+    ``expose_recent_rollout``) writes
     it on ``agent_state.last_rollout`` every iteration. Allocating it before
     the first one keeps the scan carry's structure fixed (``None`` would
     become a :class:`Transition`). ``collect_kwargs`` are the agent's

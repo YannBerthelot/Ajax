@@ -21,9 +21,12 @@ from types import SimpleNamespace
 import gymnax
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
+from ajax.agents.APG.APG import APG
 from ajax.agents.PPO.PPO import PPO
+from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.instrumentation import (
     COND_METRIC_KEYS,
     EVAREST_DECOMP_KEYS,
@@ -37,9 +40,11 @@ from ajax.extensions.instrumentation import (
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig, Transition
+from tests.agents.test_agent_contract import CASES
 
 # Evaluate (and return the evaluations) without a logging backend.
 EVALUATE = LoggingConfig(config={}, log_frequency=64, use_wandb=False)
+EVALUATE_OFTEN = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
 
 # --------------------------------------------------------------------------
 # BiasVorePenalty: standalone unit checks (no agent in the loop)
@@ -165,6 +170,36 @@ def test_bias_vore_penalty_alpha_nonhalf_runs():
         [BiasVorePenalty(alpha=0.3, loss_scale=0.5)]
     )
     assert metrics is not None
+
+
+@pytest.mark.parametrize("name", ["PPO", "AVG"])  # on-policy, incremental
+def test_an_agent_keeps_its_rollout_for_the_measurements_unasked(name):
+    """Contract: an on-policy or incremental agent keeps its last rollout
+    when an extension reads it, without expose_recent_rollout: every
+    evaluation carries every Cond/ and EVarEst/ key, finite."""
+    case = CASES[name]
+    agent = case.cls(
+        env_id=case.envs[-1],
+        n_envs=2,
+        **case.kwargs,
+        extensions=(ConditioningMetrics(), BiasVoreDecomposition()),
+    )
+    _, metrics = agent.train(
+        seed=0, n_timesteps=case.n_timesteps, logging_config=EVALUATE_OFTEN
+    )
+    evaluated = np.asarray(metrics["timestep"]) >= 0
+    assert evaluated.any()
+    for key in COND_METRIC_KEYS + EVAREST_DECOMP_KEYS:
+        assert np.isfinite(np.asarray(metrics[key])[evaluated]).all(), key
+
+
+def test_an_agent_with_neither_replay_nor_rollout_refuses_the_measurements():
+    """Contract: without a replay or a kept rollout (APG), the measurements
+    have no steps to read: the agent refuses them, naming stored_steps."""
+    for extension in (ConditioningMetrics(), BiasVoreDecomposition()):
+        with pytest.raises(MissingCapability) as refusal:
+            APG("Pendulum-v1", extensions=(extension,))
+        assert "stored_steps" in refusal.value.missing[type(extension).__name__]
 
 
 # --------------------------------------------------------------------------

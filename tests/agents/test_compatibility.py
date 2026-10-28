@@ -125,7 +125,7 @@ GAPS: dict[str, dict[str, str]] = {
         " DreamerV3/discrete",
         "ImitationLoss": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"
         " DreamerV3/discrete",
-        "ConditioningMetrics": "APG UDRL UDRL/discrete DAgger DAgger/discrete",
+        "ConditioningMetrics": "UDRL UDRL/discrete DAgger DAgger/discrete",
     },
     WORLD: {
         **dict.fromkeys(

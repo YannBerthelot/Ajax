@@ -56,7 +56,7 @@ Defaults are read from `PQN.__init__`.
 | `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
 | `td_loss_fn` | `None` | the loss; `None` is half the squared error (the authors'), `make_huber_td_loss(delta)` the Huber loss |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations; `None` builds the reference network (see Notes) |
-| `expose_recent_rollout` | `False` | keep the last rollout on `state.last_rollout` for extensions |
+| `expose_recent_rollout` | `False` | keep the last rollout on `state.last_rollout` even when no extension reads it |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 

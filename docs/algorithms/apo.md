@@ -70,7 +70,7 @@ This budget shows the calls; it is too short to learn the swing-up.
 | `encoder_kernel_init` | `"torch_linear"` | the hidden layers start as torch's `nn.Linear`, as in the official code; any initialiser by name sets their kernels instead |
 | `log_std_bounds` | None | the `(low, high)` clip of the continuous actor's log-std; `None`, the official code's, leaves it unclipped (see the notes) |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
-| `expose_recent_rollout` | False | keep the last rollout on the state, for measurement extensions |
+| `expose_recent_rollout` | False | keep the last rollout on the state even when no extension reads it |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
 ## How it works

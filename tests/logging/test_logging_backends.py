@@ -71,6 +71,34 @@ def train_sac(backends: tuple) -> tuple[dict, list[str]]:
     return evaluations, run_ids
 
 
+#: A train_sac run takes about 2 s on a laptop's CPU, and the slowest CI
+#: runners take a few times longer: past a minute, it waits on a stop that
+#: never ends (a message the worker never counts done), which would
+#: otherwise hang the test run instead of failing this test.
+STOP_DEADLINE = 60.0
+
+
+def train_sac_within_deadline(backends: tuple) -> tuple[dict, list[str]]:
+    """train_sac in a thread of its own; fails, rather than hangs, when the
+    run does not end within STOP_DEADLINE seconds, and raises what it raised."""
+    outcome: dict = {}
+
+    def run() -> None:
+        try:
+            outcome["result"] = train_sac(backends)
+        except BaseException as exc:
+            outcome["error"] = exc
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(STOP_DEADLINE)
+    if thread.is_alive():
+        pytest.fail(f"the run did not end within {STOP_DEADLINE:.0f} s: stop hangs")
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["result"]
+
+
 def as_seen(call: dict) -> tuple[bool, str, dict]:
     """Whether this process made the call, its name and its run's fields."""
     fields = {k: v for k, v in call.items() if k not in ("pid", "call", "object")}
@@ -109,7 +137,8 @@ def test_a_backend_the_worker_cannot_read_stops_neither_the_others_nor_train(
     late = type("Late", (RecordingBackend,), {"__module__": __name__})
     monkeypatch.setattr(sys.modules[__name__], "Late", late, raising=False)
     path = str(tmp_path / "calls.jsonl")
-    evaluations, run_ids = train_sac((late(path + ".late"), RecordingBackend(path)))
+    backends = (late(path + ".late"), RecordingBackend(path))
+    evaluations, run_ids = train_sac_within_deadline(backends)
 
     logged = [c for c in fake_wandb.read_calls(path) if c["call"] == "log"]
     assert len(logged) == len(SEEDS) * len(logged_rows(evaluations, 0))
@@ -155,7 +184,7 @@ def test_a_backend_that_cannot_be_pickled_is_refused_before_training(
     tmp_path: Any,
 ) -> None:
     with pytest.raises(TypeError, match="picklable"):
-        train_sac((Unpicklable(str(tmp_path / "calls.jsonl")),))
+        train_sac_within_deadline((Unpicklable(str(tmp_path / "calls.jsonl")),))
 
 
 def test_each_config_gets_an_empty_dict_of_its_own() -> None:

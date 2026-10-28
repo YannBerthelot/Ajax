@@ -1,35 +1,36 @@
 # Logging
 
 A `LoggingConfig` turns on evaluation and logging. Every `log_frequency`
-steps the agent is evaluated and its metrics are recorded: in memory always,
-and in Weights & Biases or TensorBoard when you ask for them.
+steps the agent is evaluated, `train` returns the evaluations, and each run
+logs them to its backends: TensorBoard, Weights & Biases, or a backend of
+your own.
 
 ## `LoggingConfig`
 
 ```python
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig, TensorBoardBackend
 
 logging = LoggingConfig(
-    config={"experiment": "baseline"},  # extra fields stored with the run
+    config={"experiment": "baseline"},  # extra fields stored with each run
     log_frequency=5_000,  # evaluate and log every 5,000 environment steps
-    use_wandb=False,  # True by default
-    use_tensorboard=False,
+    backends=(TensorBoardBackend("runs"),),  # runs/tensorboard/<run id>/
 )
 ```
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `config` | (required) | a dictionary stored with each run, with the agent's run configuration added (below) |
+| `backends` | not given | where each run logs ([below](#backends)); `()` logs nowhere |
+| `config` | `{}` | a dictionary stored with each run, with the agent's run configuration added (below) |
 | `log_frequency` | 1000 | environment steps between evaluations |
-| `use_wandb` | `True` | log to Weights & Biases |
-| `use_tensorboard` | `False` | write TensorBoard event files |
-| `project_name`, `group_name` | `None` | the W&B project and group |
-| `run_name` | `None` | the W&B run name's prefix: each run is named `<run_name>_<run id>` |
-| `folder` | `None` | where TensorBoard runs go: `<folder>/tensorboard/<run id>/` (the working directory when `None`) |
-| `sweep` | `False` | for hyperparameter sweeps: SAC evaluates only in the last 20% of training, and the logging worker sends nothing to W&B |
+| `run_name` | `None` | each run's name prefix: a run is named `<run_name>_<run id>` |
+| `sweep` | `False` | for hyperparameter sweeps: SAC evaluates only in the last 20% of training |
+| `use_wandb`, `use_tensorboard` | not set | the earlier way to name backends, when `backends` is not given: W&B (on unless set `False`) and TensorBoard (off unless set `True`) |
+| `project_name`, `group_name`, `folder` | `None` | with those flags: the W&B project and group, and TensorBoard's folder |
 
-With both backends off, `train` still evaluates and returns the evaluations
-in memory: the quickest way to get learning curves.
+With `backends=()`, `train` still evaluates and returns the evaluations in
+memory: the quickest way to get learning curves. Without `backends`, the
+flags decide as before, and a run logs to W&B unless `use_wandb=False`.
+Setting a flag together with `backends` is refused.
 
 ### The run configuration
 
@@ -171,10 +172,10 @@ and one column per evaluation:
 
 ```python
 from ajax import PPO
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
-logging = LoggingConfig(config={}, log_frequency=4_096, use_wandb=False)
+logging = LoggingConfig(log_frequency=4_096, backends=())
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=16_384, logging_config=logging)
 
 print(sorted(evaluations))  # every logged name
@@ -190,12 +191,21 @@ agents, `n_envs × n_steps` for PPO, APO, PQN and UDRL, `n_envs × horizon`
 for APG): the iterations stop at a multiple of one, so otherwise an
 evaluation due at the end of the run does not happen, and `train` warns.
 
-## Weights & Biases and TensorBoard
+## Backends
 
-Set `use_wandb=True` (log in once with `wandb login`) or
-`use_tensorboard=True`. Each seed is its own run, with its own id; after
-`train`, `agent.run_ids` lists them, and `train(..., on_ids_ready=callback)`
-hands them to `callback` before training starts.
+Each seed is its own run, with its own id; after `train`, `agent.run_ids`
+lists them, and `train(..., on_ids_ready=callback)` hands them to
+`callback` before training starts.
+
+- `TensorBoardBackend(folder=".")` writes each run to
+  `<folder>/tensorboard/<run id>/`, with its `config.json`. Metrics that are
+  not one number are left out.
+- `WandbBackend(project=None, group=None)` logs to Weights & Biases: install
+  the `wandb` extra and log in once with `wandb login`. Each run is created
+  in your process before training, so a missing login fails at once.
+  `WandbBackend(steps=False)` creates the runs and sends them no evaluation,
+  as `use_wandb` with `sweep=True` does.
+- A backend of your own: [below](#a-backend-of-your-own).
 
 !!! warning "Guard your script's entry point"
     The logging worker is a separate Python process started with `spawn`,
@@ -208,7 +218,7 @@ import json
 import tempfile
 
 from ajax import PPO
-from ajax.logging.wandb_logging import LoggingConfig, load_scalars_from_tfevents
+from ajax.logging import LoggingConfig, TensorBoardBackend, load_scalars_from_tfevents
 
 
 def main():
@@ -216,9 +226,7 @@ def main():
     logging = LoggingConfig(
         config={"experiment": "cartpole-demo"},
         log_frequency=4_096,
-        use_wandb=False,
-        use_tensorboard=True,
-        folder=folder,
+        backends=(TensorBoardBackend(folder),),
     )
     agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
     agent.train(seed=[0, 1], n_timesteps=8_192, logging_config=logging)
@@ -237,6 +245,50 @@ if __name__ == "__main__":
 
 `load_scalars_from_tfevents` reads the scalars back without TensorFlow.
 
+### A backend of your own
+
+Any object with `open(run)`, `log(run_id, step, metrics)` and `close()` is a
+backend (`ajax.logging.LoggingBackend`). `open` gets a `RunInfo` (the run's
+`run_id`, `name`, `config` and `seed`) before the run's first evaluation;
+`log` gets each evaluation's metrics, numpy arrays by name, at environment
+step `step`, without those that are NaN; `close` comes once, when training
+ends. One backend object serves every seed's run. An optional
+`start(run)` runs in your process for each run before training, for what
+must happen at once.
+
+```python
+import json
+
+from ajax.logging import LoggingConfig
+
+
+class JsonLinesBackend:
+    """Each evaluation of each run as one line of a file."""
+
+    def __init__(self, path):
+        self.path = path
+
+    def open(self, run):
+        pass
+
+    def log(self, run_id, step, metrics):
+        row = {"run": run_id, "step": step}
+        row.update({name: value.tolist() for name, value in metrics.items()})
+        with open(self.path, "a") as f:
+            f.write(json.dumps(row) + "\n")
+
+    def close(self):
+        pass
+
+
+logging = LoggingConfig(log_frequency=5_000, backends=(JsonLinesBackend("evals.jsonl"),))
+```
+
+The backend runs in the logging worker (below), a process of its own: it
+reaches the worker by pickling, so define its class in a module or a
+script, not a notebook cell, and write what it gathers to a file to get it
+back.
+
 ## The logging worker
 
 Training runs inside one compiled program, which must not wait on a network
@@ -245,14 +297,15 @@ through a `jax.debug.callback`, which puts them on a queue; a separate worker
 process takes them off and writes them. The worker:
 
 - runs on the CPU, so it never reserves GPU memory;
-- writes TensorBoard events as they arrive;
-- buffers W&B steps and sends them ten at a time, in one W&B session per
-  batch, because opening a W&B run is slow and W&B allows only one active
-  run per process. W&B charts therefore update in steps of ten evaluations;
+- passes each evaluation to the run's backends as it arrives: TensorBoard
+  writes it at once; W&B buffers the steps and sends them ten at a time
+  (`WandbBackend(batch_size=10)`), in one W&B session per batch, because
+  opening a W&B run is slow and W&B allows only one active run per process,
+  so W&B charts update in steps of ten evaluations;
 - is drained and stopped when `train` returns, so every metric is written
   before `train` hands back the state.
 
-The worker starts only when a backend is on. The callback has one cost:
+The worker starts only when a run has a backend. The callback has one cost:
 JAX never stores a program that contains one in its persistent compile
 cache, so a run with a `LoggingConfig` compiles again in every new process.
 See [Performance](performance.md).

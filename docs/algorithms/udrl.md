@@ -33,10 +33,10 @@ experiments.
 
 ```python
 from ajax import UDRL
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 agent = UDRL("CartPole-v1", n_envs=4)
-logging = LoggingConfig(config={}, log_frequency=10_240, use_wandb=False)
+logging = LoggingConfig(log_frequency=10_240, backends=())
 state, evaluations = agent.train(seed=[1, 2], n_timesteps=51_200, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])   # the policy, commanded as below
 print(evaluations["Train/episodic mean reward"])  # returns of the episodes collected

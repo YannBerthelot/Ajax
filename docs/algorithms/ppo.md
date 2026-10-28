@@ -29,10 +29,10 @@ Optimization Algorithms*, 2017 ([arXiv:1707.06347](https://arxiv.org/abs/1707.06
 
 ```python
 from ajax import PPO
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 agent = PPO("CartPole-v1", n_envs=4, n_steps=128, batch_size=32)
-logging = LoggingConfig(config={}, log_frequency=4_096, use_wandb=False)
+logging = LoggingConfig(log_frequency=4_096, backends=())
 state, evaluations = agent.train(seed=[1, 2], n_timesteps=20_480, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column per evaluation
 ```

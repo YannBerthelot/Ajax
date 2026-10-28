@@ -32,7 +32,7 @@ HumanCompatibleAI/imitation at `e5ef188`
 import jax.numpy as jnp
 
 from ajax import DAgger
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 
 def pd_expert(obs):
@@ -42,7 +42,7 @@ def pd_expert(obs):
 
 
 agent = DAgger("Pendulum-v1", expert_policy=pd_expert, n_envs=2)
-logging = LoggingConfig(config={}, log_frequency=1_000, use_wandb=False)
+logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = agent.train(seed=[1, 2], n_timesteps=2_000, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])         # the policy's return
 print(evaluations["Eval/episodic mean expert reward"])  # the expert's, same episodes

@@ -102,10 +102,10 @@ DreamerV3 run below took about five minutes and the TD-MPC2 run about two
 ```python
 # doc: skip (about five minutes on a CPU)
 from ajax import DreamerV3
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 agent = DreamerV3("Pendulum-v1", model_size="1m", n_envs=4)
-logging = LoggingConfig(config={}, log_frequency=1_000, use_wandb=False)
+logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = agent.train(seed=0, n_timesteps=2_000, logging_config=logging)
 print(evaluations["Train/episodic mean reward"])  # the score the paper reports
 ```
@@ -113,10 +113,10 @@ print(evaluations["Train/episodic mean reward"])  # the score the paper reports
 ```python
 # doc: skip (about two minutes on a CPU)
 from ajax import TDMPC2
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 agent = TDMPC2("Pendulum-v1", model_size=1)  # the first 1,000 steps are random (seed_steps)
-logging = LoggingConfig(config={}, log_frequency=600, use_wandb=False)
+logging = LoggingConfig(log_frequency=600, backends=())
 state, evaluations = agent.train(seed=0, n_timesteps=1_200, num_episode_test=2,
                                  logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])

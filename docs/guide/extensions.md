@@ -30,7 +30,7 @@ holds its own settings:
 ```python
 from ajax import PPO
 from ajax.extensions.instrumentation import BiasVorePenalty, ConditioningMetrics
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 agent = PPO(
     "CartPole-v1",
@@ -39,7 +39,7 @@ agent = PPO(
         ConditioningMetrics(),  # measurements at each evaluation
     ),
 )
-logging = LoggingConfig(config={}, log_frequency=8_192, use_wandb=False)
+logging = LoggingConfig(log_frequency=8_192, backends=())
 state, evaluations = agent.train(seed=[1, 2], n_timesteps=16_384, logging_config=logging)
 print(evaluations["Cond/critic_srank"])  # one row per seed, one column per evaluation
 ```
@@ -388,7 +388,7 @@ buffer from an agent built with the same settings (`n_envs`, `buffer_size`,
 ```python
 from ajax import SAC
 from ajax.extensions.instrumentation import BiasVoreDecomposition, ConditioningMetrics
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 buffer = SAC("Pendulum-v1", learning_starts=500).buffer  # same settings as below
 agent = SAC(
@@ -396,7 +396,7 @@ agent = SAC(
     learning_starts=500,
     extensions=(ConditioningMetrics(buffer=buffer), BiasVoreDecomposition(buffer=buffer)),
 )
-logging = LoggingConfig(config={}, log_frequency=1_000, use_wandb=False)
+logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = agent.train(seed=0, n_timesteps=2_000, logging_config=logging)
 print(evaluations["Cond/critic_dormant_frac"], evaluations["EVarEst/bias_sq"])
 ```

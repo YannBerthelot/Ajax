@@ -29,10 +29,10 @@ network).
 
 ```python
 from ajax import DQN
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 agent = DQN("CartPole-v1", n_envs=4)
-logging = LoggingConfig(config={}, log_frequency=5_000, use_wandb=False)
+logging = LoggingConfig(log_frequency=5_000, backends=())
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=10_000, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])  # one row per seed
 ```

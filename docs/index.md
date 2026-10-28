@@ -58,11 +58,11 @@ uv sync
 
 ```python
 from ajax import PPO
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 agent = PPO("CartPole-v1")  # 4 environments x 2048-step rollouts: one update per 8,192 steps
-# Evaluate after every update; use_wandb=False keeps the results in memory only.
-logging = LoggingConfig(config={}, log_frequency=8_192, use_wandb=False)
+# Evaluate after every update; backends=() keeps the results in memory only.
+logging = LoggingConfig(log_frequency=8_192, backends=())
 state, evaluations = agent.train(seed=[1, 2, 3], n_timesteps=40_960, logging_config=logging)
 
 print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column per evaluation

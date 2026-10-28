@@ -36,12 +36,12 @@ version choice and every departure from the reference.
 ```python
 # doc: skip (compiles and trains for about a minute on a CPU; tests/agents/DreamerV3/test_dreamerv3_agent.py covers this path)
 from ajax import DreamerV3
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 # The smallest preset and a low train ratio, for a quick look on a CPU.
 agent = DreamerV3("CartPole-v1", model_size="1m", n_envs=4, train_ratio=32,
                   batch_size=4, batch_length=16)
-logging = LoggingConfig(config={}, log_frequency=1_000, use_wandb=False)
+logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = agent.train(seed=0, n_timesteps=2_000, num_episode_test=2,
                                  logging_config=logging)
 print(evaluations["Train/episodic mean reward"])  # the score the paper reports

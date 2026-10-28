@@ -6,6 +6,20 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **Logging backends.** `LoggingConfig(backends=(...))` names where every
+  run logs its evaluations: `TensorBoardBackend(folder)`,
+  `WandbBackend(project, group)`, or a backend of your own, any picklable
+  object with `open(run)`, `log(run_id, step, metrics)` and `close()`
+  (`LoggingBackend`; an optional `start(run)` runs in the caller before
+  training). One backend object serves every seed's run. `ajax.logging` now
+  exports `LoggingConfig`, `LoggingBackend`, `RunInfo`,
+  `TensorBoardBackend` and `WandbBackend`; `ajax.logging.wandb_logging`
+  still works. `backends=()` logs nowhere; train still returns the evaluations.
+  Nothing default changes: without `backends`, `use_wandb` (on
+  by default) and `use_tensorboard` decide as before. Setting either flag
+  together with `backends` is refused. `config` defaults to an empty dict.
+  `WandbBackend(steps=False)` creates each run and sends it no evaluation,
+  which `use_wandb` with `sweep=True` names, as before.
 - **The documentation site has a version per release.** It opens on the
   latest release's documentation; each release keeps its own as X.Y, and
   main's is the development version, dev, marked as such. A release's

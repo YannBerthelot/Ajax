@@ -13,11 +13,11 @@ Here PPO learns CartPole with three seeds at once:
 import matplotlib.pyplot as plt
 
 from ajax import PPO
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)  # 1,024 steps per rollout
-# Evaluate every 4,096 steps; use_wandb=False keeps the results in memory only.
-logging = LoggingConfig(config={}, log_frequency=4_096, use_wandb=False)
+# Evaluate every 4,096 steps; backends=() keeps the results in memory only.
+logging = LoggingConfig(log_frequency=4_096, backends=())
 state, evaluations = agent.train(
     seed=[1, 2, 3], n_timesteps=32_768, logging_config=logging
 )
@@ -53,12 +53,12 @@ The same pattern works for every agent. SAC on Pendulum:
 
 ```python
 from ajax import SAC
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 # SAC waits learning_starts steps (10,000 by default) before its first update;
 # this short demonstration starts after 1,000.
 agent = SAC("Pendulum-v1", learning_starts=1_000)
-logging = LoggingConfig(config={}, log_frequency=1_000, use_wandb=False)
+logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = agent.train(seed=[1, 2], n_timesteps=3_000, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])
 ```

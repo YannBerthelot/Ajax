@@ -28,6 +28,12 @@ from ajax.state import (
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.wrappers import InitialStateWrapper
 from tests.environments.identity_env import IdentityEnv
+from tests.extensions.test_expert_observations import (
+    appending,
+    assert_last_evaluation_acts_on,
+    assert_trained_on_column,
+    run,
+)
 
 
 def _sac_actor(env_config: EnvironmentConfig):
@@ -286,16 +292,26 @@ def _actor_inputs(monkeypatch, expert, **kwargs) -> list:
     return seen
 
 
-def test_the_actor_acts_and_trains_on_one_augmented_layout(monkeypatch):
+def test_the_actor_acts_and_trains_on_one_augmented_layout():
     """The expert's action (a constant -0.9 torque here, -0.45 in agent
     units) sits in the same column of every input the actor is given,
     acting, evaluated or trained, after Pendulum's three observations and
-    the training fraction."""
-    seen = _actor_inputs(monkeypatch, lambda obs: jnp.full((*obs.shape[:-1], 1), -0.9))
-    for x in seen:
-        assert x.shape[-1] == 5
-        np.testing.assert_allclose(x[..., 4], -0.45, err_msg=f"batch {x.shape[0]}")
-        assert ((0.0 <= x[..., 3]) & (x[..., 3] <= 1.0)).all()  # the fraction
+    the training fraction: in the rows collection stored, in what the actor
+    trained on, and in its last evaluation (the fraction then 1)."""
+    trained = run(
+        log=True,
+        expert_policy=lambda obs: jnp.full((*obs.shape[:-1], 1), -0.9),
+        extensions=(TrainingProgressInput(), ExpertActionInput()),
+        policy_update_start=8,  # the actor steps from the first update
+    )
+    state = jax.tree.map(lambda x: x[0], trained[1])
+    rows = state.collector_state.buffer_state.experience
+    for name in ("obs", "next_obs"):
+        stored = rows[name][:, : 64 // 2]
+        np.testing.assert_allclose(stored[..., 4], -0.45, err_msg=name)
+        assert ((0.0 <= stored[..., 3]) & (stored[..., 3] <= 1.0)).all()  # the fraction
+    assert_trained_on_column(state.actor_state, 4, -0.45)
+    assert_last_evaluation_acts_on(trained, appending(1.0, -0.45))
 
 
 @dataclasses.dataclass(frozen=True)

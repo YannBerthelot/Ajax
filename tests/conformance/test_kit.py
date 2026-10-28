@@ -1,6 +1,7 @@
 """The conformance seams (tests/conformance/kit.py): the tape fixes every random draw of a step, it
-tapes permutations as indices, it leaves jax.random as it found it, and the step and scan captures
-return callables that run on any state."""
+tapes permutations as indices, a redrawn episode start keeps its last value and counts as one use,
+it leaves jax.random as it found it, and the step and scan captures return callables that run on
+any state."""
 
 import jax
 import jax.numpy as jnp
@@ -119,6 +120,56 @@ def test_a_float64_run_replays_a_float32_tape():
     assert (got[0].dtype, got[1].dtype) == (jnp.float64, jnp.int64)
     for g, w in zip(got, want, strict=True):
         np.testing.assert_array_equal(g, w)
+
+
+# Contract (gymnax 1.0.1's Environment.step, and resets keyed by episode): an
+# auto-reset draws the next episode's start at every step and keeps the draw of
+# the step where the episode ends; keyed by episode, it draws on one key through
+# the episode. So a replayed start takes its key's last value, and the redraws
+# are one use of the key; any other draw on a repeated key takes its first.
+
+
+def reset_env(key):
+    """A draw at an episode's start (kit.RESET_FUNCTIONS)."""
+    return jax.random.uniform(key)
+
+
+def draw(key):
+    return jax.random.uniform(key)
+
+
+def repeated(seed):
+    """Three keys, the first two the same."""
+    return jnp.stack([jax.random.PRNGKey(seed)] * 2 + [jax.random.PRNGKey(seed + 1)])
+
+
+def both_sites(starts, draws):
+    return jax.vmap(reset_env)(starts), jax.vmap(draw)(draws)
+
+
+REPEATED = (repeated(5), repeated(7))  # one key for each site
+
+
+def test_replay_gives_a_repeated_reset_key_its_last_value():
+    """Values 1, 2, 3 on keys a, a, b: a start takes 2, 2, 3, another draw 1, 1, 3."""
+    with kit.recording() as rec:
+        jax.jit(both_sites)(*REPEATED)
+    draws = kit.by_role(rec.log)
+    values = np.arange(1.0, 4.0, dtype=np.float32)
+    table = kit.key_table(draws, {role: list(values) for role in draws})
+    with kit.replaying(table) as rep:
+        start, other = jax.jit(both_sites)(*REPEATED)
+    assert not rep.misses
+    np.testing.assert_array_equal(start, [2.0, 2.0, 3.0])
+    np.testing.assert_array_equal(other, [1.0, 1.0, 3.0])
+
+
+def test_a_reset_redrawn_on_one_key_counts_as_one_use():
+    with kit.recording_key_uses() as uses:
+        jax.block_until_ready(jax.jit(both_sites)(*REPEATED))
+        jax.effects_barrier()
+    [pair] = uses.shared()
+    assert all(use.endswith(":draw") for use in pair)
 
 
 def test_the_tape_restores_jax_random():

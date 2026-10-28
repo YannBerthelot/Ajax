@@ -62,6 +62,7 @@ def test_an_agent_on_the_training_fraction_steps_the_envs_own_state():
     )
     state, _ = agent.train(seed=0, n_timesteps=32)
     collector = state.collector_state
-    assert type(collector.env_state) is environment.EnvState
+    # The env's own class, with its episode counters (episode keys).
+    assert type(collector.env_state).__base__ is environment.EnvState
     assert float(jnp.ravel(collector.train_time_fraction)[0]) == 1.0
     jax.block_until_ready(state)

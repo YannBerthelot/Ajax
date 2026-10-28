@@ -16,7 +16,7 @@ from ajax.environments.utils import (
     per_env,
     raw_obs_columns,
 )
-from ajax.random_keys import derive_key
+from ajax.random_keys import derive_key, fold_index
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.utils import online_normalize
 
@@ -67,6 +67,7 @@ class BraxWrapper:
     # use getattr, since a registered builder may return another env.
     _ajax_env_id: str
     _ajax_fresh_reset: bool
+    _ajax_episode_keys: bool
 
     def __init__(self, env):
         self.env = env
@@ -220,7 +221,9 @@ class InitialStateWrapper(GymnaxWrapper):
     Every episode starts this way, the auto-reset ones included: gymnax's
     ``step`` auto-resets with the inner env's ``reset_env``, so ``step``
     applies ``init_state_fn`` to that reset state too (fields the inner step
-    carries across its auto-reset stay as it left them).
+    carries across its auto-reset stay as it left them). Under resets keyed
+    by episode its key derives from the episode's start key
+    (episode_draws_key).
     """
 
     def __init__(self, env, init_state_fn):
@@ -232,7 +235,8 @@ class InitialStateWrapper(GymnaxWrapper):
         the key whole, the initial state one derived from it, so the
         wrapper leaves the env's own draws as they were."""
         _, state = self._env.reset(key, params)
-        state = self.init_state_fn(derive_key(key, "initial_state"), state, params)
+        start_key = derive_key(episode_draws_key(state, key), "initial_state")
+        state = self.init_state_fn(start_key, state, params)
         return self._env.get_obs(state, params), state
 
     def step(self, key, state, action, params=None):
@@ -241,7 +245,8 @@ class InitialStateWrapper(GymnaxWrapper):
             key, state, action, params
         )
         done = jnp.logical_or(terminated, truncated)
-        start = self.init_state_fn(derive_key(key, "initial_state"), state, params)
+        start_key = derive_key(episode_draws_key(state, key), "initial_state")
+        start = self.init_state_fn(start_key, state, params)
         state = jax.tree.map(lambda s, x: jnp.where(done, s, x), start, state)
         obs = jnp.where(done, self._env.get_obs(start, params), obs)
         return obs, state, reward, terminated, truncated, info
@@ -537,6 +542,131 @@ class NormalizeVecObservationGymnax(_OnlineNormalization, GymnaxWrapper):
         return obs, env_state, reward, terminated, truncated, {**info, **extra}
 
 
+#: Where an env whose resets are keyed by episode keeps each env's episode
+#: root key and its episode's index: fields of a gymnax env's state
+#: (EpisodeKeyedAutoResetWrapper), entries of a brax state's info
+#: (FreshAutoResetWrapper). A checkpoint holding them was saved with them.
+EPISODE_ROOT_KEY, EPISODE_INDEX_KEY = "episode_root", "episode_index"
+
+
+def episode_start_key(root: jax.Array, index: jax.Array) -> jax.Array:
+    """The key episode index of an env starts on (PEGASUS's fixed scenarios,
+    Ng and Jordan 2000): the same whatever came before it. The episode's
+    step t draws on fold_index(fold_index(root, index), t)."""
+    return derive_key(fold_index(root, index), "episode_start")
+
+
+def episode_draws_key(state: Any, key: jax.Array) -> jax.Array:
+    """The key a wrapper's own draws at an episode's start derive from: the
+    episode's start key where the state's env keys its resets by episode,
+    so they too are the same whatever came before; else the call's key."""
+    root = getattr(state, EPISODE_ROOT_KEY, None)
+    if root is None:
+        return key
+    return episode_start_key(root, getattr(state, EPISODE_INDEX_KEY))
+
+
+@cache
+def _with_episode_counters(raw_state: type) -> type:
+    """raw_state with its episode's root key, index and step; a subclass, so
+    the env's own fields read as before (built here for pickle, as
+    _with_statistics)."""
+
+    @struct.dataclass
+    class EpisodeKeyedEnvState(raw_state):  # type: ignore[valid-type, misc]
+        episode_root: Optional[jax.Array] = None
+        episode_index: Optional[jax.Array] = None
+        episode_step: Optional[jax.Array] = None
+
+    return EpisodeKeyedEnvState
+
+
+class EpisodeKeyedAutoResetWrapper(GymnaxWrapper):
+    """gymnax's auto-reset keyed by episode, directly over a gymnax env. A
+    reset derives the env's episode root from its key ("episodes"); episode
+    k starts on episode_start_key(root, k) and its step t draws on
+    fold_index(fold_index(root, k), t), so it starts and draws alike
+    whatever the actions, updates and extensions before it (PEGASUS, Ng and
+    Jordan 2000). The step's own key reaches only the wrappers above.
+
+    step is gymnax 1.0.1's Environment.step but for the split of its key:
+    the next start, evaluated at every step as gymnax's is, draws on one key
+    per episode. An env with its own step or reset is refused, since this
+    wrapper would bypass it."""
+
+    def __init__(self, env: environment.Environment):
+        super().__init__(env)
+        for method in ("step", "reset"):
+            if getattr(type(env), method) is not getattr(
+                environment.Environment, method
+            ):
+                raise ValueError(
+                    f"{type(env).__name__} overrides gymnax's {method}, which"
+                    " resets keyed by episode would bypass. Build it with"
+                    " episode_keys=False: build_env_from_id(env_id, ...,"
+                    " episode_keys=False), or with_episode_keys(env, on=False)"
+                    " (ajax.environments.create) for an env you built."
+                )
+        _, state = jax.eval_shape(
+            lambda key: env.reset_env(key, env.default_params), jax.random.PRNGKey(0)
+        )
+        self._raw_state: Any = type(state)
+
+    def _keyed(self, state: Any, root: jax.Array, index: Any, step: Any) -> Any:
+        keyed_class = _with_episode_counters(self._raw_state)
+        return keyed_class(
+            **_fields(state),
+            episode_root=root,
+            episode_index=jnp.asarray(index, jnp.int32),
+            episode_step=jnp.asarray(step, jnp.int32),
+        )
+
+    def _unkeyed(self, state: Any) -> Any:
+        raw_fields = dataclasses.fields(self._raw_state)
+        return self._raw_state(**{f.name: getattr(state, f.name) for f in raw_fields})
+
+    # Jitted, as gymnax's step and reset are: compiled alike, the env's
+    # dynamics round alike.
+    @partial(jax.jit, static_argnums=(0,))
+    def reset(self, key, params=None):
+        if params is None:
+            params = self._env.default_params
+        root = derive_key(key, "episodes")
+        obs, state = self._env.reset_env(episode_start_key(root, 0), params)
+        return obs, self._keyed(state, root, 0, 0)
+
+    @partial(jax.jit, static_argnums=(0,))
+    def step(self, key, state, action, params=None):
+        del key  # the dynamics draw on the episode's keys
+        if params is None:
+            params = self._env.default_params
+        root, index = state.episode_root, state.episode_index
+        step_key = fold_index(fold_index(root, index), state.episode_step)
+        obs_stepped, stepped, reward, terminated, info = self._env.step_env(
+            step_key, self._unkeyed(state), action, params
+        )
+        truncated = self._env.is_truncated(stepped, params)
+        done = jnp.logical_or(terminated, truncated)
+        obs_reset, reset = self._env.reset_env(
+            episode_start_key(root, index + 1), params
+        )
+        stepped = self._keyed(stepped, root, index, state.episode_step + 1)
+        reset = self._keyed(reset, root, index + 1, 0)
+        next_state = jax.tree.map(
+            lambda x, y: jax.lax.select(done, x, y), reset, stepped
+        )
+        obs = jax.tree.map(
+            lambda x, y: jax.lax.select(done, x, y), obs_reset, obs_stepped
+        )
+        info = {
+            **info,
+            "terminated": terminated,
+            "truncated": truncated,
+            "final_observation": obs_stepped,
+        }
+        return obs, next_state, reward, terminated, truncated, info
+
+
 def get_wrappers(mode: str = "gymnax"):
     if mode == "gymnax":
         return ClipAction, NormalizeVecObservationGymnax
@@ -549,6 +679,9 @@ def split(x):
 
 class AutoResetWrapper(BraxWrapper):
     """Automatically resets Brax envs that are done, sampling a new random seed for initialization at each reset. This seed is propagated through info["rng"]
+
+    Ajax's brax stack with episode_keys=False, as before episode keys
+    (FreshAutoResetWrapper keys them).
 
     By default the reset is evaluated only on steps where some env is done,
     inside a ``lax.while_loop`` (see :func:`_call_if_any`), and skipped on
@@ -716,11 +849,13 @@ def _call_if_any(
 
 
 class FreshAutoResetWrapper(BraxWrapper):
-    """Auto-resets a batched mujoco_playground env to a *fresh* initial state.
+    """Auto-resets a batched mujoco_playground or brax env to a *fresh*
+    initial state.
 
     Drop-in replacement for playground's ``BraxAutoResetWrapper`` in Ajax's
     playground stack (EpisodeWrapper, VmapWrapper, FinalObsWrapper, this,
-    BatchRngWrapper; see ``ajax.environments.create``). With its default
+    BatchRngWrapper; see ``ajax.environments.create``), and for
+    AutoResetWrapper in its brax stack under episode keys. With its default
     ``full_reset=False``, upstream caches each env's first reset and restarts
     every later episode from it, so a whole run sees only ``n_envs`` initial
     conditions, whereas dm_control draws a new one per episode. Upstream's
@@ -735,7 +870,7 @@ class FreshAutoResetWrapper(BraxWrapper):
     reset (computed only on such steps, see :func:`_call_if_any`) and gives
     each done env, from it:
 
-    * ``data`` and ``obs``;
+    * ``data`` (a brax state's ``pipeline_state``) and ``obs``;
     * the ``info`` entries produced by the base environment's own ``reset``,
       i.e. its per-episode state (its rng, task targets, ...).
 
@@ -744,6 +879,10 @@ class FreshAutoResetWrapper(BraxWrapper):
     below write into ``info`` on every step (EpisodeWrapper's ``steps``,
     ``truncation`` and ``episode_*``; FinalObsWrapper's ``final_obs``).
 
+    With ``episode_keys`` (the default) env i's k-th episode starts on
+    episode_start_key(root_i, k), as under EpisodeKeyedAutoResetWrapper;
+    without, on its key split at every step, as before them.
+
     ``differentiable_reset=True`` evaluates the reset on every step instead,
     for reverse-mode gradients through the reset itself; see
     :class:`AutoResetWrapper`.
@@ -751,9 +890,12 @@ class FreshAutoResetWrapper(BraxWrapper):
 
     _RNG_KEY = "fresh_auto_reset_rng"
 
-    def __init__(self, env, differentiable_reset: bool = False):
+    def __init__(
+        self, env, differentiable_reset: bool = False, episode_keys: bool = True
+    ):
         super().__init__(env)
         self.differentiable_reset = differentiable_reset
+        self.episode_keys = episode_keys
 
     @cached_property
     def _episode_info_keys(self) -> Tuple[str, ...]:
@@ -763,9 +905,16 @@ class FreshAutoResetWrapper(BraxWrapper):
 
     def reset(self, rng: jax.Array):
         """``rng``: one key per env, shape ``(n_envs, 2)``."""
-        rng, key = _split_each(rng)
-        state = self.env.reset(key)
-        state.info[self._RNG_KEY] = rng
+        if not self.episode_keys:
+            rng, key = _split_each(rng)
+            state = self.env.reset(key)
+            state.info[self._RNG_KEY] = rng
+            return state
+        roots = jax.vmap(lambda key: derive_key(key, "episodes"))(rng)
+        first = jnp.zeros(rng.shape[:1], jnp.int32)
+        state = self.env.reset(_episode_start_keys(roots, first))
+        state.info[EPISODE_ROOT_KEY] = roots
+        state.info[EPISODE_INDEX_KEY] = first
         return state
 
     def step(self, state, action: jax.Array):
@@ -776,25 +925,44 @@ class FreshAutoResetWrapper(BraxWrapper):
         state = state.replace(done=jnp.zeros_like(state.done))
         state = self.env.step(state, action)
 
-        rng, key = _split_each(state.info[self._RNG_KEY])
         done = state.done.astype(bool)
-        if self.differentiable_reset:
-            fresh = self.env.reset(_split_each(key)[1])
+        info = dict(state.info)
+        if self.episode_keys:
+            roots, index = info[EPISODE_ROOT_KEY], info[EPISODE_INDEX_KEY]
+            info[EPISODE_INDEX_KEY] = jnp.where(done, index + 1, index)
+
+            def next_starts(indices: jax.Array) -> Tuple[jax.Array, jax.Array]:
+                # The loop carries the indices and advances them, so the
+                # reset depends on its carry and is not hoisted out of it.
+                return indices + 1, _episode_start_keys(roots, indices + 1)
+
+            if self.differentiable_reset:
+                fresh = self.env.reset(next_starts(index)[1])
+            else:
+                fresh = _call_if_any(done, self.env.reset, index, next_starts)
         else:
-            fresh = _call_if_any(done, self.env.reset, key)
+            rng, key = _split_each(info[self._RNG_KEY])
+            info[self._RNG_KEY] = rng
+            if self.differentiable_reset:
+                fresh = self.env.reset(_split_each(key)[1])
+            else:
+                fresh = _call_if_any(done, self.env.reset, key)
 
         def where_done(new, old):
             return jnp.where(per_env(done, old), new, old)
 
-        info = dict(state.info)
         for name in self._episode_info_keys:
             info[name] = jax.tree.map(where_done, fresh.info[name], info[name])
-        info[self._RNG_KEY] = rng
+        field = "data" if hasattr(state, "data") else "pipeline_state"  # brax's
+        physics = jax.tree.map(where_done, getattr(fresh, field), getattr(state, field))
         return state.replace(
-            data=jax.tree.map(where_done, fresh.data, state.data),
             obs=jax.tree.map(where_done, fresh.obs, state.obs),
             info=info,
+            **{field: physics},
         )
+
+
+_episode_start_keys = jax.vmap(episode_start_key)
 
 
 class TerminatedTruncatedWrapper(GymnaxWrapper):

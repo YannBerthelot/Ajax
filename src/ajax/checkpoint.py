@@ -40,10 +40,11 @@ def _to_host_numpy(state: Any) -> Any:
 
 #: The key under which a checkpoint of a pytree states its format, and the
 #: format written now. 1: a replay keeps the environment's own observations
-#: and rewards. 2: collection draws on its own stream of keys. A checkpoint
-#: without the key is older (0).
+#: and rewards. 2: collection draws on its own stream of keys. 3: an env
+#: whose resets are keyed by episode keeps its episode counters. A
+#: checkpoint without the key is older (0).
 FORMAT_KEY = "ajax_checkpoint_format"
-FORMAT = 2
+FORMAT = 3
 
 
 def save_checkpoint(state: Any, path: str) -> None:
@@ -79,6 +80,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
         saved_format = state_dict.pop(FORMAT_KEY, 0)
         _check_raw_replay(skeleton, state_dict, saved_format)
     skeleton_dict = serialization.to_state_dict(skeleton)
+    _check_episode_keys(skeleton_dict, state_dict, saved_format)
     _check_memory_final_norm(skeleton_dict, state_dict)
     _check_log_std_head(skeleton_dict, state_dict)
     state_dict = _without_removed_fields(skeleton, state_dict)
@@ -535,6 +537,47 @@ def _check_raw_replay(skeleton: Any, saved: dict, saved_format: int) -> None:
             " Resume the run with the Ajax version that wrote it, or start it"
             " afresh."
         )
+
+
+def _check_episode_keys(skeleton: Any, saved: Any, saved_format: int) -> None:
+    """Refuse a checkpoint whose envs kept no episode counters for an agent
+    whose envs key their resets by episode (ajax.wrappers.episode_start_key):
+    resumed, every env's count would restart and replay the starts of its
+    first episodes. Refuse the reverse too, which flax would report as an
+    unknown field."""
+    from ajax.wrappers import EPISODE_ROOT_KEY
+
+    keyed = _holds_key(skeleton, EPISODE_ROOT_KEY)
+    saved_keyed = _holds_key(saved, EPISODE_ROOT_KEY)
+    if keyed and not saved_keyed:
+        when = (
+            f"before environment resets were keyed by episode (format {saved_format})"
+            if saved_format < 3
+            else "with episode keys off"
+        )
+        raise ValueError(
+            f"This checkpoint was saved {when}: it holds no episode counters, so"
+            " a resumed run would restart every environment's episode count and"
+            " replay the starts of its first episodes. Resume it with episode"
+            " keys off, as it was trained: build_env_from_id(env_id, ...,"
+            " episode_keys=False), or"
+            " ajax.environments.create.with_episode_keys(env, on=False) for an"
+            " environment you built. Or start the run afresh."
+        )
+    if saved_keyed and not keyed:
+        raise ValueError(
+            "This checkpoint's environments keyed their resets by episode (it"
+            " holds their episode counters), which the agent restoring it,"
+            " built with episode_keys=False, lacks. Restore it into an agent"
+            " whose environment keeps episode keys on, the default."
+        )
+
+
+def _holds_key(state_dict: Any, name: str) -> bool:
+    """Whether a state dict holds name as a key, at any depth."""
+    if not isinstance(state_dict, dict):
+        return False
+    return name in state_dict or any(_holds_key(v, name) for v in state_dict.values())
 
 
 def checkpoint_exists(path: str) -> bool:

@@ -1,3 +1,4 @@
+import copy
 import importlib
 import inspect
 from types import ModuleType
@@ -21,6 +22,7 @@ from ajax.wrappers import (
     BatchRngWrapper,
     ClipAction,
     ClipActionBrax,
+    EpisodeKeyedAutoResetWrapper,
     FinalObsWrapper,
     FlattenObservationWrapper,
     FreshAutoResetWrapper,
@@ -159,6 +161,7 @@ def _build_playground_env(
     action_repeat: int = 1,
     fresh_reset: bool = True,
     differentiable_reset: bool = False,
+    episode_keys: bool = True,
 ):
     """Compose a mujoco_playground env with the same wrapper stack as
     `wrap_for_brax_training`, but inject FinalObsWrapper between the
@@ -183,11 +186,11 @@ def _build_playground_env(
     `BraxAutoResetWrapper`, which restarts every episode of env i from the
     same cached first state (a run sees only `n_envs` initial conditions);
     that was Ajax's behaviour before fresh resets became the default, so it
-    reproduces playground results produced earlier. `differentiable_reset` is
-    passed to `FreshAutoResetWrapper` (see `build_env_from_id`); the cached
-    auto-reset computes no reset in `step` and needs no such option.
-    Registered builders own their whole stack, auto-reset included, and are
-    not affected by these flags.
+    reproduces playground results produced earlier. `differentiable_reset` and
+    `episode_keys` are passed to `FreshAutoResetWrapper` (see
+    `build_env_from_id`); the cached auto-reset computes no reset in `step`
+    and needs neither. Registered builders own their whole stack, auto-reset
+    included, and are not affected by these flags.
     """
     check_action_repeat(action_repeat)
     if env_id in _PLAYGROUND_BUILDERS:
@@ -210,7 +213,9 @@ def _build_playground_env(
     env = brax_training.VmapWrapper(env)
     env = FinalObsWrapper(env)
     if fresh_reset:
-        env = FreshAutoResetWrapper(env, differentiable_reset=differentiable_reset)
+        env = FreshAutoResetWrapper(
+            env, differentiable_reset=differentiable_reset, episode_keys=episode_keys
+        )
     else:
         env = BraxAutoResetWrapper(env)
     env = BatchRngWrapper(env, n_envs=n_envs)
@@ -218,6 +223,7 @@ def _build_playground_env(
     # Read by evaluate.setup_environment so the eval rebuild keeps the same
     # auto-reset semantics as training.
     env._ajax_fresh_reset = fresh_reset
+    env._ajax_episode_keys = episode_keys
     return env
 
 
@@ -227,19 +233,22 @@ def _build_brax_env(
     episode_length: int,
     action_repeat: int = 1,
     differentiable_reset: bool = False,
+    episode_keys: bool = True,
 ):
     """Build a brax env with the same stack Ajax uses for playground:
     Ajax owns vectorization via VmapWrapper (not brax's native batch_size
     argument to `brax.envs.create`, which composes a different wrapper order
     and has been implicated in the Ant GPU double-free crash). EpisodeWrapper
     exposes truncation in info, FinalObsWrapper preserves the pre-reset
-    observation, and AutoResetWrapper re-samples the reset seed.
+    observation, and FreshAutoResetWrapper starts each episode on its key
+    (episode_keys); with episode_keys=False, AutoResetWrapper re-samples one
+    reset seed for the batch, as before episode keys.
 
     ``action_repeat`` is handled by ``EpisodeWrapper`` exactly as in
     :func:`_build_playground_env` (episode_length in simulator steps,
     summed reward, no early stop on termination). `differentiable_reset` is
-    passed to AutoResetWrapper (see `build_env_from_id`); registered
-    builders are not affected by it.
+    passed to the auto-reset (see `build_env_from_id`); registered builders
+    are not affected by it.
     """
     check_action_repeat(action_repeat)
     if env_id in _BRAX_BUILDERS:
@@ -265,10 +274,16 @@ def _build_brax_env(
             raise
         raise _unknown_env(env_id) from None
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
-    env = brax_training.VmapWrapper(env, batch_size=n_envs)
-    env = FinalObsWrapper(env)
-    env = AutoResetWrapper(env, differentiable_reset=differentiable_reset)
+    if episode_keys:
+        env = FinalObsWrapper(brax_training.VmapWrapper(env))
+        env = FreshAutoResetWrapper(env, differentiable_reset=differentiable_reset)
+        env = BatchRngWrapper(env, n_envs=n_envs)
+    else:
+        env = brax_training.VmapWrapper(env, batch_size=n_envs)
+        env = FinalObsWrapper(env)
+        env = AutoResetWrapper(env, differentiable_reset=differentiable_reset)
     env._ajax_env_id = env_id
+    env._ajax_episode_keys = episode_keys
     return env
 
 
@@ -280,6 +295,7 @@ def build_env_from_id(
     episode_length: int = 1000,
     action_repeat: int = 1,
     differentiable_reset: bool = False,
+    episode_keys: bool = True,
 ) -> tuple[EnvType, Optional[EnvParams]]:
     """Build a wrapped env from its id (gymnax, mujoco_playground or brax).
 
@@ -311,6 +327,13 @@ def build_env_from_id(
     and playground's cached auto-reset ignore the flag, and evaluation
     (``evaluate.setup_environment``), which never differentiates, rebuilds
     the env with the default.
+
+    ``episode_keys`` (default True) keys every env's resets by episode: env
+    i's k-th episode starts, and on gymnax draws its dynamics, on keys of
+    (i, k) alone, the same whatever the actions, updates and extensions
+    before it (:func:`with_episode_keys`). False keeps each backend's own
+    auto-reset, which reproduces runs from before episode keys.
+    playground's cached auto-reset (``fresh_reset=False``) ignores it.
     """
     check_action_repeat(action_repeat)
     if env_id in gymnax.registered_envs:
@@ -331,7 +354,7 @@ def build_env_from_id(
         # (H, W, C) from the flat vector via `cnn_image_shape`.
         if len(env.observation_space(env_params).shape) > 1:
             env = FlattenObservationWrapper(env)
-        return env, env_params
+        return with_episode_keys(env, episode_keys), env_params
 
     # External callers (e.g. SafetyExperiments) may register a playground
     # builder for an env id that is not part of `mp_registry.ALL_ENVS`
@@ -348,6 +371,7 @@ def build_env_from_id(
             action_repeat=action_repeat,
             fresh_reset=fresh_reset,
             differentiable_reset=differentiable_reset,
+            episode_keys=episode_keys,
         ), None
 
     if env_id not in _BRAX_BUILDERS and _installed("brax.envs") is None:
@@ -358,7 +382,43 @@ def build_env_from_id(
         episode_length=episode_length,
         action_repeat=action_repeat,
         differentiable_reset=differentiable_reset,
+        episode_keys=episode_keys,
     ), None
+
+
+def with_episode_keys(env: EnvType, on: bool = True) -> EnvType:
+    """A gymnax env with its resets keyed by episode: an
+    EpisodeKeyedAutoResetWrapper directly over the env, under the task's
+    own wrappers, each copied onto the keyed env. With on=False, a copy
+    marked to keep the env's own auto-reset, which prepare_env then leaves
+    as it is. A brax or playground stack keys its resets in its auto-reset
+    wrapper instead (build_env_from_id's episode_keys)."""
+    if get_env_type(env) != "gymnax":
+        raise ValueError(
+            "with_episode_keys keys a gymnax env's resets; a brax or playground"
+            " stack keys them in its auto-reset: build_env_from_id(env_id, ...,"
+            " episode_keys=...)"
+        )
+    if not on:
+        marked = copy.copy(env)
+        marked._ajax_episode_keys = False
+        return marked
+    if any(
+        isinstance(layer, EpisodeKeyedAutoResetWrapper) for layer in wrapper_chain(env)
+    ):
+        return env
+    return _keyed_under(env)
+
+
+def _keyed_under(env: EnvType) -> EnvType:
+    inner = getattr(env, "__dict__", {}).get("_env")
+    if inner is None:
+        return EpisodeKeyedAutoResetWrapper(env)
+    rewrapped = copy.copy(env)
+    rewrapped._env = _keyed_under(inner)
+    if isinstance(rewrapped, NormalizeVecObservationGymnax):
+        rewrapped._trace_reset()  # the state class it extends is now keyed
+    return rewrapped
 
 
 def add_ajax_wrappers(
@@ -461,6 +521,8 @@ def prepare_env(
                 " (register_brax_builder / register_playground_builder) and pass"
                 " its id."
             )
+    if get_env_type(env) == "gymnax" and getattr(env, "_ajax_episode_keys", True):
+        env = with_episode_keys(env)
     continuous = check_if_environment_has_continuous_actions(env)
     env = add_ajax_wrappers(
         env,

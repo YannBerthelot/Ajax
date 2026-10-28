@@ -6,6 +6,15 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **Resets are keyed by episode** (PEGASUS, Ng and Jordan 2000), on by
+  default: env i's k-th episode starts on a key of (i, k), and a gymnax
+  env's step t in it draws on a key of (i, k, t), so runs that differ by an
+  option, an extension or their updates start every episode alike. gymnax
+  envs get `EpisodeKeyedAutoResetWrapper` under their own wrappers, and
+  brax stacks auto-reset as playground's (`FreshAutoResetWrapper`).
+  `episode_keys=False` (`build_env_from_id`, or `with_episode_keys(env,
+  on=False)`) reproduces earlier runs. Checkpoints are format 3; one from
+  before is refused with episode keys on. Every run draws other numbers.
 - **An evaluation's keys follow its training phase and timestep**
   (`ajax.log.evaluation_keys`), not its count: the log frequency no longer
   changes an evaluation's episodes, and the online evaluations after

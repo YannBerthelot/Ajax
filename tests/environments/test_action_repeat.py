@@ -21,6 +21,7 @@ from ajax.environments.utils import (
     agent_episode_length,
     env_action_repeat,
     env_action_to_agent,
+    get_raw_env,
 )
 from ajax.evaluate import setup_environment
 from ajax.wrappers import BraxWrapper
@@ -44,8 +45,8 @@ def test_prebuilt_envs_reject_action_repeat():
     env, _ = gymnax.make("CartPole-v1")
     with pytest.raises(ValueError, match="built from an id"):
         prepare_env(env, action_repeat=2)
-    # the default is unchanged
-    assert prepare_env(env)[0] is env
+    # the default is unchanged, but for the keyed resets under it
+    assert get_raw_env(prepare_env(env)[0]) is env
     # a prebuilt env that already repeats is refused too, even with the
     # default action_repeat: the agent would record a repeat of 1 and the
     # eval rebuild would not match the env

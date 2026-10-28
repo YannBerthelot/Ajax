@@ -2,11 +2,11 @@
 
 ``Spec.transition(state, action, key)`` returns the next state, the reward
 and the termination flag. ``SpecEnv`` adds gymnax's auto-reset, the time
-limit (also the evaluation's scan length), the spaces and, on request, a
-record of the executed actions and of one draw from each step key, kept
-across auto-resets. The state is flat: the observation normaliser rebuilds
-it from ``to_state_dict``. The package probe envs stay package subclasses,
-so their random draws do not change.
+limit (also the evaluation's scan length) and the spaces; on request,
+``Recorded`` over it keeps a record of the executed actions and of one draw
+from each step key, across auto-resets. The state is flat: the observation
+normaliser rebuilds it from ``to_state_dict``. The package probe envs stay
+package subclasses, so their random draws do not change.
 """
 
 from __future__ import annotations
@@ -23,6 +23,8 @@ from brax.envs.base import State as BraxState
 from flax import struct
 from gymnax.environments import environment, spaces
 from probing_environments.gymnax_envs import continuous_actions as continuous
+
+from ajax.wrappers import GymnaxWrapper
 
 F32 = jnp.float32
 
@@ -85,9 +87,10 @@ class Spec:
         flat = (jnp.asarray(s, jnp.int32), jnp.asarray(c, F32), jnp.asarray(0.0, F32))
         return State(jnp.int32(0), *flat, jnp.int32(0), *zeros)
 
-    def make(self, **params: Any) -> tuple[SpecEnv, Params]:
+    def make(self, **params: Any) -> tuple[Any, Params]:
         env = SpecEnv(self)
-        return env, env.default_params.replace(**params)
+        made = Recorded(env) if any(self.record) else env
+        return made, env.default_params.replace(**params)
 
 
 class SpecEnv(environment.Environment):
@@ -131,24 +134,25 @@ class SpecEnv(environment.Environment):
         obs, state = self._apply_transition_gradient_policy(self.get_obs(state), state)
         return obs, state, jnp.asarray(reward, F32), jnp.asarray(terminated), {}
 
+
+class Recorded(GymnaxWrapper):
+    """A Spec's record, written from the pre-step state so the auto-reset
+    below, the stack's own, cannot wipe it."""
+
     def step(self, key: Any, state: Any, action: Any, params: Any = None) -> Any:
-        """gymnax's step, then the record, written from the pre-step state
-        so the auto-reset cannot wipe it."""
-        out = super().step(key, state, action, params)
-        (first, last), c = self.spec.record, state.clock
-        if not first and not last:
-            return out
+        out = self._env.step(key, state, action, params)
+        (first, last), clock = self.spec.record, state.clock
         u, a = jax.random.uniform(key), jnp.asarray(action, F32).reshape(-1)[0]
-        rec = {"clock": c + 1}
+        record = {"clock": clock + 1}
         if first:
-            i, keep = jnp.minimum(c, first - 1), c < first
+            i, keep = jnp.minimum(clock, first - 1), clock < first
             for name, x in (("first_a", a), ("first_u", u)):
                 old = getattr(state, name)
-                rec[name] = old.at[i].set(jnp.where(keep, x, old[i]))
+                record[name] = old.at[i].set(jnp.where(keep, x, old[i]))
         if last:
-            rec |= {"last_a": state.last_a.at[c % last].set(a)}
-            rec |= {"last_u": state.last_u.at[c % last].set(u)}
-        return out[0], out[1].replace(**rec), *out[2:]
+            record["last_a"] = state.last_a.at[clock % last].set(a)
+            record["last_u"] = state.last_u.at[clock % last].set(u)
+        return out[0], out[1].replace(**record), *out[2:]
 
 
 def register_brax(spec: Spec, env_id: str) -> str:

@@ -16,6 +16,7 @@ from ajax.environments.create import (
 from ajax.environments.utils import wrapper_chain
 from ajax.wrappers import (
     ClipAction,
+    EpisodeKeyedAutoResetWrapper,
     InitialStateWrapper,
     NormalizeVecObservationBrax,
     NormalizeVecObservationGymnax,
@@ -109,7 +110,16 @@ def test_strip_ajax_wrappers_reads_back_the_layers_prepare_env_added():
     task = InitialStateWrapper(env, lambda key, state, params: state)
     trained, *_ = prepare_env(task, normalize_obs=True)
     stripped, layers = strip_ajax_wrappers(trained)
-    assert stripped is task and strip_ajax_wrappers(task) == (task, {})
+    # The task, its resets keyed by episode under the user's wrapper.
+    assert (
+        type(stripped) is InitialStateWrapper
+        and stripped.init_state_fn is task.init_state_fn
+    )
+    assert (
+        type(stripped._env) is EpisodeKeyedAutoResetWrapper
+        and stripped._env._env is env
+    )
+    assert strip_ajax_wrappers(task) == (task, {})
     assert layers == {
         "normalize_obs": True,
         "normalize_reward": False,

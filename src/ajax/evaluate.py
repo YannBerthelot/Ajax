@@ -166,6 +166,7 @@ def setup_environment(
         eval_ep_len = int(_native_ep) if _native_ep is not None else 1000
         if episode_length is not None:
             eval_ep_len = int(episode_length)
+        episode_keys = getattr(env, "_ajax_episode_keys", True)
         if check_env_is_playground(env):
             env = _build_playground_env(
                 ajax_env_id,
@@ -173,6 +174,7 @@ def setup_environment(
                 episode_length=eval_ep_len,
                 action_repeat=action_repeat,
                 fresh_reset=getattr(env, "_ajax_fresh_reset", True),
+                episode_keys=episode_keys,
             )
         else:
             env = _build_brax_env(
@@ -180,6 +182,7 @@ def setup_environment(
                 n_envs=num_episodes,
                 episode_length=eval_ep_len,
                 action_repeat=action_repeat,
+                episode_keys=episode_keys,
             )
         for layer in reversed(users):
             layer = copy.copy(layer)

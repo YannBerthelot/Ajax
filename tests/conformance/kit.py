@@ -59,6 +59,11 @@ SAMPLERS = (
 )
 #: Packages whose callers name a role (the first such frame); vendored originals live under vendor/.
 OWNERS = ("/src/ajax/", "/gymnax/", "/brax/", "/mujoco_playground/", "/vendor/")
+#: The functions whose draws start an episode. An auto-reset evaluates the next episode's start at
+#: every step and keeps it only where the episode ends, and with resets keyed by episode it draws
+#: it on one key throughout: the value the env kept is that key's last draw, and the redraws are
+#: one use of the key.
+RESET_FUNCTIONS = ("reset_env", "reset")
 _HERE = pathlib.Path(__file__).resolve()
 _NARROW = {"float64": "float32", "int64": "int32", "uint64": "uint32"}
 
@@ -105,6 +110,11 @@ def _call_site(passed_over: tuple[str, ...] = ()) -> str:
     return "?"
 
 
+def is_reset_site(site: str) -> bool:
+    """Whether a draw's site (file:function, as _call_site names it) is an episode's start."""
+    return site.rpartition(":")[2] in RESET_FUNCTIONS
+
+
 def _key_data(key: jax.Array) -> jax.Array:
     return (
         jax.random.key_data(key)
@@ -143,7 +153,10 @@ def _wrap(
         jax.debug.callback(
             lambda h: None if np.asarray(h).any() else session.misses.append(role), hit
         )
-        return jnp.asarray(values, role[3])[jnp.argmax(hit)]
+        index = jnp.argmax(hit)
+        if is_reset_site(role[1]):  # the start the episode kept (RESET_FUNCTIONS)
+            index = hit.shape[0] - 1 - jnp.argmax(hit[::-1])
+        return jnp.asarray(values, role[3])[index]
 
     def sampler(key: jax.Array, *args: Any, **kwargs: Any) -> jax.Array:
         site = _call_site()
@@ -228,8 +241,8 @@ class KeyUses:
     indices 0 to DRAW_SPAN, a split into n keys 0 to n, and a fold_in its datum alone: under JAX's
     partitionable threefry the keys fold_in(key, i) and split(key, n)[i] and a draw's i-th value
     come from one counter, i. A key drawn on and also split or folded at an index the draw spans, or
-    drawn on twice, hands out related numbers. Two splits or folds of one key hand out the same keys,
-    whose own uses show any reuse."""
+    drawn on twice (but for an episode's start, RESET_FUNCTIONS), hands out related numbers. Two
+    splits or folds of one key hand out the same keys, whose own uses show any reuse."""
 
     log: list = dataclasses.field(default_factory=list)
 
@@ -245,7 +258,12 @@ class KeyUses:
                 )
         pairs = set()
         for key_uses in uses.values():
-            draws = [use for use in key_uses if use[1] not in DERIVATIONS]
+            draws: list = []
+            for use in key_uses:
+                # An episode's start redrawn on its key is one use (RESET_FUNCTIONS).
+                repeated_start = use in draws and is_reset_site(use[0])
+                if use[1] not in DERIVATIONS and not repeated_start:
+                    draws.append(use)
             derived = [use for use in key_uses if use[1] in DERIVATIONS]
             for i, (drawn, _, _) in enumerate(draws):
                 for other, _, _ in draws[i + 1 :]:

@@ -937,3 +937,38 @@ def test_a_row_collector_keeps_its_own_stream_from_an_older_checkpoint(tmp_path)
     np.testing.assert_array_equal(
         restored.collector_state.rng, state.collector_state.rng
     )
+
+
+def test_episode_counters_restore_only_into_an_agent_keying_its_resets(tmp_path):
+    """Contract (owner, 2026-10-27): a checkpoint saved before resets were
+    keyed by episode (format 2, no episode counters) is refused with episode
+    keys on, the error naming the way out, and restores with them off; one
+    holding the counters is refused with them off."""
+    import pickle
+
+    import gymnax
+
+    from ajax.agents.SAC.SAC import SAC
+    from ajax.checkpoint import FORMAT_KEY
+    from ajax.environments.create import with_episode_keys
+
+    net = ("8", "relu")
+    kw = {"n_envs": 2, "actor_architecture": net, "critic_architecture": net}
+    env, params = gymnax.make("Pendulum-v1")
+    off = SAC(env_id=with_episode_keys(env, on=False), env_params=params, **kw)
+    unkeyed, _ = off.train(seed=0, n_timesteps=0)
+    keyed, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=0, n_timesteps=0)
+    old, new = str(tmp_path / "old.pkl"), str(tmp_path / "new.pkl")
+    save_checkpoint(unkeyed, old)
+    with open(old, "rb") as fh:
+        saved = pickle.load(fh)
+    saved[FORMAT_KEY] = 2
+    with open(old, "wb") as fh:
+        pickle.dump(saved, fh)
+    restore_into(unkeyed, old)
+    with pytest.raises(ValueError, match="episode_keys=False"):
+        restore_into(keyed, old)
+    save_checkpoint(keyed, new)
+    restore_into(keyed, new)
+    with pytest.raises(ValueError, match="episode keys on"):
+        restore_into(unkeyed, new)

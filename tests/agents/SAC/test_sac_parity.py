@@ -10,6 +10,9 @@ rework.
 If this test fails after a change to SAC, the change altered the plain
 SAC algorithm's numerics — investigate to root cause; do not re-bless
 the goldens without understanding why they moved.
+
+Characterization tests: they pin current behaviour, not verified against a
+spec, and may encode bugs; a refactor guard, never proof of correctness.
 """
 
 import jax.numpy as jnp
@@ -104,11 +107,16 @@ _PARITY_TIMESTEPS = 200
 # derived): critic +0.25%, actor -0.025%, target +0.024%, alpha -0.009%.
 # Previous goldens: critic 559.0327758789062, actor 267.3338317871094,
 # target 535.82421875, alpha 0.973139762878418.
+#
+# Re-recorded once every env's resets were keyed by episode (RNG stability,
+# episode keys): critic -0.41%, actor -0.008%, target +0.012%,
+# alpha -0.0076%. Previous goldens: critic 560.4334106445312, actor
+# 267.26690673828125, target 535.9512939453125, alpha 0.9730521440505981.
 _GOLDEN = {
-    "critic": 560.4334106445312,
-    "actor": 267.26690673828125,
-    "target": 535.9512939453125,
-    "alpha": 0.9730521440505981,
+    "critic": 558.1626586914062,
+    "actor": 267.24493408203125,
+    "target": 536.0177001953125,
+    "alpha": 0.9729780554771423,
 }
 _TOL = 1e-4
 

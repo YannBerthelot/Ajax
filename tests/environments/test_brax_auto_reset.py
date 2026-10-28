@@ -31,7 +31,13 @@ from brax.envs.base import Env, State
 from brax.envs.wrappers import training as brax_training
 
 from ajax.environments.create import build_env_from_id
-from ajax.wrappers import AutoResetWrapper, FinalObsWrapper, split
+from ajax.environments.utils import wrapper_chain
+from ajax.wrappers import (
+    AutoResetWrapper,
+    FinalObsWrapper,
+    FreshAutoResetWrapper,
+    split,
+)
 
 N_SEEDS = 2
 
@@ -250,11 +256,27 @@ def test_reverse_mode_through_the_reset_needs_differentiable_reset():
     np.testing.assert_allclose(tangent, expected, rtol=1e-5)
 
 
-def test_build_env_from_id_passes_differentiable_reset():
-    env, _ = build_env_from_id("inverted_pendulum", n_envs=2)
-    assert type(env) is AutoResetWrapper and not env.differentiable_reset
-    env, _ = build_env_from_id("inverted_pendulum", n_envs=2, differentiable_reset=True)
-    assert env.differentiable_reset
+@pytest.mark.parametrize(
+    "episode_keys, auto_reset",
+    [(True, FreshAutoResetWrapper), (False, AutoResetWrapper)],
+)
+def test_build_env_from_id_passes_differentiable_reset(episode_keys, auto_reset):
+    """With episode keys (the default) brax's stack auto-resets as
+    playground's; without, on its batch's reset seed, as before them; and
+    the evaluation's rebuild keeps it."""
+    from ajax.evaluate import setup_environment
+
+    for differentiable in (False, True):
+        env, _ = build_env_from_id(
+            "inverted_pendulum",
+            n_envs=2,
+            differentiable_reset=differentiable,
+            episode_keys=episode_keys,
+        )
+        [layer] = [x for x in wrapper_chain(env) if type(x) is auto_reset]
+        assert layer.differentiable_reset == differentiable
+    rebuilt, _, _ = setup_environment(env, None, 2, None, 0.99)
+    assert any(type(x) is auto_reset for x in wrapper_chain(rebuilt))
 
 
 def test_reset_is_skipped_on_steps_where_no_env_is_done():
@@ -297,7 +319,9 @@ def test_gated_reset_matches_the_ungated_rollout_on_brax_physics():
     bit on macOS), but whether two equivalent programs compile to the same
     bits is up to XLA, so it is held to the same bound."""
     n_envs, n_steps = 4, 80
-    env, _ = build_env_from_id("inverted_pendulum", n_envs=n_envs, episode_length=30)
+    env, _ = build_env_from_id(
+        "inverted_pendulum", n_envs=n_envs, episode_length=30, episode_keys=False
+    )
     assert type(env) is AutoResetWrapper
     actions = jnp.zeros((n_steps, n_envs, env.action_size))
     expected = _rollout_fn(_UngatedAutoResetWrapper(env.env), n_steps)(

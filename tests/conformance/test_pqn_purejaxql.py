@@ -25,6 +25,7 @@ from refcmp_specs import COMPARISONS
 import ajax
 from ajax.agents.PQN.PQN import compute_q_lambda_targets
 from ajax.networks.q_networks import predict_q
+from ajax.wrappers import episode_start_key
 from tests.conformance import kit, submaps
 
 SPEC = COMPARISONS["PQN"]
@@ -121,10 +122,25 @@ def role(draws: dict, sampler: str, site: str) -> kit.Role:
     return r
 
 
-def psi(ref: dict, aj: dict) -> dict:
+def reset_keys(state: Any, done: Any) -> list:
+    """The keys Ajax's CartPole resets draw on at each step and env once its episodes end where
+    purejaxql's do: an env's next episode's start key (ajax.wrappers.episode_start_key), which its
+    episode ends advance. Its recording ended them elsewhere, on other keys."""
+    env_state = state.collector_state._env_state
+    roots = jnp.reshape(env_state.episode_root, (N_ENVS, 2))
+    ended = np.asarray(done).reshape(-1, N_ENVS) > 0
+    index = np.asarray(env_state.episode_index).reshape(N_ENVS) + np.cumsum(ended, 0)
+    nexts = jnp.asarray(
+        (index - ended).ravel() + 1
+    )  # the episode each step's reset starts
+    keys = jax.vmap(episode_start_key)(jnp.tile(roots, (len(ended), 1)), nexts)
+    return [(key, None) for key in np.asarray(keys)]
+
+
+def psi(ref: dict, aj: dict, starts: list) -> dict:
     """Ajax's replay table from purejaxql's draws: epsilon-greedy per step (32 per-env draws there,
-    one (32,) draw here), CartPole resets in order, one minibatch permutation per epoch (purejaxql
-    applies one key to its 7 leaves)."""
+    one (32,) draw here), CartPole resets in order on the keys starts gives them (reset_keys), one
+    minibatch permutation per epoch (purejaxql applies one key to its 7 leaves)."""
     values = {}
     for sampler in ("randint", "uniform"):
         a, r = (
@@ -137,6 +153,7 @@ def psi(ref: dict, aj: dict) -> dict:
         ]
     a, r = role(aj, "uniform", "reset_env"), role(ref, "uniform", "reset_env")
     values[a] = [v for _, v in ref[r]]
+    aj = {**aj, a: starts}
     a, r = (
         role(aj, "permutation", "get_minibatches_from_batch"),
         role(ref, "permutation", "preprocess_transition"),
@@ -192,7 +209,8 @@ def iterate(sides: Sides, n: int) -> list[Iteration]:
         (rs1, stash), _ = taped(ref_fn, rs, kit.replaying(own))
         state = phi(sides, rs, prev_done)
         _, arec = taped(ajax_fn, state, kit.recording())
-        table = psi(ref_draws, kit.by_role(arec.log))
+        starts = reset_keys(state, stash["_step_env"][1][0].done)
+        table = psi(ref_draws, kit.by_role(arec.log), starts)
         (out, collected), rep = taped(ajax_fn, state, kit.replaying(table))
         assert not rep.misses
         ref = {name: ys for name, (_, ys) in stash.items()}

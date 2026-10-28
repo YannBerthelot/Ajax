@@ -101,6 +101,9 @@ ROWS = {
         IdentityEnv(), gamma=0.9
     ),
     W.TerminatedTruncatedWrapper: lambda: W.TerminatedTruncatedWrapper(IdentityEnv()),
+    W.EpisodeKeyedAutoResetWrapper: lambda: W.EpisodeKeyedAutoResetWrapper(
+        IdentityEnv()
+    ),
     W.ObservationNoiseWrapper: lambda: W.ObservationNoiseWrapper(IdentityEnv(), 0.1),
     ModelReferenceWrapper: lambda: ModelReferenceWrapper(
         IdentityEnv(),

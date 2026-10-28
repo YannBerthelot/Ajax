@@ -33,9 +33,9 @@ PyPI as `ajax-rl`.
   features, a residual policy or gain mode, a recurrent actor's memory,
   UDRL's command, a world model's state). `agent.predict(state,
   observation)` returns one action for an agent without memory.
-  `load_checkpoint(agent, path)` restores a saved state into an agent
-  built with the same arguments; `restore_into` still serves runs whose
-  train options shape their update. TDMPC2MultiTask has no policy yet.
+  `load_checkpoint(agent, path, **train_options)` restores a saved state
+  into an agent built with the same arguments, its skeleton built with the
+  run's train options where they shape the update (APG's schedule). TDMPC2MultiTask has no policy yet.
   Training and evaluation are unchanged: their programs are the same.
 - A gymnax step no longer warns that float64 is unavailable: its
   terminated and truncated flags convert to float32 directly. Every

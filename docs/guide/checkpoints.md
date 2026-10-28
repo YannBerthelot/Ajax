@@ -29,7 +29,7 @@ state you pass in, so read or save what you need from it first.
 | Function | What it does |
 | --- | --- |
 | `save_checkpoint(state, path)` | writes the state's arrays and counters to `path`, atomically (a crash mid-write leaves the previous file intact) |
-| `load_checkpoint(agent, path)` | loads `path` into `agent`, an agent built with the same arguments: `restore_into` on a 0-step `train` of as many seeds as the file holds |
+| `load_checkpoint(agent, path, **train_options)` | loads `path` into `agent`, an agent built with the same arguments: `restore_into` on a 0-step `train` of as many seeds as the file holds, given `train_options` |
 | `restore_into(skeleton, path)` | loads `path` into `skeleton`, a fresh state of the same agent |
 | `checkpoint_exists(path)` | whether `path` holds a checkpoint |
 
@@ -38,9 +38,9 @@ networks' functions are code, not data: they come from the skeleton, which
 an identically configured agent builds with a 0-step `train` call given the
 run's `train` options (an update rule may depend on them, as APG's
 learning-rate schedule does, [below](#things-to-know)). `load_checkpoint`
-builds it without options, which serves a run trained with `train`'s
-defaults and a policy to act with ([Train, evaluate, deploy](deploy.md));
-the run below passes its own, so it uses `restore_into`. The agent may be a
+passes on the options you give it, as `restore_into` on such a skeleton
+does; without any, it serves a run trained with `train`'s defaults and a
+policy to act with ([Train, evaluate, deploy](deploy.md)). The agent may be a
 new instance in a new process. A run that saves a checkpoint after each
 chunk of training, and picks up from the last one when restarted:
 

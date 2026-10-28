@@ -104,14 +104,15 @@ def restore_into(skeleton: Any, path: str) -> Any:
     )
 
 
-def load_checkpoint(agent: Any, path: str) -> Any:
+def load_checkpoint(agent: Any, path: str, **train_options: Any) -> Any:
     """The state saved at path (save_checkpoint(state, path)), restored into
     agent, an agent built with the same arguments: restore_into on a 0-step
     train of as many seeds as the file holds, which rebuilds what the file
     does not keep (the optimisers' update rules, the networks' functions).
-    It refuses what restore_into refuses. A run whose train call took
-    options shaping its update (APG's learning-rate schedule) resumes
-    through restore_into on a skeleton built with them."""
+    It refuses what restore_into refuses. train_options go to that train
+    call: a run whose options shape its update rule (APG's learning-rate
+    schedule over total_timesteps, its optimiser kept on resume) passes
+    them, so the loaded state resumes as the run would have gone on."""
     with open(os.path.abspath(path), "rb") as f:
         saved = pickle.load(f)
     if not isinstance(saved, dict) or "rng" not in saved:
@@ -120,7 +121,7 @@ def load_checkpoint(agent: Any, path: str) -> Any:
             " path) writes one): restore it with restore_into(skeleton, path)."
         )
     seeds = list(range(np.shape(saved["rng"])[0]))
-    skeleton, _ = agent.train(seed=seeds, n_timesteps=0)
+    skeleton, _ = agent.train(seed=seeds, n_timesteps=0, **train_options)
     return restore_into(skeleton, path)
 
 

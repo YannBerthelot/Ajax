@@ -14,6 +14,7 @@ import pytest
 from ajax import controller as controller_module
 from ajax import evaluate as evaluate_module
 from ajax import log
+from ajax import policy as policy_module
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
@@ -156,13 +157,13 @@ def test_an_evaluation_keeps_the_actors_own_statistics(monkeypatch):
     actor = jax.tree.map(lambda x: x[0], state.actor_state)
     assert actor.obs_norm_info is not None
     read = []
-    get_pi = evaluate_module.get_pi
+    get_pi = policy_module.get_pi
 
     def acting(actor_state, *args, **kwargs):
         read.append(getattr(actor_state, "obs_norm_info", None))
         return get_pi(actor_state, *args, **kwargs)
 
-    monkeypatch.setattr(evaluate_module, "get_pi", acting)
+    monkeypatch.setattr(policy_module, "get_pi", acting)  # evaluation acts there
     env, params = gymnax.make("Pendulum-v1")
     evaluate_module.evaluate(env, actor, 1, jax.random.PRNGKey(0), params)
     assert read and all(info is not None for info in read)

@@ -255,7 +255,7 @@ def _actor_inputs(monkeypatch, expert, **kwargs) -> list:
     8 rows)."""
     import ajax.agents.recurrent
     import ajax.environments.interaction
-    import ajax.evaluate
+    import ajax.policy
     from ajax import SAC
     from ajax.logging.wandb_logging import LoggingConfig
 
@@ -266,7 +266,8 @@ def _actor_inputs(monkeypatch, expert, **kwargs) -> list:
         jax.debug.callback(lambda o: seen.append(np.asarray(o)), obs)
         return get_pi(*args, **kw)
 
-    for module in (ajax.environments.interaction, ajax.agents.recurrent, ajax.evaluate):
+    # Evaluation acts through ajax.policy.
+    for module in (ajax.environments.interaction, ajax.agents.recurrent, ajax.policy):
         monkeypatch.setattr(module, "get_pi", recording_get_pi)
     agent = SAC(
         "Pendulum-v1",

@@ -19,6 +19,7 @@ import ajax.evaluate
 import ajax.extensions.expert
 import ajax.extensions.pretrain
 import ajax.extensions.target_mods
+import ajax.policy
 from ajax import SAC
 from ajax.environments.obs_norm import apply_obs_norm, init_agent_obs_norm
 from ajax.extensions.expert import ExpertValueMetrics, ExpertWarmup
@@ -149,7 +150,7 @@ def _record(monkeypatch, module: Any, name: str) -> list:
 def actor_inputs(monkeypatch) -> list:
     """Every input the actor is given: collection, evaluation, the update."""
     seen = _record(monkeypatch, ajax.environments.interaction, "get_pi")
-    for module in (ajax.agents.recurrent, ajax.evaluate):
+    for module in (ajax.agents.recurrent, ajax.policy):  # evaluation acts there
         monkeypatch.setattr(module, "get_pi", ajax.environments.interaction.get_pi)
     return seen
 

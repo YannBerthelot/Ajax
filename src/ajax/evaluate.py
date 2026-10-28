@@ -8,16 +8,13 @@ from gymnax.environments.environment import EnvParams
 from jax.tree_util import Partial as partial
 
 from ajax.controller import (
-    ActingState,
     Controller,
     ObserveInputs,
     call_expert,
     init_observers,
     observe_features,
 )
-from ajax.environments.action_stage import choose_in_evaluation
 from ajax.environments.interaction import (
-    get_pi,
     get_raw_obs,
     reset,
     step,
@@ -37,8 +34,14 @@ from ajax.environments.utils import (
     get_raw_env,
     wrapper_chain,
 )
-from ajax.networks.distributions import latent
 from ajax.networks.memory import tree_where_reset
+
+# get_deterministic_action_and_entropy_fn moved with the acting code; its
+# name stays importable here, where downstream projects import it from.
+from ajax.policy import (
+    get_deterministic_action_and_entropy_fn as get_deterministic_action_and_entropy_fn,
+)
+from ajax.policy import make_act
 from ajax.schedule import progress
 from ajax.state import EnvironmentConfig
 from ajax.utils import online_normalize
@@ -216,32 +219,6 @@ def _over_the_built_stack(env: Any) -> list:
     return []
 
 
-def get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous):
-    """Return a function mapping (obs, done, hidden) → (action, entropy, hidden).
-
-    In recurrent mode the hidden state is an explicit input/output so the
-    eval loop can thread it through its carry (the live carry on
-    ``actor_state`` belongs to the training envs and has the wrong batch
-    size here). Non-recurrent mode passes ``hidden`` through untouched.
-    """
-
-    def fn(obs: jax.Array, done: Optional[jax.Array], hidden):
-        if actor_state is None:
-            raise ValueError("Actor not initialized.")
-        state = actor_state.replace(hidden_state=hidden) if recurrent else actor_state
-        pi, new_state = get_pi(state, actor_state.params, obs, done, recurrent)
-        action = pi.mean() if continuous else pi.mode()
-        entropy = latent(pi).entropy()
-        if recurrent:
-            # drop the single-step time axis added by get_pi
-            action = action.squeeze(0)
-            entropy = entropy.squeeze(0)
-            return action, entropy, new_state.hidden_state
-        return action, entropy, hidden
-
-    return fn
-
-
 def _expert_obs(state, env, mode) -> jax.Array:
     """The observations an expert is given, as the collector gives them
     (:func:`~ajax.environments.interaction.get_raw_obs`): the environment's
@@ -333,15 +310,12 @@ def step_environment(
 ):
     """Return a pure function stepping the evaluation (an :class:`_EvalCarry`).
 
-    Each step acts as the agent's ``controller`` says, on an
-    :class:`~ajax.controller.ActingState` built from the carry: the actor's
-    input (:meth:`~ajax.controller.Controller.observe`), its deterministic
-    action, then the executed one (:meth:`~ajax.controller.Controller.act`).
-    The expert acts in agent units (:class:`ExpertInAgentUnits`), as every
-    action here; the executed one is mapped onto the env's bounds
-    (:func:`agent_action_to_env`), as in collection. The expert's state is
-    tracked from the actor's input on, statefully, as collection tracks it,
-    and restarts with each episode.
+    Each step acts as the evaluated policy acts (ajax.policy.make_act: the
+    controller, the actor, the expert in agent units and the choosers, on
+    keys derived from the carry's), then steps the env on the executed
+    action mapped onto its bounds (:func:`agent_action_to_env`), as in
+    collection. The expert's state is tracked statefully, as collection
+    tracks it, and restarts with each episode.
 
     value_estimate: the critic's estimate at the actor's input and the
     action collection stores, each step: the executed action in agent units,
@@ -351,10 +325,6 @@ def step_environment(
     actor reads ``command.actor_input(obs, c)``, and each step's reward, in
     the agent's units (``norm_info``, :func:`normalised_reward`), and end
     update ``c``.
-
-    The controller's choosers (an extension's eval_action phase) may then
-    replace the executed action by the expert's (choose_in_evaluation), on
-    keys derived from the carry's: they move no other draw.
     """
 
     controller = Controller() if controller is None else controller
@@ -362,10 +332,14 @@ def step_environment(
     expert_is_stateful = expert_policy is not None and hasattr(
         expert_policy, "init_state"
     )
-
-    # The statistics the agent's controller normalises with, as they stand.
-    obs_norm = (
-        agent_state.collector_state.obs_norm_info if controller.normalize_obs else None
+    act = make_act(
+        actor_state,
+        recurrent,
+        continuous,
+        expert_policy,
+        agent_state,
+        controller,
+        command,
     )
 
     def fn(carry: _EvalCarry) -> _EvalCarry:
@@ -376,52 +350,28 @@ def step_environment(
         # collection: not normalised, without the training-fraction column.
         reads_expert = expert_policy is not None or controller.choosers
         expert_obs = _expert_obs(state, env, mode) if reads_expert else None
-        acting = ActingState(
-            obs=obs,
-            done=done,
-            timestep=None,
-            expert_state=carry.expert_state,
-            carry=carry.actor_hidden,
-            obs_norm=obs_norm,
+        acted = act(
+            obs,
+            done,
+            expert_obs,
+            carry.expert_state,
+            carry.actor_hidden,
+            carry.command,
+            rng,
         )
-        observations = obs_for_actor = controller.observe(acting)
-        if command is not None:
-            obs_for_actor = command.actor_input(obs_for_actor, carry.command)
-
-        raw_actions, entropy, new_actor_hidden = (
-            get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous)(
-                obs_for_actor, done if recurrent else None, carry.actor_hidden
-            )
-        )
-        actions, new_expert_state = controller.act(
-            raw_actions, acting, expert_policy, expert_obs
-        )
+        actions, entropy = acted.actions, acted.entropy
+        new_expert_state = acted.expert_state
         expert_steps = carry.expert_steps
-        if controller.choosers:
-            expert_action = None
-            if expert_policy is not None:
-                expert_action, _ = call_expert(
-                    expert_policy, carry.expert_state, expert_obs
-                )
-            choice = {
-                "executed_action": actions,
-                "expert_action": expert_action,
-                "observations": observations,  # the critics' input
-                "raw_obs": expert_obs,
-            }
-            choice, handed = choose_in_evaluation(
-                agent_state, acting, controller.choosers, choice, rng
-            )
-            actions = choice["executed_action"]
-            expert_steps = expert_steps + (handed * (1 - done)).mean()
+        if acted.handed is not None:  # a chooser's
+            expert_steps = expert_steps + (acted.handed * (1 - done)).mean()
         value = (
             carry.value
             if value_estimate is None
             else value_estimate.value(
                 agent_state,
-                obs_for_actor,
+                acted.actor_input,
                 # What the critics score: the gains under gain mode.
-                raw_actions if controller.actuates else actions,
+                acted.actor_actions if controller.actuates else actions,
             )
         )
         obs, new_state, new_rewards, new_term, new_trunc, _ = step(
@@ -474,7 +424,7 @@ def step_environment(
             last_reward=new_rewards,
             value=value,
             expert_state=new_expert_state,
-            actor_hidden=new_actor_hidden,
+            actor_hidden=acted.actor_hidden,
             command=new_command,
             observer_states=observer_states,
             expert_steps=expert_steps,

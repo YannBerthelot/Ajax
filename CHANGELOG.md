@@ -6,6 +6,17 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **Logging backends.** `LoggingConfig(backends=(...))` names where every
+  run logs its evaluations: `TensorBoardBackend(folder)`,
+  `WandbBackend(project, group)`, or a backend of your own, any picklable
+  object with `open(run)`, `log(run_id, step, metrics)` and `close()`
+  (`LoggingBackend`; an optional `start(run)` runs in the caller before
+  training). One backend object serves every seed's run. `ajax.logging` now
+  exports `LoggingConfig`, `LoggingBackend`, `RunInfo`,
+  `TensorBoardBackend` and `WandbBackend`; `ajax.logging.wandb_logging`
+  still works. Nothing default changes: with no backends, `use_wandb` (on
+  by default) and `use_tensorboard` decide as before. Setting either flag
+  together with `backends` is refused. `config` defaults to an empty dict.
 - **Resets are keyed by episode** (PEGASUS, Ng and Jordan 2000), on by
   default: env i's k-th episode starts on a key of (i, k), and a gymnax
   env's step t in it draws on a key of (i, k, t), so runs that differ by an

@@ -26,8 +26,7 @@ from typing import Any
 
 import pytest
 
-from ajax.logging.backends import RunInfo, TensorBoardBackend, WandbBackend
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig, RunInfo, TensorBoardBackend, WandbBackend
 from tests.logging import fake_wandb
 from tests.logging.test_logging_pins import AGENTS, SEEDS, logged_rows
 

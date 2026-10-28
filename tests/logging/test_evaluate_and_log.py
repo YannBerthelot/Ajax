@@ -52,7 +52,7 @@ AGENTS: dict[str, tuple[type, dict[str, Any]]] = {
     "DQN": (DQN, {**_DISCRETE, **_REPLAY}),
     "PQN": (PQN, {**_DISCRETE, "n_steps": 8, "num_minibatches": 2}),
 }
-EVALUATE = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+EVALUATE = LoggingConfig(log_frequency=32, backends=())
 SEEDS, BUDGET = 2, 64
 
 
@@ -133,7 +133,7 @@ def test_a_logged_evaluation_is_handed_the_agents_observation_statistics(monkeyp
         return evaluate(*args, controller=controller, agent_state=agent_state, **kwargs)
 
     monkeypatch.setattr(log, "evaluate", evaluating)
-    logging = LoggingConfig(config={}, log_frequency=16, use_wandb=False)
+    logging = LoggingConfig(log_frequency=16, backends=())
     net = ("8", "relu")
     agent = PPO(
         "Pendulum-v1",
@@ -224,7 +224,7 @@ def test_the_log_frequency_leaves_the_evaluations_at_a_timestep() -> None:
     cls, kwargs = AGENTS["SAC"]
     rows = {}
     for every in (16, 32):
-        config = LoggingConfig(config={}, log_frequency=every, use_wandb=False)
+        config = LoggingConfig(log_frequency=every, backends=())
         _, out = cls(**kwargs).train(seed=0, n_timesteps=BUDGET, logging_config=config)
         timesteps = np.asarray(out["timestep"])[0]
         returns = np.asarray(out["Eval/episodic mean reward"])[0]

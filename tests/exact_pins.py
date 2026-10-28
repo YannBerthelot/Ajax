@@ -833,9 +833,7 @@ def leaves(name: str) -> dict[str, np.ndarray]:
     """The case's :func:`record`, then an OFFLINE case's online one or a
     RESUMED case's second call's."""
     cls, kwargs, _ = CASES[name]
-    logging = LoggingConfig(
-        config={}, log_frequency=40, use_wandb=False, sweep=name in SWEEP
-    )
+    logging = LoggingConfig(log_frequency=40, sweep=name in SWEEP, backends=())
     agent = cls(**kwargs)
     state, evals = run(name, agent, logging)
     out = record(state, evals)

@@ -92,7 +92,7 @@ def test_UDRL_logs_its_training_metrics_and_evaluation_without_a_backend():
     agent = UDRL(
         env_id="CartPole-v1", n_envs=1, n_steps=8, batch_size=8, n_updates_per_iter=4
     )
-    config = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    config = LoggingConfig(log_frequency=32, backends=())
     state, rows = agent.train(seed=[0, 1], n_timesteps=64, logging_config=config)
     assert rows["timestep"].tolist() == [[32, 64], [32, 64]]
     for key, target in (
@@ -119,7 +119,7 @@ def test_UDRL_logs_the_returns_of_whole_episodes():
     agent = UDRL(
         env_id="CartPole-v1", n_envs=2, n_steps=4, batch_size=8, n_updates_per_iter=1
     )
-    config = LoggingConfig(config={}, log_frequency=256, use_wandb=False)
+    config = LoggingConfig(log_frequency=256, backends=())
     state, rows = agent.train(seed=[0], n_timesteps=256, logging_config=config)
     dones = np.asarray(state.buffer.dones)[0, :32, :, :, 0]  # (slot, t, env)
     lengths = [
@@ -146,7 +146,7 @@ def test_UDRL_gamma_discounts_only_its_diagnostic():
     is and changes only the logged returns-to-go (Train/mean_rtg)."""
     from ajax.logging.wandb_logging import LoggingConfig
 
-    logging = LoggingConfig(config={}, log_frequency=16, use_wandb=False)
+    logging = LoggingConfig(log_frequency=16, backends=())
     runs = {}
     for gamma in (1.0, 0.5):
         agent = UDRL(
@@ -211,7 +211,7 @@ def test_UDRL_logs_the_return_of_its_eval_expert_policy():
     without either."""
     from ajax.logging.wandb_logging import LoggingConfig
 
-    logging = LoggingConfig(config={}, log_frequency=16, use_wandb=False)
+    logging = LoggingConfig(log_frequency=16, backends=())
     key = "Eval/episodic mean expert reward"
     kwargs = {"n_steps": 8, "batch_size": 8, "n_updates_per_iter": 2}
 

@@ -266,7 +266,7 @@ def test_a_frozen_actor_recomputes_its_rollouts_log_probs(
         critic_architecture=NET,
         **kwargs,
     )
-    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    logging = LoggingConfig(log_frequency=32, backends=())
     _, out = agent.train(seed=[0], n_timesteps=128, logging_config=logging)
     clip = np.asarray(out["policy/clip_fraction"])
     assert clip.size >= 4 and (clip == 0).all(), clip

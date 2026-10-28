@@ -318,7 +318,7 @@ def test_the_encoder_reads_the_features():
         extensions=(TrainingProgressInput(), pid),
         **TINY,
     )
-    logging = LoggingConfig(config={}, log_frequency=PENDULUM_T, use_wandb=False)
+    logging = LoggingConfig(log_frequency=PENDULUM_T, backends=())
     state, evaluations = agent.train(seed=0, n_timesteps=40, logging_config=logging)
     encoder = state.world_model_state.params["encoder"]
     assert agent.obs_dim == encoder["trunk"]["Dense_0"]["kernel"].shape[-2] == 3 + 4
@@ -653,9 +653,7 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
         **TINY,
     )
     assert agent.agent_episode_length == 20
-    logging_config = LoggingConfig(
-        config={}, use_wandb=False, use_tensorboard=False, log_frequency=80
-    )
+    logging_config = LoggingConfig(log_frequency=80, backends=())
     state, metrics = agent.train(
         seed=SEEDS, n_timesteps=120, num_episode_test=3, logging_config=logging_config
     )

@@ -550,7 +550,7 @@ def test_apg_returns_its_evaluations_without_a_logging_backend():
     from ajax.logging.wandb_logging import LoggingConfig
 
     agent = APG("Pendulum-v1", n_envs=2, horizon=4, actor_architecture=("8", "relu"))
-    logging = LoggingConfig(config={}, log_frequency=16, use_wandb=False)
+    logging = LoggingConfig(log_frequency=16, backends=())
     _, aux = agent.train(
         seed=0, n_timesteps=64, num_episode_test=1, logging_config=logging
     )

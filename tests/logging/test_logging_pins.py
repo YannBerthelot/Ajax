@@ -24,6 +24,11 @@ from ajax import PPO, SAC
 from ajax.logging.wandb_logging import LoggingConfig, load_scalars_from_tfevents
 from tests.logging import fake_wandb
 
+# These tests run the deprecated flags on purpose.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:LoggingConfig's use_wandb:FutureWarning"
+)
+
 NET = ("8", "relu")
 SEEDS = [3, 5]
 # A function, as an environment object in an agent's run configuration can

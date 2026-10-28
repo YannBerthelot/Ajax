@@ -14,7 +14,7 @@ from ajax.extensions.expert import ExpertValueMetrics
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import predict_value
 
-LOGGED = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+LOGGED = LoggingConfig(log_frequency=32, backends=())
 KEYS = ("value/q_expert_mean", "value/q_gap")
 
 

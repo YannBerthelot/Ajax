@@ -97,7 +97,7 @@ def test_an_agent_gives_its_expert_raw_observations_and_its_state(name, monkeypa
         **options,
         **{**case.kwargs, "expert_policy": expert},
     )
-    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    logging = LoggingConfig(log_frequency=32, backends=())
     _, out = agent.train(
         seed=0,
         n_timesteps=case.n_timesteps,

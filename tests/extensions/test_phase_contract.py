@@ -303,7 +303,7 @@ def test_each_phase_logs_its_metrics_with_the_updates(name: str, options: dict) 
     phases = frozenset(LOGGED).intersection(cls.supported_extension_phases)
     logger = type("Logger", (Extension,), {p: _logging(p) for p in phases})()
     agent = cls(env_id, **kwargs, extensions=(logger,))
-    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    logging = LoggingConfig(log_frequency=32, backends=())
     _, out = agent.train(
         seed=0, n_timesteps=n_timesteps, num_episode_test=1, logging_config=logging
     )

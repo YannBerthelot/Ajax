@@ -278,7 +278,7 @@ def test_a_zero_scale_residual_policy_executes_the_expert():
     paid 1.5 in collection and evaluate() (1.0 when it mixed env units);
     the expert's own rollout is paid 1.5, as raw stepping."""
     agent = _sac(learning_starts=4, extensions=(ResidualPolicy(scale=0.0),))
-    logging = LoggingConfig(config={}, log_frequency=4, use_wandb=False)
+    logging = LoggingConfig(log_frequency=4, backends=())
     state, out = agent.train(
         seed=0, n_timesteps=12, num_episode_test=2, logging_config=logging
     )

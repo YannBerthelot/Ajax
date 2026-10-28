@@ -22,7 +22,7 @@ import numpy as np
 
 from ajax.agents import loop as shared_loop
 from ajax.checkpoint import restore_into, save_checkpoint
-from ajax.logging.wandb_logging import LoggingConfig, load_scalars_from_tfevents
+from ajax.logging import LoggingConfig, TensorBoardBackend, load_scalars_from_tfevents
 
 from . import readouts
 
@@ -71,15 +71,8 @@ class Run:
 
 
 def log_config(every: int, folder: str | None = None) -> LoggingConfig:
-    return LoggingConfig(
-        config={},
-        project_name="probe",
-        run_name="probe",
-        log_frequency=every,
-        folder=folder,
-        use_tensorboard=folder is not None,
-        use_wandb=False,
-    )
+    backends = () if folder is None else (TensorBoardBackend(folder),)
+    return LoggingConfig(run_name="probe", log_frequency=every, backends=backends)
 
 
 def train_module(agent: Any) -> Any:

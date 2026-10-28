@@ -237,7 +237,7 @@ def test_the_expert_sees_raw_observations_in_collection_and_evaluation(augment):
         normalize_observations=True,
         extensions=(TrainingProgressInput(), ExpertActionInput()) if augment else (),
     )
-    logged = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    logged = LoggingConfig(log_frequency=32, backends=())
     agent.train(seed=0, n_timesteps=64, num_episode_test=3, logging_config=logged)
     jax.effects_barrier()
     # By batch size: collection (2 envs) and evaluation (3 episodes); never
@@ -279,7 +279,7 @@ def _actor_inputs(monkeypatch, expert, **kwargs) -> list:
         extensions=(TrainingProgressInput(), ExpertActionInput()),
         **kwargs,
     )
-    logged = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    logged = LoggingConfig(log_frequency=32, backends=())
     agent.train(seed=0, n_timesteps=64, num_episode_test=3, logging_config=logged)
     jax.effects_barrier()
     assert {x.shape[0] for x in seen} == {2, 3, 8}

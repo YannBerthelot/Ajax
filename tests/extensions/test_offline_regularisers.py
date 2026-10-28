@@ -178,7 +178,7 @@ def test_target_bc_reads_the_next_actions_every_target_scores(name: str) -> None
     kwargs = dict(case.kwargs)
     kwargs.update({"learning_starts": 0, "extensions": (TargetBC(),)})
     agent = case.cls(env_id="Pendulum-v1", n_envs=2, **kwargs)
-    logging = LoggingConfig(config={}, log_frequency=4, use_wandb=False)
+    logging = LoggingConfig(log_frequency=4, backends=())
     _, logged = agent.train_offline(_episodes(), 8, seed=0, logging_config=logging)
     assert np.all(np.asarray(logged["target_bc/known_frac"]) > 0)
     assert np.all(np.asarray(logged["target_bc/penalty"]) > 0)

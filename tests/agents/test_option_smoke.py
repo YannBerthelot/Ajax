@@ -338,7 +338,7 @@ def _build(name: str, row: frozenset[str]) -> Any:
 @pytest.mark.parametrize("name, row", PARAMS)
 def test_a_row_of_options_trains(name: str, row: frozenset[str]) -> None:
     """A logged run updates the policy and keeps every parameter finite."""
-    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    logging = LoggingConfig(log_frequency=32, backends=())
     state, _ = _build(name, row).train(
         seed=0, n_timesteps=TABLE[name].n_timesteps, logging_config=logging
     )

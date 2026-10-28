@@ -43,8 +43,8 @@ from ajax.state import EnvironmentConfig, NetworkConfig, OptimizerConfig, Transi
 from tests.agents.test_agent_contract import CASES
 
 # Evaluate (and return the evaluations) without a logging backend.
-EVALUATE = LoggingConfig(config={}, log_frequency=64, use_wandb=False)
-EVALUATE_OFTEN = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+EVALUATE = LoggingConfig(log_frequency=64, backends=())
+EVALUATE_OFTEN = LoggingConfig(log_frequency=32, backends=())
 
 # --------------------------------------------------------------------------
 # BiasVorePenalty: standalone unit checks (no agent in the loop)

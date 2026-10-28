@@ -6,6 +6,8 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- The README says Ajax runs on a CPU or a GPU, and that its GPU speed is
+  not yet measured, instead of putting every run on the GPU.
 - **Resets are keyed by episode** (PEGASUS, Ng and Jordan 2000), on by
   default: env i's k-th episode starts on a key of (i, k), and a gymnax
   env's step t in it draws on a key of (i, k, t), so runs that differ by an

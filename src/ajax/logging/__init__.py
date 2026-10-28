@@ -8,7 +8,7 @@ from ajax.logging.backends import (
     TensorBoardBackend,
     WandbBackend,
 )
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging.wandb_logging import LoggingConfig, load_scalars_from_tfevents
 
 __all__ = [
     "LoggingBackend",
@@ -16,4 +16,5 @@ __all__ = [
     "RunInfo",
     "TensorBoardBackend",
     "WandbBackend",
+    "load_scalars_from_tfevents",
 ]

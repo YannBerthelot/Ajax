@@ -37,12 +37,12 @@ every version choice and every departure from the reference.
 ```python
 # doc: skip (about two minutes on a CPU; tests/agents/TDMPC2/test_TDMPC2.py covers this path)
 from ajax import TDMPC2
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 # model_size=1 and a smaller planner than the paper's, for a quick CPU run.
 agent = TDMPC2("Pendulum-v1", model_size=1, num_samples=64, num_elites=8,
                num_pi_trajs=4, iterations=2, seed_steps=400)
-logging = LoggingConfig(config={}, log_frequency=600, use_wandb=False)
+logging = LoggingConfig(log_frequency=600, backends=())
 state, evaluations = agent.train(seed=0, n_timesteps=1_200, num_episode_test=2,
                                  logging_config=logging)
 print(agent.resolved_gamma)  # 0.975, derived from Pendulum's 200-step episodes
@@ -141,7 +141,7 @@ a task) and `pool_tasks`; `save_dataset` and `load_dataset` store it as an
 # doc: skip (about five minutes on a CPU; tests/agents/TDMPC2/test_TDMPC2MultiTask.py covers this path)
 from ajax import TDMPC2, TDMPC2MultiTask
 from ajax.agents.TDMPC2.dataset import export_episodes, pool_tasks
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 small = dict(model_size=1, num_samples=64, num_elites=8, num_pi_trajs=4, iterations=2)
 tasks = ["Reacher-misc", "PointRobot-misc"]  # 8 and 6 observations, 2 actions, T = 100
@@ -154,7 +154,7 @@ for task in tasks:  # one single-task run per task; its replay is the task's dat
 dataset = pool_tasks(episodes)  # every task's episodes must have the same length
 
 multi = TDMPC2MultiTask(dataset, eval_envs=tasks, batch_size=256, **small)
-logging = LoggingConfig(config={}, log_frequency=500, use_wandb=False)
+logging = LoggingConfig(log_frequency=500, backends=())
 state, history = multi.train(seed=0, n_timesteps=1_000, num_episode_test=2,
                              logging_config=logging)
 print(history["Eval/Reacher-misc/episodic mean reward"])

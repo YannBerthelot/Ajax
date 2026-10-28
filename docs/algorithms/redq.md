@@ -29,11 +29,11 @@ specific, Ajax follows the code (see [Notes](#notes)).
 ```python
 # doc: skip (20 critic steps of 10 critics per update: minutes on a CPU)
 from ajax import REDQ
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 # 10 critics, targets from the min over 2 of them, 20 critic steps per update.
 agent = REDQ("Pendulum-v1", n_envs=4, learning_starts=1_000)
-logging = LoggingConfig(config={}, log_frequency=2_000, use_wandb=False)
+logging = LoggingConfig(log_frequency=2_000, backends=())
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=4_000, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])  # one row per seed
 ```

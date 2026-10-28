@@ -178,7 +178,7 @@ import jax.numpy as jnp
 
 from ajax import TD3
 from ajax.extensions import Extension
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 
 @dataclass(frozen=True)
@@ -216,7 +216,7 @@ agent = TD3(
     learning_starts=200,
     extensions=(ClippedTarget(low=-50.0, high=0.0),),
 )
-logging = LoggingConfig(config={}, log_frequency=500, use_wandb=False)
+logging = LoggingConfig(log_frequency=500, backends=())
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=2000, logging_config=logging)
 print(state.ext_state[0])                              # [800 800]
 print(evaluations["ClippedTarget/active updates"])     # [[301. 800. 800. 800.] ...]
@@ -397,7 +397,7 @@ import jax.numpy as jnp
 
 from ajax import SAC
 from ajax.extensions import Extension
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 
 @dataclass(frozen=True)
@@ -420,7 +420,7 @@ class EffectiveHorizon(Extension):
 
 
 agent = SAC("Pendulum-v1", gamma=0.95, learning_starts=200, extensions=(EffectiveHorizon(),))
-logging = LoggingConfig(config={}, log_frequency=500, use_wandb=False)
+logging = LoggingConfig(log_frequency=500, backends=())
 _, evaluations = agent.train(seed=0, n_timesteps=1000, logging_config=logging)
 print(evaluations["Debug/effective horizon"])  # [[20. 20.]]
 ```

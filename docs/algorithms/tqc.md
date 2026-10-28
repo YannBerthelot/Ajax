@@ -30,11 +30,11 @@ follows the code.
 
 ```python
 from ajax import TQC
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 # Narrow critics for a CPU; the authors' are 3 x 512.
 agent = TQC("Pendulum-v1", critic_architecture=("128", "relu", "128", "relu"))
-logging = LoggingConfig(config={}, log_frequency=1_000, use_wandb=False)
+logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=3_000, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])  # one row per seed
 ```

@@ -26,10 +26,10 @@ varied data.
 
 ```python
 from ajax import PQN
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 agent = PQN("CartPole-v1")  # 8 envs, 128-step rollouts
-logging = LoggingConfig(config={}, log_frequency=32_768, use_wandb=False)
+logging = LoggingConfig(log_frequency=32_768, backends=())
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=131_072, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])  # one row per seed
 ```

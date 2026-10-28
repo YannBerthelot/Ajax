@@ -29,10 +29,10 @@ makes it, and the defaults are that code's as updated in 2019 (see
 
 ```python
 from ajax import TD3
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 agent = TD3("Pendulum-v1", n_envs=4, learning_starts=1_000)
-logging = LoggingConfig(config={}, log_frequency=2_000, use_wandb=False)
+logging = LoggingConfig(log_frequency=2_000, backends=())
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=4_000, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])  # one row per seed
 ```

@@ -90,7 +90,7 @@ imported.
 | `playground` | [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground) and Brax, for Playground environments such as `"CartpoleBalance"` |
 | `compare` | the `adastop` package, whose confidence sequence [`ajax.compare.estimate`](../guide/comparing-agents.md#one-agent-how-sure-is-a-number) uses; AdaStop itself needs no extra |
 | `reproduction` | Hugging Face Hub, pandas and pyarrow, for `ajax.reproduction.load` ([Reproduction](../reproduction/index.md)) |
-| `wandb` | Weights & Biases, for [logging](../guide/logging.md) with `use_wandb=True`; the default `wandb` group installs it |
+| `wandb` | Weights & Biases, for [logging](../guide/logging.md) with `WandbBackend` (or `use_wandb=True`); the default `wandb` group installs it |
 
 ```bash
 uv sync --extra compare
@@ -142,10 +142,11 @@ saves and when it does not apply.
 
 ## Weights & Biases
 
-A [`LoggingConfig`](../guide/logging.md) logs to Weights & Biases unless you
-pass `use_wandb=False`. Log in once with `uv run wandb login` before the first
-run that uses it. Runs that keep their results in memory, as in the
-[quickstart](quickstart.md), need no account.
+A [`LoggingConfig`](../guide/logging.md) logs to the backends you name; one
+that names none, and sets no flag, logs to Weights & Biases. Log in once with
+`uv run wandb login` before the first run that uses it. Runs that keep their
+results in memory (`backends=()`), as in the [quickstart](quickstart.md), or
+write TensorBoard files (`TensorBoardBackend`) need no account.
 
 ## Working on Ajax
 

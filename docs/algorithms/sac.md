@@ -36,10 +36,10 @@ gain mode (`ExpertGains`); SAC raises at construction otherwise. See
 
 ```python
 from ajax import SAC
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 agent = SAC("Pendulum-v1", n_envs=4, learning_starts=1_000)
-logging = LoggingConfig(config={}, log_frequency=2_000, use_wandb=False)
+logging = LoggingConfig(log_frequency=2_000, backends=())
 state, evaluations = agent.train(seed=[0, 1], n_timesteps=4_000, logging_config=logging)
 
 print(evaluations["timestep"][0])                # when each evaluation ran

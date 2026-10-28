@@ -32,10 +32,10 @@ than the paper.
 
 ```python
 from ajax import APO
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 agent = APO("Pendulum-v1", n_envs=8, n_steps=256, batch_size=64, normalize_observations=True)
-logging = LoggingConfig(config={}, log_frequency=10_240, use_wandb=False)
+logging = LoggingConfig(log_frequency=10_240, backends=())
 state, evaluations = agent.train(seed=[1, 2], n_timesteps=51_200, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])
 print(state.average_reward)  # the estimated reward per step, one per seed

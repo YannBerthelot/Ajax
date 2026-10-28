@@ -399,11 +399,12 @@ Three modules share the work:
   return realised from each evaluated step, in the critic's units). With an expert it also rolls the expert out on the same episodes
   at each evaluation and reports its return.
 - [`logging/wandb_logging.py`](../../src/ajax/logging/wandb_logging.py)
-  **records**. `LoggingConfig` names the backend (`use_wandb`,
-  `use_tensorboard`) and the cadence. The compiled program hands each
-  evaluation's metrics to a host callback, which forwards them to a separate
-  worker process that writes to Weights & Biases or TensorBoard. The worker
-  starts only when a backend is enabled.
+  **records**. `LoggingConfig` names the backends and the cadence. The
+  compiled program hands each evaluation's metrics to a host callback, which
+  forwards them to a separate worker process that passes them to each run's
+  backends ([`logging/backends.py`](../../src/ajax/logging/backends.py):
+  TensorBoard, Weights & Biases or one of your own). The worker starts only
+  when a run has a backend.
 
 What `train` returns follows from the logging config:
 

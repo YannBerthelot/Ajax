@@ -59,7 +59,7 @@ from dataclasses import dataclass
 import jax.numpy as jnp
 
 from ajax import SAC
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 
 @dataclass(frozen=True)
@@ -82,7 +82,7 @@ class PIDExpert:
 
 
 agent = SAC("Pendulum-v1", expert_policy=PIDExpert(), learning_starts=500)
-logging = LoggingConfig(config={}, log_frequency=1_000, use_wandb=False)
+logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = agent.train(seed=0, n_timesteps=1_000, logging_config=logging)
 print(evaluations["Eval/episodic mean expert reward"])  # the PID's own return
 ```
@@ -134,7 +134,7 @@ from ajax import SAC
 from ajax.extensions.expert import OnlineBC
 from ajax.extensions.exploration import EDGEExploration
 from ajax.extensions.pretrain import ExpertPrefill, MCPretrain
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig
 
 
 def pd_expert(obs):
@@ -157,7 +157,7 @@ agent = SAC(
         EDGEExploration(gate="argmax", decay_frac=0.3),
     ),
 )
-logging = LoggingConfig(config={}, log_frequency=1_000, use_wandb=False)
+logging = LoggingConfig(log_frequency=1_000, backends=())
 state, evaluations = agent.train(seed=0, n_timesteps=2_000, logging_config=logging)
 print(evaluations["Eval/episodic mean reward"])
 print(evaluations["Eval/expert bias"])       # agent minus expert

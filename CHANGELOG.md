@@ -6,6 +6,9 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- An extension passed bare (`extensions=X`) is refused with a TypeError
+  that shows the tuple to write, `extensions=(X(...),)`, instead of
+  saying only that it is not iterable.
 - **Resets are keyed by episode** (PEGASUS, Ng and Jordan 2000), on by
   default: env i's k-th episode starts on a key of (i, k), and a gymnax
   env's step t in it draws on a key of (i, k, t), so runs that differ by an

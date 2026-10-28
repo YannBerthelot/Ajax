@@ -269,6 +269,16 @@ def test_stack_hashable_and_jit_static():
     assert int(f_static(jnp.asarray(3.0), s1)) == 3
 
 
+def test_a_bare_extension_is_refused_with_the_tuple_to_write():
+    """Contract: extensions= takes a sequence. One extension passed bare
+    raises a TypeError that shows the one-element tuple to write instead."""
+    from ajax import PPO
+    from ajax.extensions.instrumentation import ConditioningMetrics
+
+    with pytest.raises(TypeError, match=r"extensions=\(ConditioningMetrics\(.*\),\)"):
+        PPO("CartPole-v1", extensions=ConditioningMetrics())  # type: ignore[arg-type]
+
+
 def test_extension_context_is_pytree():
     # step / rng are traced leaves; total_steps is static metadata, carried
     # by the treedef.

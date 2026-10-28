@@ -14,7 +14,8 @@ PyPI as `ajax-rl`.
   training). One backend object serves every seed's run. `ajax.logging` now
   exports `LoggingConfig`, `LoggingBackend`, `RunInfo`,
   `TensorBoardBackend` and `WandbBackend`; `ajax.logging.wandb_logging`
-  still works. Nothing default changes: with no backends, `use_wandb` (on
+  still works. `backends=()` logs nowhere; train still returns the evaluations.
+  Nothing default changes: without `backends`, `use_wandb` (on
   by default) and `use_tensorboard` decide as before. Setting either flag
   together with `backends` is refused. `config` defaults to an empty dict.
   `WandbBackend(steps=False)` creates each run and sends it no evaluation,

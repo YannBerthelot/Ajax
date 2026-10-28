@@ -6,7 +6,8 @@ Contract (the owner's design of 2026-10-28, ajax.logging.backends):
   one backend object opens every run before its first log, then gets each
   evaluation train returns as log(run_id, step, metrics), NaN metrics left
   out, and close once at the end.
-- backends empty: use_wandb (on unless set False) and use_tensorboard (off
+- backends=(): no backend at all; train still returns the evaluations.
+- backends not given: use_wandb (on unless set False) and use_tensorboard (off
   unless set True) name WandbBackend(project_name, group_name) and
   TensorBoardBackend(folder, the working directory when None), as before.
 - backends with either flag set: refused, the message naming the backends
@@ -161,8 +162,9 @@ def test_a_backend_the_worker_cannot_read_stops_neither_the_others_nor_train(
         ),
         (LoggingConfig(backends=(TensorBoardBackend(),)), (TensorBoardBackend(),)),
         (LoggingConfig(sweep=True), (WandbBackend(steps=False),)),
+        (LoggingConfig(backends=()), ()),
     ],
-    ids=["default", "off", "both", "tensorboard", "backends", "sweep"],
+    ids=["default", "off", "both", "tensorboard", "backends", "sweep", "none"],
 )
 def test_runs_log_to_the_backends_given_else_to_those_the_flags_name(
     config: LoggingConfig, expected: tuple

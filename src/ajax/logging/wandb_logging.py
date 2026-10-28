@@ -35,7 +35,8 @@ class LoggingConfig:
 
     backends: the LoggingBackend objects every run logs to, such as
         TensorBoardBackend(folder) and WandbBackend(project, group), or one
-        of your own (see LoggingBackend). Empty, use_wandb (on unless set
+        of your own (see LoggingBackend); backends=() logs nowhere, and train
+        still returns the evaluations. Not given, use_wandb (on unless set
         False) and use_tensorboard (off unless set True) name them, as
         before; given, setting either flag as well is refused.
     config: stored with each run, with the agent's run configuration merged in.
@@ -59,18 +60,19 @@ class LoggingConfig:
     use_tensorboard: Optional[bool] = None
     use_wandb: Optional[bool] = None
     sweep: bool = False
-    backends: tuple = struct.field(pytree_node=False, default=())
+    # None: not given, so the flags decide; () names no backend at all.
+    backends: Optional[tuple] = struct.field(pytree_node=False, default=None)
 
     def __post_init__(self) -> None:
         flag_set = self.use_wandb is not None or self.use_tensorboard is not None
-        if self.backends and flag_set:
+        if self.backends is not None and flag_set:
             raise ValueError(
                 "LoggingConfig takes its backends either as backends=(...) or"
                 " through use_wandb and use_tensorboard, not both: name every"
                 " one in backends, such as backends=(TensorBoardBackend(folder),"
                 " WandbBackend(project, group))."
             )
-        for backend in self.backends:
+        for backend in self.backends or ():
             if not isinstance(backend, LoggingBackend):
                 raise TypeError(
                     f"{backend!r} is not a logging backend: it needs open, log"
@@ -81,7 +83,7 @@ class LoggingConfig:
     def run_backends(self) -> tuple:
         """The backends every run logs to: backends, else those the flags
         name."""
-        if self.backends:
+        if self.backends is not None:
             return tuple(self.backends)
         backends: list = []
         if self.use_wandb is None or self.use_wandb:

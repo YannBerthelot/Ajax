@@ -63,18 +63,19 @@ experiments run; steps per second then count every seed's steps.
 ### The baseline
 
 [`benchmarks/agent_baseline.jsonl`](../../benchmarks/agent_baseline.jsonl)
-is the reference a change is compared with. It holds the run of 2026-10-12:
-`main` at `a8a13c2`, macOS on Apple silicon, CPU only, the compile cache off
-(`AJAX_NO_COMPILE_CACHE=1`), the script's defaults (4 envs, 8,000 steps, one
-seed, three trials), 14 entries (every exported agent but `TDMPC2MultiTask`,
-plus `SAC/inverted_pendulum`). The report's
+is the reference a change is compared with. It holds the run of 2026-10-28:
+`batch/perf-memory` at `80723b1`, macOS on Apple silicon, CPU only, the
+compile cache off (`AJAX_NO_COMPILE_CACHE=1`), the script's defaults (4
+envs, 8,000 steps, one seed) with five trials, 18 entries (every exported
+agent but `TDMPC2MultiTask`, plus `SAC/inverted_pendulum`). The report's
 [section of that date](../../PERFORMANCE_REPORT.md) gives the medians.
 
-That baseline breaks with every earlier `benchmarks/agent_*.jsonl` file in
-two ways. Before it, SAC, TD3, REDQ and ASAC ran at their default
-`learning_starts=10_000`, past the end of the run, so their rows timed
-collection alone, with no update. And the earlier files have no `exec_s`.
-Do not compare against them.
+The baseline before it, of 2026-10-12 (`a8a13c2`, JAX 0.7.2, three trials,
+14 entries), is in git history. Most agents run faster since, through JAX
+0.11 and the batch's update jit; APG runs 20% slower, from JAX's CPU compiler
+(the report's JAX 0.11 section). Files from before 2026-10-12 time SAC, TD3,
+REDQ and ASAC collecting without updating, and have no `exec_s`: do not
+compare against them.
 
 ### Checking a change
 
@@ -106,7 +107,8 @@ the baseline itself, capture on the same kind of machine and pass
 - **They belong to the machine.** Steps per second move with the CPU and
   with whatever else runs on it. The report's first DreamerV3 and TD-MPC2
   bench entries, run at a load average of 25 to 35, read 81 and 64-66 steps
-  per second, against 275 and 245 for the whole run in the quiet baseline.
+  per second, against 275 and 245 for the whole run in the quiet baseline
+  of 2026-10-12.
   Compare files measured on one machine, under similar load.
 - **Execution, not compilation.** `exec_s` leaves out tracing, lowering and
   compiling, which a fresh agent repeats in every trial: at the DreamerV3
@@ -115,8 +117,8 @@ the baseline itself, capture on the same kind of machine and pass
   `compile_s` and `measured_s`, so use the same cache setting on both
   sides; the baseline was captured with it off.
 - **Noise.** Single runs swing; the report has seen 15% between identical
-  runs under load, and UDRL's three baseline trials spread from 9,604 to
-  15,069 execution steps per second. Look at the medians, and repeat a
+  runs under load, and ASAC's five baseline trials spread from 1,532 to
+  3,367 execution steps per second. Look at the medians, and repeat a
   measurement before calling a 10% change real.
 
 ### Recorded results

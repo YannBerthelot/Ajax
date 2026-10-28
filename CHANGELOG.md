@@ -6,6 +6,11 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **The documentation site has a version per release.** It opens on the
+  latest release's documentation; each release keeps its own as X.Y, and
+  main's is the development version, dev, marked as such. A release's
+  pages link to its source at its tag. The Release workflow deploys a
+  release's version (mike).
 - A gymnax step no longer warns that float64 is unavailable: its
   terminated and truncated flags convert to float32 directly. Every
   number is unchanged.

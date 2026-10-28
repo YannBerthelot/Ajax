@@ -4,7 +4,8 @@ name: Release
 # two-tier test plan, owner 2026-10-20): the version's CHANGELOG entry must
 # be on main; with no green Slow tier run on main's head, the slow tier runs
 # there first (slow.yml); then the vX.Y.Z tag is created and the tagged
-# commit is published to PyPI as ajax-rl. Tags come only from this workflow.
+# commit is published to PyPI as ajax-rl, and its documentation as the site's
+# version X.Y, the default ("latest"). Tags come only from this workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -26,6 +27,7 @@ jobs:
     outputs:
       sha: ${{ steps.check.outputs.sha }}
       green: ${{ steps.check.outputs.green }}
+      minor: ${{ steps.check.outputs.minor }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -44,6 +46,7 @@ jobs:
           runs="repos/${{ github.repository }}/actions/workflows/slow.yml/runs"
           green=$(gh api "$runs?head_sha=$sha&status=success" -q '.total_count')
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "minor=${VERSION%.*}" >> "$GITHUB_OUTPUT"
           echo "green=$([ "$green" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
   slow:
@@ -70,6 +73,21 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v$VERSION" -m "Ajax $VERSION" "${{ needs.check.outputs.sha }}"
           git push origin "v$VERSION"
+
+  # The tag is pushed with the default token, which starts no workflow, so the
+  # site's X.Y is deployed from here; a patch release replaces its minor's.
+  docs:
+    needs: [check, tag]
+    if: always() && needs.tag.result == 'success'
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/docs-deploy.yml
+    with:
+      ref: v${{ inputs.version }}
+      version: ${{ needs.check.outputs.minor }}
+      alias: latest
 
   # Trusted publishing: PyPI accepts uploads from this workflow in the pypi
   # environment, so no token is stored anywhere.

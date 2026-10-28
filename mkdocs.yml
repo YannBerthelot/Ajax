@@ -5,11 +5,13 @@ site_description: >-
 site_url: https://yannberthelot.github.io/Ajax/
 repo_url: https://github.com/YannBerthelot/Ajax
 repo_name: YannBerthelot/Ajax
-edit_uri: edit/main/docs/
+# edit_uri is set by docs/hooks.py: main's pages, or a release's at its tag.
 copyright: Copyright &copy; Yann Berthelot
 
 theme:
   name: material
+  # The banner on every version but the latest release (docs/overrides/main.html).
+  custom_dir: docs/overrides
   icon:
     repo: fontawesome/brands/github
   features:
@@ -48,9 +50,10 @@ theme:
 # reference-comparison harness and results beside them; only their Markdown
 # belongs on the site. The reference comparison's pages are records of runs,
 # kept on GitHub: docs/hooks.py turns links to them into GitHub links. The
-# hook is build code, not a page.
+# hook and the theme override are build code, not pages.
 exclude_docs: |
   /hooks.py
+  /overrides/
   __pycache__/
   /world_models/**
   !/world_models/**/*.md
@@ -102,6 +105,14 @@ plugins:
             separate_signature: true
             # Agents document their hyperparameters on __init__.
             merge_init_into_class: true
+
+# One site version per release, deployed by mike (docs-deploy.yml): X.Y for
+# each release, "latest" the newest, "dev" built from main.
+extra:
+  version:
+    provider: mike
+    default: latest
+    alias: true
 
 extra_javascript:
   - javascripts/mathjax.js

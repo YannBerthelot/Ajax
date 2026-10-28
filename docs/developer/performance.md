@@ -149,6 +149,8 @@ gets its own section, saying how it breaks with the one before.
 | Script | What it measures |
 | --- | --- |
 | [`benchmarks/perf_bench.py`](../../benchmarks/perf_bench.py) | SAC scenarios one process per measurement, splitting compile from steady-state time and recording peak GPU memory |
+| [`benchmarks/gpu_check.sh`](../../benchmarks/gpu_check.sh) | on Linux with an NVIDIA GPU, one command: at which seed counts PPO, PQN, SAC and DQN run more steps per second on the GPU than on the same machine's CPU (about 2 hours, into `benchmarks/gpu/`) |
+| [`benchmarks/device_report.py`](../../benchmarks/device_report.py) | the table of steps per second by agent, device and seed count that `gpu_check.sh` prints, from `agent_bench.py` rows |
 | [`benchmarks/seed_scaling_report.py`](../../benchmarks/seed_scaling_report.py) | prints time per seed against the number of seeds, from `benchmarks/seed_scaling.jsonl` |
 | [`benchmarks/world_models/learning_checks.py`](../../benchmarks/world_models/learning_checks.py) | whether an agent learns its task on CPU at a small preset (the world models' learning gates); hours long, run outside CI |
 

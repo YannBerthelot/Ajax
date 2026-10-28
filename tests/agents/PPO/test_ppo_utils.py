@@ -7,6 +7,7 @@ import pytest
 from ajax.agents.minibatch import (
     get_minibatches_from_batch,
     get_minibatches_preserving_time,
+    get_sequence_minibatches,
 )
 from ajax.agents.PPO.PPO import _compute_gae
 from ajax.networks.distributions import Squash, policy_entropy
@@ -170,3 +171,34 @@ def test_policy_entropy_is_the_joint_actions():
         policy_entropy(squashed)
     executed = policy_entropy(squashed, jax.random.PRNGKey(0))
     assert executed.shape == (3,) and bool(jnp.all(executed < joint))  # tanh shrinks
+
+
+def test_every_sequence_takes_along_the_memory_recorded_at_its_start():
+    """Contract (recurrent PPO's stored-state minibatches: R2D2's stored
+    state, without burn-in): whatever the shuffle, each minibatch sequence
+    starts from the actor's and every critic member's memory recorded at
+    that sequence's first step, and its resets are its own steps'. Each step
+    and memory carries the code 100 * env + step, so the pairing is read off
+    the data."""
+    n_steps, n_envs, length, num_minibatches, members = 8, 3, 4, 2, 2
+    steps = jnp.arange(n_steps)[:, None] + 100 * jnp.arange(n_envs)[None, :]
+    starts = steps[::length]  # the code of every sequence's first step
+    batch = {"obs": steps[..., None].astype(jnp.float32)}
+    memories = {
+        "resets": steps,
+        "actor_hidden": jnp.repeat(starts[..., None], 5, axis=-1),
+        # the critic's ensemble axis second; member m's memory is offset by m
+        "critic_hidden": jnp.stack([starts + 0.5 * m for m in range(members)], 1),
+    }
+    for seed in range(3):
+        got = get_sequence_minibatches(
+            batch, memories, jax.random.PRNGKey(seed), num_minibatches, length
+        )
+        first_steps = got["obs"][:, 0, :, 0]  # (minibatch, sequence)
+        np.testing.assert_array_equal(got["resets"], got["obs"][..., 0])
+        for unit in range(5):
+            np.testing.assert_array_equal(got["actor_hidden"][..., unit], first_steps)
+        for m in range(members):
+            np.testing.assert_array_equal(
+                got["critic_hidden"][:, m], first_steps + 0.5 * m
+            )

@@ -15,6 +15,7 @@ import ajax.environments.interaction as step_module
 from ajax.agents.SAC.SAC import SAC
 from ajax.buffers.utils import get_buffer
 from ajax.controller import ActingState
+from ajax.environments.create import with_episode_keys
 from ajax.environments.interaction import (
     collect_experience,
     get_action_and_new_agent_state,
@@ -32,6 +33,7 @@ from ajax.state import (
     EnvironmentConfig,
     LoadedTrainState,
 )
+from ajax.wrappers import ObservationNoiseWrapper
 
 n_envs = 4
 
@@ -474,6 +476,67 @@ def test_collect_experience_steps_every_env_once_per_call(env_id):
             np.swapaxes(getattr(rollout, field), 0, 1),
             err_msg=field,
         )
+
+
+def test_every_envs_wrappers_draw_on_a_step_key_of_their_own():
+    """Contract (env_keys: one key per gymnax env, at every step): the
+    collector hands each env a step key of its own, so a wrapper drawing on
+    it, here sensor noise above the episode-keyed resets, draws differently
+    in every env. The noise is the observation less the state's noiseless
+    one (get_obs)."""
+    env, params = make_gymnax_env("Pendulum-v1")
+    noisy = with_episode_keys(ObservationNoiseWrapper(env, sigma=1.0))
+    env_args = EnvironmentConfig(
+        env=noisy, env_params=params, n_envs=4, continuous=True
+    )
+    key = jax.random.PRNGKey(0)
+    actor = _constant_actor(COLLECTORS["Pendulum-v1"][0])
+    state = BaseAgentState(
+        rng=key,
+        eval_rng=key,
+        actor_state=actor,
+        critic_state=actor,
+        collector_state=init_collector_state(key, env_args, "gymnax", None),
+    )
+    collect = partial(
+        collect_experience, recurrent=False, mode="gymnax", env_args=env_args
+    )
+    for _ in range(3):
+        state, _ = collect(state, None)
+        collector = state.collector_state
+        clean = jax.vmap(noisy.get_obs)(collector.env_state)
+        noise = np.asarray(collector.last_obs - clean)
+        assert len(np.unique(noise, axis=0)) == 4, noise
+
+
+def test_every_env_runs_episodes_of_its_own():
+    """Contract (env_keys: one key per gymnax env, at reset too): the
+    collector resets each env on a key of its own, so with resets keyed by
+    episode every env's episodes are its own: Pendulum's random starts
+    differ across envs in the first episode and in the next."""
+    env, params = make_gymnax_env("Pendulum-v1")
+    params = params.replace(max_steps_in_episode=2)
+    env_args = EnvironmentConfig(
+        env=with_episode_keys(env), env_params=params, n_envs=4, continuous=True
+    )
+    key = jax.random.PRNGKey(0)
+    actor = _constant_actor(COLLECTORS["Pendulum-v1"][0])
+    state = BaseAgentState(
+        rng=key,
+        eval_rng=key,
+        actor_state=actor,
+        critic_state=actor,
+        collector_state=init_collector_state(key, env_args, "gymnax", None),
+    )
+    collect = partial(
+        collect_experience, recurrent=False, mode="gymnax", env_args=env_args
+    )
+    starts = [state.collector_state.last_obs]
+    for _ in range(2):  # the second step truncates and resets every env
+        state, _ = collect(state, None)
+    starts.append(state.collector_state.last_obs)
+    for obs in starts:
+        assert len(np.unique(np.asarray(obs), axis=0)) == 4, obs
 
 
 def test_the_collector_counts_each_envs_steps_in_its_episode_only_when_asked():

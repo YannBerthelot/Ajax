@@ -370,14 +370,20 @@ def at_rest_at_one(key, state, params):
     )
 
 
-@pytest.mark.parametrize("reset_mode", ["static", "dynamic"])
-def test_every_episode_starts_from_the_task_wrappers_initial_state(reset_mode):
+@pytest.mark.parametrize(
+    "reset_mode, episode_keys",
+    [("static", True), ("dynamic", True), ("static", False), ("dynamic", False)],
+    ids=["static", "dynamic", "static-keys-off", "dynamic-keys-off"],
+)
+def test_every_episode_starts_from_the_task_wrappers_initial_state(
+    reset_mode, episode_keys
+):
     """A task wrapper holding Pendulum at rest at theta = 1 starts every
     episode, the later ones too: the static mode's held tick resets the env
     as built, wrappers included, and the dynamic mode keeps the wrapper's
-    auto-reset."""
+    auto-reset; with resets keyed by episode or with the env's own."""
     n_envs = 2
-    env, env_params = build_env_from_id("Pendulum-v1")
+    env, env_params = build_env_from_id("Pendulum-v1", episode_keys=episode_keys)
     env_args = EnvironmentConfig(
         env=InitialStateWrapper(env, at_rest_at_one),
         env_params=env_params,

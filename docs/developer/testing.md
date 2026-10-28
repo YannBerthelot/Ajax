@@ -411,7 +411,7 @@ goes wrong without crashing:
 | The entropy term has the wrong sign or is missing; the tanh log-probability misses its Jacobian, in the policy or in the target | `P07`, `S-entropy-sign`, `S-no-jacobian`, `S-pre-tanh-target` |
 | The observation normaliser is skipped in the target or at evaluation | `P1-sac-target-skips-agent-norm`, `P1-eval-skips-agent-norm` |
 | TD3's target policy noise is not clipped | `T02` |
-| Parallel environments share one random key; the step counter counts collection steps, not environment steps | `B02`, `P9-shared-step-keys`, `B01` |
+| Parallel environments share one random key; the step counter counts collection steps, not environment steps | `B02`, `P9-shared-reset-keys`, `B01` |
 | Every seed gets the same key | `B11` |
 | A recurrent memory is never reset at an episode start, or reset every step; the burn-in is too short | `P0b-never-restart`, `P0b-reset-every-step`, `Q2-short-burn` |
 | A resumed run loses its random key, optimiser state, counter or buffer | `P4-rng`, `P4-optimizer`, `P4-counter`, `P4-buffer` |

@@ -197,12 +197,6 @@ class DQN(
     ) -> tuple[DQNState, AuxiliaryLogs]:
         """n_gradient_steps steps of the Q-network: the metrics of the last."""
 
-        # A jit of its own around the gradient step, a deliberate workaround
-        # for XLA's CPU scheduling: JAX lowers it to a call of its own, which
-        # XLA's CPU pipeline runs about 10% faster than the same operations
-        # inlined in the scan body (PERFORMANCE_REPORT.md). The outputs are
-        # the same.
-        @jax.jit
         def step(agent_state: DQNState, _: Any) -> tuple[DQNState, AuxiliaryLogs]:
             return self.update_q_network(agent_state, context)
 

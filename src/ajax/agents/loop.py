@@ -484,7 +484,12 @@ class TrainLoop:
         update's structure, filled with NaN (which the logger drops)."""
 
         def do_update(agent_state: Any) -> tuple[Any, Any]:
-            agent_state, aux = update(agent_state)
+            # A jit of its own around the update, a deliberate workaround for
+            # XLA's CPU scheduling: JAX lowers it to a call of its own, which
+            # XLA's CPU pipeline runs up to about 10% faster than the same
+            # operations inlined in the training step (DQN, SAC, AVG;
+            # PERFORMANCE_REPORT.md). The outputs move by rounding at most.
+            agent_state, aux = jax.jit(update)(agent_state)
             # One (1,)-shaped leaf per metric: the metric-flattening contract.
             aux = jax.tree.map(lambda x: jnp.reshape(x, (1,)), aux)
             return self.post_update(agent_state), aux

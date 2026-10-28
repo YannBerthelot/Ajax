@@ -41,7 +41,7 @@ def test_the_temperature_steps_towards_the_scheduled_target_entropy(cls: Any) ->
     value at its timestep, times the action's two dimensions."""
     ramp = linear(-3.0, -1.0, 32)
     agent = cls(**TINY, **SOFT[cls], target_entropy_per_dim=ramp)
-    logging = LoggingConfig(config={}, log_frequency=8, use_wandb=False)
+    logging = LoggingConfig(log_frequency=8, backends=())
     logs = agent.train(seed=0, n_timesteps=32, logging_config=logging)[1]
     timesteps = np.asarray(logs["timestep"])[0]
     logged = np.asarray(logs["temperature/effective_target_entropy"])[0]

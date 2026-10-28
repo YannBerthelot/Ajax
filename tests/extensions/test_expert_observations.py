@@ -166,7 +166,7 @@ def train(env: Any = "Pendulum-v1", log: bool = False, **kw: Any) -> Any:
         batch_size=8,
         **kw,
     )
-    logged = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    logged = LoggingConfig(log_frequency=32, backends=())
     out = agent.train(
         seed=0,
         n_timesteps=64,

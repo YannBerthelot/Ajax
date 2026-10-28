@@ -55,7 +55,7 @@ def test_an_agent_trains_offline_then_fine_tunes_online(name: str) -> None:
     state comes back at timestep 0, so an online call counts its own steps
     from there and adds its rows after the dataset's."""
     agent, data = build(name)
-    logging = LoggingConfig(config={}, log_frequency=EVERY, use_wandb=False)
+    logging = LoggingConfig(log_frequency=EVERY, backends=())
     state, out = agent.train_offline(data, UPDATES, seed=[0], logging_config=logging)
     np.testing.assert_array_equal(out["timestep"], [[EVERY, 2 * EVERY]])
     assert rows(state) == ROWS

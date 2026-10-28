@@ -125,9 +125,7 @@ def cartpole():
         )
         return write_back(self, state, index, entries)
 
-    config = LoggingConfig(
-        config={}, use_wandb=False, use_tensorboard=False, log_frequency=LOG_EVERY
-    )
+    config = LoggingConfig(log_frequency=LOG_EVERY, backends=())
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(loop, "vmap_log", record)
         patch.setattr(AGENT_MODULE, "train_step", train_step_spy)
@@ -521,7 +519,7 @@ def test_the_world_model_reads_and_reconstructs_the_features(env_id, env_width):
         extensions=(TrainingProgressInput(), pid),
         **TINY,
     )
-    logging = LoggingConfig(config={}, log_frequency=40, use_wandb=False)
+    logging = LoggingConfig(log_frequency=40, backends=())
     state, evaluations = agent.train(seed=0, n_timesteps=80, logging_config=logging)
     width = agent.spec.obs_dim
     params = state.world_model_state.params

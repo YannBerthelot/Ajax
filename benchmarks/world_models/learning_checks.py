@@ -291,8 +291,7 @@ def run_check(name: str, check: Check, seeds: list[int], smoke: bool) -> dict:
         project_name="ajax-learning-checks",
         run_name=name,
         log_frequency=check.log_frequency,
-        use_wandb=False,
-        use_tensorboard=False,
+        backends=(),
     )
     start = time.perf_counter()
     state, metrics = agent.train(

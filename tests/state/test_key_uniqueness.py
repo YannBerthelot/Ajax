@@ -66,9 +66,7 @@ NOISY_PENDULUM = ObservationNoiseWrapper(gymnax.make("Pendulum-v1")[0], 0.1)
 SMALL_MC = MCPretrain(
     push, n_mc_steps=200, n_mc_episodes=4, n_steps=4, online_light_steps=1
 )
-EVALUATE = {
-    "logging_config": LoggingConfig(config={}, log_frequency=4, use_wandb=False)
-}
+EVALUATE = {"logging_config": LoggingConfig(log_frequency=4, backends=())}
 
 SAC_EXPERT: dict[str, Any] = {**SAC, "expert_policy": push}
 CROSSQ: dict[str, Any] = {"env_id": "Pendulum-v1", "n_envs": 2, "actor_width": 8}

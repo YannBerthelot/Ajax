@@ -360,7 +360,7 @@ def _extended_run(case: Case) -> SimpleNamespace:
                 patch.setattr(module, "evaluate", recording)
         for recorded in _EVAL_KEYS.values():
             recorded.clear()
-        logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+        logging = LoggingConfig(log_frequency=32, backends=())
         state, out = case.cls(**kwargs, extensions=extensions).train(
             seed=[42, 43],
             n_timesteps=case.n_timesteps,
@@ -725,7 +725,7 @@ def test_train_logs_its_run_config_without_touching_the_callers(
 
     monkeypatch.setattr(base, "init_logging", record)
     monkeypatch.setattr(multitask_module, "init_logging", record)
-    logging = LoggingConfig(config={"user": 1}, use_wandb=False)
+    logging = LoggingConfig(config={"user": 1}, backends=())
     for agent in (SAC(env_id="Pendulum-v1"), PPO(env_id="Pendulum-v1")):
         monkeypatch.setattr(agent, "get_make_train", lambda: _stop)
         with pytest.raises(_Stop):

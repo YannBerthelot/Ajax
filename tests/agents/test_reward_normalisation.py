@@ -83,7 +83,7 @@ def test_the_returns_are_reported_in_the_envs_units(name: str) -> None:
         env_id=env, env_params=params, n_envs=2, normalize_rewards=True, **case.kwargs
     )
     budget = case.n_timesteps
-    logging = LoggingConfig(config={}, log_frequency=budget, use_wandb=False)
+    logging = LoggingConfig(log_frequency=budget, backends=())
     _, out = agent.train(
         seed=0, n_timesteps=budget, num_episode_test=2, logging_config=logging
     )

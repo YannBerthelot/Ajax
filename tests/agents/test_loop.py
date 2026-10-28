@@ -40,7 +40,7 @@ from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.evaluate import evaluate
 from ajax.extensions.base import Extension, ExtensionStack, merge_metrics
 from ajax.log import evaluation_keys
-from ajax.logging.wandb_logging import LoggingConfig
+from ajax.logging import LoggingConfig, TensorBoardBackend
 from ajax.state import Transition
 from ajax.types import Replaceable
 from tests.agents.extension_stubs import CounterExt
@@ -501,8 +501,8 @@ def test_a_skipped_actor_step_logs_the_last_step_that_ran() -> None:
 
 
 # --- Evaluations without a logging backend -----------------------------------
-def _config(log_frequency: int = 10, **kw: Any) -> LoggingConfig:
-    return LoggingConfig(config={}, log_frequency=log_frequency, use_wandb=False, **kw)
+def _config(log_frequency: int = 10, backends: tuple = ()) -> LoggingConfig:
+    return LoggingConfig(log_frequency=log_frequency, backends=backends)
 
 
 def test_the_logging_worker_starts_only_for_a_backend() -> None:
@@ -510,7 +510,8 @@ def test_the_logging_worker_starts_only_for_a_backend() -> None:
         TrainLoop.create(None, 64, 1)  # type: ignore[arg-type]
         TrainLoop.create(None, 64, 1, logging_config=_config())  # type: ignore[arg-type]
         start.assert_not_called()
-        TrainLoop.create(None, 64, 1, logging_config=_config(use_tensorboard=True))  # type: ignore[arg-type]
+        tensorboard = _config(backends=(TensorBoardBackend(),))
+        TrainLoop.create(None, 64, 1, logging_config=tensorboard)  # type: ignore[arg-type]
         start.assert_called_once()
 
 

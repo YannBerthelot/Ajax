@@ -57,7 +57,7 @@ def test_every_replay_agent_with_an_expert_logs_its_replays_share(name: str) -> 
     if name != "DAgger":
         kwargs.update({"extensions": (ExpertWarmup(fraction=1.0),)})
     agent = case.cls(env_id="Pendulum-v1", n_envs=2, **kwargs)
-    logging = LoggingConfig(config={}, log_frequency=16, use_wandb=False)
+    logging = LoggingConfig(log_frequency=16, backends=())
     _, logged = agent.train(
         seed=0, n_timesteps=case.n_timesteps, logging_config=logging
     )
@@ -68,6 +68,6 @@ def test_every_replay_agent_with_an_expert_logs_its_replays_share(name: str) -> 
 def test_a_run_without_an_expert_logs_no_share() -> None:
     case = CASES["TD3"]
     agent = case.cls(env_id="Pendulum-v1", n_envs=2, **case.kwargs)
-    logging = LoggingConfig(config={}, log_frequency=16, use_wandb=False)
+    logging = LoggingConfig(log_frequency=16, backends=())
     _, logged = agent.train(seed=0, n_timesteps=32, logging_config=logging)
     assert "replay/expert_share" not in logged

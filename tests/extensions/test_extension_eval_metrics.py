@@ -110,7 +110,7 @@ def test_a_logged_sac_run_carries_the_extensions_metrics() -> None:
         expert_policy=expert,
         extensions=stack,
     )
-    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    logging = LoggingConfig(log_frequency=32, backends=())
     state, out = agent.train(  # SAC's state, with MCPretrain's range
         seed=0, n_timesteps=64, num_episode_test=1, logging_config=logging
     )

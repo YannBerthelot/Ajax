@@ -135,9 +135,7 @@ def runs():
             extensions=[CounterExt(), MetricExt()],
             **TINY,
         )
-        logging_config = LoggingConfig(
-            config={}, use_wandb=False, use_tensorboard=False, log_frequency=EVERY
-        )
+        logging_config = LoggingConfig(log_frequency=EVERY, backends=())
         first, first_history = agent.train(
             seed=SEEDS,
             n_timesteps=FIRST,
@@ -162,12 +160,7 @@ def runs():
         full, full_history = full_agent.train(
             seed=SEEDS,
             n_timesteps=FIRST + RESUMED,
-            logging_config=LoggingConfig(
-                config={},
-                use_wandb=False,
-                use_tensorboard=False,
-                log_frequency=FIRST + RESUMED,
-            ),
+            logging_config=LoggingConfig(log_frequency=FIRST + RESUMED, backends=()),
         )
     return SimpleNamespace(
         agent=agent,
@@ -498,9 +491,7 @@ def test_evaluation_does_not_persist_the_renorm(runs, monkeypatch):
         seed=SEEDS,
         n_timesteps=EVERY,
         num_episode_test=2,
-        logging_config=LoggingConfig(
-            config={}, use_wandb=False, use_tensorboard=False, log_frequency=EVERY
-        ),
+        logging_config=LoggingConfig(log_frequency=EVERY, backends=()),
         initial_state=state,
     )
     np.testing.assert_array_equal(history["timestep"], [[FIRST + EVERY]] * 2)
@@ -566,9 +557,7 @@ def test_the_extensions_run_to_the_horizon_a_call_is_told(monkeypatch):
         seed=0,
         n_timesteps=2,
         total_timesteps=7,
-        logging_config=LoggingConfig(
-            config={}, use_wandb=False, use_tensorboard=False, log_frequency=2
-        ),
+        logging_config=LoggingConfig(log_frequency=2, backends=()),
     )
     seen = jax.device_get(state.ext_state[0])
     assert (int(seen["pretrain"][0]), int(seen["update"][0])) == (7, 7)

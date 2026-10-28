@@ -480,7 +480,7 @@ def test_an_own_iteration_agent_runs_its_iterations_on_the_loop() -> None:
     call option reaches configure_call, whose transform runs on a resumed
     state alone; an option it does not take and a dataset are refused."""
     agent = OwnToy("Pendulum-v1", n_envs=2)
-    logging = LoggingConfig(config={}, log_frequency=8, use_wandb=False)
+    logging = LoggingConfig(log_frequency=8, backends=())
     state, rows = agent.train(0, 12, num_episode_test=3, logging_config=logging)
     assert np.asarray(state.n_updates).tolist() == [3]
     assert np.asarray(rows["timestep"]).tolist() == [[8, -1]]  # ticks 1, (3)
@@ -579,7 +579,7 @@ def test_an_own_replay_agent_runs_its_ticks_on_a_replay_sized_per_call() -> None
     a resume continues at its tick; a horizon ending before the call is
     refused before prepare_replay; a dataset is refused."""
     agent = ReplayToy("Pendulum-v1", n_envs=2)
-    logging = LoggingConfig(config={}, log_frequency=8, use_wandb=False)
+    logging = LoggingConfig(log_frequency=8, backends=())
     state, rows = agent.train(0, 12, logging_config=logging)
     assert agent.prepared == (0, 6) and agent.checked == 6
     assert np.asarray(rows["timestep"]).tolist() == [[8, -1]]  # ticks 3, (7)

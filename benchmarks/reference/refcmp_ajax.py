@@ -73,7 +73,7 @@ def run(spec, arm: str, seeds: list, n_timesteps: int = 0, eval_every: int = -1)
             )
             curve.append([float(returns.mean())])
         return curve
-    logging = LoggingConfig(config={}, log_frequency=eval_every, use_wandb=False)
+    logging = LoggingConfig(log_frequency=eval_every, backends=())
     _, evals = agent.train(
         seed=seeds,
         n_timesteps=n_timesteps,

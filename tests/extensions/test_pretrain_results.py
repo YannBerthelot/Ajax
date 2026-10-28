@@ -28,7 +28,7 @@ from ajax.logging.wandb_logging import LoggingConfig
 from tests.probing import readouts
 
 KEY = jax.random.PRNGKey(0)
-LOGGING = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+LOGGING = LoggingConfig(log_frequency=32, backends=())
 NAMES = (
     "cloning/first_loss",
     "cloning/last_loss",

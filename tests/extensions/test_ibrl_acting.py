@@ -153,7 +153,7 @@ def test_the_replay_flags_the_rows_the_experts_action_took(name: str) -> None:
     case = CASES[name]
     ibrl = IBRL(expert_policy=torque_one, hybrid_acting=True)
     agent = case.cls(env_id="Pendulum-v1", n_envs=2, extensions=(ibrl,), **case.kwargs)
-    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    logging = LoggingConfig(log_frequency=32, backends=())
     state, out = agent.train(
         seed=0, n_timesteps=case.n_timesteps, num_episode_test=1, logging_config=logging
     )

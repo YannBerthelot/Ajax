@@ -1,0 +1,3703 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reinforcement learning agents in JAX: whole training runs compiled end to end, research features composed as extensions.">
+      
+      
+      
+        <link rel="canonical" href="https://yannberthelot.github.io/Ajax/0.4/developer/architecture/">
+      
+      
+        <link rel="prev" href="../../reproduction/results/">
+      
+      
+        <link rel="next" href="../contributing/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Architecture - Ajax</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  
+    This is the documentation of an earlier release.
+  
+  <a href="../../..">
+    <strong>Read the latest release's documentation.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Ajax" class="md-header__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Ajax
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Follow system theme"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Follow system theme" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Ajax" class="md-nav__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Ajax
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/why-ajax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why Ajax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training an agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and the PID policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/checkpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Checkpoints and resuming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/comparing-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/expert-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expert guidance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/differentiable-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/world-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../algorithms/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithms
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Algorithms
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/sac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/asac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/redq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REDQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/td3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/iql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/avg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AVG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/pqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/ppo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/udrl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UDRL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dagger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DAgger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dreamerv3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/tdmpc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reproduction/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproduction
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproduction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/specs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The package
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The package">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#names-that-moved-keywords-that-went" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Names that moved, keywords that went
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#from-agenttrain-to-a-compiled-program" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From agent.train() to a compiled program
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="From agent.train() to a compiled program">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-run-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The run config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-units-and-env-units" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent units and env units
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-shared-training-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The shared training loop
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The shared training loop">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#three-iteration-shapes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Three iteration shapes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent state
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extensions-in-the-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extensions in the loop
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation-and-logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation and logging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resuming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resuming
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#keywords-on-their-way-out" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keywords on their way out
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compilation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compilation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../writing-an-extension/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing an extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../world_models/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World model design notes
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    World model design notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/deviations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deviations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/dreamerv3_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/tdmpc2_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/shared_blocks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared building blocks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/VALIDATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../world_models/reference_comparison/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference comparison
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7_8" id="__nav_7_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference comparison
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/PROTOCOL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/PREREG2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 pre-registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/PREREG3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 3 pre-registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/DIAGNOSIS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diagnosis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/results/round1/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 1 results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/results/round2/pairR/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 results, pair R
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/results/round2/pairE/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 results, pair E
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/results/round3/analysis3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 3 analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/training-loop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training loop
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments and wrappers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/buffers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Buffers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging, evaluation and checkpoints
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The package
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The package">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#names-that-moved-keywords-that-went" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Names that moved, keywords that went
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#from-agenttrain-to-a-compiled-program" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From agent.train() to a compiled program
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="From agent.train() to a compiled program">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-run-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The run config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-units-and-env-units" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent units and env units
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-shared-training-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The shared training loop
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The shared training loop">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#three-iteration-shapes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Three iteration shapes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent state
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extensions-in-the-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extensions in the loop
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation-and-logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation and logging
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resuming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resuming
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#keywords-on-their-way-out" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keywords on their way out
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compilation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compilation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/YannBerthelot/Ajax/blob/v0.4.0/docs/developer/architecture.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
+<p>This page explains how Ajax is put together: where the code lives, how a call
+to <code>agent.train()</code> becomes one compiled program, what the shared training loop
+does for every agent, and where extensions, evaluation and logging plug in.
+Read it before changing an agent or the loop. To add an agent or an extension,
+follow <a href="../contributing/">Contributing</a> and
+<a href="../writing-an-extension/">Writing an extension</a>.</p>
+<p>Three ideas shape the code:</p>
+<ul>
+<li><strong>A run is one compiled program.</strong> Initialisation, every training
+  iteration, the evaluations and the logging calls are traced once and run
+  inside <code>jax.lax.scan</code>. Seeds are a <code>jax.vmap</code> over that program, so eight
+  seeds cost one compilation.</li>
+<li><strong>An agent is its algorithm.</strong> Collecting experience, the warm-up before
+  learning starts, evaluating, logging and resuming are written once, in the
+  shared loop. An agent's folder holds the paper's maths and little else.</li>
+<li><strong>Research features are extensions.</strong> An agent accepts its own
+  hyperparameters plus <code>extensions=()</code>. A feature such as behaviour cloning
+  before training or an extra loss term is an <code>Extension</code> folded into the
+  loop, not a keyword on the agent. The exceptions left are
+  <code>expert_policy</code> (SAC, TD3, REDQ, AVG, APO), SAC's options that reach its
+  network's input, collection or action pipeline, which extensions do not
+  reach yet, and TD3's <code>action_pipeline</code> for a downstream project.</li>
+</ul>
+<h2 id="the-package">The package<a class="headerlink" href="#the-package" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>src/ajax/
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── __init__.py          the 14 exported agents; configures the compile cache on import
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>├── agents/
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│   ├── base.py          ActorCritic: environment and network setup, extensions=, train(); run_config
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│   ├── loop.py          TrainLoop, the shared loop; critic_step and gradient_step
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│   ├── recurrent.py     replay buffers and R2D2-style sequence replay for memory=
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│   ├── cloning.py       the behaviour-cloning loss and fit that CloningPretrain runs
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│   └── &lt;AGENT&gt;/         one package per agent (below)
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>├── extensions/          Extension, ExtensionStack and the shipped extensions
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>├── environments/
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│   ├── create.py        build an env from an id (gymnax, Brax, MuJoCo Playground), add Ajax&#39;s layers
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│   ├── interaction.py   collect_experience: act, step, store, count
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│   ├── utils.py         env helpers; the [-1, 1] action map; ExpertInAgentUnits
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│   ├── obs_norm.py      agent-side running observation normalisation
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>│   ├── row_collector.py the world models&#39; collector: one row per env per tick
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>│   ├── differentiable.py  closed-loop rollouts you can backpropagate through (APG)
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>│   └── model_reference.py, system_class.py, pid_terms.py   tracking tasks, parameter distributions, PID error terms
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>├── networks/            actor and critic networks, memory blocks, Squash, the world models&#39; layers
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>├── modules/             the PID actor and PID output head
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>├── buffers/             replay buffers (flashbax)
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>├── logging/             LoggingConfig; the W&amp;B and TensorBoard worker
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>├── log.py, evaluate.py  when to evaluate and log; the evaluation episodes
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>├── perf_utils.py        build_resumable_train: init or resume, then one jitted scan
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>├── state.py             BaseAgentState, CollectorState and the configuration dataclasses
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>├── checkpoint.py        save_checkpoint, restore_into
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>├── wrappers.py          env wrappers: normalisation, action clip, auto-reset, observation noise
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>├── deprecation.py       warn_inert, for keywords on their way out
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>├── schedule.py          a warm-up and cosine learning-rate schedule
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>├── distributional.py, normalizers.py   symlog, two-hot and return scales (DreamerV3, TD-MPC2)
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>└── _compile_cache.py    the persistent JAX compile cache
+</code></pre></div>
+<p>Each agent package <code>src/ajax/agents/&lt;AGENT&gt;/</code> holds:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;AGENT&gt;.py</code></td>
+<td>the public class: the paper's hyperparameters and <code>extensions=</code>; its <code>make_train</code> and <code>train_kwargs</code></td>
+</tr>
+<tr>
+<td><code>train_&lt;AGENT&gt;.py</code></td>
+<td>the algorithm, and a <code>make_train</code> that hands its initialisation and update to <code>TrainLoop</code></td>
+</tr>
+<tr>
+<td><code>state.py</code></td>
+<td><code>&lt;AGENT&gt;State</code> and <code>&lt;AGENT&gt;Config</code></td>
+</tr>
+<tr>
+<td><code>core.py</code></td>
+<td>(SAC, PPO, TDMPC2) the maths that descendants import instead of copying</td>
+</tr>
+</tbody>
+</table>
+<p>The lineage is explicit: ASAC, REDQ and AVG import SAC's <code>core.py</code>; APO
+imports PPO's; the multi-task TD-MPC2 imports TD-MPC2's. A fix to the parent's
+maths reaches every descendant. Some agents keep further modules of their own
+(SAC's <code>action_pipeline.py</code>, TD-MPC2's <code>planner.py</code>).</p>
+<h3 id="names-that-moved-keywords-that-went">Names that moved, keywords that went<a class="headerlink" href="#names-that-moved-keywords-that-went" title="Permanent link">&para;</a></h3>
+<p>A few names now live where their layer is. The old paths are gone, removed
+once no downstream project used them rather than kept as aliases.</p>
+<table>
+<thead>
+<tr>
+<th>Was</th>
+<th>Is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ajax.agents.obs_norm</code></td>
+<td><code>ajax.environments.obs_norm</code></td>
+</tr>
+<tr>
+<td><code>ajax.agents.SAC.utils.SquashedNormal</code>, then <code>ajax.networks.distributions.SquashedNormal(loc, scale)</code></td>
+<td><code>ajax.networks.distributions.Squash(distrax.Normal(loc, scale))</code></td>
+</tr>
+<tr>
+<td><code>NormalizationInfo</code> in <code>ajax.agents.AVG.utils</code> and <code>.state</code></td>
+<td><code>RunningMoments</code> in <code>ajax.agents.AVG.state</code></td>
+</tr>
+<tr>
+<td><code>ajax.plane.get_mode</code></td>
+<td><code>jax.default_backend()</code></td>
+</tr>
+<tr>
+<td>the <code>_obs_noise_sigma</code> hook on an env</td>
+<td><code>ObservationNoiseWrapper</code> in <code>ajax.wrappers</code></td>
+</tr>
+</tbody>
+</table>
+<p>The keywords below went in October 2026; passing one now raises
+<code>TypeError</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Keyword</th>
+<th>Agents</th>
+<th>Instead</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pre_train_n_steps</code>, <code>actor_cloning_epochs</code>, <code>actor_cloning_batch_size</code>, <code>actor_cloning_lr</code>, <code>skip_actor_pretrain</code>, <code>reset_log_std_after_bc</code>, <code>reset_actor_head_after_bc</code></td>
+<td>SAC, TD3, REDQ, APO</td>
+<td><code>extensions=(CloningPretrain(expert, n_steps=..., epochs=..., batch_size=..., skip_actor=..., reset_log_std=..., reset_actor_head=...),)</code>, at the actor's learning rate</td>
+</tr>
+<tr>
+<td><code>pid_actor_config</code></td>
+<td>SAC, TD3, REDQ, ASAC, AVG, PPO, APO</td>
+<td><code>actor_architecture=PIDPolicy(...)</code></td>
+</tr>
+<tr>
+<td><code>action_scale</code></td>
+<td>SAC</td>
+<td>nothing: SAC never read it, and every continuous action is mapped onto the env's bounds</td>
+</tr>
+<tr>
+<td><code>use_expert_guidance</code></td>
+<td>SAC</td>
+<td>nothing: it only switched on diagnostics; <code>ExpertValueMetrics</code> logs the critic's view of the expert</td>
+</tr>
+<tr>
+<td><code>reward_shaping_fn</code>, <code>use_vtrace_gae</code></td>
+<td>PPO</td>
+<td>nothing: neither ever ran</td>
+</tr>
+<tr>
+<td><code>actor_kernel_init</code>, <code>critic_kernel_init</code>, <code>encoder_bias_init</code></td>
+<td>PPO, APO</td>
+<td>nothing: no run set them; <code>encoder_kernel_init</code>, <code>actor_bias_init</code>, <code>critic_bias_init</code> and PPO's <code>mean_kernel_init</code> stay</td>
+</tr>
+<tr>
+<td><code>n_epochs</code>, <code>bc_loss_type</code></td>
+<td>UDRL</td>
+<td><code>n_updates_per_iter</code>; the loss is the log-likelihood</td>
+</tr>
+</tbody>
+</table>
+<p>Every agent is importable from the top level, TD3 and UDRL included:
+<code>from ajax import TD3</code>.</p>
+<h2 id="from-agenttrain-to-a-compiled-program">From <code>agent.train()</code> to a compiled program<a class="headerlink" href="#from-agenttrain-to-a-compiled-program" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>agent = SAC(&quot;Pendulum-v1&quot;, extensions=(...))     ActorCritic.__init__
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  ├─ self.config = run_config(locals(), name)     what the loggers will record
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  ├─ prepare_env                                  the env (episode_length, action_repeat), its params, Ajax&#39;s layers
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  ├─ EnvironmentConfig, NetworkConfig, OptimizerConfig
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  ├─ ExtensionStack(extensions) + checks          phases, buffer fields, experts, phi*: raise here
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  └─ experts read in agent units                  ExpertInAgentUnits, the agent&#39;s and the extensions&#39;
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>agent.train(seed=[0, 1], n_timesteps=..., logging_config=..., initial_state=...)
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>  ├─ get_make_train()(env_args, ..., total_timesteps, logging_config)
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>  │    └─ make_train                              train_&lt;AGENT&gt;.py, with train_kwargs and the extensions
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>  │         ├─ TrainLoop.create(...)              budget, extensions, logging
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>  │         └─ loop.off_policy(init, update, ...) or loop.on_policy(...)
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>  │              └─ build_resumable_train(...)    jitted train(key, index, initial_state, ...)
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>  ├─ jax.vmap over seeds                          one program, every seed
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>  └─ block_until_ready, stop the logging worker
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>returns (state, evaluations)                      every leaf has a leading seed axis
+</code></pre></div>
+<p><code>ActorCritic</code> in <a href="https://github.com/YannBerthelot/Ajax/blob/v0.4.0/src/ajax/agents/base.py"><code>agents/base.py</code></a> does the
+work every agent needs at construction. It builds the environment
+(<code>prepare_env</code>, which every agent hands <code>episode_length</code> and <code>action_repeat</code>),
+groups the static settings into frozen configuration dataclasses, and wraps
+the extensions in an <code>ExtensionStack</code>. It rejects silent misconfigurations
+early: <code>memory=</code> on an agent whose <code>supports_memory</code> is false, an extension
+implementing a phase the agent never folds, an extension reading a replay
+field the agent does not store, a stateful expert called without its state,
+and an extension reading the frozen expert critic phi* in a stack that never
+fits it.</p>
+<p><code>train</code> then calls the agent's <code>make_train</code> (bound by <code>get_make_train()</code> to
+the agent's own <code>train_kwargs</code> and its extensions) with the run's settings.
+The result is a jitted function of one seed's key. <code>train</code> maps it over the
+seeds with <code>jax.vmap</code> and waits for the result.</p>
+<p>The whole run is a single pytree, so this example's state carries both seeds:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">64</span><span class="p">)</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">state</span><span class="p">,</span> <span class="n">out</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">512</span><span class="p">)</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>                                <span class="c1"># None: no logging config, no evaluation</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="nb">print</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">state</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>               <span class="c1"># BaseAgentState: the whole run, one pytree</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>     <span class="c1"># [640 640]: env steps, every env counted</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="nb">print</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">tree</span><span class="o">.</span><span class="n">leaves</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">actor_state</span><span class="o">.</span><span class="n">params</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>  <span class="c1"># 2: the seed axis</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">&quot;algo_name&quot;</span><span class="p">],</span> <span class="n">agent</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s2">&quot;n_steps&quot;</span><span class="p">])</span>     <span class="c1"># PPO 64: the run config</span>
+</code></pre></div>
+<p>The timestep reads 640, not 512, because an on-policy run always makes one
+rollout more than the budget holds (see <a href="#three-iteration-shapes">the loop shapes</a>).</p>
+<h3 id="the-run-config">The run config<a class="headerlink" href="#the-run-config" title="Permanent link">&para;</a></h3>
+<p>Every agent builds its run config the same way, as the first line of its
+constructor: <code>self.config = run_config(locals(), self.name)</code>.
+<a href="https://github.com/YannBerthelot/Ajax/blob/v0.4.0/src/ajax/agents/base.py"><code>run_config</code></a> keeps the constructor's
+arguments, drops <code>self</code>, <code>__class__</code> and any names passed in <code>exclude</code>
+(<code>TDMPC2MultiTask</code> leaves out its dataset and evaluation envs), and adds
+<code>algo_name</code>. DreamerV3 and TD-MPC2 then add the settings they resolve from
+those arguments. With a
+<code>LoggingConfig</code>, <code>train</code> merges <code>agent.config</code> into <code>logging_config.config</code>,
+which is what W&amp;B and TensorBoard record for the run.</p>
+<h3 id="agent-units-and-env-units">Agent units and env units<a class="headerlink" href="#agent-units-and-env-units" title="Permanent link">&para;</a></h3>
+<p>Every continuous agent acts in <code>[-1, 1]</code>, whatever the env's action box.
+Every env step maps the action onto the box
+(<code>agent_action_to_env</code> in <code>environments/utils.py</code>: <code>c + h * clip(a, -1, 1)</code>
+with <code>c</code> the box's centre and <code>h</code> its half-width), so on gymnax Pendulum's
+<code>[-2, 2]</code> torque the agent reaches the full range. Replay stores the agent's
+own action. An expert is written in env units and is read through
+<code>ExpertInAgentUnits</code>, which maps its answer into agent units with the
+inverse map (<code>env_action_to_agent</code>, unclipped): the agent's
+<code>expert_policy</code> and every expert an extension holds (its <code>expert_fields</code>) are
+converted once, at construction. Replay, losses and extensions see one unit.</p>
+<h2 id="the-shared-training-loop">The shared training loop<a class="headerlink" href="#the-shared-training-loop" title="Permanent link">&para;</a></h2>
+<p><code>TrainLoop</code> in <a href="https://github.com/YannBerthelot/Ajax/blob/v0.4.0/src/ajax/agents/loop.py"><code>agents/loop.py</code></a> owns
+everything that is the same for every agent. An agent supplies two functions:</p>
+<ul>
+<li><code>init(key) -&gt; agent_state</code>: a fresh state. One-shot pre-training, such as
+  behaviour cloning, is an extension's (<code>CloningPretrain</code>), on a key the loop
+  splits off.</li>
+<li><code>update(...) -&gt; (agent_state, aux)</code>: one update. <code>aux</code> holds the update's
+  metrics as flax dataclasses nested exactly one level (TD3's
+  <code>AuxiliaryLogs(policy=..., value=...)</code> is logged as <code>value/critic_loss</code> and
+  so on).</li>
+</ul>
+<p>The loop does the rest, in this order on every iteration:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>fresh run:  state = init(key), then fold_init: each extension&#39;s initial state, then its pretrain
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>resumed:    state = the state passed in
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>iterate:    collect one step per env (off-policy) or a rollout (on-policy)
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>            if timestep &gt;= learning_starts (on-policy: always):
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>                state, aux = update(state, experience)
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>                fold the extensions&#39; post_update
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>            else:
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>                aux = the update&#39;s metrics, filled with NaN
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>            evaluate and log every log_frequency steps
+</code></pre></div>
+<p>Because this order lives in one place, a fix to it (when the evaluation runs,
+which key an extension draws, how a resumed run continues) reaches every
+agent at once. The probes check it end to end: a planted fault that runs
+<code>post_update</code> before the update instead of after is caught (see
+<a href="../testing/">Testing</a>).</p>
+<h3 id="three-iteration-shapes">Three iteration shapes<a class="headerlink" href="#three-iteration-shapes" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Shape</th>
+<th>Agents</th>
+<th>One iteration</th>
+<th>Budget</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>loop.off_policy(init, update, aux_cls, learning_starts, ...)</code></td>
+<td>SAC, TD3, REDQ, ASAC, AVG, DQN</td>
+<td>one step per env (a <em>tick</em>); from <code>learning_starts</code> on, one <code>update(state, transition)</code></td>
+<td><code>budget // n_envs</code> ticks</td>
+</tr>
+<tr>
+<td><code>loop.on_policy(init, update, n_steps, ...)</code></td>
+<td>PPO, APO, PQN</td>
+<td>an <code>n_steps</code> rollout per env from the state <code>start</code>, then <code>update(state, rollout, start)</code></td>
+<td><code>budget // (n_envs * n_steps) + 1</code> rollouts</td>
+</tr>
+<tr>
+<td><code>loop.off_policy(..., collect=, n_updates=, evaluation=)</code></td>
+<td>DreamerV3, TDMPC2</td>
+<td>the agent's own <code>collect(state, tick)</code>, then <code>n_updates(tick, state)</code> updates (a train ratio, a burst), then the agent's own <code>Evaluation</code></td>
+<td><code>budget // n_envs</code> ticks, or <code>num_ticks</code></td>
+</tr>
+</tbody>
+</table>
+<p>Before <code>learning_starts</code>, the off-policy shape acts uniformly at random and
+logs the update's metrics as NaN, which the logger drops. The on-policy shape
+passes <code>start</code> to the update so that a recurrent agent can replay its rollout
+from the memory carries it began with.</p>
+<p>Three agents use the loop's parts without one of these shapes. UDRL runs its
+own iteration (a segment, its replay, its command statistics, the updates)
+on <code>TrainLoop.train</code>, and evaluates its command-conditioned policy every
+<code>log_frequency</code> steps through an <code>Evaluation</code>. APG and the offline
+<code>TDMPC2MultiTask</code> call <code>build_resumable_train</code> themselves, with the loop's
+<code>fresh_state</code> and its <code>post_update</code> fold.</p>
+<p>Two helpers serve the replay agents: <code>gradient_step(train_state, loss_fn)</code>,
+one optimiser step, and <code>critic_step(...)</code>, a replay critic step that folds
+the extensions' <code>on_target</code> and <code>critic_loss</code> phases. Both also return the
+gradients' global norm, before the optimiser clips them. TD3, REDQ, ASAC and AVG
+use <code>critic_step</code>; SAC builds its own critic step, with the same folds.</p>
+<h2 id="agent-state">Agent state<a class="headerlink" href="#agent-state" title="Permanent link">&para;</a></h2>
+<p>Everything that changes during training lives in one flax dataclass, the
+agent state. Nothing changes on the Python objects. This is what lets a run
+be one <code>scan</code> (the state is the carry), lets seeds be one <code>vmap</code> (the state
+gains a leading axis), and makes a checkpoint a matter of saving that pytree.</p>
+<p><code>BaseAgentState</code> in <a href="https://github.com/YannBerthelot/Ajax/blob/v0.4.0/src/ajax/state.py"><code>state.py</code></a> holds:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rng</code></td>
+<td>the training key; every random draw splits it</td>
+</tr>
+<tr>
+<td><code>actor_state</code>, <code>critic_state</code></td>
+<td>flax <code>TrainState</code>s with target parameters, memory carries and the observation normaliser's statistics</td>
+</tr>
+<tr>
+<td><code>collector_state</code></td>
+<td>the environment state, last observation and episode flags, the replay buffer, <code>timestep</code>, the rolling episodic return, a stateful expert's internal state</td>
+</tr>
+<tr>
+<td><code>eval_rng</code></td>
+<td>the evaluations' key, split apart from <code>rng</code> and never advanced: evaluation <code>n</code> draws from <code>fold_in(eval_rng, n)</code></td>
+</tr>
+<tr>
+<td><code>n_updates</code>, <code>n_logs</code></td>
+<td>counters; <code>n_logs</code> gates the evaluations and numbers them</td>
+</tr>
+<tr>
+<td><code>ext_state</code></td>
+<td>one entry per extension, <code>()</code> without extensions</td>
+</tr>
+<tr>
+<td><code>last_rollout</code></td>
+<td>the latest rollout, kept only when the agent is asked to expose it</td>
+</tr>
+</tbody>
+</table>
+<p>Agents subclass it: <code>SoftACState</code> adds SAC's temperature and is shared by
+SAC, ASAC, REDQ and AVG; the world models carry their model and replay.
+<code>collector_state.timestep</code> counts environment steps over all parallel
+environments (one collection step on four environments adds four). The
+<code>learning_starts</code> gate, the logging cadence and the training fraction all
+read it.</p>
+<p>Static settings stay out of the state. <code>EnvironmentConfig</code>, <code>NetworkConfig</code>,
+<code>OptimizerConfig</code> and the agent's <code>&lt;AGENT&gt;Config</code> are frozen and passed as
+static arguments, so they fix shapes and Python-level decisions at trace
+time. Extensions are static for the same reason: they must be hashable and
+must never change after construction.</p>
+<h2 id="extensions-in-the-loop">Extensions in the loop<a class="headerlink" href="#extensions-in-the-loop" title="Permanent link">&para;</a></h2>
+<p>Each phase the stack folds is one method of <code>ExtensionStack</code>,
+<code>fold_&lt;phase&gt;</code>, and an agent makes one call to it where the phase applies
+(SAC's action pipeline dispatches <code>action</code> itself). The call builds the
+<code>ExtensionContext</code> (<code>step</code>, <code>rng</code>, <code>total_steps</code>), runs the extensions in
+the order given, reads (and, for <code>pretrain</code> and <code>post_update</code>, writes)
+<code>agent_state.ext_state</code>, and returns the result. On an empty stack it returns
+its input unchanged (a loss term is <code>0.0</code>) without building anything, so an
+agent without extensions traces nothing extra and never guards a fold.</p>
+<table>
+<thead>
+<tr>
+<th>Call</th>
+<th>Where it is made</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fold_init</code> (each <code>init_state</code>, then each <code>pretrain</code>)</td>
+<td><code>fresh_state</code>, fresh runs only (a resumed state already carries both)</td>
+</tr>
+<tr>
+<td><code>fold_post_update</code></td>
+<td>after every update: the loop's <code>maybe_update</code>, <code>repeat_update</code> and <code>on_policy</code>; APG, UDRL and <code>TDMPC2MultiTask</code> in their own iterations</td>
+</tr>
+<tr>
+<td><code>fold_eval_metrics</code></td>
+<td>at every evaluation, merged into the logged metrics (<code>compose_eval_metrics</code> in <code>log.py</code>)</td>
+</tr>
+<tr>
+<td><code>fold_on_target</code>, <code>fold_critic_loss</code></td>
+<td>in the agent's critic step; <code>critic_step</code> for TD3, REDQ, ASAC and AVG</td>
+</tr>
+<tr>
+<td><code>fold_actor_loss</code></td>
+<td>in the agent's actor step</td>
+</tr>
+<tr>
+<td>the <code>action</code> phase</td>
+<td>SAC's action pipeline only, with an expert policy</td>
+</tr>
+</tbody>
+</table>
+<p><code>fold_on_target</code>, <code>fold_critic_loss</code> and <code>fold_actor_loss</code> return their
+value and the metrics the phases returned beside theirs; the agent carries
+them out of its loss as an aux and logs them, in its <code>AuxiliaryLogs</code>'
+<code>extensions</code> field, under their own names.</p>
+<p>The first three are the loop's own (<code>LOOP_PHASES</code>: <code>pretrain</code>,
+<code>post_update</code>, <code>eval_metrics</code>); an agent lists those plus the phases its
+update folds in <code>supported_extension_phases</code>, and construction rejects any
+other. Each fold gets a key of its own, split from one the agent draws
+nothing else on, so an extension never shares randomness with the agent's
+own draws.</p>
+<p><a href="../writing-an-extension/">Writing an extension</a> covers the phases in detail.</p>
+<h2 id="evaluation-and-logging">Evaluation and logging<a class="headerlink" href="#evaluation-and-logging" title="Permanent link">&para;</a></h2>
+<p>Three modules share the work:</p>
+<ul>
+<li><a href="https://github.com/YannBerthelot/Ajax/blob/v0.4.0/src/ajax/log.py"><code>log.py</code></a> decides <strong>when</strong>. <code>evaluate_and_log</code>
+  evaluates once every <code>log_frequency</code> environment steps, counted against
+  <code>n_logs</code>, and never past the run's horizon. Agents with their own
+  <code>Evaluation</code> (the world models, APG, UDRL) use <code>maybe_eval_and_log</code>, gated
+  on the scan index. Every evaluation draws fresh keys
+  (<code>evaluation_keys</code>: <code>split(fold_in(eval_rng, n_logs))</code>, one key for the
+  episodes, one for the extensions' metrics), the same per seed from one run
+  to the next and apart from training.</li>
+<li><a href="https://github.com/YannBerthelot/Ajax/blob/v0.4.0/src/ajax/evaluate.py"><code>evaluate.py</code></a> runs <strong>the episodes</strong>:
+  <code>num_episode_test</code> episodes with the deterministic action, reporting the
+  mean return, the episode length, the policy's entropy and, for the
+  discounted agents with a critic (SAC, TD3, REDQ, AVG, DQN, PQN, PPO), the
+  value bias (<code>Eval/mean bias</code>: the critic's estimate minus the discounted
+  return realised from each evaluated step, in the critic's units). With an expert it also rolls the expert out on the same episodes
+  at each evaluation and reports its return.</li>
+<li><a href="https://github.com/YannBerthelot/Ajax/blob/v0.4.0/src/ajax/logging/wandb_logging.py"><code>logging/wandb_logging.py</code></a>
+  <strong>records</strong>. <code>LoggingConfig</code> names the backend (<code>use_wandb</code>,
+  <code>use_tensorboard</code>) and the cadence. The compiled program hands each
+  evaluation's metrics to a host callback, which forwards them to a separate
+  worker process that writes to Weights &amp; Biases or TensorBoard. The worker
+  starts only when a backend is enabled.</li>
+</ul>
+<p>What <code>train</code> returns follows from the logging config:</p>
+<ul>
+<li><strong>No <code>LoggingConfig</code>:</strong> no evaluation is traced at all (tracing alone would
+  rebuild the evaluation environment), and <code>train</code> returns <code>(state, None)</code>.
+  APG returns its per-update metrics in place of <code>None</code>.</li>
+<li><strong>A <code>LoggingConfig</code>:</strong> the run evaluates whether or not a backend records
+  it, and returns <code>(state, evaluations)</code>: every logged key's values per seed
+  and evaluation. The values are written into rows the scan carries, not
+  stacked per iteration, which would cost <code>seeds x iterations</code> memory. Rows
+  a call does not fill hold -1 (the timestep) or NaN.</li>
+</ul>
+<p>Two details keep the gates correct under the seed <code>vmap</code>. The counters a gate
+reads (the timestep, <code>n_logs</code>, the scan index) stay unbatched, so
+<code>jax.lax.cond</code> stays a real branch and evaluates only on logging iterations;
+a batched predicate would turn it into a <code>select</code> that runs the evaluation on
+every iteration. And the logging callback checks its flag itself
+(<code>gated_log_callback</code>), so it fires only on real evaluations in either
+lowering.</p>
+<h2 id="resuming">Resuming<a class="headerlink" href="#resuming" title="Permanent link">&para;</a></h2>
+<p><a href="https://github.com/YannBerthelot/Ajax/blob/v0.4.0/src/ajax/perf_utils.py"><code>perf_utils.build_resumable_train</code></a> builds
+every agent's jitted <code>train(key, index, initial_state, resume_from_state)</code>.
+On a fresh run it calls <code>init</code>; on a resumed one it takes the state passed
+in, whose buffers XLA reuses (the argument is donated).</p>
+<p><code>ActorCritic.train(initial_state=state)</code> continues a run. It checks that
+every seed stands at the same timestep, evaluation count and update count
+(<code>shared_counters</code>; only an agent declaring <code>per_seed_update_counts</code>,
+TD-MPC2 in its episodic mode, may differ in updates, and keeps them batched), keeps those
+counters unbatched, and trains from that timestep to <code>timestep +
+n_timesteps</code> (the loop's <code>end_timestep</code>). Every schedule (the training
+fraction, the extensions' <code>total_steps</code>, the exploration, the logging's end)
+runs to the run's horizon, <code>train</code>'s <code>total_timesteps</code> (by default the
+call's end; the loop's <code>total_timesteps</code>), so a resumed run continues where
+it stopped instead of restarting its schedules, and a run whose calls are
+all told its horizon follows the schedules of one call. Agents whose
+schedules depend on the absolute tick (the world models) also pass an
+iteration offset. A run split in two, on a new agent instance, ends in the
+state one uninterrupted call reaches (<code>tests/agents/test_resume_contract.py</code>).
+<a href="https://github.com/YannBerthelot/Ajax/blob/v0.4.0/src/ajax/checkpoint.py"><code>checkpoint.py</code></a> saves a state's arrays to disk
+and grafts them back onto a fresh skeleton; see
+<a href="../../guide/checkpoints/">Checkpoints and resuming</a>. A state class that
+deletes a data field lists it in its <code>removed_fields</code>, a
+<code>ClassVar[frozenset[str]]</code>: checkpoints saved with the field then restore
+without it. A saved field that its class neither has nor lists still fails
+to restore. A class that gains a float field lists it in its
+<code>added_fields</code>: checkpoints saved before it restore it as NaN.</p>
+<h2 id="keywords-on-their-way-out">Keywords on their way out<a class="headerlink" href="#keywords-on-their-way-out" title="Permanent link">&para;</a></h2>
+<p>A public keyword is removed in two steps (CLAUDE.md, rule 10, "expand, then
+contract"): first the new form is added and downstream projects move to it,
+then the old one goes. A keyword that no longer does anything but that
+callers still pass stays accepted meanwhile, and says so with
+<a href="https://github.com/YannBerthelot/Ajax/blob/v0.4.0/src/ajax/deprecation.py"><code>ajax.deprecation.warn_inert</code></a>: a
+<code>FutureWarning</code> for each such keyword set to something other than <code>None</code>,
+pointing at the caller's line and giving the reason.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="k">with</span> <span class="n">warnings</span><span class="o">.</span><span class="n">catch_warnings</span><span class="p">(</span><span class="n">record</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="k">as</span> <span class="n">caught</span><span class="p">:</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">&quot;always&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">SAC</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">jsrl_curriculum</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># SAC counts episode steps itself</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="nb">print</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">message</span><span class="p">)</span> <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">caught</span> <span class="k">if</span> <span class="n">w</span><span class="o">.</span><span class="n">category</span> <span class="ow">is</span> <span class="ne">FutureWarning</span><span class="p">])</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="c1"># [&quot;SAC&#39;s jsrl_curriculum has no effect and will be removed: SAC counts each</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="c1">#   env&#39;s steps in its episode when an extension reads them (JSRLCurriculum).&quot;]</span>
+</code></pre></div>
+<p>Today it covers SAC's <code>jsrl_curriculum</code> (SAC now counts episode steps
+whenever an extension reads them) and <code>LoggingConfig</code>'s <code>horizon</code>, which
+nothing reads. Keywords whose downstream callers have moved are removed
+outright, without a warning.</p>
+<h2 id="compilation">Compilation<a class="headerlink" href="#compilation" title="Permanent link">&para;</a></h2>
+<p><code>import ajax</code> points JAX at a persistent compile cache
+(<code>~/.cache/ajax/jax_compile_cache</code>, or <code>AJAX_JAX_COMPILE_CACHE_DIR</code>; one
+subdirectory per CPU, Python, JAX and jaxlib version; <code>AJAX_NO_COMPILE_CACHE=1</code>
+turns it off). A second process with the same shapes and code loads the
+compiled program instead of compiling it. JAX never caches a program that
+contains a host callback, so a run with a <code>LoggingConfig</code> recompiles in each
+new process. CI restores the cache each job left on the last push to <code>main</code>.
+<a href="../performance/">Performance</a> has the numbers.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; Yann Berthelot
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "toc.follow", "content.code.copy", "content.action.edit", "content.tabs.link", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

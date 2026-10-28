@@ -1,0 +1,5908 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reinforcement learning agents in JAX: whole training runs compiled end to end, research features composed as extensions.">
+      
+      
+      
+        <link rel="canonical" href="https://yannberthelot.github.io/Ajax/0.4/world_models/shared_blocks/">
+      
+      
+        <link rel="prev" href="../tdmpc2_spec/">
+      
+      
+        <link rel="next" href="../VALIDATION/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Shared building blocks - Ajax</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#shared-building-blocks-for-dreamerv3-and-td-mpc2-in-ajax" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  
+    This is the documentation of an earlier release.
+  
+  <a href="../../..">
+    <strong>Read the latest release's documentation.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Ajax" class="md-header__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Ajax
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Shared building blocks
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Follow system theme"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Follow system theme" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Ajax" class="md-nav__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Ajax
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/why-ajax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why Ajax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training an agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and the PID policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/checkpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Checkpoints and resuming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/comparing-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/expert-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expert guidance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/differentiable-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/world-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../algorithms/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithms
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Algorithms
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/sac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/asac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/redq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REDQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/td3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/iql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/avg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AVG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/pqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/ppo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/udrl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UDRL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dagger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DAgger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dreamerv3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/tdmpc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reproduction/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproduction
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproduction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/specs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/writing-an-extension/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing an extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World model design notes
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    World model design notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deviations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deviations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dreamerv3_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tdmpc2_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared building blocks
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared building blocks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-sources-and-conventions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Sources and conventions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-block-index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Block index
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b1-symlog-symexp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B1. symlog / symexp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b2-two-hot-discrete-regression-encode-decode-soft-ce-head" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B2. Two-hot discrete regression (encode, decode, soft-CE, head)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B2. Two-hot discrete regression (encode, decode, soft-CE, head)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-generic-any-sorted-bins-b_0-b_k1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (generic, any sorted bins b_0 &lt; … &lt; b_{K−1})
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b3-percentile-scale-normaliser-d3-retnorm-vs-t2-runningscale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B3. Percentile scale normaliser (D3 retnorm vs T2 RunningScale)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B3. Percentile scale normaliser (D3 retnorm vs T2 RunningScale)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-unified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (unified)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signature_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friend
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b4-normedmlp-linear-then-dropout-then-norm-then-act-plus-an-optional-output-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B4. NormedMLP (Linear, then Dropout, then Norm, then Act, plus an optional output layer)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B4. NormedMLP (Linear, then Dropout, then Norm, then Act, plus an optional output layer)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-per-hidden-layer-i" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (per hidden layer i)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signature_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b5-initialisers-and-output-scales" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B5. Initialisers and output scales
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B5. Initialisers and output scales">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-and-signature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math and signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b6-blocklinear-d3-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B6. BlockLinear (D3 only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b7-grouped-softmax-simnorm-t2-vs-categorical-latents-d3-a-false-friend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B7. Grouped softmax: SimNorm (T2) vs categorical latents (D3), a false friend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b8-unimix-categorical-straight-through-sample-kl-and-free-bits-d3-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B8. Unimix categorical, straight-through sample, KL and free bits (D3 only)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B8. Unimix categorical, straight-through sample, KL and free bits (D3 only)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-d318-214-outspy208-270" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (D3§1.8, §2.14; outs.py:208-270)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signature_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b9-q-ensemble-with-random-pair-reduction-t2-only-d3-has-a-single-v-critic-plus-a-slow-copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B9. Q ensemble with random-pair reduction (T2 only; D3 has a single V critic plus a slow copy)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B9. Q ensemble with random-pair reduction (T2 only; D3 has a single V critic plus a slow copy)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-t2110-112-314-world_modelpy186-216" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (T2§1.10-1.12, §3.14; world_model.py:186-216)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signature_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b10-ema-target-slow-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B10. EMA target / slow network
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B10. EMA target / slow network">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b11-returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B11. λ-returns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B11. λ-returns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-time-major-rlax-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (time-major, rlax convention)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mapping-from-d3s-lambda_return-agentpy480-488" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mapping from D3's lambda_return (agent.py:480-488)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned-d3-indexing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned, D3 indexing)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b12-gaussian-policy-heads-shared-primitives-separate-heads-a-false-friend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B12. Gaussian policy heads (shared primitives, separate heads; a false friend)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B12. Gaussian policy heads (shared primitives, separate heads; a false friend)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#shared-primitives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared primitives
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d3-bounded_normal-d3313-headspy146-155" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D3 'bounded_normal' (D3§3.13; heads.py:146-155)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#t2-policy-prior-t218-19-212" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        T2 policy prior (T2§1.8-1.9, §2.12)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b13-mppi-planner-t2-only-generic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B13. MPPI planner (T2 only; generic)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B13. MPPI planner (T2 only; generic)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-t231-324-pseudocode-3c" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (T2§3.1-3.24, pseudocode 3.C)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signature_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b14-latent-rollout-scan-both" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B14. Latent rollout scan (both)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b15-rssm-block-gru-core-and-observeimagine-steps-d3-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B15. RSSM block-GRU core and observe/imagine steps (D3 only)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B15. RSSM block-GRU core and observe/imagine steps (D3 only)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shared-sub-blocks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared sub-blocks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friend-ajax-memorycellgru" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friend: Ajax MemoryCell("gru")
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b16-bernoulli-head-d3-continue-t2-termination-as-an-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B16. Bernoulli head (D3 continue; T2 termination as an Extension)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b17-optimisers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B17. Optimisers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B17. Optimisers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#builders-shared-optax-primitives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Builders (shared optax primitives)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b18-sequence-replay-shared-ring-buffer-per-algorithm-window-predicate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B18. Sequence replay (shared ring buffer, per-algorithm window predicate)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B18. Sequence replay (shared ring buffer, per-algorithm window predicate)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#design-pure-jax-on-device" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design (pure-JAX, on device)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b19-small-shared-utilities-and-non-shared-look-alikes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B19. Small shared utilities and non-shared look-alikes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-questions-for-the-user-shared-block-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open questions for the user (shared-block scope)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../VALIDATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../reference_comparison/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference comparison
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7_8" id="__nav_7_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference comparison
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/PROTOCOL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/PREREG2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 pre-registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/PREREG3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 3 pre-registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/DIAGNOSIS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diagnosis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/results/round1/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 1 results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/results/round2/pairR/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 results, pair R
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/results/round2/pairE/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 results, pair E
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/results/round3/analysis3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 3 analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/training-loop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training loop
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments and wrappers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/buffers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Buffers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging, evaluation and checkpoints
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-sources-and-conventions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Sources and conventions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-block-index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Block index
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b1-symlog-symexp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B1. symlog / symexp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b2-two-hot-discrete-regression-encode-decode-soft-ce-head" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B2. Two-hot discrete regression (encode, decode, soft-CE, head)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B2. Two-hot discrete regression (encode, decode, soft-CE, head)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-generic-any-sorted-bins-b_0-b_k1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (generic, any sorted bins b_0 &lt; … &lt; b_{K−1})
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b3-percentile-scale-normaliser-d3-retnorm-vs-t2-runningscale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B3. Percentile scale normaliser (D3 retnorm vs T2 RunningScale)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B3. Percentile scale normaliser (D3 retnorm vs T2 RunningScale)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-unified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (unified)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signature_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friend
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b4-normedmlp-linear-then-dropout-then-norm-then-act-plus-an-optional-output-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B4. NormedMLP (Linear, then Dropout, then Norm, then Act, plus an optional output layer)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B4. NormedMLP (Linear, then Dropout, then Norm, then Act, plus an optional output layer)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-per-hidden-layer-i" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (per hidden layer i)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signature_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b5-initialisers-and-output-scales" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B5. Initialisers and output scales
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B5. Initialisers and output scales">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-and-signature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math and signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b6-blocklinear-d3-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B6. BlockLinear (D3 only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b7-grouped-softmax-simnorm-t2-vs-categorical-latents-d3-a-false-friend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B7. Grouped softmax: SimNorm (T2) vs categorical latents (D3), a false friend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b8-unimix-categorical-straight-through-sample-kl-and-free-bits-d3-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B8. Unimix categorical, straight-through sample, KL and free bits (D3 only)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B8. Unimix categorical, straight-through sample, KL and free bits (D3 only)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-d318-214-outspy208-270" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (D3§1.8, §2.14; outs.py:208-270)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signature_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b9-q-ensemble-with-random-pair-reduction-t2-only-d3-has-a-single-v-critic-plus-a-slow-copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B9. Q ensemble with random-pair reduction (T2 only; D3 has a single V critic plus a slow copy)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B9. Q ensemble with random-pair reduction (T2 only; D3 has a single V critic plus a slow copy)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-t2110-112-314-world_modelpy186-216" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (T2§1.10-1.12, §3.14; world_model.py:186-216)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signature_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b10-ema-target-slow-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B10. EMA target / slow network
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B10. EMA target / slow network">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b11-returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B11. λ-returns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B11. λ-returns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-time-major-rlax-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (time-major, rlax convention)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mapping-from-d3s-lambda_return-agentpy480-488" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mapping from D3's lambda_return (agent.py:480-488)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned-d3-indexing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned, D3 indexing)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b12-gaussian-policy-heads-shared-primitives-separate-heads-a-false-friend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B12. Gaussian policy heads (shared primitives, separate heads; a false friend)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B12. Gaussian policy heads (shared primitives, separate heads; a false friend)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#shared-primitives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared primitives
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d3-bounded_normal-d3313-headspy146-155" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D3 'bounded_normal' (D3§3.13; heads.py:146-155)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#t2-policy-prior-t218-19-212" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        T2 policy prior (T2§1.8-1.9, §2.12)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b13-mppi-planner-t2-only-generic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B13. MPPI planner (T2 only; generic)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B13. MPPI planner (T2 only; generic)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math-t231-324-pseudocode-3c" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math (T2§3.1-3.24, pseudocode 3.C)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#signature_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signature
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b14-latent-rollout-scan-both" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B14. Latent rollout scan (both)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b15-rssm-block-gru-core-and-observeimagine-steps-d3-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B15. RSSM block-GRU core and observe/imagine steps (D3 only)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B15. RSSM block-GRU core and observe/imagine steps (D3 only)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#math" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Math
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shared-sub-blocks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared sub-blocks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friend-ajax-memorycellgru" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friend: Ajax MemoryCell("gru")
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b16-bernoulli-head-d3-continue-t2-termination-as-an-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B16. Bernoulli head (D3 continue; T2 termination as an Extension)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b17-optimisers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B17. Optimisers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B17. Optimisers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#builders-shared-optax-primitives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Builders (shared optax primitives)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests-pinned_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests (pinned)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b18-sequence-replay-shared-ring-buffer-per-algorithm-window-predicate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B18. Sequence replay (shared ring buffer, per-algorithm window predicate)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B18. Sequence replay (shared ring buffer, per-algorithm window predicate)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#design-pure-jax-on-device" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design (pure-JAX, on device)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variants_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#false-friends_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        False friends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b19-small-shared-utilities-and-non-shared-look-alikes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B19. Small shared utilities and non-shared look-alikes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-questions-for-the-user-shared-block-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open questions for the user (shared-block scope)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/YannBerthelot/Ajax/blob/v0.4.0/docs/world_models/shared_blocks.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="shared-building-blocks-for-dreamerv3-and-td-mpc2-in-ajax">Shared building blocks for DreamerV3 and TD-MPC2 in Ajax<a class="headerlink" href="#shared-building-blocks-for-dreamerv3-and-td-mpc2-in-ajax" title="Permanent link">&para;</a></h1>
+<p>This spec lists the modular blocks that DreamerV3 (D3) and TD-MPC2 (T2) need. Each block is designed once, as a pure-functional JAX function or a flax.linen module, with a parameterisation that reproduces <strong>both</strong> references exactly. For each block it gives:</p>
+<ul>
+<li>the math;</li>
+<li>the single signature that covers both papers;</li>
+<li>which paper uses which variant;</li>
+<li>unit tests pinned against the reference formulas.</li>
+</ul>
+<p>It also flags <strong>false friends</strong>: blocks that look shared but differ in a way that matters.</p>
+<p><strong>Status: the pre-implementation spec (M0), kept as the design record.</strong> The code follows <code>DESIGN.md</code> §3 (what was built, and where), §4.2-4.3 and <code>deviations.md</code>, which win where they differ from this file. The departures:
+- <strong>Names and layout:</strong> no <code>src/ajax/blocks/</code> package and none of the proposed <code>TwoHotSpec</code>, <code>twohot_*</code>, <code>PercentileScaleConfig</code> or <code>mppi_plan</code> APIs. The shared blocks are <code>ajax.distributional</code> (<code>symlog</code>, <code>symexp</code>, <code>TwoHot</code>), <code>ajax.normalizers</code> (<code>ReturnNormalizer</code>, <code>RunningScale</code>) and <code>ajax.networks.blocks</code> (<code>linear</code>, <code>NormedMLP</code>); the rest is agent-local.
+- <strong>B4:</strong> <code>NormedMLP(layers, units, act, norm, norm_eps, kernel_init, dropout)</code> has no output layer (compose it with <code>linear</code>) and no <code>dtype</code> (Ajax computes in f32, D4).
+- <strong>B5:</strong> DreamerV3's initialiser is flax <code>variance_scaling</code> (<code>trunc_normal_fan_in</code>), not the literal 1.1368, so its draws match the reference's to 4.16e-5 relative, not exactly (D23); TD-MPC2's is the <code>"normal(0.02)"</code> initializer.
+- <strong>B1 test 4 and B9's dropout rows</strong> were wrong about the references: see the notes there.
+- <strong>B13, B14, B19:</strong> the planner (<code>agents/TDMPC2/planner.py</code>) takes its random draws as an explicit <code>PlanNoise</code> (<code>draw_plan_noise</code>), scans over the iterations and unrolls the H-step rollouts in Python, and draws the elite with <code>sample_elite</code>, the paper-era inverse CDF of one uniform (<code>np.random.choice</code>), not <code>jax.random.categorical</code> (<code>DESIGN.md</code> §4.3, <code>deviations.md</code> §2). There is no shared rollout helper: DreamerV3's observe and imagine steps are their own scans.</p>
+<h2 id="0-sources-and-conventions">0. Sources and conventions<a class="headerlink" href="#0-sources-and-conventions" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>D3 spec:</strong> <code>dreamerv3_spec.md</code> (this directory), cited as D3§x.y. It pins <code>danijar/dreamerv3</code> @ e3f0224 (paper-era 2411f7d) and arXiv:2301.04104v2.</li>
+<li><strong>T2 spec:</strong> <code>tdmpc2_spec.md</code> (this directory), cited as T2§x.y. It pins <code>nicklashansen/tdmpc2</code> @ e9f5932 (HEAD) and 5f6fade (PE), and arXiv:2310.16828v2.</li>
+<li><strong>Re-checked against the reference code (both official repositories at the commits pinned in the two specs):</strong></li>
+<li>D3: <code>embodied/jax/{outs,heads,nets,opt,utils}.py</code> and <code>dreamerv3/agent.py:480-488</code> (lambda_return).</li>
+<li>T2: <code>tdmpc2/common/{math,scale,init,layers}.py</code>, <code>tdmpc2/tdmpc2.py:208-230</code> (update_pi) and <code>common/world_model.py:186-216</code> (Q).</li>
+<li><strong>Pinned numbers.</strong> Every number in the test lists below was computed by the reference translations shipped with the block tests (<code>tests/world_models/reference_impls.py</code>), which contains literal translations of the reference functions: D3 is already JAX, and T2's torch code is translated to numpy line for line. The environment was Ajax's locked one: jax 0.7.2, flax 0.10.7, optax 0.2.6. Unless stated otherwise, the tolerance is rtol 1e-6 in f32.</li>
+<li><strong>Ajax conventions this spec assumes</strong> (from CLAUDE.md and the codebase):</li>
+<li>flax.linen modules plus pure functions.</li>
+<li>Hyperparameters live in frozen dataclasses.</li>
+<li>No per-feature kwargs on agents: optional behaviour is an Extension.</li>
+<li>Tests ship with every block.</li>
+<li>Existing pieces this spec reuses or warns against: <code>LoadedTrainState.soft_update</code> (optax.incremental_update), <code>networks.MultiCritic</code> (nn.vmap ensemble), <code>networks.memory._mask_reset</code>, PQN <code>compute_q_lambda_targets</code>, SAC <code>SquashedNormal</code>, <code>networks.utils.get_adam_tx</code>, <code>buffers.utils.get_buffer</code> (flashbax).</li>
+</ul>
+<h2 id="1-block-index">1. Block index<a class="headerlink" href="#1-block-index" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Block</th>
+<th>D3</th>
+<th>T2</th>
+<th>Shared form</th>
+<th>False friend?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>B1</td>
+<td>symlog / symexp</td>
+<td>obs encoder, decoder targets, bin construction</td>
+<td>inside two-hot only</td>
+<td>identical</td>
+<td><strong>yes</strong>: what gets symlogged</td>
+</tr>
+<tr>
+<td>B2</td>
+<td>Two-hot discrete regression (encode, decode, soft-CE, head)</td>
+<td>reward, critic</td>
+<td>reward, Q</td>
+<td>one function and one spec (bins, transform)</td>
+<td><strong>yes</strong>: interpolation space and decode order</td>
+</tr>
+<tr>
+<td>B3</td>
+<td>Percentile scale normaliser</td>
+<td>retnorm on advantages</td>
+<td>RunningScale on Q</td>
+<td>one function and one config</td>
+<td><strong>yes</strong>: clamp before or after the EMA, init 0 or 1</td>
+</tr>
+<tr>
+<td>B4</td>
+<td>NormedMLP (Linear, then Dropout, then Norm, then Act)</td>
+<td>RMSNorm + SiLU everywhere</td>
+<td>LayerNorm + Mish, dropout in Q</td>
+<td>one module</td>
+<td><strong>yes</strong>: norm eps, fast variance, output dtype</td>
+</tr>
+<tr>
+<td>B5</td>
+<td>Initialisers and output scales</td>
+<td>trunc-normal fan-in × outscale</td>
+<td>N(0, 0.02), zeroed heads</td>
+<td>one <code>scaled(init, outscale)</code> wrapper</td>
+<td><strong>yes</strong>: jax <code>truncated_normal(0.02)</code> is wrong for T2</td>
+</tr>
+<tr>
+<td>B6</td>
+<td>BlockLinear</td>
+<td>GRU core</td>
+<td>—</td>
+<td>D3 only</td>
+<td>fan-in = full width</td>
+</tr>
+<tr>
+<td>B7</td>
+<td>Grouped softmax: SimNorm vs categorical latent</td>
+<td>latent sample</td>
+<td>latent itself</td>
+<td>primitive shared, semantics not</td>
+<td><strong>yes</strong></td>
+</tr>
+<tr>
+<td>B8</td>
+<td>Unimix categorical, straight-through, KL, free bits</td>
+<td>RSSM latents (actor in paper era)</td>
+<td>—</td>
+<td>D3 only</td>
+<td>—</td>
+</tr>
+<tr>
+<td>B9</td>
+<td>Q ensemble with random-pair reduction</td>
+<td>— (single V critic)</td>
+<td>Nq = 5 Qs</td>
+<td>T2 only (generic wrapper)</td>
+<td>Ajax MultiCritic member is unusable</td>
+</tr>
+<tr>
+<td>B10</td>
+<td>EMA target / slow network</td>
+<td>slow critic, rate 0.02</td>
+<td>target Q, rate 0.01</td>
+<td>identical update</td>
+<td><strong>yes</strong>: role (regulariser vs bootstrap)</td>
+</tr>
+<tr>
+<td>B11</td>
+<td>λ-returns</td>
+<td>imagination and replay</td>
+<td>one-step TD (λ=0), planner (λ=1)</td>
+<td>one function</td>
+<td><strong>yes</strong>: Ajax PQN version casts to bool</td>
+</tr>
+<tr>
+<td>B12</td>
+<td>Gaussian policy heads and bounded std</td>
+<td>bounded_normal, not squashed</td>
+<td>tanh-squashed, log-std bounds</td>
+<td>primitives shared, heads separate</td>
+<td><strong>yes</strong>: squash, log-prob, gradient estimator</td>
+</tr>
+<tr>
+<td>B13</td>
+<td>MPPI planner</td>
+<td>—</td>
+<td>MPPI / CEM</td>
+<td>T2 only (generic)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>B14</td>
+<td>Latent rollout scan</td>
+<td>observe / imagine</td>
+<td>consistency, π-trajectories, planning</td>
+<td>one scan helper</td>
+<td>—</td>
+</tr>
+<tr>
+<td>B15</td>
+<td>RSSM block-GRU core and observe/imagine steps</td>
+<td>yes</td>
+<td>—</td>
+<td>D3 only</td>
+<td><strong>yes</strong>: Ajax MemoryCell 'gru' is a different GRU</td>
+</tr>
+<tr>
+<td>B16</td>
+<td>Bernoulli (continue / termination) head</td>
+<td>continue, soft label</td>
+<td>termination (HEAD episodic, Extension)</td>
+<td>one loss</td>
+<td>soft vs hard label</td>
+</tr>
+<tr>
+<td>B17</td>
+<td>Optimisers</td>
+<td>LaProp + per-tensor AGC + warmup, one optimiser</td>
+<td>Adam + global clip + per-group lr, two optimisers</td>
+<td>two optax chain builders, shared primitives</td>
+<td><strong>yes</strong>: optax AGC is unit-wise; Ajax Adam eps</td>
+</tr>
+<tr>
+<td>B18</td>
+<td>Sequence replay</td>
+<td>65-step windows across episodes, write-back, online queue</td>
+<td>(H+1)-row slices within episodes</td>
+<td>one per-env ring buffer with a window predicate</td>
+<td><strong>yes</strong>: action alignment and Ajax's auto-reset transitions</td>
+</tr>
+<tr>
+<td>B19</td>
+<td>Small utilities: discount from horizon, mixed precision, categorical pick</td>
+<td>γ = 1 − 1/333; bf16</td>
+<td>γ(T) heuristic; f32</td>
+<td>shared</td>
+<td>MSE losses are not shared</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="b1-symlog-symexp">B1. symlog / symexp<a class="headerlink" href="#b1-symlog-symexp" title="Permanent link">&para;</a></h2>
+<p><strong>Math.</strong>
+- symlog(x) = sign(x)·log1p(abs(x))
+- symexp(x) = sign(x)·expm1(abs(x))</p>
+<p>The two are mutual inverses, odd functions, with symlog'(0) = 1.</p>
+<p><strong>Signature.</strong> <code>symlog(x) -&gt; x</code>, <code>symexp(x) -&gt; x</code>. Elementwise, dtype-preserving, pure.</p>
+<p><strong>Variants.</strong> D3 uses log1p/expm1 (nets.py:59-64; D3§1.6). T2 uses log(1 + abs(x)) and exp(abs(x)) − 1 (math.py:42-55; T2§1.14). These agree to rounding, so use log1p/expm1.</p>
+<p><strong>False friend: what each paper symlogs.</strong>
+- D3 symlogs <strong>continuous vector observations</strong> (encoder, in f32 before the bf16 cast) and <strong>decoder targets</strong> (symlog-MSE). It also builds the two-hot bins with symexp. D3 does <strong>not</strong> symlog two-hot targets.
+- T2 symlogs <strong>only inside two-hot</strong> (reward and Q targets). It never symlogs observations or latents (T2§1.4, T2§1.14).</p>
+<p><strong>Tests.</strong>
+1. symlog([−1000, −1, −0.5, 0, 0.5, 1, 1000]) = [−6.908755, −0.6931472, −0.4054651, 0, 0.4054651, 0.6931472, 6.908755].
+2. symexp(symlog(x)) == x at rtol 1e-6 on that vector.
+3. Oddness: symlog(−x) == −symlog(x) exactly.
+4. grad(symlog)(0.0) == 1.0, and grad(symexp)(0.0) == 1.0. <strong>Wrong:</strong> at exactly 0 both references give 0 (<code>sign(0) = 0</code>); the slope is 1 only next to 0 (<code>test_symlog_gradient_matches_reference</code>).
+5. bf16 in gives bf16 out.</p>
+<hr />
+<h2 id="b2-two-hot-discrete-regression-encode-decode-soft-ce-head">B2. Two-hot discrete regression (encode, decode, soft-CE, head)<a class="headerlink" href="#b2-two-hot-discrete-regression-encode-decode-soft-ce-head" title="Permanent link">&para;</a></h2>
+<h3 id="math-generic-any-sorted-bins-b_0-b_k1">Math (generic, any sorted bins b_0 &lt; … &lt; b_{K−1})<a class="headerlink" href="#math-generic-any-sorted-bins-b_0-b_k1" title="Permanent link">&para;</a></h3>
+<p><strong>Encode</strong> a target y (after <code>transform</code>):
+- below = clip(#{b ≤ y} − 1, 0, K−1)
+- above = clip(K − #{b &gt; y}, 0, K−1)
+- If below == above, put weight 1 on that bin. This covers out-of-range targets, which go to the edge bin.
+- Otherwise: w_below = abs(b_above − y)/(b_above − b_below) and w_above = 1 − w_below.</p>
+<p>This is Dreamer's <code>TwoHot.loss</code> algorithm (outs.py:311-330). For <strong>uniformly spaced</strong> bins it equals T2's floor formula exactly: k = floor((y − vmin)/δ), o = frac, t[k] = 1 − o, t[k+1] = o (math.py:58-71). An exact bin hit puts weight 1 on that bin in both.</p>
+<p><strong>Soft-CE:</strong> −Σ_k encode(sg(y))_k · log_softmax(logits)_k. D3 writes this as logits − logsumexp; T2 as <code>F.log_softmax</code>. They are the same.</p>
+<p><strong>Decode:</strong>
+- p = softmax(logits).
+- m = (K−1)/2 (K odd).
+- E = p_m·b_m + Σ_{i&lt;m} (p_i·b_i reversed + p_{m+1+i}·b_{m+1+i}). This is the <strong>symmetric sum</strong>, which gives exactly 0 for uniform p.
+- Return inverse_transform(E).</p>
+<h3 id="signature">Signature<a class="headerlink" href="#signature" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">TwoHotSpec</span><span class="p">:</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">bins</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>           <span class="c1"># sorted, odd K, antisymmetric, bins[K//2] == 0, in INTERPOLATION space</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">transform</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;identity&quot;</span><span class="p">,</span> <span class="s2">&quot;symlog&quot;</span><span class="p">]</span>   <span class="c1"># applied to targets before encoding; inverse applied after expectation</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="k">def</span><span class="w"> </span><span class="nf">twohot_encode</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">spec</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">f32</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">K</span><span class="p">]</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="k">def</span><span class="w"> </span><span class="nf">twohot_decode</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">spec</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">f32</span><span class="p">[</span><span class="o">...</span><span class="p">]</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="k">def</span><span class="w"> </span><span class="nf">twohot_ce</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">spec</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">f32</span><span class="p">[</span><span class="o">...</span><span class="p">]</span>          <span class="c1"># target stop-gradiented inside</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="k">class</span><span class="w"> </span><span class="nc">TwoHotHead</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span> <span class="n">spec</span><span class="p">;</span> <span class="n">out_kernel_init</span> <span class="p">(</span><span class="n">zeros</span> <span class="n">by</span> <span class="n">default</span><span class="p">)</span>   <span class="c1"># Linear(K), logits in f32</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="k">def</span><span class="w"> </span><span class="nf">dreamer_twohot_spec</span><span class="p">(</span><span class="n">K</span><span class="o">=</span><span class="mi">255</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mf">20.0</span><span class="p">):</span>          <span class="c1"># half = symexp(linspace(-limit, 0, (K+1)//2)); bins = concat(half, -half[:-1][::-1])</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="k">return</span> <span class="n">TwoHotSpec</span><span class="p">(</span><span class="n">bins</span><span class="p">,</span> <span class="s2">&quot;identity&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="k">def</span><span class="w"> </span><span class="nf">tdmpc2_twohot_spec</span><span class="p">(</span><span class="n">K</span><span class="o">=</span><span class="mi">101</span><span class="p">,</span> <span class="n">vmin</span><span class="o">=-</span><span class="mf">10.0</span><span class="p">,</span> <span class="n">vmax</span><span class="o">=</span><span class="mf">10.0</span><span class="p">):</span> <span class="c1"># mirrored linspace(vmin, 0, (K+1)//2), transform symlog</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="k">return</span> <span class="n">TwoHotSpec</span><span class="p">(</span><span class="n">bins</span><span class="p">,</span> <span class="s2">&quot;symlog&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Build both bin sets <strong>by mirroring a half</strong>, so that bins[K//2] == 0 and antisymmetry hold exactly.</p>
+<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>D3 (D3§1.9, Algorithm D; heads.py:132-144; outs.py:273-330)</th>
+<th>T2 (T2§1.15-1.17; math.py:5-9, 58-83)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Bins</td>
+<td>255, symexp(linspace(−20, 20)) in <strong>raw</strong> space; range ±4.85e8</td>
+<td>101, linspace(−10, 10) in <strong>symlog</strong> space; step 0.2; raw range ±22025</td>
+</tr>
+<tr>
+<td>Target transform</td>
+<td>none (raw reward or return)</td>
+<td>symlog, then clamp to [−10, 10]</td>
+</tr>
+<tr>
+<td>Interpolation</td>
+<td>linear in <strong>raw</strong> space</td>
+<td>linear in <strong>symlog</strong> space</td>
+</tr>
+<tr>
+<td>Decode</td>
+<td>E_p[raw bins], symmetric sum</td>
+<td>symexp(E_p[symlog bins]), naive sum</td>
+</tr>
+<tr>
+<td>Head init</td>
+<td>zero kernel and bias (reward and value)</td>
+<td>zero final weight (reward and every Q member), bias 0</td>
+</tr>
+<tr>
+<td>Users</td>
+<td>reward head, critic (imagination and replay losses)</td>
+<td>reward head, Q ensemble, TD targets, planner</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Deviation:</strong> use the symmetric sum for T2 as well. In symlog space the difference from T2's naive sum is ≤ 1e-6. Mirrored bins differ from <code>torch.linspace</code> by at most 1 ulp.</p>
+<h3 id="false-friends">False friends<a class="headerlink" href="#false-friends" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Interpolation space.</strong> For y = 1.0, D3's bin pair (131, 132) = (0.8775, 1.1977) gets upper weight <strong>0.3827</strong> with raw-space interpolation. Symlog-space interpolation on the same pair would give <strong>0.4015</strong>. The targets differ even on identical bins.</li>
+<li><strong>Decode order.</strong> symexp(E[b]) ≠ E[symexp(b)]. Do not "simplify" one into the other.</li>
+<li><strong>Range.</strong> T2 saturates at abs(y) ≈ 22025. That is harmless for DMC (abs(Q) ≤ 200 at γ = 0.99), but not for large-return tasks.</li>
+<li><strong>K must be ≥ 2.</strong> T2's num_bins ∈ {0, 1} modes are broken (T2§1.18), so do not port them.</li>
+</ol>
+<h3 id="tests-pinned">Tests (pinned)<a class="headerlink" href="#tests-pinned" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>D3 bins:</strong></li>
+<li>len 255; b[127] == 0.0 exactly; b[128] = 0.17055759; b[0] = −b[254] = −4.8516518e8.</li>
+<li>b == −b[::-1] exactly.</li>
+<li>abs(b − symexp(linspace(−20, 20, 255))) / max(1, abs(b)) ≤ 2e-6.</li>
+<li><strong>D3 encode:</strong></li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>y</th>
+<th>indices</th>
+<th>weights</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.0</td>
+<td>(131, 132)</td>
+<td>(0.61732966, 0.38267030)</td>
+</tr>
+<tr>
+<td>−3.7</td>
+<td>(117, 118)</td>
+<td>(0.81556690, 0.18443313)</td>
+</tr>
+<tr>
+<td>0.0</td>
+<td>127</td>
+<td>1</td>
+</tr>
+<tr>
+<td>1e10</td>
+<td>254</td>
+<td>1</td>
+</tr>
+<tr>
+<td>−1e10</td>
+<td>0</td>
+<td>1</td>
+</tr>
+<tr>
+<td>b[130] = 0.60390407</td>
+<td>130</td>
+<td>1</td>
+</tr>
+</tbody>
+</table>
+<ol>
+<li><strong>T2 encode:</strong></li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>y</th>
+<th>indices</th>
+<th>weights</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.0</td>
+<td>(53, 54)</td>
+<td>(0.5342636, 0.4657364)</td>
+</tr>
+<tr>
+<td>−3.7</td>
+<td>(42, 43)</td>
+<td>(0.73781204, 0.26218796)</td>
+</tr>
+<tr>
+<td>0</td>
+<td>50</td>
+<td>1</td>
+</tr>
+<tr>
+<td>±1e10</td>
+<td>100 / 0</td>
+<td>1</td>
+</tr>
+<tr>
+<td>22025</td>
+<td>(99, 100)</td>
+<td>(1.068e-4, 0.99989)</td>
+</tr>
+</tbody>
+</table>
+<p>The generic encoder must match T2's floor formula to atol 1e-6 on 10⁴ random y in [−3e4, 3e4].
+4. <strong>Soft-CE at uniform logits</strong> = log K for any y: 5.5412636 (K = 255) and 4.6151205 (K = 101).
+5. <strong>Soft-CE with logits = linspace(−1, 1, K), y = 1.0:</strong> D3 5.669425; T2 4.710373.
+6. <strong>Decode of uniform logits:</strong>
+   - D3 gives 0.0 <strong>exactly</strong>. Regression guard: the naive left-to-right sum gives <strong>2.0</strong> in f32 on D3 bins.
+   - T2 gives abs ≤ 1e-6.
+7. <strong>Decode of linspace(−1, 1, K):</strong> D3 2.4558884e7 (rtol 1e-5); T2 23.267637.
+8. <strong>Round trip:</strong> decode(log(encode(y))) == y for y ∈ {1, −3.7, 123.4} in both specs (rtol 1e-6).
+9. <strong>Gradients:</strong> grad of CE w.r.t. logits = softmax − target (sums to 0). No gradient reaches y.
+10. <strong>Head at init:</strong> zero output layer gives decode == 0 for any input in both specs.</p>
+<hr />
+<h2 id="b3-percentile-scale-normaliser-d3-retnorm-vs-t2-runningscale">B3. Percentile scale normaliser (D3 retnorm vs T2 RunningScale)<a class="headerlink" href="#b3-percentile-scale-normaliser-d3-retnorm-vs-t2-runningscale" title="Permanent link">&para;</a></h2>
+<h3 id="math-unified">Math (unified)<a class="headerlink" href="#math-unified" title="Permanent link">&para;</a></h3>
+<p>r ← (1 − τ)·r + τ·g(P_hi(x) − P_lo(x)), then S = max(floor, r). Here:</p>
+<ul>
+<li>P is <code>jnp.percentile(method="linear")</code> over <strong>all</strong> elements of sg(f32(x)).</li>
+<li>The update happens <strong>before</strong> the read, so the current batch already counts.</li>
+<li>There is no debias.</li>
+</ul>
+<h3 id="signature_1">Signature<a class="headerlink" href="#signature_1" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">PercentileScaleConfig</span><span class="p">:</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">rate</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">;</span> <span class="n">lo</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">5.0</span><span class="p">;</span> <span class="n">hi</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">95.0</span><span class="p">;</span> <span class="n">floor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">clamp_before_ema</span><span class="p">:</span> <span class="nb">bool</span>          <span class="c1"># g = max(floor, .) if True else identity</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">init</span><span class="p">:</span> <span class="nb">float</span>                      <span class="c1"># initial r</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="nd">@struct</span><span class="o">.</span><span class="n">dataclass</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="k">class</span><span class="w"> </span><span class="nc">PercentileScaleState</span><span class="p">:</span> <span class="n">r</span><span class="p">:</span> <span class="n">f32</span><span class="p">[]</span>   <span class="c1"># (+ optional lo/hi EMAs for logging only)</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="k">def</span><span class="w"> </span><span class="nf">percentile_scale_update</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">cfg</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">state</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="k">def</span><span class="w"> </span><span class="nf">percentile_scale</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">cfg</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">f32</span><span class="p">[]</span>       <span class="c1"># max(floor, r)</span>
+</code></pre></div>
+<h3 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>D3 retnorm (D3§3.8; utils.py:16-91, impl 'perc', debias False, limit 1.0)</th>
+<th>T2 RunningScale (T2§2.13; scale.py:5-47)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Config</td>
+<td><code>clamp_before_ema=False, init=0.0</code></td>
+<td><code>clamp_before_ema=True, init=1.0</code></td>
+</tr>
+<tr>
+<td>Data x</td>
+<td>all imagined λ-returns R, flattened (B·K·H = 15360)</td>
+<td>Qp[0] of shape (B, 1): t = 0 policy-loss Q values (decoded, 2-head avg)</td>
+</tr>
+<tr>
+<td>Applied to</td>
+<td>advantage (R − v)/S; offset lo <strong>not</strong> subtracted</td>
+<td>Q/S for all H+1 steps in the policy loss</td>
+</tr>
+<tr>
+<td>When updated</td>
+<td>training pass only (not report/eval)</td>
+<td>every policy update</td>
+</tr>
+<tr>
+<td>State</td>
+<td>lo and hi EMAs kept separately. Because the EMA is linear and both start at 0, this is exactly the EMA of hi − lo.</td>
+<td>scalar <code>value</code></td>
+</tr>
+<tr>
+<td>Checkpointed</td>
+<td>yes (ninjax variable)</td>
+<td><strong>no</strong> (resets to 1 on reload)</td>
+</tr>
+</tbody>
+</table>
+<p>The torch <code>_positions</code> formula equals <code>jnp.percentile</code> 'linear'. For B = 256, the positions are 12.75 and 242.25.</p>
+<h3 id="false-friend">False friend<a class="headerlink" href="#false-friend" title="Permanent link">&para;</a></h3>
+<p>The papers describe the same thing ("EMA of the 5 to 95 percentile range, floored at 1"). The configurations still differ:</p>
+<ul>
+<li>T2 clamps <strong>before</strong> the EMA; D3 clamps <strong>after</strong>.</li>
+<li>D3 starts at 0; T2 starts at 1.</li>
+<li>They normalise different quantities over different data.</li>
+</ul>
+<p><strong>Tests (pinned).</strong> Feed batches x_i = arange(256)·s, with s ∈ {0.001, 0.01, 1, 10}. The 5-95 ranges are 0.2295, 2.295, 229.5 and 2295.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>after batch 1</th>
+<th>after batch 2</th>
+<th>after batch 3</th>
+<th>after batch 4</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D3 S</td>
+<td>1.0</td>
+<td>1.0</td>
+<td>2.3199697</td>
+<td>25.246771</td>
+</tr>
+<tr>
+<td>T2 S</td>
+<td>1.0</td>
+<td>1.01295</td>
+<td>3.2978203</td>
+<td>26.214842</td>
+</tr>
+</tbody>
+</table>
+<p>Also, after batch 4 the D3 lo/hi EMAs are 1.4025983 and 26.649368.</p>
+<table>
+<thead>
+<tr>
+<th>Further case</th>
+<th>D3 S</th>
+<th>T2 S</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Constant range 50, after 100 updates</td>
+<td>31.698427</td>
+<td>32.064415</td>
+</tr>
+<tr>
+<td>Ranges alternating 0 and 3, after 2000 updates</td>
+<td>1.50753</td>
+<td>2.00502</td>
+</tr>
+</tbody>
+</table>
+<p>The alternating case pins down clamp-before vs clamp-after.</p>
+<p>Two more checks:
+- No gradient flows through S or the state.
+- The single-scalar r form equals D3's two-EMA form to rtol 1e-6.</p>
+<hr />
+<h2 id="b4-normedmlp-linear-then-dropout-then-norm-then-act-plus-an-optional-output-layer">B4. NormedMLP (Linear, then Dropout, then Norm, then Act, plus an optional output layer)<a class="headerlink" href="#b4-normedmlp-linear-then-dropout-then-norm-then-act-plus-an-optional-output-layer" title="Permanent link">&para;</a></h2>
+<h3 id="math-per-hidden-layer-i">Math (per hidden layer i)<a class="headerlink" href="#math-per-hidden-layer-i" title="Permanent link">&para;</a></h3>
+<p>h ← act(Norm(Dropout_{p·[i==0]}(h W_i + b_i))). The bias is <strong>always</strong> present. Dropout is the inverted kind and is active only when not deterministic.</p>
+<p><strong>Output layer</strong>, one of:
+- none (the trunk output is the result);
+- plain Linear;
+- Linear, then Norm, then <code>out_act</code> (T2's encoder and dynamics end with LayerNorm then SimNorm).</p>
+<h3 id="signature_2">Signature<a class="headerlink" href="#signature_2" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">NormedMLP</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">hidden</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">out</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>       <span class="c1"># None -&gt; no output layer (D3 encoder tokens)</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">out_norm_act</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span> <span class="c1"># None -&gt; plain Linear output; e.g. simnorm -&gt; Linear-&gt;Norm-&gt;SimNorm</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">norm</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;rms&quot;</span><span class="p">,</span> <span class="s2">&quot;layer&quot;</span><span class="p">,</span> <span class="s2">&quot;none&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;rms&quot;</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">norm_eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-4</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">act</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">silu</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="n">dropout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>                 <span class="c1"># first hidden layer only</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="n">kernel_init</span><span class="p">:</span> <span class="n">Initializer</span> <span class="o">=</span> <span class="n">dreamer_trunc_normal</span><span class="p">()</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="n">out_kernel_init</span><span class="p">:</span> <span class="n">Initializer</span> <span class="o">=</span> <span class="n">dreamer_trunc_normal</span><span class="p">(</span><span class="n">outscale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>    <span class="n">dtype</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">float32</span>             <span class="c1"># compute dtype (bf16 for D3 on GPU)</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>    <span class="nd">@nn</span><span class="o">.</span><span class="n">compact</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">deterministic</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">):</span> <span class="o">...</span>
+</code></pre></div>
+<h3 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>D3</strong> (D3§1.1-1.4; nets.py:230-251, 361-409, 565-587):</li>
+<li><code>norm="rms", norm_eps=1e-4, act=silu, dropout=0</code>.</li>
+<li>RMSNorm: f32 statistics, learnable scale only (no shift), output cast back to the compute dtype.</li>
+<li>Flax mapping: <code>nn.RMSNorm(epsilon=1e-4, dtype=compute_dtype)</code>. Verified <strong>0.0</strong> max abs difference from the D3 formula in both f32 and bf16.</li>
+<li>The input is cast to the compute dtype, and leading dims are flattened, then restored.</li>
+<li>Heads apply <code>outscale</code> to the output layer only.</li>
+<li><strong>T2</strong> (T2§1.1-1.2; layers.py:94-133):</li>
+<li><code>norm="layer", norm_eps=1e-5, act=jax.nn.mish</code>.</li>
+<li><code>dropout=0.01</code> only for Q members, on the first layer only.</li>
+<li>Flax mapping: <code>nn.LayerNorm(epsilon=1e-5, use_fast_variance=False)</code>, with learnable γ and β.</li>
+<li>The output layer is plain Linear for reward, Q and π, and Linear → LN → SimNorm for the encoder and dynamics.</li>
+</ul>
+<p><strong>Configurations used</strong> (d = 256 at D3 12M; mlp = 512, enc = 256 and L = 512 at T2 5M):</p>
+<table>
+<thead>
+<tr>
+<th>Network</th>
+<th>hidden</th>
+<th>out</th>
+<th>other</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D3 encoder</td>
+<td>[d]×3</td>
+<td>None</td>
+<td>—</td>
+</tr>
+<tr>
+<td>D3 reward / continue head</td>
+<td>[d]×1</td>
+<td>head</td>
+<td>—</td>
+</tr>
+<tr>
+<td>D3 policy / value</td>
+<td>[d]×3</td>
+<td>head</td>
+<td>—</td>
+</tr>
+<tr>
+<td>D3 decoder</td>
+<td>[d]×3</td>
+<td>per-key heads</td>
+<td>—</td>
+</tr>
+<tr>
+<td>D3 RSSM prior</td>
+<td>[d]×2</td>
+<td>S·C</td>
+<td>—</td>
+</tr>
+<tr>
+<td>D3 RSSM posterior</td>
+<td>[d]×1</td>
+<td>S·C</td>
+<td>—</td>
+</tr>
+<tr>
+<td>T2 encoder</td>
+<td>[enc]×max(n−1, 1)</td>
+<td>L</td>
+<td>out_norm_act = simnorm</td>
+</tr>
+<tr>
+<td>T2 dynamics</td>
+<td>[mlp]×2</td>
+<td>L</td>
+<td>out_norm_act = simnorm</td>
+</tr>
+<tr>
+<td>T2 reward / Q</td>
+<td>[mlp]×2</td>
+<td>101</td>
+<td>Q: dropout 0.01</td>
+</tr>
+<tr>
+<td>T2 π</td>
+<td>[mlp]×2</td>
+<td>2A</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h3 id="false-friends_1">False friends<a class="headerlink" href="#false-friends_1" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Flax defaults are wrong for both papers.</strong></li>
+<li><code>nn.LayerNorm</code> defaults to eps 1e-6 with fast variance E[x²] − E[x]². With mean-1000 inputs that gives a max error of <strong>2.2e-2</strong>, against 3.9e-5 with <code>use_fast_variance=False</code>.</li>
+<li><code>nn.RMSNorm</code> defaults to eps 1e-6, and with <code>dtype=None</code> a bf16 input gives an <strong>f32</strong> output.</li>
+<li><strong>D3 has no shift on RMSNorm.</strong> Do not use LayerNorm with eps 1e-4 for D3. The D3 'layer' implementation exists in the code but is unused.</li>
+<li><strong>Dropout sits before the norm in T2.</strong> It is not after the activation.</li>
+<li><strong>Ajax's existing <code>Encoder</code> and <code>parse_architecture</code></strong> add an optional output LayerNorm or L2 norm and use an orthogonal init. Neither paper does this, so do not reuse them.</li>
+</ol>
+<h3 id="tests-pinned_1">Tests (pinned)<a class="headerlink" href="#tests-pinned_1" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Values of the norms and activations:</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Expression</th>
+<th>Expected</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RMSNorm([1, 2, 3, 4]), eps 1e-4</td>
+<td>[0.36514595, 0.7302919, 1.0954379, 1.4605838]</td>
+</tr>
+<tr>
+<td>LayerNorm([1, 2, 3, 4]), eps 1e-5</td>
+<td>[−1.3416355, −0.44721183, 0.44721183, 1.3416355]</td>
+</tr>
+<tr>
+<td>silu(1), silu(−1)</td>
+<td>0.7310586, −0.2689414</td>
+</tr>
+<tr>
+<td>mish(1), mish(−1)</td>
+<td>0.8650984, −0.3034015</td>
+</tr>
+</tbody>
+</table>
+<p>For comparison, flax's default eps 1e-6 gives LayerNorm([1, 2, 3, 4]) = −1.3416403 in the first entry (test the configured eps). <code>jax.nn.mish</code> exists.
+2. <strong>Parameter counts:</strong>
+   - T2: NormedLinear(i, o) has i·o + 3o parameters.
+   - T2 ST walker (S = 24, A = 6): encoder 139,520; dynamics 794,112; reward 582,245; π 533,516; Q (5 members) 2,911,225; total <strong>4,960,618</strong>.
+   - T2 MT reference: total <strong>5,389,930</strong> (T2§1.24).
+   - D3: an RMS layer has i·o + 2o parameters.
+3. <strong>Order test.</strong> With <code>dropout &gt; 0</code> and <code>deterministic=False</code>, each LN output row still has mean ≈ 0 and variance ≈ 1 (dropout comes before the norm). With <code>deterministic=True</code>, the output equals the dropout-0 module.
+4. <strong>Layout.</strong> A D3 MLP on input (B, T, F) equals the same MLP on the flattened (B·T, F) input, reshaped back.</p>
+<hr />
+<h2 id="b5-initialisers-and-output-scales">B5. Initialisers and output scales<a class="headerlink" href="#b5-initialisers-and-output-scales" title="Permanent link">&para;</a></h2>
+<h3 id="math-and-signature">Math and signature<a class="headerlink" href="#math-and-signature" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">dreamer_trunc_normal</span><span class="p">(</span><span class="n">outscale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">):</span>   <span class="c1"># W = outscale * 1.1368 * sqrt(1/fan_in) * TruncNormal(-2, 2) (unit sigma), f32</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">normal_init</span><span class="p">(</span><span class="n">std</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span> <span class="n">outscale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>   <span class="c1"># T2: W = outscale * N(0, std^2)</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="c1"># fan_in: rank2 (in,out) -&gt; in;  rank&gt;=3 -&gt; shape[-2]*prod(shape[:-2])  (D3 compute_fans == flax variance_scaling in_axis=-2)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># biases: zeros (both); norm scale: ones (both); LN shift: zeros (T2); T2 task embedding: U(-0.02, 0.02) (Ajax uniform_init)</span>
+</code></pre></div>
+<h3 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>D3</strong> (D3§1.5; nets.py:144-197): trunc-normal fan-in for every Linear, BlockLinear and Conv. Output outscales:</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Output layer</th>
+<th>outscale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>reward</td>
+<td><strong>0</strong></td>
+</tr>
+<tr>
+<td>value</td>
+<td><strong>0</strong></td>
+</tr>
+<tr>
+<td>policy (mean, std or logits)</td>
+<td>0.01</td>
+</tr>
+<tr>
+<td>continue</td>
+<td>1</td>
+</tr>
+<tr>
+<td>RSSM logits</td>
+<td>1</td>
+</tr>
+<tr>
+<td>decoder</td>
+<td>1 at HEAD; 0.1 at 2411f7d</td>
+</tr>
+</tbody>
+</table>
+<p>The slow critic starts as an exact copy of the critic.
+- <strong>T2</strong> (T2§1.13; init.py):
+  - N(0, 0.02) for all Linears. Torch <code>trunc_normal_(std=.02, a=-2, b=2)</code> has <strong>absolute</strong> bounds of ±100σ, so it is effectively untruncated.
+  - Zero <strong>final weight</strong> for the reward head and for <strong>every</strong> Q member.
+  - π, encoder, dynamics and termination heads are not zeroed.
+  - Each Q member gets its own key.
+  - The target Q is cloned <strong>after</strong> the zeroing.</p>
+<h3 id="false-friends_2">False friends<a class="headerlink" href="#false-friends_2" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong><code>jax.nn.initializers.truncated_normal(0.02)</code> is wrong for T2.</strong> It truncates at ±2σ = ±0.04 with no std correction (std <strong>0.0176</strong> in jax 0.7.2). Use <code>normal(0.02)</code>, which gives std 0.02.</li>
+<li><strong><code>flax lecun_normal</code> is D3's distribution up to a constant.</strong> Flax's 1/0.87962566 = 1.1368472 differs from D3's literal 1.1368 by 4.2e-5 relative (max abs difference 5.9e-6 at the same key). Use a 3-line custom initialiser with the literal constant so parity tests are exact. (Not built: Ajax uses flax's constant, D23.)</li>
+<li><strong>Ajax <code>parse_layer</code> defaults to orthogonal(1.0).</strong> Neither paper uses it.</li>
+</ol>
+<h3 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h3>
+<ol>
+<li><code>dreamer_trunc_normal()(k, (256, 512))</code> == <code>jax.random.truncated_normal(k, -2, 2, (256, 512)) * 1.1368 * sqrt(1/256)</code> exactly. Its std ≈ 0.0625.</li>
+<li>BlockLinear kernel (8, 1024, 256): fan_in = 8192 and std ≈ 0.011048.</li>
+<li><code>normal_init(0.02)</code> has std ≈ 0.0200 and samples beyond ±0.04 exist.</li>
+<li>The zeroed heads have all-zero kernel and bias. Every two-hot head then decodes to 0.</li>
+<li>Ensemble members differ pairwise. Target and slow trees equal the online trees bitwise at init.</li>
+</ol>
+<hr />
+<h2 id="b6-blocklinear-d3-only">B6. BlockLinear (D3 only)<a class="headerlink" href="#b6-blocklinear-d3-only" title="Permanent link">&para;</a></h2>
+<p><strong>Math.</strong> Kernel W has shape (g, I/g, U/g) and the bias has shape (U,). The output is y = einsum('...ki,kio-&gt;...ko', x.reshape(..., g, I/g), W).reshape(..., U) + b. Init fan_in = I, the full width (B5). Used in the GRU core: <code>dynhid0</code> with U = D and <code>dyngru</code> with U = 3D (D§2.4).</p>
+<p><strong>Signature.</strong> <code>BlockLinear(features: int, blocks: int)</code> (agent-local in <code>agents/DreamerV3/networks.py</code>, <code>DESIGN.md</code> §3). The kernel init is fixed to B5's fan-in truncated normal at outscale 1: the reference's RSSM builds <code>dyn0</code> and <code>dyncore</code> with BlockLinear's default outscale (29eb964 <code>nets.py:161-166</code>), and its only other BlockLinear, the image decoder's <code>space0</code>, is out of scope. f32 only (D4).</p>
+<p><strong>Tests.</strong>
+1. The Jacobian block (output k, input j) is zero for j ≠ k.
+2. The result equals a dense layer with a block-diagonal kernel.
+3. 12M shapes: dynhid (8, 1024, 256); dyngru (8, 256, 768).
+4. Init std as in B5.</p>
+<hr />
+<h2 id="b7-grouped-softmax-simnorm-t2-vs-categorical-latents-d3-a-false-friend">B7. Grouped softmax: SimNorm (T2) vs categorical latents (D3), a false friend<a class="headerlink" href="#b7-grouped-softmax-simnorm-t2-vs-categorical-latents-d3-a-false-friend" title="Permanent link">&para;</a></h2>
+<p><strong>Shared primitive.</strong> <code>grouped_softmax(x, group) = softmax(x.reshape(..., D/group, group), -1).reshape(..., D)</code>.</p>
+<ul>
+<li><strong>T2 SimNorm</strong> (T2§1.3; layers.py:74-91): group V = 8, τ = 1, deterministic. Placed after the LayerNorm at the end of the encoder and the dynamics. The <strong>probabilities are the latent</strong>: there is no sampling and no unimix. Paper Eq. 5 divides by τ, while the App. H prose describes the opposite. If τ is exposed, use Eq. 5.</li>
+<li><strong>D3 latent</strong> (D3§1.8): logits are reshaped to (S = 32, C = d/16). The probabilities get <strong>1% unimix</strong>, and the latent is a <strong>sampled one-hot</strong> with straight-through gradients (B8).</li>
+</ul>
+<p>They share the reshape and softmax and nothing else. Do not build D3 latents on SimNorm.</p>
+<p><strong>Tests.</strong>
+1. simnorm(arange(16)/4, V = 8) gives the same 8-vector in each group: [0.04445499, 0.05708134, 0.07329389, 0.09411121, 0.12084118, 0.15516315, 0.19923344, 0.2558208].
+2. Each group sums to 1.
+3. The output is invariant to adding a constant per group.</p>
+<hr />
+<h2 id="b8-unimix-categorical-straight-through-sample-kl-and-free-bits-d3-only">B8. Unimix categorical, straight-through sample, KL and free bits (D3 only)<a class="headerlink" href="#b8-unimix-categorical-straight-through-sample-kl-and-free-bits-d3-only" title="Permanent link">&para;</a></h2>
+<h3 id="math-d318-214-outspy208-270">Math (D3§1.8, §2.14; outs.py:208-270)<a class="headerlink" href="#math-d318-214-outspy208-270" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Unimix:</strong> p = (1 − u)·softmax(l) + u/C, and l' = log p, with u = 0.01.</li>
+<li><strong>Sample:</strong> idx ~ Cat(l'). The value is sg(onehot(idx)) + p − sg(p), so the gradient flows through the <strong>mixed</strong> p.</li>
+<li><strong>KL(P‖Q)</strong> = Σ_C softmax(l'_P)·(log_softmax(l'_P) − log_softmax(l'_Q)), summed over the S latents.</li>
+<li><strong>Unimix is re-applied after any sg.</strong> Store raw logits.</li>
+<li><strong>Free bits:</strong> max(KL_summed_over_S, 1.0) per (b, t).</li>
+<li>dyn = KL(sg(post) ‖ prior) and rep = KL(post ‖ sg(prior)).</li>
+</ul>
+<h3 id="signature_3">Signature<a class="headerlink" href="#signature_3" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">unimix_logits</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">unimix</span><span class="o">=</span><span class="mf">0.01</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">logits</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">onehot_st_sample</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">logits</span><span class="p">,</span> <span class="n">unimix</span><span class="o">=</span><span class="mf">0.01</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">f32</span> <span class="n">one</span><span class="o">-</span><span class="n">hot</span> <span class="n">w</span><span class="o">/</span> <span class="n">ST</span> <span class="n">grads</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">categorical_kl</span><span class="p">(</span><span class="n">logits_p</span><span class="p">,</span> <span class="n">logits_q</span><span class="p">,</span> <span class="n">unimix</span><span class="o">=</span><span class="mf">0.01</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">per</span><span class="o">-</span><span class="n">latent</span> <span class="n">KL</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="k">def</span><span class="w"> </span><span class="nf">categorical_entropy</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">unimix</span><span class="o">=</span><span class="mf">0.01</span><span class="p">)</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="k">def</span><span class="w"> </span><span class="nf">free_bits</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">nats</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">nats</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Discrete actor.</strong> The paper and 2411f7d use 1% unimix. HEAD's 'categorical' head uses <strong>none</strong> (D3§3.14, OQ 5). Expose <code>unimix</code> as a head option.</li>
+<li><strong>T2:</strong> not used.</li>
+</ul>
+<h3 id="tests-pinned_2">Tests (pinned)<a class="headerlink" href="#tests-pinned_2" title="Permanent link">&para;</a></h3>
+<ol>
+<li>unimix probs of [10, 0, 0, 0] = [0.9923651, 0.00254494, 0.00254494, 0.00254494]. Uniform logits stay uniform.</li>
+<li><strong>KL with S = 2, C = 4:</strong></li>
+<li>post = [[2, 0, 0, 0], [0, 1, 0, 0]] and prior = zeros give Σ KL = <strong>0.5745868</strong>. Free bits give 1.0, with <strong>zero gradient</strong>.</li>
+<li>post = [[8, 0, 0, 0], [0, 8, 0, 0]] gives 2.6559892, and the gradient passes.</li>
+<li>The straight-through value is exactly one-hot.</li>
+<li>d sample[0] / d logits at logits [10, 0, 0, 0] (unimix) = [1.3480149e-4, −4.4933695e-5, −4.4933695e-5, −4.4933695e-5]. This is the Jacobian of the <strong>mixed</strong> softmax.</li>
+<li><strong>Stop-gradient placement:</strong> grad of dyn w.r.t. post logits is 0, and grad of rep w.r.t. prior logits is 0.</li>
+</ol>
+<hr />
+<h2 id="b9-q-ensemble-with-random-pair-reduction-t2-only-d3-has-a-single-v-critic-plus-a-slow-copy">B9. Q ensemble with random-pair reduction (T2 only; D3 has a single V critic plus a slow copy)<a class="headerlink" href="#b9-q-ensemble-with-random-pair-reduction-t2-only-d3-has-a-single-v-critic-plus-a-slow-copy" title="Permanent link">&para;</a></h2>
+<h3 id="math-t2110-112-314-world_modelpy186-216">Math (T2§1.10-1.12, §3.14; world_model.py:186-216)<a class="headerlink" href="#math-t2110-112-314-world_modelpy186-216" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Nq members (5 by default; 2 at 1M; 8 at 317M). Each member is NormedMLP([512, 512], 101, dropout = 0.01).</li>
+<li>The members are vmapped over stacked params with the input broadcast, and each member gets its <strong>own dropout mask</strong>.</li>
+<li><strong>'all'</strong> returns logits of shape (Nq, ..., K).</li>
+<li><strong>'min' / 'avg':</strong> one <code>permutation(Nq)[:2]</code> per <strong>call</strong>, shared across the whole batch and horizon. Decode each head (B2), then take the min or the mean of the <strong>decoded scalars</strong>.</li>
+</ul>
+<h3 id="signature_4">Signature<a class="headerlink" href="#signature_4" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">Ensemble</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    <span class="n">member</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">];</span> <span class="n">num</span><span class="p">:</span> <span class="nb">int</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="c1"># nn.vmap(member_cls, in_axes=None, out_axes=0, variable_axes={&quot;params&quot;: 0},</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="c1">#         split_rngs={&quot;params&quot;: True, &quot;dropout&quot;: True}, axis_size=num)</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="k">def</span><span class="w"> </span><span class="nf">random_pair</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">num</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">idx</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>                  <span class="c1"># jax.random.permutation(key, num)[:2]</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="k">def</span><span class="w"> </span><span class="nf">reduce_pair</span><span class="p">(</span><span class="n">q_scalars</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">how</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;min&quot;</span><span class="p">,</span> <span class="s2">&quot;avg&quot;</span><span class="p">])</span>
+</code></pre></div>
+<p><strong>Usage map:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Use</th>
+<th>Network</th>
+<th>Reduction</th>
+<th>Dropout</th>
+<th>Gradient</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TD target</td>
+<td>target params</td>
+<td>'min'</td>
+<td>on (PE, found by running 5f6fade: <code>deviations.md</code> §2)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Value loss</td>
+<td>online params</td>
+<td>'all'</td>
+<td>on</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Policy loss</td>
+<td>sg(online params, post-step)</td>
+<td>'avg'</td>
+<td>on</td>
+<td>flows w.r.t. the action</td>
+</tr>
+<tr>
+<td>Planner terminal value</td>
+<td>online params</td>
+<td>'avg'</td>
+<td>on (PE, as above)</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h3 id="false-friends_3">False friends<a class="headerlink" href="#false-friends_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Ajax <code>networks.MultiCritic</code>.</strong> Its nn.vmap pattern is reusable, but <code>split_rngs</code> lacks <code>"dropout"</code>, so the members would share one mask. Its member is Ajax's <code>Critic</code>, which has its own Encoder (with an optional LayerNorm output). Write a fresh member.</li>
+<li><strong>Reduction order.</strong> Reduce <strong>decoded scalars</strong>, not logits or probabilities.</li>
+</ul>
+<h3 id="tests_1">Tests<a class="headerlink" href="#tests_1" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Members have distinct params, and each member is initialised from its own key.</li>
+<li>With identical inputs and <code>deterministic=False</code>, the dropout masks differ across members.</li>
+<li>With a zero final layer, all decoded Qs are 0 at init.</li>
+<li><code>random_pair</code> always returns 2 distinct indices. With Nq = 2 it returns {0, 1}.</li>
+<li>The same pair is used for every batch element.</li>
+<li>'min' of the decoded pair differs from decode(mean of logits) on a crafted example.</li>
+<li>Parameter count: 2,911,225 (5 members, walker).</li>
+</ol>
+<hr />
+<h2 id="b10-ema-target-slow-network">B10. EMA target / slow network<a class="headerlink" href="#b10-ema-target-slow-network" title="Permanent link">&para;</a></h2>
+<p><strong>Math.</strong> θ_tgt ← rate·θ + (1 − rate)·θ_tgt over <strong>all</strong> leaves, including norm scales and biases. Initialise with an exact copy.</p>
+<p><strong>Signature.</strong> <code>ema_update(target, online, rate) = optax.incremental_update(online, target, rate)</code>. This is Ajax's existing <code>LoadedTrainState.soft_update</code>; reuse it.</p>
+<h3 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>D3 slow critic (D3§3.18)</th>
+<th>T2 target Q (T2§2.15)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Rate</td>
+<td>0.02 (every 1 step)</td>
+<td>0.01</td>
+</tr>
+<tr>
+<td>When</td>
+<td>after the single optimiser step</td>
+<td>after <strong>both</strong> the world-model and π steps</td>
+</tr>
+<tr>
+<td>Role</td>
+<td>only a regularisation target: two-hot CE toward its <strong>scalar mean</strong>, weight 1.0. <strong>Never</strong> used for bootstrap or baseline (slowtar = False).</td>
+<td>TD bootstrap (min of 2). No target for the encoder, dynamics or π.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>False friend: the role.</strong> A "target critic" in D3 must <strong>not</strong> feed the λ-return.</p>
+<p><strong>Tests.</strong>
+1. Target 0 and online 1 give 0.02 (D3) and 0.01 (T2) after one step.
+2. At init the trees are identical.
+3. Leaf coverage includes LayerNorm γ and β.
+4. The target receives no gradient.</p>
+<hr />
+<h2 id="b11-returns">B11. λ-returns<a class="headerlink" href="#b11-returns" title="Permanent link">&para;</a></h2>
+<h3 id="math-time-major-rlax-convention">Math (time-major, rlax convention)<a class="headerlink" href="#math-time-major-rlax-convention" title="Permanent link">&para;</a></h3>
+<p>Index t is the transition t → t+1:
+- G_{T−1} = r_{T−1} + d_{T−1}·v_{T−1}
+- G_t = r_t + d_t·[(1 − λ_t)·v_t + λ_t·G_{t+1}]</p>
+<p>Here v_t = V(s_{t+1}) is the bootstrap at the <strong>arrival</strong> state, d_t is the per-step discount times continuation (soft allowed), and λ_t is the per-step λ times "not cut".</p>
+<p><strong>Signature.</strong> <code>lambda_returns(rew, disc, boot, lam) -&gt; G</code> with all inputs [T, ...] f32, as a reverse <code>lax.scan</code> with carry init boot[−1]. lam may be a scalar or [T, ...].</p>
+<h3 id="mapping-from-d3s-lambda_return-agentpy480-488">Mapping from D3's lambda_return (agent.py:480-488)<a class="headerlink" href="#mapping-from-d3s-lambda_return-agentpy480-488" title="Permanent link">&para;</a></h3>
+<p>D3's arrays have length L and the outputs are R_0..R_{L−2}. Set:
+- rew_t := rew[t+1]
+- disc_t := disc·(1 − term[t+1])
+- lam_t := λ·(1 − last[t+1])
+- boot_t := boot[t+1]</p>
+<p><strong>Uses:</strong>
+- <strong>D3 imagination:</strong> disc = 1 (contdisc), term = 1 − ĉ (soft), last = 0, boot = online v, λ = 0.95.
+- <strong>D3 replay:</strong> disc = 1 − 1/333, term/last = the replay flags, boot = imag R_0 reshaped to (B, K).
+- <strong>T2 one-step TD target:</strong> y = r + γ(1 − term)·Q̄min(h(s')). This is λ = 0 with T = 1. The bootstrap state is the <strong>encoded</strong> next obs (T2§2.3).
+- <strong>T2 planner value:</strong> Σ γ^t r̂_t + γ^H·Q_avg. This is λ = 1 with disc = γ.</p>
+<p>Both T2 uses are degenerate cases. Use the block or inline them; neither needs it.</p>
+<h3 id="false-friends_4">False friends<a class="headerlink" href="#false-friends_4" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>D3 indexing.</strong> Step t uses r̂, ĉ and v of the <strong>next</strong> state, and the continuation weight w_t = Π_{i≤t} ĉ_i includes ĉ_0. The weight is computed outside this block.</li>
+<li><strong>Ajax PQN <code>compute_q_lambda_targets</code></strong> has the same recursion, but it casts done flags to <strong>bool</strong>, which breaks the soft ĉ. It also takes terminated and truncated separately. Do not reuse it for D3 as is.</li>
+</ol>
+<h3 id="tests-pinned-d3-indexing">Tests (pinned, D3 indexing)<a class="headerlink" href="#tests-pinned-d3-indexing" title="Permanent link">&para;</a></h3>
+<p>Inputs: L = 5, rew = [0, 1, 2, 3, 4], boot = [10, 20, 30, 40, 50].</p>
+<table>
+<thead>
+<tr>
+<th>Case</th>
+<th>Expected R_0..R_3</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>λ = 0.95, disc = 0.99</td>
+<td>[54.179844, 55.491592, 55.29675, 53.5]</td>
+</tr>
+<tr>
+<td>term at index 2</td>
+<td>[3.8710003, 2.0, 55.29675, 53.5]</td>
+</tr>
+<tr>
+<td>last (truncation) at index 2</td>
+<td>[31.803852, 31.7, 55.29675, 53.5]</td>
+</tr>
+<tr>
+<td>soft ĉ = [.997, .997, .5, .997, .997], disc = 1</td>
+<td>[29.794964, 29.349062, 55.998024, 53.85]</td>
+</tr>
+<tr>
+<td>λ = 0</td>
+<td>[20.8, 31.7, 42.6, 53.5]</td>
+</tr>
+<tr>
+<td>λ = 1</td>
+<td>[57.831295, 57.40535, 55.965, 53.5]</td>
+</tr>
+</tbody>
+</table>
+<p>The time-major block must reproduce these through the mapping above.</p>
+<hr />
+<h2 id="b12-gaussian-policy-heads-shared-primitives-separate-heads-a-false-friend">B12. Gaussian policy heads (shared primitives, separate heads; a false friend)<a class="headerlink" href="#b12-gaussian-policy-heads-shared-primitives-separate-heads-a-false-friend" title="Permanent link">&para;</a></h2>
+<h3 id="shared-primitives">Shared primitives<a class="headerlink" href="#shared-primitives" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">diag_gaussian_logpdf</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">mean</span><span class="p">,</span> <span class="n">std</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">per</span><span class="o">-</span><span class="n">dim</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">diag_gaussian_entropy</span><span class="p">(</span><span class="n">std</span><span class="p">)</span> <span class="o">=</span> <span class="mf">0.5</span><span class="o">*</span><span class="n">log</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">pi</span><span class="o">*</span><span class="n">e</span><span class="o">*</span><span class="n">std</span><span class="o">^</span><span class="mi">2</span><span class="p">)</span> <span class="n">per</span><span class="o">-</span><span class="n">dim</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">reparam_sample</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">mean</span><span class="p">,</span> <span class="n">std</span><span class="p">)</span> <span class="o">=</span> <span class="n">mean</span> <span class="o">+</span> <span class="n">std</span> <span class="o">*</span> <span class="n">eps</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="k">def</span><span class="w"> </span><span class="nf">tanh_squash_logdet</span><span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">)</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">log</span><span class="p">(</span><span class="n">relu</span><span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">tanh</span><span class="p">(</span><span class="n">u</span><span class="p">)</span><span class="o">^</span><span class="mi">2</span><span class="p">)</span> <span class="o">+</span> <span class="n">eps</span><span class="p">))</span>   <span class="c1"># T2 form (NOT distrax&#39;s exact log-det)</span>
+</code></pre></div>
+<h3 id="d3-bounded_normal-d3313-headspy146-155">D3 'bounded_normal' (D3§3.13; heads.py:146-155)<a class="headerlink" href="#d3-bounded_normal-d3313-headspy146-155" title="Permanent link">&para;</a></h3>
+<ul>
+<li>μ = tanh(m) and σ = 0.9·sigmoid(s + 2) + 0.1, so σ ∈ (0.1, 1).</li>
+<li>Normal(μ, σ) is <strong>not squashed</strong>: samples are unbounded, the log-prob is the plain Normal logpdf of the unclipped sample, and there is no Jacobian term.</li>
+<li>The entropy is that of the unsquashed Normal, summed over dims.</li>
+<li>The gradient estimator is <strong>REINFORCE</strong> on sg(action).</li>
+<li>The env clips the action, the replay stores it unclipped, and the RSSM divides the action by max(1, abs(a)).</li>
+<li>Both output Linears use outscale 0.01.</li>
+</ul>
+<h3 id="t2-policy-prior-t218-19-212">T2 policy prior (T2§1.8-1.9, §2.12)<a class="headerlink" href="#t2-policy-prior-t218-19-212" title="Permanent link">&para;</a></h3>
+<ul>
+<li>log σ = −10 + 6·(tanh(raw) + 1), so log σ ∈ (−10, 2).</li>
+<li>a = tanh(μ + σ·ε), with <strong>reparameterised</strong> gradients.</li>
+<li>lp_g = Σ(−½ε² − log σ − ½ln2π). The log-prob subtracts tanh_squash_logdet(u, 1e-6).</li>
+<li>The entropy bonus is scaled by n, the number of valid action dims. PE and HEAD differ here (T2 open question).</li>
+<li>Planning and TD targets always use the <strong>sample</strong>. Acting with mpc = false in eval uses tanh(μ).</li>
+<li>The last layer is N(0, 0.02) and is not zeroed.</li>
+</ul>
+<h3 id="false-friends_5">False friends<a class="headerlink" href="#false-friends_5" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>D3 is not a SAC-style tanh-Gaussian.</strong> Do not reuse Ajax's <code>SquashedNormal</code> for D3.</li>
+<li><strong>T2's Jacobian uses +1e-6 inside the log.</strong> Ajax's <code>SquashedNormal</code> uses the exact stable log-det. At saturation (abs(u) &gt; 7) T2's version is flat (log 1e-6), while the exact one has slope ±2. This changes PE gradients.</li>
+<li><strong>The bounds are on different quantities.</strong> D3 bounds σ with a sigmoid and a +2 offset. T2 bounds <strong>log</strong> σ with a tanh.</li>
+</ol>
+<h3 id="tests-pinned_3">Tests (pinned)<a class="headerlink" href="#tests-pinned_3" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>D3:</strong> σ at raw 0 = <strong>0.8927173</strong>; entropy per dim at init = 1.3054532; logpdf of an out-of-[−1, 1] sample is finite and has no Jacobian term.</li>
+<li><strong>T2:</strong> log_std(0) = −4, log_std(+∞) = 2, log_std(−∞) = −10.</li>
+<li><strong>T2 worked example.</strong> Inputs: ε = [0.5, −1], μ = [0.1, −0.2], raw = [0, 1].</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Quantity</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>log σ</td>
+<td>[−4, 0.5695648]</td>
+</tr>
+<tr>
+<td>u</td>
+<td>[0.10915782, −1.9674977]</td>
+</tr>
+<tr>
+<td>a</td>
+<td>[0.10872632, −0.9616578]</td>
+</tr>
+<tr>
+<td>lp_g</td>
+<td>0.967558</td>
+</tr>
+<tr>
+<td>Σ squash log-det</td>
+<td>−2.5992928</td>
+</tr>
+<tr>
+<td>HEAD lp</td>
+<td>3.5668507</td>
+</tr>
+<tr>
+<td>HEAD scaled_entropy ≈ −n·lp_g</td>
+<td>−1.935116</td>
+</tr>
+<tr>
+<td>PE log_pi = n·(Σ(−½ε² − log σ) − ½ln2π) − squash</td>
+<td>6.372286</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="b13-mppi-planner-t2-only-generic">B13. MPPI planner (T2 only; generic)<a class="headerlink" href="#b13-mppi-planner-t2-only-generic" title="Permanent link">&para;</a></h2>
+<h3 id="math-t231-324-pseudocode-3c">Math (T2§3.1-3.24, pseudocode 3.C)<a class="headerlink" href="#math-t231-324-pseudocode-3c" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Warm start.</strong> μ ← shift(prev_mean) (last row 0; zeros if t0). σ ← max_std. <strong>σ is never warm-started.</strong></li>
+<li>The P = 24 π-trajectories are fixed for all iterations but re-scored every iteration.</li>
+<li><strong>Each iteration</strong> (6, or 8 if A ≥ 20):</li>
+<li>Sample the N − P Gaussian candidates and clip them to [−1, 1] <strong>before</strong> evaluation.</li>
+<li>V = nan_to_num(value_fn(·)).</li>
+<li>Take the top-E elites from the current iteration only.</li>
+<li>score = softmax(0.5·(eV − max eV)). The temperature <strong>multiplies</strong>.</li>
+<li>μ = Σ s·eA / (Σs + 1e-9).</li>
+<li>σ = sqrt(Σ s·(eA − μ_new)² / (Σs + 1e-9)), the biased std around the new mean, clipped to [0.05, 2].</li>
+<li>Mask μ and σ for MT after the clip.</li>
+<li><strong>Final action.</strong> Pick k ~ Cat(score) and take a = eA[0, k]. Add σ[0]·N(0, I) if not eval. Clip to [−1, 1]. Store prev_mean = μ (not the executed action).</li>
+</ul>
+<h3 id="signature_5">Signature<a class="headerlink" href="#signature_5" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">MPPIConfig</span><span class="p">:</span> <span class="n">horizon</span><span class="o">=</span><span class="mi">3</span><span class="p">;</span> <span class="n">iterations</span><span class="o">=</span><span class="mi">6</span><span class="p">;</span> <span class="n">num_samples</span><span class="o">=</span><span class="mi">512</span><span class="p">;</span> <span class="n">num_pi_trajs</span><span class="o">=</span><span class="mi">24</span><span class="p">;</span> <span class="n">num_elites</span><span class="o">=</span><span class="mi">64</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>                  <span class="n">min_std</span><span class="o">=</span><span class="mf">0.05</span><span class="p">;</span> <span class="n">max_std</span><span class="o">=</span><span class="mf">2.0</span><span class="p">;</span> <span class="n">temperature</span><span class="o">=</span><span class="mf">0.5</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="k">def</span><span class="w"> </span><span class="nf">mppi_plan</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value_fn</span><span class="p">,</span> <span class="n">pi_actions</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">prev_mean</span><span class="p">,</span> <span class="n">t0</span><span class="p">,</span> <span class="n">eval_mode</span><span class="p">,</span> <span class="n">cfg</span><span class="p">,</span> <span class="n">action_mask</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="o">-&gt;</span> <span class="p">(</span><span class="n">action</span><span class="p">[</span><span class="n">A</span><span class="p">],</span> <span class="n">new_prev_mean</span><span class="p">[</span><span class="n">H</span><span class="p">,</span><span class="n">A</span><span class="p">],</span> <span class="n">aux</span><span class="p">{</span><span class="n">score</span><span class="p">,</span> <span class="n">mean</span><span class="p">,</span> <span class="n">std</span><span class="p">})</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="c1"># value_fn(key, actions[H,N,A]) -&gt; V[N]  (caller closes over z, networks; T2: Σγ^t r̂(z_t,a_t) + γ^H Q_avg(z_H, π(z_H)))</span>
+</code></pre></div>
+<p>All shapes are static. Use <code>lax.fori_loop</code>, <code>lax.top_k</code> and <code>jax.random.categorical(log score)</code>. (Built otherwise: see the status note at the top.) Per-env t0 and prev_mean come from the actor state (vmapped over envs; T2§3.A).</p>
+<h3 id="tests-pinned_4">Tests (pinned)<a class="headerlink" href="#tests-pinned_4" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Update step.</strong> Inputs: H = 2, E = 3, A = 1, eV = [1, 2, 4], eA[0] = [0, .5, 1], eA[1] = [−1, 0, .2].</li>
+<li>score = [0.14024438, 0.2312239, 0.6285317]</li>
+<li>μ = [0.74414366, −0.01453803]</li>
+<li>σ = [0.3641262, 0.4064164]</li>
+<li>Warm start shifts only μ, and the last row is 0. σ resets to 2. t0 gives zeros.</li>
+<li>The π columns are unchanged across iterations.</li>
+<li>Candidates lie in [−1, 1].</li>
+<li>eval_mode removes <strong>only</strong> the final noise.</li>
+<li>Sanity: with V = −‖a − a<em>‖², μ converges toward a</em>.</li>
+<li>Under jit and vmap over envs, the result equals the per-env loop.</li>
+</ol>
+<hr />
+<h2 id="b14-latent-rollout-scan-both">B14. Latent rollout scan (both)<a class="headerlink" href="#b14-latent-rollout-scan-both" title="Permanent link">&para;</a></h2>
+<p><strong>Signature.</strong> <code>rollout(step_fn, carry0, length, xs=None, policy=None, key=None) -&gt; (carry_T, outs[T])</code>, a time-major <code>lax.scan</code>. It takes either given inputs (xs) or a policy callable sampled per step with split keys.</p>
+<p><strong>Uses:</strong>
+- <strong>D3:</strong> observe (posterior step with is_first masking, Algorithm B); imagine (the policy sees sg(carry); prior straight-through sample, Algorithm C), with H = 15.
+- <strong>T2:</strong> consistency rollout with <strong>buffer</strong> actions over H = 3; π-trajectory rollout (P = 24); planner value rollout. The T2 dynamics are deterministic.</p>
+<p><strong>Tests.</strong>
+1. The scan equals a Python loop.
+2. With a linear step function, the result matches the closed form.
+3. Keys are split per step: no repeated noise.
+4. Gradient flows through the carry unless the caller applies sg.</p>
+<hr />
+<h2 id="b15-rssm-block-gru-core-and-observeimagine-steps-d3-only">B15. RSSM block-GRU core and observe/imagine steps (D3 only)<a class="headerlink" href="#b15-rssm-block-gru-core-and-observeimagine-steps-d3-only" title="Permanent link">&para;</a></h2>
+<h3 id="math">Math<a class="headerlink" href="#math" title="Permanent link">&para;</a></h3>
+<p>The core follows D3 Algorithm A:
+- x0, x1, x2 = SiLU(RMS(Linear_d(·))) of deter, the flattened stoch, and a / sg(max(1, abs(a))).
+- Concatenate per block with each block's deter slice, then BlockLinear(D) → RMS over the <strong>full</strong> D → SiLU.
+- BlockLinear(3D) with no norm and no activation. The per-block layout is [r | c | u].
+- r = σ(r), c = tanh(r·c) (the reset gate scales the <strong>whole</strong> candidate), u = σ(u − 1).
+- h' = u·c + (1 − u)·h.</p>
+<p>Observe and imagine steps follow Algorithms B and C, including the double masking of is_first (zero deter, stoch and prevact <strong>before</strong> the core, and zero the encoded action again after one-hot). The initial state is zeros, not learned.</p>
+<h3 id="shared-sub-blocks">Shared sub-blocks<a class="headerlink" href="#shared-sub-blocks" title="Permanent link">&para;</a></h3>
+<p>NormedMLP (B4), BlockLinear (B6), unimix straight-through (B8), rollout (B14), and Ajax <code>memory._mask_reset</code> for is_first zeroing (zero fresh carry).</p>
+<h3 id="false-friend-ajax-memorycellgru">False friend: Ajax <code>MemoryCell("gru")</code><a class="headerlink" href="#false-friend-ajax-memorycellgru" title="Permanent link">&para;</a></h3>
+<p>Ajax's <code>MemoryCell("gru")</code> (flax GRUCell) is a <strong>different cell</strong>:
+- the reset gate applies only to the recurrent term;
+- there is no −1 update bias;
+- it is dense, not block-diagonal;
+- it has no norm or hidden layer.</p>
+<p>Do not reuse it. T2 has no recurrence: the latent is re-encoded every env step.</p>
+<h3 id="tests_2">Tests<a class="headerlink" href="#tests_2" title="Permanent link">&para;</a></h3>
+<ol>
+<li>With the dyngru kernel and bias zeroed: u = σ(−1) = 0.2689414 exactly, and h' = 0.7310586·h.</li>
+<li>is_first gives h = core(0, 0, 0) regardless of the carry and the previous action. A one-hot of action index 0 is masked.</li>
+<li>Block structure: output block k depends on other blocks only through x0.</li>
+<li><strong>Shapes and parameter counts at 12M</strong> (d = 256, S = 32, C = 16, A = 6). These are derived from the reference layer shapes, not from a reference run.</li>
+<li>dynin0 524,800; dynin1 131,584; dynin2 2,048; dynhid0 2,101,248; dyngru 1,579,008; core total <strong>4,338,688</strong>.</li>
+<li>Prior MLP 722,432; posterior 721,920.</li>
+</ol>
+<hr />
+<h2 id="b16-bernoulli-head-d3-continue-t2-termination-as-an-extension">B16. Bernoulli head (D3 continue; T2 termination as an Extension)<a class="headerlink" href="#b16-bernoulli-head-d3-continue-t2-termination-as-an-extension" title="Permanent link">&para;</a></h2>
+<p><strong>Math.</strong> loss(l, c) = −[c·log σ(l) + (1 − c)·log σ(−l)]. Soft labels are allowed.</p>
+<p><strong>Variants.</strong>
+- <strong>D3</strong> (D3§2.13): target c = 0.997·(1 − is_terminal), a <strong>soft</strong> label; never is_last. Imagination uses σ(l) as ĉ (γ folded in).
+- <strong>T2 HEAD episodic</strong> (T2§1.7, §2.7, §3.11): off by default, so it belongs in an <strong>Extension</strong>. It is a hard 0/1 label, BCE-mean on the <strong>predicted</strong> z_1..z_H. Planning thresholds it at 0.5 and treats termination as absorbing.</p>
+<p><strong>Tests.</strong>
+1. l = 0 gives log 2 = 0.6931472 for any c.
+2. At c = 0.997 the minimum is at l = logit(0.997) = 5.8061385, where loss = 0.0204229 and the gradient ≈ 0.</p>
+<hr />
+<h2 id="b17-optimisers">B17. Optimisers<a class="headerlink" href="#b17-optimisers" title="Permanent link">&para;</a></h2>
+<h3 id="builders-shared-optax-primitives">Builders (shared optax primitives)<a class="headerlink" href="#builders-shared-optax-primitives" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">clip_by_agc_per_tensor</span><span class="p">(</span><span class="n">clip</span><span class="o">=</span><span class="mf">0.3</span><span class="p">,</span> <span class="n">pmin</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">)</span>   <span class="c1"># custom: g * 1/max(1, ||g|| / (clip*max(pmin, ||p||))) per LEAF</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">laprop_agc</span><span class="p">(</span><span class="n">lr</span><span class="o">=</span><span class="mf">4e-5</span><span class="p">,</span> <span class="n">warmup</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">agc</span><span class="o">=</span><span class="mf">0.3</span><span class="p">,</span> <span class="n">pmin</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">,</span> <span class="n">beta1</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">beta2</span><span class="o">=</span><span class="mf">0.999</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">1e-20</span><span class="p">):</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>    <span class="n">sched</span> <span class="o">=</span> <span class="n">optax</span><span class="o">.</span><span class="n">join_schedules</span><span class="p">([</span><span class="n">optax</span><span class="o">.</span><span class="n">linear_schedule</span><span class="p">(</span><span class="mf">0.</span><span class="p">,</span> <span class="n">lr</span><span class="p">,</span> <span class="n">warmup</span><span class="p">),</span> <span class="n">optax</span><span class="o">.</span><span class="n">constant_schedule</span><span class="p">(</span><span class="n">lr</span><span class="p">)],</span> <span class="p">[</span><span class="n">warmup</span><span class="p">])</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    <span class="k">return</span> <span class="n">optax</span><span class="o">.</span><span class="n">chain</span><span class="p">(</span><span class="n">clip_by_agc_per_tensor</span><span class="p">(</span><span class="n">agc</span><span class="p">,</span> <span class="n">pmin</span><span class="p">),</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>                       <span class="n">optax</span><span class="o">.</span><span class="n">scale_by_rms</span><span class="p">(</span><span class="n">decay</span><span class="o">=</span><span class="n">beta2</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">eps_in_sqrt</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">bias_correction</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>                       <span class="n">optax</span><span class="o">.</span><span class="n">ema</span><span class="p">(</span><span class="n">decay</span><span class="o">=</span><span class="n">beta1</span><span class="p">,</span> <span class="n">debias</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>          <span class="c1"># == D3 scale_by_momentum</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>                       <span class="n">optax</span><span class="o">.</span><span class="n">scale_by_learning_rate</span><span class="p">(</span><span class="n">sched</span><span class="p">))</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="k">def</span><span class="w"> </span><span class="nf">adam_grouped</span><span class="p">(</span><span class="n">lr</span><span class="o">=</span><span class="mf">3e-4</span><span class="p">,</span> <span class="n">lr_scales</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;encoder&quot;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">},</span> <span class="n">label_fn</span><span class="o">=...</span><span class="p">,</span> <span class="n">clip_norm</span><span class="o">=</span><span class="mf">20.0</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">):</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>    <span class="k">return</span> <span class="n">optax</span><span class="o">.</span><span class="n">chain</span><span class="p">(</span><span class="n">optax</span><span class="o">.</span><span class="n">clip_by_global_norm</span><span class="p">(</span><span class="n">clip_norm</span><span class="p">),</span>        <span class="c1"># ONE global norm over all groups</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>                       <span class="n">optax</span><span class="o">.</span><span class="n">multi_transform</span><span class="p">({</span><span class="n">g</span><span class="p">:</span> <span class="n">optax</span><span class="o">.</span><span class="n">adam</span><span class="p">(</span><span class="n">lr</span> <span class="o">*</span> <span class="n">s</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">)</span> <span class="k">for</span> <span class="n">g</span><span class="p">,</span> <span class="n">s</span> <span class="ow">in</span> <span class="o">...</span><span class="p">},</span> <span class="n">label_fn</span><span class="p">))</span>
+</code></pre></div>
+<h3 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>D3</strong> (D3§4.3-4.7; opt.py:109-164): <strong>one</strong> optimiser over all modules. The order is AGC, then RMS, then momentum, then the lr. The first update has lr = 0 (warmup).</li>
+<li><strong>T2</strong> (T2§2.9-2.14):</li>
+<li><strong>World model:</strong> <code>adam_grouped(3e-4, {encoder: 0.3})</code>, eps 1e-8, global clip 20.</li>
+<li><strong>π:</strong> a separate <code>chain(clip_by_global_norm(20), adam(3e-4, eps=1e-5))</code>.</li>
+<li>Torch's clip coefficient adds +1e-6 to the norm; this is negligible.</li>
+</ul>
+<h3 id="false-friends_6">False friends<a class="headerlink" href="#false-friends_6" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong><code>optax.adaptive_grad_clip</code> is NFNet unit-wise AGC.</strong> Example with p = I₂ and g = [[3, 0], [0, 0.1]]:</li>
+<li>D3 per-tensor AGC gives [[0.42402855, 0], [0, 0.01413429]].</li>
+<li>optax gives [[0.3, 0], [0, 0.1]].</li>
+<li>Its <code>axis</code> argument cannot express "whole tensor" for a tree with mixed ranks, so a custom transform is needed.</li>
+<li><strong>Ajax <code>get_adam_tx</code> defaults to eps 1e-5 and has no param groups.</strong> T2's world-model Adam needs eps <strong>1e-8</strong>. Its π Adam needs 1e-5.</li>
+<li><strong>Order of clip and groups.</strong> In T2 the global clip must come <strong>before</strong> <code>multi_transform</code>. Clipping per group is wrong.</li>
+<li><strong>β₂.</strong> The D3 paper says 0.99 and the code says 0.999 (D3 OQ 2). Keep it as a config value.</li>
+</ol>
+<h3 id="tests-pinned_5">Tests (pinned)<a class="headerlink" href="#tests-pinned_5" title="Permanent link">&para;</a></h3>
+<ol>
+<li>The <code>laprop_agc</code> chain equals the D3 reference transforms (copied from opt.py) to max abs difference <strong>2.1e-14</strong> over 5 steps on a {(5, 3), (3,), (2, 4, 3)} tree.</li>
+<li>The first update is all zeros (lr_0 = 0).</li>
+<li><strong>AGC:</strong> p = ones(2, 2), g = 3·ones gives 0.3·ones (cap 0.6). p = 0, g = [3, 4] gives [1.8e-4, 2.4e-4]. Include the unit-wise counterexample above.</li>
+<li><strong>T2 grouped Adam:</strong> g_enc = 30 and g_rest = 40 are globally clipped to 12 and 16. The first-step updates are −8.99994e-5 (encoder) and −2.99998e-4 (rest).</li>
+<li><strong>Scale invariance (D3):</strong> multiplying the loss by 1000 leaves the LaProp updates unchanged (eps 1e-20).</li>
+</ol>
+<hr />
+<h2 id="b18-sequence-replay-shared-ring-buffer-per-algorithm-window-predicate">B18. Sequence replay (shared ring buffer, per-algorithm window predicate)<a class="headerlink" href="#b18-sequence-replay-shared-ring-buffer-per-algorithm-window-predicate" title="Permanent link">&para;</a></h2>
+<h3 id="design-pure-jax-on-device">Design (pure-JAX, on device)<a class="headerlink" href="#design-pure-jax-on-device" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Storage.</strong> Per-env ring buffers [N_env, cap] of step rows {obs…, action, reward, is_first, is_last, is_terminal, (+ latent fields)}, a per-env write pointer and a per-env "committed" pointer.</li>
+<li><strong>Sampling</strong> returns <code>(batch, (env_idx, start_idx))</code>. The indices are required for D3's latent write-back. Validity is a predicate over the window flags.</li>
+</ul>
+<h3 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>D3 (D3§5; replay.py)</th>
+<th>T2 (T2§2.1, §4.6-4.9)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Window</td>
+<td>65 steps (64 trained + 1 context), stride-1 starts</td>
+<td>H+1 = 4 rows</td>
+</tr>
+<tr>
+<td>Episode boundaries</td>
+<td>windows <strong>cross</strong> them (mid-window is_first is normal)</td>
+<td>windows <strong>never</strong> cross them (valid iff no is_first in rows 1..H)</td>
+</tr>
+<tr>
+<td>Sampling</td>
+<td>uniform over items, with replacement; <strong>online queue</strong> of non-overlapping fresh windows popped first (train only)</td>
+<td>uniform over episodes, then start (= uniform over valid windows for fixed-length episodes)</td>
+</tr>
+<tr>
+<td>Annotation</td>
+<td>is_first[:, 0] = 1; is_last ∨= roll(is_first, −1), last column excluded</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Freshness</td>
+<td>everything inserted is sampleable</td>
+<td><strong>only completed episodes</strong> are sampleable</td>
+</tr>
+<tr>
+<td>Extra fields</td>
+<td>stored deter/stoch per step, written back after each update (indices 1..64)</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Capacity</td>
+<td>5e6 items</td>
+<td>1e6 transitions (b67b21c: 2000 episodes × 501 rows)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="false-friends_7">False friends<a class="headerlink" href="#false-friends_7" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Action alignment.</strong></li>
+<li>D3 row t = (x_t, r_t received <strong>on entering</strong> x_t, a_t chosen <strong>after</strong> x_t). prevact for row t is the action stored at row t − 1.</li>
+<li>T2 row k = (o_k, a_{k−1}, r_{k−1}), the action that <strong>led into</strong> o_k, with a placeholder at row 0.</li>
+<li>Rewards align the same way; actions are shifted by one. Pick one storage convention and derive the other in the sampler.</li>
+<li><strong>Ajax's collector writes SARS′ <code>Transition</code>s under gymnax auto-reset.</strong> Each step is (obs, action, reward, terminated, truncated, next_obs), with next_obs = the final obs on done. So an episode has T rows, and the terminal obs exists only as next_obs.</li>
+<li>T2 maps cleanly onto this: a window is H consecutive transitions with no done among the first H−1, with obs[0..H] = obs_t..obs_{t+H−1} plus next_obs_{t+H−1}.</li>
+<li><strong>D3 does not map cleanly.</strong> It needs the terminal obs as its <strong>own row</strong> (is_last, plus is_terminal if terminal) so that the RSSM filters it and the reward and continue heads train on it. That is T+1 rows per episode, which breaks per-env lockstep. See Q1.</li>
+<li><strong>Ajax <code>get_buffer(sequence_length=…)</code> (flashbax trajectory buffer)</strong> gives stride-1, episode-crossing windows like D3's. However, it returns <strong>no indices</strong> (so no write-back), has no online queue, and has no episode-validity filter.</li>
+</ol>
+<h3 id="tests_3">Tests<a class="headerlink" href="#tests_3" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>D3 annotation.</strong> Flags is_first = [0, 0, 1, 0], is_last = [0, 0, 0, 0] become is_first = [1, 0, 1, 0] and is_last = [0, 1, 0, 0].</li>
+<li><strong>T2 validity.</strong> No sampled window contains is_first after row 0. Over 10⁵ draws, a chi-square test is uniform over valid starts. In a buffer with one completed episode and one running episode, no sample comes from the running one.</li>
+<li><strong>Alignment round trip.</strong> Ajax Transitions → T2 slice gives obs[H] == next_obs of the last transition.</li>
+<li><strong>Write-back.</strong> Values written at the returned (env, idx) are read back on the next sample of the same window.</li>
+<li><strong>Ring wrap-around</strong> keeps the per-env order.</li>
+</ol>
+<hr />
+<h2 id="b19-small-shared-utilities-and-non-shared-look-alikes">B19. Small shared utilities and non-shared look-alikes<a class="headerlink" href="#b19-small-shared-utilities-and-non-shared-look-alikes" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Discount from horizon.</strong></li>
+<li>D3: γ = 1 − 1/333 = 0.996997.</li>
+<li>T2: γ(T) = clip(1 − 5/T, 0.95, 0.995), giving {T = 100: 0.95, 500: 0.99, 1000: 0.995, 50: 0.95}.</li>
+<li>Signature: <code>discount_from_horizon(h, lo=None, hi=None)</code>, with h = 333 (D3) or h = T/5 (T2).</li>
+<li><strong>Mixed precision.</strong></li>
+<li>D3: bf16 compute, with f32 params, norm statistics, distributions, losses, returns and normalisers.</li>
+<li>T2: f32 (HEAD uses TF32 matmuls).</li>
+<li>Every module takes <code>dtype</code>. Distribution, loss and normaliser code upcasts to f32. Parity tests set <code>jax_default_matmul_precision="highest"</code>.</li>
+<li><strong>Categorical pick.</strong> <code>jax.random.categorical</code> replaces T2's Gumbel-max and <code>np.random.choice</code>, and D3's sampling. (Not for T2's elite: <code>sample_elite</code> keeps the inverse CDF.)</li>
+<li><strong>Not shared (look-alikes):</strong></li>
+<li><strong>MSE losses:</strong><ul>
+<li>D3 symlog-MSE decoder: (pred − symlog(y))², <strong>summed</strong> over feature dims, no ½, mean over (B, T).</li>
+<li>T2 consistency loss: plain MSE, <strong>mean over batch and latent dim</strong>, no symlog, weighted by ρ^t and divided by H.</li>
+</ul>
+</li>
+<li><strong>Temporal weights:</strong> D3 uses cumprod(ĉ) including ĉ_0; T2 uses ρ^t = 0.5^t.</li>
+<li><strong>Loss reductions:</strong> D3 takes means over (B, T) and H. T2 uses Σ_t ρ^t·mean_B, divided by H (or H·Nq for values).</li>
+</ul>
+<hr />
+<h2 id="open-questions-for-the-user-shared-block-scope">Open questions for the user (shared-block scope)<a class="headerlink" href="#open-questions-for-the-user-shared-block-scope" title="Permanent link">&para;</a></h2>
+<p>Resolved since: (1) the row collector's hold tick, i.e. option (a) (<code>DESIGN.md</code> §5.2); (2) a round of episodes becomes sampleable when its held tick passes (§4.4); (3) no <code>blocks/</code> package, blocks promoted on their second consumer (§3); (4) f32 only (D4).</p>
+<ol>
+<li><strong>D3 replay rows under Ajax's auto-reset environments.</strong> This blocks B18 for D3. The options:</li>
+<li><strong>(a)</strong> An explicit-reset env wrapper, as in the embodied driver. After an is_last step, the next <code>step</code> call ignores the action and emits the reset obs with is_first = 1 and reward 0. This gives one row per vector step, keeps lockstep and reproduces the reference stream exactly, including the train-ratio clock counting reset steps.</li>
+<li><strong>(b)</strong> Keep auto-reset, and write 2 rows on done steps with per-env write pointers.</li>
+<li><strong>(c)</strong> Store transitions, and synthesise the terminal row at sample time.</li>
+</ol>
+<p><strong>Recommended: (a).</strong> It is the reference's own data stream and the simplest correct option.
+2. <strong>T2 "only completed episodes are sampleable".</strong> Should we implement a per-env committed pointer (recommended; cheap, exact) or accept per-step visibility as a documented deviation?
+3. <strong>Package location and retrofitting.</strong> The proposal is a new <code>src/ajax/blocks/</code> package with <code>transforms</code>, <code>twohot</code>, <code>normalizers</code>, <code>layers</code>, <code>distributions</code>, <code>ensemble</code>, <code>returns</code>, <code>planning</code>, <code>rssm</code>, <code>optim</code> and <code>replay</code>. Should existing Ajax code be retrofitted onto these blocks now, or left alone? The candidates are PQN q-lambda → B11, <code>soft_update</code> → B10 (already identical) and <code>get_adam_tx</code> → B17.
+4. <strong>bf16 support</strong> (D3 OQ 10). Should the blocks support a bf16 compute dtype from day one (recommended), or start f32-only?</p>
+<p>Recommendations that do not need a user decision:
+- Use the symmetric two-hot sum for both algorithms (B2).
+- Use the literal-constant D3 initialiser (B5). Not built: D23.
+- Use <code>normal(0.02)</code>, not <code>truncated_normal(0.02)</code>, for T2 (B5).
+- Use a custom per-tensor AGC (B17).</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; Yann Berthelot
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "toc.follow", "content.code.copy", "content.action.edit", "content.tabs.link", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

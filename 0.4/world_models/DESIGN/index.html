@@ -1,0 +1,4198 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reinforcement learning agents in JAX: whole training runs compiled end to end, research features composed as extensions.">
+      
+      
+      
+        <link rel="canonical" href="https://yannberthelot.github.io/Ajax/0.4/world_models/DESIGN/">
+      
+      
+        <link rel="prev" href="../">
+      
+      
+        <link rel="next" href="../deviations/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Design - Ajax</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#dreamerv3-and-td-mpc2-in-ajax-architecture-design-v2" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  
+    This is the documentation of an earlier release.
+  
+  <a href="../../..">
+    <strong>Read the latest release's documentation.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Ajax" class="md-header__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Ajax
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Design
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Follow system theme"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Follow system theme" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Ajax" class="md-nav__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Ajax
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/why-ajax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why Ajax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training an agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and the PID policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/checkpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Checkpoints and resuming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/comparing-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/expert-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expert guidance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/differentiable-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/world-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../algorithms/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithms
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Algorithms
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/sac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/asac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/redq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REDQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/td3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/iql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/avg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AVG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/pqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/ppo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/udrl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UDRL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dagger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DAgger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dreamerv3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/tdmpc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reproduction/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproduction
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproduction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/specs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/writing-an-extension/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing an extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World model design notes
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    World model design notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-decisions-taken-with-the-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Decisions taken with the user
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Principles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-units-and-counters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Units and counters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-shared-numerics-and-blocks-m1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Shared numerics and blocks (M1)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-td-mpc2-single-task-m2-world-model-update-m3-planner-m4-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. TD-MPC2 single-task (M2 world model + update, M3 planner, M4 agent)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. TD-MPC2 single-task (M2 world model + update, M3 planner, M4 agent)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Surface
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-algorithm-b67b21c5f6fade-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Algorithm (b67b21c/5f6fade semantics)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-planner-agent-local-agentstdmpc2plannerpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Planner (agent-local agents/TDMPC2/planner.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-collection-replay-and-schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Collection, replay and schedule
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 State
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#46-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.6 Evaluation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-shared-backbone-lands-with-its-first-consumer-m4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Shared backbone (lands with its first consumer, M4)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Shared backbone (lands with its first consumer, M4)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-environment-plumbing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Environment plumbing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-row-collector-srcajaxenvironmentsrow_collectorpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Row collector (src/ajax/environments/row_collector.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-update-loop-trainlooprepeat_update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Update loop (TrainLoop.repeat_update)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-evaluation-and-logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Evaluation and logging
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#55-resume" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5 Resume
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#56-replay-capacity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.6 Replay capacity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#57-extension-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7 Extension support
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-dreamerv3-m5-world-model-m6-actor-critic-optimizer-m7-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. DreamerV3 (M5 world model, M6 actor-critic + optimizer, M7 agent)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. DreamerV3 (M5 world model, M6 actor-critic + optimizer, M7 agent)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Surface
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-algorithm-2411f7d-29eb964" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Algorithm (2411f7d + 29eb964)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-replay-agentsdreamerv3replaypy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Replay (agents/DreamerV3/replay.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-schedule-2411f7d-training-start-whenratio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 Schedule (2411f7d training start + when.Ratio)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65-collection-and-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 Collection and evaluation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#66-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6 State
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-td-mpc2-multi-task-m8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. TD-MPC2 multi-task (M8)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-probing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Probing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-performance-guardrail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Performance guardrail
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-milestones-vertical-slices-one-branch-pr-each-ci-green-per-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Milestones (vertical slices; one branch + PR each, CI green per commit)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-deviations-register" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Deviations register
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deviations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deviations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dreamerv3_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tdmpc2_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../shared_blocks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared building blocks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../VALIDATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../reference_comparison/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference comparison
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7_8" id="__nav_7_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference comparison
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/PROTOCOL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/PREREG2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 pre-registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/PREREG3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 3 pre-registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/DIAGNOSIS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diagnosis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/results/round1/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 1 results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/results/round2/pairR/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 results, pair R
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/results/round2/pairE/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 results, pair E
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/results/round3/analysis3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 3 analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/training-loop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training loop
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments and wrappers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/buffers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Buffers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging, evaluation and checkpoints
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-decisions-taken-with-the-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Decisions taken with the user
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Principles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-units-and-counters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Units and counters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-shared-numerics-and-blocks-m1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Shared numerics and blocks (M1)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-td-mpc2-single-task-m2-world-model-update-m3-planner-m4-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. TD-MPC2 single-task (M2 world model + update, M3 planner, M4 agent)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. TD-MPC2 single-task (M2 world model + update, M3 planner, M4 agent)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Surface
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-algorithm-b67b21c5f6fade-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Algorithm (b67b21c/5f6fade semantics)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-planner-agent-local-agentstdmpc2plannerpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Planner (agent-local agents/TDMPC2/planner.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-collection-replay-and-schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Collection, replay and schedule
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 State
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#46-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.6 Evaluation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-shared-backbone-lands-with-its-first-consumer-m4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Shared backbone (lands with its first consumer, M4)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Shared backbone (lands with its first consumer, M4)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-environment-plumbing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Environment plumbing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-row-collector-srcajaxenvironmentsrow_collectorpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Row collector (src/ajax/environments/row_collector.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-update-loop-trainlooprepeat_update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Update loop (TrainLoop.repeat_update)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-evaluation-and-logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Evaluation and logging
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#55-resume" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5 Resume
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#56-replay-capacity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.6 Replay capacity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#57-extension-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7 Extension support
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-dreamerv3-m5-world-model-m6-actor-critic-optimizer-m7-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. DreamerV3 (M5 world model, M6 actor-critic + optimizer, M7 agent)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. DreamerV3 (M5 world model, M6 actor-critic + optimizer, M7 agent)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Surface
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-algorithm-2411f7d-29eb964" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Algorithm (2411f7d + 29eb964)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-replay-agentsdreamerv3replaypy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Replay (agents/DreamerV3/replay.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-schedule-2411f7d-training-start-whenratio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 Schedule (2411f7d training start + when.Ratio)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65-collection-and-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 Collection and evaluation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#66-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6 State
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-td-mpc2-multi-task-m8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. TD-MPC2 multi-task (M8)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-probing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Probing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-performance-guardrail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Performance guardrail
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-milestones-vertical-slices-one-branch-pr-each-ci-green-per-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Milestones (vertical slices; one branch + PR each, CI green per commit)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-deviations-register" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Deviations register
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/YannBerthelot/Ajax/blob/v0.4.0/docs/world_models/DESIGN.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="dreamerv3-and-td-mpc2-in-ajax-architecture-design-v2">DreamerV3 and TD-MPC2 in Ajax — architecture design (v2)<a class="headerlink" href="#dreamerv3-and-td-mpc2-in-ajax-architecture-design-v2" title="Permanent link">&para;</a></h1>
+<p>Status: v2, revised after a six-lens adversarial review of v1 (Ajax rules, DreamerV3
+fidelity, TD-MPC2 fidelity, JAX/GPU, environment feasibility with CPU probes,
+simplicity/testability). Every blocker and major finding is resolved below; a summary
+of the review is in the description of the PR that added this file.</p>
+<p>Companion documents (same directory): <code>dreamerv3_spec.md</code>, <code>tdmpc2_spec.md</code>,
+<code>shared_blocks.md</code> (verified against the papers and the official code; the
+pre-implementation spec, which §3 and <code>deviations.md</code> supersede where they differ),
+<code>deviations.md</code> (version choices and the deviations register).</p>
+<h2 id="0-decisions-taken-with-the-user">0. Decisions taken with the user<a class="headerlink" href="#0-decisions-taken-with-the-user" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Fidelity rule.</strong> Reproduce the code that produced each paper's numbers:
+  DreamerV3 <code>danijar/dreamerv3@2411f7d</code> (arXiv v2 / Nature recipe) and TD-MPC2
+  <code>nicklashansen/tdmpc2@b67b21c</code> (agent algorithm identical to <code>5f6fade</code>). Adopt only
+  bug fixes the authors made later (DreamerV3 <code>29eb964</code> prevact fix). Make asynchronous
+  or unseeded infrastructure synchronous and seeded. Treat paper typos as typos. Where
+  the paper text and the paper-era code disagree, follow the code. Every deviation is
+  registered in <code>deviations.md</code> and cited in the relevant docstring.</li>
+<li><strong>Scope.</strong> DreamerV3 revised recipe, vector observations only (no CNN). TD-MPC2
+  single-task online and multi-task (mechanisms + offline trainer). Multi-task is
+  validated on data we generate, never on mt30/mt80.</li>
+<li><strong>Surface.</strong> Flat <code>__init__</code> kwargs (algorithm hyperparameters only) + a <code>model_size</code>
+  preset; <code>extensions=()</code>.</li>
+<li><strong>Validation.</strong> CPU merge gates in CI (unit, parity, smoke, resume, extension tests).
+  CPU learning checks run as scripts before merging each agent PR (results recorded in
+  the PR and <code>PERFORMANCE_REPORT.md</code>), not in CI. GPU paper-curve report later.</li>
+</ul>
+<h2 id="1-principles">1. Principles<a class="headerlink" href="#1-principles" title="Permanent link">&para;</a></h2>
+<ol>
+<li>One jitted program per seed through <code>build_resumable_train</code>; seeds vmapped outside.
+   Collection, planning, imagination, replay and update scheduling are on-device,
+   fixed-shape and host-free.</li>
+<li><strong>Every schedule is static arithmetic on the absolute, unbatched tick index.</strong>
+   Never gate on per-seed state (it turns <code>lax.cond</code> into a select that runs both
+   branches; a probe showed a 90x per-tick slowdown with a 400 MB replay).</li>
+<li>Faithful-and-simple: single-consumer code lives in the agent package and is promoted
+   to a shared module on its second consumer. Shared modules hold only what both agents
+   use.</li>
+<li>Agents own collection and evaluation (APG precedent) through small shared helpers,
+   instead of bending the SAC-shaped <code>collect_experience</code> / <code>evaluate_and_log</code>.</li>
+<li>Closed surface; unsupported Extension phases rejected at construction.</li>
+<li>Fidelity is <strong>tested</strong>, not asserted: literal transcriptions of the reference
+   functions serve as oracles (§10).</li>
+</ol>
+<h2 id="2-units-and-counters">2. Units and counters<a class="headerlink" href="#2-units-and-counters" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Tick</strong> = one scan iteration = one row per env (see §5.2). The absolute tick index
+  <code>i</code> is the scan input (<code>offset + arange</code>, §7.4).</li>
+<li><strong>DreamerV3:</strong> <code>n_timesteps</code> counts <strong>rows</strong> (the reference's <code>step</code> clock, reset rows
+  included). <code>collector_state.timestep = n_envs * ticks</code>.</li>
+<li><strong>TD-MPC2:</strong> <code>n_timesteps</code> counts <strong>env steps</strong> (agent steps). With fixed-length
+  episodes the tick ↔ step map is static: per episode T+1 ticks, T stepping ticks.
+  <code>collector_state.timestep</code> = env steps.</li>
+<li>Both log <code>env_frames</code> (the papers' x-axes) next to the house keys (<code>timestep</code>,
+  <code>Eval/episodic mean reward</code>, <code>Train/episodic mean reward</code>) and <code>Train/n_updates</code>, each
+  on its reference's clock: TD-MPC2 <code>env_steps * action_repeat</code>; DreamerV3 <code>rows *
+  action_repeat</code> (2411f7d's logger multiplies its row clock <code>step</code> by the repeat,
+  <code>main.py:124-132</code>), one row per episode (the reset row) above the simulator's frames.</li>
+<li><strong>Episode length in agent steps</strong> <code>T = agent_episode_length(env, env_params,
+  action_repeat)</code>: brax/playground <code>env.episode_length // action_repeat</code> (EpisodeWrapper
+  counts simulator steps), gymnax <code>env_params.max_steps_in_episode // action_repeat</code>;
+  divisibility asserted. Never read from the <code>episode_length</code> kwarg directly.
+  Tests: Pendulum-v1 → T=200 (γ 0.975, S 1000); playground DMC at repeat 2 → T=500
+  (γ 0.99, S 2500).</li>
+</ul>
+<h2 id="3-shared-numerics-and-blocks-m1">3. Shared numerics and blocks (M1)<a class="headerlink" href="#3-shared-numerics-and-blocks-m1" title="Permanent link">&para;</a></h2>
+<p>Only blocks both agents use. Each ships with oracle tests (§10).</p>
+<ul>
+<li><code>src/ajax/distributional.py</code></li>
+<li><code>symlog</code>, <code>symexp</code> (log1p / expm1).</li>
+<li><code>TwoHot</code> (frozen dataclass): <code>bins</code> (in interpolation space), <code>transform</code>
+    (<code>identity</code> | <code>symlog</code>). Encode: two-hot weights by linear interpolation between the
+    neighbouring bins of <code>transform(y)</code>, edge-clipped. Decode: <strong>symmetric</strong> summation
+    of <code>p * bins</code>, written <code>Σ (p_j − p_i)·b_j</code> over mirror pairs so that it is exactly 0
+    for uniform p also under <code>jit</code> (XLA's multiply-add fusion breaks DreamerV3's
+    <code>p_i·b_i + p_j·b_j</code> pairs, D22); within <code>ε·(1 + 6·E_p|b|)</code> (≤ 4.8e-6) of TD-MPC2's
+    naive sum in symlog space; then the inverse transform. Bins are float32 roundings
+    of float64 constants (D22, T24). <code>loss(logits, y) = -Σ w·(logits − logsumexp(logits))</code>.<ul>
+<li>DreamerV3: <code>bins = symexp(linspace(-20, 20, 255))</code> built from a mirrored half,
+  <code>transform = identity</code> (raw-space interpolation, raw-space expectation).</li>
+<li>TD-MPC2: <code>bins = linspace(-10, 10, 101)</code>, <code>transform = symlog</code>
+  (clip in symlog space, decode <code>symexp(E_p[bins])</code>); symmetric ranges only (T24).</li>
+</ul>
+</li>
+<li><code>src/ajax/normalizers.py</code>: one percentile helper (<code>jnp.percentile</code>, linear) and two
+  thin normalisers sharing it, each EMA an <code>optax.incremental_update</code>:</li>
+<li><code>ReturnNormalizer</code> (DreamerV3 retnorm): lo/hi EMAs at rate 0.01, init 0, no
+    debias, <strong>update then read</strong>, <code>scale = max(1, hi - lo)</code>.</li>
+<li><code>RunningScale</code> (TD-MPC2): <code>S ← lerp(S, max(1, p95 - p5), 0.01)</code>, init 1, update
+    before divide (EMA form: T25).</li>
+<li><code>src/ajax/networks/blocks.py</code></li>
+<li><code>linear(features, kernel_init, bias_init='zeros', outscale)</code> → <code>nn.Dense</code>;
+    initializers registered in the existing initializer registry (<code>networks/utils.py</code>):
+    DreamerV3 fan-in truncated normal (<code>variance_scaling(outscale², 'fan_in',
+    'truncated_normal')</code>, D23; BlockLinear fan_in = full input width), TD-MPC2
+    <code>normal(0.02)</code> (torch's absolute ±2 trunc bounds are effectively untruncated;
+    <code>jax truncated_normal(0.02)</code> is wrong), <code>zeros</code>.</li>
+<li><code>NormedMLP(layers, units, act, norm ∈ {layer, rms}, norm_eps, kernel_init, dropout)</code>:
+    hidden layer = Dense → [Dropout (first layer only)] → Norm → Act.
+    DreamerV3: RMSNorm eps 1e-4 (f32 statistics, scale only), SiLU, bias kept.
+    TD-MPC2: LayerNorm eps 1e-5 (<code>use_fast_variance=False</code>), Mish, dropout 0.01 in the
+    first layer of each Q member only.</li>
+<li><code>parse_activation</code> gains <code>silu</code> and <code>mish</code>.</li>
+<li>Everything else is agent-local (BlockLinear, RSSM, OneHot-ST, BoundedNormal,
+  LaProp/AGC, λ-return in DreamerV3; SimNorm, Ensemble, TanhGaussianPrior, param-group
+  Adam, MPPI in TD-MPC2). A block is promoted when a second consumer appears.
+  <code>random_pair_reduce</code> is shared with REDQ's subset-min only if it reproduces REDQ's
+  RNG stream exactly; otherwise it stays in TD-MPC2.</li>
+</ul>
+<h2 id="4-td-mpc2-single-task-m2-world-model-update-m3-planner-m4-agent">4. TD-MPC2 single-task (M2 world model + update, M3 planner, M4 agent)<a class="headerlink" href="#4-td-mpc2-single-task-m2-world-model-update-m3-planner-m4-agent" title="Permanent link">&para;</a></h2>
+<h3 id="41-surface">4.1 Surface<a class="headerlink" href="#41-surface" title="Permanent link">&para;</a></h3>
+<p><div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>TDMPC2(env_id, n_envs=1, model_size=5, enc_dim=None, mlp_dim=None, latent_dim=None,
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>       num_enc_layers=None, num_q=None, simnorm_dim=8, num_bins=101, vmax=10.0,
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>       dropout=0.01, horizon=3, rho=0.5, consistency_coef=20.0,
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>       reward_coef=0.1, value_coef=0.1, learning_rate=3e-4, enc_lr_scale=0.3,
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>       grad_clip_norm=20.0, pi_eps=1e-5, tau=0.01, entropy_coef=1e-4,
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>       log_std_min=-10.0, log_std_max=2.0, batch_size=256, buffer_size=1_000_000,
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>       seed_steps=None, gamma=None, discount_denom=5, discount_min=0.95,
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>       discount_max=0.995, iterations=6, num_samples=512, num_elites=64,
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>       num_pi_trajs=24, min_std=0.05, max_std=2.0, temperature=0.5,
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>       episode_length=1000, action_repeat=1, env_params=None, extensions=())
+</code></pre></div>
+- <code>model_size ∈ {1, 5, 19, 48, 317}</code> fills the <code>None</code> widths from the reference table;
+  an explicit width overrides it. <code>iterations += 2</code> when the action dim ≥ 20.
+- <code>gamma=None</code> → <code>discount(T)</code>; <code>seed_steps=None</code> → <code>max(1000, 5T)</code> (T from §2).
+- <code>vmax</code> bounds the two-hot bins at <code>±vmax</code> in symlog space (<code>TwoHot.tdmpc2(limit=vmax)</code>).
+  The reference's separate <code>vmin</code> is not exposed: the mirrored bins and the symmetric
+  sum need a symmetric range, which every TD-MPC2 config has (<code>vmin: -10, vmax: +10</code>;
+  T24).
+- Continuous actions only (raise on discrete, like SAC). Paper DMC protocol:
+  <code>action_repeat=2, episode_length=1000</code> (documented in the docstring).
+- Learning rates accept <code>float | Callable</code> (house schedulable rule); static
+  hyperparameters (sizes, bins, horizons) are listed as such in the docstring.</p>
+<h3 id="42-algorithm-b67b21c5f6fade-semantics">4.2 Algorithm (b67b21c/5f6fade semantics)<a class="headerlink" href="#42-algorithm-b67b21c5f6fade-semantics" title="Permanent link">&para;</a></h3>
+<p>Spec <code>tdmpc2_spec.md</code> §1–§3 with the paper-era column everywhere, in particular:
+- update order and parameter freshness (spec 2.19): TD target from pre-step params with
+  the online encoder <code>h(s')</code>; world-model step; policy loss on <strong>pre-step</strong> detached
+  latents and <strong>post-step</strong> Q (param stop-grad, dropout on); target-Q EMA (τ 0.01, Q only)
+  after both steps;
+- PE entropy: <code>+β·log_pi</code>, <code>log_pi = n_valid·(Σ_d(−½ε²−logσ) − ½ln2π) −
+  Σ_d log(relu(1−tanh(u)²)+1e−6)</code> (tanh term unscaled, with gradient);
+- loss normalisations of the code (/H, /(H·Nq), latent-mean MSE; H terms);
+- world-model optimizer: <code>clip_by_global_norm(20)</code> then Adam(eps 1e-8) with encoder
+  lr × 0.3 (param groups via <code>optax.multi_transform</code>); <strong>the clip norm reproduces PE</strong>:
+  <code>‖(g_wm, g_π,prev)‖</code> where <code>g_π,prev</code> is the previous update's post-clip policy
+  gradient (PE never clears it before the world-model clip; carried as one scalar);
+- policy optimizer: Adam(3e-4, eps 1e-5), clip 20 (built with the existing <code>get_adam_tx</code>);
+- RunningScale on <code>Qp[0]</code>, update before divide.
+- Q-ensemble dropout is active in <strong>every</strong> Q pass at PE, the TD target's target-Q pass
+  included (found by running 5f6fade in M2; deviations §2, spec §0.5 item 10).
+- <strong>Randomness seams:</strong> <code>update(state, batch, noise)</code> and <code>plan(..., noise)</code> take their
+  random draws (ε, Q-pair indices, MPPI noise, elite draw) as explicit arrays produced by
+  <code>draw_*_noise(key)</code>, so oracle tests can inject identical draws. Dropout enters as one
+  key per Q pass (M2): the per-member masks are drawn inside <code>nn.vmap</code>, and torch's masks
+  inside <code>torch.vmap</code> cannot be recorded, so the parity fixture runs with dropout 0 and
+  dropout is tested on the Ajax side.</p>
+<h3 id="43-planner-agent-local-agentstdmpc2plannerpy">4.3 Planner (agent-local <code>agents/TDMPC2/planner.py</code>)<a class="headerlink" href="#43-planner-agent-local-agentstdmpc2plannerpy" title="Permanent link">&para;</a></h3>
+<p>Spec §3.C exactly, paper-era: 512 candidates including 24 π trajectories (never
+resampled, re-scored each iteration), μ warm start shifted by one with last row 0, σ
+reset to <code>max_std</code> each decision, clamp before evaluation, value = Σγ^t r̂ + γ^H
+avg-of-2 online Q at <code>π(z_H).sample</code> with Q dropout on (PE; only the drawn pair of
+members is evaluated, where the reference runs all 5 and keeps 2: the same values, the
+same dropout distribution, 20-30% less planning time at the paper size on CPU), top-64
+elites, <code>score = exp(0.5(V − max V))</code>, biased weighted std around the new mean clamped
+to [0.05, 2], 6 iterations (+2 when A ≥ 20; <code>lax.scan</code> over the per-iteration draws, H-step
+rollouts unrolled in Python), executed action = the first action of the elite drawn
+from the last score (inverse CDF of one uniform, PE's <code>np.random.choice</code>) + σ₀ noise
+unless <code>eval_mode</code>. <code>plan(wm_params, pi_params, obs, prev_mean, t0, noise, *, config,
+gamma, eval_mode)</code> for one env, vmapped over envs; per-env <code>prev_mean [n_envs, H, A]</code>;
+<code>t0 = is_first</code>. The planner is not called during the seed phase (static cond) —
+prev_mean stays at zeros, so the reference's stale warm start from the step-0 eval is
+not reproduced (registered).</p>
+<h3 id="44-collection-replay-and-schedule">4.4 Collection, replay and schedule<a class="headerlink" href="#44-collection-replay-and-schedule" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Collector in <strong>static reset mode</strong> (§5.2): fixed-length lockstep episodes; held tick
+  <code>i mod (T+1) == T</code>; fresh <code>env.reset</code> on the held tick.</li>
+<li><strong>Terminations are refused.</strong> The collector counts off-schedule <code>done</code>s and the loop
+  counts true terminations on the schedule's last step (<code>is_terminal</code> rows); the agent
+  raises <code>ValueError</code> on the host after <code>train()</code> returns (and the counts are logged).
+  The guard's precedent is HEAD's ValueError; PE silently treated any done as a time
+  limit (registered).</li>
+<li><strong>Episode buffer</strong> (<code>agents/TDMPC2/buffer.py</code>, the b67b21c design): ring of
+  <code>R</code> rounds × <code>n_envs</code> episode slots <code>[R·n_envs, T+1, ·]</code>, where
+  <code>R = ceil(min(buffer_size, total_env_steps) / (T·n_envs)) + 1</code> (one staging round).
+  Rows of the in-progress round are written in place; a round becomes sampleable when its
+  held tick passes. Sampling: uniform committed episode × uniform offset <code>s ∈ [0, T−H]</code>.
+  Slice conversion (rows are obs-aligned, §5.2): obs rows <code>s..s+H</code>, actions rows
+  <code>s..s+H−1</code>, rewards rows <code>s+1..s+H</code>. The sampler cannot draw from zero episodes
+  (build-time assertion that the burst happens after ≥ 1 committed round).</li>
+<li><strong>Schedule</strong> <code>n_updates(i)</code> (static, 5 lines in <code>train_TDMPC2.py</code>), one
+  <code>fori_loop(0, n_updates(i), update)</code> per tick:</li>
+<li>seed phase: random actions on every stepping tick up to and including the stepping
+    tick on which total env steps first exceed S, and at least one round has been
+    committed;</li>
+<li>burst: <code>S</code> updates right after that tick;</li>
+<li>afterwards <code>n_envs</code> updates per stepping tick, 0 on held ticks (UTD 1 per env step; <code>updates_per_step</code> r makes it <code>max(1, round(n_envs·r))</code>, deviation T28).
+  For <code>n_envs = 1</code> this reproduces b67b21c exactly (S+1 random actions at steps 0..S,
+  burst after step S with ⌊S/T⌋ completed episodes, then 1 update per step) — pinned by
+  a test against a Python port of the reference loop. <code>n_envs &gt; 1</code> is a generalisation
+  (registered).</li>
+</ul>
+<h3 id="45-state">4.5 State<a class="headerlink" href="#45-state" title="Permanent link">&para;</a></h3>
+<p><code>TDMPC2State(BaseAgentState, kw_only)</code>: <code>world_model_state</code> (encoder, dynamics, reward,
+Q ensemble; <code>target_params</code> = target Q, updated by <code>optax.incremental_update</code> on the Q
+subtree in <code>core.update</code>), <code>actor_state</code> (policy prior), <code>critic_state=None</code>, <code>q_scale</code>,
+<code>pi_gradnorm_sq</code>, <code>collector_state</code> (row collector state; its <code>policy_carry</code> holds
+<code>prev_mean</code>), <code>buffer_state</code>, <code>update_metrics</code> (the last update's, kept for logging) and
+<code>n_terminations</code> (T10).</p>
+<h3 id="46-evaluation">4.6 Evaluation<a class="headerlink" href="#46-evaluation" title="Permanent link">&para;</a></h3>
+<p><code>evaluate_policy</code> (§5.4) with the planner in <code>eval_mode</code> (no final noise; everything
+else stochastic, as in the reference), <code>num_episode_test</code> episodes on a rebuilt env with
+the training <code>action_repeat</code> and episode length, each evaluation from fresh initial
+states (its key folded with the evaluation count); separate planner carry (registered:
+the reference reuses the training env and prev_mean).</p>
+<h2 id="5-shared-backbone-lands-with-its-first-consumer-m4">5. Shared backbone (lands with its first consumer, M4)<a class="headerlink" href="#5-shared-backbone-lands-with-its-first-consumer-m4" title="Permanent link">&para;</a></h2>
+<h3 id="51-environment-plumbing">5.1 Environment plumbing<a class="headerlink" href="#51-environment-plumbing" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>action_repeat</code> is an explicit argument of <code>build_env_from_id</code> / <code>prepare_env</code> /
+  <code>ActorCritic.__init__</code> and is stored on <code>EnvironmentConfig</code>. brax/playground: passed to
+  <code>EpisodeWrapper(episode_length, action_repeat)</code> (repeat does not stop on termination —
+  identical on DMC, which never terminates; registered). gymnax: <code>action_repeat &gt; 1</code>
+  raises (no paper use). Registered builders: called with <code>action_repeat=</code> only when
+  it is &gt; 1 (legacy two-argument builders raise in that case). Prebuilt env with
+  <code>action_repeat &gt; 1</code> raises.</li>
+<li><code>setup_environment</code> (eval rebuild) takes <code>action_repeat</code> and the training
+  <code>episode_length</code> explicitly; <code>_infer_max_eval_steps</code> is replaced at the new call sites
+  by <code>agent_episode_length</code>.</li>
+<li><strong>Action bounds.</strong> Every Ajax env step maps the agent's action to the env (the
+  row collector and <code>evaluate_policy</code> here; the model-free collectors, <code>evaluate</code>,
+  UDRL and APG alike): <code>a_env = c + h · clip(a, −1, 1)</code> for finite Box bounds, with
+  centre <code>c = (high + low)/2</code> and half-range <code>h = (high − low)/2</code>, exactly the clip on
+  a [−1, 1] box (DreamerV3 reference <code>NormalizeAction</code> + <code>ClipAction</code>; TD-MPC2
+  <code>action_scale</code>). Experts, written in env units, are read in agent units by the
+  inverse, <code>(a − c)/h</code> (<code>ExpertInAgentUnits</code>). Replay stores the agent's raw action.
+  The public <code>interaction.step</code> and <code>closed_loop_rollout</code> stay raw. Test with
+  Pendulum's [−2, 2].</li>
+</ul>
+<h3 id="52-row-collector-srcajaxenvironmentsrow_collectorpy">5.2 Row collector (<code>src/ajax/environments/row_collector.py</code>)<a class="headerlink" href="#52-row-collector-srcajaxenvironmentsrow_collectorpy" title="Permanent link">&para;</a></h3>
+<p>One row per env per tick, obs-aligned (DreamerV3's replay convention; also exactly
+TD-MPC2's T+1 rows per episode):</p>
+<table>
+<thead>
+<tr>
+<th>field</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>obs</code></td>
+<td>observation acted on at this tick</td>
+</tr>
+<tr>
+<td><code>reward</code></td>
+<td>reward received on entering <code>obs</code> (0 when <code>is_first</code>)</td>
+</tr>
+<tr>
+<td><code>is_first</code> / <code>is_last</code> / <code>is_terminal</code></td>
+<td>reset obs / final obs of an episode / true termination</td>
+</tr>
+<tr>
+<td><code>action</code></td>
+<td>raw agent action chosen at this tick, zeroed when <code>is_last</code></td>
+</tr>
+<tr>
+<td>extras</td>
+<td>agent-defined per-row outputs (e.g. DreamerV3 posterior <code>deter</code>, <code>stoch</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>Per tick: emit the row; call <code>policy_fn(carry, obs, is_first, key) -&gt; (action, carry,
+extras)</code> (or uniform random actions in a seed phase selected by the caller with a static
+predicate); if <code>is_last</code>, do not step (hold) and emit the reset obs next tick
+(<code>is_first=1, reward=0</code>); otherwise step, and if the step ends the episode emit its
+terminal obs (<code>get_final_obs</code>) next tick as <code>is_last</code> with <code>is_terminal = terminated</code>.</p>
+<p>Two reset modes, chosen by the agent:
+- <strong>static</strong> (fixed-length lockstep episodes; all DMC tasks, all TD-MPC2 runs): the hold
+  tick is <code>i mod (T+1) == T</code> for every env; on it the collector calls <code>env.reset</code> with a
+  fresh key inside <code>lax.cond</code> on the unbatched tick. This gives a freshly randomised
+  initial state every episode on every backend, whatever the env's own auto-reset does
+  (a playground env built with <code>fresh_reset=False</code> returns a cached first state), at
+  ≈0.1 ms/tick amortised. Off-schedule <code>done</code>s are counted as
+  errors.
+- <strong>dynamic</strong> (data-dependent episode ends: gymnax / brax tasks with terminations):
+  per-env hold via <code>jnp.where</code> on a snapshot of the env state; reset obs = the
+  auto-reset obs, fresh on gymnax, brax and playground (Ajax's playground stack uses
+  <code>FreshAutoResetWrapper</code> by default since #54). Only a playground env built with
+  <code>fresh_reset=False</code> restarts from a cached first state; dynamic mode warns about it
+  (deviation E20).</p>
+<p>State: <code>RowCollectorState(CollectorState)</code> adds <code>reward</code>, <code>is_first</code>, <code>is_last</code>,
+<code>is_terminal</code>, <code>reset_obs</code>, <code>env_steps</code>, <code>rows</code>, <code>n_offschedule_dones</code>, <code>policy_carry</code>.
+<code>timestep</code> follows §2. Episode return/length tracking reuses the existing rolling-mean
+machinery.</p>
+<h3 id="53-update-loop-trainlooprepeat_update">5.3 Update loop (<code>TrainLoop.repeat_update</code>)<a class="headerlink" href="#53-update-loop-trainlooprepeat_update" title="Permanent link">&para;</a></h3>
+<p>Both agents run on the shared off-policy loop (<code>ajax.agents.loop.TrainLoop.off_policy</code>)
+with their own acting (<code>collect</code>), update schedule (<code>n_updates(tick)</code>) and evaluation.
+<code>repeat_update(state, n, update)</code>: <code>fori_loop(0, n, ...)</code> over the update, which keeps
+what it logs on the state. <code>n</code> is computed from the unbatched tick, so it lowers to an
+unbatched while loop under the seed vmap (tested). Extension <code>post_update</code> is folded
+after <strong>each</strong> update inside the loop (CONTRIBUTING's contract), with <code>step =
+collector_state.timestep</code>.</p>
+<h3 id="54-evaluation-and-logging">5.4 Evaluation and logging<a class="headerlink" href="#54-evaluation-and-logging" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>evaluate_policy(env_args, policy_fn, init_carry, num_episodes, key, T, ...)</code> in
+  <code>evaluate.py</code>: rebuilds the env (n_envs = num_episodes, training action_repeat and
+  episode length), resets with the given key (fresh initial states), runs every env for
+  one episode with the agent's stateful policy (<code>is_first</code> on the first step), returns
+  mean return and length. Tested against <code>evaluate()</code> for a feedforward actor.</li>
+<li><code>maybe_eval_and_log</code> lifted from APG's <code>_maybe_log</code> into <code>log.py</code> in a
+  behaviour-preserving first commit (APG tests unchanged and green), parameterised by
+  <code>metrics_fn(agent_state, aux)</code> and <code>evaluate_fn</code>.</li>
+</ul>
+<h3 id="55-resume">5.5 Resume<a class="headerlink" href="#55-resume" title="Permanent link">&para;</a></h3>
+<p><code>build_resumable_train</code> gains an unbatched <code>iteration_offset</code> (default 0): the scan input
+becomes <code>offset + arange(num_updates)</code>. <code>ActorCritic.train</code> passes
+<code>self.resume_iteration_offset(initial_state)</code> (default 0, so existing agents — including
+APG's per-stage cadence — are unchanged; the new agents return their tick counter,
+asserted equal across seeds). All schedules (seed phase, burst, gate, ratio, online
+queue, static reset) therefore continue correctly after resume. Test: resumed run applies
+the same number of updates as an uninterrupted one and never repeats the seed phase.</p>
+<h3 id="56-replay-capacity">5.6 Replay capacity<a class="headerlink" href="#56-replay-capacity" title="Permanent link">&para;</a></h3>
+<p>Static per <code>train()</code> call: <code>replay_capacity</code> / <code>buffer_size</code> are clamped to the run
+length (<code>min(capacity, rows or env steps the run has taken when this call ends)</code>, the
+references' own <code>min(·, steps)</code>, which saves memory without changing what is replayed:
+a buffer that holds the whole run never evicts). Every <code>train()</code> call resolves the size:
+a fresh run from its own length; a resumed run from its total length (so far + this
+call), so that a run split into resumed calls replays exactly what the uninterrupted run
+does. TD-MPC2 moves the carried episodes into the newly sized buffer
+(<code>EpisodeBuffer.adopt</code>), so its resume skeleton's (<code>n_timesteps=0</code>) shapes do not
+matter; DreamerV3 grows a run-clamped ring by exact zero-padding (§6.3), and its 0-tick
+skeleton reuses the size the agent's latest run recorded. (Updated after the M4b and
+M7 reviews: the first versions resolved the capacity once, at the first <code>train()</code>, so a
+chunked run kept the first chunk's smaller buffer and a checkpoint restored by a new
+agent met a buffer of another size.) Capacity and bytes per seed are recorded on the
+agent and in its run config; the docstrings list the memory per seed, buffer and
+training working set (the seed vmap multiplies it).</p>
+<h3 id="57-extension-support">5.7 Extension support<a class="headerlink" href="#57-extension-support" title="Permanent link">&para;</a></h3>
+<p><code>ActorCritic.supported_extension_phases</code> (empty by default; every agent declares its
+own) checked in <code>ActorCritic.__init__</code> against <code>extension_stack.implemented_phases()</code>. Both new agents declare <code>{pretrain, post_update, eval_metrics}</code> (+
+<code>init_state</code>). <code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code>,
+<code>action</code>, <code>eval_action</code> are rejected with a clear message until a concrete use defines
+their semantics on latent agents.</p>
+<h2 id="6-dreamerv3-m5-world-model-m6-actor-critic-optimizer-m7-agent">6. DreamerV3 (M5 world model, M6 actor-critic + optimizer, M7 agent)<a class="headerlink" href="#6-dreamerv3-m5-world-model-m6-actor-critic-optimizer-m7-agent" title="Permanent link">&para;</a></h2>
+<h3 id="61-surface">6.1 Surface<a class="headerlink" href="#61-surface" title="Permanent link">&para;</a></h3>
+<p><div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>DreamerV3(env_id, n_envs=16, model_size=&#39;12m&#39;, units=None, deter=None, hidden=None,
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>          classes=None, stoch=32, blocks=8, enc_layers=3, dec_layers=3,
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>          rew_layers=1, con_layers=1, actor_layers=3, critic_layers=3, bins=255,
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>          free_nats=1.0, unimix=0.01, actor_unimix=0.01, dyn_scale=1.0, rep_scale=0.1,
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>          rec_scale=1.0, rew_scale=1.0, con_scale=1.0, actor_scale=1.0,
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>          critic_scale=1.0, repval_scale=0.3, train_ratio=512, batch_size=16,
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>          batch_length=64, imag_horizon=15, return_horizon=333, lam=0.95,
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>          repval_lam=0.95, actent=3e-4, slowreg=1.0, slow_rate=0.02,
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>          retnorm_rate=0.01, retnorm_limit=1.0, minstd=0.1, maxstd=1.0,
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>          learning_rate=4e-5, agc=0.3, agc_pmin=1e-3, beta1=0.9, beta2=0.999,
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>          eps=1e-20, warmup=1000, replay_capacity=5_000_000, episode_length=1000,
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>          action_repeat=1, env_params=None, extensions=())
+</code></pre></div>
+- Presets (d = units = hidden, deter = 8d, classes = d/16): <code>1m</code> (code only), <code>12m</code>,
+  <code>25m</code>, <code>50m</code>, <code>100m</code>, <code>200m</code>, <code>400m</code>. Explicit widths override.
+- <code>gamma = 1 − 1/return_horizon</code> (renamed from the reference's <code>horizon</code> to avoid the
+  clash with APG/TD-MPC2; the continue target folds γ in, <code>contdisc</code>).
+- No boolean variant flags: replay context, online queue and contdisc are always on
+  (paper-era behaviour). f32 only (bf16 deferred to the GPU milestone, registered).
+- Discrete and continuous actions; <code>n_timesteps</code> counts rows.
+- Paper DMC-proprio protocol (documented): <code>model_size='12m', n_envs=16,
+  train_ratio=512, action_repeat=2, episode_length=1000, n_timesteps=250_000</code>.</p>
+<h3 id="62-algorithm-2411f7d-29eb964">6.2 Algorithm (2411f7d + 29eb964)<a class="headerlink" href="#62-algorithm-2411f7d-29eb964" title="Permanent link">&para;</a></h3>
+<p>Spec <code>dreamerv3_spec.md</code> Algorithms A–J with every 2411f7d choice where HEAD differs
+(full adoption table in <code>deviations.md</code>): discrete actor one-hot with 1% unimix (log-prob
+and entropy of the mixed distribution); vector-decoder output outscale 0.1;
+symlog-MSE tolerance 1e-8 (no ½ factor); start-state reward and continuation <strong>from
+replay data</strong> (<code>reward_t</code>, hard <code>1 − is_terminal_t</code>) in imagination; slow critic set to a
+hard copy of the critic after the first optimizer step (<code>mix = 1 if updates == 0 else
+0.02</code>, applied after the step); λ-return with next-state r̂/ĉ/v bootstrapped from the
+<strong>online</strong> critic; retnorm update-then-read; REINFORCE for both action types;
+repval (not stop-gradiented, trains the world model, fixed γ, ~is_last mask);
+<code>Σ scale · mean(term)</code> reductions.
+- <strong>One joint gradient.</strong> One forward pass and one <code>jax.value_and_grad(total_loss)</code>
+  over (world model, actor, critic) params at their pre-update values; imagination,
+  the retnorm update, repval and the write-back latents all come from that forward. Then
+  three optimizer instances (LaProp: per-tensor AGC → RMS(β2 0.999, eps 1e-20 after
+  sqrt, bias-corrected) → momentum(β1 0.9, bias-corrected) → −lr with 1000-step linear
+  warmup from 0) — bit-identical to one optimizer over all modules (CPU; the test
+  allows 4 float32 ulps, the two programs being compiled separately), asserted by a
+  test that also shows a sequential variant differs. Step counters asserted equal.
+- <strong>Randomness seams</strong> as in §4.2 (posterior samples, imagined actions, replay draws).</p>
+<h3 id="63-replay-agentsdreamerv3replaypy">6.3 Replay (<code>agents/DreamerV3/replay.py</code>)<a class="headerlink" href="#63-replay-agentsdreamerv3replaypy" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Per-env stream ring <code>[n_envs, C, ·]</code> (lockstep write pointer), rows per §5.2 plus the
+  posterior latents <code>deter</code> (f32) and <code>stoch</code> (class indices, uint8 when classes ≤ 256)
+  of each row, <code>C = min(ceil(replay_capacity / n_envs), rows per env of the run)</code>, never
+  below the <code>batch_length + ceil(B / n_envs)</code> rows that hold the first batch's items
+  (a run too short to train keeps that minimal ring; capacity in rows: D27). A resumed
+  run needs the ring of its total rows; a shorter state ring (sized by an earlier,
+  shorter call) has overwritten nothing, so row <code>a</code> sits at slot <code>a</code>, and it grows by
+  zero-padding to exactly the uninterrupted run's ring (<code>grow_rings</code>).</li>
+<li>Items = all fully written windows of <code>L = batch_length + 1 = 65</code> rows (stride 1,
+  crossing episodes). Physical indices are <code>(start + k) mod C</code>, read with <code>take</code> and
+  written with modular scatters (never <code>dynamic_slice</code> on the ring).</li>
+<li><strong>Online queue:</strong> item <code>q</code> = env <code>q mod n_envs</code>, start <code>1 + L·(q div n_envs)</code> (lockstep
+  FIFO by push tick then env id); pending items are popped first (at most B per batch),
+  the rest of the batch is drawn uniformly over items with replacement.</li>
+<li>Batch annotation: <code>is_first[:, 0] = True</code>; <code>is_last |= next is_first</code> (last column
+  excluded).</li>
+<li>Replay context: carry from the stored latents at index 0; obs/flags from 1..64;
+  <code>prevact = action[0:64]</code> (29eb964).</li>
+<li><strong>Write-back:</strong> after the optimizer step, <code>fori_loop</code> over the B rows <strong>in batch
+  order</strong>, each writing its 64 posteriors (indices 1..64, never the context) — later rows
+  win, deterministically, as in the reference's sequential loop. Test with forced
+  overlaps against a NumPy sequential loop.</li>
+</ul>
+<h3 id="64-schedule-2411f7d-training-start-whenratio">6.4 Schedule (2411f7d training start + <code>when.Ratio</code>)<a class="headerlink" href="#64-schedule-2411f7d-training-start-whenratio" title="Permanent link">&para;</a></h3>
+<p>Static, per tick, from the transition-level reference (<code>train.py</code> + <code>when.Ratio</code>):
+transitions are numbered within ticks; the gate opens at the first transition with
+<code>len(replay) ≥ batch_size</code> items (items per env = rows − 64), where Ratio returns 1;
+afterwards cumulative updates after transition t are <code>1 + ⌊(t − t0)·r⌋</code> with
+<code>r = train_ratio / (B·T)</code> (exact; the reference's float64 <code>prev</code> agrees whenever <code>1/r</code>
+is exact, as in every reference configuration: D26). <code>n_updates(i)</code> = difference of that closed form between the
+ends of ticks i and i−1. With 16 envs the first update is at tick 64. Pinned by a test
+against a Python port of the 2411f7d driver for <code>n_envs ∈ {1, 4, 16, 32}</code>. Updates are
+run after the tick's rows are added (registered: the reference interleaves them between
+the per-env adds of one vector step).</p>
+<h3 id="65-collection-and-evaluation">6.5 Collection and evaluation<a class="headerlink" href="#65-collection-and-evaluation" title="Permanent link">&para;</a></h3>
+<p>Collector in dynamic mode on every task: the stream replay takes any episode boundary,
+and the auto-reset is fresh on gymnax, brax and playground (<code>fresh_reset=True</code> by
+default since #54; E20), so fixed-length DMC tasks need no static schedule. Acting =
+posterior filter with the carried (deter, stoch, prevact), sampled posterior,
+<strong>sampled</strong> action (no deterministic mode in the reference); prevact = raw sample.
+Primary metric = training-episode returns of the stochastic policy (reference);
+<code>evaluate_policy</code> eval episodes also sample, starting from a zero carry with
+<code>is_first = True</code>. Logged training metrics are their means over the updates since the
+previous log (the reference's <code>embodied.Agg</code>).</p>
+<h3 id="66-state">6.6 State<a class="headerlink" href="#66-state" title="Permanent link">&para;</a></h3>
+<p><code>DreamerV3State(BaseAgentState, kw_only)</code>: <code>world_model_state</code> (enc, rssm, dec, rew,
+con; the reference's <code>dyn</code> is <code>rssm</code>), <code>actor_state</code>, <code>critic_state</code> (<code>target_params</code> =
+slow critic; its <code>step</code> counts the slow critic's updates), <code>retnorm</code>,
+<code>collector_state</code> (row collector + policy carry), <code>replay_state</code> (+ online-queue
+counter), <code>train_metrics</code> (sums since the last log). The schedule keeps no state: it is
+a function of the absolute tick.</p>
+<h2 id="7-td-mpc2-multi-task-m8">7. TD-MPC2 multi-task (M8)<a class="headerlink" href="#7-td-mpc2-multi-task-m8" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Mechanisms in <code>agents/TDMPC2/multitask.py</code> (the single-task code is imported, the
+  lineage rule) through minimal hooks of <code>core</code> and <code>planner</code>: every update / planning
+  function takes an optional <code>TaskContext</code> (task ids and their action masks; <code>None</code> is
+  the single-task computation, unchanged). Task embedding <code>U(−0.02, 0.02)</code>, a
+  world-model parameter (<code>wm_params["task_emb"]</code>, in the world-model Adam at the full
+  learning rate and its clip; target Q has none), <code>task_dim=96</code> (paper; the code's 64 for
+  mt30 at 5/19/48M is an acknowledged accident tied to that dataset — registered), max-norm
+  1 by <strong>look-up-time renorm with write-back</strong> at the two points the reference renorms
+  (its first look-up <code>encode(obs[1:])</code> before the TD target; <code>pi(zs)</code> after the
+  world-model step, before the policy loss); renorm without persisting at eval; the
+  policy loss reads the embedding stop-gradiented (5f6fade's <code>track_q_grad(False)</code>); obs
+  zero-padded at the end; prefix action masks applied to π mean/logσ/ε and to planner
+  candidates and to mean/std after the std clamp; per-task discount table (float32, as
+  the reference's tensor: also in the planner's discount products); <code>n_valid</code> entropy
+  scaling; padded-A iteration rule. The task set (dims, episode lengths, discounts,
+  names) is a static <code>TaskSet</code>.</li>
+<li><code>TDMPC2MultiTask</code> (<code>agents/TDMPC2/TDMPC2MultiTask.py</code>, <code>train_TDMPC2MultiTask.py</code>; not
+  an <code>ActorCritic</code>: it has no single env): offline trainer, env-free update scan (batch
+  1024 slices uniform over pooled episodes; no planning in training). The dataset enters
+  as an <strong>unbatched argument shared across seeds</strong> (new optional <code>shared</code> slot of
+  <code>build_resumable_train</code>'s <code>train</code>, passed to <code>make_scan_fn</code> as <code>shared=</code>, vmapped with
+  <code>in_axes=None</code>) — never closed over (HLO constant bloat) nor copied per seed (tested on
+  the lowered program). <code>n_timesteps</code> counts updates. Evaluation is a host loop over
+  tasks between scan chunks (chunks end at the run's multiples of <code>log_frequency</code>
+  updates), each a per-task jitted <code>evaluate_policy</code> with the padded planner
+  (<code>eval_mode</code>, 10 episodes per task, the offline-trainer protocol; evaluate.py's noisy
+  protocol registered as not reproduced), logging per-task returns and the normalised
+  score <code>mean(return / 10)</code>. Extensions: the single-task agent's phases.</li>
+<li>Dataset schema (<code>agents/TDMPC2/dataset.py</code>): <code>obs [N, T+1, O_max]</code> (zero-padded at
+  the end), <code>action [N, T+1, A_max]</code> (zeros on invalid dims), <code>reward [N, T+1]</code>,
+  <code>task [N]</code> int32, plus per task the obs dim, action dim, <code>T</code> and a name. Rows are
+  obs-aligned (§5.2), the single-task ring's layout: row 0 is the reset row, whose
+  <em>reward</em> slot is 0; the last row has no action, its <em>action</em> slot is 0 (the M8
+  implementation corrects this item's first version, which put the zero action at row
+  0: that is the reference's own layout, where row k holds <code>a_{k-1}</code>; the slices are the
+  same). Written by <code>export_episodes</code> (every committed episode of a single-task run's
+  ring, in collection order) and <code>pool_tasks</code> (padding, task ids); <code>MultiTaskDataset.check</code>
+  validates the schema, zero padding included.</li>
+<li><strong>CI gate:</strong> reference parity in multi-task mode (<code>parity/tdmpc2_multitask_fixtures.py</code>:
+  real 5f6fade <code>update()</code> and <code>act()</code> with <code>cfg.multitask=True</code> on 3 synthetic tasks of
+  different dims), mechanisms, dataset round trip from a tiny single-task run, and
+  trainer smoke on an in-memory synthetic dataset of 3 toy tasks with different obs/action
+  dims. <strong>Validation (M9):</strong> dataset = full training
+  history (every completed episode from step 0, no FIFO eviction) of k seeds per task on
+  the playground versions of the 19 original mt30 DMC tasks (mt30 order as task ids,
+  action repeat 2); acceptance = the offline model reaches a stated fraction of each
+  source agent's final return; reported as validating the mechanisms, not the paper's
+  numbers (settings and criterion: <code>VALIDATION.md</code> §4).</li>
+</ul>
+<h2 id="8-probing">8. Probing<a class="headerlink" href="#8-probing" title="Permanent link">&para;</a></h2>
+<ul>
+<li>TD-MPC2: the stock probes are skipped (they terminate after 1–2 steps; the paper's
+  TD-MPC2 is for non-terminating tasks and its slices need T+1 ≥ H+1 rows). Replaced by
+  Ajax-local fixed-length non-terminating probe envs (constant reward → known discounted
+  value via time-limit bootstrap; reward = action → planner action → +1).</li>
+<li>DreamerV3: local adaptor (tiny config, <code>return_horizon = 1/(1−γ)</code>, value read at the
+  posterior after filtering the canonical trajectory from <code>is_first</code>); added to the
+  skip set with the existing "too slow" reason if a check exceeds ~60 s in CI. The
+  value, discounting and advantage-policy probes run (~30 s each); the coupling probe
+  is skipped by design: its <code>Box(0, 1)</code> actions are mapped from <code>[−1, 1]</code> (§5.1), so
+  its reward at observation −1 needs a sample <code>a ≤ −1</code>, which the bounded-mean policy
+  draws with probability below ½, and its <code>V ≥ 0.8</code> is unreachable.</li>
+</ul>
+<h2 id="9-performance-guardrail">9. Performance guardrail<a class="headerlink" href="#9-performance-guardrail" title="Permanent link">&para;</a></h2>
+<p>The CPU baseline <code>benchmarks/agent_baseline.jsonl</code> (2026-10-12) has rows for every
+agent, APG and both new agents included, each from a small preset documented in
+<code>benchmarks/agent_bench.py</code>; <code>agent_bench.py --compare</code> against it is the guardrail
+(<code>PERFORMANCE_REPORT.md</code>, "CPU baseline after the close-out batch 1").</p>
+<h2 id="10-testing">10. Testing<a class="headerlink" href="#10-testing" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Oracles.</strong> Two kinds; Ajax's modular implementation is compared with the oracle
+  at tiny sizes with injected noise (atol ~1e-5, matmul precision <code>highest</code>): every
+  loss term, per-module gradients, post-update parameters, normaliser state, target
+  EMA, plan output.</li>
+<li><em>Reference fixtures</em>, where the pinned reference code can be run: a generator per
+    agent in <code>docs/world_models/parity/</code> (committed, not collected by pytest, run by
+    hand in a throwaway venv with the reference's pinned dependencies, as its docstring
+    says) runs the real reference at tiny float32 sizes, records its random draws
+    without changing what it computes, and writes small <code>.npz</code> files (parameters under
+    their reference names, inputs, recorded draws, outputs, gradients) committed under
+    <code>tests/agents/&lt;A&gt;/fixtures/</code>. The tests map the reference's parameter names onto
+    Ajax's tree, force the recorded draws and compare. The fixtures' sizes are pairwise
+    distinct where Ajax could confuse two of them, and the hyperparameters other than
+    widths are the reference's defaults, against which Ajax's defaults are pinned.
+    Pinned this way so far: the TD-MPC2 update (M2,
+    <code>parity/tdmpc2_update_fixtures.py</code>: consecutive real 5f6fade <code>update()</code> calls,
+    replayed by <code>test_tdmpc2_parity.py</code> through Ajax's jitted update), the TD-MPC2
+    planner (M3, <code>parity/tdmpc2_plan_fixtures.py</code>: real <code>act()</code> decisions with their
+    draws, per-iteration values, elites, scores, mean and std, replayed chained by
+    <code>test_tdmpc2_planner_parity.py</code> through Ajax's jitted <code>plan</code>), the TD-MPC2 multi-task
+    update and planner (M8, <code>parity/tdmpc2_multitask_fixtures.py</code>: 5f6fade with
+    <code>cfg.multitask=True</code>, the embedding table recorded around both renorm points,
+    replayed by <code>test_tdmpc2_multitask_parity.py</code>), the DreamerV3
+    world model (M5, <code>parity/dreamerv3_world_model_fixtures.py</code>: <code>29eb964</code>'s own
+    <code>Agent.train</code>) and the whole DreamerV3 training step (M6,
+    <code>parity/dreamerv3_train_fixtures.py</code>: three chained <code>Agent.train</code> calls with every
+    loss scale at its default (warmup 2), recording every random draw, the loss terms,
+    gradients, optimizer updates, slow critic, normaliser and write-back latents).</li>
+<li><em>Transcriptions</em>, where running the reference is impractical: literal translations
+    of the pinned reference functions (MIT-licensed, attributed line by line) in
+    <code>tests/world_models/reference_impls.py</code> (shared blocks), and DreamerV3's Algorithm J
+    inline in <code>test_dreamerv3_replay.py</code> (<code>test_replay_context_batch_follows_algorithm_j</code>).
+    <code>tests/agents/TDMPC2/reference_params.py</code> maps the reference's parameter names onto
+    Ajax's trees for the parity tests.</li>
+<li><strong>Control-flow parity.</strong> Python ports of the reference loops (b67b21c online trainer,
+  <code>reference_online_loop</code> in <code>test_tdmpc2_schedule.py</code>; 2411f7d driver + replay
+  add/sample/online queue + train gate + Ratio, <code>tests/agents/DreamerV3/reference_loop.py</code>)
+  on a counter env:
+  identical row streams, seed/burst/gate ticks, queue pops, update counts.</li>
+<li><strong>Structure.</strong> Parameter-count tests (TD-MPC2 walker 4,960,618; MT 5,389,930; DreamerV3
+  12M core), chex shape tests, gradient-routing tests (which params get non-zero grads
+  from which loss).</li>
+<li><strong>Backbone.</strong> Episode length per backend; action_repeat parity train/eval; static and
+  dynamic reset modes (T+1 rows, held env bit-identical, consecutive episodes start from
+  different states on playground); replay wrap-around; write-back with overlaps;
+  <code>TrainLoop.repeat_update</code> unbatched while and exact counts; resume offset; extension rejection;
+  <code>evaluate_policy</code> vs <code>evaluate</code>; APG logging unchanged.</li>
+<li><strong>Agent.</strong> Module-scoped tiny-config fixtures (train once, assert smoke / metrics /
+  resume / extensions on the same run); ≤ 3 min of CI per agent test module; regression
+  goldens labelled as such.</li>
+<li><strong>Learning checks</strong> (<code>benchmarks/world_models/learning_checks.py</code>, outside CI, run before merging
+  each agent PR): TD-MPC2 Pendulum-v1 (Pendulum's [−2, 2] bounds mapped), playground
+  CartpoleBalance (repeat 2); DreamerV3 CartPole-v1 and Pendulum-v1 at small presets.
+  Results recorded in the PR and <code>PERFORMANCE_REPORT.md</code>.</li>
+</ul>
+<h2 id="11-milestones-vertical-slices-one-branch-pr-each-ci-green-per-commit">11. Milestones (vertical slices; one branch + PR each, CI green per commit)<a class="headerlink" href="#11-milestones-vertical-slices-one-branch-pr-each-ci-green-per-commit" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>M0</strong> docs: specs, this design, deviations register (+ PR #48 merged, CPU baseline).</li>
+<li><strong>M1</strong> shared numerics and blocks (§3) + block oracles.</li>
+<li><strong>M2</strong> TD-MPC2 world model + update as pure functions (+ oracle parity, param counts).</li>
+<li><strong>M3</strong> TD-MPC2 planner (+ oracle parity).</li>
+<li><strong>M4</strong> TD-MPC2 agent: env plumbing (§5.1), row collector (§5.2), episode buffer,
+  schedule, <code>final_aux_fori</code>, <code>evaluate_policy</code>, logging lift (first commit), resume
+  offset, extension support, local probes, bench entry, learning checks.</li>
+<li><strong>M5</strong> DreamerV3 world model (RSSM, encoder/decoder, heads, KL) + parity on fixtures
+  from the real reference.</li>
+<li><strong>M6</strong> DreamerV3 actor-critic (imagination, λ-returns, retnorm, repval, slow critic) +
+  LaProp/AGC + oracle parity (joint-gradient equivalence).</li>
+<li><strong>M7</strong> DreamerV3 agent: stream replay with context, online queue, write-back, schedule,
+  dynamic-mode collector, probes, bench entry, learning checks.</li>
+<li><strong>M8</strong> TD-MPC2 multi-task mechanisms + offline trainer + synthetic-data gate.</li>
+<li><strong>M9</strong> validation scripts (<code>VALIDATION.md</code>; <code>benchmarks/world_models/</code>): the published
+  curves extracted to committed JSON (DreamerV3's bundled 5-seed DMC-proprio curves of
+  <code>2411f7d</code>, all 18 Table 11 tasks in playground; TD-MPC2's <code>results/*.csv</code> for the 22
+  DMC tasks playground implements, and mt30's 19 original tasks), with explicit task
+  maps; a resumable paper-protocol runner (DreamerV3 12m / ratio 512 / 16 envs / repeat 2
+  / 500K env steps / 5 seeds, training-episode returns; TD-MPC2 5M / repeat 2 / the CSV
+  budgets / 3 seeds, 10 <code>eval_mode</code> episodes every 50K steps), chunked through the
+  agents' resume path and checkpointed with <code>ajax.checkpoint</code>; a report against
+  acceptance criteria fixed in <code>wm_acceptance.py</code> before any run (window means, per-task
+  bar at the reference's lowest seed − 50, task median and mean within 50, ≥ 80% of the
+  tasks; runs off their registry protocol reported, never judged; provenance listed);
+  the multi-task pipeline (sources with their full history, dataset saved and loaded
+  through <code>save_dataset</code> / <code>load_dataset</code> and pinned by hash, offline 19M training,
+  offline return ≥ 0.5 x the sources' on ≥ 80% of the judged tasks, ≥ 80% of the tasks
+  judged). CPU smoke and unit tests in CI; the GPU runs come later.</li>
+</ul>
+<h2 id="12-deviations-register">12. Deviations register<a class="headerlink" href="#12-deviations-register" title="Permanent link">&para;</a></h2>
+<p>The register lives in <code>deviations.md</code> (version-choice tables for both papers plus every
+Ajax departure, numbered D<em>, T</em>, E*). Code cites the entry it implements.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; Yann Berthelot
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "toc.follow", "content.code.copy", "content.action.edit", "content.tabs.link", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

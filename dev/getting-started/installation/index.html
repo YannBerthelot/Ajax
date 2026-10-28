@@ -2744,7 +2744,7 @@ so tests never compete with an experiment running on it:</p>
 </code></pre></div>
 <p><a href="../../guide/performance/">Performance</a> says when each device pays off.</p>
 <h2 id="dependency-groups">Dependency groups<a class="headerlink" href="#dependency-groups" title="Permanent link">&para;</a></h2>
-<p><code>uv sync</code> installs the runtime and two groups by default. The others are
+<p><code>uv sync</code> installs the runtime and the <code>dev</code> group by default. The others are
 opt-in.</p>
 <table>
 <thead>
@@ -2762,7 +2762,7 @@ opt-in.</p>
 </tr>
 <tr>
 <td><code>wandb</code></td>
-<td>yes</td>
+<td>no</td>
 <td>the <code>wandb</code> extra (below)</td>
 </tr>
 <tr>
@@ -2814,7 +2814,7 @@ imported.</p>
 </tr>
 <tr>
 <td><code>wandb</code></td>
-<td>Weights &amp; Biases, for <a href="../../guide/logging/">logging</a> with <code>WandbBackend</code> (or <code>use_wandb=True</code>); the default <code>wandb</code> group installs it</td>
+<td>Weights &amp; Biases, for <a href="../../guide/logging/">logging</a> with <code>WandbBackend</code>; the <code>wandb</code> group installs it in a checkout</td>
 </tr>
 </tbody>
 </table>
@@ -2867,11 +2867,13 @@ variables control it:</p>
 <p><a href="../../guide/performance/#the-compile-cache">Performance</a> explains what it
 saves and when it does not apply.</p>
 <h2 id="weights-biases">Weights &amp; Biases<a class="headerlink" href="#weights-biases" title="Permanent link">&para;</a></h2>
-<p>A <a href="../../guide/logging/"><code>LoggingConfig</code></a> logs to the backends you name; one
-that names none, and sets no flag, logs to Weights &amp; Biases. Log in once with
-<code>uv run wandb login</code> before the first run that uses it. Runs that keep their
-results in memory (<code>backends=()</code>), as in the <a href="../quickstart/">quickstart</a>, or
-write TensorBoard files (<code>TensorBoardBackend</code>) need no account.</p>
+<p>A <a href="../../guide/logging/"><code>LoggingConfig</code></a> logs to the backends you name, and
+to TensorBoard when it names none. To log to Weights &amp; Biases, install the
+<code>wandb</code> extra (<code>pip install "ajax-rl[wandb]"</code>, or <code>uv sync --group wandb</code> in
+a checkout), name <code>WandbBackend</code>, and log in once with <code>uv run wandb login</code>
+before the first run that uses it. Runs that keep their results in memory
+(<code>backends=()</code>), as in the <a href="../quickstart/">quickstart</a>, or write TensorBoard
+files need no account.</p>
 <h2 id="working-on-ajax">Working on Ajax<a class="headerlink" href="#working-on-ajax" title="Permanent link">&para;</a></h2>
 <p>After <code>uv sync</code>, run <code>uv run pre-commit install</code> once, so ruff and mypy check
 every commit. <code>make docs</code> builds this site as CI does

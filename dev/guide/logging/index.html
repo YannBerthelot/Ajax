@@ -2810,7 +2810,7 @@ your own.</p>
 <tbody>
 <tr>
 <td><code>backends</code></td>
-<td>not given</td>
+<td><code>TensorBoardBackend(folder)</code></td>
 <td>where each run logs (<a href="#backends">below</a>); <code>()</code> logs nowhere</td>
 </tr>
 <tr>
@@ -2836,19 +2836,24 @@ your own.</p>
 <tr>
 <td><code>use_wandb</code>, <code>use_tensorboard</code></td>
 <td>not set</td>
-<td>the earlier way to name backends, when <code>backends</code> is not given: W&amp;B (on unless set <code>False</code>) and TensorBoard (off unless set <code>True</code>)</td>
+<td>deprecated: the earlier way to name backends. Set, they warn and name W&amp;B (on unless set <code>False</code>) and TensorBoard (off unless set <code>True</code>), as before</td>
 </tr>
 <tr>
-<td><code>project_name</code>, <code>group_name</code>, <code>folder</code></td>
+<td><code>folder</code></td>
 <td><code>None</code></td>
-<td>with those flags: the W&amp;B project and group, and TensorBoard's folder</td>
+<td>where the default TensorBoard backend writes, <code>&lt;folder&gt;/tensorboard/&lt;run id&gt;/</code> (the working directory when <code>None</code>)</td>
+</tr>
+<tr>
+<td><code>project_name</code>, <code>group_name</code></td>
+<td><code>None</code></td>
+<td>with the deprecated flags: the W&amp;B project and group</td>
 </tr>
 </tbody>
 </table>
 <p>With <code>backends=()</code>, <code>train</code> still evaluates and returns the evaluations in
-memory: the quickest way to get learning curves. Without <code>backends</code>, the
-flags decide as before, and a run logs to W&amp;B unless <code>use_wandb=False</code>.
-Setting a flag together with <code>backends</code> is refused.</p>
+memory: the quickest way to get learning curves. Without <code>backends</code>, each
+run writes TensorBoard event files under <code>./tensorboard/&lt;run id&gt;/</code>. Setting
+a deprecated flag together with <code>backends</code> is refused.</p>
 <h3 id="the-run-configuration">The run configuration<a class="headerlink" href="#the-run-configuration" title="Permanent link">&para;</a></h3>
 <p>Each run stores <code>config</code> merged with the agent's <code>agent.config</code>: every
 argument of the agent's constructor, by name, with the value it was given or
@@ -3200,7 +3205,7 @@ lists them, and <code>train(..., on_ids_ready=callback)</code> hands them to
   the <code>wandb</code> extra and log in once with <code>wandb login</code>. Each run is created
   in your process before training, so a missing login fails at once.
   <code>WandbBackend(steps=False)</code> creates the runs and sends them no evaluation,
-  as <code>use_wandb</code> with <code>sweep=True</code> does.</li>
+  as the deprecated <code>use_wandb</code> with <code>sweep=True</code> does.</li>
 <li>A backend of your own: <a href="#a-backend-of-your-own">below</a>.</li>
 </ul>
 <div class="admonition warning">

@@ -2580,6 +2580,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#ajax.logging.wandb_logging.LoggingConfig.with_agent_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_agent_config
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3021,6 +3032,17 @@
     <span class="md-ellipsis">
       
         backend
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.logging.wandb_logging.LoggingConfig.with_agent_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_agent_config
       
     </span>
   </a>
@@ -3744,7 +3766,7 @@ sweep: for hyperparameter sweeps, evaluate only in the last fifth of
     <div class="doc doc-contents ">
 
         <p>The backends every run logs to: backends, else those the flags
-name.</p>
+name, else TensorBoard's (folder/tensorboard/<run_id>/).</p>
 
     </div>
 
@@ -3778,6 +3800,29 @@ evaluations).</p>
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.logging.wandb_logging.LoggingConfig.with_agent_config" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">with_agent_config</span>
+
+
+<a href="#ajax.logging.wandb_logging.LoggingConfig.with_agent_config" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">with_agent_config</span><span class="p">(</span><span class="n">agent_config</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The copy a train call logs with: the agent's run configuration
+merged into config, and the backends named, so the flags are read
+(and warned about) once. A copy, so one LoggingConfig can serve
+several agents' runs.</p>
+
+
+    </div>
+
+</div>
 
 
 

@@ -32,14 +32,16 @@ training run for each agent:
   on `Pendulum-v1`, with 4 environments for 8,000 steps, logging off. The
   environment, `n_envs` and the step count are pinned, and so is
   `learning_starts=1000` for SAC, TD3, REDQ and ASAC, whose defaults (10,000)
-  would outlast the run. Every other hyperparameter is the agent's default,
+  would outlast the run, and for CrossQ, TQC and IQL, so that every replay
+  agent times the same share of updates. Every other hyperparameter is the agent's default,
   so the benchmark follows the agent's own code path rather than a tuned
   configuration. `tests/benchmarks/test_agent_bench.py` checks that every
   entry updates within the run.
-- **Presets and scenarios.** Three agents cannot run that way and get a small
+- **Presets and scenarios.** Four agents cannot run that way and get a small
   documented preset in the script: APG trains on a Pendulum tracking task (it
-  differentiates through the environment), and DreamerV3 and TD-MPC2 run
-  shrunken models that keep every code path. SAC has a second scenario,
+  differentiates through the environment), DAgger imitates the training
+  guide's PD controller on Pendulum (it needs an expert), and DreamerV3 and
+  TD-MPC2 run shrunken models that keep every code path. SAC has a second scenario,
   `SAC/inverted_pendulum`, a Brax task whose episodes terminate, for the
   auto-reset and terminal targets. The offline `TDMPC2MultiTask` is not
   benchmarked.
@@ -54,8 +56,8 @@ training run for each agent:
       lowering and compiling (overlapping spans counted once), and
       `exec_steps_per_s`. This is the run's execution alone.
 
-Each result is one JSON line per trial, tagged with the git commit and the
-JAX backend. `--n-seeds N` trains N seeds at once, the vmapped program
+Each result is one JSON line per trial, tagged with the git commit, the JAX
+backend and the device (`device_kind`, which tells two GPU models apart). `--n-seeds N` trains N seeds at once, the vmapped program
 experiments run; steps per second then count every seed's steps.
 
 ### The baseline

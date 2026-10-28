@@ -95,6 +95,27 @@ def test_a_tiny_two_seed_run_reports_its_execution_without_tracing(monkeypatch):
     assert row["exec_steps_per_s"] > row["steps_per_s"]
 
 
+def test_captured_rows_name_the_backend_and_the_device(tmp_path):
+    """Rows from two GPU models share the backend "gpu": each row also names
+    the device JAX ran on, so a report can tell them apart."""
+    import jax
+
+    out = tmp_path / "rows.jsonl"
+    agent_bench.capture(
+        "test",
+        str(out),
+        n_envs=2,
+        n_seeds=1,
+        warmup=32,
+        timesteps=64,
+        trials=1,
+        only=["DQN"],
+    )
+    (row,) = [json.loads(line) for line in out.read_text().splitlines()]
+    assert row["jax_backend"] == jax.default_backend()
+    assert row["device_kind"] == jax.devices()[0].device_kind
+
+
 def write_rows(path, agent, **metrics):
     path.write_text(json.dumps({"agent": agent, **metrics}) + "\n")
     return str(path)

@@ -1,34 +1,66 @@
-# Publishes the documentation site to GitHub Pages. Checking the site is the
-# `docs` job in ci.yml, which gates every pull request; this workflow only adds
-# the deploy, so a broken page fails review rather than reaching the published
-# site. It rebuilds rather than reusing the CI build: the build takes seconds,
-# less than passing an artifact between workflows.
+# Publishes the documentation site to GitHub Pages, one version per release
+# (mike): main as "dev" on every push, a release's X.Y aliased "latest" from the
+# Release workflow, and any tag by hand. Checking the site is the `docs` job in
+# ci.yml, which gates every pull request; this workflow only deploys. mike
+# commits each version to the gh-pages branch, and the publish job uploads that
+# branch as the Pages artifact.
 
 name: docs-deploy
 
 on:
   push:
     branches: [main]
-  # Republish without a commit: the first time Pages is switched on, and after
-  # a settings change.
+  # By hand: a release's site again, or one built before versioned docs (0.4).
   workflow_dispatch:
+    inputs:
+      ref:
+        description: The tag to build, e.g. v0.4.0.
+        required: true
+      version:
+        description: The site version it becomes, X.Y.
+        required: true
+      alias:
+        description: latest to make it the default version, else empty.
+        default: ""
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+      version:
+        type: string
+        required: true
+      alias:
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
-# Pages allows one deployment at a time. Unlike CI this does not cancel the
-# run in flight: a cancelled deploy can leave the site half published.
-concurrency:
-  group: pages
-  cancel-in-progress: false
+env:
+  # Beside each ref's own docs group, so a release builds with its own lock.
+  MIKE: mike==2.2.0
 
 jobs:
-  build:
-    name: Build
+  deploy:
+    name: Deploy ${{ inputs.version || 'dev' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    # One deploy per version at a time; different versions retry their push.
+    concurrency:
+      group: docs-${{ inputs.version || 'dev' }}
+      cancel-in-progress: false
+    env:
+      AJAX_DOCS_REF: ${{ inputs.ref || 'main' }}
+      VERSION: ${{ inputs.version || 'dev' }}
+      ALIAS: ${{ inputs.alias }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -37,24 +69,70 @@ jobs:
           version: "0.11.28"
           enable-cache: true
           prune-cache: true
+      # A release from before versioned docs has neither the version selector
+      # nor the source-ref hook: it builds with main's, committed nowhere.
+      - name: Main's docs tooling, for a release before versioned docs
+        if: hashFiles('docs/overrides/main.html') == ''
+        run: |
+          git checkout origin/main -- docs/hooks.py docs/overrides
+          cat > mkdocs.versioned.yml <<'EOF'
+          INHERIT: mkdocs.yml
+          theme:
+            custom_dir: docs/overrides
+          extra:
+            version:
+              provider: mike
+              default: latest
+              alias: true
+          EOF
       # The docs group alone: mkdocstrings reads the source without importing it.
       - run: uv sync --locked --only-group docs
-      - run: uv run --no-sync mkdocs build --strict
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: site
+      - name: Commit the version to gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          config=mkdocs.yml
+          [ -f mkdocs.versioned.yml ] && config=mkdocs.versioned.yml
+          mike() { uv run --no-sync --with "$MIKE" mike "$@" --config-file "$config"; }
+          # Another version may push first: rebuild on the new head, three tries.
+          for attempt in 1 2 3; do
+            if git fetch -q origin gh-pages; then
+              git branch -f gh-pages origin/gh-pages
+            fi
+            mike deploy --update-aliases "$VERSION" $ALIAS
+            # The site's root opens latest; dev until a release is deployed.
+            if [ "$ALIAS" = latest ]; then
+              mike set-default latest
+            elif ! git cat-file -e gh-pages:index.html 2> /dev/null; then
+              mike set-default "$VERSION"
+            fi
+            git push origin gh-pages && exit 0
+            sleep 10
+          done
+          exit 1
 
-  deploy:
-    name: Deploy
-    needs: build
+  publish:
+    name: Publish
+    needs: deploy
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       pages: write
       id-token: write
+    # The newest gh-pages holds every version, so a newer run replaces a
+    # pending one; a publish in flight is never cancelled half done.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: gh-pages
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: .
       - id: deployment
         uses: actions/deploy-pages@v4

@@ -814,13 +814,30 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#weights-biases-and-tensorboard" class="md-nav__link">
+  <a href="#backends" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Weights &amp; Biases and TensorBoard
+        Backends
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Backends">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-backend-of-your-own" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A backend of your own
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2705,13 +2722,30 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#weights-biases-and-tensorboard" class="md-nav__link">
+  <a href="#backends" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Weights &amp; Biases and TensorBoard
+        Backends
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Backends">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-backend-of-your-own" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A backend of your own
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2753,17 +2787,17 @@
 
 <h1 id="logging">Logging<a class="headerlink" href="#logging" title="Permanent link">&para;</a></h1>
 <p>A <code>LoggingConfig</code> turns on evaluation and logging. Every <code>log_frequency</code>
-steps the agent is evaluated and its metrics are recorded: in memory always,
-and in Weights &amp; Biases or TensorBoard when you ask for them.</p>
+steps the agent is evaluated, <code>train</code> returns the evaluations, and each run
+logs them to its backends: TensorBoard, Weights &amp; Biases, or a backend of
+your own.</p>
 <h2 id="loggingconfig"><code>LoggingConfig</code><a class="headerlink" href="#loggingconfig" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging.wandb_logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span><span class="p">,</span> <span class="n">TensorBoardBackend</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">config</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;experiment&quot;</span><span class="p">:</span> <span class="s2">&quot;baseline&quot;</span><span class="p">},</span>  <span class="c1"># extra fields stored with the run</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">config</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;experiment&quot;</span><span class="p">:</span> <span class="s2">&quot;baseline&quot;</span><span class="p">},</span>  <span class="c1"># extra fields stored with each run</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">log_frequency</span><span class="o">=</span><span class="mi">5_000</span><span class="p">,</span>  <span class="c1"># evaluate and log every 5,000 environment steps</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">use_wandb</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>  <span class="c1"># True by default</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">use_tensorboard</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">backends</span><span class="o">=</span><span class="p">(</span><span class="n">TensorBoardBackend</span><span class="p">(</span><span class="s2">&quot;runs&quot;</span><span class="p">),),</span>  <span class="c1"># runs/tensorboard/&lt;run id&gt;/</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span>
 </code></pre></div>
 <table>
 <thead>
@@ -2775,8 +2809,13 @@ and in Weights &amp; Biases or TensorBoard when you ask for them.</p>
 </thead>
 <tbody>
 <tr>
+<td><code>backends</code></td>
+<td>not given</td>
+<td>where each run logs (<a href="#backends">below</a>); <code>()</code> logs nowhere</td>
+</tr>
+<tr>
 <td><code>config</code></td>
-<td>(required)</td>
+<td><code>{}</code></td>
 <td>a dictionary stored with each run, with the agent's run configuration added (below)</td>
 </tr>
 <tr>
@@ -2785,39 +2824,31 @@ and in Weights &amp; Biases or TensorBoard when you ask for them.</p>
 <td>environment steps between evaluations</td>
 </tr>
 <tr>
-<td><code>use_wandb</code></td>
-<td><code>True</code></td>
-<td>log to Weights &amp; Biases</td>
-</tr>
-<tr>
-<td><code>use_tensorboard</code></td>
-<td><code>False</code></td>
-<td>write TensorBoard event files</td>
-</tr>
-<tr>
-<td><code>project_name</code>, <code>group_name</code></td>
-<td><code>None</code></td>
-<td>the W&amp;B project and group</td>
-</tr>
-<tr>
 <td><code>run_name</code></td>
 <td><code>None</code></td>
-<td>the W&amp;B run name's prefix: each run is named <code>&lt;run_name&gt;_&lt;run id&gt;</code></td>
-</tr>
-<tr>
-<td><code>folder</code></td>
-<td><code>None</code></td>
-<td>where TensorBoard runs go: <code>&lt;folder&gt;/tensorboard/&lt;run id&gt;/</code> (the working directory when <code>None</code>)</td>
+<td>each run's name prefix: a run is named <code>&lt;run_name&gt;_&lt;run id&gt;</code></td>
 </tr>
 <tr>
 <td><code>sweep</code></td>
 <td><code>False</code></td>
-<td>for hyperparameter sweeps: SAC evaluates only in the last 20% of training, and the logging worker sends nothing to W&amp;B</td>
+<td>for hyperparameter sweeps: SAC evaluates only in the last 20% of training</td>
+</tr>
+<tr>
+<td><code>use_wandb</code>, <code>use_tensorboard</code></td>
+<td>not set</td>
+<td>the earlier way to name backends, when <code>backends</code> is not given: W&amp;B (on unless set <code>False</code>) and TensorBoard (off unless set <code>True</code>)</td>
+</tr>
+<tr>
+<td><code>project_name</code>, <code>group_name</code>, <code>folder</code></td>
+<td><code>None</code></td>
+<td>with those flags: the W&amp;B project and group, and TensorBoard's folder</td>
 </tr>
 </tbody>
 </table>
-<p>With both backends off, <code>train</code> still evaluates and returns the evaluations
-in memory: the quickest way to get learning curves.</p>
+<p>With <code>backends=()</code>, <code>train</code> still evaluates and returns the evaluations in
+memory: the quickest way to get learning curves. Without <code>backends</code>, the
+flags decide as before, and a run logs to W&amp;B unless <code>use_wandb=False</code>.
+Setting a flag together with <code>backends</code> is refused.</p>
 <h3 id="the-run-configuration">The run configuration<a class="headerlink" href="#the-run-configuration" title="Permanent link">&para;</a></h3>
 <p>Each run stores <code>config</code> merged with the agent's <code>agent.config</code>: every
 argument of the agent's constructor, by name, with the value it was given or
@@ -3140,10 +3171,10 @@ as does a critic with memory.</p>
 <p><code>train</code> returns the evaluations as a dictionary of arrays, one row per seed
 and one column per evaluation:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging.wandb_logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="p">{},</span> <span class="n">log_frequency</span><span class="o">=</span><span class="mi">4_096</span><span class="p">,</span> <span class="n">use_wandb</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">log_frequency</span><span class="o">=</span><span class="mi">4_096</span><span class="p">,</span> <span class="n">backends</span><span class="o">=</span><span class="p">())</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">16_384</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="nb">print</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">evaluations</span><span class="p">))</span>  <span class="c1"># every logged name</span>
@@ -3157,11 +3188,21 @@ is a whole number of the agent's iterations (<code>n_envs</code> steps for the r
 agents, <code>n_envs × n_steps</code> for PPO, APO, PQN and UDRL, <code>n_envs × horizon</code>
 for APG): the iterations stop at a multiple of one, so otherwise an
 evaluation due at the end of the run does not happen, and <code>train</code> warns.</p>
-<h2 id="weights-biases-and-tensorboard">Weights &amp; Biases and TensorBoard<a class="headerlink" href="#weights-biases-and-tensorboard" title="Permanent link">&para;</a></h2>
-<p>Set <code>use_wandb=True</code> (log in once with <code>wandb login</code>) or
-<code>use_tensorboard=True</code>. Each seed is its own run, with its own id; after
-<code>train</code>, <code>agent.run_ids</code> lists them, and <code>train(..., on_ids_ready=callback)</code>
-hands them to <code>callback</code> before training starts.</p>
+<h2 id="backends">Backends<a class="headerlink" href="#backends" title="Permanent link">&para;</a></h2>
+<p>Each seed is its own run, with its own id; after <code>train</code>, <code>agent.run_ids</code>
+lists them, and <code>train(..., on_ids_ready=callback)</code> hands them to
+<code>callback</code> before training starts.</p>
+<ul>
+<li><code>TensorBoardBackend(folder=".")</code> writes each run to
+  <code>&lt;folder&gt;/tensorboard/&lt;run id&gt;/</code>, with its <code>config.json</code>. Metrics that are
+  not one number are left out.</li>
+<li><code>WandbBackend(project=None, group=None)</code> logs to Weights &amp; Biases: install
+  the <code>wandb</code> extra and log in once with <code>wandb login</code>. Each run is created
+  in your process before training, so a missing login fails at once.
+  <code>WandbBackend(steps=False)</code> creates the runs and sends them no evaluation,
+  as <code>use_wandb</code> with <code>sweep=True</code> does.</li>
+<li>A backend of your own: <a href="#a-backend-of-your-own">below</a>.</li>
+</ul>
 <div class="admonition warning">
 <p class="admonition-title">Guard your script's entry point</p>
 <p>The logging worker is a separate Python process started with <code>spawn</code>,
@@ -3173,7 +3214,7 @@ Put the training under <code>if __name__ == "__main__":</code>, as below.</p>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging.wandb_logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span><span class="p">,</span> <span class="n">load_scalars_from_tfevents</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span><span class="p">,</span> <span class="n">TensorBoardBackend</span><span class="p">,</span> <span class="n">load_scalars_from_tfevents</span>
 <a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
 <a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
 <a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
@@ -3181,25 +3222,62 @@ Put the training under <code>if __name__ == "__main__":</code>, as below.</p>
 <a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span>
 <a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>        <span class="n">config</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;experiment&quot;</span><span class="p">:</span> <span class="s2">&quot;cartpole-demo&quot;</span><span class="p">},</span>
 <a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>        <span class="n">log_frequency</span><span class="o">=</span><span class="mi">4_096</span><span class="p">,</span>
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>        <span class="n">use_wandb</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>        <span class="n">use_tensorboard</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>        <span class="n">folder</span><span class="o">=</span><span class="n">folder</span><span class="p">,</span>
-<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>    <span class="p">)</span>
-<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>    <span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
-<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>    <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
-<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>
-<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>    <span class="n">run</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">folder</span><span class="si">}</span><span class="s2">/tensorboard/</span><span class="si">{</span><span class="n">agent</span><span class="o">.</span><span class="n">run_ids</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>    <span class="c1"># TensorBoard writes spaces in names as underscores.</span>
-<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>    <span class="n">scalars</span> <span class="o">=</span> <span class="n">load_scalars_from_tfevents</span><span class="p">(</span><span class="n">run</span><span class="p">)</span>
-<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">scalars</span><span class="p">[</span><span class="s2">&quot;Eval/episodic_mean_reward&quot;</span><span class="p">])</span>  <span class="c1"># [(step, value), ...]</span>
-<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">run</span><span class="si">}</span><span class="s2">/config.json&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>        <span class="nb">print</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)[</span><span class="s2">&quot;seed&quot;</span><span class="p">])</span>  <span class="c1"># 0</span>
-<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>
-<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>
-<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
-<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>    <span class="n">main</span><span class="p">()</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>        <span class="n">backends</span><span class="o">=</span><span class="p">(</span><span class="n">TensorBoardBackend</span><span class="p">(</span><span class="n">folder</span><span class="p">),),</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    <span class="p">)</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>    <span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>    <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>    <span class="n">run</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">folder</span><span class="si">}</span><span class="s2">/tensorboard/</span><span class="si">{</span><span class="n">agent</span><span class="o">.</span><span class="n">run_ids</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>    <span class="c1"># TensorBoard writes spaces in names as underscores.</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>    <span class="n">scalars</span> <span class="o">=</span> <span class="n">load_scalars_from_tfevents</span><span class="p">(</span><span class="n">run</span><span class="p">)</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">scalars</span><span class="p">[</span><span class="s2">&quot;Eval/episodic_mean_reward&quot;</span><span class="p">])</span>  <span class="c1"># [(step, value), ...]</span>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">run</span><span class="si">}</span><span class="s2">/config.json&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>        <span class="nb">print</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)[</span><span class="s2">&quot;seed&quot;</span><span class="p">])</span>  <span class="c1"># 0</span>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>    <span class="n">main</span><span class="p">()</span>
 </code></pre></div>
 <p><code>load_scalars_from_tfevents</code> reads the scalars back without TensorFlow.</p>
+<h3 id="a-backend-of-your-own">A backend of your own<a class="headerlink" href="#a-backend-of-your-own" title="Permanent link">&para;</a></h3>
+<p>Any object with <code>open(run)</code>, <code>log(run_id, step, metrics)</code> and <code>close()</code> is a
+backend (<code>ajax.logging.LoggingBackend</code>). <code>open</code> gets a <code>RunInfo</code> (the run's
+<code>run_id</code>, <code>name</code>, <code>config</code> and <code>seed</code>) before the run's first evaluation;
+<code>log</code> gets each evaluation's metrics, numpy arrays by name, at environment
+step <code>step</code>, without those that are NaN; <code>close</code> comes once, when training
+ends. One backend object serves every seed's run. An optional
+<code>start(run)</code> runs in your process for each run before training, for what
+must happen at once.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="k">class</span><span class="w"> </span><span class="nc">JsonLinesBackend</span><span class="p">:</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Each evaluation of each run as one line of a file.&quot;&quot;&quot;</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">):</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">=</span> <span class="n">path</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">open</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">run</span><span class="p">):</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>        <span class="k">pass</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">run_id</span><span class="p">,</span> <span class="n">step</span><span class="p">,</span> <span class="n">metrics</span><span class="p">):</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>        <span class="n">row</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;run&quot;</span><span class="p">:</span> <span class="n">run_id</span><span class="p">,</span> <span class="s2">&quot;step&quot;</span><span class="p">:</span> <span class="n">step</span><span class="p">}</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>        <span class="n">row</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="n">name</span><span class="p">:</span> <span class="n">value</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">metrics</span><span class="o">.</span><span class="n">items</span><span class="p">()})</span>
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;a&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a>            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">row</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a>
+<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a>        <span class="k">pass</span>
+<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a>
+<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a>
+<a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">log_frequency</span><span class="o">=</span><span class="mi">5_000</span><span class="p">,</span> <span class="n">backends</span><span class="o">=</span><span class="p">(</span><span class="n">JsonLinesBackend</span><span class="p">(</span><span class="s2">&quot;evals.jsonl&quot;</span><span class="p">),))</span>
+</code></pre></div>
+<p>The backend runs in the logging worker (below), a process of its own: it
+reaches the worker by pickling, so define its class in a module or a
+script, not a notebook cell, and write what it gathers to a file to get it
+back.</p>
 <h2 id="the-logging-worker">The logging worker<a class="headerlink" href="#the-logging-worker" title="Permanent link">&para;</a></h2>
 <p>Training runs inside one compiled program, which must not wait on a network
 or a disk. At each evaluation, the program hands the metrics to Python
@@ -3207,14 +3285,15 @@ through a <code>jax.debug.callback</code>, which puts them on a queue; a separat
 process takes them off and writes them. The worker:</p>
 <ul>
 <li>runs on the CPU, so it never reserves GPU memory;</li>
-<li>writes TensorBoard events as they arrive;</li>
-<li>buffers W&amp;B steps and sends them ten at a time, in one W&amp;B session per
-  batch, because opening a W&amp;B run is slow and W&amp;B allows only one active
-  run per process. W&amp;B charts therefore update in steps of ten evaluations;</li>
+<li>passes each evaluation to the run's backends as it arrives: TensorBoard
+  writes it at once; W&amp;B buffers the steps and sends them ten at a time
+  (<code>WandbBackend(batch_size=10)</code>), in one W&amp;B session per batch, because
+  opening a W&amp;B run is slow and W&amp;B allows only one active run per process,
+  so W&amp;B charts update in steps of ten evaluations;</li>
 <li>is drained and stopped when <code>train</code> returns, so every metric is written
   before <code>train</code> hands back the state.</li>
 </ul>
-<p>The worker starts only when a backend is on. The callback has one cost:
+<p>The worker starts only when a run has a backend. The callback has one cost:
 JAX never stores a program that contains one in its persistent compile
 cache, so a run with a <code>LoggingConfig</code> compiles again in every new process.
 See <a href="../performance/">Performance</a>.</p>

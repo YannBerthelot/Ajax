@@ -3349,11 +3349,12 @@ own draws.</p>
   return realised from each evaluated step, in the critic's units). With an expert it also rolls the expert out on the same episodes
   at each evaluation and reports its return.</li>
 <li><a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/logging/wandb_logging.py"><code>logging/wandb_logging.py</code></a>
-  <strong>records</strong>. <code>LoggingConfig</code> names the backend (<code>use_wandb</code>,
-  <code>use_tensorboard</code>) and the cadence. The compiled program hands each
-  evaluation's metrics to a host callback, which forwards them to a separate
-  worker process that writes to Weights &amp; Biases or TensorBoard. The worker
-  starts only when a backend is enabled.</li>
+  <strong>records</strong>. <code>LoggingConfig</code> names the backends and the cadence. The
+  compiled program hands each evaluation's metrics to a host callback, which
+  forwards them to a separate worker process that passes them to each run's
+  backends (<a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/logging/backends.py"><code>logging/backends.py</code></a>:
+  TensorBoard, Weights &amp; Biases or one of your own). The worker starts only
+  when a run has a backend.</li>
 </ul>
 <p>What <code>train</code> returns follows from the logging config:</p>
 <ul>

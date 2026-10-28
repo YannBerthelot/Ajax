@@ -15,6 +15,9 @@ PyPI as `ajax-rl`.
   per env; a resumed run grows the replay to the uninterrupted run's, as
   the world models' do. The numbers are unchanged: the runs replay the
   same rows. A checkpoint saved before restores and resumes as it did.
+  The ring rules moved from `ajax.agents.DreamerV3.replay` to
+  `ajax.buffers.ring`: `count_ring_rows` as it was, `size_ring` now
+  returning the ring length alone (each replay grows its own state).
 - **Logging backends.** `LoggingConfig(backends=(...))` names where every
   run logs its evaluations: `TensorBoardBackend(folder)`,
   `WandbBackend(project, group)`, or a backend of your own, any picklable

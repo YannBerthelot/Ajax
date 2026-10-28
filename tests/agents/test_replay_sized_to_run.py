@@ -90,8 +90,11 @@ def rows_written(state: Any) -> dict[str, np.ndarray]:
     replay = state.collector_state.buffer_state
     index, full = int(replay.current_index[0]), bool(replay.is_full[0])
     if full:
-        return {k: np.roll(v[0], -index, axis=1) for k, v in replay.experience.items()}
-    return {k: v[0][:, :index] for k, v in replay.experience.items()}
+        return {
+            field: np.roll(values[0], -index, axis=1)
+            for field, values in replay.experience.items()
+        }
+    return {field: values[0][:, :index] for field, values in replay.experience.items()}
 
 
 def assert_equal(got: dict, want: dict) -> None:

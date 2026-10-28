@@ -10,6 +10,8 @@ import numpy as np
 import pytest
 from brax.envs import create as create_brax_env
 from flax import struct
+from gymnax.environments import spaces
+from gymnax.environments.classic_control.pendulum import Pendulum
 
 from ajax import evaluate as evaluation
 from ajax.agents.UDRL.UDRL import EvalCommand
@@ -28,6 +30,13 @@ from ajax.state import (
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
 from ajax.wrappers import InitialStateWrapper
 from tests.environments.identity_env import IdentityEnv
+from tests.extensions.test_expert_observations import (
+    appending,
+    assert_last_evaluation_acts_on,
+    assert_same_run,
+    assert_trained_on_column,
+    run,
+)
 
 
 def _sac_actor(env_config: EnvironmentConfig):
@@ -248,54 +257,26 @@ def test_the_expert_sees_raw_observations_in_collection_and_evaluation(augment):
         np.testing.assert_allclose(np.square(seen[..., :2]).sum(-1), 1.0, atol=1e-4)
 
 
-def _actor_inputs(monkeypatch, expert, **kwargs) -> list:
-    """Train a tiny SAC on Pendulum that conditions on the training fraction
-    and augments its observations with ``expert``'s action; every input the
-    actor is given (collection: 2 envs, evaluation: 3 episodes, the update:
-    8 rows)."""
-    import ajax.agents.recurrent
-    import ajax.environments.interaction
-    import ajax.evaluate
-    from ajax import SAC
-    from ajax.logging.wandb_logging import LoggingConfig
-
-    seen, get_pi = [], ajax.environments.interaction.get_pi
-
-    def recording_get_pi(*args, **kw):
-        obs = kw["obs"] if "obs" in kw else args[2]
-        jax.debug.callback(lambda o: seen.append(np.asarray(o)), obs)
-        return get_pi(*args, **kw)
-
-    for module in (ajax.environments.interaction, ajax.agents.recurrent, ajax.evaluate):
-        monkeypatch.setattr(module, "get_pi", recording_get_pi)
-    agent = SAC(
-        "Pendulum-v1",
-        n_envs=2,
-        actor_architecture=("8", "relu"),
-        critic_architecture=("8", "relu"),
-        learning_starts=16,
-        batch_size=8,
-        expert_policy=expert,
-        extensions=(TrainingProgressInput(), ExpertActionInput()),
-        **kwargs,
-    )
-    logged = LoggingConfig(log_frequency=32, backends=())
-    agent.train(seed=0, n_timesteps=64, num_episode_test=3, logging_config=logged)
-    jax.effects_barrier()
-    assert {x.shape[0] for x in seen} == {2, 3, 8}
-    return seen
-
-
-def test_the_actor_acts_and_trains_on_one_augmented_layout(monkeypatch):
+def test_the_actor_acts_and_trains_on_one_augmented_layout():
     """The expert's action (a constant -0.9 torque here, -0.45 in agent
     units) sits in the same column of every input the actor is given,
     acting, evaluated or trained, after Pendulum's three observations and
-    the training fraction."""
-    seen = _actor_inputs(monkeypatch, lambda obs: jnp.full((*obs.shape[:-1], 1), -0.9))
-    for x in seen:
-        assert x.shape[-1] == 5
-        np.testing.assert_allclose(x[..., 4], -0.45, err_msg=f"batch {x.shape[0]}")
-        assert ((0.0 <= x[..., 3]) & (x[..., 3] <= 1.0)).all()  # the fraction
+    the training fraction: in the rows collection stored, in what the actor
+    trained on, and in its last evaluation (the fraction then 1)."""
+    trained = run(
+        log=True,
+        expert_policy=lambda obs: jnp.full((*obs.shape[:-1], 1), -0.9),
+        extensions=(TrainingProgressInput(), ExpertActionInput()),
+        policy_update_start=8,  # the actor steps from the first update
+    )
+    state = jax.tree.map(lambda x: x[0], trained[1])
+    rows = state.collector_state.buffer_state.experience
+    for name in ("obs", "next_obs"):
+        stored = rows[name][:, : 64 // 2]
+        np.testing.assert_allclose(stored[..., 4], -0.45, err_msg=name)
+        assert ((0.0 <= stored[..., 3]) & (stored[..., 3] <= 1.0)).all()  # the fraction
+    assert_trained_on_column(state.actor_state, 4, -0.45)
+    assert_last_evaluation_acts_on(trained, appending(1.0, -0.45))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -310,20 +291,40 @@ class _AlternatingExpert:
         return jnp.where(state % 2 == 0, -0.9, -0.8), state + 1
 
 
-def test_the_update_reads_the_stateful_experts_actions_from_the_buffer(monkeypatch):
+class _PendulumObservingTheExpert(Pendulum):
+    """Pendulum observing after its own three observations what the
+    alternating expert plays at the episode's step t, in agent units: -0.45
+    at even t, -0.4 at odd t."""
+
+    def get_obs(self, state, params=None, key=None):
+        played = jnp.where(state.time % 2 == 0, -0.45, -0.4)
+        return jnp.append(super().get_obs(state), played)
+
+    def observation_space(self, params):
+        return spaces.Box(-jnp.inf, jnp.inf, (4,), jnp.float32)
+
+
+def test_the_update_reads_the_stateful_experts_actions_from_the_buffer():
     """The update augments the observation and the next one with the
     actions collection stored, which the expert took from its state; it
     never calls the expert without its state. Every input the actor is
-    given holds -0.9 or -0.8 in the expert's column (in agent units, -0.45
-    or -0.4), the update's both."""
-    played = [
-        np.round(x[..., 4].astype(float), 4)
-        for x in _actor_inputs(monkeypatch, _AlternatingExpert())
-    ]
-    for column in played:
-        assert set(column.tolist()) <= {-0.45, -0.4}, column
-    trained = np.concatenate([column for column in played if len(column) == 8])
-    assert set(trained.tolist()) == {-0.45, -0.4}
+    given holds what the expert played there, -0.9 or -0.8 in turn (in
+    agent units, -0.45 or -0.4): the run goes as Pendulum observing them
+    itself."""
+    # The actor steps from the first update, not after SAC's 2000 steps.
+    options = {"log": True, "policy_update_start": 8}
+    augmented = run(
+        Pendulum(),
+        expert_policy=_AlternatingExpert(),
+        extensions=(ExpertActionInput(),),
+        **options,
+    )
+    rows = augmented[1].collector_state.buffer_state.experience
+    for name in ("obs", "next_obs"):
+        played = np.asarray(rows[name])[0, :, : 64 // 2, -1].astype(float)
+        played = np.round(played, 4)
+        assert set(played.ravel().tolist()) == {-0.45, -0.4}, name
+    assert_same_run(augmented, run(_PendulumObservingTheExpert(), **options))
 
 
 # --------------------------------------------------------------------------

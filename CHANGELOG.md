@@ -19,6 +19,11 @@ PyPI as `ajax-rl`.
 - An extension passed bare (`extensions=X`) is refused with a TypeError
   that shows the tuple to write, `extensions=(X(...),)`, instead of
   saying only that it is not iterable.
+- **Documentation**: the agent and extension totals match the code
+  (thirty-two extensions; `PIDTermsInput` joins the catalogue), the memory
+  table lists every agent, and Why Ajax adds TorchRL and Tianshou, drops
+  TQC and CrossQ from what Ajax lacks and installs from PyPI. A fast test
+  checks the totals and lists against the code.
 - **Resets are keyed by episode** (PEGASUS, Ng and Jordan 2000), on by
   default: env i's k-th episode starts on a key of (i, k), and a gymnax
   env's step t in it draws on a key of (i, k, t), so runs that differ by an

@@ -26,10 +26,10 @@ state, _ = agent.train(seed=0, n_timesteps=4_096)
 | Agent | Memory |
 | --- | --- |
 | PPO | `memory=`, trained on rollouts |
-| SAC, ASAC, REDQ, TD3 | `memory=`, trained on replayed sequences |
+| SAC, ASAC, REDQ, TD3, TQC | `memory=`, trained on replayed sequences |
 | APG | `memory=`, trained through the simulator |
-| DreamerV3 | built in: its world model is recurrent |
-| AVG, DQN, PQN, APO, UDRL, TDMPC2 | none; `memory=` raises an error |
+| DreamerV3 | built in: its world model is recurrent; `memory=` raises an error |
+| AVG, CrossQ, DQN, PQN, APO, IQL, UDRL, DAgger, TDMPC2, TDMPC2MultiTask | none; `memory=` raises an error |
 
 ## The kinds
 

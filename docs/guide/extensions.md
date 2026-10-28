@@ -3,7 +3,7 @@
 An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships thirty-one of them,
+or measurements logged at each evaluation. Ajax ships thirty-two of them,
 listed in the [catalogue](#catalogue) below.
 
 Why extensions instead of agent options? An agent's constructor takes its
@@ -309,6 +309,7 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | --- | --- | --- | --- |
 | `ExpertActionInput` | Appends the expert's action at each observation, from the state the agent tracks it in; raw (an action). | `observe` | agents with an expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, PPO, APO, DQN, PQN, APG, UDRL), not under gain mode (`ExpertGains`); not DAgger, which would read the label it learns |
 | `ExpertStateInput` | Appends a stateful expert's internal state before its call at the observation (`ExpertStateInput.for_expert(expert)` sizes it). | `observe` | agents with a stateful expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, PPO, APO, DAgger, DQN, PQN, APG, UDRL) |
+| `PIDTermsInput` | Appends a PID controller's terms for each tracking error `e = obs[target_idx] − obs[current_idx]`: the error, its integral (clamped at `integral_limit`) and its difference, with sampling period `dt`; raw, and started afresh each episode. A [`PIDPolicy`](networks.md#the-pid-policy) actor reads them. | `observe` | every agent but `TDMPC2MultiTask`, whose dataset holds no feature columns |
 | `TrainingProgressInput` | Appends the fraction of training done (`ajax.schedule.progress`); an evaluation holds the collector's. | `observe` | every agent but `TDMPC2MultiTask`, whose dataset holds no feature columns |
 
 **Exploration** (`ajax.extensions.exploration`)

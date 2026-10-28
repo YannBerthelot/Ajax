@@ -46,9 +46,20 @@ from ajax.agents.loop import LOOP_PHASES, Evaluation, TrainLoop
 
 # Imported under another name: ReplayAgent's own hook is make_replay_buffer.
 from ajax.agents.recurrent import make_replay_buffer as make_recurrent_replay_buffer
-from ajax.agents.recurrent import stored_actor_carry_dim, unsupported_recurrent_options
+from ajax.agents.recurrent import (
+    replayed_window,
+    stored_actor_carry_dim,
+    unsupported_recurrent_options,
+)
 from ajax.agents.update_steps import REPLAY_BATCH_KEYS, reached
-from ajax.buffers.utils import get_buffer, mean_of_written_rows
+from ajax.buffers.ring import count_ring_rows, size_ring
+from ajax.buffers.utils import (
+    count_replay_rows,
+    get_buffer,
+    grow_replay,
+    mean_of_written_rows,
+    min_replay_rows,
+)
 from ajax.controller import (
     ScoredActions,
     executed_fn,
@@ -730,7 +741,9 @@ class ReplayAgent(DeclaredAgent):
     (choose_behaviour).
 
     Args:
-        buffer_size: The replay's capacity, in transitions.
+        buffer_size: The replay's capacity, in transitions. A run reserves
+            memory for the rows it writes, at most buffer_size // n_envs per
+            env, so a short run's replay is small (ajax.buffers.ring).
         batch_size: The rows each update samples.
         learning_starts: The env steps collected before the first update
             (0: none).
@@ -792,6 +805,35 @@ class ReplayAgent(DeclaredAgent):
     def make_replay_buffer(self) -> BufferType:
         return get_buffer(self.buffer_size, self.batch_size, self.n_envs)
 
+    def replay_window(self) -> Optional[int]:
+        """The rows one replayed sample spans; None: rows alone."""
+        return None
+
+    def replay_length(self, rows_per_env: int) -> int:
+        """The ring length of the replay of a run writing rows_per_env rows
+        per env (ajax.buffers.ring): one more, so that it never reports
+        full before its capacity, buffer_size // n_envs, at most that, and
+        at least the rows it holds before it can sample."""
+        minimum = min_replay_rows(self.batch_size, self.n_envs, self.replay_window())
+        capacity = self.buffer_size // self.n_envs
+        return count_ring_rows(rows_per_env + 1, capacity, minimum)
+
+    def resumed_state(self, state: Any, n_timesteps: int, train_options: dict) -> Any:
+        """state, its replay grown to the uninterrupted run's ring
+        (replay_length) where it is shorter: the call writes one row per env
+        and tick, none offline. A shorter ring that has overwritten rows is
+        refused (size_ring)."""
+        collector = state.collector_state
+        held, written = count_replay_rows(collector.buffer_state)
+        offline = train_options.get("offline_data") is not None
+        ticks = 0 if offline else n_timesteps // self.n_envs
+        wanted = self.replay_length(written + ticks)
+        rows = size_ring(held, written, wanted, "buffer_size")
+        if rows == held:
+            return state
+        replay = grow_replay(collector.buffer_state, rows)
+        return state.replace(collector_state=collector.replace(buffer_state=replay))
+
     def stores_state(self) -> bool:
         """Whether the replay keeps the actor's recurrent state (R2D2's
         stored state)."""
@@ -812,6 +854,7 @@ class ReplayAgent(DeclaredAgent):
             env_args=loop.env_args,
             mode=loop.env_args.mode,
             buffer=self.buffer,
+            replay_rows=self.replay_length(loop.replay_rows_per_env()),
             actor_carry_dim=stored_actor_carry_dim(
                 network_args.memory, self.stores_state()
             ),
@@ -946,6 +989,9 @@ class RecurrentReplayAgent(ReplayAgent):
             self.buffer_size,
             self.batch_size,
         )
+
+    def replay_window(self) -> Optional[int]:
+        return replayed_window(self, self.network_args.memory)
 
     def stores_state(self) -> bool:
         return self.stored_state

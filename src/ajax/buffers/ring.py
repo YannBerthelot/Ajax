@@ -5,7 +5,8 @@ short run reserves no memory it never fills. Until it wraps, a ring keeps
 row a at slot a whatever its length, so it holds what a ring of the full
 capacity would, and a resumed run lengthens the ring of an earlier, shorter
 call to the uninterrupted run's. The world models' replays (DreamerV3,
-TD-MPC2) follow these rules.
+TD-MPC2) and the replay agents' (ReplayAgent.replay_length) follow these
+rules.
 """
 
 from __future__ import annotations

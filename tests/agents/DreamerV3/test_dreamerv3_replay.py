@@ -22,7 +22,6 @@ from ajax.agents.DreamerV3.replay import (
     ReplayState,
     StreamReplay,
     count_replay_bytes,
-    count_ring_rows,
     count_row_bytes,
     grow_rings,
     stoch_dtype,
@@ -33,6 +32,7 @@ from ajax.agents.DreamerV3.world_model import (
     draw_posterior_noise,
     world_model_loss,
 )
+from ajax.buffers.ring import count_ring_rows
 from ajax.environments.row_collector import Row
 
 from .common import NUM_ACTIONS, OBS_DIM, TINY, tiny_model

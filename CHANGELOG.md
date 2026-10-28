@@ -33,6 +33,8 @@ PyPI as `ajax-rl`.
   (protocol, pre-registrations, diagnosis, results) leave the site and stay
   on GitHub, where the site's links to them now point; the design notes
   move under the Developer guide.
+- The README says Ajax runs on a CPU or a GPU, and that its GPU speed is
+  not yet measured, instead of putting every run on the GPU.
 - **Resets are keyed by episode** (PEGASUS, Ng and Jordan 2000), on by
   default: env i's k-th episode starts on a key of (i, k), and a gymnax
   env's step t in it draws on a key of (i, k, t), so runs that differ by an

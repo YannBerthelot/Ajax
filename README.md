@@ -2,7 +2,7 @@
 
 <p align="center">
   <b>Fast, modular reinforcement learning in JAX.</b><br/>
-  The environment, the agent and every seed run together on the GPU, and agents are built from parts that snap together.
+  The environment, the agent and every seed run together in one program, on a CPU or a GPU, and agents are built from parts that snap together.
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@ Ajax has eighteen agents, each from a published paper. Compared with
 [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
 [SBX](https://github.com/araffin/sbx), it offers:
 
-- **[Fast and parallel](docs/guide/performance.md)**: the environment steps on the GPU beside the agent, with no Python in the loop, so many seeds and environment copies train at once on one device.
+- **[Fast and parallel](docs/guide/performance.md)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop, so many seeds and environment copies train at once on one device. The benchmarks run on a CPU; GPU speed is not yet measured.
 - **[Modular](docs/guide/extensions.md)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and thirty-two extensions, combined in the agent's constructor. The [compatibility table](docs/guide/compatibility.md) shows which parts go together.
 - **Multi-paradigm**: discounted and average-reward agents ([ASAC](docs/algorithms/asac.md), [APO](docs/algorithms/apo.md)), model-free and model-based, online and offline, all behind one interface.
 - **[Expert-guided](docs/guide/expert-guidance.md)**: cloning, imitation, prior data and offline training.

@@ -317,7 +317,7 @@ context it binds, its batches and replay fields;
 | `reads_agent_expert_actions` (class attribute) | the extension reads the expert actions the agent stored, when its expert is the agent's `expert_policy` | lets a stateful expert through for it, on an agent that stores those actions (`stores_expert_actions`: SAC, TD3, REDQ, ASAC, AVG, APO) |
 | `uses_expert_actions_as_policy_actions()` | the extension puts an expert's actions where the policy's go: as the actor's target, or as an action its critics score | refuses it under gain mode (`ExpertGains`), where the expert's actions are env actions and the policy's are gains (`NotWired`) |
 | `reads_step_in_episode` (class attribute) | the extension reads each env's step within its episode | the shared collector counts it only then (`JSRLCurriculum` reads it) |
-| `reads_last_rollout` (class attribute) | the extension reads the agent's latest rollout (`agent_state.last_rollout`) | an on-policy or incremental agent keeps it only then, or with `expose_recent_rollout` (`ConditioningMetrics` and `BiasVoreDecomposition` read it) |
+| `reads_last_rollout` (class attribute) | the extension reads the agent's latest rollout (`agent_state.last_rollout`) | an on-policy or incremental agent keeps it only then, or with `expose_recent_rollout` (`ConditioningMetrics` and `BiasVoreDecomposition` read it, and require `stored_steps`) |
 | `action_slot` (class attribute) | where in the action stage (`ajax.environments.action_stage`) an `action` override applies: `"pre_warmup"`, before the warm-up's choice, or `"post_warmup"`, after it | the collector runs `action` only with an `expert_policy`; an `action` without a slot is refused |
 
 `EDGEExploration` does not require `phi_star`: it reads phi\* when

@@ -140,8 +140,9 @@ A run adds what its configuration gives: `critic` (a Q or V critic),
 `scalar_target` (a critic regressing on one target value per row, not a
 `distributional_critic`: the extensions that blend, replace or compare that
 value need it), `continuous_actions` or `discrete_actions` (the environment), `agent_expert`
-(the agent has an `expert_policy`), and `phi_star` when an extension of the
-stack fits it (`MCPretrain`).
+(the agent has an `expert_policy`), `stored_steps` (a replay, or the latest
+rollout an on-policy or incremental agent keeps), and `phi_star` when an
+extension of the stack fits it (`MCPretrain`).
 
 An extension needs what its phases imply (`on_target` and `critic_loss` a
 critic, `actor_loss` an actor, `action` an off-policy update, since the

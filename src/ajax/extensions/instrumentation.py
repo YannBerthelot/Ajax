@@ -261,7 +261,7 @@ class ConditioningMetrics(Extension):
     critic_loc: str = "auto"  # 'auto' | 'critic' | 'actor'
     concat_action: Any = "auto"  # bool | 'auto'
     name: str = "conditioning_metrics"
-    requires: ClassVar[frozenset[str]] = frozenset({"critic"})
+    requires: ClassVar[frozenset[str]] = frozenset({"critic", "stored_steps"})
     reads_last_rollout: ClassVar[bool] = True
 
     def _loc(self, agent_state: Any) -> str:
@@ -368,7 +368,7 @@ class BiasVoreDecomposition(Extension):
     # ``(agent_state, batch_dict, rng) -> (target, q_preds)``.
     value_target_fn: Optional[Callable] = None
     name: str = "bias_vore_decomposition"
-    requires: ClassVar[frozenset[str]] = frozenset({"critic"})
+    requires: ClassVar[frozenset[str]] = frozenset({"critic", "stored_steps"})
     reads_last_rollout: ClassVar[bool] = True
 
     def _td_residual(

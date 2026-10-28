@@ -908,6 +908,8 @@ class IncrementalAgent(DeclaredAgent):
     learning_starts: int
     expose_recent_rollout: bool = False
 
+    keeps_last_rollout = True
+
     # The default pipeline runs the warm-up's chooser (choose_warmup_action).
     supported_extension_phases = LOOP_PHASES.union(
         {
@@ -1021,6 +1023,8 @@ class OnPolicyAgent(DeclaredAgent):
     n_epochs: int
     num_minibatches: int
     expose_recent_rollout: bool = False
+
+    keeps_last_rollout = True
 
     def init(self, key: jax.Array, context: TrainContext) -> Any:
         """A fresh agent state, on the agent's own key layout."""

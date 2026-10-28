@@ -9,7 +9,8 @@ PyPI as `ajax-rl`.
 - **ConditioningMetrics and BiasVoreDecomposition log on PPO, APO, PQN
   and AVG without `expose_recent_rollout`.** An extension declaring
   `reads_last_rollout` has an on-policy or incremental agent keep its
-  latest rollout; before, these logged nothing.
+  latest rollout; before, these logged nothing. They now require
+  `stored_steps` (a replay or such a rollout), which APG lacks.
   `expose_recent_rollout` still works. Runs that logged these metrics
   are unchanged.
 - An extension passed bare (`extensions=X`) is refused with a TypeError

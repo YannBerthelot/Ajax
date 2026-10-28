@@ -24,7 +24,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from ajax.agents.APG.APG import APG
 from ajax.agents.PPO.PPO import PPO
+from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.instrumentation import (
     COND_METRIC_KEYS,
     EVAREST_DECOMP_KEYS,
@@ -189,6 +191,15 @@ def test_an_agent_keeps_its_rollout_for_the_measurements_unasked(name):
     assert evaluated.any()
     for key in COND_METRIC_KEYS + EVAREST_DECOMP_KEYS:
         assert np.isfinite(np.asarray(metrics[key])[evaluated]).all(), key
+
+
+def test_an_agent_with_neither_replay_nor_rollout_refuses_the_measurements():
+    """Contract: without a replay or a kept rollout (APG), the measurements
+    have no steps to read: the agent refuses them, naming stored_steps."""
+    for extension in (ConditioningMetrics(), BiasVoreDecomposition()):
+        with pytest.raises(MissingCapability) as refusal:
+            APG("Pendulum-v1", extensions=(extension,))
+        assert "stored_steps" in refusal.value.missing[type(extension).__name__]
 
 
 # --------------------------------------------------------------------------

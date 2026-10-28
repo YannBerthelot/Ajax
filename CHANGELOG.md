@@ -6,6 +6,10 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **Documentation site**: the world models' reference-comparison records
+  (protocol, pre-registrations, diagnosis, results) leave the site and stay
+  on GitHub, where the site's links to them now point; the design notes
+  move under the Developer guide.
 - **Resets are keyed by episode** (PEGASUS, Ng and Jordan 2000), on by
   default: env i's k-th episode starts on a key of (i, k), and a gymnax
   env's step t in it draws on a key of (i, k, t), so runs that differ by an

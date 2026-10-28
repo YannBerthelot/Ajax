@@ -7,7 +7,8 @@ machine, a restructure that changes nothing reproduces both exactly::
     JAX_PLATFORMS=cpu uv run python -m tests.exact_pins compare DIR [CASE ...]
 
 ``compare`` prints per case BITWISE or each differing leaf's largest relative
-gap, and whether the program's text is the same. test_agent_pins'
+gap, and whether the program's text is the same; a flat replay's fields
+compare on the rows written, whatever the ring's length. test_agent_pins'
 fingerprints hold to 1e-3 across platforms; these hold to the bit on one.
 
 Characterization tests: they pin current behaviour, not verified against a
@@ -885,11 +886,41 @@ def program(name: str) -> str:
     return str(jax.make_jaxpr(jax.vmap(built[0]))(keys, jnp.arange(len(SEEDS))))
 
 
+#: Where a flat replay's per-row fields sit in a record's keys; its write
+#: position (current_index) and fullness (is_full) are their siblings.
+REPLAY_FIELDS = ".buffer_state.experience["
+
+
+def written_rows(record: dict[str, np.ndarray], key: str) -> np.ndarray:
+    """The record's leaf at key or, for a flat replay's field, its written
+    rows alone: a replay sized to the run holds the same rows as a larger
+    one, in a ring of another length. The ring axis follows the env axis,
+    after the seed axes of current_index; a seed's written rows are those
+    before its current_index, or all of them once its ring is full. Rows a
+    seed has not written, below another seed's count, read 0."""
+    values = record[key]
+    if REPLAY_FIELDS not in key:
+        return values
+    ring = key[: key.index(REPLAY_FIELDS)] + ".buffer_state."
+    index = record.get(ring + "current_index")
+    full = record.get(ring + "is_full")
+    if index is None or full is None:
+        return values
+    axis = index.ndim + 1
+    length = values.shape[axis]
+    count = np.where(full, length, index)
+    kept = np.arange(length) < count[..., None]
+    kept = kept.reshape((*index.shape, 1, length) + (1,) * (values.ndim - axis - 1))
+    written = np.where(kept, values, np.zeros((), values.dtype))
+    return np.take(written, np.arange(int(count.max(initial=0))), axis=axis)
+
+
 def differences(ref: dict[str, np.ndarray], got: dict[str, np.ndarray]) -> list[str]:
-    """Each leaf that is not bitwise the same, with its largest relative gap."""
+    """Each leaf that is not bitwise the same, with its largest relative gap;
+    a flat replay's fields compare on their written rows (written_rows)."""
     found = [f"{k}: only in one record" for k in sorted(ref.keys() ^ got.keys())]
     for k in sorted(set(ref).intersection(got)):
-        a, b = ref[k], got[k]
+        a, b = written_rows(ref, k), written_rows(got, k)
         if a.shape != b.shape:
             found.append(f"{k}: shape {a.shape} -> {b.shape}")
         elif not np.array_equal(a, b, equal_nan=a.dtype.kind in "fc"):

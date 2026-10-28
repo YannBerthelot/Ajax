@@ -365,6 +365,16 @@ class TrainLoop:
         end = self.total_timesteps if self.end_timestep is None else self.end_timestep
         return end - self.start_timestep
 
+    def replay_rows_per_env(self) -> int:
+        """The rows per env a fresh run of this call writes to its replay:
+        those its extensions write before training (ExpertPrefill,
+        PriorData), an offline dataset's, then one per tick, none offline."""
+        n_envs = self.env_args.n_envs
+        rows = sum(extension.replay_rows(n_envs) for extension in self.extensions)
+        if self.offline_data is not None:
+            return -(-(rows + len(self.offline_data.reward)) // n_envs)
+        return -(-rows // n_envs) + self.budget // n_envs
+
     def warn_if_partial(self, per_iteration: int, unit: str) -> None:
         """Warn when the budget is not a whole number of iterations of
         ``per_iteration`` env steps (``unit`` names them): the iterations

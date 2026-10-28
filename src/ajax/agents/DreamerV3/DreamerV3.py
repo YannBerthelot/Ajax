@@ -54,13 +54,14 @@ from ajax.agents.DreamerV3.learner import (
 from ajax.agents.DreamerV3.replay import (
     ReplayState,
     StreamReplay,
+    count_held_rows,
     count_replay_bytes,
-    count_ring_rows,
-    size_ring,
+    grow_rings,
 )
 from ajax.agents.DreamerV3.state import DreamerV3Config, LearningRate
 from ajax.agents.DreamerV3.world_model import make_initial_carry, observe_and_act
 from ajax.agents.families import OwnReplayAgent, TrainContext
+from ajax.buffers.ring import count_ring_rows, size_ring
 from ajax.controller import feature_width
 from ajax.environments.row_collector import (
     RowCollectorState,
@@ -198,8 +199,18 @@ class DreamerV3(OwnReplayAgent):
             end_tick, self.capacity_rows, self.schedule.min_ring_rows()
         )
         if agent_state is not None:
-            rows, replay_state = size_ring(agent_state.replay_state, start_tick, rows)
-            if replay_state is not agent_state.replay_state:
+            replay_state = agent_state.replay_state
+            held = count_held_rows(replay_state)
+            rows = size_ring(held, start_tick, rows, "replay_capacity")
+            if rows > held:
+                logger.info(
+                    "DreamerV3 replay: growing the state's ring from %d to %d"
+                    " rows per env for the resumed run, which has seen %d.",
+                    held,
+                    rows,
+                    start_tick,
+                )
+                replay_state = grow_rings(replay_state, start_tick, rows)
                 agent_state = agent_state.replace(replay_state=replay_state)
             self._record_replay_rows(rows)
         elif end_tick > 0:

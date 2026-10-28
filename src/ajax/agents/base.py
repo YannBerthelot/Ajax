@@ -495,6 +495,15 @@ class ActorCritic:
         del initial_state
         return 0
 
+    def resumed_state(
+        self, state: BaseAgentState, n_timesteps: int, train_options: dict
+    ) -> BaseAgentState:
+        """The state a resumed call of n_timesteps, with train's other
+        options, continues from: state itself, but for a replay agent's
+        replay, which grows to the uninterrupted run's."""
+        del n_timesteps, train_options
+        return state
+
     def get_make_train(self) -> Callable:
         """:attr:`make_train` with the agent's own arguments
         (:attr:`train_kwargs`) and its extensions; :meth:`train` passes the
@@ -552,6 +561,8 @@ class ActorCritic:
         start = int(counters.get("timestep", 0))
         end = start + n_timesteps
         horizon = run_horizon(start, n_timesteps, total_timesteps)
+        if initial_state is not None:
+            initial_state = self.resumed_state(initial_state, n_timesteps, kwargs)
 
         if logging_config is not None:
             logging_config = logging_config.with_agent_config(self.config)

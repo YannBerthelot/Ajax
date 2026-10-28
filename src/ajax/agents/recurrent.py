@@ -342,9 +342,17 @@ def make_replay_buffer(
         buffer_size=buffer_size,
         batch_size=batch_size,
         n_envs=n_envs,
-        # burn-in prefix + trained segment + bootstrap step
-        sequence_length=(burn_in + sequence_length + 1 if memory is not None else None),
+        sequence_length=replayed_window(agent, memory),
     )
+
+
+def replayed_window(agent: Any, memory: Optional[MemoryConfig]) -> Optional[int]:
+    """The steps a replayed window spans, for agent's burn_in and
+    sequence_length: the burn-in prefix, the trained segment and the
+    bootstrap step. None without memory: the replay samples rows alone."""
+    if memory is None:
+        return None
+    return agent.burn_in + agent.sequence_length + 1
 
 
 # ----------------------------------------------------------------------------

@@ -29,9 +29,10 @@ What to know about it:
   of a hyperparameter sweep is a different program: its hyperparameters are
   compiled in as constants, so it compiles from scratch. The budget, the
   agent's settings and the shapes are all part of the program.
-- **A logged run is not cached.** JAX never stores a program that contains
-  a host callback, and the [logging worker](logging.md) is fed by one. A run
-  with a `LoggingConfig` compiles in every new process.
+- **A logged run is cached from JAX 0.11.** The [logging worker](logging.md)
+  is fed by a host callback, and JAX 0.10 never stores a program that
+  contains one, so on 0.10 a run with a `LoggingConfig` compiles in every
+  new process.
 - **One subdirectory per machine and version.** Entries are kept per CPU
   model, architecture, and Python, JAX and jaxlib versions, so environments
   with different versions, or machines sharing a home directory, do not

@@ -10,10 +10,11 @@ executive summary.
 The biggest single win is the persistent JAX compile cache (patch #10),
 which dwarfs every per-step micro-optimisation combined.
 
-It only applies to programs without host callbacks: JAX never writes a
-program that calls `jax.debug.callback` to the persistent cache, so a
-run with logging enabled recompiles on every fresh process. The numbers
-below are from benchmark runs with logging off. The cache keeps one
+On JAX 0.10 it only applies to programs without host callbacks: that
+version never writes a program that calls `jax.debug.callback` to the
+persistent cache, so a run with logging enabled recompiles in every
+fresh process. JAX 0.11 caches those programs too. The numbers below
+are from benchmark runs with logging off. The cache keeps one
 subdirectory per host fingerprint (CPU, Python, JAX and jaxlib
 versions; see [`ajax/_compile_cache.py`](src/ajax/_compile_cache.py)).
 

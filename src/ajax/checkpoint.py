@@ -13,6 +13,9 @@ Typical resume flow (``resume`` in tests/probing/runs.py runs it):
         skeleton = restore_into(skeleton, path)
     final = agent.train(..., initial_state=skeleton, ...)
     save_checkpoint(final, path)
+
+load_checkpoint(agent, path) builds that skeleton itself, for as many seeds
+as the file holds.
 """
 
 from __future__ import annotations
@@ -99,6 +102,26 @@ def restore_into(skeleton: Any, path: str) -> Any:
         lambda x: jax.device_put(x) if isinstance(x, np.ndarray) else x,
         restored,
     )
+
+
+def load_checkpoint(agent: Any, path: str) -> Any:
+    """The state saved at path (save_checkpoint(state, path)), restored into
+    agent, an agent built with the same arguments: restore_into on a 0-step
+    train of as many seeds as the file holds, which rebuilds what the file
+    does not keep (the optimisers' update rules, the networks' functions).
+    It refuses what restore_into refuses. A run whose train call took
+    options shaping its update (APG's learning-rate schedule) resumes
+    through restore_into on a skeleton built with them."""
+    with open(os.path.abspath(path), "rb") as f:
+        saved = pickle.load(f)
+    if not isinstance(saved, dict) or "rng" not in saved:
+        raise ValueError(
+            f"{path} holds no agent state at its top (save_checkpoint(state,"
+            " path) writes one): restore it with restore_into(skeleton, path)."
+        )
+    seeds = list(range(np.shape(saved["rng"])[0]))
+    skeleton, _ = agent.train(seed=seeds, n_timesteps=0)
+    return restore_into(skeleton, path)
 
 
 def _with_collection_stream(state: Any) -> Any:

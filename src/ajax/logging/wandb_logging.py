@@ -1,5 +1,7 @@
-"""Helpers for Weights & Biases and TensorBoard logging"""
+"""LoggingConfig and the logging worker, which passes every run's
+evaluations to its backends (ajax.logging.backends)."""
 
+import dataclasses
 import json
 import multiprocessing as mp
 import os
@@ -10,11 +12,17 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
-import jax
 import numpy as np
 from flax.struct import dataclass as flax_dataclass
 from tensorboardX.proto import event_pb2  # tensorboardX includes this!
 from tqdm import tqdm
+
+from ajax.logging.backends import (
+    RunInfo,
+    TensorBoardBackend,
+    WandbBackend,
+    _RunOnlyWandbBackend,
+)
 
 
 @flax_dataclass
@@ -39,21 +47,26 @@ class LoggingConfig:
         return self.use_wandb or self.use_tensorboard
 
 
-def _wandb() -> Any:
-    """wandb, imported where a run logs to W&B and not before: the import
-    takes about 0.4 s, and a broken install (e.g. a partial protobuf
-    upgrade) must not break importing Ajax, nor a run that does not use
-    W&B."""
-    import wandb  # type: ignore[import-untyped]
-
-    return wandb
-
-
 def new_run_id() -> str:
     """A fresh run id in W&B's format (``wandb.sdk.lib.runid.generate_id``:
     8 random base-36 digits), without importing wandb."""
     alphabet = string.ascii_lowercase + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(8))
+
+
+def _flag_backends(logging_config: LoggingConfig) -> tuple:
+    """The backends use_wandb and use_tensorboard name."""
+    backends: list = []
+    if logging_config.use_wandb:
+        wandb_class = _RunOnlyWandbBackend if logging_config.sweep else WandbBackend
+        backends.append(
+            wandb_class(
+                project=logging_config.project_name, group=logging_config.group_name
+            )
+        )
+    if logging_config.use_tensorboard:
+        backends.append(TensorBoardBackend(folder=logging_config.folder or "."))
+    return tuple(backends)
 
 
 # 'spawn' is required: we start the process AFTER JAX has initialised CUDA,
@@ -63,63 +76,32 @@ _mp_ctx = mp.get_context("spawn")
 _log_queue: Optional[Any] = None  # _mp_ctx.JoinableQueue at runtime
 _log_process: Optional[Any] = None  # _mp_ctx.Process at runtime
 _pending_init_msgs: list = []  # messages buffered before worker starts
+# The backends sent to the worker, at the index the worker holds each at.
+_sent_backends: list = []
 
-# Number of steps to buffer per run before calling wandb.init/finish.
-# Higher = fewer inits (cheaper) but more latency before data appears in UI.
-WANDB_LOG_BATCH_SIZE = 10
+
+def _call(backend: Any, method: str, *args: Any) -> None:
+    """One backend call in the worker. A failure is reported, not raised:
+    logging must never stop training, nor the other backends."""
+    try:
+        getattr(backend, method)(*args)
+    except Exception as exc:
+        print(f"[logging worker] {type(backend).__name__}.{method} failed: {exc}")
 
 
 def _logging_worker(q: Any) -> None:
     """
-    Single worker process: handles ALL run_ids sequentially.
-
-    wandb only supports one active run per process, so we cannot keep
-    multiple run objects alive concurrently.  Instead we buffer incoming
-    log entries per run_id and flush them in a single init→log*N→finish
-    cycle once WANDB_LOG_BATCH_SIZE steps have accumulated (or at shutdown).
-    This amortises the wandb.init() cost over N steps.
-
-    TensorBoard writers are kept persistently open (no init cost per step).
+    Single worker process: passes every run's messages to its backends.
 
     Message protocol:
-        ("init_wandb", run_id, project, name, use_wandb) — register run metadata
-        ("init_tb",    run_id, log_dir, config_str)     — open TB writer
-        ("log",        run_id, metrics, step)           — buffer one step
-        None                                            — poison pill / shutdown
+        ("backend", backend)          — a backend, at the next index
+        ("open",    indices, run)     — a run (RunInfo) and its backends
+        ("log",     run_id, metrics, step) — one evaluation of a run
+        None                          — poison pill / shutdown
     """
-    from tensorboardX import SummaryWriter as _SW
-
-    # run_id -> list of (metrics_dict, step)
-    buffers: dict = defaultdict(list)
-    # run_id -> (project, name)
-    run_info: dict = {}
-    # run_id -> bool (whether to log to wandb)
-    use_wandb_map: dict = {}
-    # run_id -> SummaryWriter
-    tb_writers: dict = {}
-
-    def flush_run(run_id: str) -> None:
-        """Flush buffered steps for one run to wandb in a single open/close."""
-        entries = buffers.get(run_id)
-        if not entries:
-            return
-        if use_wandb_map.get(run_id):
-            project, name = run_info[run_id]
-            # A broken wandb install fails here, reported like any failed
-            # flush: TensorBoard logging goes on.
-            try:
-                run = _wandb().init(
-                    project=project,
-                    name=name,
-                    id=run_id,
-                    resume="must",
-                )
-                for metrics, step in entries:
-                    run.log(metrics, step=step)
-                run.finish()
-            except Exception as exc:
-                print(f"[logging worker] wandb flush failed for {run_id}: {exc}")
-        buffers[run_id].clear()
+    backends: list = []
+    # run_id -> the backends its steps go to
+    routes: dict = {}
 
     while True:
         try:
@@ -127,51 +109,26 @@ def _logging_worker(q: Any) -> None:
         except Exception:
             continue
 
-        if item is None:  # poison pill — flush everything and shut down
+        if item is None:  # poison pill — close every backend and shut down
             q.task_done()
             break
 
         kind = item[0]
-
-        if kind == "init_wandb":
-            _, run_id, project, name, use_wb = item
-            run_info[run_id] = (project, name)
-            use_wandb_map[run_id] = use_wb
-            q.task_done()
-
-        elif kind == "init_tb":
-            _, run_id, log_dir, config_str = item
-            writer = _SW(log_dir=log_dir)
-            writer.add_text("config", config_str, global_step=0)
-            tb_writers[run_id] = writer
-            q.task_done()
-
+        if kind == "backend":
+            backends.append(item[1])
+        elif kind == "open":
+            _, indices, run = item
+            routes[run.run_id] = [backends[index] for index in indices]
+            for backend in routes[run.run_id]:
+                _call(backend, "open", run)
         elif kind == "log":
             _, run_id, metrics, step = item
-            # Buffer the step for wandb (init is expensive; batch N steps)
-            buffers[run_id].append((metrics, step))
-            # Write to TensorBoard immediately (no open/close cost)
-            tb_writer = tb_writers.get(run_id)
-            if tb_writer is not None:
-                for key, value in metrics.items():
-                    try:
-                        scalar = (
-                            value.item() if hasattr(value, "item") else float(value)
-                        )
-                        tb_writer.add_scalar(key, scalar, step)
-                    except Exception:
-                        pass
-            if len(buffers[run_id]) >= WANDB_LOG_BATCH_SIZE:
-                flush_run(run_id)
-            q.task_done()
+            for backend in routes.get(run_id, []):
+                _call(backend, "log", run_id, step, metrics)
+        q.task_done()
 
-    for run_id in list(buffers.keys()):
-        flush_run(run_id)
-    for writer in tb_writers.values():
-        try:
-            writer.close()
-        except Exception:
-            pass
+    for backend in backends:
+        _call(backend, "close")
 
 
 def start_async_logging() -> None:
@@ -179,8 +136,8 @@ def start_async_logging() -> None:
     global _log_queue, _log_process, _pending_init_msgs
     if _log_process is None or not _log_process.is_alive():
         _log_queue = _mp_ctx.JoinableQueue()
-        # Force CPU in the child: wandb_logging imports jax at module level,
-        # which would otherwise trigger JAX GPU pre-allocation in the worker.
+        # Force CPU in the child: importing this module imports ajax, and so
+        # jax, which would otherwise pre-allocate GPU memory in the worker.
         _old = os.environ.get("JAX_PLATFORMS")
         os.environ["JAX_PLATFORMS"] = "cpu"
         _log_process = _mp_ctx.Process(
@@ -211,72 +168,57 @@ def stop_async_logging() -> None:
     _log_queue = None
     _log_process = None
     _pending_init_msgs.clear()
+    _sent_backends.clear()
+
+
+def _send(message: tuple) -> None:
+    """To the worker, or held until it starts."""
+    if _log_queue is not None:
+        _log_queue.put(message)
+    else:
+        _pending_init_msgs.append(message)
+
+
+def _worker_index(backend: Any) -> int:
+    """backend's index in the worker, sent there on first use: one object
+    serves every run of a train call, and equal backends are one sink."""
+    for index, sent in enumerate(_sent_backends):
+        if sent == backend:
+            return index
+    _sent_backends.append(backend)
+    _send(("backend", backend))
+    return len(_sent_backends) - 1
 
 
 def init_logging(
     run_id: str, logging_config: LoggingConfig, run_seed: Optional[int] = None
 ) -> None:
     """
-    Register a run: create it in the main process (so it appears in the W&B UI
-    immediately), then send metadata to the worker so it can flush batches later.
+    Register a run with the logging config's backends: each backend's start,
+    if it has one, runs here, before training (W&B creates the run, so it
+    appears in the W&B UI immediately); the worker then opens the run.
 
     When ``run_seed`` is given (one call per seed), it is recorded alongside the
     config so every run is reproducible and can be paired across conditions by
     seed (see the per-run ``config.json`` written for TensorBoard runs).
     """
-    if logging_config.use_wandb:
-        wandb = _wandb()
-        wandb.init(
-            project=logging_config.project_name,
-            name=f"{logging_config.run_name}_{run_id}",
-            id=run_id,
-            resume="never",
-            config=logging_config.config,
-            group=logging_config.group_name,
-            reinit="finish_previous",
-        )
-        wandb.log({"timestep": 0})
-        wandb.finish()  # worker resumes with resume="must" on each flush
-        jax.debug.print(
-            "Init wandb {run}", run=f"{logging_config.run_name}_{run_id}, id={run_id}"
-        )
-
-    use_wb = logging_config.use_wandb and not logging_config.sweep
-
-    init_msgs: list[tuple] = []
-    if logging_config.use_wandb:
-        init_msgs.append(
-            (
-                "init_wandb",
-                run_id,
-                logging_config.project_name,
-                f"{logging_config.run_name}_{run_id}",
-                use_wb,
-            )
-        )
-    if logging_config.use_tensorboard:
-        log_dir = os.path.join(logging_config.folder or ".", "tensorboard", run_id)
-        config_str = json.dumps(logging_config.config, indent=2, default=str)
-        init_msgs.append(("init_tb", run_id, log_dir, config_str))
-        # Persist a discoverable, greppable config.json per run (hyperparameters
-        # already merged into logging_config.config by the agent, plus the seed and
-        # run_id) so every run is reproducible and pairable across conditions.
-        try:
-            os.makedirs(log_dir, exist_ok=True)
-            run_config = dict(logging_config.config)
-            if run_seed is not None:
-                run_config["seed"] = run_seed
-            run_config["run_id"] = run_id
-            with open(os.path.join(log_dir, "config.json"), "w") as _fh:
-                json.dump(run_config, _fh, indent=2, default=str, sort_keys=True)
-        except Exception:  # logging must never crash training
-            pass
-
-    for msg in init_msgs:
-        if _log_queue is not None:
-            _log_queue.put(msg)
-        else:
-            _pending_init_msgs.append(msg)
+    run = RunInfo(
+        run_id=run_id,
+        name=f"{logging_config.run_name}_{run_id}",
+        config=logging_config.config,
+        seed=run_seed,
+    )
+    indices = []
+    for backend in _flag_backends(logging_config):
+        start = getattr(backend, "start", None)
+        if start is not None:
+            start(run)
+        indices.append(_worker_index(backend))
+    if indices:
+        # The worker gets a copy, so the config's values that are not JSON
+        # (an environment, a function), which may not pickle, go as their text.
+        plain = json.loads(json.dumps(run.config, default=str))
+        _send(("open", indices, dataclasses.replace(run, config=plain)))
 
 
 def vmap_log(

@@ -6,6 +6,11 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **Documentation examples run in the tests**, as the README's do: each
+  page's Python blocks in order, the pages that train in the slow tier.
+  Two examples did not run and are fixed: Environments used an undefined
+  environment, and Comparing agents' `estimate` trained 100,000 steps, which
+  ends inside a PPO rollout and leaves the last evaluation NaN.
 - **Resets are keyed by episode** (PEGASUS, Ng and Jordan 2000), on by
   default: env i's k-th episode starts on a key of (i, k), and a gymnax
   env's step t in it draws on a key of (i, k, t), so runs that differ by an

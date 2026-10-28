@@ -1,0 +1,3445 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reinforcement learning agents in JAX: whole training runs compiled end to end, research features composed as extensions.">
+      
+      
+      
+        <link rel="canonical" href="https://yannberthelot.github.io/Ajax/dev/world_models/deviations/">
+      
+      
+        <link rel="prev" href="../DESIGN/">
+      
+      
+        <link rel="next" href="../dreamerv3_spec/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Deviations - Ajax</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#dreamerv3-and-td-mpc2-version-choices-and-deviations" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  
+    This is the development version, built from main: it may describe changes
+    not released yet.
+  
+  <a href="../../..">
+    <strong>Read the latest release's documentation.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Ajax" class="md-header__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Ajax
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Deviations
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Follow system theme"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Follow system theme" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Ajax" class="md-nav__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Ajax
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/why-ajax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why Ajax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training an agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and the PID policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/checkpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Checkpoints and resuming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/comparing-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/expert-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expert guidance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/differentiable-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/world-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../algorithms/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithms
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Algorithms
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/sac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/asac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/redq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REDQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/crossq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CrossQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/td3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/tqc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TQC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/iql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/avg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AVG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/pqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/ppo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/udrl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UDRL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dagger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DAgger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dreamerv3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/tdmpc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reproduction/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproduction
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproduction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/specs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/writing-an-extension/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing an extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World model design notes
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    World model design notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deviations
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deviations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-dreamerv3-paper-era-2411f7d-vs-latest-e3f0224" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. DreamerV3: paper-era (2411f7d) vs latest (e3f0224)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-td-mpc2-paper-era-5f6fade-b67b21c-agent-vs-latest-e9f5932" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. TD-MPC2: paper-era (5f6fade = b67b21c agent) vs latest (e9f5932)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-deviations-register" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Deviations register
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dreamerv3_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tdmpc2_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../shared_blocks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared building blocks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../VALIDATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../reference_comparison/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference comparison
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7_8" id="__nav_7_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference comparison
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/PROTOCOL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/PREREG2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 pre-registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/PREREG3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 3 pre-registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/DIAGNOSIS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diagnosis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/results/round1/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 1 results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/results/round2/pairR/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 results, pair R
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/results/round2/pairE/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 results, pair E
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference_comparison/results/round3/analysis3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 3 analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/training-loop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training loop
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments and wrappers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/buffers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Buffers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging, evaluation and checkpoints
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-dreamerv3-paper-era-2411f7d-vs-latest-e3f0224" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. DreamerV3: paper-era (2411f7d) vs latest (e3f0224)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-td-mpc2-paper-era-5f6fade-b67b21c-agent-vs-latest-e9f5932" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. TD-MPC2: paper-era (5f6fade = b67b21c agent) vs latest (e9f5932)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-deviations-register" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Deviations register
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/YannBerthelot/Ajax/edit/main/docs/world_models/deviations.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="dreamerv3-and-td-mpc2-version-choices-and-deviations">DreamerV3 and TD-MPC2: version choices and deviations<a class="headerlink" href="#dreamerv3-and-td-mpc2-version-choices-and-deviations" title="Permanent link">&para;</a></h1>
+<p>The fidelity rule (see <code>DESIGN.md</code> §0): reproduce the code that produced each paper's
+published numbers, adopt only the bug fixes the authors made later, make asynchronous or
+unseeded infrastructure synchronous and seeded, and treat paper typos as typos. This file
+records (1) every place where the paper-era code and the latest official code differ and
+which side Ajax follows, and (2) every place where Ajax departs from the paper-era code.
+Each entry is also cited in the docstring of the code it concerns.</p>
+<p>Pinned sources:
+- DreamerV3: paper arXiv:2301.04104v2 (= Nature 2025); paper-era code
+  <code>danijar/dreamerv3@2411f7d</code>; bug fix <code>29eb964</code>; latest checked <code>e3f0224</code>.
+- TD-MPC2: paper arXiv:2310.16828v2 (ICLR 2024); paper-era code
+  <code>nicklashansen/tdmpc2@b67b21c</code> (curves) / <code>5f6fade</code> (identical agent algorithm);
+  latest checked <code>e9f5932</code>.</p>
+<h2 id="1-dreamerv3-paper-era-2411f7d-vs-latest-e3f0224">1. DreamerV3: paper-era (2411f7d) vs latest (e3f0224)<a class="headerlink" href="#1-dreamerv3-paper-era-2411f7d-vs-latest-e3f0224" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>2411f7d (paper era)</th>
+<th>e3f0224 (latest)</th>
+<th>Ajax</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DMC-proprio preset</td>
+<td>12M, train ratio 512, action repeat 2, 16 envs (Table 2)</td>
+<td>1M, ratio 1024, repeat 1</td>
+<td>2411f7d, as a documented protocol</td>
+</tr>
+<tr>
+<td>Training-start gate</td>
+<td><code>len(replay) &gt;= batch_size</code> (16 items); <code>when.Ratio</code> returns 1 on its first call</td>
+<td><code>len(replay) &gt;= B*T</code> (1024 items)</td>
+<td>2411f7d</td>
+</tr>
+<tr>
+<td>Discrete actor</td>
+<td>one-hot with 1 % unimix; log-prob and entropy of the mixed distribution</td>
+<td>categorical, no unimix</td>
+<td>2411f7d</td>
+</tr>
+<tr>
+<td>Start-state reward / continuation in imagination</td>
+<td>from replay data: <code>reward_t</code>, hard <code>1 - is_terminal_t</code></td>
+<td>model predictions (<code>ĉ_0 ≈ 0.997</code> enters the weight)</td>
+<td>2411f7d</td>
+</tr>
+<tr>
+<td>Vector-decoder output scale</td>
+<td>0.1 (Dist default)</td>
+<td>1.0</td>
+<td>2411f7d</td>
+</tr>
+<tr>
+<td>Symlog-MSE</td>
+<td>squared errors &lt; 1e-8 zeroed; no ½ factor</td>
+<td>no tolerance; no ½ factor</td>
+<td>2411f7d</td>
+</tr>
+<tr>
+<td>Slow critic</td>
+<td>separate f32 module, hard copy after the first optimizer step, then EMA 0.02</td>
+<td>copy at creation, EMA 0.02 from step 1</td>
+<td>2411f7d rule (<code>mix = 1</code> at update 0, then 0.02); created as a copy of the critic, which predicts what 2411f7d's separate module predicts until the first update replaces it (both output layers are zero)</td>
+</tr>
+<tr>
+<td>First <code>prevact</code> in the replay context</td>
+<td>bug: previous unrelated batch's carry</td>
+<td><code>data[action][:, K-1]</code></td>
+<td><strong>fixed</strong> (29eb964, an upstream bug fix)</td>
+</tr>
+<tr>
+<td>RMSNorm statistics</td>
+<td>input dtype (bf16)</td>
+<td>f32</td>
+<td>n/a (Ajax computes in f32, see D4)</td>
+</tr>
+<tr>
+<td>Policy tanh / sigmoid</td>
+<td>after the f32 cast</td>
+<td>on bf16 outputs</td>
+<td>n/a (f32)</td>
+</tr>
+<tr>
+<td>Integer vector observations</td>
+<td>cast to f32 and symlogged</td>
+<td>one-hot, not symlogged</td>
+<td>2411f7d (Ajax observations are float)</td>
+</tr>
+<tr>
+<td>Stored stochastic latent</td>
+<td>int32 class indices</td>
+<td>f32 one-hot</td>
+<td>indices (uint8 when classes ≤ 256)</td>
+</tr>
+<tr>
+<td>Key order / decoder input order</td>
+<td>obs-space order / concat(deter, stoch)</td>
+<td>sorted / concat(stoch, deter)</td>
+<td>layout only</td>
+</tr>
+<tr>
+<td>Two-hot output width (reward head; critic)</td>
+<td><code>Linear(bins + 1 = 256)</code>, last logit dropped (<code>nets.py:432-438</code>)</td>
+<td><code>Linear(bins = 255)</code> (<code>embodied/jax/heads.py:132-135</code>)</td>
+<td>255, layout only: the dropped column starts at 0 (outscale 0) and gets exactly zero gradient, so it stays 0 under AGC + LaProp and training is identical; <code>units + 1</code> fewer parameters per head</td>
+</tr>
+<tr>
+<td>LaProp β2</td>
+<td>0.999 (paper text says 0.99)</td>
+<td>0.999</td>
+<td>0.999 (the code behind the curves)</td>
+</tr>
+<tr>
+<td>Paper Table 3, 12M recurrent units</td>
+<td>—</td>
+<td>—</td>
+<td>2048 (= 8d; the printed 1024 is a typo)</td>
+</tr>
+<tr>
+<td>Paper Table 11 task mean / median rows</td>
+<td>—</td>
+<td>—</td>
+<td>swapped in the paper; mean ≈ 754, median ≈ 871 at 500K</td>
+</tr>
+</tbody>
+</table>
+<h2 id="2-td-mpc2-paper-era-5f6fade-b67b21c-agent-vs-latest-e9f5932">2. TD-MPC2: paper-era (5f6fade = b67b21c agent) vs latest (e9f5932)<a class="headerlink" href="#2-td-mpc2-paper-era-5f6fade-b67b21c-agent-vs-latest-e9f5932" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>5f6fade / b67b21c (paper era)</th>
+<th>e9f5932 (latest)</th>
+<th>Ajax</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Policy entropy bonus</td>
+<td><code>+β·log_pi</code>, <code>log_pi = n·(Σ(−½ε²−logσ) − ½ln2π) − Σ log(relu(1−tanh(u)²)+1e−6)</code>; tanh term unscaled, with gradient</td>
+<td>tanh term without gradient; ½ln2π per dim</td>
+<td>paper era</td>
+</tr>
+<tr>
+<td>Task-embedding gradient in the policy loss</td>
+<td>none (<code>track_q_grad(False)</code>)</td>
+<td>leaks into the next world-model step</td>
+<td>paper era (stop-gradient)</td>
+</tr>
+<tr>
+<td>World-model clip norm</td>
+<td>includes the previous update's post-clip policy gradients</td>
+<td>world-model gradients only</td>
+<td>paper era (reproduced exactly; one carried scalar)</td>
+</tr>
+<tr>
+<td>Termination / episodic mode</td>
+<td>absent</td>
+<td><code>episodic</code> (eece801): termination head (BCE, <code>termination_coef</code> 1) at z₁…z_H, <code>1 − terminated</code> in the TD target, planner value masked once <code>sigmoid(T(z_{t+1})) &gt; 0.5</code>, variable-length episodes in the replay; single task</td>
+<td>off by default: terminations refused (T10); <code>episodic=True</code> adopts the latest code's mode on top of the paper-era agent (T29)</td>
+</tr>
+<tr>
+<td>Q-ensemble init</td>
+<td>each member N(0, 0.02), last weight 0</td>
+<td>same (restored in e9f5932 after a 2024-09 regression)</td>
+<td>same</td>
+</tr>
+<tr>
+<td>Q-ensemble dropout (p = 0.01)</td>
+<td>active in <strong>every</strong> Q pass, eval mode included: TD target (target Q), value and policy losses, planning. The <code>combine_state_for_ensemble</code> functional module lives only in the <code>torch.vmap</code> closure, so <code>train()</code> / <code>eval()</code> never reach it (<code>common/layers.py:12-21</code>; verified by running 5f6fade, recorded by <code>parity/tdmpc2_update_fixtures.py</code>; <code>plan()</code> runs in eval mode, recorded by <code>parity/tdmpc2_plan_fixtures.py</code>)</td>
+<td>registered submodule: dropout only in train mode (value and policy losses)</td>
+<td>paper era: the TD target takes a dropout key (M2); planning takes one per MPPI iteration for its terminal Q pass (M3)</td>
+</tr>
+<tr>
+<td>Replay buffer</td>
+<td>b67b21c: whole episodes, capacity in episodes, uniform episode × random crop</td>
+<td>rows + SliceSampler</td>
+<td>b67b21c episode buffer</td>
+</tr>
+<tr>
+<td>TD bootstrap state</td>
+<td>code: encoded next observation <code>h(s')</code> (paper Eq. 3 writes the dynamics prediction)</td>
+<td>same</td>
+<td>code</td>
+</tr>
+<tr>
+<td>Loss normalisations</td>
+<td>/H, /(H·Nq), latent-mean MSE, H terms (paper writes sums over H+1 terms)</td>
+<td>same</td>
+<td>code</td>
+</tr>
+<tr>
+<td>Encoder learning rate</td>
+<td>3e-4 × 0.3 = 9e-5 (paper Table 8: 1e-4)</td>
+<td>same</td>
+<td>code</td>
+</tr>
+<tr>
+<td>Planner σ warm start</td>
+<td>μ only; σ reset to max_std (paper: warm-start μ and σ)</td>
+<td>same</td>
+<td>code</td>
+</tr>
+<tr>
+<td>Executed action</td>
+<td>score-sampled elite + σ₀ noise (paper: sample N(μ<em>, σ</em>)); the elite by <code>np.random.choice(p=score)</code> (inverse CDF of one uniform)</td>
+<td>same (Gumbel-max instead of <code>np.random.choice</code>)</td>
+<td>code; the paper-era inverse CDF, in float32</td>
+</tr>
+<tr>
+<td>Terminal action in the value estimate</td>
+<td><code>π(z_H)</code> (paper Eq. 6: planner Gaussian)</td>
+<td>same</td>
+<td>code</td>
+</tr>
+<tr>
+<td>Paper Eq. 4 sign</td>
+<td>literally minimises entropy (typo)</td>
+<td>—</td>
+<td>code sign (maximise Q/S + β·entropy)</td>
+</tr>
+<tr>
+<td>SimNorm temperature</td>
+<td>none (paper Eq. 5 vs App. H contradict each other)</td>
+<td>none</td>
+<td>none</td>
+</tr>
+<tr>
+<td>task_dim</td>
+<td>96, but 64 for mt30 at 5/19/48M ("account for slight inconsistency")</td>
+<td>same</td>
+<td>96 (T14)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="3-deviations-register">3. Deviations register<a class="headerlink" href="#3-deviations-register" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Agent</th>
+<th>Reference behaviour</th>
+<th>Ajax behaviour</th>
+<th>Why / impact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D1</td>
+<td>DreamerV3</td>
+<td>Asynchronous: acting parameters ≈ 2 driver iterations stale; one-batch prefetch; write-back and metrics one train call late; first batch prefetched before the gate</td>
+<td>Synchronous</td>
+<td>Infrastructure, not algorithmic</td>
+</tr>
+<tr>
+<td>D2</td>
+<td>DreamerV3</td>
+<td>Replay sampler RNG fixed to seed 0; the report stream pops the online queue every 180 s of wall-clock, and its loss pass reads the return normaliser without updating it (<code>agent.py:410</code>)</td>
+<td>Seeded from the run seed; no report stream, so no non-updating loss pass</td>
+<td>Infrastructure</td>
+</tr>
+<tr>
+<td>D3</td>
+<td>DreamerV3</td>
+<td>Updates interleaved between the per-env adds of one vector step</td>
+<td>Updates after the tick's adds</td>
+<td>Same rate; intra-tick order only</td>
+</tr>
+<tr>
+<td>D4</td>
+<td>DreamerV3</td>
+<td>bf16 compute (2411f7d: bf16 RMS statistics, f32 slow critic)</td>
+<td>f32</td>
+<td>Numerics only; bf16 revisited at the GPU milestone</td>
+</tr>
+<tr>
+<td>D5</td>
+<td>DreamerV3</td>
+<td>One decoder head per observation key (dict observations)</td>
+<td>One head for the flat observation vector</td>
+<td>Loss identical (sum of means); the per-tensor AGC partition differs (≤ 8 % clipped-gradient difference, probed)</td>
+</tr>
+<tr>
+<td>D6</td>
+<td>DreamerV3</td>
+<td>Optimizer and normaliser state checkpointed; Ratio state, online queue and replay RNG not</td>
+<td>Everything checkpointed</td>
+<td>Resume fidelity</td>
+</tr>
+<tr>
+<td>T7</td>
+<td>TD-MPC2</td>
+<td>Single environment</td>
+<td><code>n_envs &gt; 1</code>: per-env t0 and warm-start mean, <code>n_envs</code> updates per stepping tick, seed phase / burst rule of <code>DESIGN.md</code> §4.4</td>
+<td>Generalisation; exact for <code>n_envs = 1</code></td>
+</tr>
+<tr>
+<td>T8</td>
+<td>TD-MPC2</td>
+<td>The first planned step after seeding warm-starts from the step-0 evaluation's leftover mean</td>
+<td>Zeros</td>
+<td>Negligible</td>
+</tr>
+<tr>
+<td>T9</td>
+<td>TD-MPC2</td>
+<td>Evaluation reuses the training env instance and planner mean; the first evaluation is at step 0 (untrained agent)</td>
+<td>Rebuilt evaluation env, separate planner carry; each evaluation from fresh initial states (its key folded with the number of evaluations so far: deterministic per seed, fresh across evaluations as the reference's resets of its running env are); evaluations every <code>log_frequency</code> env steps from the start of training, the first after <code>log_frequency</code> steps (on the held tick ending an episode when <code>log_frequency</code> is a multiple of <code>T·n_envs</code>, as the reference's <code>eval_freq</code> is)</td>
+<td>Evaluation protocol only</td>
+</tr>
+<tr>
+<td>T10</td>
+<td>TD-MPC2</td>
+<td>Paper era: no termination guard (any done treated as a time limit); latest: ValueError unless <code>episodic</code></td>
+<td>Terminations counted (episode ends off the <code>T</code>-step schedule, and true terminations on its last step); ValueError raised after the run; <code>episodic=True</code> takes them instead (T29)</td>
+<td>Loud failure instead of silently wrong targets</td>
+</tr>
+<tr>
+<td>T11</td>
+<td>TD-MPC2</td>
+<td>Seed-phase actions unseeded (gym space RNG)</td>
+<td>Seeded</td>
+<td>Reproducibility</td>
+</tr>
+<tr>
+<td>T12</td>
+<td>TD-MPC2</td>
+<td>Adam state and RunningScale not checkpointed</td>
+<td>Checkpointed</td>
+<td>Resume fidelity</td>
+</tr>
+<tr>
+<td>T13</td>
+<td>TD-MPC2</td>
+<td>Matmul precision: TF32 (latest) / full fp32 (paper era)</td>
+<td><code>highest</code> in the parity tests; JAX's default elsewhere (not yet set for GPU runs)</td>
+<td>Numerics</td>
+</tr>
+<tr>
+<td>T14</td>
+<td>TD-MPC2 MT</td>
+<td>task_dim 64 for mt30 at 5/19/48M (an acknowledged accident)</td>
+<td>96 (paper)</td>
+<td>Ajax's task set is not mt30</td>
+</tr>
+<tr>
+<td>T15</td>
+<td>TD-MPC2 MT</td>
+<td>Evaluation-time embedding renorm persisted in place</td>
+<td>Renorm applied but not persisted at evaluation</td>
+<td>Evaluation cannot write parameters</td>
+</tr>
+<tr>
+<td>T16</td>
+<td>TD-MPC2 MT</td>
+<td><code>evaluate.py</code> normalised score with exploration noise on; the offline trainer evaluates after its first update, then every <code>eval_freq</code></td>
+<td>Offline-trainer protocol (<code>eval_mode</code>, 10 episodes per task, <code>t0</code> at each episode's first step), every <code>log_frequency</code> updates of the run, the first after <code>log_frequency</code> updates; each evaluation from fresh initial states; normalised score <code>mean(return / 10)</code> (the DMC normalisation)</td>
+<td>The trainer protocol is the one behind the paper's training curves</td>
+</tr>
+<tr>
+<td>T17</td>
+<td>TD-MPC2 MT</td>
+<td>Datasets mt30 / mt80 (replay of 240 single-task agents, random to expert)</td>
+<td>Self-generated: full training history of single-task Ajax runs on the playground versions of the 19 original mt30 DMC tasks</td>
+<td>Validates the mechanisms, not the paper's numbers</td>
+</tr>
+<tr>
+<td>E18</td>
+<td>both</td>
+<td>dm_control (MuJoCo C)</td>
+<td>mujoco_playground MJX ports: reduced solver iterations, some <code>sim_dt</code> changes (e.g. reacher 0.005 vs 0.02), <code>impl='jax'</code> on CPU. QuadrupedRun / DogRun and the 11 custom TD-MPC2 tasks are unavailable</td>
+<td>Environment, not algorithm</td>
+</tr>
+<tr>
+<td>E19</td>
+<td>both</td>
+<td>dm_control action repeat stops at the episode end</td>
+<td>brax <code>EpisodeWrapper</code> repeat continues after a termination</td>
+<td>None on DMC (never terminates)</td>
+</tr>
+<tr>
+<td>E20</td>
+<td>both</td>
+<td>Fresh random initial state every episode</td>
+<td>Same: static reset mode resets freshly itself; dynamic mode uses the auto-reset, fresh on every backend since playground envs default to <code>fresh_reset=True</code> (#54). Only a playground env built with <code>fresh_reset=False</code> restarts from a cached first state in dynamic mode (warned)</td>
+<td>None with the default env stack</td>
+</tr>
+<tr>
+<td>E21</td>
+<td>both</td>
+<td>—</td>
+<td>Golden checksums are CPU-only regression guards</td>
+<td>GPU nondeterminism (TF32, scatter-add order)</td>
+</tr>
+<tr>
+<td>D22</td>
+<td>DreamerV3</td>
+<td>Two-hot bins <code>symexp(jnp.linspace(-20, 0, 128))</code> evaluated in float32 inside the jitted step; expectation <code>p_m·b_m + Σ (p_i·b_i + p_j·b_j)</code> over mirror pairs, which XLA fuses into multiply-adds under <code>jit</code>, so a zero-initialised head predicts a constant that depends on the compiled program (−0.17 to +0.16 on CPU), not the 0 of paper p.18</td>
+<td>Bins: float32 rounding of the float64 values, computed once with numpy (the same constants eagerly, under <code>jit</code> and on every backend); expectation <code>Σ (p_j − p_i)·b_j</code> over mirror pairs, exactly 0 for uniform p also under <code>jit</code></td>
+<td>Same expectation in exact arithmetic: bins within 1.3e-6 relative of the reference's; encode and loss bit-identical given the same bins; decode within 3·ε·E_p|b| (ε = float32 epsilon). <strong>Not negligible in training.</strong> Once the logits move, the reference's contracted pair sum adds noise of std ≈ 0.085 (max ≈ 0.3) to every reward, value and slow-critic prediction, plus a constant at zero logits that depends on the compiled program (−0.17 to +0.16); the noise fades as the outer bins lose mass (CartPole, 1m: value std 0.085, 0.052, ≈ 0.01 over the 2000-, 4000- and 6000-row windows). It slows the early decline of the actor's entropy (CartPole, 1m, 4000-row window: 0.51 with the reference's sum, 0.46 with Ajax's, measured in both codebases); with the same expectation on both sides (and the replay sampler seeded per run), the training statistics' seed ranges overlap the reference's in at least 52 of the 58 windows with updates (<code>PERFORMANCE_REPORT.md</code>, DreamerV3 reference comparison, round 3, for the exceptions). Ajax's form is exact only while the outer logits stay bitwise mirror-symmetric, which depends on the compiled program (a one-seed run and a three-seed vmapped run differ): a float32 fragility of the bins (±4.85e8, holding ≈ 1/255 of the mass early on) that both codebases share</td>
+</tr>
+<tr>
+<td>D23</td>
+<td>DreamerV3</td>
+<td>Kernel init <code>1.1368 · sqrt(1/fan_in) · TruncatedNormal(−2, 2)</code></td>
+<td><code>variance_scaling(outscale², 'fan_in', 'truncated_normal')</code>, i.e. the exact factor 1/0.87962566</td>
+<td>Same draws up to a constant factor: 4.16e-5 relative</td>
+</tr>
+<tr>
+<td>T24</td>
+<td>TD-MPC2</td>
+<td>Two-hot over <code>torch.linspace(vmin, vmax, 101)</code> (middle bin −1.5e-7, not 0), any <code>vmin &lt; vmax</code>; target by the floor formula <code>k = floor((x − vmin)/Δ)</code>; naive expectation <code>Σ p_k·b_k</code>; <code>F.log_softmax</code></td>
+<td>Bins: float32 rounding of the float64 grid, mirrored (within 4.8e-7 of torch's); target by linear interpolation between the neighbouring bins; symmetric expectation as in D22; <code>logits − logsumexp(logits)</code>; symmetric ranges only (<code>vmax = −vmin</code>, as in every TD-MPC2 config)</td>
+<td>Float32 rounding: weights within 1.1e-5 of the floor formula and closer to the exact ones (2e-6 vs 8.6e-6); decode within ε·(1 + 6·E_p|b|) in symlog space (≤ 4.8e-6); log-probabilities within 3·ε·(max|logits| + loss)</td>
+</tr>
+<tr>
+<td>T25</td>
+<td>TD-MPC2</td>
+<td>RunningScale: sort-and-interpolate <code>_percentile</code>; <code>S.lerp_(v, τ)</code>, i.e. <code>S + τ·(v − S)</code></td>
+<td><code>jnp.percentile</code> (linear: the same formula); <code>(1 − τ)·S + τ·v</code> (<code>optax.incremental_update</code>)</td>
+<td>Float32 rounding (≤ 1e-6 relative over 30 updates, tested)</td>
+</tr>
+<tr>
+<td>T26</td>
+<td>TD-MPC2</td>
+<td>b67b21c replay capacity <code>floor(min(buffer_size, steps) / T)</code> episodes (<code>buffer.py:40</code>)</td>
+<td><code>ceil(min(buffer_size, total) / (T·n_envs))</code> rounds of <code>n_envs</code> episodes, plus one staging round that is written in place and never sampled; <code>total</code> = the run's env steps when the current <code>train()</code> call ends, so a resumed run (chunked training, or a checkpoint restored by a new agent) sizes its ring for the whole run and moves the carried episodes into it (<code>EpisodeBuffer.adopt</code>)</td>
+<td>Identical when <code>buffer_size</code> is a multiple of <code>T·n_envs</code> (DMC: 1e6 / 500 = 2000 episodes) and whenever the run never fills the buffer; otherwise at most one more round. A run trained in chunks replays exactly what the uninterrupted run does</td>
+</tr>
+<tr>
+<td>T28</td>
+<td>TD-MPC2</td>
+<td>One update per env step after the seed-phase burst (<code>online_trainer.py:105-112</code>); <code>config.yaml</code> has no update-to-data option</td>
+<td><code>updates_per_step</code> r (default 1): <code>max(1, round(n_envs·r))</code> updates per stepping tick after the burst, which stays <code>seed_steps</code> updates; in the episodic mode (T29) <code>max(1, round(m·r))</code> on a tick that stepped <code>m &gt; 0</code> envs</td>
+<td>Opt-in generalisation; r = 1 is the reference exactly (and T7 for <code>n_envs &gt; 1</code>)</td>
+</tr>
+<tr>
+<td>T29</td>
+<td>TD-MPC2</td>
+<td>Latest code's episodic mode (eece801, as at e9f5932): single env; finished episodes added to a row storage of <code>min(buffer_size, steps)</code> rows; <code>SliceSampler(strict_length=True)</code>: uniform episode among those of ≥ H+1 rows, uniform offset; seed phase and one update per env step counted in env steps; every other part of the agent at its latest version</td>
+<td>Opt-in (<code>episodic=True</code>), grafted onto the paper-era agent (every §2 choice above kept, e.g. Q dropout in the TD target); dynamic-reset row collector: per-env rings of <code>ceil(min(buffer_size, total) / n_envs)</code> rows written in lockstep (the running episode's rows included; <code>total</code> = the run's rows when the current <code>train()</code> call ends, the reference's clamp to the run, so a resumed run moves the carried rows into its own rings, <code>EpisodicBuffer.adopt</code>), an overwritten episode keeps its stored tail as in the reference; seed phase <code>max(S div n, T)</code> ticks (held rows included, ≈ S·k/(k+1) env steps for k-step episodes), then one update per env stepped in the tick (none until an episode of ≥ H+1 rows is stored); <code>n_timesteps</code> counts rows</td>
+<td>Same targets, losses, planning and sampling distribution; the seed phase is shorter by the episode ends it contains. Validated on a terminating chain whose values are known (<code>test_tdmpc2_episodic.py</code>)</td>
+</tr>
+<tr>
+<td>D26</td>
+<td>DreamerV3</td>
+<td><code>when.Ratio</code> keeps <code>prev</code> in float64: <code>prev += repeats / r</code></td>
+<td>The exact closed form <code>1 + ⌊(t − t0)·r⌋</code> on the absolute tick (<code>r</code> the exact fraction of <code>train_ratio / (B·T)</code>)</td>
+<td>Identical whenever <code>1/r</code> is exact in float64 (every reference configuration: <code>r = 2^k</code>); otherwise the reference's rounding sometimes runs an update one transition late, and Ajax is at most one update ahead (tested)</td>
+</tr>
+<tr>
+<td>D27</td>
+<td>DreamerV3</td>
+<td>Replay capacity in items (5e6), FIFO over the items of all workers</td>
+<td>Per-env rings of <code>C = min(ceil(replay_capacity / n_envs), rows per env of the run)</code> rows, overwritten in lockstep</td>
+<td>Never binds in the paper protocols (DMC: 250K rows ≪ 5e6), in one run or split into resumed calls (a resumed run grows a run-clamped ring to its total length); when it binds, every env drops its oldest row together and <code>L − 1</code> fewer items per env are kept than rows</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; Yann Berthelot
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "toc.follow", "content.code.copy", "content.action.edit", "content.tabs.link", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

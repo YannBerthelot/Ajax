@@ -1,0 +1,3820 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reinforcement learning agents in JAX: whole training runs compiled end to end, research features composed as extensions.">
+      
+      
+      
+        <link rel="canonical" href="https://yannberthelot.github.io/Ajax/dev/developer/contributing/">
+      
+      
+        <link rel="prev" href="../architecture/">
+      
+      
+        <link rel="next" href="../writing-an-extension/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Contributing - Ajax</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#contributing-to-ajax" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  
+    This is the development version, built from main: it may describe changes
+    not released yet.
+  
+  <a href="../../..">
+    <strong>Read the latest release's documentation.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Ajax" class="md-header__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Ajax
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Contributing
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Follow system theme"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Follow system theme" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Ajax" class="md-nav__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Ajax
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/why-ajax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why Ajax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training an agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and the PID policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/checkpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Checkpoints and resuming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/comparing-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/expert-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expert guidance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/differentiable-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/world-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../algorithms/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithms
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Algorithms
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/sac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/asac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/redq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REDQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/crossq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CrossQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/td3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/tqc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TQC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/iql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/avg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AVG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/pqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/ppo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/udrl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UDRL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dagger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DAgger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dreamerv3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/tdmpc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reproduction/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproduction
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproduction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/specs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#development-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-things-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where things live
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-shared-training-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The shared training loop
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The shared training loop">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#random-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Random keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extensions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-an-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding an agent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-an-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding an extension
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Testing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-probing-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The probing tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependencies-and-releases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependencies and releases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#style" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Style
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../writing-an-extension/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing an extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../world_models/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World model design notes
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    World model design notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/deviations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deviations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/dreamerv3_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/tdmpc2_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/shared_blocks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared building blocks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/VALIDATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../world_models/reference_comparison/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference comparison
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7_8" id="__nav_7_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference comparison
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/PROTOCOL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/PREREG2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 pre-registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/PREREG3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 3 pre-registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/DIAGNOSIS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diagnosis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/results/round1/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 1 results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/results/round2/pairR/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 results, pair R
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/results/round2/pairE/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 results, pair E
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/results/round3/analysis3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 3 analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/training-loop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training loop
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments and wrappers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/buffers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Buffers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging, evaluation and checkpoints
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#development-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-things-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where things live
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-shared-training-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The shared training loop
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The shared training loop">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#random-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Random keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extensions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-an-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding an agent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adding-an-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding an extension
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Testing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-probing-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The probing tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependencies-and-releases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependencies and releases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#style" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Style
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/YannBerthelot/Ajax/edit/main/docs/developer/contributing.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="contributing-to-ajax">Contributing to Ajax<a class="headerlink" href="#contributing-to-ajax" title="Permanent link">&para;</a></h1>
+<p>This guide is for changing Ajax: where the code lives, how an agent trains,
+how to add an agent or an extension, and how the tests check them. To use
+Ajax, read the <a href="https://github.com/YannBerthelot/Ajax/blob/main/README.md">README</a>. <a href="https://github.com/YannBerthelot/Ajax/blob/main/CLAUDE.md">CLAUDE.md</a> holds the checks a
+change must pass and the refactoring rules; this guide does not repeat them.</p>
+<h2 id="development-setup">Development setup<a class="headerlink" href="#development-setup" title="Permanent link">&para;</a></h2>
+<p>Install as the <a href="https://github.com/YannBerthelot/Ajax/blob/main/README.md#installation">README</a> says, then run
+<code>uv run pre-commit install</code> once, so ruff and mypy check every commit. Prefix
+commands with <code>uv run</code>, or activate <code>.venv</code>.</p>
+<h2 id="where-things-live">Where things live<a class="headerlink" href="#where-things-live" title="Permanent link">&para;</a></h2>
+<p><a href="../architecture/#the-package">Architecture</a> gives the overview.
+These are the pieces every agent shares:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>src/ajax/
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── agents/base.py       ActorCritic: environment and network setup, extensions=, train()
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>├── agents/families.py   declared agents: fields as hyperparameters, the replay, incremental, on-policy, own-iteration and own-replay families
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>├── agents/loop.py       TrainLoop, the shared loop (brax&#39;s forced resets included)
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>├── agents/update_steps.py  critic_step, actor_step, compute_gradients, gradient_step, apply_gradients_clipped_together, run_if, the target update
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>├── agents/minibatch.py  the on-policy rollout split, minibatches and epochs
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>├── agents/critics.py    the Q-critics&#39; regression (continuous and discrete actions)
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>├── agents/diagnostics.py  KL, explained variance, policy std
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>├── agents/recurrent.py  replay buffers and R2D2-style sequence replay for memory=, and PPO&#39;s networks with or without memory
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>├── agents/cloning.py    the behaviour-cloning loss and fit (CloningPretrain&#39;s)
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>├── extensions/base.py   Extension, ExtensionStack, ExtensionContext, the phases
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>├── environments/interaction.py  collect_experience: act, step and store
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>├── perf_utils.py        build_resumable_train: initialise or resume, then one jitted scan
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>├── log.py, evaluate.py  when to evaluate and log; the evaluation episodes
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>├── state.py             BaseAgentState, BaseAgentConfig, the configuration dataclasses
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>└── checkpoint.py        save_checkpoint, restore_into
+</code></pre></div>
+<p><strong>Agent anatomy.</strong> A declared agent (SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL,
+AVG, PPO, APO, PQN, DreamerV3, TDMPC2) is one file,
+<code>src/ajax/agents/&lt;AGENT&gt;/&lt;AGENT&gt;.py</code>: its hyperparameters as dataclass
+fields, its <code>init</code> and <code>update</code>, its equations, its state and metrics, on
+a family of <code>agents/families.py</code> that builds the rest (the constructor, the
+run config, the replay or the rollouts, the train function). The world
+models' folders also hold their maths by role. DreamerV3's: the networks,
+the world model, the actor-critic, the learner, the optimiser, the replay
+and the configuration. TD-MPC2's: the networks, one update (<code>core.py</code>), the
+optimisers, the planner, the replay and the configuration, which
+<code>TDMPC2MultiTask</code> imports instead of copying, under the lineage rule below;
+the multi-task agent, offline and off the families, keeps its own host loop
+(<code>TDMPC2MultiTask.py</code>) and train function (<code>train_TDMPC2MultiTask.py</code>). A
+declared parent's equations are in its one file: APO imports PPO's from
+<code>PPO/PPO.py</code>; TQC, REDQ, ASAC, CrossQ and AVG import SAC's from
+<code>SAC/SAC.py</code>.</p>
+<h2 id="the-shared-training-loop">The shared training loop<a class="headerlink" href="#the-shared-training-loop" title="Permanent link">&para;</a></h2>
+<p>The agents share one loop, <code>TrainLoop</code>, so collecting experience, waiting for
+<code>learning_starts</code>, applying the extensions, evaluating, logging and resuming
+work the same way everywhere and are fixed in one place. An agent supplies
+only its algorithm:</p>
+<ul>
+<li><code>init(key) -&gt; agent_state</code>: a fresh state. One-shot pretraining (behaviour
+  cloning) is an extension's, on a key the loop splits off.</li>
+<li><code>update(...) -&gt; (agent_state, aux)</code>: one update. <code>aux</code> holds the metrics as
+  flax dataclasses nested exactly one level, as TD3's
+  <code>AuxiliaryLogs(policy=..., value=...)</code>, logged as <code>value/critic_loss</code>; the
+  logger expects that shape.</li>
+</ul>
+<p>and picks one of two iterations:</p>
+<ul>
+<li><strong><code>loop.off_policy(init, update, learning_starts, ...)</code></strong> (SAC,
+  TD3, REDQ, ASAC, AVG, DQN): each iteration collects one step per
+  environment, then, from <code>learning_starts</code>, runs <code>update(agent_state,
+  transition)</code> and folds the extensions' <code>post_update</code>. Before
+  <code>learning_starts</code> the actions are uniform and the metrics have the
+  update's structure, filled with NaN, which the logger drops.</li>
+<li><strong><code>loop.on_policy(init, update, n_steps, ...)</code></strong> (PPO, APO, PQN): each
+  iteration collects an <code>n_steps</code> rollout per environment from the agent
+  state <code>agent_state_at_rollout_start</code>, then runs <code>update(agent_state,
+  rollout, agent_state_at_rollout_start)</code> and folds <code>post_update</code>. A
+  recurrent agent replays the rollout from that state's memory.</li>
+</ul>
+<p>The loop does the rest: <code>init</code> and the extensions' initial state and
+pre-training (<code>ExtensionStack.apply_init</code>) on a fresh run, the given state on a
+resumed one, then the iterations in <code>build_resumable_train</code>'s jitted scan,
+evaluating and logging every <code>log_frequency</code> steps (with <code>eval_metrics</code>).</p>
+<p>Continuous agents act in <code>[-1, 1]</code>; never scale to the env's bounds yourself.
+Every Ajax env step maps the action onto them (<code>agent_action_to_env</code>), and
+<code>ActorCritic</code> reads an expert, written in env units, in the same <code>[-1, 1]</code>
+(<code>ExpertInAgentUnits</code>): replay, losses and extensions see one unit.</p>
+<p>The world models (DreamerV3 and TDMPC2, on the own-replay family) also give
+<code>off_policy</code> their own <code>collect(agent_state, tick)</code>, <code>n_updates(tick,
+agent_state)</code> (a train ratio, a burst) and <code>Evaluation</code>. UDRL runs its own
+iteration on <code>TrainLoop.train</code>; APG
+and the offline <code>TDMPC2MultiTask</code> call <code>build_resumable_train</code> themselves,
+with <code>fresh_state</code> and the <code>post_update</code> fold.</p>
+<p><code>ActorCritic.train</code> runs the seeds at once (<code>jax.vmap</code>). With a
+<code>LoggingConfig</code> it returns <code>(state, evaluations)</code>, each logged key's values
+per seed and evaluation, kept whether or not a backend (<code>use_wandb</code>,
+<code>use_tensorboard</code>, the only case that starts the logging worker) records them.
+Without one it does not evaluate and returns <code>(state, None)</code>; APG returns
+every update's metrics instead. <code>initial_state=state</code> continues a run.</p>
+<h3 id="random-keys">Random keys<a class="headerlink" href="#random-keys" title="Permanent link">&para;</a></h3>
+<p>A key comes from a name, not from its turn in line, so a run that differs by
+one flag, option or extension draws every other number as before
+(<code>ajax.random_keys</code>). An agent keeps two streams, its updates'
+(<code>agent_state.rng</code>) and its collection's (<code>collector_state.rng</code>), each
+advanced once per update or collection step, carry first, for one step key
+(<code>split_carry_first(rng, 1)</code>, <code>get_keys_and_new_state()</code>). Any other key of a
+step is derived from the step's: by a name registered in <code>NAMES</code> (<code>derive_key</code>), or
+by its index in an inner loop (<code>fold_index</code>). A key that exists only under a
+flag, an option, a condition, a count or an extension is derived, never drawn
+from a stream. <code>tests/test_repo_hygiene.py</code> refuses a <code>fold_in</code> at a literal
+index (it is a split's key) and counts the keys handed out by position (a
+<code>jax.random.split</code>, or a stream advance handing out more than one key): a
+new one fails, so advance a stream with <code>split_carry_first(rng, 1)</code> and
+derive its other keys.</p>
+<h2 id="extensions">Extensions<a class="headerlink" href="#extensions" title="Permanent link">&para;</a></h2>
+<p>An extension is a research feature (an expert to learn from, an exploration
+rule, an extra loss term, a measurement) that plugs into any agent without
+changing it, so an agent's surface stays its algorithm's hyperparameters plus
+<code>extensions=()</code> (see CLAUDE.md, "Extensions are self-contained"). The
+<a href="../../guide/extensions/#catalogue">extensions guide</a> lists the ones Ajax
+ships.</p>
+<p>An extension is a frozen dataclass subclassing <code>Extension</code>. It holds its own
+settings and overrides only the <em>phases</em> it touches; the other phases keep
+their defaults, which change nothing. An agent applies a phase of its
+<code>ExtensionStack</code> in list order with one helper per phase (<code>apply_reward</code>,
+<code>apply_on_target</code>, <code>compute_extensions_critic_loss</code>,
+<code>compute_extensions_actor_loss</code>, <code>apply_post_update</code>; the loop calls
+<code>apply_init</code> and <code>apply_eval_metrics</code>)
+that builds the <code>ExtensionContext</code> (<code>step</code>, <code>rng</code>, <code>total_steps</code>) and
+threads the extensions' state. On an empty stack a helper changes nothing
+(a loss term is <code>0.0</code>), so an agent without extensions traces nothing extra
+and never guards a call.</p>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>What it does</th>
+<th>Folded today by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>init_state(agent_state, rng)</code></td>
+<td>returns the extension's state (<code>()</code>: none)</td>
+<td>every agent, fresh runs only</td>
+</tr>
+<tr>
+<td><code>pretrain(agent_state, ext_state, context)</code></td>
+<td>one-shot step before training</td>
+<td>every agent, fresh runs only</td>
+</tr>
+<tr>
+<td><code>on_target(agent_state, ext_state, batch, target, context)</code></td>
+<td>transforms the TD or value target</td>
+<td>SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, DQN, PQN, PPO, APO</td>
+</tr>
+<tr>
+<td><code>critic_loss(agent_state, ext_state, batch, context)</code></td>
+<td>adds a term to the critic loss</td>
+<td>SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, DQN, PQN, PPO, APO</td>
+</tr>
+<tr>
+<td><code>actor_loss(agent_state, ext_state, batch, context)</code></td>
+<td>adds a term to the actor loss</td>
+<td>SAC, TQC, REDQ, ASAC, CrossQ, IQL, AVG, TD3, PPO, APO, APG, UDRL</td>
+</tr>
+<tr>
+<td><code>action(agent_state, ext_state, obs, rng, context)</code></td>
+<td>overrides the collection action (<code>None</code> defers)</td>
+<td>every agent but APG and the world models, in the action stage (<code>action_slot</code>)</td>
+</tr>
+<tr>
+<td><code>eval_action(agent_state, ext_state, obs, rng, context)</code></td>
+<td>overrides the evaluation action</td>
+<td>every agent but APG, UDRL and the world models</td>
+</tr>
+<tr>
+<td><code>post_update(agent_state, ext_state, context)</code></td>
+<td>runs after each update</td>
+<td>every agent</td>
+</tr>
+<tr>
+<td><code>eval_metrics(agent_state, ext_state, rng, context)</code></td>
+<td>adds metrics to each evaluation</td>
+<td>every agent</td>
+</tr>
+</tbody>
+</table>
+<p><code>tests/probing/test_extensions.py</code> checks the phases on the agents with
+test-only extensions of known effect, and that an extension implementing a
+phase the agent does not fold is rejected.</p>
+<p>Every agent lists the phases it folds in <code>supported_extension_phases</code>: the
+shared loop's <code>LOOP_PHASES</code> (<code>pretrain</code>, <code>post_update</code>, <code>eval_metrics</code>,
+<code>observe</code>, <code>action</code>, in <code>ajax.agents.loop</code>) plus those its update folds; the base class's default is
+empty. An extension implementing any other phase is rejected when the agent
+is built instead of being silently ignored. It declares in
+<code>phase_batch_keys</code> the keys its folds put in the extensions' batches beyond
+the common ones (<code>COMMON_BATCH_KEYS</code>): an agent on <code>critic_step</code> and
+<code>actor_step</code> declares their sets (<code>REPLAY_BATCH_KEYS</code>, or <code>TARGET_KEYS</code>,
+<code>CRITIC_LOSS_KEYS</code> and <code>ACTOR_STEP_KEYS</code> with its own rows'), plus any it
+adds. An extension reading an undeclared key is refused when the agent is
+built.</p>
+<p>What changes during training lives in <code>agent_state.ext_state</code> (one entry per
+extension), never on <code>self</code>: extensions are static arguments of the compiled
+program, so they stay hashable and unchanged. An extension that needs what
+the agent builds (environment, network config, buffer, discount) overrides
+<code>bind_to_agent(**agent_context)</code> to return a new instance holding it, as
+<code>MCPretrain</code> does; a declared agent's family binds the stack to the keys of
+the agent's <code>extension_context</code> (<code>DeclaredAgent.make_context</code>). The batch a
+phase receives is a dictionary: the keys every agent puts in it are listed in
+<code>ajax/extensions/base.py</code>; read the agent's fold call before relying on any
+other.</p>
+<h2 id="adding-an-agent">Adding an agent<a class="headerlink" href="#adding-an-agent" title="Permanent link">&para;</a></h2>
+<p><strong>Boilerplate goes in the shared code; the algorithm goes in one file</strong>, so a
+reader can follow the agent's file (<code>&lt;AGENT&gt;/&lt;AGENT&gt;.py</code> for a declared
+agent) like the paper's pseudocode. <strong>Lineage rule:</strong> an agent imports from
+another agent only when it is a variant of that agent's algorithm (REDQ of
+SAC, APO of PPO), and then only the parent's equations. Anything else two
+agents share (an init, a network, a loss helper, an exploration schedule)
+goes to a shared module: <code>agents/update_steps.py</code>, <code>agents/minibatch.py</code>,
+<code>agents/critics.py</code>, <code>agents/diagnostics.py</code>, <code>networks/</code>. A shared module
+imports no agent.
+<code>tests/agents/test_agent_imports.py</code> holds the lineages and each parent's
+equations, and fails on any other cross-agent import. Use <code>critic_step</code> (a
+replay critic step), <code>actor_step</code> (an actor step), <code>gradient_step</code> (an
+optimiser step), <code>compute_gradients</code> (a loss's gradients) and
+<code>apply_gradients_clipped_together</code> (two networks stepped on one clip) from
+<code>agents/update_steps.py</code> rather than writing your own.</p>
+<p>A new agent <code>FOO</code> declares itself on a family of <code>agents/families.py</code>: a
+replay agent on <code>ReplayAgent</code>, as SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL,
+DQN and DAgger do (read <code>agents/IQL/IQL.py</code> first); an agent updating on
+each step as it comes, without a replay, on <code>IncrementalAgent</code>, as AVG
+does; an on-policy agent on <code>OnPolicyAgent</code>, as PPO, APO and PQN do (read
+<code>agents/PPO/PPO.py</code> first, and the on-policy family below); an agent whose
+iteration is its own on <code>OwnIterationAgent</code>, as UDRL and APG do (the
+own-iteration family below); an agent storing rows in a replay of its own,
+sized for each call, on <code>OwnReplayAgent</code>, as DreamerV3 and TD-MPC2 do (the
+own-replay family below).</p>
+<p><strong>1. <code>FOO/FOO.py</code>, the one file.</strong> Its hyperparameters are the fields of a
+dataclass, declared once with the paper's defaults: the family generates the
+constructor (keyword-only after <code>env_id</code>), logs the run config, builds the
+optimisers, the replay and the train function (<code>ReplayAgent.make_train</code>, on
+<code>loop.off_policy</code>; an on-policy agent's is <code>OnPolicyAgent.make_train</code>, on
+<code>loop.on_policy</code>). The file reads top-down: the class, its equations in the
+order <code>update</code> calls them, then its state and metrics. The template below
+is a replay agent's; an on-policy agent's file has the same parts.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">eq</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="nb">repr</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>  <span class="c1"># literal: the API docs read it</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">FOO</span><span class="p">(</span><span class="n">GradientClipping</span><span class="p">,</span> <span class="n">ExpertGuided</span><span class="p">,</span> <span class="n">ReplayAgent</span><span class="p">):</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;FOO (Author et al., year): the paper&#39;s algorithm box, each line one</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="sd">    function below.&quot;&quot;&quot;</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">gamma</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.99</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">tau</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.005</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">reward_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">buffer_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mf">1e6</span><span class="p">)</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">256</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    <span class="n">learning_starts</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mf">1e4</span><span class="p">)</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">init</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>        <span class="n">training_key</span><span class="p">,</span> <span class="n">init_key</span><span class="p">,</span> <span class="n">collector_key</span><span class="p">,</span> <span class="n">evaluation_key</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>        <span class="n">actor_state</span><span class="p">,</span> <span class="n">critic_state</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">make_actor_critic</span><span class="p">(</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>            <span class="n">init_key</span><span class="p">,</span> <span class="n">continuous</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">action_value</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">num_critics</span><span class="o">=</span><span class="mi">2</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>        <span class="p">)</span>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>        <span class="k">return</span> <span class="n">FOOState</span><span class="p">(</span>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>            <span class="n">rng</span><span class="o">=</span><span class="n">training_key</span><span class="p">,</span> <span class="n">eval_rng</span><span class="o">=</span><span class="n">evaluation_key</span><span class="p">,</span> <span class="n">actor_state</span><span class="o">=</span><span class="n">actor_state</span><span class="p">,</span>
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>            <span class="n">critic_state</span><span class="o">=</span><span class="n">critic_state</span><span class="p">,</span>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>            <span class="n">collector_state</span><span class="o">=</span><span class="n">context</span><span class="o">.</span><span class="n">make_collector</span><span class="p">(</span><span class="n">collector_key</span><span class="p">),</span>
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>        <span class="p">)</span>
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>        <span class="n">sample_key</span><span class="p">,</span> <span class="n">critic_key</span><span class="p">,</span> <span class="n">actor_key</span><span class="p">,</span> <span class="n">agent_state</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>            <span class="n">agent_state</span><span class="o">.</span><span class="n">get_keys_and_new_state</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>        <span class="p">)</span>
+<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>        <span class="n">batch</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">sample_replay</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">context</span><span class="o">.</span><span class="n">buffer</span><span class="p">,</span> <span class="n">sample_key</span><span class="p">)</span>
+<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>        <span class="n">target</span> <span class="o">=</span> <span class="n">compute_foo_target</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">gamma</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">reward_scale</span><span class="p">)</span>
+<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>        <span class="n">critic_state</span><span class="p">,</span> <span class="n">critic_aux</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">critic_metrics</span> <span class="o">=</span> <span class="n">update_steps</span><span class="o">.</span><span class="n">critic_step</span><span class="p">(</span>
+<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>            <span class="n">agent_state</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span>
+<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>            <span class="n">partial</span><span class="p">(</span><span class="n">compute_foo_value_loss</span><span class="p">,</span> <span class="n">agent_state</span><span class="o">.</span><span class="n">critic_state</span><span class="p">,</span> <span class="n">batch</span><span class="p">),</span>
+<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a>            <span class="n">context</span><span class="o">.</span><span class="n">extensions</span><span class="p">,</span> <span class="n">critic_key</span><span class="p">,</span> <span class="n">context</span><span class="o">.</span><span class="n">total_timesteps</span><span class="p">,</span>
+<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a>            <span class="n">rewards</span><span class="o">=</span><span class="n">batch</span><span class="o">.</span><span class="n">reward</span><span class="p">,</span> <span class="n">dones</span><span class="o">=</span><span class="n">batch</span><span class="o">.</span><span class="n">terminated</span><span class="p">,</span>
+<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>            <span class="n">gamma</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">gamma</span><span class="p">,</span> <span class="n">reward_scale</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">reward_scale</span><span class="p">,</span>
+<a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a>        <span class="p">)</span>
+<a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a>        <span class="n">actor_state</span><span class="p">,</span> <span class="n">actor_aux</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">actor_metrics</span> <span class="o">=</span> <span class="n">update_steps</span><span class="o">.</span><span class="n">actor_step</span><span class="p">(</span>
+<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a>            <span class="n">agent_state</span><span class="p">,</span> <span class="n">partial</span><span class="p">(</span><span class="n">compute_foo_policy_loss</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">),</span>
+<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>            <span class="n">context</span><span class="o">.</span><span class="n">extensions</span><span class="p">,</span> <span class="n">actor_key</span><span class="p">,</span> <span class="n">context</span><span class="o">.</span><span class="n">total_timesteps</span><span class="p">,</span>
+<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a>            <span class="n">batch</span><span class="p">,</span> <span class="n">agent_state</span><span class="o">.</span><span class="n">critic_state</span><span class="p">,</span>
+<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a>        <span class="p">)</span>
+<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a>        <span class="n">agent_state</span> <span class="o">=</span> <span class="n">agent_state</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span>
+<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a>            <span class="n">actor_state</span><span class="o">=</span><span class="n">actor_state</span><span class="p">,</span>
+<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a>            <span class="n">critic_state</span><span class="o">=</span><span class="n">critic_state</span><span class="o">.</span><span class="n">soft_update</span><span class="p">(</span><span class="n">tau</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">tau</span><span class="p">),</span>
+<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a>            <span class="n">n_updates</span><span class="o">=</span><span class="n">agent_state</span><span class="o">.</span><span class="n">n_updates</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a>        <span class="p">)</span>
+<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>        <span class="n">metrics</span> <span class="o">=</span> <span class="n">merge_metrics</span><span class="p">(</span><span class="n">critic_metrics</span><span class="p">,</span> <span class="n">actor_metrics</span><span class="p">)</span>
+<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a>        <span class="k">return</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">AuxiliaryLogs</span><span class="p">(</span>
+<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a>            <span class="n">value</span><span class="o">=</span><span class="n">critic_aux</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">actor_aux</span><span class="p">,</span> <span class="n">extensions</span><span class="o">=</span><span class="n">metrics</span>
+<a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a>        <span class="p">)</span>
+<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a>
+<a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a>    <span class="c1"># The contract, unannotated (an annotation would make it a field).</span>
+<a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a>    <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;FOO&quot;</span>
+<a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a>    <span class="n">capabilities</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s2">&quot;actor&quot;</span><span class="p">,</span> <span class="s2">&quot;discounted&quot;</span><span class="p">,</span> <span class="s2">&quot;off_policy&quot;</span><span class="p">,</span> <span class="s2">&quot;q_critic&quot;</span><span class="p">,</span> <span class="s2">&quot;replay&quot;</span><span class="p">})</span>
+<a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a>
+<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a>
+<a id="__codelineno-1-57" name="__codelineno-1-57" href="#__codelineno-1-57"></a><span class="c1"># FOO&#39;s equations, in the order update calls them; a function returning a</span>
+<a id="__codelineno-1-58" name="__codelineno-1-58" href="#__codelineno-1-58"></a><span class="c1"># loss or a target value starts with compute_.</span>
+<a id="__codelineno-1-59" name="__codelineno-1-59" href="#__codelineno-1-59"></a><span class="k">def</span><span class="w"> </span><span class="nf">compute_foo_target</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">gamma</span><span class="p">,</span> <span class="n">reward_scale</span><span class="p">):</span> <span class="o">...</span>  <span class="c1"># -&gt; target</span>
+<a id="__codelineno-1-60" name="__codelineno-1-60" href="#__codelineno-1-60"></a><span class="k">def</span><span class="w"> </span><span class="nf">compute_foo_value_loss</span><span class="p">(</span><span class="n">critic</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">target</span><span class="p">):</span> <span class="o">...</span>  <span class="c1"># -&gt; (loss, aux)</span>
+<a id="__codelineno-1-61" name="__codelineno-1-61" href="#__codelineno-1-61"></a><span class="k">def</span><span class="w"> </span><span class="nf">compute_foo_policy_loss</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span> <span class="o">...</span>  <span class="c1"># -&gt; (loss, aux, pi_mean)</span>
+<a id="__codelineno-1-62" name="__codelineno-1-62" href="#__codelineno-1-62"></a>
+<a id="__codelineno-1-63" name="__codelineno-1-63" href="#__codelineno-1-63"></a>
+<a id="__codelineno-1-64" name="__codelineno-1-64" href="#__codelineno-1-64"></a><span class="nd">@struct</span><span class="o">.</span><span class="n">dataclass</span><span class="p">(</span><span class="n">kw_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-1-65" name="__codelineno-1-65" href="#__codelineno-1-65"></a><span class="k">class</span><span class="w"> </span><span class="nc">FOOState</span><span class="p">(</span><span class="n">BaseAgentState</span><span class="p">):</span>
+<a id="__codelineno-1-66" name="__codelineno-1-66" href="#__codelineno-1-66"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;FOO carries only actor + critic + collector.&quot;&quot;&quot;</span>
+</code></pre></div>
+<p>A declared agent has no <code>&lt;AGENT&gt;Config</code>: its fields are its configuration.</p>
+<p><code>init</code> splits the run's key on the agent's own layout, which its pins hold.
+<code>update_steps.critic_step</code> applies <code>on_target</code> and <code>critic_loss</code>; its
+keywords are what the target used (<code>dones</code>: where it cut the bootstrap).
+<code>update_steps.actor_step</code> applies <code>actor_loss</code>; its keywords are the rows the
+extensions read. Both derive
+the extensions' keys from the step's
+(<a href="../writing-an-extension/#randomness">Randomness</a>), so the
+agent's own random stream is the same with or without extensions.</p>
+<p><strong>The train context.</strong> <code>init</code> and <code>update</code> take a <code>TrainContext</code>
+(<code>agents/families.py</code>) as <code>context</code>: what one <code>train()</code> call gives the agent
+beyond its fields, which are fixed once it is built. It holds the env and the
+network and optimiser configs (make_actor_critic builds the networks on
+them), the extensions bound to the run, the replay buffer, how to build the
+collector (make_collector), the horizon, whether the run is recurrent and the
+residual-action hook. Other libraries keep these as attributes of the
+agent (SB3) or in closures (PureJaxRL); here they are passed explicitly, so one
+agent trains any number of runs and a test calls <code>init</code> or <code>update</code> alone on
+<code>agent.make_context(n)</code>.</p>
+<p>An agent writes <code>init(key, context)</code> and <code>update(agent_state, context)</code> (an
+on-policy agent's <code>update(agent_state, rollout, agent_state_at_rollout_start,
+context)</code>), and may add these hooks; each
+is a no-op on the family, which does its own part outside them, so none
+calls <code>super()</code>. A hook that builds an object is named make_ (the family's
+own: make_context, make_collector, make_replay_buffer), one that declares
+settings is a noun read as a property of the agent (actor_critic_args,
+optimizer_settings), and the others say what they do:</p>
+<ul>
+<li><code>check()</code> refuses arguments before anything is built;</li>
+<li><code>actor_critic_args()</code> returns <code>ActorCritic</code> arguments the paper fixes or
+  derives from the fields (initialisations, heads; CrossQ's learning rates
+  and widths); it may only fill a field the caller left None (TypeError
+  otherwise), as PPO's <code>encoder_kernel_init</code> does;</li>
+<li><code>optimizer_settings()</code> returns the <code>OptimizerConfig</code> settings of the
+  reference's optimiser (its Adam's <code>eps</code>, its betas): the family sets none,
+  so an agent states its reference's;</li>
+<li><code>setup()</code> derives or checks what needs the built env and networks (IQL's
+  value optimiser, PPO's rollout split checks), after the family has built
+  the replay;</li>
+<li><code>choose_behaviour(context)</code> replaces collection's action pipeline.</li>
+</ul>
+<p>The family reads some fields by name. <code>ReplayAgent</code> requires <code>buffer_size</code>,
+<code>batch_size</code> and <code>learning_starts</code>; an agent claiming the <code>discounted</code>
+capability declares <code>gamma</code> and <code>reward_scale</code>, which the evaluation's value
+estimate reads (construction refuses it otherwise); <code>expert_policy</code> (the
+<code>ExpertGuided</code> mixin) is the agent's expert; and every field named like an
+<code>ActorCritic.__init__</code> argument (<code>actor_learning_rate</code>,
+<code>critic_architecture</code>, ...) reaches it, so a misspelt one is a field that
+reaches nothing. The shared knobs an algorithm takes beyond those every agent
+takes are mixins
+(<code>GradientClipping</code>, <code>ObservationNormalization</code>, <code>RewardNormalization</code>,
+<code>ExpertGuided</code>), and <code>RecurrentReplayAgent</code> adds <code>memory=</code> with R2D2's
+sequence replay. Once built, an agent's fields are fixed:
+<code>dataclasses.replace(agent, gamma=0.9)</code> builds another.</p>
+<p><strong>The on-policy family.</strong> <code>OnPolicyAgent.make_train</code> runs <code>loop.on_policy</code>:
+each iteration collects <code>n_steps</code> per env, then calls <code>update(agent_state,
+rollout, agent_state_at_rollout_start, context)</code> on the <code>(n_steps, n_envs)</code>
+rollout and the agent state it was collected from (a recurrent agent
+replays the rollout from its memories). The family requires <code>n_steps</code>, <code>n_epochs</code> and
+<code>num_minibatches</code>, reads brax's <code>num_resets_per_eval</code> and <code>num_evals</code> where
+an agent declares them, and adds the <code>evaluation_options()</code> hook (APO's
+<code>avg_reward_mode</code>). <code>agents/minibatch.py</code> runs the passes (<code>run_epochs</code>);
+PPO's <code>choose_rollout_split</code> returns the <code>RolloutSplit</code> that says how its
+rollout is cut and where the advantages are computed, while APO and PQN
+shuffle single steps. PPO never asks whether its networks have memory:
+<code>agents/recurrent.py</code>'s <code>compute_rollout_values</code> (the values GAE reads),
+<code>get_policy_on_minibatch</code> and <code>predict_values_on_minibatch</code> (the networks
+in its losses) run a network with memory over its sequences and one
+without as an ordinary forward pass. <code>ImageObservations</code> adds the CNN encoder's fields;
+<code>train_offline</code> refuses an on-policy agent.</p>
+<p><strong>The own-iteration family.</strong> <code>OwnIterationAgent.make_train</code> runs
+<code>loop.train</code> on the agent's own iteration: <code>iterate(agent_state, context)</code>
+acts and learns its way and applies the extensions' <code>post_update</code> where
+its order puts it, <code>report(agent_state, aux)</code> gives the training metrics an
+evaluation logs, <code>evaluate(agent_state, key, context, num_episode_test)</code> its
+policy's, and <code>steps_per_iteration(context)</code> the env steps one iteration
+takes. A train call's options go to <code>configure_call(context, n_iterations,
+...)</code>, which returns the call's context and how a resumed state is
+transformed (APG's schedule and optimiser rebuild); an agent returning
+every iteration's output (<code>returns_iterations</code>, APG's per-update metrics)
+says what it is in <code>iteration_output</code>. <code>train_offline</code> refuses it.</p>
+<p><strong>The own-replay family.</strong> <code>OwnReplayAgent</code> runs <code>loop.off_policy</code> on the
+agent's own tick. Its <code>train</code> refuses a horizon that ends before the call,
+then asks <code>prepare_replay(start_tick, end_tick, agent_state)</code> for the
+call's replay (sized for the call, a resumed state's replay moved into it),
+which <code>make_train</code> puts in <code>context.buffer</code>. Each tick,
+<code>collect(agent_state, tick, context)</code> stores one row per env,
+<code>count_updates(agent_state, tick, context)</code> gives the updates of the
+absolute tick (DreamerV3's train ratio, TD-MPC2's seed-phase burst) and
+<code>update(agent_state, tick, context)</code> runs one; <code>report</code> and <code>evaluate</code> are
+as in the own-iteration family. An agent may count its ticks its own way
+(<code>count_ticks</code>), restart what it logs after each log (<code>make_after_log</code>)
+and check a finished call (<code>check_run</code>, TD-MPC2's refusal of
+terminations). It assumes the row collector: a resumed run starts at the
+tick of the rows it counted. <code>train_offline</code> refuses it.</p>
+<p>Do <strong>not</strong> add a field for a feature (<code>use_critic_blend=True</code>, ...): it
+belongs on an extension.</p>
+<p><strong>2. Export and document.</strong> Import it in <code>src/ajax/__init__.py</code>, add it to
+<code>__all__</code>, and add a row to the README's agent table.</p>
+<p><strong>3. Tests and benchmark.</strong> <code>tests/agents/FOO/</code>: the maths on hand-computed
+values. <code>tests/agents/test_agent_contract.py</code>: a row, so FOO builds, refuses
+what it cannot act in and folds extensions on tiny runs. <code>tests/probing/</code>:
+presets in <code>agents.py</code>, then the
+cases that fit (<code>test_framework.py</code> fails while an exported agent has none).
+<code>tests/agents/test_agent_pins.py</code>: a tiny run's fingerprint, so a later
+restructuring can show it changed nothing. <code>benchmarks/agent_bench.py</code>: an
+entry in <code>AGENTS</code> and a baseline (see <a href="#performance">Performance</a>).</p>
+<h2 id="adding-an-extension">Adding an extension<a class="headerlink" href="#adding-an-extension" title="Permanent link">&para;</a></h2>
+<p>Add an extension, never a flag or a keyword on an agent.</p>
+<ol>
+<li><strong>Pick the phases</strong> from the <a href="#extensions">table</a> and check that the agents
+   you target fold them. If one does not, adding the fold to that agent is a
+   change of its own, and the agent still must not know about your extension.</li>
+<li><strong>Write the dataclass</strong> in <code>src/ajax/extensions/&lt;topic&gt;.py</code>, its settings
+   as fields. This one counts updates and logs the count; it runs as is:</li>
+</ol>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.extensions.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">Extension</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging.wandb_logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="k">class</span><span class="w"> </span><span class="nc">UpdateCounter</span><span class="p">(</span><span class="n">Extension</span><span class="p">):</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Counts the updates and logs the count at each evaluation.&quot;&quot;&quot;</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;update-counter&quot;</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">init_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">rng</span><span class="p">):</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">post_update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">ext_state</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>        <span class="k">return</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">ext_state</span> <span class="o">+</span> <span class="mi">1</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">eval_metrics</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">ext_state</span><span class="p">,</span> <span class="n">rng</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>        <span class="c1"># A float: the steps that do not evaluate log NaN in its place.</span>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;Counter/updates&quot;</span><span class="p">:</span> <span class="n">ext_state</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)}</span>
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>
+<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">extensions</span><span class="o">=</span><span class="p">(</span><span class="n">UpdateCounter</span><span class="p">(),))</span>
+<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="p">{},</span> <span class="n">log_frequency</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span> <span class="n">use_wandb</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
+<a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">ext_state</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>  <span class="c1"># the updates each seed made: [9 9]</span>
+<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Counter/updates&quot;</span><span class="p">])</span>  <span class="c1"># per seed, at each evaluation: [2. 4. 6. 8.]</span>
+</code></pre></div>
+<ol>
+<li><strong>Test it</strong> in <code>tests/extensions/</code>: the feature fires and does what its
+   paper says (a metric appears, a term moves the loss the right way).</li>
+</ol>
+<p><strong>Callable hooks.</strong> A few <code>Optional[Callable]</code> keywords predate extensions and
+stay: TD3's <code>action_pipeline</code> (AjaxExperiments' TD3 variants), DQN's
+<code>td_target_fn</code> and <code>td_loss_fn</code> and PQN's <code>td_loss_fn</code> (Double DQN and
+Huber, which their agents' tests run). <code>tests/modules/test_hook_composition.py</code>
+pins them. Add none.</p>
+<h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
+<p>Two kinds of tests check the code, each answering its own question
+(<a href="../testing/">Testing</a> is the full guide):</p>
+<ul>
+<li><em>Unit tests</em> (<code>tests/&lt;area&gt;/</code>, <code>tests/agents/&lt;AGENT&gt;/</code>) check one component
+  against an exact contract, with no learning. Where agents or extensions
+  share a contract, the test is generic (<code>tests/agents/test_*_contract.py</code>,
+  <code>tests/extensions/test_phase_contract.py</code>, ...): it runs every one of them,
+  and a new one fails it until it joins.</li>
+<li><em>Probing tests</em> (<code>tests/probing</code>) train an agent briefly on a tiny generic
+  environment whose answer is known, and check only what learning shows: the
+  right value, the right action, the right count.</li>
+</ul>
+<p>A convention that differs from a reference implementation (an ordering, a
+default, a constant) is for code review, not for a test. <em>Pins</em> record what a
+tiny run produces today, so a restructuring can show it changed nothing:
+<code>tests/agents/test_agent_pins.py</code> (tiny runs' fingerprints),
+<code>tests/agents/test_agent_surface.py</code> (every public name the agent modules
+define, and each agent's run config),
+<code>tests/extensions/test_sac_extensions_equivalence.py</code> and
+<code>tests/test_downstream_api.py</code> (the names downstream projects import). The
+fingerprints hold to 1e-3 across platforms; on one machine, <code>uv run python -m
+tests.exact_pins record DIR</code>, then <code>compare DIR</code> after the change, shows a
+restructuring bitwise: every leaf of tiny runs' final states, their logged
+evaluations and the text of their training programs' jaxprs. <em>Slow
+tests</em> (<code>@pytest.mark.slow</code>) are the long trainings.</p>
+<p>The tests come in two tiers. The <em>fast tier</em> is the tests not marked slow:
+every pull request must pass it. A fast test may run a tiny training, of at
+most 128 gradient steps: <code>tests/conftest.py</code> counts each test's gradient steps
+(the larger of the agent's update count and each train state's step) and
+fails a fast test past the line (<code>AJAX_FAST_MAX_UPDATES</code>); a test that trains
+belongs in <code>tests/probing</code>, or is marked slow. It also times each test and
+lists those past 30 s (<code>AJAX_FAST_MAX_SECONDS</code>) without failing them:
+compiles, not trainings, set those times. The <em>slow tier</em> is everything that
+trains: <code>tests/probing</code>, which <code>tests/conftest.py</code> marks slow but for the
+harness's own checks, and the tests marked slow elsewhere; a workflow of its
+own runs it (below).</p>
+<p>Every directory of <code>tests/</code> that holds Python files is a package (an empty
+<code>__init__.py</code>; <code>tests/test_repo_hygiene.py</code> checks it), so tests import shared
+helpers by their full name: <code>from tests.agents.extension_stubs import
+CounterExt</code>. The benchmark scripts the tests import are on the path through
+<code>pythonpath</code> in <code>pyproject.toml</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>--collect-only<span class="w"> </span>-q<span class="w">   </span><span class="c1"># everything imports and collects</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/agents/TD3<span class="w">    </span><span class="c1"># the tests of what you changed</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not slow&quot;</span><span class="w"> </span>-n<span class="w"> </span>auto<span class="w">   </span><span class="c1"># the fast tier, a worker per core</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>make<span class="w"> </span>ci<span class="w">       </span><span class="c1"># the pull-request gate: ci-precommit, ci-test, ci-conformance, docs</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>make<span class="w"> </span>ci-all<span class="w">   </span><span class="c1"># the gate and the slow tier (ci-slow)</span>
+</code></pre></div>
+<p>The <code>make</code> targets hide the GPU (<code>CPU_ENV</code>) so tests never compete with a
+running experiment; elsewhere set <code>JAX_PLATFORMS=cpu</code> while a GPU is busy.</p>
+<p><strong>CI</strong> (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/ci.yml">.github/workflows/ci.yml</a>) runs the fast
+tier on CPU for every pull request and push to <code>main</code>: <em>Pre-commit</em>; <em>Tests</em>
+(three shards: the tests not marked slow, the probing harness's checks among
+them, under coverage, a pytest-xdist worker per vCPU, at XLA's optimisation
+level 0 since these programs are tiny; the last shard runs whatever the first
+two do not name, so a new test file always runs); <em>Coverage</em> (the shards
+combined, at least 90%); <em>Conformance</em> (each agent's training step against
+its original implementation); <em>Docs</em> (the documentation site, <code>mkdocs build
+--strict</code>). <em>Lint and Test</em>, the one check branch protection requires, passes
+only when all of them passed. They run on GitHub's arm64 runners, which all
+come on one CPU model, so a job finds main's compile cache (JAX keys it by
+the CPU).</p>
+<p>The <em>Slow tier</em> workflow (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/slow.yml">slow.yml</a>) runs
+everything that trains (<code>pytest -m slow</code>) on x86, the platform most users
+train on, in six shards by recorded duration (<code>--shard I/N</code>,
+<code>tests/.durations</code>, <code>make durations</code>): daily on main when main changed, by
+hand, and on a pull request each time the label <code>run-slow-tier</code> is added. A
+pull request that changes how an agent trains gets the label before it
+merges. A red run on main opens an issue, and bisects the merges since the
+last green run when that is cheap.</p>
+<p>As the gate runs no probe, every planted fault
+(<code>tests/probing/faults/&lt;family&gt;.jsonl</code>) names in its <code>fast</code> field the fast
+tests that catch it, measured by planting the fault in a scratch copy and
+running the fast tests that execute its lines (<code>uv run python -m
+tests.fault_catches SCRATCH [FAMILY ...]</code>); <code>tests/probing/test_framework.py</code>
+checks that each names live tests outside <code>tests/probing</code>. A new fault comes
+with its fast catch, and <code>JAX_PLATFORMS=cpu uv run python -m
+tests.probing.faults SCRATCH ID</code> shows each node it lists failing on an
+assertion, not crashing (<a href="../testing/#planted-faults">Testing</a>).</p>
+<h3 id="the-probing-tests">The probing tests<a class="headerlink" href="#the-probing-tests" title="Permanent link">&para;</a></h3>
+<p>A unit test checks a contract; it cannot show that an agent learns what it
+should. A probe trains an agent on a tiny problem whose answer is known
+exactly (a value, a best action, a count) and compares what it learned with
+the right answer and named wrong ones (a discount applied twice), so a failure
+names the mistake.</p>
+<p><code>envs.py</code> builds the tiny problems, <code>agents.py</code> holds each agent's presets
+(pinned by <code>DIGEST</code>), <code>runs.py</code> trains every seed in one compiled program,
+<code>readouts.py</code> reads values and actions off a trained agent and <code>oracles.py</code>
+computes the right and wrong answers. In <code>verdict.py</code>, a <code>Query</code> is a
+reading's right and named wrong answers and a <code>Case</code> adds the budget and
+tolerances; a check trains seeds 0-7: 7 or more within tolerance pass, 4 or
+fewer fail, otherwise seeds 8-15 run and 13 of 16 must pass. <code>faults.py</code> and
+<code>faults/&lt;module&gt;.jsonl</code> plant known bugs in a scratch copy of the source, each
+naming the tests that must catch it. The <code>test_*.py</code> modules group the cases
+by subject (value chains, episode ends, bookkeeping, extensions, memory, world
+models, resuming a split run); <code>test_framework.py</code> tests the harness.
+A planted fault quotes the source it edits, so any change under <code>src/ajax</code>
+can break one: such a change runs <code>tests/probing/test_framework.py</code> locally
+before the push (text and collection only, no training).</p>
+<p>A new case's budget and tolerances come from calibration on seeds no check
+uses (<code>uv run python -m tests.probing.verdict ladder|choose|certify ...</code>;
+<code>verdict.py</code> describes the procedure); then its module's <code>ANSWER_DIGEST</code> is
+re-pinned. A known bug stays visible as a strict xfail naming the defect,
+never as a looser tolerance. The directory is capped at 7,000 lines.</p>
+<h2 id="performance">Performance<a class="headerlink" href="#performance" title="Permanent link">&para;</a></h2>
+<p>CLAUDE.md ("Performance no-regression guardrail") sets the rule; here is the
+check. <code>benchmarks/agent_bench.py</code> times a fixed run per agent; <code>--compare</code>
+fails when one is slower than <code>--tol</code> (10% by default) against a baseline.
+Capturing requires <code>--out</code>, so a quick check never overwrites the baseline.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">JAX_PLATFORMS</span><span class="o">=</span>cpu
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>benchmarks/agent_bench.py<span class="w"> </span>--only<span class="w"> </span>TD3<span class="w"> </span>--out<span class="w"> </span>benchmarks/my_change.jsonl
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>benchmarks/agent_bench.py<span class="w"> </span>--compare<span class="w"> </span>benchmarks/agent_baseline.jsonl<span class="w"> </span>benchmarks/my_change.jsonl
+</code></pre></div>
+<h2 id="dependencies-and-releases">Dependencies and releases<a class="headerlink" href="#dependencies-and-releases" title="Permanent link">&para;</a></h2>
+<p>Ajax is a library: <code>pyproject.toml</code> says which versions work, and <code>uv.lock</code>
+fixes the ones CI and development use. Users' installers never read the
+lock.</p>
+<ul>
+<li><strong>Floors only.</strong> Each lower bound is the oldest version Ajax works with.
+  Raise it when Ajax needs something newer or an older version is known to
+  break, with a comment saying why. Add an upper bound only after a known
+  break, with its reason, and remove it once Ajax is fixed.</li>
+<li><strong>The ranges are tested.</strong> The Compatibility workflow
+  (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/compat.yml">compat.yml</a>) runs the tests not marked
+  slow every Monday, and on pull requests that change the dependencies,
+  twice without the lock: at the newest versions allowed, on the newest
+  Python, and with every direct dependency at its floor
+  (<code>uv sync --resolution lowest-direct</code>), on the oldest.</li>
+<li><strong>The lock is refreshed monthly</strong> by Dependabot
+  (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/dependabot.yml">dependabot.yml</a>), the JAX stack in one pull
+  request.</li>
+<li><strong>Python</strong>: 3.12 and newer, the versions JAX supports. A version goes when
+  JAX drops it.</li>
+<li><strong>Releases.</strong> Versions follow semantic versioning; before 1.0, a breaking
+  change (a raised floor, a removed keyword) bumps the minor version. A
+  release is an entry in <a href="https://github.com/YannBerthelot/Ajax/blob/main/CHANGELOG.md">CHANGELOG.md</a> and a <code>vX.Y.Z</code> tag on
+  main, which downstream projects can pin. Public names change by expand
+  then contract (CLAUDE.md, rule 10). Tags come only from the <em>Release</em>
+  workflow (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/release.yml">release.yml</a>, by hand, with the
+  version): it tags main's head once the slow tier has passed there,
+  running it first if needed, then publishes that commit to PyPI as
+  <code>ajax-rl</code> and its documentation as the site's version X.Y, the one the
+  site opens on (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/docs-deploy.yml">docs-deploy.yml</a>; main's
+  is the site's dev version).</li>
+</ul>
+<h2 id="style">Style<a class="headerlink" href="#style" title="Permanent link">&para;</a></h2>
+<p>Pre-commit (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.pre-commit-config.yaml">.pre-commit-config.yaml</a>) runs on every
+commit and in CI: ruff lint with rules <code>I F E W B C RUF ARG</code> (<code>ARG</code>, unused
+arguments, is off under <code>tests/</code>), ruff-format (settings in
+<a href="https://github.com/YannBerthelot/Ajax/blob/main/pyproject.toml">pyproject.toml</a>), and mypy on everything but <code>benchmarks/</code>,
+run in the project's environment (<code>uv run mypy</code>) so it sees jax and flax.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; Yann Berthelot
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "toc.follow", "content.code.copy", "content.action.edit", "content.tabs.link", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

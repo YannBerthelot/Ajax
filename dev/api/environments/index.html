@@ -1,0 +1,7693 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reinforcement learning agents in JAX: whole training runs compiled end to end, research features composed as extensions.">
+      
+      
+      
+        <link rel="canonical" href="https://yannberthelot.github.io/Ajax/dev/api/environments/">
+      
+      
+        <link rel="prev" href="../extensions/">
+      
+      
+        <link rel="next" href="../networks/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Environments and wrappers - Ajax</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#environments-and-wrappers" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  
+    This is the development version, built from main: it may describe changes
+    not released yet.
+  
+  <a href="../../..">
+    <strong>Read the latest release's documentation.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Ajax" class="md-header__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Ajax
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Environments and wrappers
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Follow system theme"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Follow system theme" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Ajax" class="md-nav__button md-logo" aria-label="Ajax" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Ajax
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/YannBerthelot/Ajax" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YannBerthelot/Ajax
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/why-ajax/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why Ajax
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training an agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and the PID policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/checkpoints/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Checkpoints and resuming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/comparing-agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/expert-guidance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expert guidance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/differentiable-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiable simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/world-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../algorithms/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithms
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Algorithms
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/sac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/asac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/redq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REDQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/crossq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CrossQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/td3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/tqc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TQC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/iql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    IQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/avg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AVG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/pqn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PQN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/ppo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/udrl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UDRL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dagger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DAgger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/apg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dreamerv3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/tdmpc2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reproduction/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproduction
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reproduction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/specs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reproduction/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developer guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Developer guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/writing-an-extension/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing an extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developer/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../world_models/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World model design notes
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    World model design notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/DESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/deviations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deviations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/dreamerv3_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DreamerV3 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/tdmpc2_spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TD-MPC2 specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/shared_blocks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shared building blocks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/VALIDATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../world_models/reference_comparison/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference comparison
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7_8" id="__nav_7_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference comparison
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/PROTOCOL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/PREREG2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 pre-registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/PREREG3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 3 pre-registration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/DIAGNOSIS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diagnosis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/results/round1/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 1 results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/results/round2/pairR/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 results, pair R
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/results/round2/pairE/compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 2 results, pair E
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world_models/reference_comparison/results/round3/analysis3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Round 3 analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training-loop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training loop
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments and wrappers
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments and wrappers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.create" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="create">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.create.register_brax_builder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        register_brax_builder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.create.register_playground_builder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        register_playground_builder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.create.build_env_from_id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_env_from_id
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.create.with_episode_keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_episode_keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.create.add_ajax_wrappers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_ajax_wrappers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.create.strip_ajax_wrappers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        strip_ajax_wrappers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.wrappers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        wrappers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="wrappers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.GymnaxWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GymnaxWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.BraxWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BraxWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.FlattenObservationWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FlattenObservationWrapper
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FlattenObservationWrapper">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.FlattenObservationWrapper.get_obs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_obs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.ClipAction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ClipAction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.ClipActionBrax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ClipActionBrax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.InitialStateWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        InitialStateWrapper
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InitialStateWrapper">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.InitialStateWrapper.reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reset
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.InitialStateWrapper.step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        step
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.NormalizeVecObservationBrax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NormalizeVecObservationBrax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.NormalizeVecObservationGymnax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NormalizeVecObservationGymnax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.EpisodeKeyedAutoResetWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EpisodeKeyedAutoResetWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.AutoResetWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AutoResetWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.BatchRngWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BatchRngWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.FinalObsWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FinalObsWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.FreshAutoResetWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FreshAutoResetWrapper
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FreshAutoResetWrapper">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.FreshAutoResetWrapper.reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reset
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.TerminatedTruncatedWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TerminatedTruncatedWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.ObservationNoiseWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ObservationNoiseWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.ObservationNoiseWrapperBrax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ObservationNoiseWrapperBrax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.init_norm_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        init_norm_info
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.episode_start_key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        episode_start_key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.episode_draws_key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        episode_draws_key
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.obs_norm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        obs_norm
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="obs_norm">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.obs_norm.init_agent_obs_norm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        init_agent_obs_norm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.obs_norm.update_obs_norm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_obs_norm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.obs_norm.normalized_obs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        normalized_obs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.obs_norm.apply_obs_norm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        apply_obs_norm
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.system_class" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        system_class
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="system_class">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.SystemClass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SystemClass
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="SystemClass">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.SystemClass.sample" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sample
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.FixedSystem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FixedSystem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.UniformPerturbation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UniformPerturbation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.env_params_is_batched" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        env_params_is_batched
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.n_systems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_systems
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.broadcast_env_params" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        broadcast_env_params
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        model_reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="model_reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.StepReference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        StepReference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StepReference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.StepReference.sample" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sample
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.LinearReferenceModel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LinearReferenceModel
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="LinearReferenceModel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.LinearReferenceModel.first_order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        first_order
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.LinearReferenceModel.init_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        init_state
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.ModelReferenceWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelReferenceWrapper
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ModelReferenceWrapper">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.ModelReferenceWrapper.output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.ModelReferenceWrapper.get_obs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_obs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pid_terms
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="pid_terms">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms.split_pid_terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        split_pid_terms
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms.check_pid_terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check_pid_terms
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms.tracking_error" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tracking_error
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms.clamp_integral" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        clamp_integral
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms.start_terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        start_terms
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms.advance_terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        advance_terms
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.differentiable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        differentiable
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="differentiable">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.differentiable.Rollout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.differentiable.with_transition_gradients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_transition_gradients
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.differentiable.closed_loop_rollout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        closed_loop_rollout
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#action-units" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Action units
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.utils.agent_action_to_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        agent_action_to_env
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.utils.env_action_to_agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        env_action_to_agent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.utils.ExpertInAgentUnits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ExpertInAgentUnits
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ExpertInAgentUnits">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.utils.ExpertInAgentUnits.wrap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        wrap
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-a-trained-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running a trained policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.interaction.get_pi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_pi
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../networks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networks and modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../buffers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Buffers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging, evaluation and checkpoints
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparing agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.create" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="create">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.create.register_brax_builder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        register_brax_builder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.create.register_playground_builder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        register_playground_builder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.create.build_env_from_id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_env_from_id
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.create.with_episode_keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_episode_keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.create.add_ajax_wrappers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_ajax_wrappers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.create.strip_ajax_wrappers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        strip_ajax_wrappers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.wrappers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        wrappers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="wrappers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.GymnaxWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GymnaxWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.BraxWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BraxWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.FlattenObservationWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FlattenObservationWrapper
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FlattenObservationWrapper">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.FlattenObservationWrapper.get_obs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_obs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.ClipAction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ClipAction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.ClipActionBrax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ClipActionBrax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.InitialStateWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        InitialStateWrapper
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InitialStateWrapper">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.InitialStateWrapper.reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reset
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.InitialStateWrapper.step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        step
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.NormalizeVecObservationBrax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NormalizeVecObservationBrax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.NormalizeVecObservationGymnax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NormalizeVecObservationGymnax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.EpisodeKeyedAutoResetWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EpisodeKeyedAutoResetWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.AutoResetWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AutoResetWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.BatchRngWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BatchRngWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.FinalObsWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FinalObsWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.FreshAutoResetWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FreshAutoResetWrapper
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FreshAutoResetWrapper">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.FreshAutoResetWrapper.reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reset
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.TerminatedTruncatedWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TerminatedTruncatedWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.ObservationNoiseWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ObservationNoiseWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.ObservationNoiseWrapperBrax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ObservationNoiseWrapperBrax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.init_norm_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        init_norm_info
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.episode_start_key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        episode_start_key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.episode_draws_key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        episode_draws_key
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.obs_norm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        obs_norm
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="obs_norm">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.obs_norm.init_agent_obs_norm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        init_agent_obs_norm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.obs_norm.update_obs_norm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_obs_norm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.obs_norm.normalized_obs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        normalized_obs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.obs_norm.apply_obs_norm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        apply_obs_norm
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.system_class" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        system_class
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="system_class">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.SystemClass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SystemClass
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="SystemClass">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.SystemClass.sample" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sample
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.FixedSystem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FixedSystem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.UniformPerturbation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UniformPerturbation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.env_params_is_batched" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        env_params_is_batched
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.n_systems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_systems
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.system_class.broadcast_env_params" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        broadcast_env_params
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        model_reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="model_reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.StepReference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        StepReference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="StepReference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.StepReference.sample" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sample
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.LinearReferenceModel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LinearReferenceModel
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="LinearReferenceModel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.LinearReferenceModel.first_order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        first_order
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.LinearReferenceModel.init_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        init_state
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.ModelReferenceWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelReferenceWrapper
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ModelReferenceWrapper">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.ModelReferenceWrapper.output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.model_reference.ModelReferenceWrapper.get_obs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_obs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pid_terms
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="pid_terms">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms.split_pid_terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        split_pid_terms
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms.check_pid_terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check_pid_terms
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms.tracking_error" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tracking_error
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms.clamp_integral" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        clamp_integral
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms.start_terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        start_terms
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.pid_terms.advance_terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        advance_terms
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.differentiable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        differentiable
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="differentiable">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.differentiable.Rollout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.differentiable.with_transition_gradients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_transition_gradients
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.differentiable.closed_loop_rollout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        closed_loop_rollout
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#action-units" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Action units
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.utils.agent_action_to_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        agent_action_to_env
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.utils.env_action_to_agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        env_action_to_agent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.utils.ExpertInAgentUnits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ExpertInAgentUnits
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ExpertInAgentUnits">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.utils.ExpertInAgentUnits.wrap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        wrap
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-a-trained-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running a trained policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajax.environments.interaction.get_pi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_pi
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/YannBerthelot/Ajax/edit/main/docs/api/environments.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="environments-and-wrappers">Environments and wrappers<a class="headerlink" href="#environments-and-wrappers" title="Permanent link">&para;</a></h1>
+<p>Agents take a gymnax, Brax or MuJoCo Playground environment, or its id, and
+wrap it themselves. Every continuous agent acts in <code>[-1, 1]</code>, and
+<code>agent_action_to_env</code> maps its action onto the environment's bounds; an
+expert speaks the environment's units, and the agent reads it through
+<code>ExpertInAgentUnits</code>. See <a href="../../guide/environments/">Environments</a> and
+<a href="../../guide/differentiable-simulation/">Differentiable simulation</a>.</p>
+
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="ajax.environments.create" class="doc doc-heading">
+            <span class="doc doc-object-name doc-module-name">ajax.environments.create</span>
+
+
+<a href="#ajax.environments.create" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.create.register_brax_builder" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">register_brax_builder</span>
+
+
+<a href="#ajax.environments.create.register_brax_builder" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">register_brax_builder</span><span class="p">(</span><span class="n">env_id</span><span class="p">,</span> <span class="n">builder</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Register a custom brax env builder for <code>env_id</code>.</p>
+<p>Mirrors <code>register_playground_builder</code> for brax-stack envs. The builder
+takes (n_envs, episode_length) and must return a fully wrapped env
+whose <code>_ajax_env_id</code> attribute equals <code>env_id</code>. Subsequent calls to
+<code>_build_brax_env(env_id, ...)</code> delegate to this builder. Used when a
+safety-experiments-style env wraps a stock brax robot with custom
+termination/observation-augmentation that must survive eval's rebuild.
+To support <code>action_repeat &gt; 1</code> the builder must also accept an
+<code>action_repeat</code> keyword (passed only when &gt; 1).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.create.register_playground_builder" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">register_playground_builder</span>
+
+
+<a href="#ajax.environments.create.register_playground_builder" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">register_playground_builder</span><span class="p">(</span><span class="n">env_id</span><span class="p">,</span> <span class="n">builder</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Register a custom playground env builder for <code>env_id</code>.</p>
+<p>The builder takes (n_envs, episode_length) and must return a fully
+wrapped env whose <code>_ajax_env_id</code> attribute equals <code>env_id</code>. Subsequent
+calls to <code>_build_playground_env(env_id, ...)</code> delegate to this builder.
+To support <code>action_repeat &gt; 1</code> the builder must also accept an
+<code>action_repeat</code> keyword (passed only when &gt; 1).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.create.build_env_from_id" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">build_env_from_id</span>
+
+
+<a href="#ajax.environments.create.build_env_from_id" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">build_env_from_id</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">env_id</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">fresh_reset</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">episode_length</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">action_repeat</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">differentiable_reset</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">episode_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Build a wrapped env from its id (gymnax, mujoco_playground or brax).</p>
+<p><code>fresh_reset</code> only concerns mujoco_playground envs (see
+<code>_build_playground_env</code>); gymnax and Ajax's brax stack already draw a
+new initial state for every episode.</p>
+<p><code>action_repeat</code> (default 1) repeats each agent action for that many
+simulator steps on brax / playground envs (see
+:func:<code>_build_playground_env</code>); <code>episode_length</code> (a keyword, default
+1000) then counts simulator steps. gymnax envs do not support it.</p>
+<p><code>differentiable_reset</code> concerns the auto-resets that compute a fresh
+reset inside <code>step</code>: brax envs, and playground envs with
+<code>fresh_reset=True</code> (the default). With <code>differentiable_reset=False</code>
+(the default) they evaluate the reset only on steps where some env is
+done, inside a <code>lax.while_loop</code>, because the reset can cost as much as
+many env steps. Gradients through such an env still flow with respect
+to the actions, the policy parameters and the env state, and forward
+mode (<code>jax.jvp</code>) works with respect to anything.
+Only reverse mode <em>through the reset itself</em> -- <code>jax.grad</code> with
+respect to something the reset depends on, such as physics parameters
+of the env -- fails, loudly, at trace time: "Reverse-mode
+differentiation does not work for lax.while_loop". Pass
+<code>differentiable_reset=True</code> for that case: the reset is then evaluated
+on every step and kept only for done envs, which reverse mode can cross,
+at the cost of a reset per step. Transitions are the same either way,
+up to float rounding. Gymnax envs (whose auto-reset is always computed)
+and playground's cached auto-reset ignore the flag, and evaluation
+(<code>evaluate.setup_environment</code>), which never differentiates, rebuilds
+the env with the default.</p>
+<p><code>episode_keys</code> (default True) keys every env's resets by episode: env
+i's k-th episode starts, and on gymnax draws its dynamics, on keys of
+(i, k) alone, the same whatever the actions, updates and extensions
+before it (:func:<code>with_episode_keys</code>). False keeps each backend's own
+auto-reset, which reproduces runs from before episode keys.
+playground's cached auto-reset (<code>fresh_reset=False</code>) ignores it.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.create.with_episode_keys" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">with_episode_keys</span>
+
+
+<a href="#ajax.environments.create.with_episode_keys" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">with_episode_keys</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">on</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>A gymnax env with its resets keyed by episode: an
+EpisodeKeyedAutoResetWrapper directly over the env, under the task's
+own wrappers, each copied onto the keyed env. With on=False, a copy
+marked to keep the env's own auto-reset, which prepare_env then leaves
+as it is. A brax or playground stack keys its resets in its auto-reset
+wrapper instead (build_env_from_id's episode_keys).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.create.add_ajax_wrappers" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">add_ajax_wrappers</span>
+
+
+<a href="#ajax.environments.create.add_ajax_wrappers" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">add_ajax_wrappers</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">env</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">normalize_obs</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">normalize_reward</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">gamma</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">train</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">norm_info</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Ajax's own layers over a task env: the observation / reward
+normaliser (<code>train=False</code> with <code>norm_info</code> freezes its statistics),
+then, on a continuous action space only, the clip to its bounds. The
+one place they are composed.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.create.strip_ajax_wrappers" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">strip_ajax_wrappers</span>
+
+
+<a href="#ajax.environments.create.strip_ajax_wrappers" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">strip_ajax_wrappers</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The task env under Ajax's own layers, and the keywords that rebuild
+those layers with :func:<code>add_ajax_wrappers</code>. Everything under them is
+the task: the user's wrappers, the flattening of
+:func:<code>build_env_from_id</code>, a brax stack's time limit.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="ajax.wrappers" class="doc doc-heading">
+            <span class="doc doc-object-name doc-module-name">ajax.wrappers</span>
+
+
+<a href="#ajax.wrappers" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>Wrappers for environment</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.GymnaxWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">GymnaxWrapper</span>
+
+
+<a href="#ajax.wrappers.GymnaxWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">GymnaxWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Base class for Gymnax wrappers.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.BraxWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">BraxWrapper</span>
+
+
+<a href="#ajax.wrappers.BraxWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">BraxWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Base class for the wrappers of a brax or MuJoCo Playground stack.</p>
+<p>A copy of <code>brax.envs.base.Wrapper</code> (brax 0.14.2, Apache-2.0) without
+its <code>Env</code> base class, so that Ajax imports brax only to build a brax
+env (brax comes with the <code>brax</code> extra).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.FlattenObservationWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">FlattenObservationWrapper</span>
+
+
+<a href="#ajax.wrappers.FlattenObservationWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">FlattenObservationWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="GymnaxWrapper (ajax.wrappers.GymnaxWrapper)" href="#ajax.wrappers.GymnaxWrapper">GymnaxWrapper</a></code></p>
+
+
+
+        <p>Flatten the observations of the environment.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.wrappers.FlattenObservationWrapper.get_obs" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_obs</span>
+
+
+<a href="#ajax.wrappers.FlattenObservationWrapper.get_obs" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">get_obs</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Recompute the observation from state, flattened to match <code>reset</code>.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.ClipAction" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">ClipAction</span>
+
+
+<a href="#ajax.wrappers.ClipAction" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">ClipAction</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">low</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">high</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="GymnaxWrapper (ajax.wrappers.GymnaxWrapper)" href="#ajax.wrappers.GymnaxWrapper">GymnaxWrapper</a></code></p>
+
+
+
+        <p>Clip a continuous action to the env's action space, or to <code>[low,
+high]</code> when given: gym's <code>ClipAction</code>. PureJaxRL's, which this one
+descends from, clips to <code>[-1, 1]</code> and leaves reading the space as a
+TODO; <code>[-1, 1]</code> would make the top of a <code>Box(0, 2)</code> unreachable.
+Ajax's own steps map agent actions onto the box first
+(:func:<code>ajax.environments.utils.agent_action_to_env</code>), so here it is a
+guard for raw stepping (<code>interaction.step</code>).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.ClipActionBrax" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">ClipActionBrax</span>
+
+
+<a href="#ajax.wrappers.ClipActionBrax" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">ClipActionBrax</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">low</span><span class="o">=-</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">high</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="BraxWrapper (ajax.wrappers.BraxWrapper)" href="#ajax.wrappers.BraxWrapper">BraxWrapper</a></code></p>
+
+
+
+        <p>Clip an action to brax's action space, <code>[-1, 1]</code> (or <code>[low, high]</code>).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.InitialStateWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">InitialStateWrapper</span>
+
+
+<a href="#ajax.wrappers.InitialStateWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">InitialStateWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">init_state_fn</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="GymnaxWrapper (ajax.wrappers.GymnaxWrapper)" href="#ajax.wrappers.GymnaxWrapper">GymnaxWrapper</a></code></p>
+
+
+
+        <p>Override the plant's state at reset (an initial-condition distribution).</p>
+<p><code>init_state_fn(key, state, params) -&gt; state</code> receives the env's own
+reset state and returns the state to start from; the observation is
+recomputed with <code>env.get_obs</code>. Use it to narrow (or fix) the initial
+conditions of a benchmark, e.g. the <code>p(O)</code> of a control meta-dataset
+(Busetto et al. 2024 keep it fixed at the nominal steady state).</p>
+<p>Every episode starts this way, the auto-reset ones included: gymnax's
+<code>step</code> auto-resets with the inner env's <code>reset_env</code>, so <code>step</code>
+applies <code>init_state_fn</code> to that reset state too (fields the inner step
+carries across its auto-reset stay as it left them). Under resets keyed
+by episode its key derives from the episode's start key
+(episode_draws_key).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.wrappers.InitialStateWrapper.reset" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">reset</span>
+
+
+<a href="#ajax.wrappers.InitialStateWrapper.reset" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">reset</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Reset the inner env, then replace its state. The inner env gets
+the key whole, the initial state one derived from it, so the
+wrapper leaves the env's own draws as they were.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.wrappers.InitialStateWrapper.step" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">step</span>
+
+
+<a href="#ajax.wrappers.InitialStateWrapper.step" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">step</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">action</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Step the inner env; where it auto-reset, replace the reset state.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.NormalizeVecObservationBrax" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">NormalizeVecObservationBrax</span>
+
+
+<a href="#ajax.wrappers.NormalizeVecObservationBrax" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">NormalizeVecObservationBrax</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">env</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">train</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">norm_info</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">normalize_obs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">normalize_reward</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">gamma</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="ajax.wrappers._OnlineNormalization">_OnlineNormalization</span></code>, <code><a class="autorefs autorefs-internal" title="BraxWrapper (ajax.wrappers.BraxWrapper)" href="#ajax.wrappers.BraxWrapper">BraxWrapper</a></code></p>
+
+
+
+        <p>Online normalisation of a brax / playground stack's observations and
+rewards. The statistics live in <code>state.info["normalization_info"]</code>,
+and the info keeps the raw observation and reward (<code>RAW_OBS_KEY</code>,
+<code>RAW_REWARD_KEY</code>): the state's own are the normalised ones.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.NormalizeVecObservationGymnax" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">NormalizeVecObservationGymnax</span>
+
+
+<a href="#ajax.wrappers.NormalizeVecObservationGymnax" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">NormalizeVecObservationGymnax</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">env</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">train</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">norm_info</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">normalize_obs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">normalize_reward</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">gamma</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="ajax.wrappers._OnlineNormalization">_OnlineNormalization</span></code>, <code><a class="autorefs autorefs-internal" title="GymnaxWrapper (ajax.wrappers.GymnaxWrapper)" href="#ajax.wrappers.GymnaxWrapper">GymnaxWrapper</a></code></p>
+
+
+
+        <p>Online normalisation of a gymnax env's observations and rewards. The
+statistics live in the env state, a subclass of the inner env's state
+class with a <code>normalization_info</code> field.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.EpisodeKeyedAutoResetWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">EpisodeKeyedAutoResetWrapper</span>
+
+
+<a href="#ajax.wrappers.EpisodeKeyedAutoResetWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">EpisodeKeyedAutoResetWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="GymnaxWrapper (ajax.wrappers.GymnaxWrapper)" href="#ajax.wrappers.GymnaxWrapper">GymnaxWrapper</a></code></p>
+
+
+
+        <p>gymnax's auto-reset keyed by episode, directly over a gymnax env. A
+reset derives the env's episode root from its key ("episodes"); episode
+k starts on episode_start_key(root, k) and its step t draws on
+fold_index(fold_index(root, k), t), so it starts and draws alike
+whatever the actions, updates and extensions before it (PEGASUS, Ng and
+Jordan 2000). The step's own key reaches only the wrappers above.</p>
+<p>step is gymnax 1.0.1's Environment.step but for the split of its key:
+the next start, evaluated at every step as gymnax's is, draws on one key
+per episode. An env with its own step or reset is refused, since this
+wrapper would bypass it.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.AutoResetWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">AutoResetWrapper</span>
+
+
+<a href="#ajax.wrappers.AutoResetWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">AutoResetWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">differentiable_reset</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="BraxWrapper (ajax.wrappers.BraxWrapper)" href="#ajax.wrappers.BraxWrapper">BraxWrapper</a></code></p>
+
+
+
+        <p>Automatically resets Brax envs that are done, sampling a new random seed for initialization at each reset. This seed is propagated through info["rng"]</p>
+<p>Ajax's brax stack with episode_keys=False, as before episode keys
+(FreshAutoResetWrapper keys them).</p>
+<p>By default the reset is evaluated only on steps where some env is done,
+inside a <code>lax.while_loop</code> (see :func:<code>_call_if_any</code>), and skipped on
+the others. Rollouts stay differentiable with respect to the actions,
+the policy parameters and the env state, none of which the reset depends
+on, and forward mode (<code>jax.jvp</code>) works with respect to anything. What
+reverse mode cannot do is differentiate <em>through the reset itself</em>, with
+respect to something it depends on (e.g. physics parameters of the env):
+<code>jax.grad</code> then raises "Reverse-mode differentiation does not work for
+lax.while_loop" at trace time. <code>differentiable_reset=True</code> evaluates
+the reset on every step instead and keeps the result only for done envs,
+which reverse mode can cross, at the cost of a reset per step.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.BatchRngWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">BatchRngWrapper</span>
+
+
+<a href="#ajax.wrappers.BatchRngWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">BatchRngWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">n_envs</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="BraxWrapper (ajax.wrappers.BraxWrapper)" href="#ajax.wrappers.BraxWrapper">BraxWrapper</a></code></p>
+
+
+
+        <p>Splits an unbatched PRNG key into n_envs keys on reset.</p>
+<p>Playground's <code>BraxAutoResetWrapper.reset</code> (and <code>FreshAutoResetWrapper.reset</code>)
+assumes <code>rng</code> is already shape (n_envs, 2) so it can
+<code>jax.vmap(jax.random.split)(rng)</code>. Ajax callers pass a single unbatched
+key, so this adapter bridges the two conventions.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.FinalObsWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">FinalObsWrapper</span>
+
+
+<a href="#ajax.wrappers.FinalObsWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">FinalObsWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="BraxWrapper (ajax.wrappers.BraxWrapper)" href="#ajax.wrappers.BraxWrapper">BraxWrapper</a></code></p>
+
+
+
+        <p>Stashes state.obs in state.info['final_obs'] on every reset/step.</p>
+<p>Place this directly below an auto-reset wrapper in the stack. The auto-reset
+wrapper overwrites state.obs with the reset observation on <code>done</code>, so
+without this the pre-reset observation is lost — breaking correct value
+bootstrapping on truncation (PPO/SAC need V(s_T) at truncation, not
+V(s_reset)). With this wrapper, downstream code can read
+state.info['final_obs'] to recover the terminal observation.</p>
+<p>Backend-agnostic: duck-typed passthrough that works for both brax State
+and mujoco_playground State (both expose <code>.obs</code> and <code>.info</code>).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.FreshAutoResetWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">FreshAutoResetWrapper</span>
+
+
+<a href="#ajax.wrappers.FreshAutoResetWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">FreshAutoResetWrapper</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">env</span><span class="p">,</span> <span class="n">differentiable_reset</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">episode_keys</span><span class="o">=</span><span class="kc">True</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="BraxWrapper (ajax.wrappers.BraxWrapper)" href="#ajax.wrappers.BraxWrapper">BraxWrapper</a></code></p>
+
+
+
+        <p>Auto-resets a batched mujoco_playground or brax env to a <em>fresh</em>
+initial state.</p>
+<p>Drop-in replacement for playground's <code>BraxAutoResetWrapper</code> in Ajax's
+playground stack (EpisodeWrapper, VmapWrapper, FinalObsWrapper, this,
+BatchRngWrapper; see <code>ajax.environments.create</code>), and for
+AutoResetWrapper in its brax stack under episode keys. With its default
+<code>full_reset=False</code>, upstream caches each env's first reset and restarts
+every later episode from it, so a whole run sees only <code>n_envs</code> initial
+conditions, whereas dm_control draws a new one per episode. Upstream's
+<code>full_reset=True</code> does draw new ones, but it (a) evaluates a full reset
+on every step (on CheetahRun, whose reset runs a 200-step stabilisation,
+~180x the cost of a step) and (b) replaces the whole <code>info</code> of done
+envs with the reset's, which zeroes <code>truncation</code>, <code>episode_done</code> and
+<code>episode_metrics</code> and overwrites <code>final_obs</code> with the reset
+observation, breaking the V(s_T) bootstrap at truncation.</p>
+<p>On a step where some env is done, this wrapper draws a fresh batched
+reset (computed only on such steps, see :func:<code>_call_if_any</code>) and gives
+each done env, from it:</p>
+<ul>
+<li><code>data</code> (a brax state's <code>pipeline_state</code>) and <code>obs</code>;</li>
+<li>the <code>info</code> entries produced by the base environment's own <code>reset</code>,
+  i.e. its per-episode state (its rng, task targets, ...).</li>
+</ul>
+<p>Everything else describes the transition just taken and passes through:
+<code>reward</code>, <code>done</code>, <code>metrics</code>, and the bookkeeping that the wrappers
+below write into <code>info</code> on every step (EpisodeWrapper's <code>steps</code>,
+<code>truncation</code> and <code>episode_*</code>; FinalObsWrapper's <code>final_obs</code>).</p>
+<p>With <code>episode_keys</code> (the default) env i's k-th episode starts on
+episode_start_key(root_i, k), as under EpisodeKeyedAutoResetWrapper;
+without, on its key split at every step, as before them.</p>
+<p><code>differentiable_reset=True</code> evaluates the reset on every step instead,
+for reverse-mode gradients through the reset itself; see
+:class:<code>AutoResetWrapper</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.wrappers.FreshAutoResetWrapper.reset" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">reset</span>
+
+
+<a href="#ajax.wrappers.FreshAutoResetWrapper.reset" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">reset</span><span class="p">(</span><span class="n">rng</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>rng</code>: one key per env, shape <code>(n_envs, 2)</code>.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.TerminatedTruncatedWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">TerminatedTruncatedWrapper</span>
+
+
+<a href="#ajax.wrappers.TerminatedTruncatedWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">TerminatedTruncatedWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="GymnaxWrapper (ajax.wrappers.GymnaxWrapper)" href="#ajax.wrappers.GymnaxWrapper">GymnaxWrapper</a></code></p>
+
+
+
+        <p>Split a time-limit-inclusive terminal flag back into terminated/truncated.</p>
+<p>Stock gymnax &gt;= 1.0 environments already return the two flags apart, so
+they do <strong>not</strong> need this wrapper. It is for third-party environments that
+subclass gymnax's <code>Environment</code> but whose <code>step_env</code> still reports the
+pre-1.0 <code>done = terminated | truncated</code>, which gymnax's base <code>step</code>
+hands back in the <code>terminated</code> slot. Left unwrapped, such an env makes
+every time-limit truncation look like a natural termination, so PPO/SAC
+drop the <code>V(s_T)</code> bootstrap and silently underestimate the value of
+long-running states.</p>
+<p>The time limit is the <code>truncated</code> flag gymnax's base <code>step</code> reports:
+it is computed from the pre-reset state, whereas the returned state has
+already been auto-reset (<code>time == 0</code>) at the limit.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.ObservationNoiseWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">ObservationNoiseWrapper</span>
+
+
+<a href="#ajax.wrappers.ObservationNoiseWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">ObservationNoiseWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="GymnaxWrapper (ajax.wrappers.GymnaxWrapper)" href="#ajax.wrappers.GymnaxWrapper">GymnaxWrapper</a></code></p>
+
+
+
+        <p>Sensor noise on a gymnax env's observations, <code>obs + sigma * scale *
+N(0, I)</code>, drawn afresh at every reset and step from a key folded off
+the call's own (the env's own draws are unchanged).</p>
+<p>The pre-reset observation an episode end leaves in the info gets the
+step's draw, so a transition's next observation is the one the agent
+then sees. <code>scale</code> is a scalar or one value per dimension (e.g. the
+observations' standard deviations). <code>get_obs</code> stays the state's
+noiseless observation, which an expert reads
+(<code>interaction.get_raw_obs</code>).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.ObservationNoiseWrapperBrax" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">ObservationNoiseWrapperBrax</span>
+
+
+<a href="#ajax.wrappers.ObservationNoiseWrapperBrax" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">ObservationNoiseWrapperBrax</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="BraxWrapper (ajax.wrappers.BraxWrapper)" href="#ajax.wrappers.BraxWrapper">BraxWrapper</a></code></p>
+
+
+
+        <p>:class:<code>ObservationNoiseWrapper</code> for a batched brax / playground stack
+(above its <code>VmapWrapper</code>, as <code>build_env_from_id</code> builds it). Its
+step takes no key: the wrapper's own lives in the state's info, tiled
+over the envs (row 0 is read), and is split at every reset and step.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.wrappers.init_norm_info" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">init_norm_info</span>
+
+
+<a href="#ajax.wrappers.init_norm_info" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">init_norm_info</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">obs_shape</span><span class="p">,</span> <span class="n">returns</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Initialise running stats with leading axis <code>batch_size</code>.</p>
+<p>The leading axis is <em>redundant</em> (online_normalize collapses it on
+every update, so rows carry identical values) but it is load-bearing
+for env-side callers: env-side stats live inside the env state
+pytree, which Brax's <code>VmapWrapper</code> vmaps over the n_envs axis.
+Shrinking the stats to <code>(1, *)</code> would break that vmap with a
+mismatched-axis error. Agent-side callers should pass
+<code>batch_size=1</code> instead (see <code>init_agent_obs_norm</code>).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.wrappers.episode_start_key" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">episode_start_key</span>
+
+
+<a href="#ajax.wrappers.episode_start_key" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">episode_start_key</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="n">index</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The key episode index of an env starts on (PEGASUS's fixed scenarios,
+Ng and Jordan 2000): the same whatever came before it. The episode's
+step t draws on fold_index(fold_index(root, index), t).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.wrappers.episode_draws_key" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">episode_draws_key</span>
+
+
+<a href="#ajax.wrappers.episode_draws_key" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">episode_draws_key</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The key a wrapper's own draws at an episode's start derive from: the
+episode's start key where the state's env keys its resets by episode,
+so they too are the same whatever came before; else the call's key.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="ajax.environments.obs_norm" class="doc doc-heading">
+            <span class="doc doc-object-name doc-module-name">ajax.environments.obs_norm</span>
+
+
+<a href="#ajax.environments.obs_norm" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>Agent-side running observation normalization.</p>
+<p>Lives inside <code>CollectorState.obs_norm_info</code> so stats are part of
+<code>agent_state</code> and thread through naturally. Normalization is applied
+at every actor/critic <code>apply_fn</code> boundary; stats are updated only at
+collection time (online interaction and BC dataset prep). The replay
+buffer stores raw observations (their features included) so changing stats do not poison
+old samples; we re-normalize at sample time.</p>
+<p>Agent-side so that the statistics are the agent's, shipped with its policy,
+and cover its observation features (<code>ajax.controller</code>), which the env never
+sees: the env's columns and the normalised features; the raw features (an
+expert's action) come last and stay raw.</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.obs_norm.init_agent_obs_norm" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">init_agent_obs_norm</span>
+
+
+<a href="#ajax.environments.obs_norm.init_agent_obs_norm" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">init_agent_obs_norm</span><span class="p">(</span><span class="n">obs_dim</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Initialise running stats for an obs vector of size <code>obs_dim</code>.</p>
+<p>Stats are stored with leading shape 1 (not <code>n_envs</code>): online_normalize
+reduces the per-env axis on every update so all envs would share the
+same scalar stats anyway, and <code>apply_obs_norm</code> only needs the
+per-feature mean/var. The size-1 leading axis preserves broadcasting
+against batched obs <code>(*, obs_dim)</code> while saving an n_envs× memory
+factor on every checkpoint and vmap broadcast.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.obs_norm.update_obs_norm" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">update_obs_norm</span>
+
+
+<a href="#ajax.environments.obs_norm.update_obs_norm" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">update_obs_norm</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">info</span><span class="p">,</span> <span class="n">raw_columns</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Update running stats with <code>obs</code> and return (normalized_obs, new_info).</p>
+<p><code>obs</code> shape: <code>(n_envs, obs_dim)</code>. When <code>info is None</code> the call is
+a no-op (returns input unchanged) so call sites can stay unconditional.
+The leading <code>raw_columns</code> stay raw (see <code>online_normalize</code>), as do
+the raw features after the columns the statistics cover.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.obs_norm.normalized_obs" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">normalized_obs</span>
+
+
+<a href="#ajax.environments.obs_norm.normalized_obs" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">normalized_obs</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">info</span><span class="p">,</span> <span class="n">raw_columns</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>obs</code> normalised with the statistics <code>info</code>, not updated, as
+:func:<code>update_obs_norm</code> normalises (<code>online_normalize</code>): the frozen
+statistics of an on-policy agent's evaluation and of its final and
+reset observations. <code>info</code> None: <code>obs</code> as it is.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.obs_norm.apply_obs_norm" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">apply_obs_norm</span>
+
+
+<a href="#ajax.environments.obs_norm.apply_obs_norm" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">apply_obs_norm</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">info</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Normalize <code>obs</code> using existing stats (no update). Used at every
+actor/critic <code>apply_fn</code> site that consumes obs sampled from the
+buffer or carried by the eval scan, so stats updates stay localised
+to the collection sites. Falls back to raw obs while the running
+stats are still empty (count == 0), avoiding a divide-by-≈0 at
+step 1 before any update.</p>
+<p>The statistics cover the leading columns: the env's and the normalised
+features'; what follows stays raw: a raw feature (an expert's action)
+and a critic's action, already in action
+units, as the env's <code>raw_columns</code> keep a PID's terms raw.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="ajax.environments.system_class" class="doc doc-heading">
+            <span class="doc doc-object-name doc-module-name">ajax.environments.system_class</span>
+
+
+<a href="#ajax.environments.system_class" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>System classes: distributions over environment parameters.</p>
+<p>A <em>system class</em> is a distribution <code>p(S)</code> over the dynamics of an
+environment, represented as a distribution over its <code>EnvParams</code>. It
+is the object that turns one environment into a family of environments
+for domain randomisation, meta-learning and in-context control (Busetto
+et al. 2024, "One controller to rule them all", arXiv:2411.06482).</p>
+<p>Sampling returns <em>batched</em> params: every leaf carries a leading axis of
+size <code>n</code>, one entry per parallel environment. :func:<code>ajax.environments
+.interaction.reset</code> / :func:<code>~ajax.environments.interaction.step</code> detect
+that leading axis and vmap over it (gymnax only: brax envs do not take
+per-step params). APG, DreamerV3 and TDMPC2 train on them; the agents of
+the shared loop compile them as a static argument and refuse them when
+built (<code>ActorCritic.supports_batched_env_params</code>).</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.system_class.SystemClass" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">SystemClass</span>
+
+
+<a href="#ajax.environments.system_class.SystemClass" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Base class: a distribution over <code>EnvParams</code>.</p>
+<p>Subclasses implement :meth:<code>sample</code>. The nominal params are kept so
+callers can always fall back to the reference system (evaluation on
+the nominal plant, curriculum stage 1, ...).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.environments.system_class.SystemClass.sample" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">sample</span>
+
+
+<a href="#ajax.environments.system_class.SystemClass.sample" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">sample</span><span class="p">(</span><span class="n">rng</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Draw <code>n</code> systems; returns batched params (leading axis <code>n</code>).</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.system_class.FixedSystem" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">FixedSystem</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#ajax.environments.system_class.FixedSystem" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">FixedSystem</span><span class="p">(</span><span class="n">nominal</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="SystemClass (ajax.environments.system_class.SystemClass)" href="#ajax.environments.system_class.SystemClass">SystemClass</a></code></p>
+
+
+
+        <p>Degenerate class containing a single system (the nominal one).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.system_class.UniformPerturbation" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">UniformPerturbation</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#ajax.environments.system_class.UniformPerturbation" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">UniformPerturbation</span><span class="p">(</span><span class="n">nominal</span><span class="p">,</span> <span class="n">fields</span><span class="p">,</span> <span class="n">scale</span><span class="o">=</span><span class="mf">0.05</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="SystemClass (ajax.environments.system_class.SystemClass)" href="#ajax.environments.system_class.SystemClass">SystemClass</a></code></p>
+
+
+
+        <p>Independent uniform relative perturbation of selected parameter fields.</p>
+<p>Each listed field <code>p</code> is drawn as <code>p * (1 + U(-scale, scale))</code>,
+independently per field and per sampled system (a vector or matrix field
+is scaled by one factor per system); every other field
+stays at its nominal value. This is the meta-dataset construction of
+Busetto et al. 2024 (there: <code>scale=0.05</code> on the 19 evaporator
+constants).</p>
+<p><code>fields</code> must name attributes of the nominal <code>EnvParams</code>; a typo
+raises at construction rather than silently sampling nothing.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.system_class.env_params_is_batched" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">env_params_is_batched</span>
+
+
+<a href="#ajax.environments.system_class.env_params_is_batched" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">env_params_is_batched</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>True when <code>params</code> carries one system per env along a leading axis.</p>
+<p>A batched params (from :meth:<code>SystemClass.sample</code> or
+:func:<code>broadcast_env_params</code>) has <em>every</em> leaf with the same leading
+axis. An unbatched one always has at least one rank-0 leaf (gymnax's
+<code>max_steps_in_episode</code> at minimum), even when other fields are
+vectors or matrices (e.g. a plant's state-space model), so "any leaf has
+rank &gt;= 1" would misclassify those.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.system_class.n_systems" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">n_systems</span>
+
+
+<a href="#ajax.environments.system_class.n_systems" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">n_systems</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The number of systems a batched <code>params</code> carries: its leaves'
+leading axis.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.system_class.broadcast_env_params" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">broadcast_env_params</span>
+
+
+<a href="#ajax.environments.system_class.broadcast_env_params" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">broadcast_env_params</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Replicate an unbatched <code>params</code> <code>n</code> times along a new leading axis.</p>
+<p>Used to run a single nominal system through the batched code path
+(e.g. a fixed system during the first curriculum stage). Every leaf
+(scalar, vector or matrix) gets the new leading axis; an already
+batched params is returned unchanged.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="ajax.environments.model_reference" class="doc doc-heading">
+            <span class="doc doc-object-name doc-module-name">ajax.environments.model_reference</span>
+
+
+<a href="#ajax.environments.model_reference" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>Model-reference tracking tasks on top of any gymnax environment.</p>
+<p>Model-reference control (Busetto et al. 2024, arXiv:2411.06482, §2)
+asks a controller to make a plant's measured output <code>y_k</code> follow the
+output <code>y^d_k</code> of a <em>reference model</em> <code>M</code> driven by a user reference
+<code>r_k</code>. This module turns any gymnax env into such a task:</p>
+<ul>
+<li>:class:<code>StepReference</code> is the reference distribution <code>p(R)</code>:
+  piecewise-constant random steps of random amplitude and duration.</li>
+<li>:class:<code>LinearReferenceModel</code> is a discrete-time linear <code>M</code>
+  (<code>x_{k+1} = A x_k + B r_k</code>, <code>y^d_k = C x_k + D r_k</code>); the paper's
+  first-order model is :meth:<code>LinearReferenceModel.first_order</code>.</li>
+<li>:class:<code>ModelReferenceWrapper</code> exposes the <em>controller's</em> view of the
+  problem: observation <code>[e_k, u_{k-1}]</code> (tracking error and previous
+  input, optionally followed by the raw plant observation) and reward
+  <code>-||y^d_k - y_k||^2</code>, so the undiscounted return is the negative
+  closed-loop matching cost of eq. (9) and the paper's M-RMSE is
+  <code>sqrt(-return / horizon)</code>.</li>
+</ul>
+<p>Every operation is plain <code>jnp</code> so the wrapper is differentiable when
+the inner env is (see :mod:<code>ajax.environments.differentiable</code>), and it
+composes with :mod:<code>ajax.environments.system_class</code> batched params
+because the wrapper is per-env (Ajax vmaps <code>reset</code>/<code>step</code>).</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.model_reference.StepReference" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">StepReference</span>
+
+
+<a href="#ajax.environments.model_reference.StepReference" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Random piecewise-constant references <code>r_{[0, N-1]}</code>.</p>
+<p>Each segment holds a value drawn uniformly in <code>[min_value,
+max_value]</code> for a duration drawn uniformly in <code>[min_duration,
+max_duration]</code> steps (both inclusive), independently per output.
+The paper's evaporator case uses values in <code>[20, 25]</code> % and
+durations in <code>[20, 50]</code> s at 1 s sampling over <code>N = 100</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.environments.model_reference.StepReference.sample" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">sample</span>
+
+
+<a href="#ajax.environments.model_reference.StepReference.sample" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">sample</span><span class="p">(</span><span class="n">rng</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>One reference sequence, shape <code>(horizon, n_outputs)</code>.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.model_reference.LinearReferenceModel" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">LinearReferenceModel</span>
+
+
+<a href="#ajax.environments.model_reference.LinearReferenceModel" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Discrete-time linear reference model <code>M</code>.</p>
+<p><code>x_{k+1} = A x_k + B r_k</code>, <code>y^d_k = C x_k + D r_k</code> with
+<code>A: (nx, nx)</code>, <code>B: (nx, ny)</code>, <code>C: (ny, nx)</code>, <code>D: (ny, ny)</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.environments.model_reference.LinearReferenceModel.first_order" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">first_order</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+<a href="#ajax.environments.model_reference.LinearReferenceModel.first_order" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">first_order</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">a</span><span class="o">=</span><span class="mf">0.4286</span><span class="p">,</span> <span class="n">b</span><span class="o">=</span><span class="mf">0.7143</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="mf">0.5669</span><span class="p">,</span> <span class="n">d</span><span class="o">=</span><span class="mf">0.2914</span><span class="p">,</span> <span class="n">n_outputs</span><span class="o">=</span><span class="mi">1</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Diagonal first-order model, one independent channel per output.</p>
+<p>Defaults are the paper's eq. (12): <code>x_{k+1} = 0.4286 x_k + 0.7143
+r_k</code>, <code>y^d_k = 0.5669 x_k + 0.2914 r_k</code> (unit DC gain).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.environments.model_reference.LinearReferenceModel.init_state" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">init_state</span>
+
+
+<a href="#ajax.environments.model_reference.LinearReferenceModel.init_state" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">init_state</span><span class="p">(</span><span class="n">y0</span><span class="p">,</span> <span class="n">r0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>State whose output equals the plant's initial output.</p>
+<p>The paper initialises <code>x^M_0</code> at the plant's initial condition
+so the desired trajectory starts where the plant starts. Solves
+<code>C x = y0 - D r0</code> in the least-squares sense.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.model_reference.ModelReferenceWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">ModelReferenceWrapper</span>
+
+
+<a href="#ajax.environments.model_reference.ModelReferenceWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">ModelReferenceWrapper</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">env</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">reference</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">model</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">output_idx</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,),</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">output_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">include_raw_obs</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">action_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="GymnaxWrapper (ajax.wrappers.GymnaxWrapper)" href="#ajax.wrappers.GymnaxWrapper">GymnaxWrapper</a></code></p>
+
+
+
+        <p>Turn a gymnax env into a model-reference tracking task.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>env</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>gymnax env (the plant).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>reference</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="StepReference (ajax.environments.model_reference.StepReference)" href="#ajax.environments.model_reference.StepReference">StepReference</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>reference distribution <code>p(R)</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>model</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="LinearReferenceModel (ajax.environments.model_reference.LinearReferenceModel)" href="#ajax.environments.model_reference.LinearReferenceModel">LinearReferenceModel</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>reference model <code>M</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>output_idx</code>
+            </td>
+            <td>
+                  <code><span title="typing.Sequence">Sequence</span>[<span title="int">int</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>observation dims forming the measured output <code>y</code>.
+Ignored when <code>output_fn</code> is given.</p>
+              </div>
+            </td>
+            <td>
+                  <code>(0,)</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>output_fn</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.Callable">Callable</span>[[<span title="jax.Array">Array</span>], <span title="jax.Array">Array</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>obs -&gt; y</code> (shape <code>(n_y,)</code>); use it when the
+output is not a plain slice of the observation (e.g. an angle
+recovered from <code>(cos, sin)</code>).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>include_raw_obs</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>append the plant observation to <code>[e, u_prev]</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>action_dim</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>dimension of the input <code>u</code> (needed for <code>u_prev</code>).</p>
+              </div>
+            </td>
+            <td>
+                  <code>1</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+        <p>The reference sequence is re-sampled whenever the plant episode ends
+(the inner env's auto-reset). That step's reward scores the plant's
+final, pre-reset output, and <code>info</code>'s final observation is the
+controller's view of it. Past the reference horizon the last sample is
+held; size <code>reference.horizon</code> to the episode length.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.environments.model_reference.ModelReferenceWrapper.output" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">output</span>
+
+
+<a href="#ajax.environments.model_reference.ModelReferenceWrapper.output" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">output</span><span class="p">(</span><span class="n">obs</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Measured output <code>y</code> of the plant, shape <code>(n_y,)</code>.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.environments.model_reference.ModelReferenceWrapper.get_obs" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_obs</span>
+
+
+<a href="#ajax.environments.model_reference.ModelReferenceWrapper.get_obs" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">get_obs</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The controller observation, with the plant's observation recomputed
+from its state (equal to the returned one when it is a function of
+the state).</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="ajax.environments.pid_terms" class="doc doc-heading">
+            <span class="doc doc-object-name doc-module-name">ajax.environments.pid_terms</span>
+
+
+<a href="#ajax.environments.pid_terms" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>The error terms a PID controller acts on, which the observation feature
+ajax.extensions.observe.PIDTermsInput appends to the observation and the PID
+policy (ajax.modules.pid_actor.PIDPolicy) reads there.</p>
+<p>A PID controller computes u_t = Kp e_t + Ki I_t + Kd D_t from the tracking
+error e_t = target_t - current_t, its integral I_t and its difference D_t.
+The terms are the discrete-time PID's with sampling period dt
+(backward-difference form, as in Astrom &amp; Hagglund, Advanced PID Control,
+2006, cited from memory, unverified)::</p>
+<div class="highlight"><pre><span></span><code>I_t = clip(I_{t-1} + dt * e_t, -integral_limit, integral_limit),  I_{-1} = 0
+D_t = (e_t - e_{t-1}) / dt,                                       D_0 = 0
+</code></pre></div>
+<p>The clip is clamping anti-windup (integral_limit=None: no clip). Every
+episode starts afresh: the integral restarts from dt * e_0 and the
+difference from 0, so no term carries over from the previous episode.</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.pid_terms.split_pid_terms" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">split_pid_terms</span>
+
+
+<a href="#ajax.environments.pid_terms.split_pid_terms" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">split_pid_terms</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">n_errors</span><span class="p">,</span> <span class="n">at</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The (e, I, D) held in obs from column at, stacked as
+(..., 3, n_errors).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.pid_terms.check_pid_terms" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">check_pid_terms</span>
+
+
+<a href="#ajax.environments.pid_terms.check_pid_terms" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">check_pid_terms</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">current_idx</span><span class="p">,</span> <span class="n">target_idx</span><span class="p">,</span> <span class="n">dt</span><span class="p">,</span> <span class="n">integral_limit</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Refuse terms without one set-point per controlled value, or with a
+period or clamp that is not positive.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.pid_terms.tracking_error" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">tracking_error</span>
+
+
+<a href="#ajax.environments.pid_terms.tracking_error" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">tracking_error</span><span class="p">(</span><span class="n">flat_obs</span><span class="p">,</span> <span class="n">current_idx</span><span class="p">,</span> <span class="n">target_idx</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>e = target - current</code> from a flat observation's last axis.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.pid_terms.clamp_integral" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">clamp_integral</span>
+
+
+<a href="#ajax.environments.pid_terms.clamp_integral" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">clamp_integral</span><span class="p">(</span><span class="n">integral</span><span class="p">,</span> <span class="n">integral_limit</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Clamping anti-windup; <code>integral_limit</code> None: no clamp.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.pid_terms.start_terms" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">start_terms</span>
+
+
+<a href="#ajax.environments.pid_terms.start_terms" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">start_terms</span><span class="p">(</span><span class="n">error</span><span class="p">,</span> <span class="n">dt</span><span class="p">,</span> <span class="n">integral_limit</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>(I_0, D_0)</code> at an episode's first error <code>e_0</code>.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.pid_terms.advance_terms" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">advance_terms</span>
+
+
+<a href="#ajax.environments.pid_terms.advance_terms" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">advance_terms</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">error</span><span class="p">,</span> <span class="n">last_error</span><span class="p">,</span> <span class="n">integral</span><span class="p">,</span> <span class="n">dt</span><span class="p">,</span> <span class="n">integral_limit</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>(I_t, D_t)</code> from <code>e_t</code>, <code>e_{t-1}</code> and <code>I_{t-1}</code>.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="ajax.environments.differentiable" class="doc doc-heading">
+            <span class="doc doc-object-name doc-module-name">ajax.environments.differentiable</span>
+
+
+<a href="#ajax.environments.differentiable" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>Differentiable closed-loop rollouts (backpropagation through the simulator).</p>
+<p>The collectors in :mod:<code>ajax.environments.interaction</code> wrap every env step
+in <code>stop_gradient</code>: RL agents treat the environment as a black box. This
+module is the opposite path, for <em>analytic policy gradient</em> methods that
+differentiate an objective through the dynamics themselves (Busetto et al.
+2024's in-context controller, APG/SHAC-style trainers, ...):</p>
+<ul>
+<li>:func:<code>with_transition_gradients</code> configures a (possibly wrapped) gymnax
+  env so its transitions keep gradients. gymnax &gt;= 1.0 detaches them by
+  default and only some envs support the opt-in (Pendulum,
+  MountainCarContinuous, PointRobot, Reacher, Swimmer at the time of
+  writing); unsupported envs raise instead of silently training on zero
+  gradients.</li>
+<li>:func:<code>closed_loop_rollout</code> runs a fixed-horizon closed loop between a
+  stateful policy and the env with no <code>stop_gradient</code> anywhere, so
+  <code>jax.grad</code> of any function of the returned :class:<code>Rollout</code> flows
+  through the policy, the environment, and the policy's carry across
+  time (BPTT over the whole horizon).</li>
+</ul>
+<p>Gymnax only: brax/playground envs take no per-step params and have their
+own (MJX) gradient story.</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.differentiable.Rollout" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">Rollout</span>
+
+
+<a href="#ajax.environments.differentiable.Rollout" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Time-major closed-loop trajectory, leaves shaped <code>(T, B, ...)</code>.</p>
+<p><code>obs[t]</code> is what the policy saw at step <code>t</code>, <code>action[t]</code> what it
+applied, <code>reward[t]</code> / <code>done[t]</code> / <code>next_obs[t]</code> the env's
+response. <code>resets[t]</code> is the episode-start flag the policy was given
+at step <code>t</code> (True at <code>t=0</code> and after a done). <code>info</code> is the env's
+per-step info dict with every leaf stacked over time (e.g. a tracking
+wrapper's desired output), for metrics that need more than the reward.
+<code>policy_action[t]</code> is the policy's own action, before an
+<code>action_map</code> mapped it onto the env (None without one), and
+<code>policy_observation[t]</code> what an <code>observe</code> made of <code>obs[t]</code> for the
+policy (None without one).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.differentiable.with_transition_gradients" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">with_transition_gradients</span>
+
+
+<a href="#ajax.environments.differentiable.with_transition_gradients" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">with_transition_gradients</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return a copy of <code>env</code> whose transitions preserve gradients.</p>
+<p>Walks Ajax's <code>GymnaxWrapper</code> chain (wrappers keep the inner env on
+<code>_env</code>) so a wrapped env is re-wrapped around the gradient-enabled
+core. Raises <code>ValueError</code> when the core env does not implement
+differentiable transitions.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.differentiable.closed_loop_rollout" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">closed_loop_rollout</span>
+
+
+<a href="#ajax.environments.differentiable.closed_loop_rollout" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">closed_loop_rollout</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">policy_step</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">policy_carry</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">rng</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">env</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">env_params</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">horizon</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">action_map</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">observe</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run <code>horizon</code> closed-loop steps with gradients flowing end to end.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>policy_step</code>
+            </td>
+            <td>
+                  <code><span title="ajax.environments.differentiable.PolicyStepFn">PolicyStepFn</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(carry, obs, resets) -&gt; (action, new_carry)</code>. Called
+once per step on the batch of <code>B</code> envs. <code>resets</code> is a
+<code>(B,)</code> bool array marking episode starts so recurrent
+policies can clear their memory.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>policy_carry</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>initial policy carry (any pytree, <code>None</code> for a
+memoryless policy).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>rng</code>
+            </td>
+            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>PRNG key; split into per-env reset and step keys.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>env</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>gymnax env, already configured with
+:func:<code>with_transition_gradients</code> when gradients are wanted.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>env_params</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>unbatched <code>EnvParams</code> (broadcast to every env) or
+batched ones from a :class:<code>~ajax.environments.system_class.
+SystemClass</code> (one system per env, <code>B</code> inferred from them).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>n_envs</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="int">int</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>number of parallel envs; required when <code>env_params</code> is
+unbatched, inferred (and must match) otherwise.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>action_map</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.Callable">Callable</span>[[<span title="jax.Array">Array</span>], <span title="jax.Array">Array</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>maps the policy's action onto what the env receives
+(differentiable), e.g. agent units onto the env's bounds; the
+rollout then keeps both (<code>action</code>, <code>policy_action</code>).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>observe</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.Callable">Callable</span>[[<span title="typing.Any">Any</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="typing.Any">Any</span>]]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(carry, obs, resets) -&gt; (policy_observation, carry)</code>,
+run before <code>policy_step</code>, which then reads its observation
+(features appended to the env's, their state in the carry); the
+rollout keeps both (<code>obs</code>, <code>policy_observation</code>).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="typing.Tuple">Tuple</span>[<a class="autorefs autorefs-internal" title="Rollout (ajax.environments.differentiable.Rollout)" href="#ajax.environments.differentiable.Rollout">Rollout</a>, <span title="typing.Any">Any</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(rollout, final_carry)</code>; <code>rollout</code> leaves are <code>(horizon, B, ...)</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="action-units">Action units<a class="headerlink" href="#action-units" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="ajax.environments.utils.agent_action_to_env" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">ajax.environments.utils.agent_action_to_env</span>
+
+
+<a href="#ajax.environments.utils.agent_action_to_env" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">agent_action_to_env</span><span class="p">(</span><span class="n">action</span><span class="p">,</span> <span class="n">env</span><span class="p">,</span> <span class="n">env_params</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+        <p>Map an agent action in <code>[-1, 1]</code> to the env's action bounds.</p>
+<p>Every Ajax env step carrying an agent's or an expert's action calls it:
+every continuous agent acts in <code>[-1, 1]</code> (squashed or not), whatever
+the env's box. <code>action</code> is <code>[n_envs, *action_shape]</code>. Continuous
+actions are clipped to <code>[-1, 1]</code> and, on every dimension of the Box
+with finite bounds <code>[low, high]</code>, mapped affinely onto them: <code>c + h
+* clip(a, -1, 1)</code>, with centre <code>c = (high + low) / 2</code> and half-range
+<code>h = (high - low) / 2</code> (CleanRL's <code>action_bias</code> and
+<code>action_scale</code>).
+This is DreamerV3's <code>ClipAction</code> + <code>NormalizeAction</code> (a dimension
+with an infinite bound keeps the clipped action) and TD-MPC2's action
+scaling. For <code>[-1, 1]</code> bounds -- every brax / playground env, gymnax
+envs like MountainCarContinuous -- the map is exactly the clip, even
+when the bounds are traced; gymnax Pendulum's torque is <code>[-2, 2]</code>.
+Per-env (batched) gymnax params (<code>ajax.environments.system_class</code>)
+give per-env bounds: env <code>e</code>'s action is mapped with its own system's
+bounds. Discrete actions pass through. Replay stores the agent's raw
+action, not this one. :func:<code>env_action_to_agent</code> is the inverse.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="ajax.environments.utils.env_action_to_agent" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">ajax.environments.utils.env_action_to_agent</span>
+
+
+<a href="#ajax.environments.utils.env_action_to_agent" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">env_action_to_agent</span><span class="p">(</span><span class="n">action</span><span class="p">,</span> <span class="n">env</span><span class="p">,</span> <span class="n">env_params</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+        <p>Map an action in the env's bounds to agent units, <code>[-1, 1]</code>.</p>
+<p>The inverse of :func:<code>agent_action_to_env</code> on the env's box, <code>(a - c)
+/ h</code>, with the same <code>action</code> layout and per-env bounds. It does not
+clip: an action outside the box stays outside <code>[-1, 1]</code>. It is the
+identity on <code>[-1, 1]</code> boxes, on a dimension with an infinite bound
+and on discrete actions.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="ajax.environments.utils.ExpertInAgentUnits" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">ajax.environments.utils.ExpertInAgentUnits</span>
+
+
+<a href="#ajax.environments.utils.ExpertInAgentUnits" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">ExpertInAgentUnits</span><span class="p">(</span><span class="n">expert</span><span class="p">,</span> <span class="n">env</span><span class="p">,</span> <span class="n">env_params</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>An expert written in env units, read in agent units (<code>[-1, 1]</code>).</p>
+<p>What the expert returns -- <code>expert(obs)</code>, a stateful <code>expert(state,
+obs)</code>'s action, <code>step_with_gains</code>'s action -- goes through
+:func:<code>env_action_to_agent</code>'s map, unclipped. <code>init_state</code>,
+<code>learnable_fields</code>, <code>anchor_gains</code> and <code>step_with_gains</code> exist
+exactly when the expert's do (<code>hasattr</code> still tells a stateful
+expert). It hashes by identity, for jit's static arguments.</p>
+<p>Its bounds are one <code>(A,)</code> box read from concrete params, also inside
+jit (static params): a stateless expert is also vmapped over single
+observations, where per-env bounds would broadcast its action. Per-env
+boxes that differ raise. On a discrete env the expert's index column
+passes through, and action_count (None when continuous) records the
+number of actions, the width of its one-hot.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.utils.ExpertInAgentUnits.wrap" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">wrap</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+<a href="#ajax.environments.utils.ExpertInAgentUnits.wrap" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">wrap</span><span class="p">(</span><span class="n">expert</span><span class="p">,</span> <span class="n">env</span><span class="p">,</span> <span class="n">env_params</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>expert</code> in agent units; None and a wrapped expert stay as they are.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="running-a-trained-policy">Running a trained policy<a class="headerlink" href="#running-a-trained-policy" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="ajax.environments.interaction.get_pi" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">ajax.environments.interaction.get_pi</span>
+
+
+<a href="#ajax.environments.interaction.get_pi" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">get_pi</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">actor_state</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">actor_params</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">obs</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">done</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">recurrent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+        <p>Get the policy distribution for the given observation and actor state.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>done</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="jax.Array">Array</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Done flags for recurrent mode.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="typing.Tuple">Tuple</span>[<span title="distrax.Distribution">Distribution</span>, <span title="ajax.state.LoadedTrainState">LoadedTrainState</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The policy distribution and the updated actor state.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; Yann Berthelot
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "toc.follow", "content.code.copy", "content.action.edit", "content.tabs.link", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

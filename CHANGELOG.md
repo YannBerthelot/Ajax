@@ -29,6 +29,10 @@ PyPI as `ajax-rl`.
   Two examples did not run and are fixed: Environments used an undefined
   environment, and Comparing agents' `estimate` trained 100,000 steps, which
   ends inside a PPO rollout and leaves the last evaluation NaN.
+- **Documentation site**: the world models' reference-comparison records
+  (protocol, pre-registrations, diagnosis, results) leave the site and stay
+  on GitHub, where the site's links to them now point; the design notes
+  move under the Developer guide.
 - **Resets are keyed by episode** (PEGASUS, Ng and Jordan 2000), on by
   default: env i's k-th episode starts on a key of (i, k), and a gymnax
   env's step t in it draws on a key of (i, k, t), so runs that differ by an

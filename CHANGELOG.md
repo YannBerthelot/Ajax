@@ -6,6 +6,9 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- A gymnax step no longer warns that float64 is unavailable: its
+  terminated and truncated flags convert to float32 directly. Every
+  number is unchanged.
 - **Resets are keyed by episode** (PEGASUS, Ng and Jordan 2000), on by
   default: env i's k-th episode starts on a key of (i, k), and a gymnax
   env's step t in it draws on a key of (i, k, t), so runs that differ by an

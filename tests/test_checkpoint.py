@@ -980,8 +980,20 @@ def test_episode_counters_restore_only_into_an_agent_keying_its_resets(tmp_path)
 #: (returning every update's output), own replay (sized to its run).
 LOADED_FAST = ("PPO-norm", "SAC-norm", "APG", "DreamerV3")
 LOADED_SLOW = (
-    "APO-norm ASAC AVG CrossQ DAgger DQN IQL PQN-norm REDQ TD3 TDMPC2 TQC UDRL"
-).split()
+    "APO-norm",
+    "ASAC",
+    "AVG",
+    "CrossQ",
+    "DAgger",
+    "DQN",
+    "IQL",
+    "PQN-norm",
+    "REDQ",
+    "TD3",
+    "TDMPC2",
+    "TQC",
+    "UDRL",
+)
 
 
 @pytest.mark.parametrize(

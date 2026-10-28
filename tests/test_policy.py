@@ -241,14 +241,49 @@ def test_acting_with_the_policy_reproduces_the_evaluations_return(name: str) -> 
 #: ways it acts: residual and gain transforms, features, a stateful expert,
 #: the choosers, memory, the normalisers, a PID policy.
 SLOW = (
-    "APG APG-gain APG-gru APG-observe APG-pid APG-residual APO-discrete APO-norm"
-    " ASAC AVG CrossQ-norm DAgger-discrete DAgger-stateful DQN-expert"
-    " DreamerV3-continuous DreamerV3-features IQL-residual IQL-residual-jsrl"
-    " PPO-gain PPO-gru PPO-observe PPO-pid-norm PQN-jsrl PQN-norm REDQ"
-    " SAC-augment-state SAC-edge SAC-gru SAC-ibrl SAC-jsrl SAC-pid-norm TD3-gain"
-    " TD3-gru TD3-observe TD3-residual TDMPC2 TDMPC2-features TQC UDRL-gain"
-    " UDRL-norm UDRL-observe UDRL-residual"
-).split()
+    "APG",
+    "APG-gain",
+    "APG-gru",
+    "APG-observe",
+    "APG-pid",
+    "APG-residual",
+    "APO-discrete",
+    "APO-norm",
+    "ASAC",
+    "AVG",
+    "CrossQ-norm",
+    "DAgger-discrete",
+    "DAgger-stateful",
+    "DQN-expert",
+    "DreamerV3-continuous",
+    "DreamerV3-features",
+    "IQL-residual",
+    "IQL-residual-jsrl",
+    "PPO-gain",
+    "PPO-gru",
+    "PPO-observe",
+    "PPO-pid-norm",
+    "PQN-jsrl",
+    "PQN-norm",
+    "REDQ",
+    "SAC-augment-state",
+    "SAC-edge",
+    "SAC-gru",
+    "SAC-ibrl",
+    "SAC-jsrl",
+    "SAC-pid-norm",
+    "TD3-gain",
+    "TD3-gru",
+    "TD3-observe",
+    "TD3-residual",
+    "TDMPC2",
+    "TDMPC2-features",
+    "TQC",
+    "UDRL-gain",
+    "UDRL-norm",
+    "UDRL-observe",
+    "UDRL-residual",
+)
 
 
 @pytest.mark.slow

@@ -69,28 +69,26 @@ help pick an agent and list each one's defaults.
 
 ## Use the trained policy
 
-Every array in `state` has a seed axis first. Take one seed's actor and ask it
-for actions:
+`predict` returns the action of one seed's policy for an observation, in the
+environment's units. It acts as the evaluation acts: it normalises the
+observation as the agent does and maps the action onto the environment's
+bounds.
 
 ```python
 import gymnax
 import jax
 
 from ajax import PPO
-from ajax.environments.interaction import get_pi
 
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
 state, _ = agent.train(seed=[0, 1], n_timesteps=16_384)
-
-actor = jax.tree.map(lambda x: x[0], state.actor_state)  # seed 0
 
 env, params = gymnax.make("CartPole-v1")
 key = jax.random.PRNGKey(0)
 obs, env_state = env.reset(key, params)
 episode_return, done = 0.0, False
 while not done:
-    pi, _ = get_pi(actor, actor.params, obs[None])  # a batch of one observation
-    action = pi.mode()[0]  # the most likely action
+    action = agent.predict(state, obs)  # seed 0's policy
     key, step_key = jax.random.split(key)
     obs, env_state, reward, terminated, truncated, _ = env.step(
         step_key, env_state, action, params
@@ -100,41 +98,31 @@ while not done:
 print(episode_return)
 ```
 
-`get_pi` returns the policy's action distribution. It applies the agent's own
-observation normalisation when the agent keeps one (a replay agent's
-`normalize_observations=True`). If you trained an agent that normalises in
-the environment (PPO, APO, PQN, UDRL), normalise the observation the
-same way first: see [Environments](../guide/environments.md).
-
-For continuous actions, take `pi.mean()` instead of `pi.mode()`. It is in the
-agent's units, `[-1, 1]`: map it onto the environment's bounds before
-stepping, as training and evaluation do, with
-`agent_action_to_env(pi.mean(), env, params)[0]` from
-`ajax.environments.utils` (Pendulum's torque spans `[-2, 2]`).
+An agent with memory, a recurrent actor or a world model, acts through
+`agent.policy(state)`, which carries the memory from step to step.
+[Train, evaluate, deploy](../guide/deploy.md) shows both.
 
 ## Save and resume
 
-`save_checkpoint` writes a state to disk. `restore_into` loads it into the
-state of a fresh agent, which `train` then continues:
+`save_checkpoint` writes a state to disk. `load_checkpoint` reads it back
+into an agent built with the same arguments, which `train` then continues:
 
 ```python
 import os
 import tempfile
 
 from ajax import PPO
-from ajax.checkpoint import restore_into, save_checkpoint
+from ajax.checkpoint import load_checkpoint, save_checkpoint
 
-seeds = [0, 1]
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
-state, _ = agent.train(seed=seeds, n_timesteps=8_192)
+state, _ = agent.train(seed=[0, 1], n_timesteps=8_192)
 path = os.path.join(tempfile.mkdtemp(), "ppo_cartpole.pkl")
 save_checkpoint(state, path)
 
-# Later, in another process: the same agent, and a 0-step run as the skeleton.
+# Later, in another process: the same agent.
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
-skeleton, _ = agent.train(seed=seeds, n_timesteps=0)
-state = restore_into(skeleton, path)
-state, _ = agent.train(seed=seeds, n_timesteps=8_192, initial_state=state)
+state = load_checkpoint(agent, path)
+state, _ = agent.train(seed=[0, 1], n_timesteps=8_192, initial_state=state)
 print(state.collector_state.timestep)  # [18432 18432]: PPO adds a rollout per call
 ```
 
@@ -143,6 +131,8 @@ keeps.
 
 ## Where next
 
+- [Train, evaluate, deploy](../guide/deploy.md): act with a trained policy in
+  a loop of your own, save it and load it elsewhere.
 - [Environments](../guide/environments.md): gymnax, Brax and MuJoCo
   Playground ids, your own environments, normalisation and time limits.
 - [Networks and the PID policy](../guide/networks.md): layer sizes,

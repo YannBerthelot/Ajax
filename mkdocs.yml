@@ -126,6 +126,7 @@ nav:
       - Why Ajax: getting-started/why-ajax.md
   - User guide:
       - Training an agent: guide/training.md
+      - Train, evaluate, deploy: guide/deploy.md
       - Environments: guide/environments.md
       - Networks and the PID policy: guide/networks.md
       - Memory: guide/memory.md

@@ -499,6 +499,8 @@
       
         
       
+        
+      
     
     
     
@@ -559,6 +561,34 @@
     
   
     Training an agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/deploy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Train, evaluate, deploy
   
 
     
@@ -2702,32 +2732,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#ajax.evaluate.normalised_reward" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        normalised_reward
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#ajax.evaluate.setup_environment" class="md-nav__link">
     <span class="md-ellipsis">
       
         setup_environment
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#ajax.evaluate.get_deterministic_action_and_entropy_fn" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        get_deterministic_action_and_entropy_fn
       
     </span>
   </a>
@@ -2811,6 +2819,17 @@
     <span class="md-ellipsis">
       
         restore_into
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.checkpoint.load_checkpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_checkpoint
       
     </span>
   </a>
@@ -3160,32 +3179,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#ajax.evaluate.normalised_reward" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        normalised_reward
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#ajax.evaluate.setup_environment" class="md-nav__link">
     <span class="md-ellipsis">
       
         setup_environment
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#ajax.evaluate.get_deterministic_action_and_entropy_fn" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        get_deterministic_action_and_entropy_fn
       
     </span>
   </a>
@@ -3269,6 +3266,17 @@
     <span class="md-ellipsis">
       
         restore_into
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.checkpoint.load_checkpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_checkpoint
       
     </span>
   </a>
@@ -4078,29 +4086,6 @@ return from <code>obs</code> taking <code>action</code>, of the rewards times
 <div class="doc doc-object doc-function">
 
 
-<h3 id="ajax.evaluate.normalised_reward" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">normalised_reward</span>
-
-
-<a href="#ajax.evaluate.normalised_reward" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">normalised_reward</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">norm_info</span><span class="p">)</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p><code>x</code>, a reward or a sum of rewards in the env's units, in the
-agent's: divided by the scale the training env's reward normaliser
-holds (<code>norm_info.reward</code>, frozen), as collection divides each
-reward; unchanged without one.</p>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
 <h3 id="ajax.evaluate.setup_environment" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">setup_environment</span>
 
@@ -4143,32 +4128,6 @@ gymnax envs do not support <code>action_repeat &gt; 1</code>.</p>
 <div class="doc doc-object doc-function">
 
 
-<h3 id="ajax.evaluate.get_deterministic_action_and_entropy_fn" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">get_deterministic_action_and_entropy_fn</span>
-
-
-<a href="#ajax.evaluate.get_deterministic_action_and_entropy_fn" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">get_deterministic_action_and_entropy_fn</span><span class="p">(</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">actor_state</span><span class="p">,</span> <span class="n">recurrent</span><span class="p">,</span> <span class="n">continuous</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Return a function mapping (obs, done, hidden) → (action, entropy, hidden).</p>
-<p>In recurrent mode the hidden state is an explicit input/output so the
-eval loop can thread it through its carry (the live carry on
-<code>actor_state</code> belongs to the training envs and has the wrong batch
-size here). Non-recurrent mode passes <code>hidden</code> through untouched.</p>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
 <h3 id="ajax.evaluate.step_environment" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">step_environment</span>
 
@@ -4193,15 +4152,12 @@ size here). Non-recurrent mode passes <code>hidden</code> through untouched.</p>
     <div class="doc doc-contents ">
 
         <p>Return a pure function stepping the evaluation (an :class:<code>_EvalCarry</code>).</p>
-<p>Each step acts as the agent's <code>controller</code> says, on an
-:class:<code>~ajax.controller.ActingState</code> built from the carry: the actor's
-input (:meth:<code>~ajax.controller.Controller.observe</code>), its deterministic
-action, then the executed one (:meth:<code>~ajax.controller.Controller.act</code>).
-The expert acts in agent units (:class:<code>ExpertInAgentUnits</code>), as every
-action here; the executed one is mapped onto the env's bounds
-(:func:<code>agent_action_to_env</code>), as in collection. The expert's state is
-tracked from the actor's input on, statefully, as collection tracks it,
-and restarts with each episode.</p>
+<p>Each step acts as the evaluated policy acts (ajax.policy.make_act: the
+controller, the actor, the expert in agent units and the choosers, on
+keys derived from the carry's), then steps the env on the executed
+action mapped onto its bounds (:func:<code>agent_action_to_env</code>), as in
+collection. The expert's state is tracked statefully, as collection
+tracks it, and restarts with each episode.</p>
 <p>value_estimate: the critic's estimate at the actor's input and the
 action collection stores, each step: the executed action in agent units,
 the actor's (the gains') under gain mode.</p>
@@ -4209,9 +4165,6 @@ the actor's (the gains') under gain mode.</p>
 actor reads <code>command.actor_input(obs, c)</code>, and each step's reward, in
 the agent's units (<code>norm_info</code>, :func:<code>normalised_reward</code>), and end
 update <code>c</code>.</p>
-<p>The controller's choosers (an extension's eval_action phase) may then
-replace the executed action by the expert's (choose_in_evaluation), on
-keys derived from the carry's: they move no other draw.</p>
 
 
     </div>
@@ -4388,6 +4341,8 @@ the skeleton via <code>flax.serialization.from_state_dict</code>.</p>
         skeleton = restore_into(skeleton, path)
     final = agent.train(..., initial_state=skeleton, ...)
     save_checkpoint(final, path)</p>
+<p>load_checkpoint(agent, path) builds that skeleton itself, for as many seeds
+as the file holds.</p>
 
 
 
@@ -4447,6 +4402,33 @@ the skeleton via <code>flax.serialization.from_state_dict</code>.</p>
 structure as the saved one. The optimizer transformations and apply
 functions come from <code>skeleton</code>; only the pytree data (params,
 optimizer mu/nu/count, buffer arrays, rngs, counters) is replaced.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.checkpoint.load_checkpoint" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">load_checkpoint</span>
+
+
+<a href="#ajax.checkpoint.load_checkpoint" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">load_checkpoint</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="o">**</span><span class="n">train_options</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The state saved at path (save_checkpoint(state, path)), restored into
+agent, an agent built with the same arguments: restore_into on a 0-step
+train of as many seeds as the file holds, which rebuilds what the file
+does not keep (the optimisers' update rules, the networks' functions).
+It refuses what restore_into refuses. train_options go to that train
+call: a run whose options shape its update rule (APG's learning-rate
+schedule over total_timesteps, its optimiser kept on resume) passes
+them, so the loaded state resumes as the run would have gone on.</p>
 
 
     </div>

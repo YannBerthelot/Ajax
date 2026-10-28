@@ -501,6 +501,8 @@
       
         
       
+        
+      
     
     
     
@@ -561,6 +563,34 @@
     
   
     Training an agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deploy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Train, evaluate, deploy
   
 
     
@@ -2657,7 +2687,7 @@ continues the run from its timestep:</p>
 <p>Pass the same seeds in every call. The call may reuse the memory of the
 state you pass in, so read or save what you need from it first.</p>
 <h2 id="across-processes">Across processes<a class="headerlink" href="#across-processes" title="Permanent link">&para;</a></h2>
-<p><code>ajax.checkpoint</code> has three functions:</p>
+<p><code>ajax.checkpoint</code> has four functions:</p>
 <table>
 <thead>
 <tr>
@@ -2669,6 +2699,10 @@ state you pass in, so read or save what you need from it first.</p>
 <tr>
 <td><code>save_checkpoint(state, path)</code></td>
 <td>writes the state's arrays and counters to <code>path</code>, atomically (a crash mid-write leaves the previous file intact)</td>
+</tr>
+<tr>
+<td><code>load_checkpoint(agent, path, **train_options)</code></td>
+<td>loads <code>path</code> into <code>agent</code>, an agent built with the same arguments: <code>restore_into</code> on a 0-step <code>train</code> of as many seeds as the file holds, given <code>train_options</code></td>
 </tr>
 <tr>
 <td><code>restore_into(skeleton, path)</code></td>
@@ -2684,7 +2718,10 @@ state you pass in, so read or save what you need from it first.</p>
 networks' functions are code, not data: they come from the skeleton, which
 an identically configured agent builds with a 0-step <code>train</code> call given the
 run's <code>train</code> options (an update rule may depend on them, as APG's
-learning-rate schedule does, <a href="#things-to-know">below</a>). The agent may be a
+learning-rate schedule does, <a href="#things-to-know">below</a>). <code>load_checkpoint</code>
+passes on the options you give it, as <code>restore_into</code> on such a skeleton
+does; without any, it serves a run trained with <code>train</code>'s defaults and a
+policy to act with (<a href="../deploy/">Train, evaluate, deploy</a>). The agent may be a
 new instance in a new process. A run that saves a checkpoint after each
 chunk of training, and picks up from the last one when restarted:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>

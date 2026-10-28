@@ -45,6 +45,23 @@ class LoggingBackend(Protocol):
     creates its run there, so a missing account fails before training and
     the run shows in the W&B UI at once). What a backend gathers in the
     worker stays there: to get it back, write it to a file.
+
+    A backend of your own, here one printing each step:
+
+        class PrintBackend:
+            def open(self, run):
+                print("run", run.name, "seed", run.seed)
+
+            def log(self, run_id, step, metrics):
+                print(run_id, step, {k: v.tolist() for k, v in metrics.items()})
+
+            def close(self):
+                pass
+
+        LoggingConfig(backends=(PrintBackend(), TensorBoardBackend("runs")))
+
+    It reaches the worker by pickling, so its class must be importable
+    there: defined in a module or a script, not in a notebook cell.
     """
 
     def open(self, run: RunInfo) -> None:

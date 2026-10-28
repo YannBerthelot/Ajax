@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from typing import Any
 
 import numpy as np
@@ -59,19 +58,6 @@ AGENTS: dict[str, tuple[Any, int, int]] = {
         4,
     ),
 }
-
-
-@pytest.fixture
-def wandb_calls(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> str:
-    """The file fake_wandb records into, in the caller and in the worker."""
-    shim = tmp_path / "shim"
-    shim.mkdir()
-    (shim / "wandb.py").write_text("from tests.logging.fake_wandb import *  # noqa\n")
-    record = str(tmp_path / "wandb_calls.jsonl")
-    monkeypatch.setenv(fake_wandb.LOG_ENV, record)
-    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
-    monkeypatch.syspath_prepend(str(shim))
-    return record
 
 
 def logged_rows(evaluations: dict, seed_index: int) -> list[tuple[int, dict]]:

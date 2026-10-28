@@ -5,6 +5,8 @@ import dataclasses
 import json
 import multiprocessing as mp
 import os
+import pickle
+import queue
 import secrets
 import string
 import struct as pystruct
@@ -13,11 +15,12 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
-from flax.struct import dataclass as flax_dataclass
+from flax import struct
 from tensorboardX.proto import event_pb2  # tensorboardX includes this!
 from tqdm import tqdm
 
 from ajax.logging.backends import (
+    LoggingBackend,
     RunInfo,
     TensorBoardBackend,
     WandbBackend,
@@ -25,26 +28,77 @@ from ajax.logging.backends import (
 )
 
 
-@flax_dataclass
+@struct.dataclass
 class LoggingConfig:
-    """Pass along the wandb config cleanly"""
+    """Evaluation and logging for a train call: every log_frequency
+    environment steps the agent is evaluated, train returns the evaluations,
+    and each run (one per seed) logs them to the backends.
 
-    config: dict
+    backends: the LoggingBackend objects every run logs to, such as
+        TensorBoardBackend(folder) and WandbBackend(project, group), or one
+        of your own (see LoggingBackend). Empty, use_wandb (on unless set
+        False) and use_tensorboard (off unless set True) name them, as
+        before; given, setting either flag as well is refused.
+    config: stored with each run, with the agent's run configuration merged in.
+    project_name, group_name: the W&B project and group of use_wandb.
+    run_name: the prefix of each run's name, "<run_name>_<run_id>".
+    log_frequency: environment steps between evaluations.
+    folder: where use_tensorboard writes, folder/tensorboard/<run_id>/ (the
+        working directory when None).
+    sweep: for hyperparameter sweeps, evaluate only in the last fifth of
+        training; with use_wandb, the W&B run gets no steps.
+    """
+
+    config: dict = struct.field(default_factory=dict)
     project_name: Optional[str] = None
     run_name: Optional[str] = None
     log_frequency: int = 1000
     group_name: Optional[str] = None
     folder: Optional[str] = None
-    use_tensorboard: bool = False
-    use_wandb: bool = True
+    # None: not set, which tells the flags apart from backends.
+    use_tensorboard: Optional[bool] = None
+    use_wandb: Optional[bool] = None
     sweep: bool = False
+    backends: tuple = struct.field(pytree_node=False, default=())
+
+    def __post_init__(self) -> None:
+        flag_set = self.use_wandb is not None or self.use_tensorboard is not None
+        if self.backends and flag_set:
+            raise ValueError(
+                "LoggingConfig takes its backends either as backends=(...) or"
+                " through use_wandb and use_tensorboard, not both: name every"
+                " one in backends, such as backends=(TensorBoardBackend(folder),"
+                " WandbBackend(project, group))."
+            )
+        for backend in self.backends:
+            if not isinstance(backend, LoggingBackend):
+                raise TypeError(
+                    f"{backend!r} is not a logging backend: it needs open, log"
+                    " and close methods (see LoggingBackend)."
+                )
+
+    @property
+    def run_backends(self) -> tuple:
+        """The backends every run logs to: backends, else those the flags
+        name."""
+        if self.backends:
+            return tuple(self.backends)
+        backends: list = []
+        if self.use_wandb is None or self.use_wandb:
+            wandb_class = _RunOnlyWandbBackend if self.sweep else WandbBackend
+            backends.append(
+                wandb_class(project=self.project_name, group=self.group_name)
+            )
+        if self.use_tensorboard:
+            backends.append(TensorBoardBackend(folder=self.folder or "."))
+        return tuple(backends)
 
     @property
     def backend(self) -> bool:
-        """Whether a run writes anywhere (W&B or TensorBoard), so needs the
-        logging worker; without one it still evaluates (``train`` returns
-        the evaluations)."""
-        return self.use_wandb or self.use_tensorboard
+        """Whether a run writes anywhere, so needs the logging worker;
+        without a backend it still evaluates (train returns the
+        evaluations)."""
+        return bool(self.run_backends)
 
 
 def new_run_id() -> str:
@@ -54,21 +108,6 @@ def new_run_id() -> str:
     return "".join(secrets.choice(alphabet) for _ in range(8))
 
 
-def _flag_backends(logging_config: LoggingConfig) -> tuple:
-    """The backends use_wandb and use_tensorboard name."""
-    backends: list = []
-    if logging_config.use_wandb:
-        wandb_class = _RunOnlyWandbBackend if logging_config.sweep else WandbBackend
-        backends.append(
-            wandb_class(
-                project=logging_config.project_name, group=logging_config.group_name
-            )
-        )
-    if logging_config.use_tensorboard:
-        backends.append(TensorBoardBackend(folder=logging_config.folder or "."))
-    return tuple(backends)
-
-
 # 'spawn' is required: we start the process AFTER JAX has initialised CUDA,
 # so 'fork' would copy a live CUDA context into the child and cause crashes.
 _mp_ctx = mp.get_context("spawn")
@@ -76,7 +115,7 @@ _mp_ctx = mp.get_context("spawn")
 _log_queue: Optional[Any] = None  # _mp_ctx.JoinableQueue at runtime
 _log_process: Optional[Any] = None  # _mp_ctx.Process at runtime
 _pending_init_msgs: list = []  # messages buffered before worker starts
-# The backends sent to the worker, at the index the worker holds each at.
+# The backends sent to the worker, each at the index the worker holds it at.
 _sent_backends: list = []
 
 
@@ -94,19 +133,26 @@ def _logging_worker(q: Any) -> None:
     Single worker process: passes every run's messages to its backends.
 
     Message protocol:
-        ("backend", backend)          — a backend, at the next index
+        ("backend", index, backend)   — a backend, at its index
         ("open",    indices, run)     — a run (RunInfo) and its backends
         ("log",     run_id, metrics, step) — one evaluation of a run
         None                          — poison pill / shutdown
     """
-    backends: list = []
+    backends: dict = {}
     # run_id -> the backends its steps go to
     routes: dict = {}
 
     while True:
         try:
             item = q.get(timeout=1.0)
-        except Exception:
+        except queue.Empty:
+            continue
+        except Exception as exc:
+            # A message this process cannot unpickle, such as a backend whose
+            # class it cannot import (one defined in a notebook): reported
+            # and dropped, and counted done so that stopping does not hang.
+            print(f"[logging worker] dropped a message it cannot read: {exc}")
+            q.task_done()
             continue
 
         if item is None:  # poison pill — close every backend and shut down
@@ -115,10 +161,11 @@ def _logging_worker(q: Any) -> None:
 
         kind = item[0]
         if kind == "backend":
-            backends.append(item[1])
+            _, index, backend = item
+            backends[index] = backend
         elif kind == "open":
             _, indices, run = item
-            routes[run.run_id] = [backends[index] for index in indices]
+            routes[run.run_id] = [backends[i] for i in indices if i in backends]
             for backend in routes[run.run_id]:
                 _call(backend, "open", run)
         elif kind == "log":
@@ -127,7 +174,7 @@ def _logging_worker(q: Any) -> None:
                 _call(backend, "log", run_id, step, metrics)
         q.task_done()
 
-    for backend in backends:
+    for backend in backends.values():
         _call(backend, "close")
 
 
@@ -172,7 +219,19 @@ def stop_async_logging() -> None:
 
 
 def _send(message: tuple) -> None:
-    """To the worker, or held until it starts."""
+    """A backend or a run to the worker, or held until it starts.
+
+    Checked to pickle here, before training: the queue pickles in a thread
+    of its own, where a failure is only printed, and stopping the worker
+    then waits forever for the message.
+    """
+    try:
+        pickle.dumps(message)
+    except Exception as exc:
+        raise TypeError(
+            f"{message[-1]!r} cannot be copied into the logging worker, a"
+            f" process of its own: it must be picklable ({exc})."
+        ) from exc
     if _log_queue is not None:
         _log_queue.put(message)
     else:
@@ -185,9 +244,10 @@ def _worker_index(backend: Any) -> int:
     for index, sent in enumerate(_sent_backends):
         if sent == backend:
             return index
+    index = len(_sent_backends)
+    _send(("backend", index, backend))
     _sent_backends.append(backend)
-    _send(("backend", backend))
-    return len(_sent_backends) - 1
+    return index
 
 
 def init_logging(
@@ -208,17 +268,19 @@ def init_logging(
         config=logging_config.config,
         seed=run_seed,
     )
-    indices = []
-    for backend in _flag_backends(logging_config):
+    # Each backend once, by its index in the worker (equal ones are one).
+    backends: dict = {}
+    for backend in logging_config.run_backends:
+        backends.setdefault(_worker_index(backend), backend)
+    for backend in backends.values():
         start = getattr(backend, "start", None)
         if start is not None:
             start(run)
-        indices.append(_worker_index(backend))
-    if indices:
+    if backends:
         # The worker gets a copy, so the config's values that are not JSON
         # (an environment, a function), which may not pickle, go as their text.
         plain = json.loads(json.dumps(run.config, default=str))
-        _send(("open", indices, dataclasses.replace(run, config=plain)))
+        _send(("open", list(backends), dataclasses.replace(run, config=plain)))
 
 
 def vmap_log(

@@ -28,7 +28,7 @@ Three ideas shape the code:
 
 ```text
 src/ajax/
-├── __init__.py          the 14 exported agents; configures the compile cache on import
+├── __init__.py          the exported agents (__all__); configures the compile cache on import
 ├── agents/
 │   ├── base.py          ActorCritic: environment and network setup, extensions=, train(); run_config
 │   ├── families.py      declared agents (fields as hyperparameters); the replay, incremental, on-policy, own-iteration and own-replay families' train functions

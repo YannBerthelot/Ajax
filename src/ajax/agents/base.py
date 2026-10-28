@@ -191,6 +191,9 @@ class ActorCritic:
     # agent's rollout keeps them normalised with the statistics of their
     # collection (EnvironmentConfig.store_normalized_obs).
     replays_transitions: bool = False
+    # Whether the agent can keep its last rollout on agent_state.last_rollout
+    # (the on-policy and incremental families), for an extension reading it.
+    keeps_last_rollout: bool = False
     # Set, before this initialiser, by the agents that take an expert.
     expert_policy: Any
     #: The agent's train module's ``make_train`` (:meth:`get_make_train`).
@@ -456,6 +459,7 @@ class ActorCritic:
             has_expert=getattr(self, "expert_policy", None) is not None,
             num_critics=self.config.get("num_critics"),
             learning_starts=self.config.get("learning_starts"),
+            keeps_rollout=self.keeps_last_rollout,
         )
 
     def _check_extension_phases(self) -> None:

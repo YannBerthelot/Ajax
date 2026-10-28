@@ -66,10 +66,13 @@ their actions end the episodes at other steps. `episode_keys=False` keeps
 each backend's own auto-reset, as runs made before episode keys did:
 
 ```python
+import gymnax
+
 from ajax.environments.create import build_env_from_id, with_episode_keys
 
 env, params = build_env_from_id("Pendulum-v1", episode_keys=False)
 # An environment you built yourself:
+my_gymnax_env, my_params = gymnax.make("Pendulum-v1")
 env = with_episode_keys(my_gymnax_env, on=False)
 ```
 

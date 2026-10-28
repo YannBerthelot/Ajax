@@ -80,7 +80,7 @@ Defaults are those of the constructor.
 | `encoder_kernel_init` | `"orthogonal(np.sqrt(2))"` | the hidden layers' initialiser (Baselines' ppo2; PureJaxRL's recurrent PPO, with `memory=`); None is the same one |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | None, 0, None | convolutional encoder for flat image observations |
 | `episode_length`, `action_repeat` | None, 1 | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
-| `expose_recent_rollout` | False | keep the last rollout on the state, for measurement extensions |
+| `expose_recent_rollout` | False | keep the last rollout on the state even when no extension reads it |
 | `expert_policy` | `None` | an expert the collector tracks: its actions feed the observation features and a residual policy (`ResidualPolicy`), and the evaluation reports its return next to the agent's |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
@@ -145,8 +145,8 @@ Defaults are those of the constructor.
   observations normalised with the statistics of the step that collected them,
   as SB3's `VecNormalize` and CleanRL do.
 - **Extensions.** PPO folds the loss and target phases, so instrumentation such
-  as `ConditioningMetrics` works on it (pass `expose_recent_rollout=True` so it
-  can read the latest rollout). It has no `action` phase: extensions that act
+  as `ConditioningMetrics` works on it (PPO keeps its latest rollout for it).
+  It has no `action` phase: extensions that act
   during collection need SAC. A recurrent PPO refuses extensions. See
   [Extensions](../guide/extensions.md).
 - **Memory.** A recurrent PPO minibatches whole chunks of `bptt_length`

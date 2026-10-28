@@ -3,7 +3,7 @@
 An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships thirty-one of them,
+or measurements logged at each evaluation. Ajax ships thirty-two of them,
 listed in the [catalogue](#catalogue) below.
 
 Why extensions instead of agent options? An agent's constructor takes its
@@ -34,7 +34,6 @@ from ajax.logging.wandb_logging import LoggingConfig
 
 agent = PPO(
     "CartPole-v1",
-    expose_recent_rollout=True,  # keep the latest rollout for ConditioningMetrics
     extensions=(
         BiasVorePenalty(alpha=0.3),  # an extra critic-loss term
         ConditioningMetrics(),  # measurements at each evaluation
@@ -141,8 +140,9 @@ A run adds what its configuration gives: `critic` (a Q or V critic),
 `scalar_target` (a critic regressing on one target value per row, not a
 `distributional_critic`: the extensions that blend, replace or compare that
 value need it), `continuous_actions` or `discrete_actions` (the environment), `agent_expert`
-(the agent has an `expert_policy`), and `phi_star` when an extension of the
-stack fits it (`MCPretrain`).
+(the agent has an `expert_policy`), `stored_steps` (a replay, or the latest
+rollout an on-policy or incremental agent keeps), and `phi_star` when an
+extension of the stack fits it (`MCPretrain`).
 
 An extension needs what its phases imply (`on_target` and `critic_loss` a
 critic, `actor_loss` an actor, `action` an off-policy update, since the
@@ -249,6 +249,7 @@ which the agent reads when it is built:
 | `pretrain_context` | the `ExtensionContext` fields its `pretrain` reads (`update`, `buffer`: `PriorData`); an agent's `pretrain_context` lists those its loop fills. |
 | `batch_keys` | per phase, the batch keys it reads beyond those every agent folding the phase passes (`reads()` returns them). |
 | `reads_step_in_episode` | the extension reads each copy's step within its episode, which the agent then counts. |
+| `reads_last_rollout` | the extension reads the agent's latest rollout (`state.last_rollout`), which an on-policy or incremental agent then keeps. |
 | `action_slot` | where in SAC's action pipeline its `action` runs. |
 
 `φ*` is a separate critic fitted to an expert's returns before training.
@@ -308,6 +309,7 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | --- | --- | --- | --- |
 | `ExpertActionInput` | Appends the expert's action at each observation, from the state the agent tracks it in; raw (an action). | `observe` | agents with an expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, PPO, APO, DQN, PQN, APG, UDRL), not under gain mode (`ExpertGains`); not DAgger, which would read the label it learns |
 | `ExpertStateInput` | Appends a stateful expert's internal state before its call at the observation (`ExpertStateInput.for_expert(expert)` sizes it). | `observe` | agents with a stateful expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, PPO, APO, DAgger, DQN, PQN, APG, UDRL) |
+| `PIDTermsInput` | Appends a PID controller's terms for each tracking error `e = obs[target_idx] − obs[current_idx]`: the error, its integral (clamped at `integral_limit`) and its difference, with sampling period `dt`; raw, and started afresh each episode. A [`PIDPolicy`](networks.md#the-pid-policy) actor reads them. | `observe` | every agent but `TDMPC2MultiTask`, whose dataset holds no feature columns |
 | `TrainingProgressInput` | Appends the fraction of training done (`ajax.schedule.progress`); an evaluation holds the collector's. | `observe` | every agent but `TDMPC2MultiTask`, whose dataset holds no feature columns |
 
 **Exploration** (`ajax.extensions.exploration`)
@@ -361,7 +363,7 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `ConditioningMetrics` | Logs the critic's effective rank (`Cond/critic_srank`), its fraction of dormant units, its feature and weight norms. It finds the critic from the agent's networks: an ensemble critic, or a Q-network. | `eval_metrics` | replay agents given `buffer=` (SAC, TD3, REDQ, ASAC, DQN); PPO, APO and PQN run with `expose_recent_rollout=True` (AVG too, but its rollout is one step per copy) |
+| `ConditioningMetrics` | Logs the critic's effective rank (`Cond/critic_srank`), its fraction of dormant units, its feature and weight norms. It finds the critic from the agent's networks: an ensemble critic, or a Q-network. | `eval_metrics` | replay agents given `buffer=` (SAC, TD3, REDQ, ASAC, DQN); PPO, APO, PQN and AVG, which keep their latest rollout for it (AVG's is one step per copy) |
 | `BiasVoreDecomposition` | Splits the critic's squared one-step error into squared bias and variance (`EVarEst/bias_sq`, `EVarEst/var_resid`, `EVarEst/mse`, `EVarEst/abs_bias`), against a one-step target on its current parameters, or your own `value_target_fn`. | `eval_metrics` | as `ConditioningMetrics` |
 | `BiasVorePenalty` | Adds `((1 − 2α)/α) · Var(residual)` to the critic loss; `alpha=0.5` adds nothing. Logs `bias_vore/penalty` and `bias_vore/residual_var`. | `critic_loss` | every agent with a `critic_loss` phase: SAC, TD3, REDQ, ASAC, AVG, PPO, APO, DQN, PQN |
 
@@ -377,9 +379,8 @@ developed with Ajax, with no external reference in the code.
 ## Measuring a replay agent's critic
 
 `ConditioningMetrics` and `BiasVoreDecomposition` need states the agent has
-visited. An on-policy agent keeps its latest rollout when built with
-`expose_recent_rollout=True`, as in the example at the top of this page. A
-replay agent keeps them in its replay buffer, and the extension must be given
+visited. An on-policy or incremental agent keeps its latest rollout for them,
+as in the example at the top of this page. A replay agent keeps them in its replay buffer, and the extension must be given
 the buffer object. The extension is built before the agent, so take the
 buffer from an agent built with the same settings (`n_envs`, `buffer_size`,
 `batch_size`):

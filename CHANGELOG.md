@@ -25,6 +25,18 @@ PyPI as `ajax-rl`.
   main's is the development version, dev, marked as such. A release's
   pages link to its source at its tag. The Release workflow deploys a
   release's version (mike).
+- **A trained agent acts and loads in one call.** `agent.policy(state,
+  seed_index)` returns a policy: `carry = policy.reset(n_envs)`, then
+  `action, carry = policy.act(obs, carry, done, reward)` acts on the
+  environment's own observations, in its units, exactly as the agent's
+  evaluation acts (the observation normalised as the agent does, its
+  features, a residual policy or gain mode, a recurrent actor's memory,
+  UDRL's command, a world model's state). `agent.predict(state,
+  observation)` returns one action for an agent without memory.
+  `load_checkpoint(agent, path, **train_options)` restores a saved state
+  into an agent built with the same arguments, its skeleton built with the
+  run's train options where they shape the update (APG's schedule). TDMPC2MultiTask has no policy yet.
+  Training and evaluation are unchanged: their programs are the same.
 - A gymnax step no longer warns that float64 is unavailable: its
   terminated and truncated flags convert to float32 directly. Every
   number is unchanged.

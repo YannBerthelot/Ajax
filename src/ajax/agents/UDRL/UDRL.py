@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 import distrax
 import jax
@@ -79,6 +79,7 @@ from ajax.environments.utils import agent_action_to_env, env_keys, raw_obs_colum
 from ajax.evaluate import evaluate
 from ajax.log import eval_norm_info
 from ajax.networks.distributions import Squash
+from ajax.policy import PolicyParts, evaluation_policy
 from ajax.random_keys import split_carry_first
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import Architecture
@@ -548,6 +549,25 @@ class UDRL(
         }
         metrics.update(aux.extensions)
         return metrics
+
+    def policy_parts(self) -> Callable[[Any], PolicyParts]:
+        """As its evaluation acts (evaluate): commanded by EvalCommand, each
+        reward counting the command down in the agent's units, through the
+        run's transform and the expert."""
+        env_args = self.env_args
+        command = EvalCommand(self.command_scale_r, self.command_scale_h)
+
+        def parts(agent_state: UDRLState) -> PolicyParts:
+            return evaluation_policy(
+                env_args,
+                agent_state,
+                expert_policy=self.expert,
+                controller=make_run_controller(env_args),
+                command=command,
+                norm_info=eval_norm_info(agent_state, env_args.mode),
+            )
+
+        return parts
 
     def evaluate(
         self,

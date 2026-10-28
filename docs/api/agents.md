@@ -47,6 +47,11 @@ step as it comes (AVG: `IncrementalAgent`), rollouts (PPO, APO, PQN:
 
 ::: ajax.agents.families
 
+A trained agent acts through its policy (`agent.policy`, `agent.predict`;
+[Train, evaluate, deploy](../guide/deploy.md)).
+
+::: ajax.policy
+
 PPO's update cuts its rollout into minibatches in one of three ways (a
 rollout split), which also says where the advantages are computed: `"flat"`, ppo2's shuffled single steps,
 GAE once on the rollout; `"time"`, brax's shuffled fragments of

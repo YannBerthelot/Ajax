@@ -84,6 +84,9 @@ NAMES: tuple[str, ...] = (
     # (ajax.wrappers.episode_start_key).
     "episodes",
     "episode_start",
+    # A trained policy's stream, off its seed's eval_rng, for the steps it
+    # is given no key (ajax.policy.Policy).
+    "policy",
 )
 
 TAGS: dict[str, int] = {name: make_tag(name) for name in NAMES}

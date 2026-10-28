@@ -23,6 +23,7 @@ from ajax.agents.APG.APG import (
     make_policy_step,
     reset_optimizer,
 )
+from ajax.checkpoint import load_checkpoint, save_checkpoint
 from ajax.environments.model_reference import (
     LinearReferenceModel,
     ModelReferenceWrapper,
@@ -354,6 +355,40 @@ def test_resume_keeps_params_and_resets_optimizer(env_and_class):
         reset_optimizer_on_resume=False,
     )
     assert int(state3.actor_state.step[0]) == 5
+
+
+def test_a_checkpoint_loaded_with_the_runs_options_resumes_as_its_state(
+    env_and_class, tmp_path
+):
+    """Contract (load_checkpoint, the user-facing fixes plan, section 3): a
+    run that keeps its optimiser on resume runs the warmup-cosine schedule
+    of the call that built its state, over the run's total_timesteps.
+    Loaded with the run's train options, a checkpoint resumes exactly as
+    the state it saved resumes; loaded without them, its schedule spans the
+    skeleton's call instead, and the resumed run ends elsewhere."""
+    env, sc = env_and_class
+    schedule = {"lr_schedule": "warmup_cosine", "warmup_steps": 1}
+    agent = make_agent(env, sc, **schedule)
+    step, total = N_ENVS * HORIZON, 4 * N_ENVS * HORIZON
+    options = {"total_timesteps": total, "reset_optimizer_on_resume": False}
+    half, _ = agent.train(seed=0, n_timesteps=2 * step, **options)
+    path = str(tmp_path / "half.pkl")
+    save_checkpoint(half, path)
+
+    def resume(state):
+        resumed, _ = agent.train(
+            seed=0, n_timesteps=2 * step, initial_state=state, **options
+        )
+        return jax.tree.leaves(resumed.actor_state.params)
+
+    # Copied: a resume donates the state's buffers.
+    want = resume(jax.tree.map(jnp.copy, half))
+    loaded = load_checkpoint(make_agent(env, sc, **schedule), path, **options)
+    for got, expected in zip(resume(loaded), want, strict=True):
+        np.testing.assert_array_equal(got, expected)
+    loaded = load_checkpoint(make_agent(env, sc, **schedule), path)
+    elsewhere = zip(resume(loaded), want, strict=True)
+    assert any(not np.array_equal(got, expected) for got, expected in elsewhere)
 
 
 def test_the_validation_set_is_drawn_apart_from_training(env_and_class):

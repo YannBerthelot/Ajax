@@ -12,6 +12,7 @@ from flax import struct
 
 from ajax.checkpoint import (
     checkpoint_exists,
+    load_checkpoint,
     restore_into,
     save_checkpoint,
 )
@@ -972,3 +973,81 @@ def test_episode_counters_restore_only_into_an_agent_keying_its_resets(tmp_path)
     restore_into(keyed, new)
     with pytest.raises(ValueError, match="episode keys on"):
         restore_into(unkeyed, new)
+
+
+#: The exact pins' tiny run of every agent (tests/exact_pins.py); the fast
+#: tier loads one agent of each family: on-policy, replay, own iteration
+#: (returning every update's output), own replay (sized to its run).
+LOADED_FAST = ("PPO-norm", "SAC-norm", "APG", "DreamerV3")
+LOADED_SLOW = (
+    "APO-norm",
+    "ASAC",
+    "AVG",
+    "CrossQ",
+    "DAgger",
+    "DQN",
+    "IQL",
+    "PQN-norm",
+    "REDQ",
+    "TD3",
+    "TDMPC2",
+    "TQC",
+    "UDRL",
+)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [*LOADED_FAST, *(pytest.param(n, marks=pytest.mark.slow) for n in LOADED_SLOW)],
+)
+def test_load_checkpoint_returns_the_state_it_saved(name, tmp_path):
+    """Contract (the user-facing fixes plan, section 3): load_checkpoint(agent,
+    path) is restore_into(agent.train(seed=<as many seeds as the file
+    holds>, n_timesteps=0), path): on a new instance of the agent, every leaf
+    of the state saved, whatever its seeds (here not the skeleton's)."""
+    from tests.exact_pins import CASES
+
+    cls, kwargs, _ = CASES[name]
+    saved, _ = cls(**kwargs).train(seed=[3, 5, 7], n_timesteps=0)
+    path = str(tmp_path / "state.pkl")
+    save_checkpoint(saved, path)
+    agent = cls(**kwargs)
+
+    loaded = load_checkpoint(agent, path)
+
+    skeleton, _ = agent.train(seed=[0, 1, 2], n_timesteps=0)
+    restored = restore_into(skeleton, path)
+    for want in (saved, restored):
+        pairs = zip(jax.tree.leaves(loaded), jax.tree.leaves(want), strict=True)
+        for got, expected in pairs:
+            np.testing.assert_array_equal(got, expected)
+
+
+def test_load_checkpoint_refuses_what_restore_into_refuses(tmp_path):
+    """A checkpoint whose environments kept episode counters, loaded into an
+    agent built with episode keys off, is refused (restore_into's check)."""
+    import gymnax
+
+    from ajax.agents.SAC.SAC import SAC
+    from ajax.environments.create import with_episode_keys
+
+    net = ("8", "relu")
+    kw = {"n_envs": 2, "actor_architecture": net, "critic_architecture": net}
+    keyed, _ = SAC(env_id="Pendulum-v1", **kw).train(seed=0, n_timesteps=0)
+    path = str(tmp_path / "keyed.pkl")
+    save_checkpoint(keyed, path)
+    env, params = gymnax.make("Pendulum-v1")
+    off = SAC(env_id=with_episode_keys(env, on=False), env_params=params, **kw)
+
+    with pytest.raises(ValueError, match="episode keys on"):
+        load_checkpoint(off, path)
+
+
+def test_load_checkpoint_refuses_a_file_holding_no_state(tmp_path):
+    """A file of train's (state, out) holds no state at its top: refused,
+    pointing to restore_into, which takes any pytree."""
+    path = str(tmp_path / "tuple.pkl")
+    save_checkpoint(({"rng": np.zeros((2, 2), np.uint32)}, None), path)
+
+    with pytest.raises(ValueError, match="restore_into"):
+        load_checkpoint(object(), path)

@@ -52,11 +52,13 @@ from ajax.buffers.utils import get_buffer, mean_of_written_rows
 from ajax.controller import (
     ScoredActions,
     executed_fn,
+    make_run_controller,
     make_scored_actions,
     policy_action_dim,
 )
 from ajax.environments.interaction import init_collector_state
 from ajax.environments.row_collector import resume_tick
+from ajax.environments.utils import get_state_action_shapes
 from ajax.evaluate import ValueEstimate
 from ajax.extensions.base import Extension, ExtensionStack, holds_expert
 from ajax.networks.memory import MemoryConfig
@@ -66,6 +68,7 @@ from ajax.networks.networks import (
     get_initialized_actor_critic,
     state_value,
 )
+from ajax.policy import Policy, PolicyParts, evaluation_policy
 from ajax.schedule import Schedule, at
 from ajax.state import (
     AlphaConfig,
@@ -522,6 +525,65 @@ class DeclaredAgent(ActorCritic):
         # gamma is declared (__post_init__); reward_scale is 1 where it is not.
         gamma, reward_scale = (getattr(self, name, 1.0) for name in DISCOUNT_FIELDS)
         return ValueEstimate(value, gamma, reward_scale)
+
+    def policy(self, agent_state: Any, seed_index: int = 0) -> Policy:
+        """The policy of seed seed_index of agent_state (train's state, or
+        its (state, out)), acting in the environment's units exactly as the
+        agent's evaluation acts (ajax.policy.Policy)."""
+        if isinstance(agent_state, tuple) and len(agent_state) == 2:
+            agent_state = agent_state[0]
+        one_seed = jax.tree.map(lambda leaf: leaf[seed_index], agent_state)
+        return Policy(self.policy_parts(), one_seed)
+
+    def policy_parts(self) -> Callable[[Any], PolicyParts]:
+        """How the agent acts on one seed's state: as the shared evaluation
+        acts (ajax.policy.evaluation_policy), through the run's controller,
+        its extensions bound as in training."""
+        loop, _ = self.make_context(1)
+        return partial(
+            evaluation_policy,
+            self.env_args,
+            expert_policy=self.expert,
+            controller=make_run_controller(self.env_args, None, loop.extensions),
+            recurrent=self.network_args.memory is not None,
+        )
+
+    def predict(
+        self,
+        agent_state: Any,
+        observation: Any,
+        seed_index: int = 0,
+        deterministic: bool = True,
+    ) -> jax.Array:
+        """The action at observation (one, or a batch with a row per env) in
+        the environment's units, as agent.policy(agent_state, seed_index)
+        acts at an episode's start; the policy is built once per state and
+        seed. A policy carrying memory from one step to the next refuses:
+        one call cannot carry it, agent.policy does."""
+        if not deterministic:
+            raise ValueError(
+                "predict acts as the evaluation does, on the actor's mean or"
+                " most likely action: deterministic=False is not supported."
+            )
+        cached = getattr(self, "_predicting", None)
+        if cached is None or cached[0] is not agent_state or cached[1] != seed_index:
+            policy = self.policy(agent_state, seed_index)
+            if policy.has_memory:
+                raise ValueError(
+                    f"{self.name}'s policy carries memory from one step to the"
+                    " next (a recurrent actor, a stateful expert or feature, a"
+                    " command, a world model's state), which one predict call"
+                    " cannot carry: act with policy = agent.policy(state),"
+                    " carry = policy.reset(n_envs), policy.act(obs, carry, ...)."
+                )
+            self._predicting = (agent_state, seed_index, policy)
+        policy = self._predicting[2]
+        observation = jnp.asarray(observation)
+        obs_shape, _ = get_state_action_shapes(self.env_args.env)
+        single = observation.ndim == len(obs_shape)
+        batch = observation[None] if single else observation
+        action, _ = policy.act(batch, policy.reset(batch.shape[0]))
+        return action[0] if single else action
 
     def make_context(
         self,
@@ -1151,6 +1213,10 @@ class OwnIterationAgent(DeclaredAgent):
         """The policy's evaluation metrics, on num_episode_test episodes."""
         raise NotImplementedError
 
+    def policy_parts(self) -> Callable[[Any], PolicyParts]:
+        """How the agent acts: its own, as its evaluation is."""
+        raise NotImplementedError
+
     def count_iteration_steps(self, context: TrainContext) -> tuple[int, str]:
         """The env steps one iteration takes, and how a warning names them."""
         raise NotImplementedError
@@ -1304,6 +1370,10 @@ class OwnReplayAgent(DeclaredAgent):
         num_episode_test: int,
     ) -> dict:
         """The policy's evaluation metrics, on num_episode_test episodes."""
+        raise NotImplementedError
+
+    def policy_parts(self) -> Callable[[Any], PolicyParts]:
+        """How the agent acts: its own, as its evaluation is."""
         raise NotImplementedError
 
     def count_ticks(self, n_timesteps: int, start_tick: int) -> int:

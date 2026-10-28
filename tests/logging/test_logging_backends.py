@@ -7,14 +7,17 @@ Contract (the owner's design of 2026-10-28, ajax.logging.backends):
   evaluation train returns as log(run_id, step, metrics), NaN metrics left
   out, and close once at the end.
 - backends=(): no backend at all; train still returns the evaluations.
-- backends not given: use_wandb (on unless set False) and use_tensorboard (off
-  unless set True) name WandbBackend(project_name, group_name) and
-  TensorBoardBackend(folder, the working directory when None), as before.
+- backends not given: TensorBoardBackend(folder, the working directory when
+  None), the default.
+- use_wandb or use_tensorboard set (deprecated, so they warn, pointing to
+  backends): they name WandbBackend(project_name, group_name), on unless
+  use_wandb is False, and TensorBoardBackend(folder), as before. A train
+  call's copy names its backends itself, so the flags warn once.
 - backends with either flag set: refused, the message naming the backends
   form. A backend that cannot be copied into the worker: refused before
   training; one the worker cannot read stops neither the others nor train.
 - WandbBackend(steps=False) creates each run and sends it no evaluation;
-  use_wandb with sweep=True names it, as the flags did before.
+  use_wandb with sweep=True names it.
 - config defaults to an empty dict of each LoggingConfig's own.
 """
 
@@ -25,6 +28,7 @@ import json
 import os
 import sys
 import threading
+import warnings
 from typing import Any
 
 import pytest
@@ -148,28 +152,56 @@ def test_a_backend_the_worker_cannot_read_stops_neither_the_others_nor_train(
 
 
 @pytest.mark.parametrize(
-    ("config", "expected"),
+    ("fields", "expected"),
     [
-        (LoggingConfig(), (WandbBackend(),)),
-        (LoggingConfig(use_wandb=False), ()),
+        ({}, (TensorBoardBackend(),)),
+        ({"folder": "runs"}, (TensorBoardBackend(folder="runs"),)),
+        ({"backends": (WandbBackend(),)}, (WandbBackend(),)),
+        ({"backends": ()}, ()),
+        ({"sweep": True}, (TensorBoardBackend(),)),
+    ],
+    ids=["default", "folder", "backends", "none", "sweep"],
+)
+def test_runs_log_to_the_backends_given_else_to_tensorboard(
+    fields: dict, expected: tuple
+) -> None:
+    assert LoggingConfig(**fields).run_backends == expected
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [
+        ({"use_wandb": True}, (WandbBackend(),)),
+        ({"use_wandb": False}, ()),
         (
-            LoggingConfig(project_name="p", group_name="g", use_tensorboard=True),
+            {"project_name": "p", "group_name": "g", "use_tensorboard": True},
             (WandbBackend(project="p", group="g"), TensorBoardBackend(folder=".")),
         ),
         (
-            LoggingConfig(use_wandb=False, use_tensorboard=True, folder="runs"),
+            {"use_wandb": False, "use_tensorboard": True, "folder": "runs"},
             (TensorBoardBackend(folder="runs"),),
         ),
-        (LoggingConfig(backends=(TensorBoardBackend(),)), (TensorBoardBackend(),)),
-        (LoggingConfig(sweep=True), (WandbBackend(steps=False),)),
-        (LoggingConfig(backends=()), ()),
+        ({"use_wandb": True, "sweep": True}, (WandbBackend(steps=False),)),
     ],
-    ids=["default", "off", "both", "tensorboard", "backends", "sweep", "none"],
+    ids=["wandb", "off", "both", "tensorboard", "sweep"],
 )
-def test_runs_log_to_the_backends_given_else_to_those_the_flags_name(
-    config: LoggingConfig, expected: tuple
+def test_the_deprecated_flags_warn_and_name_the_backends_as_before(
+    flags: dict, expected: tuple
 ) -> None:
+    with pytest.warns(FutureWarning, match=r"backends=\("):
+        config = LoggingConfig(**flags)
     assert config.run_backends == expected
+
+
+def test_a_train_calls_copy_names_its_backends_and_warns_no_more() -> None:
+    with pytest.warns(FutureWarning):
+        config = LoggingConfig(config={"a": 1}, use_wandb=False, use_tensorboard=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        copy = config.with_agent_config({"b": 2})
+    assert copy.run_backends == (TensorBoardBackend(),)
+    assert copy.config == {"a": 1, "b": 2}
+    assert config.config == {"a": 1}  # the caller's config is left as it was
 
 
 @pytest.mark.parametrize(

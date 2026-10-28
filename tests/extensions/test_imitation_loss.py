@@ -244,7 +244,7 @@ def test_sac_logs_the_filtered_fraction_on_a_replay_batch() -> None:
     definition on the batch its key draws; the actor reads its observations
     normalised."""
     expert = _StatefulHalfTorque()
-    logged = LoggingConfig({}, log_frequency=32, use_wandb=False)
+    logged = LoggingConfig(log_frequency=32, backends=())
     agent = SAC(
         "Pendulum-v1",
         n_envs=2,
@@ -306,7 +306,7 @@ def test_the_other_q_critic_agents_train_with_the_filter(name: str) -> None:
         extensions=(ImitationLoss(expert_policy=expert, q_filter=True),),
         **kwargs,
     )
-    logged = LoggingConfig({}, log_frequency=32, use_wandb=False)
+    logged = LoggingConfig(log_frequency=32, backends=())
     _, rows = agent.train(seed=0, n_timesteps=64, logging_config=logged)
     if name == "AVG":
         assert "imitation/q_filter_frac" not in rows

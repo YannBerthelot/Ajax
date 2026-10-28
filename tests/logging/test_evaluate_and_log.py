@@ -2,6 +2,7 @@
 config (with or without a backend) and do not even trace the evaluation
 without one."""
 
+from functools import partial
 from types import SimpleNamespace
 from typing import Any
 
@@ -14,7 +15,6 @@ import pytest
 from ajax import controller as controller_module
 from ajax import evaluate as evaluate_module
 from ajax import log
-from ajax import policy as policy_module
 from ajax.agents.APO.APO import APO
 from ajax.agents.ASAC.ASAC import ASAC
 from ajax.agents.AVG.AVG import AVG
@@ -24,8 +24,10 @@ from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
+from ajax.environments.obs_norm import apply_obs_norm
 from ajax.log import evaluate_and_log
 from ajax.logging.wandb_logging import LoggingConfig
+from tests.extensions.test_expert_observations import ROUNDING, ActsOn
 
 
 def test_without_logging_nothing_is_evaluated_nor_traced() -> None:
@@ -53,7 +55,7 @@ AGENTS: dict[str, tuple[type, dict[str, Any]]] = {
     "DQN": (DQN, {**_DISCRETE, **_REPLAY}),
     "PQN": (PQN, {**_DISCRETE, "n_steps": 8, "num_minibatches": 2}),
 }
-EVALUATE = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+EVALUATE = LoggingConfig(log_frequency=32, backends=())
 SEEDS, BUDGET = 2, 64
 
 
@@ -134,7 +136,7 @@ def test_a_logged_evaluation_is_handed_the_agents_observation_statistics(monkeyp
         return evaluate(*args, controller=controller, agent_state=agent_state, **kwargs)
 
     monkeypatch.setattr(log, "evaluate", evaluating)
-    logging = LoggingConfig(config={}, log_frequency=16, use_wandb=False)
+    logging = LoggingConfig(log_frequency=16, backends=())
     net = ("8", "relu")
     agent = PPO(
         "Pendulum-v1",
@@ -149,24 +151,21 @@ def test_a_logged_evaluation_is_handed_the_agents_observation_statistics(monkeyp
     assert all(c.normalize_obs and stats is not None for c, stats in handed)
 
 
-def test_an_evaluation_keeps_the_actors_own_statistics(monkeypatch):
+def test_an_evaluation_keeps_the_actors_own_statistics():
     """A trained replay agent normalises in its networks: evaluating its
     actor (no env statistics) acts on observations normalised by the actor's
-    statistics, which the evaluation does not drop."""
+    statistics, which the evaluation does not drop. It is evaluating the
+    actor handed those normalised observations."""
     state, _ = _normalising_sac().train(seed=0, n_timesteps=32)
     actor = jax.tree.map(lambda x: x[0], state.actor_state)
     assert actor.obs_norm_info is not None
-    read = []
-    get_pi = policy_module.get_pi
-
-    def acting(actor_state, *args, **kwargs):
-        read.append(getattr(actor_state, "obs_norm_info", None))
-        return get_pi(actor_state, *args, **kwargs)
-
-    monkeypatch.setattr(policy_module, "get_pi", acting)  # evaluation acts there
+    normalised = ActsOn(actor, partial(apply_obs_norm, info=actor.obs_norm_info))
     env, params = gymnax.make("Pendulum-v1")
-    evaluate_module.evaluate(env, actor, 1, jax.random.PRNGKey(0), params)
-    assert read and all(info is not None for info in read)
+    got, expected = (
+        evaluate_module.evaluate(env, acting, 1, jax.random.PRNGKey(0), params)[:2]
+        for acting in (actor, normalised)
+    )
+    np.testing.assert_allclose(got, expected, **ROUNDING)
 
 
 def test_an_evaluation_normalises_with_the_collectors_statistics(monkeypatch):
@@ -225,7 +224,7 @@ def test_the_log_frequency_leaves_the_evaluations_at_a_timestep() -> None:
     cls, kwargs = AGENTS["SAC"]
     rows = {}
     for every in (16, 32):
-        config = LoggingConfig(config={}, log_frequency=every, use_wandb=False)
+        config = LoggingConfig(log_frequency=every, backends=())
         _, out = cls(**kwargs).train(seed=0, n_timesteps=BUDGET, logging_config=config)
         timesteps = np.asarray(out["timestep"])[0]
         returns = np.asarray(out["Eval/episodic mean reward"])[0]

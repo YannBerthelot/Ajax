@@ -19,18 +19,19 @@ logging = LoggingConfig(
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `backends` | not given | where each run logs ([below](#backends)); `()` logs nowhere |
+| `backends` | `TensorBoardBackend(folder)` | where each run logs ([below](#backends)); `()` logs nowhere |
 | `config` | `{}` | a dictionary stored with each run, with the agent's run configuration added (below) |
 | `log_frequency` | 1000 | environment steps between evaluations |
 | `run_name` | `None` | each run's name prefix: a run is named `<run_name>_<run id>` |
 | `sweep` | `False` | for hyperparameter sweeps: SAC evaluates only in the last 20% of training |
-| `use_wandb`, `use_tensorboard` | not set | the earlier way to name backends, when `backends` is not given: W&B (on unless set `False`) and TensorBoard (off unless set `True`) |
-| `project_name`, `group_name`, `folder` | `None` | with those flags: the W&B project and group, and TensorBoard's folder |
+| `use_wandb`, `use_tensorboard` | not set | deprecated: the earlier way to name backends. Set, they warn and name W&B (on unless set `False`) and TensorBoard (off unless set `True`), as before |
+| `folder` | `None` | where the default TensorBoard backend writes, `<folder>/tensorboard/<run id>/` (the working directory when `None`) |
+| `project_name`, `group_name` | `None` | with the deprecated flags: the W&B project and group |
 
 With `backends=()`, `train` still evaluates and returns the evaluations in
-memory: the quickest way to get learning curves. Without `backends`, the
-flags decide as before, and a run logs to W&B unless `use_wandb=False`.
-Setting a flag together with `backends` is refused.
+memory: the quickest way to get learning curves. Without `backends`, each
+run writes TensorBoard event files under `./tensorboard/<run id>/`. Setting
+a deprecated flag together with `backends` is refused.
 
 ### The run configuration
 
@@ -204,7 +205,7 @@ lists them, and `train(..., on_ids_ready=callback)` hands them to
   the `wandb` extra and log in once with `wandb login`. Each run is created
   in your process before training, so a missing login fails at once.
   `WandbBackend(steps=False)` creates the runs and sends them no evaluation,
-  as `use_wandb` with `sweep=True` does.
+  as the deprecated `use_wandb` with `sweep=True` does.
 - A backend of your own: [below](#a-backend-of-your-own).
 
 !!! warning "Guard your script's entry point"

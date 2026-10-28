@@ -10,7 +10,6 @@ task-conditioned world model and policy of :mod:`.multitask`, trained by
 
 from __future__ import annotations
 
-import dataclasses
 import logging
 import time
 from collections import defaultdict
@@ -505,10 +504,7 @@ class TDMPC2MultiTask:
         )
 
         if logging_config is not None:
-            # A copy: the caller's config may serve another agent's run.
-            logging_config = dataclasses.replace(
-                logging_config, config={**logging_config.config, **self.config}
-            )
+            logging_config = logging_config.with_agent_config(self.config)
             self.run_ids = [new_run_id() for _ in range(seeds.shape[0])]
             for run_id, run_seed in zip(self.run_ids, seeds.tolist(), strict=False):
                 init_logging(run_id, logging_config, run_seed=int(run_seed))

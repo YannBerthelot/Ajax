@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from ajax.logging import wandb_logging
 from ajax.logging.wandb_logging import (
@@ -16,6 +17,11 @@ from ajax.logging.wandb_logging import (
     start_async_logging,
     stop_async_logging,
     vmap_log,
+)
+
+# These tests run the deprecated flags on purpose.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:LoggingConfig's use_wandb:FutureWarning"
 )
 
 

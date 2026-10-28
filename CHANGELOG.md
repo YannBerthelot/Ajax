@@ -646,6 +646,19 @@ PyPI as `ajax-rl`.
   The probes and every other training run in the slow tier, daily on main,
   on a labelled pull request and before a release.
 
+### Default changes
+
+- **Runs log to TensorBoard by default.** A `LoggingConfig` that names no
+  backends writes each run's TensorBoard events and `config.json` under
+  `<folder>/tensorboard/<run id>/` (the working directory by default),
+  where it logged to Weights & Biases before. W&B needs the `wandb` extra
+  and an account; name it with `backends=(WandbBackend(project, group),)`.
+- `use_wandb` and `use_tensorboard` are deprecated: set, they warn with a
+  FutureWarning pointing to `backends`, and log as before (W&B on unless
+  `use_wandb=False`).
+- `uv sync` no longer installs wandb in a checkout: `uv sync --group wandb`
+  does. `pip install ajax-rl` never did; `ajax-rl[wandb]` does.
+
 ### Removed
 
 - **The 0.4.0 compatibility layer.** A project pinned to 0.4.0 moves to the

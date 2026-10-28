@@ -216,7 +216,7 @@ def compare(
     pairs = [(baseline, a) for a in names if a != baseline] if baseline else None
     test = AdaStop(names, comparisons=pairs, seed=seed, **adastop)
     n, K = test.n, test.K
-    logging = LoggingConfig(config={}, log_frequency=eval_every, use_wandb=False)
+    logging = LoggingConfig(log_frequency=eval_every, backends=())
     seeds: dict = {a: [] for a in names}
     scores: dict = {a: [] for a in names}
     while not test.finished:
@@ -375,7 +375,7 @@ def estimate(
     """
     from adastop.confidence_sequences import Bounded_Confseq
 
-    logging = LoggingConfig(config={}, log_frequency=eval_every, use_wandb=False)
+    logging = LoggingConfig(log_frequency=eval_every, backends=())
     sequences = {
         name: Bounded_Confseq(delta=delta / len(metrics), bounds=bounds)
         for name, (_, bounds, _) in metrics.items()

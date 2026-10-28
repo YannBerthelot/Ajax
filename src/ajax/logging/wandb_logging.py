@@ -10,6 +10,7 @@ import queue
 import secrets
 import string
 import struct as pystruct
+import warnings
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
@@ -65,6 +66,17 @@ class LoggingConfig:
 
     def __post_init__(self) -> None:
         flag_set = self.use_wandb is not None or self.use_tensorboard is not None
+        if flag_set and self.backends is None:
+            # stacklevel 3: the caller of LoggingConfig(...), past __init__.
+            warnings.warn(
+                "LoggingConfig's use_wandb and use_tensorboard are deprecated:"
+                " name the backends instead, such as"
+                " backends=(TensorBoardBackend(folder),),"
+                " backends=(WandbBackend(project, group),), or backends=() for"
+                " none.",
+                FutureWarning,
+                stacklevel=3,
+            )
         if self.backends is not None and flag_set:
             raise ValueError(
                 "LoggingConfig takes its backends either as backends=(...) or"
@@ -82,10 +94,13 @@ class LoggingConfig:
     @property
     def run_backends(self) -> tuple:
         """The backends every run logs to: backends, else those the flags
-        name."""
+        name, else TensorBoard's (folder/tensorboard/<run_id>/)."""
         if self.backends is not None:
             return tuple(self.backends)
+        if self.use_wandb is None and self.use_tensorboard is None:
+            return (TensorBoardBackend(folder=self.folder or "."),)
         backends: list = []
+        # As before the flags were deprecated: W&B on unless set False.
         if self.use_wandb is None or self.use_wandb:
             backends.append(
                 WandbBackend(
@@ -97,6 +112,21 @@ class LoggingConfig:
         if self.use_tensorboard:
             backends.append(TensorBoardBackend(folder=self.folder or "."))
         return tuple(backends)
+
+    def with_agent_config(self, agent_config: dict) -> "LoggingConfig":
+        """The copy a train call logs with: the agent's run configuration
+        merged into config, and the backends named, so the flags are read
+        (and warned about) once. A copy, so one LoggingConfig can serve
+        several agents' runs."""
+        merged = dict(self.config)
+        merged.update(agent_config)
+        return dataclasses.replace(
+            self,
+            config=merged,
+            backends=self.run_backends,
+            use_wandb=None,
+            use_tensorboard=None,
+        )
 
     @property
     def backend(self) -> bool:

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -14,12 +15,11 @@ from flax import struct
 from gymnax.environments import environment, spaces
 
 import ajax.agents.recurrent
-import ajax.environments.interaction
 import ajax.evaluate
 import ajax.extensions.expert
 import ajax.extensions.pretrain
 import ajax.extensions.target_mods
-import ajax.policy
+import ajax.log
 from ajax import SAC
 from ajax.environments.obs_norm import apply_obs_norm, init_agent_obs_norm
 from ajax.extensions.expert import ExpertValueMetrics, ExpertWarmup
@@ -134,12 +134,11 @@ class StatelessRecordingExpert:
 
 
 def _record(monkeypatch, module: Any, name: str) -> list:
-    """Record the observations (or critic inputs) ``module.name`` is given."""
+    """Record the critic inputs module.name (a predict_value) is given."""
     seen, original = [], getattr(module, name)
-    arg = {"get_pi": ("obs", 2), "predict_value": ("x", 2)}[name]
 
     def recording(*args: Any, **kw: Any) -> Any:
-        x = kw[arg[0]] if arg[0] in kw else args[arg[1]]
+        x = kw["x"] if "x" in kw else args[2]
         jax.debug.callback(lambda v: seen.append(np.asarray(v)), x)
         return original(*args, **kw)
 
@@ -147,15 +146,101 @@ def _record(monkeypatch, module: Any, name: str) -> list:
     return seen
 
 
-def actor_inputs(monkeypatch) -> list:
-    """Every input the actor is given: collection, evaluation, the update."""
-    seen = _record(monkeypatch, ajax.environments.interaction, "get_pi")
-    for module in (ajax.agents.recurrent, ajax.policy):  # evaluation acts there
-        monkeypatch.setattr(module, "get_pi", ajax.environments.interaction.get_pi)
-    return seen
+#: Two programs computing the same float32 values may round apart in the last
+#: place (CI's XLA orders sums unlike a laptop's). Scaling an actor's
+#: parameters by 1 + 1e-6 moves an evaluation's return and entropy by under
+#: 1e-6 (measured); a changed input column moves them by far more.
+ROUNDING: dict[str, Any] = {"rtol": 1e-5, "atol": 1e-6}
+EVALUATION = ("Eval/episodic mean reward", "Eval/episodic entropy")
+
+
+@struct.dataclass
+class ActsOn:
+    """The actor handed prepare(obs) in place of each observation: the input
+    an evaluation should hand it, built by hand."""
+
+    actor: Any
+    prepare: Any = struct.field(pytree_node=False)
+    obs_norm_info: Any = None  # prepare normalises, where it should
+    hidden_state: Any = None
+
+    @property
+    def params(self) -> Any:
+        return self.actor.params
+
+    def apply(self, params: Any, obs: jax.Array) -> Any:
+        return self.actor.apply(params, self.prepare(obs))
+
+
+def appending(*columns: float) -> Any:
+    """A prepare appending the constant columns to each observation."""
+
+    def prepare(obs: jax.Array) -> jax.Array:
+        constants = jnp.broadcast_to(jnp.asarray(columns), (len(obs), len(columns)))
+        return jnp.concatenate([obs, constants], axis=-1)
+
+    return prepare
+
+
+def assert_last_evaluation_acts_on(run: tuple, prepare: Any) -> None:
+    """The run's last logged evaluation is its final actor's (the one
+    evaluated) on the same episodes when handed prepare(obs)."""
+    agent, state, evaluations = run
+    state = jax.tree.map(lambda x: x[0], state)
+    key = ajax.log.evaluation_keys(state, int(evaluations["timestep"][0, -1]))[0]
+    env = agent.env_args
+    actor = ActsOn(state.actor_state, prepare)
+    out = ajax.evaluate.evaluate(env.env, actor, 3, key, env.env_params)
+    logged = [evaluations[name][0, -1] for name in EVALUATION]
+    np.testing.assert_allclose(logged, [out[0].mean(), out[1]], **ROUNDING)
+
+
+def assert_trained_on_column(
+    network_state: Any, column: int, value: float, of_column: Any = None
+) -> None:
+    """The network trained on inputs holding value (times column of_column,
+    when given) in column at every row: by the chain rule through x w + b,
+    its first layer's kernel row there has value times the bias's gradient
+    (of_column's row's), and so Adam's running means of them."""
+    optimiser = jax.tree.leaves(network_state.opt_state, is_leaf=_is_adam)
+    means = next(state for state in optimiser if _is_adam(state)).mu
+    layer = means["params"]["encoder"]["network"]["layers_0"]
+    kernel, bias = np.asarray(layer["kernel"]), np.asarray(layer["bias"])
+    reference = bias if of_column is None else kernel[of_column]
+    assert np.abs(reference).max() > 0, "the network never trained"
+    np.testing.assert_allclose(kernel[column], value * reference, **ROUNDING)
+
+
+def _is_adam(node: Any) -> bool:
+    return hasattr(node, "mu")  # Adam's state: its running means of gradients
+
+
+def assert_same_run(run: tuple, reference: tuple) -> None:
+    """run collected, trained and evaluated as reference: the same stored
+    rows and actions (collection), networks (the update, whose targets read
+    the actor at s') and logged evaluations."""
+    (_, state, evaluations), (_, expected, expected_evaluations) = run, reference
+    rows = state.collector_state.buffer_state.experience
+    expected_rows = expected.collector_state.buffer_state.experience
+    for name in ("obs", "next_obs", "action"):
+        np.testing.assert_allclose(
+            rows[name], expected_rows[name], err_msg=name, **ROUNDING
+        )
+    for network in ("actor_state", "critic_state"):
+        trained = (getattr(state, network).params, getattr(expected, network).params)
+        chex.assert_trees_all_close(*trained, **ROUNDING)
+    for name in EVALUATION:
+        np.testing.assert_allclose(
+            evaluations[name], expected_evaluations[name], err_msg=name, **ROUNDING
+        )
 
 
 def train(env: Any = "Pendulum-v1", log: bool = False, **kw: Any) -> Any:
+    return run(env, log, **kw)[1]
+
+
+def run(env: Any = "Pendulum-v1", log: bool = False, **kw: Any) -> tuple:
+    """A short SAC run: the agent, its state and its logged evaluations."""
     params = env.default_params if not isinstance(env, str) else None
     agent = SAC(
         env,
@@ -167,15 +252,15 @@ def train(env: Any = "Pendulum-v1", log: bool = False, **kw: Any) -> Any:
         batch_size=8,
         **kw,
     )
-    logged = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
-    out = agent.train(
+    logged = LoggingConfig(log_frequency=32, backends=())
+    state, evaluations = agent.train(
         seed=0,
         n_timesteps=64,
         num_episode_test=3,
         logging_config=logged if log else None,
     )
     jax.effects_barrier()
-    return out[0]
+    return agent, state, evaluations
 
 
 def _mc(expert: Any) -> MCPretrain:
@@ -192,26 +277,51 @@ def _mc(expert: Any) -> MCPretrain:
 # --- the layout and the stored expert actions --------------------------------
 
 
+class CounterObservingItsExpert(CounterEnv):
+    """The counter observing at step t what CountingExpert's columns hold
+    there: t, (its state, t,) its action t / LIMIT."""
+
+    def __init__(self, with_state: bool) -> None:
+        self.with_state = with_state
+
+    def get_obs(self, state: Any, params: Any = None, key: Any = None) -> Any:
+        t = jnp.asarray(state.time, jnp.float32)
+        return jnp.stack([t, t, t / LIMIT] if self.with_state else [t, t / LIMIT])
+
+    def observation_space(self, params: Any = None) -> spaces.Box:
+        return spaces.Box(0.0, float(LIMIT), (2 + self.with_state,), dtype=jnp.float32)
+
+
 @pytest.mark.parametrize("with_state", [False, True], ids=["action", "state+action"])
-def test_every_actor_input_carries_its_own_rows_expert_state_and_action(
-    monkeypatch, with_state
-):
+def test_every_actor_input_carries_its_own_rows_expert_state_and_action(with_state):
     """Acting, evaluated and trained (s and s'), every input is [t, (the
     expert's state, t), its action t / LIMIT]: the expert's action at that
     row's own observation, so s' carries a_E(s'), not a_E(s); with the
-    state, state then action, as collection stores them."""
-    seen = actor_inputs(monkeypatch)
+    state, state then action, as collection stores them. Stored so, trained
+    on so, evaluated so, and the run goes as the counter observing those
+    columns itself."""
     expert = CountingExpert()
     state = (ExpertStateInput.for_expert(expert),) if with_state else ()
     features = (*state, ExpertActionInput())
-    train(CounterEnv(), log=True, expert_policy=expert, extensions=features)
-    assert {x.shape[0] for x in seen} == {2, 3, 8}
-    for x in seen:
-        t = x[..., 0]
-        assert x.shape[-1] == 2 + with_state
-        np.testing.assert_allclose(x[..., -1], t / LIMIT, err_msg=f"batch {len(x)}")
-        if with_state:
-            np.testing.assert_allclose(x[..., 1], t, err_msg=f"batch {len(x)}")
+    # The actor steps from the first update, not after SAC's 2000 steps.
+    options = {"log": True, "policy_update_start": 8}
+    augmented = run(CounterEnv(), expert_policy=expert, extensions=features, **options)
+
+    def own_columns(obs: jax.Array) -> jax.Array:
+        t = obs[..., :1]
+        return jnp.concatenate([t, t, t / LIMIT] if with_state else [t, t / LIMIT], -1)
+
+    final = jax.tree.map(lambda x: x[0], augmented[1])
+    rows = final.collector_state.buffer_state.experience
+    for name in ("obs", "next_obs"):
+        stored = rows[name][:, : 64 // 2]
+        np.testing.assert_allclose(stored, own_columns(stored), err_msg=name)
+    assert_trained_on_column(final.actor_state, -1, 1 / LIMIT, of_column=0)
+    if with_state:
+        assert_trained_on_column(final.actor_state, 1, 1.0, of_column=0)
+    assert_last_evaluation_acts_on(augmented, own_columns)
+    reference = run(CounterObservingItsExpert(with_state), **options)
+    assert_same_run(augmented, reference)
 
 
 def test_expert_value_metrics_query_the_critic_in_the_training_layout(monkeypatch):
@@ -317,17 +427,24 @@ def own_statistics(kind: str, expert: Any, *extensions: Any) -> dict:
 
 
 @pytest.mark.parametrize("kind", ["running", "cloning"])
-def test_normalised_agents_train_with_augmentation(monkeypatch, kind):
+def test_normalised_agents_train_with_augmentation(kind):
     """With the agent's own normaliser (running, or seeded by cloning) and
     augmentation, the statistics cover the agent's observation (with the
-    training fraction); the expert's column reaches the actor unnormalised,
-    in agent units (its -0.9 torque of Pendulum's [-2, 2]: -0.45)."""
-    seen = actor_inputs(monkeypatch)
+    training fraction: 4 columns); the expert's column reaches the actor
+    unnormalised, in agent units (its -0.9 torque of Pendulum's [-2, 2]:
+    -0.45): stored so, and trained on so after the normaliser."""
     expert = RecordingExpert(action=-0.9)
     features = (TrainingProgressInput(), ExpertActionInput())
-    train(expert_policy=expert, **own_statistics(kind, expert, *features))
-    for x in seen:
-        np.testing.assert_allclose(x[..., -1], -0.45)
+    own = own_statistics(kind, expert, *features)
+    # The actor steps from the first update, not after SAC's 2000 steps.
+    state = jax.tree.map(
+        lambda x: x[0], train(expert_policy=expert, policy_update_start=8, **own)
+    )
+    assert state.actor_state.obs_norm_info.mean.shape[-1] == 4
+    rows = state.collector_state.buffer_state.experience
+    for name in ("obs", "next_obs"):
+        np.testing.assert_allclose(rows[name][:, : 64 // 2, -1], -0.45, err_msg=name)
+    assert_trained_on_column(state.actor_state, 4, -0.45)
 
 
 @pytest.mark.parametrize("kind", ["running", "cloning"])
@@ -419,22 +536,19 @@ def test_every_phi_star_reader_strips_the_agents_statistics(phi_star_readers, re
 # --- the evaluation's experts ---------------------------------------------------
 
 
-def test_the_actor_is_evaluated_with_the_training_experts_column(monkeypatch):
+def test_the_actor_is_evaluated_with_the_training_experts_column():
     """The evaluation builds the actor's input with the training expert
     (-0.9, in agent units -0.45); eval_expert_policy (0.5) only rolls out
     the baseline."""
-    seen = actor_inputs(monkeypatch)
     baseline = RecordingExpert(action=0.5)
-    train(
+    evaluated = run(
         log=True,
         expert_policy=RecordingExpert(action=-0.9),
         eval_expert_policy=baseline,
         extensions=(ExpertActionInput(),),
     )
-    evaluated = [x for x in seen if len(x) == 3]
-    assert evaluated and baseline.seen
-    for x in evaluated:
-        np.testing.assert_allclose(x[..., -1], -0.45)
+    assert baseline.seen
+    assert_last_evaluation_acts_on(evaluated, appending(-0.45))
 
 
 @pytest.mark.parametrize("name", ["PhiRefresh", "BellmanPretrain"])

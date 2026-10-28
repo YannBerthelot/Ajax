@@ -78,7 +78,7 @@ def test_the_logged_epsilon_is_the_schedules_at_each_evaluation(agent, lag) -> N
     """Epsilon falls from 1 to 0.05 over the first half of 256 steps; PQN
     reads it once per update, at its rollout's start (``lag`` steps before
     the log, purejaxql's reading)."""
-    logging = LoggingConfig(config={}, log_frequency=32, use_wandb=False)
+    logging = LoggingConfig(log_frequency=32, backends=())
     _, out = agent().train(
         seed=0, n_timesteps=256, num_episode_test=1, logging_config=logging
     )

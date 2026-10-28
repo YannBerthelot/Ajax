@@ -32,7 +32,7 @@ def pull(obs: jnp.ndarray) -> jnp.ndarray:
 
 
 def _logs(agent: Any, sweep: bool = False, n_timesteps: int = 16) -> dict:
-    logging = LoggingConfig(config={}, log_frequency=8, use_wandb=False, sweep=sweep)
+    logging = LoggingConfig(log_frequency=8, sweep=sweep, backends=())
     return agent.train(seed=0, n_timesteps=n_timesteps, logging_config=logging)[1]
 
 

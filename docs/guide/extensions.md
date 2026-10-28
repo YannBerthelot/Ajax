@@ -34,7 +34,6 @@ from ajax.logging.wandb_logging import LoggingConfig
 
 agent = PPO(
     "CartPole-v1",
-    expose_recent_rollout=True,  # keep the latest rollout for ConditioningMetrics
     extensions=(
         BiasVorePenalty(alpha=0.3),  # an extra critic-loss term
         ConditioningMetrics(),  # measurements at each evaluation
@@ -249,6 +248,7 @@ which the agent reads when it is built:
 | `pretrain_context` | the `ExtensionContext` fields its `pretrain` reads (`update`, `buffer`: `PriorData`); an agent's `pretrain_context` lists those its loop fills. |
 | `batch_keys` | per phase, the batch keys it reads beyond those every agent folding the phase passes (`reads()` returns them). |
 | `reads_step_in_episode` | the extension reads each copy's step within its episode, which the agent then counts. |
+| `reads_last_rollout` | the extension reads the agent's latest rollout (`state.last_rollout`), which an on-policy or incremental agent then keeps. |
 | `action_slot` | where in SAC's action pipeline its `action` runs. |
 
 `φ*` is a separate critic fitted to an expert's returns before training.
@@ -361,7 +361,7 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 
 | Extension | What it does | Phases | Works with |
 | --- | --- | --- | --- |
-| `ConditioningMetrics` | Logs the critic's effective rank (`Cond/critic_srank`), its fraction of dormant units, its feature and weight norms. It finds the critic from the agent's networks: an ensemble critic, or a Q-network. | `eval_metrics` | replay agents given `buffer=` (SAC, TD3, REDQ, ASAC, DQN); PPO, APO and PQN run with `expose_recent_rollout=True` (AVG too, but its rollout is one step per copy) |
+| `ConditioningMetrics` | Logs the critic's effective rank (`Cond/critic_srank`), its fraction of dormant units, its feature and weight norms. It finds the critic from the agent's networks: an ensemble critic, or a Q-network. | `eval_metrics` | replay agents given `buffer=` (SAC, TD3, REDQ, ASAC, DQN); PPO, APO, PQN and AVG, which keep their latest rollout for it (AVG's is one step per copy) |
 | `BiasVoreDecomposition` | Splits the critic's squared one-step error into squared bias and variance (`EVarEst/bias_sq`, `EVarEst/var_resid`, `EVarEst/mse`, `EVarEst/abs_bias`), against a one-step target on its current parameters, or your own `value_target_fn`. | `eval_metrics` | as `ConditioningMetrics` |
 | `BiasVorePenalty` | Adds `((1 − 2α)/α) · Var(residual)` to the critic loss; `alpha=0.5` adds nothing. Logs `bias_vore/penalty` and `bias_vore/residual_var`. | `critic_loss` | every agent with a `critic_loss` phase: SAC, TD3, REDQ, ASAC, AVG, PPO, APO, DQN, PQN |
 
@@ -377,9 +377,8 @@ developed with Ajax, with no external reference in the code.
 ## Measuring a replay agent's critic
 
 `ConditioningMetrics` and `BiasVoreDecomposition` need states the agent has
-visited. An on-policy agent keeps its latest rollout when built with
-`expose_recent_rollout=True`, as in the example at the top of this page. A
-replay agent keeps them in its replay buffer, and the extension must be given
+visited. An on-policy or incremental agent keeps its latest rollout for them,
+as in the example at the top of this page. A replay agent keeps them in its replay buffer, and the extension must be given
 the buffer object. The extension is built before the agent, so take the
 buffer from an agent built with the same settings (`n_envs`, `buffer_size`,
 `batch_size`):

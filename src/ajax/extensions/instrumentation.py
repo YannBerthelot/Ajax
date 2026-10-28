@@ -9,8 +9,8 @@ Coverage
 * :class:`ConditioningMetrics`     — eval_metrics phase, plasticity
   diagnostics (srank, dormant fraction, feat / weight L2 norms).
   Reads the agent's replay buffer (off-policy) OR
-  ``agent_state.last_rollout`` (on-policy with ``expose_recent_rollout``),
-  auto-detected.
+  ``agent_state.last_rollout`` (on-policy and incremental agents keep it
+  for an extension reading it), auto-detected.
 * :class:`BiasVoreDecomposition`   — eval_metrics phase, EVarEst
   bias^2 / Var(residual) / MSE / |bias| decomposition of the critic
   objective. Mirrors the math in EVAREST's ``loss.py`` /
@@ -135,8 +135,8 @@ def _sample_transitions(
     else:
         raise ValueError(
             "ConditioningMetrics / BiasVoreDecomposition need either a replay "
-            "buffer (off-policy) or agent_state.last_rollout populated via "
-            "BaseAgentConfig.expose_recent_rollout=True (on-policy)."
+            "buffer (off-policy, buffer=agent.buffer) or agent_state.last_rollout "
+            "(on-policy and incremental agents)."
         )
     n = math.prod(rows[0].shape[:-1])
     return tuple(x.reshape(n, -1)[:take] for x in rows)
@@ -252,8 +252,8 @@ class ConditioningMetrics(Extension):
     built on the observation and action (:func:`_takes_action`).
 
     Pass ``buffer=agent.buffer`` for off-policy agents whose buffer object
-    isn't on the agent state itself; on-policy agents must set
-    ``BaseAgentConfig.expose_recent_rollout=True``.
+    isn't on the agent state itself; on-policy and incremental agents keep
+    their last rollout for it.
     """
 
     buffer: Any = None
@@ -262,6 +262,7 @@ class ConditioningMetrics(Extension):
     concat_action: Any = "auto"  # bool | 'auto'
     name: str = "conditioning_metrics"
     requires: ClassVar[frozenset[str]] = frozenset({"critic"})
+    reads_last_rollout: ClassVar[bool] = True
 
     def _loc(self, agent_state: Any) -> str:
         if self.critic_loc != "auto":
@@ -340,7 +341,8 @@ class BiasVoreDecomposition(Extension):
     ``mechanism.make_evarest_decomposition_metrics``. The residual is
     reconstructed from the agent's *current* critic on a measurement
     batch sampled the same way :class:`ConditioningMetrics` samples
-    (replay buffer for off-policy, ``last_rollout`` for on-policy).
+    (replay buffer for off-policy, ``last_rollout`` for on-policy and
+    incremental agents).
 
     By default it is the critic's one-step TD residual under the current
     policy, ``prediction - (reward_scale * r + gamma (1 - d) next)``, with
@@ -367,6 +369,7 @@ class BiasVoreDecomposition(Extension):
     value_target_fn: Optional[Callable] = None
     name: str = "bias_vore_decomposition"
     requires: ClassVar[frozenset[str]] = frozenset({"critic"})
+    reads_last_rollout: ClassVar[bool] = True
 
     def _td_residual(
         self, agent_state: Any, transitions: Tuple[jax.Array, ...], rng: jax.Array

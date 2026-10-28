@@ -648,6 +648,12 @@ def reads_step_in_episode(extensions: Iterable[Extension]) -> bool:
     return any(extension.reads_step_in_episode for extension in extensions)
 
 
+def reads_last_rollout(extensions: Iterable[Extension]) -> bool:
+    """Whether an extension reads the agent's last rollout, which the agent
+    then keeps."""
+    return any(extension.reads_last_rollout for extension in extensions)
+
+
 @dataclass(kw_only=True, eq=False, repr=False)
 class ReplayAgent(DeclaredAgent):
     """An off-policy agent on a replay of transitions
@@ -896,7 +902,7 @@ class IncrementalAgent(DeclaredAgent):
         learning_starts: The env steps collected before the first step the
             agent learns from.
         expose_recent_rollout: Keep each step on agent_state.last_rollout,
-            a one-step rollout, for measurement extensions.
+            a one-step rollout, even when no extension reads it.
     """
 
     learning_starts: int
@@ -977,7 +983,8 @@ class IncrementalAgent(DeclaredAgent):
             partial(self.update, context=context),
             self.learning_starts,
             uniform_steps=self.uniform_steps(),
-            expose_rollout=self.expose_recent_rollout,
+            expose_rollout=self.expose_recent_rollout
+            or reads_last_rollout(loop.extensions),
             after_collect=partial(self.update_step_statistics, context=context),
             collect_kwargs=collect_kwargs,
             eval_kwargs=self.evaluation_kwargs(),
@@ -1007,7 +1014,7 @@ class OnPolicyAgent(DeclaredAgent):
         num_minibatches: The minibatches of each pass (PPO derives them
             from batch_size at 0).
         expose_recent_rollout: Keep each rollout on
-            agent_state.last_rollout for measurement extensions.
+            agent_state.last_rollout even when no extension reads it.
     """
 
     n_steps: int
@@ -1080,7 +1087,8 @@ class OnPolicyAgent(DeclaredAgent):
             partial(self.update, context=context),
             self.n_steps,
             recurrent=context.recurrent,
-            expose_rollout=self.expose_recent_rollout,
+            expose_rollout=self.expose_recent_rollout
+            or reads_last_rollout(loop.extensions),
             forced_resets=(
                 getattr(self, "num_resets_per_eval", 0),
                 getattr(self, "num_evals", 1),

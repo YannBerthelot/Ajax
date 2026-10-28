@@ -60,7 +60,7 @@ Defaults are read from `AVG.__init__`.
 | `num_critics` | `1` | critics; with more, the actor and the target use their minimum |
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
-| `expose_recent_rollout` | `False` | keep the last transition on `state.last_rollout` for extensions |
+| `expose_recent_rollout` | `False` | keep the last transition on `state.last_rollout` even when no extension reads it |
 | `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`); its actions, from its state when it has one, reach the expert extensions (`ImitationLoss`, `CloningPretrain`, `IBRL`) |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |

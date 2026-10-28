@@ -227,7 +227,10 @@ def step(
         # folding the time limit into one ``done`` needs
         # :class:`ajax.wrappers.TerminatedTruncatedWrapper`.
         obsv, env_state, reward, terminated, truncated, info = out
-        terminated, truncated = jnp.float_(terminated), jnp.float_(truncated)
+        # float32, the replay buffer's schema; jnp.float_ asks for float64,
+        # which JAX lacks by default and warns about on every first step.
+        terminated = jnp.asarray(terminated, jnp.float32)
+        truncated = jnp.asarray(truncated, jnp.float32)
         if "normalization_info" in env_state.__dict__:
             obs_norm_info = jax.tree.map(
                 lambda x: jnp.broadcast_to(x.mean(axis=0, keepdims=True), x.shape),
@@ -1425,7 +1428,8 @@ def preallocate_last_rollout(
 ) -> BaseAgentState:
     """``agent_state`` with a zero ``last_rollout`` shaped like one rollout.
 
-    An agent exposing its latest rollout (``expose_recent_rollout``) writes
+    An agent exposing its latest rollout (an extension reading it, or
+    ``expose_recent_rollout``) writes
     it on ``agent_state.last_rollout`` every iteration. Allocating it before
     the first one keeps the scan carry's structure fixed (``None`` would
     become a :class:`Transition`). ``collect_kwargs`` are the agent's

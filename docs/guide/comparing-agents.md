@@ -7,6 +7,7 @@ statistical testing for sound comparisons of Deep RL agents", TMLR 2024,
 of each agent, tests, and trains more only while the answer is unclear.
 
 ```python
+# doc: skip (trains 5 to 25 seeds of each agent: tens of minutes on a CPU; tests/test_compare.py covers compare)
 import ajax
 from ajax.compare import compare, last_third
 
@@ -47,6 +48,7 @@ gave 0.044 and three or four gave 0.054 to 0.056.
 Two numbers say how much a verdict tells, and belong next to it:
 
 ```python
+# doc: skip (reads the comparison above)
 from ajax.compare import difference, resolution
 
 a, b = result.scores["SAC"], result.scores["TD3"]
@@ -113,6 +115,7 @@ success rate, say. `estimate` trains `n` seeds per `train` call until each
 chosen metric is known well enough, or `max_seeds` have trained:
 
 ```python
+# doc: skip (trains 16 to 128 seeds: tens of minutes on a CPU; tests/test_compare.py covers estimate)
 from ajax.compare import estimate, final_return, half_width, threshold
 
 
@@ -122,8 +125,10 @@ def final(evals):  # evals: train's evaluations, each (seeds, evaluations)
 
 result = estimate(
     lambda: ajax.PPO("CartPole-v1"),
-    n_timesteps=100_000,
-    eval_every=10_000,
+    # Whole rollouts (12 of PPO's 4 x 2,048 steps): a budget ending inside
+    # one leaves its last evaluation NaN.
+    n_timesteps=98_304,
+    eval_every=8_192,
     metrics={  # name: (per-seed score, its true bounds, when to stop)
         "solved": (lambda evals: final(evals) >= 475, (0, 1), threshold(0.8)),
         "final return": (final, (0, 500), half_width(25)),

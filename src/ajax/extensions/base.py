@@ -286,6 +286,10 @@ class Extension:
     #: Whether the extension reads each env's step within its episode
     #: (``CollectorState.step_in_episode``), which an agent counts only then.
     reads_step_in_episode: ClassVar[bool] = False
+    #: Whether the extension reads the agent's last rollout
+    #: (``agent_state.last_rollout``), which an on-policy or incremental
+    #: agent then keeps.
+    reads_last_rollout: ClassVar[bool] = False
 
     #: Whether the observation normaliser covers the columns :meth:`observe`
     #: appends (an expert's action, already in action units, stays raw).
@@ -577,6 +581,12 @@ class ExtensionStack:
     __slots__ = ("extensions",)
 
     def __init__(self, extensions: Sequence[Extension] = ()):
+        if isinstance(extensions, Extension):
+            # tuple() would fail on it saying only that it is not iterable.
+            raise TypeError(
+                "extensions takes a sequence of extensions; for one, write"
+                f" extensions=({type(extensions).__name__}(...),)"
+            )
         self.extensions: tuple[Extension, ...] = tuple(extensions)
 
     def __len__(self) -> int:

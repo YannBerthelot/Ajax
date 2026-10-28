@@ -618,7 +618,9 @@ lock.
   workflow ([release.yml](.github/workflows/release.yml), by hand, with the
   version): it tags main's head once the slow tier has passed there,
   running it first if needed, then publishes that commit to PyPI as
-  `ajax-rl`.
+  `ajax-rl` and its documentation as the site's version X.Y, the one the
+  site opens on ([docs-deploy.yml](.github/workflows/docs-deploy.yml); main's
+  is the site's dev version).
 
 ## Style
 

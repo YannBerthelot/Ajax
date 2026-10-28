@@ -1,3 +1,4 @@
+import warnings
 from functools import partial
 
 import distrax
@@ -330,6 +331,25 @@ def test_step_gymnax_truncation_is_not_termination():
     # terminal one has to come from info.
     final_obs = step_module.get_final_obs(info, obsv)
     assert not jnp.allclose(final_obs, obsv)
+
+
+def test_a_gymnax_step_warns_of_nothing_and_flags_in_float32():
+    """Contract: a step under JAX's default config (no float64) raises no
+    warning, and its terminated and truncated flags are float32, the replay
+    buffer's schema. A first run used to warn that float64 was unavailable.
+    """
+    env, env_params = make_gymnax_env("CartPole-v1")
+    rng = jax.random.split(jax.random.PRNGKey(0), n_envs)
+    _, env_state = reset(rng, env, mode="gymnax", env_params=env_params)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        _, _, _, terminated, truncated, _ = step(
+            rng, env_state, jnp.zeros(n_envs), env, mode="gymnax", env_params=env_params
+        )
+
+    assert terminated.dtype == jnp.float32
+    assert truncated.dtype == jnp.float32
 
 
 def test_bootstrap_obs_keeps_the_final_obs_where_the_time_limit_alone_ended():

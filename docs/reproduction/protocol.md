@@ -129,6 +129,7 @@ batch's speed and manifest, `summary.jsonl` the verdicts and `specs.json`
 the comparisons' settings. With the `reproduction` extra:
 
 ```python
+# doc: skip (needs the reproduction extra and a published dataset repository)
 from ajax.reproduction import load
 
 runs = load("runs", "<dataset repository>")

@@ -37,7 +37,8 @@ four ways:
   the code behind their papers' results.
 
 [Why Ajax](getting-started/why-ajax.md) shows each with an example and
-compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix and Rejax, including
+compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix, Rejax, TorchRL and
+Tianshou, including
 when to use them instead.
 
 Ajax has eighteen agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each

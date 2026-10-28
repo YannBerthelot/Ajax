@@ -2,7 +2,7 @@
 
 <p align="center">
   <b>Fast, modular reinforcement learning in JAX.</b><br/>
-  The environment, the agent and every seed run together on the GPU, and agents are built from parts that snap together.
+  The environment, the agent and every seed run together in one program, on a CPU or a GPU, and agents are built from parts that snap together.
 </p>
 
 <p align="center">
@@ -25,14 +25,15 @@ Ajax has eighteen agents, each from a published paper. Compared with
 [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
 [SBX](https://github.com/araffin/sbx), it offers:
 
-- **[Fast and parallel](docs/guide/performance.md)**: the environment steps on the GPU beside the agent, with no Python in the loop, so many seeds and environment copies train at once on one device.
-- **[Modular](docs/guide/extensions.md)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and twenty-four extensions, combined in the agent's constructor. The [compatibility table](docs/guide/compatibility.md) shows which parts go together.
+- **[Fast and parallel](docs/guide/performance.md)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop, so many seeds and environment copies train at once on one device. The benchmarks run on a CPU; GPU speed is not yet measured.
+- **[Modular](docs/guide/extensions.md)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and thirty-two extensions, combined in the agent's constructor. The [compatibility table](docs/guide/compatibility.md) shows which parts go together.
 - **Multi-paradigm**: discounted and average-reward agents ([ASAC](docs/algorithms/asac.md), [APO](docs/algorithms/apo.md)), model-free and model-based, online and offline, all behind one interface.
 - **[Expert-guided](docs/guide/expert-guidance.md)**: cloning, imitation, prior data and offline training.
 - **[World models, ready to use](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2 are among the hardest agents to get right, and their papers run them on over a hundred tasks with one set of hyperparameters. Ajax checks them against the official code, update by update.
 
 [Why Ajax](docs/getting-started/why-ajax.md) compares it with SB3, SBX,
-PureJaxRL, Brax, Stoix and Rejax, including when to use them instead.
+PureJaxRL, Brax, Stoix, Rejax, TorchRL and Tianshou, including when to use
+them instead.
 
 ## Install
 
@@ -71,7 +72,7 @@ from ajax.extensions.instrumentation import ConditioningMetrics
 agent = SAC("Pendulum-v1", memory={"kind": "lstm", "hidden_size": 64})
 
 # A research feature as an extension: the critic's health at each evaluation.
-agent = PPO("CartPole-v1", expose_recent_rollout=True, extensions=(ConditioningMetrics(),))
+agent = PPO("CartPole-v1", extensions=(ConditioningMetrics(),))
 
 # Brax and MuJoCo Playground environments by id (their extras), here 8 copies in parallel.
 agent = PPO("ant", n_envs=8)
@@ -118,7 +119,7 @@ more comparisons (one inconclusive) and the speed of each side; the
 
 <table>
 <tr>
-<td width="33%" valign="top"><a href="docs/guide/extensions.md"><b>Extensions</b></a><br/>Twenty-four research features, passed as <code>extensions=(...)</code></td>
+<td width="33%" valign="top"><a href="docs/guide/extensions.md"><b>Extensions</b></a><br/>Thirty-two research features, passed as <code>extensions=(...)</code></td>
 <td width="33%" valign="top"><a href="docs/guide/memory.md"><b>Recurrent memory</b></a><br/>GRU, LSTM, transformer or Mamba, with sequence replay</td>
 <td width="33%" valign="top"><a href="docs/guide/differentiable-simulation.md"><b>Differentiable simulation</b></a><br/>APG back-propagates the return through gymnax dynamics</td>
 </tr>

@@ -293,7 +293,8 @@ class BaseAgentState(Replaceable):
     # on-state-visitation batch without a fresh rollout per evaluation;
     # off-policy agents expose their replay buffer instead
     # (``collector_state.buffer_state``). ``None`` (no extra leaves, no
-    # memory) unless ``BaseAgentConfig.expose_recent_rollout``; then the
+    # memory) unless an extension reads it (``Extension.reads_last_rollout``)
+    # or ``BaseAgentConfig.expose_recent_rollout``; then the
     # iteration's full ``(T, n_envs, ...)`` :class:`Transition` (one
     # rollout of memory), pre-allocated at ``make_train`` time so the scan
     # carry's structure is stable from iteration zero.
@@ -327,8 +328,8 @@ class BaseAgentState(Replaceable):
 class BaseAgentConfig(Replaceable):
     # Opt-in for on-policy agents (PPO, PQN, APO, AVG): keep each
     # collection's rollout on ``BaseAgentState.last_rollout`` (see there
-    # for the cost). An algorithm-level resource switch, not any
-    # Extension's hyperparameter.
+    # for the cost) even when no extension reads it
+    # (``Extension.reads_last_rollout``), which keeps it anyway.
     expose_recent_rollout: bool = False
 
 

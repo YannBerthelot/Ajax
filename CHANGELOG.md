@@ -20,6 +20,40 @@ PyPI as `ajax-rl`.
   together with `backends` is refused. `config` defaults to an empty dict.
   `WandbBackend(steps=False)` creates each run and sends it no evaluation,
   which `use_wandb` with `sweep=True` names, as before.
+- **The documentation site has a version per release.** It opens on the
+  latest release's documentation; each release keeps its own as X.Y, and
+  main's is the development version, dev, marked as such. A release's
+  pages link to its source at its tag. The Release workflow deploys a
+  release's version (mike).
+- A gymnax step no longer warns that float64 is unavailable: its
+  terminated and truncated flags convert to float32 directly. Every
+  number is unchanged.
+- **ConditioningMetrics and BiasVoreDecomposition log on PPO, APO, PQN
+  and AVG without `expose_recent_rollout`.** An extension declaring
+  `reads_last_rollout` has an on-policy or incremental agent keep its
+  latest rollout; before, these logged nothing. They now require
+  `stored_steps` (a replay or such a rollout), which APG lacks.
+  `expose_recent_rollout` still works. Runs that logged these metrics
+  are unchanged.
+- An extension passed bare (`extensions=X`) is refused with a TypeError
+  that shows the tuple to write, `extensions=(X(...),)`, instead of
+  saying only that it is not iterable.
+- **Documentation**: the agent and extension totals match the code
+  (thirty-two extensions; `PIDTermsInput` joins the catalogue), the memory
+  table lists every agent, and Why Ajax adds TorchRL and Tianshou, drops
+  TQC and CrossQ from what Ajax lacks and installs from PyPI. A fast test
+  checks the totals and lists against the code.
+- **Documentation examples run in the tests**, as the README's do: each
+  page's Python blocks in order, the pages that train in the slow tier.
+  Two examples did not run and are fixed: Environments used an undefined
+  environment, and Comparing agents' `estimate` trained 100,000 steps, which
+  ends inside a PPO rollout and leaves the last evaluation NaN.
+- **Documentation site**: the world models' reference-comparison records
+  (protocol, pre-registrations, diagnosis, results) leave the site and stay
+  on GitHub, where the site's links to them now point; the design notes
+  move under the Developer guide.
+- The README says Ajax runs on a CPU or a GPU, and that its GPU speed is
+  not yet measured, instead of putting every run on the GPU.
 - **Resets are keyed by episode** (PEGASUS, Ng and Jordan 2000), on by
   default: env i's k-th episode starts on a key of (i, k), and a gymnax
   env's step t in it draws on a key of (i, k, t), so runs that differ by an

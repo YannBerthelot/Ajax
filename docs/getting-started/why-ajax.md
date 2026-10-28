@@ -178,9 +178,9 @@ Ajax cells link to its documentation.
 | Average-reward agents | [ASAC](../algorithms/asac.md), [APO](../algorithms/apo.md) | None listed ([algorithms][sb3-algos], [contrib][contrib]) | None listed ([README][sbx]) | None listed ([files][pjx-files]) |
 | Expert-guided agents | SAC with its expert extensions; cloning before training for TD3, REDQ, ASAC, AVG and APO; an imitation term for those and PPO, APG and UDRL; prior data in the replay for TD3, REDQ, ASAC and DQN ([Expert guidance](../guide/expert-guidance.md)) | None listed in SB3 ([algorithms][sb3-algos]) or sb3-contrib ([contrib][contrib]); the guide points to the separate `imitation` package: behaviour cloning, DAgger, AIRL, GAIL, learning from human preferences ([imitation][sb3-imitation]) | None listed ([README][sbx]) | None listed ([README][pjx]) |
 | World models | [DreamerV3](../algorithms/dreamerv3.md), [TD-MPC2 and its multi-task agent](../algorithms/tdmpc2.md) | None listed ([algorithms][sb3-algos], [contrib][contrib]) | None listed ([README][sbx]) | None listed ([files][pjx-files]) |
-| Recurrent memory | GRU, LSTM, transformer or Mamba for PPO, SAC, TD3, REDQ, ASAC and APG; DreamerV3 is recurrent by design ([Memory](../guide/memory.md)) | RecurrentPPO, an LSTM PPO, in sb3-contrib ([contrib][contrib]) | None listed ([README][sbx]) | A GRU PPO, `ppo_rnn.py`, and an experimental S5 PPO in `experimental/s5` ([files][pjx-files]) |
+| Recurrent memory | GRU, LSTM, transformer or Mamba for PPO, SAC, TD3, REDQ, TQC, ASAC and APG; DreamerV3 is recurrent by design ([Memory](../guide/memory.md)) | RecurrentPPO, an LSTM PPO, in sb3-contrib ([contrib][contrib]) | None listed ([README][sbx]) | A GRU PPO, `ppo_rnn.py`, and an experimental S5 PPO in `experimental/s5` ([files][pjx-files]) |
 | Differentiable-simulation agent | [APG](../algorithms/apg.md) | None listed ([algorithms][sb3-algos], [contrib][contrib]) | None listed ([README][sbx]) | None listed ([files][pjx-files]) |
-| Algorithms | 16 agents, TD-MPC2's multi-task agent counted apart ([Algorithms](../algorithms/index.md)) | 7 in SB3's core (A2C, DDPG, DQN, HER, PPO, SAC, TD3) ([algorithms][sb3-algos]) and 7 in sb3-contrib (ARS, CrossQ, MaskablePPO, QR-DQN, RecurrentPPO, TQC, TRPO) ([contrib][contrib]) | 9 entries: SAC and SAC-N, TQC, DroQ, PPO, DQN, TD3, DDPG, CrossQ, SimBa ([README][sbx]) | 3: PPO (`ppo.py`, `ppo_continuous_action.py`, `ppo_rnn.py`, `ppo_minigrid.py`, `experimental/s5/ppo_s5.py`), DQN (`dqn.py`), DPO (`dpo_continuous_action.py`) ([files][pjx-files]) |
+| Algorithms | Off-policy, on-policy, average-reward, offline, imitation and model-based agents ([Algorithms](../algorithms/index.md)) | 7 in SB3's core (A2C, DDPG, DQN, HER, PPO, SAC, TD3) ([algorithms][sb3-algos]) and 7 in sb3-contrib (ARS, CrossQ, MaskablePPO, QR-DQN, RecurrentPPO, TQC, TRPO) ([contrib][contrib]) | 9 entries: SAC and SAC-N, TQC, DroQ, PPO, DQN, TD3, DDPG, CrossQ, SimBa ([README][sbx]) | 3: PPO (`ppo.py`, `ppo_continuous_action.py`, `ppo_rnn.py`, `ppo_minigrid.py`, `experimental/s5/ppo_s5.py`), DQN (`dqn.py`), DPO (`dpo_continuous_action.py`) ([files][pjx-files]) |
 
 "None listed" means the page cited does not list one; it is not a claim
 about every fork or companion project.
@@ -205,6 +205,15 @@ program, as their repositories read on 17 October 2026:
 CleanRL's [QDagger][cleanrl-qdagger] also learns from a teacher policy, for
 DQN.
 
+### TorchRL and Tianshou
+
+As their repositories read on 27 October 2026, both take Gymnasium
+environments, and between them their pages list IQL, CQL, GAIL, REDQ, CrossQ
+and Dreamer ([TorchRL][torchrl], [Tianshou][tianshou]). Ajax's offline
+agents match what they offer. TorchRL's Dreamer is written in PyTorch and
+steps its environments from Python. Ajax's range of agents is unusual among
+end-to-end JAX libraries, not beside these two.
+
 [sb3-algos]: https://stable-baselines3.readthedocs.io/en/master/guide/algos.html
 [sb3-vec]: https://stable-baselines3.readthedocs.io/en/master/guide/vec_envs.html
 [sb3-env]: https://stable-baselines3.readthedocs.io/en/master/guide/custom_env.html
@@ -220,6 +229,8 @@ DQN.
 [stoix]: https://github.com/EdanToledo/Stoix
 [rejax]: https://github.com/keraJLi/rejax
 [cleanrl-qdagger]: https://docs.cleanrl.dev/rl-algorithms/qdagger/
+[torchrl]: https://github.com/pytorch/rl
+[tianshou]: https://github.com/thu-ml/tianshou
 
 ## When to use something else
 
@@ -227,7 +238,8 @@ DQN.
   steps in Python, an external simulator or a real system cannot run inside
   Ajax's compiled program ([Environments](../guide/environments.md)). SB3
   and SBX take environments with the Gymnasium interface, and SB3 ships a
-  checker for it ([custom envs][sb3-env], [README][sbx]). For such
+  checker for it ([custom envs][sb3-env], [README][sbx]); TorchRL and
+  Tianshou take them too ([TorchRL][torchrl], [Tianshou][tianshou]). For such
   environments at scale, Stoix has its Sebulba architecture ([Stoix][stoix]).
 - **You train on several devices.** Ajax runs on one device for now; it has
   no `pmap` or sharding. Brax's training agents and Stoix train across
@@ -240,8 +252,8 @@ DQN.
   development focused on bug fixes and maintenance, and lists documentation,
   high code coverage and type hints among its features ([README][sb3]). It
   installs with `pip`, and the RL Baselines3 Zoo adds tuned hyperparameters,
-  pre-trained agents and training scripts ([README][sb3]). Ajax installs from
-  source ([Installation](installation.md)).
+  pre-trained agents and training scripts ([README][sb3]). Ajax is on PyPI
+  as `ajax-rl` ([Installation](installation.md)) and has no such zoo.
 - **Your observations are dictionaries.** SB3 supports single-level `Dict`
   observation spaces ([algorithms][sb3-algos]); Ajax's networks read one flat
   vector, and it flattens image observations into one
@@ -253,6 +265,6 @@ DQN.
   implementations are single files, not a library meant to be imported
   ([README][pjx]). Its README reports its own speed comparisons with PyTorch
   implementations, including on a GPU; Ajax has not measured a GPU speed-up.
-- **You need an algorithm Ajax does not have,** such as A2C, TRPO, TQC,
-  CrossQ or invalid-action masking: SB3, sb3-contrib or SBX have them
+- **You need an algorithm Ajax does not have,** such as A2C, TRPO or
+  invalid-action masking: SB3, sb3-contrib or SBX have them
   ([algorithms][sb3-algos], [contrib][contrib], [README][sbx]).

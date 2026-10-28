@@ -31,9 +31,9 @@ with another JAX or Python version wiped it for all the others. Keeping
 one subdirectory per fingerprint, never deleted, lets each environment
 keep its own warm cache.
 
-JAX never writes programs that contain host callbacks to this cache
-(``jax._src.compiler._cache_write``), so runs that log through
-``jax.debug.callback`` recompile on every launch.
+JAX 0.10 never writes a program that contains a host callback to this
+cache, so on 0.10 a run that logs through ``jax.debug.callback``
+recompiles on every launch. JAX 0.11 caches such programs like any other.
 """
 
 import hashlib

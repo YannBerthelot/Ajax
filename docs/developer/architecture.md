@@ -470,7 +470,7 @@ removed.
 (`~/.cache/ajax/jax_compile_cache`, or `AJAX_JAX_COMPILE_CACHE_DIR`; one
 subdirectory per CPU, Python, JAX and jaxlib version; `AJAX_NO_COMPILE_CACHE=1`
 turns it off). A second process with the same shapes and code loads the
-compiled program instead of compiling it. JAX never caches a program that
-contains a host callback, so a run with a `LoggingConfig` recompiles in each
-new process. CI restores the cache each job left on the last push to `main`.
+compiled program instead of compiling it. JAX 0.10 never caches a program
+that contains a host callback, so on 0.10 a run with a `LoggingConfig`
+recompiles in each new process; JAX 0.11 caches it. CI restores the cache each job left on the last push to `main`.
 [Performance](performance.md) has the numbers.

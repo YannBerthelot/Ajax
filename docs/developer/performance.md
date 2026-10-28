@@ -162,8 +162,9 @@ change that breaks one of these patterns usually shows up in the benchmark.
   100 seeds on Plane3DCircle: the wall time barely moves as seeds are added.
 - **The persistent compile cache.** Compilation dominated the start of a
   fresh process: with the cache, compile and warm-up fell by 77% on a warm
-  process. A program containing a host callback is never cached, so a run
-  with a `LoggingConfig` recompiles in each new process. CI restores each
+  process. JAX 0.10 never caches a program containing a host callback, so
+  there a run with a `LoggingConfig` recompiles in each new process; JAX
+  0.11 caches it. CI restores each
   job's cache from the last push to `main`.
 - **Nothing per-iteration piles up.** The loop writes each evaluation's
   metrics into rows the scan carries instead of stacking metrics at every

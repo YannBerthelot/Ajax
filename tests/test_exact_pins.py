@@ -23,6 +23,31 @@ def test_every_leaf_not_bitwise_the_same_is_reported() -> None:
     assert exact_pins.differences(ref, dict(ref)) == []
 
 
+def test_a_flat_replay_compares_on_its_written_rows() -> None:
+    """Rows a replay has not written, past current_index, differ in number
+    and value between rings of other lengths: they are not compared, the
+    written ones are, all of a full ring's."""
+    ring = "state.collector_state.buffer_state."
+
+    def replay(rows: list[float], written: int, full: bool = False) -> dict:
+        values = np.array(rows, np.float32).reshape(1, 1, len(rows), 1)
+        return {
+            ring + "experience['obs']": values,  # (seed, env, row, feature)
+            ring + "current_index": np.array([written]),
+            ring + "is_full": np.array([full]),
+        }
+
+    ref = replay([1.0, 2.0, 3.0, 0.0, 0.0], 3)
+    assert exact_pins.differences(ref, replay([1.0, 2.0, 3.0, 9.0], 3)) == []
+    assert exact_pins.differences(ref, replay([1.0, 5.0, 3.0, 0.0], 3)) == [
+        ring + "experience['obs']: largest relative gap 1.50e+00"
+    ]
+    full = replay([1.0, 2.0, 3.0], 0, full=True)
+    assert exact_pins.differences(full, replay([1.0, 2.0, 4.0], 0, full=True)) == [
+        ring + "experience['obs']: largest relative gap 3.33e-01"
+    ]
+
+
 def test_a_recorded_run_compares_bitwise(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:

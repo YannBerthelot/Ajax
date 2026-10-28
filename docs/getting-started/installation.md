@@ -62,13 +62,13 @@ CUDA_VISIBLE_DEVICES="" JAX_PLATFORMS=cpu uv run python my_script.py
 
 ## Dependency groups
 
-`uv sync` installs the runtime and two groups by default. The others are
+`uv sync` installs the runtime and the `dev` group by default. The others are
 opt-in.
 
 | Group | Default | What it adds |
 | --- | --- | --- |
 | `dev` | yes | pytest, coverage, pre-commit, ruff, mypy, the probing environments the tests train on, and the `playground` extra |
-| `wandb` | yes | the `wandb` extra (below) |
+| `wandb` | no | the `wandb` extra (below) |
 | `plane` | no | [TargetGym](https://github.com/YannBerthelot/TargetGym), for the Plane3DCircle scenario of the speed benchmark (`benchmarks/perf_bench.py`) |
 | `docs` | no | MkDocs and its plugins, to build this site |
 
@@ -90,7 +90,7 @@ imported.
 | `playground` | [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground) and Brax, for Playground environments such as `"CartpoleBalance"` |
 | `compare` | the `adastop` package, whose confidence sequence [`ajax.compare.estimate`](../guide/comparing-agents.md#one-agent-how-sure-is-a-number) uses; AdaStop itself needs no extra |
 | `reproduction` | Hugging Face Hub, pandas and pyarrow, for `ajax.reproduction.load` ([Reproduction](../reproduction/index.md)) |
-| `wandb` | Weights & Biases, for [logging](../guide/logging.md) with `WandbBackend` (or `use_wandb=True`); the default `wandb` group installs it |
+| `wandb` | Weights & Biases, for [logging](../guide/logging.md) with `WandbBackend`; the `wandb` group installs it in a checkout |
 
 ```bash
 uv sync --extra compare
@@ -142,11 +142,13 @@ saves and when it does not apply.
 
 ## Weights & Biases
 
-A [`LoggingConfig`](../guide/logging.md) logs to the backends you name; one
-that names none, and sets no flag, logs to Weights & Biases. Log in once with
-`uv run wandb login` before the first run that uses it. Runs that keep their
-results in memory (`backends=()`), as in the [quickstart](quickstart.md), or
-write TensorBoard files (`TensorBoardBackend`) need no account.
+A [`LoggingConfig`](../guide/logging.md) logs to the backends you name, and
+to TensorBoard when it names none. To log to Weights & Biases, install the
+`wandb` extra (`pip install "ajax-rl[wandb]"`, or `uv sync --group wandb` in
+a checkout), name `WandbBackend`, and log in once with `uv run wandb login`
+before the first run that uses it. Runs that keep their results in memory
+(`backends=()`), as in the [quickstart](quickstart.md), or write TensorBoard
+files need no account.
 
 ## Working on Ajax
 

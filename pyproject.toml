@@ -55,8 +55,8 @@ brax = ["brax>=0.14.2"]
 # MuJoCo Playground environments, which run in brax's wrappers: `uv sync
 # --extra playground`, or depend on `ajax-rl[playground]`.
 playground = ["ajax-rl[brax]", "playground>=0.2.0,<0.3"]
-# Weights & Biases logging (LoggingConfig's use_wandb, on by default): the
-# default wandb group installs it, or depend on `ajax-rl[wandb]`.
+# Weights & Biases logging (ajax.logging.WandbBackend): `uv sync --extra
+# wandb`, or depend on `ajax-rl[wandb]`.
 wandb = ["wandb>=0.19.9"]
 
 [project.urls]
@@ -93,7 +93,7 @@ dev = [
     "pytest-xdist>=3.8.0",
     "pytest-cov>=6.3.0",
 ]
-# The wandb extra, installed by default.
+# The wandb extra, for a checkout: `uv sync --group wandb`.
 wandb = ["ajax-rl[wandb]"]
 # The Plane3DCircle scenario of benchmarks/perf_bench.py needs target_gym;
 # the framework does not. Opt in with `uv sync --group plane`.
@@ -111,7 +111,7 @@ docs = [
 ]
 
 [tool.uv]
-default-groups = ["dev", "wandb"]
+default-groups = ["dev"]
 
 [tool.uv.sources]
 # TEMPORARY: pinned to the gymnax 1.0 migration branch. The released

@@ -180,6 +180,15 @@ def test_the_rows_written_before_training_count_in_the_ring() -> None:
     assert (ring(online), written(online)) == (per_env + ticks + 1, per_env + ticks)
 
 
+def test_a_wrapped_ring_refuses_a_larger_buffer_size() -> None:
+    """A ring that has overwritten rows cannot hold what the uninterrupted
+    run of a larger buffer_size would: the resumed run refuses, naming
+    buffer_size, rather than keep the smaller ring (owner, 2026-10-28)."""
+    wrapped = train(build("SAC", N_ENVS * 8), 12)  # 8 rows an env, 12 written
+    with pytest.raises(ValueError, match="buffer_size"):
+        train(build("SAC", HUGE), 4, initial_state=wrapped)
+
+
 def test_a_skeleton_restores_and_resumes_a_longer_ring(sac: dict, tmp_path) -> None:
     agent, half = sac["agent"], sac["half"]
     path = str(tmp_path / "half.pkl")

@@ -35,16 +35,14 @@ from ajax.environments.utils import (
     wrapper_chain,
 )
 from ajax.networks.memory import tree_where_reset
+from ajax.policy import frozen_progress, make_act, normalised_reward
 
 # get_deterministic_action_and_entropy_fn moved with the acting code; its
 # name stays importable here, where downstream projects import it from.
 from ajax.policy import (
     get_deterministic_action_and_entropy_fn as get_deterministic_action_and_entropy_fn,
 )
-from ajax.policy import make_act
-from ajax.schedule import progress
 from ajax.state import EnvironmentConfig
-from ajax.utils import online_normalize
 from ajax.wrappers import NormalizationInfo
 
 T = TypeVar("T")  # generic type for pytrees
@@ -63,19 +61,6 @@ class ValueEstimate:
     value: Callable[[Any, jax.Array, jax.Array], jax.Array]
     gamma: float
     reward_scale: float = 1.0
-
-
-def normalised_reward(x: jax.Array, norm_info: Optional[Any]) -> jax.Array:
-    """``x``, a reward or a sum of rewards in the env's units, in the
-    agent's: divided by the scale the training env's reward normaliser
-    holds (``norm_info.reward``, frozen), as collection divides each
-    reward; unchanged without one."""
-    stats = getattr(norm_info, "reward", None)
-    if stats is None:
-        return x
-    return online_normalize(
-        x, stats.count, stats.mean, stats.mean_2, train=False, shift=False
-    )[0]
 
 
 def _value_bias(
@@ -277,15 +262,6 @@ def _init_eval_carry(
     )
 
 
-def _frozen_progress(agent_state: Any) -> Any:
-    """The training progress an evaluation's features hold: the collector's
-    as it stands (None where it keeps no horizon)."""
-    collector = getattr(agent_state, "collector_state", None)
-    if collector is None or collector.max_timesteps is None:
-        return None
-    return progress(collector.timestep, collector.max_timesteps)
-
-
 def _init_expert_state(expert_policy, num_episodes: int):
     """A stateful expert's (one with ``init_state``) initial state; a dummy
     without one."""
@@ -328,7 +304,7 @@ def step_environment(
     """
 
     controller = Controller() if controller is None else controller
-    progress_now = _frozen_progress(agent_state)
+    progress_now = frozen_progress(agent_state)
     expert_is_stateful = expert_policy is not None and hasattr(
         expert_policy, "init_state"
     )
@@ -632,7 +608,7 @@ def evaluate(
             _expert_obs(state, env, mode),
             expert=expert_policy,
             expert_state=expert_state if stateful else None,
-            progress=_frozen_progress(agent_state),
+            progress=frozen_progress(agent_state),
         )
         first_obs, observer_states = observe_features(
             first_obs,
@@ -802,7 +778,7 @@ def evaluate_policy(
     horizon = agent_episode_length(env, env_params, env_args.action_repeat)
 
     key, obs, env_state = _reset_envs(env, mode, env_params, num_episodes, key)
-    observers, progress_now = env_args.observers, _frozen_progress(agent_state)
+    observers, progress_now = env_args.observers, frozen_progress(agent_state)
 
     def observe(obs: jax.Array, states: Any) -> tuple[jax.Array, Any]:
         inputs = ObserveInputs(obs.astype(jnp.float32), progress=progress_now)

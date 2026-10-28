@@ -1,16 +1,54 @@
 """How a trained agent acts: the part of an evaluation step before the
-environment steps, which evaluate runs on its rollout (ajax.evaluate)."""
+environment steps, which evaluate runs on its rollout (ajax.evaluate), and
+the policy object a user acts with (agent.policy), which acts as the
+evaluation does."""
 
 from __future__ import annotations
 
 from typing import Any, Callable, NamedTuple, Optional
 
 import jax
+import jax.numpy as jnp
 
-from ajax.controller import ActingState, Controller, call_expert
+from ajax.controller import (
+    ActingState,
+    Controller,
+    ObserveInputs,
+    call_expert,
+    init_observers,
+    observe_features,
+    restart_observers,
+)
 from ajax.environments.action_stage import choose_in_evaluation
 from ajax.environments.interaction import get_pi
+from ajax.environments.utils import ExpertInAgentUnits, agent_action_to_env
 from ajax.networks.distributions import latent
+from ajax.networks.memory import tree_where_reset, zeros_carry_like
+from ajax.random_keys import derive_key, split_carry_first
+from ajax.schedule import progress
+from ajax.utils import online_normalize
+
+
+def normalised_reward(x: jax.Array, norm_info: Optional[Any]) -> jax.Array:
+    """``x``, a reward or a sum of rewards in the env's units, in the
+    agent's: divided by the scale the training env's reward normaliser
+    holds (``norm_info.reward``, frozen), as collection divides each
+    reward; unchanged without one."""
+    stats = getattr(norm_info, "reward", None)
+    if stats is None:
+        return x
+    return online_normalize(
+        x, stats.count, stats.mean, stats.mean_2, train=False, shift=False
+    )[0]
+
+
+def frozen_progress(agent_state: Any) -> Any:
+    """The training progress an evaluation's features hold: the collector's
+    as it stands (None where it keeps no horizon)."""
+    collector = getattr(agent_state, "collector_state", None)
+    if collector is None or collector.max_timesteps is None:
+        return None
+    return progress(collector.timestep, collector.max_timesteps)
 
 
 def get_deterministic_action_and_entropy_fn(actor_state, recurrent, continuous):
@@ -134,3 +172,176 @@ def make_act(
         )
 
     return act
+
+
+class PolicyCarry(NamedTuple):
+    """What a policy carries from one step to the next, per env; None where
+    it carries nothing."""
+
+    memory: Any = None  # the actor's memory, or a world model's state
+    expert_state: Any = None  # a stateful expert's
+    observer_states: Any = None  # the observation features'
+    command: Any = None  # a command-conditioned actor's (UDRL)
+    first: Any = None  # True where the next observation starts an episode
+    key: Any = None  # the stream act draws a step's key from when given none
+
+
+class PolicyParts(NamedTuple):
+    """How an agent acts, on one seed's state: initial(n_envs) is the carry
+    at the start of an episode, step(obs, carry, starts, reward, key) ->
+    (action, carry) acts once in the environment's units, starts True where
+    obs starts an episode. reads_reward: step reads the reward the last
+    action earned."""
+
+    initial: Callable[[int], PolicyCarry]
+    step: Callable[..., tuple[jax.Array, PolicyCarry]]
+    reads_reward: bool = False
+
+
+class Policy:
+    """A trained agent's policy (agent.policy), acting in the environment's
+    units exactly as the agent's evaluation acts:
+
+        carry = policy.reset(n_envs)
+        action, carry = policy.act(obs, carry, done, reward)
+
+    obs is a batch of the environment's own observations, one row per env.
+    done is True where obs starts a new episode, the last action having
+    ended one (None: nowhere); the memory, the expert's state, the
+    observation features and the command restart there. reward is what the
+    last action earned, which a command-conditioned agent (UDRL) reads. key
+    is the step's key for the policy's draws (a chooser's, a world model's
+    sampling); None draws it from the carry's own stream. act is compiled
+    once, its state an argument of the program, not a constant in it.
+    """
+
+    def __init__(self, build: Callable[[Any], PolicyParts], agent_state: Any):
+        self.agent_state = agent_state
+        self.build = build
+        self.reads_reward = build(agent_state).reads_reward
+
+        def step(agent_state, obs, carry, done, reward, key):
+            starts = jnp.logical_or(carry.first, done)
+            parts = build(agent_state)
+            action, stepped = parts.step(obs, carry, starts, reward, key)
+            return action, stepped._replace(first=jnp.zeros_like(starts), key=carry.key)
+
+        self._step = jax.jit(step)
+
+    def reset(self, n_envs: int) -> PolicyCarry:
+        """The carry of n_envs envs whose next observation starts an episode."""
+        carry = self.build(self.agent_state).initial(n_envs)
+        return carry._replace(
+            first=jnp.ones(n_envs, bool),
+            key=derive_key(self.agent_state.eval_rng, "policy"),
+        )
+
+    @property
+    def has_memory(self) -> bool:
+        """Whether the policy carries anything from one step to the next."""
+        carry = self.build(self.agent_state).initial(1)
+        return any(jnp.size(leaf) for leaf in jax.tree.leaves(carry))
+
+    def act(
+        self,
+        obs: Any,
+        carry: PolicyCarry,
+        done: Any = None,
+        reward: Any = None,
+        key: Optional[jax.Array] = None,
+    ) -> tuple[jax.Array, PolicyCarry]:
+        """The action at obs, in the environment's units, and the next carry."""
+        if self.reads_reward and done is not None and reward is None:
+            raise ValueError(
+                "This policy reads the reward the last action earned (UDRL's"
+                " command counts it down): pass reward with done."
+            )
+        n_envs = carry.first.shape[0]
+        done = jnp.zeros(n_envs, bool) if done is None else jnp.asarray(done, bool)
+        if reward is None:
+            reward = jnp.zeros(n_envs, jnp.float32)
+        if key is None:
+            stream, key = split_carry_first(carry.key, 1)
+            carry = carry._replace(key=stream)
+        obs, reward = jnp.asarray(obs), jnp.asarray(reward, jnp.float32)
+        return self._step(self.agent_state, obs, carry, done, reward, key)
+
+
+def evaluation_policy(
+    env_args: Any,
+    agent_state: Any,
+    expert_policy: Any = None,
+    controller: Optional[Controller] = None,
+    recurrent: bool = False,
+    command: Optional[Any] = None,
+    norm_info: Optional[Any] = None,
+) -> PolicyParts:
+    """The policy evaluate runs (make_act), acting on the environment's own
+    observations: it appends the run's features to them, as collection
+    does, and maps the executed action onto the environment's bounds. The
+    expert's state, the features' and the command restart with each
+    episode; the command counts down each reward, in the agent's units
+    (norm_info, normalised_reward)."""
+    env, env_params = env_args.env, env_args.env_params
+    expert = ExpertInAgentUnits.wrap(expert_policy, env, env_params)
+    controller = Controller() if controller is None else controller
+    actor_state = agent_state.actor_state
+    act = make_act(
+        actor_state,
+        recurrent,
+        env_args.continuous,
+        expert,
+        agent_state,
+        controller,
+        command,
+    )
+    observers, progress_now = controller.observers, frozen_progress(agent_state)
+    stateful = hasattr(expert, "init_state")
+
+    def initial(n_envs: int) -> PolicyCarry:
+        return PolicyCarry(
+            memory=(
+                zeros_carry_like(actor_state.hidden_state, n_envs)
+                if recurrent
+                else None
+            ),
+            expert_state=expert.init_state(n_envs) if stateful else None,
+            observer_states=init_observers(observers, n_envs) if observers else None,
+            command=None if command is None else command.initial(agent_state, n_envs),
+        )
+
+    def step(obs, carry, starts, reward, key):
+        n_envs, raw_obs = obs.shape[0], obs.astype(jnp.float32)
+        observer_states, expert_state = carry.observer_states, carry.expert_state
+        if observers:
+            observer_states, expert_state = restart_observers(
+                starts, observers, observer_states, expert, expert_state, n_envs
+            )
+            inputs = ObserveInputs(
+                raw_obs,
+                expert=expert,
+                expert_state=expert_state if stateful else None,
+                progress=progress_now,
+            )
+            obs, observer_states = observe_features(
+                obs, inputs, observers, observer_states
+            )
+        elif stateful:
+            fresh = expert.init_state(n_envs)
+            expert_state = tree_where_reset(starts, fresh, expert_state)
+        value = carry.command
+        if command is not None:
+            # The last reward counts the command down; a new episode restarts it.
+            reward = normalised_reward(reward, norm_info)
+            value = command.update(value, reward, jnp.zeros_like(starts))
+            value = tree_where_reset(
+                starts, command.initial(agent_state, n_envs), value
+            )
+        done = starts.astype(jnp.int8)  # as the evaluation's carry holds it
+        acted = act(obs, done, raw_obs, expert_state, carry.memory, value, key)
+        carry = PolicyCarry(
+            acted.actor_hidden, acted.expert_state, observer_states, value
+        )
+        return agent_action_to_env(acted.actions, env, env_params), carry
+
+    return PolicyParts(initial, step, reads_reward=command is not None)

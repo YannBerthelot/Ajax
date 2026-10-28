@@ -17,6 +17,8 @@ PyPI as `ajax-rl`.
   still works. Nothing default changes: with no backends, `use_wandb` (on
   by default) and `use_tensorboard` decide as before. Setting either flag
   together with `backends` is refused. `config` defaults to an empty dict.
+  `WandbBackend(steps=False)` creates each run and sends it no evaluation,
+  which `use_wandb` with `sweep=True` names, as before.
 - **Resets are keyed by episode** (PEGASUS, Ng and Jordan 2000), on by
   default: env i's k-th episode starts on a key of (i, k), and a gymnax
   env's step t in it draws on a key of (i, k, t), so runs that differ by an

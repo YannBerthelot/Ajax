@@ -12,6 +12,8 @@ Contract (the owner's design of 2026-10-28, ajax.logging.backends):
 - backends with either flag set: refused, the message naming the backends
   form. A backend that cannot be copied into the worker: refused before
   training; one the worker cannot read stops neither the others nor train.
+- WandbBackend(steps=False) creates each run and sends it no evaluation;
+  use_wandb with sweep=True names it, as the flags did before.
 - config defaults to an empty dict of each LoggingConfig's own.
 """
 
@@ -158,8 +160,9 @@ def test_a_backend_the_worker_cannot_read_stops_neither_the_others_nor_train(
             (TensorBoardBackend(folder="runs"),),
         ),
         (LoggingConfig(backends=(TensorBoardBackend(),)), (TensorBoardBackend(),)),
+        (LoggingConfig(sweep=True), (WandbBackend(steps=False),)),
     ],
-    ids=["default", "off", "both", "tensorboard", "backends"],
+    ids=["default", "off", "both", "tensorboard", "backends", "sweep"],
 )
 def test_runs_log_to_the_backends_given_else_to_those_the_flags_name(
     config: LoggingConfig, expected: tuple
@@ -173,6 +176,21 @@ def test_runs_log_to_the_backends_given_else_to_those_the_flags_name(
 def test_backends_with_a_flag_set_are_refused(flag: dict) -> None:
     with pytest.raises(ValueError, match=r"backends=\("):
         LoggingConfig(backends=(TensorBoardBackend(),), **flag)
+
+
+def test_a_wandb_backend_without_steps_creates_each_run_and_sends_it_nothing(
+    wandb_calls: str,
+) -> None:
+    _, run_ids = train_sac((WandbBackend(project="p", steps=False),))
+
+    calls = fake_wandb.read_calls(wandb_calls)
+    assert {c["run_id"] for c in calls} == set(run_ids)
+    # Each run: created with resume="never", timestep 0, finished; never resumed.
+    for run_id in run_ids:
+        run_calls = [c for c in calls if c["run_id"] == run_id]
+        assert [c["call"] for c in run_calls] == ["init", "log", "finish"]
+        assert run_calls[0]["arguments"]["resume"] == "never"
+        assert all(c["pid"] == os.getpid() for c in run_calls)
 
 
 @dataclasses.dataclass(frozen=True)

@@ -24,7 +24,6 @@ from ajax.logging.backends import (
     RunInfo,
     TensorBoardBackend,
     WandbBackend,
-    _RunOnlyWandbBackend,
 )
 
 
@@ -46,7 +45,8 @@ class LoggingConfig:
     folder: where use_tensorboard writes, folder/tensorboard/<run_id>/ (the
         working directory when None).
     sweep: for hyperparameter sweeps, evaluate only in the last fifth of
-        training; with use_wandb, the W&B run gets no steps.
+        training; with use_wandb, the W&B run gets no steps
+        (WandbBackend(steps=False)).
     """
 
     config: dict = struct.field(default_factory=dict)
@@ -85,9 +85,12 @@ class LoggingConfig:
             return tuple(self.backends)
         backends: list = []
         if self.use_wandb is None or self.use_wandb:
-            wandb_class = _RunOnlyWandbBackend if self.sweep else WandbBackend
             backends.append(
-                wandb_class(project=self.project_name, group=self.group_name)
+                WandbBackend(
+                    project=self.project_name,
+                    group=self.group_name,
+                    steps=not self.sweep,
+                )
             )
         if self.use_tensorboard:
             backends.append(TensorBoardBackend(folder=self.folder or "."))

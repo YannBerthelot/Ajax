@@ -14,7 +14,7 @@ import dataclasses
 import json
 import os
 from collections.abc import Mapping
-from typing import Any, Optional, Protocol, override, runtime_checkable
+from typing import Any, Optional, Protocol, runtime_checkable
 
 
 @dataclasses.dataclass(frozen=True)
@@ -135,12 +135,15 @@ class WandbBackend:
     """Weights & Biases: the wandb extra (pip install ajax-rl[wandb]) and an
     account. wandb keeps one open run per process, so a run's steps are sent
     in batches of batch_size, each batch in one init, log, finish cycle; the
-    run is created when training starts so it shows in the W&B UI at once."""
+    run is created when training starts so it shows in the W&B UI at once.
+    With steps=False the run is created and gets no evaluation, as a W&B
+    sweep's runs did with use_wandb and sweep=True."""
 
     project: Optional[str] = None
     group: Optional[str] = None
     # Larger batches cost fewer inits, but the steps reach the UI later.
     batch_size: int = 10
+    steps: bool = True
     # Per run, in the worker: its name and the steps not yet sent.
     _runs: dict = dataclasses.field(
         default_factory=dict, init=False, repr=False, compare=False
@@ -165,6 +168,8 @@ class WandbBackend:
         self._runs[run.run_id] = (run.name, [])
 
     def log(self, run_id: str, step: int, metrics: Mapping[str, Any]) -> None:
+        if not self.steps:
+            return
         pending = self._runs[run_id][1]
         pending.append((metrics, step))
         if len(pending) >= self.batch_size:
@@ -190,13 +195,3 @@ class WandbBackend:
         except Exception as exc:
             print(f"[logging worker] wandb flush failed for {run_id}: {exc}")
         pending.clear()
-
-
-@dataclasses.dataclass(frozen=True)
-class _RunOnlyWandbBackend(WandbBackend):
-    """use_wandb=True with sweep=True, as documented for the flags: the run is
-    created, and the worker sends it no step."""
-
-    @override
-    def log(self, run_id: str, step: int, metrics: Mapping[str, Any]) -> None:
-        pass

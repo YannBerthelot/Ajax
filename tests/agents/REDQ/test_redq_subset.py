@@ -38,7 +38,7 @@ def _call_target(REDQ_state, env_config, subset_size, seed=1):
     dones = jnp.zeros((env_config.n_envs, 1))
     rewards = jnp.ones((env_config.n_envs, 1))
 
-    target, _, _, _ = compute_redq_td_target(
+    target, _, _, _, _ = compute_redq_td_target(
         actor_state=REDQ_state.actor_state,
         critic_states=REDQ_state.critic_state,
         rng=rng,

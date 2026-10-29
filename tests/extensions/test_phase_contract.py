@@ -11,7 +11,10 @@ tiny run per agent with a recorder implementing each phase it folds of
     one only: ``SLOPE * sum(theta)`` on every parameter moves each by one
     common amount (Adam steps by the gradient's sign), the critic's term
     down and the actor's (``-SLOPE * sum(theta)``) up;
-(e) the metrics a phase returns beside its value reach the evaluations.
+(e) the metrics a phase returns beside its value reach the evaluations;
+(f) the keys an extension learning from the target reads (``next_values``,
+    ``predictions``, ``target_value_at``) are set wherever declared, not None;
+(g) the state ``on_target`` returns is the one the next update reads.
 
 The agents are every agent of ``ajax`` folding one of these phases (read
 from ``supported_extension_phases``): test_agent_contract's table, APG and
@@ -46,6 +49,9 @@ PHASES = ("on_target", "critic_loss", "actor_loss", "post_update")
 SHIFT = 10.0  # what on_target adds to the target
 SLOPE = 1e6  # a loss term's gradient on each parameter of its network
 BATCH_KEYS: dict[str, set] = defaultdict(set)  # phase -> key sets, at trace time
+UNSET: dict[str, set] = defaultdict(set)  # phase -> keys a batch held as None
+#: The on_target keys the extensions learning from the target read (ValueCentering).
+LEARNING_KEYS = frozenset({"next_values", "predictions", "target_value_at"})
 ROWS: list[tuple] = []  # (phase, step, context.rng, agent's rng, *values) per fold
 DRAWN: list[np.ndarray] = []  # every key the run hands jax.random's functions
 #: jax.random's functions the agents (and distrax, flax) draw or derive keys with.
@@ -58,6 +64,7 @@ def _record(
 ) -> None:
     if batch is not None:
         BATCH_KEYS[phase].add(frozenset(batch))
+        UNSET[phase].update(key for key, value in batch.items() if value is None)
     row = lambda *a: ROWS.append((phase, *map(np.asarray, a)))  # noqa: E731
     jax.debug.callback(row, context.step, context.rng, agent_state.rng, *values)
 
@@ -169,6 +176,7 @@ def _run(name: str) -> SimpleNamespace:
     phases = frozenset(PHASES).intersection(cls.supported_extension_phases)
     recorder = type("Recorder", (Recorder,), {p: globals()[p] for p in phases})()
     BATCH_KEYS.clear()
+    UNSET.clear()
     ROWS.clear()
     DRAWN.clear()
     spies = {name: _spy(getattr(jax.random, name)) for name in DRAWS.split()}
@@ -182,6 +190,7 @@ def _run(name: str) -> SimpleNamespace:
     return SimpleNamespace(
         phases=phases,
         batch_keys=dict(BATCH_KEYS),
+        unset={phase: set(keys) for phase, keys in UNSET.items()},
         rows=list(ROWS),
         drawn=drawn,
         state=state,
@@ -197,6 +206,36 @@ def test_each_batch_holds_the_documented_keys(name: str) -> None:
         documented = COMMON_BATCH_KEYS.get(phase, frozenset()).union(declared)
         for keys in key_sets:
             assert not documented.difference(keys), (phase, sorted(keys))
+
+
+class CountsTargets(Extension):
+    """Counts its on_target folds in the state on_target returns."""
+
+    name = "counts_targets"
+
+    def init_state(self, agent_state, rng):
+        return jnp.zeros((), jnp.int32)
+
+    def on_target(self, agent_state, ext_state, batch, target, context):
+        return target, {}, ext_state + 1
+
+
+@pytest.mark.parametrize("name", [n for n in BATCHED if "on_target" in _phases(n)])
+def test_the_state_on_target_returns_is_kept(name: str) -> None:
+    cls, env_id, kwargs, n_timesteps = _setup(name)
+    agent = cls(env_id, **kwargs, extensions=(CountsTargets(),))
+    state, _ = agent.train(seed=0, n_timesteps=n_timesteps)
+    assert int(np.asarray(state.ext_state[0]).reshape(-1)[0]) > 0, (
+        "a fold's state was lost"
+    )
+
+
+@pytest.mark.parametrize("name", BATCHED)
+def test_the_keys_learning_from_the_target_are_set(name: str) -> None:
+    run = _run(name)
+    declared = _setup(name)[0].phase_batch_keys.get("on_target", frozenset())
+    unset = LEARNING_KEYS.intersection(declared, run.unset.get("on_target", set()))
+    assert not unset, f"{name} declares {sorted(unset)} and passes None"
 
 
 @pytest.mark.parametrize("name", AGENTS)

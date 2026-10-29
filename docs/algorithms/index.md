@@ -14,6 +14,7 @@ several seeds in a single compiled program with
 | --- | --- | --- | --- | --- | --- |
 | [SAC](sac.md) | off-policy actor-critic | Haarnoja et al. 2018 ([arXiv:1801.01290](https://arxiv.org/abs/1801.01290)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss`, `action` |
 | [ASAC](asac.md) | off-policy actor-critic, average reward | Adamczyk et al. 2025 ([arXiv:2501.09080v2](https://arxiv.org/abs/2501.09080v2)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
+| [RVI-SAC](rvisac.md) | off-policy actor-critic, average reward, RVI Q-learning | Hisaki and Ono, ICML 2024 ([arXiv:2408.01972](https://arxiv.org/abs/2408.01972)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
 | [REDQ](redq.md) | off-policy actor-critic, critic ensemble | Chen et al. 2021 ([arXiv:2101.05982](https://arxiv.org/abs/2101.05982)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
 | [CrossQ](crossq.md) | off-policy actor-critic, batch renormalisation, no target networks | Bhatt et al., ICLR 2024 ([arXiv:1902.05605](https://arxiv.org/abs/1902.05605)) | continuous | no | `on_target`, `critic_loss`, `actor_loss` |
 | [TQC](tqc.md) | off-policy actor-critic, distributional critics, truncated target | Kuznetsov et al., ICML 2020 ([arXiv:2005.04269](https://arxiv.org/abs/2005.04269)) | continuous | yes | `on_target`, `critic_loss`, `actor_loss` |
@@ -76,8 +77,10 @@ deterministic policy; [REDQ](redq.md) trains an ensemble of ten critics with
 twenty critic updates per step, so it does far more work per sample.
 
 **A task that never ends,** such as holding a setpoint: discounting only
-shortens the agent's view. [ASAC](asac.md) (off-policy) and [APO](apo.md)
-(on-policy) optimise the average reward per step instead.
+shortens the agent's view. [ASAC](asac.md) and [RVI-SAC](rvisac.md)
+(off-policy) and [APO](apo.md) (on-policy) optimise the average reward per
+step instead. A discounted agent can also centre its values on the reward
+rate with [`ValueCentering`](../guide/extensions.md#catalogue).
 
 **Only a dataset, no simulator to explore with** (logged runs, a plant's
 history): [IQL](iql.md) trains on it offline (`train_offline`) and can

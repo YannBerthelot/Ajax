@@ -189,7 +189,7 @@ def test_td3s_target_scores_the_executed_next_action():
     state = _initial("TD3")
     obs, zeros = jnp.ones((4, 3)), jnp.zeros((4, 1))
     rows = SimpleNamespace(a_expert=zeros, next_a_expert=jnp.full((4, 1), 0.25))
-    _, _, next_actions = compute_td3_td_target(
+    _, _, next_actions, _ = compute_td3_td_target(
         state.actor_state,
         state.critic_state,
         jax.random.PRNGKey(0),

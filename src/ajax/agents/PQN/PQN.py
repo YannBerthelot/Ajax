@@ -242,7 +242,7 @@ class PQN(
                 "gamma": self.gamma,
                 "reward_scale": self.reward_scale,
             }
-            targets, target_metrics = extensions.apply_on_target(
+            targets, target_metrics, ext_state = extensions.apply_on_target(
                 agent_state,
                 target_batch,
                 targets,
@@ -250,6 +250,7 @@ class PQN(
                 derive_extensions_key(update_key),
                 total_timesteps,
             )
+            agent_state = agent_state.replace(ext_state=ext_state)
         targets = jax.lax.stop_gradient(targets)
         batch = (rollout.obs, actions, targets)
         td_loss_fn = (

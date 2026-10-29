@@ -13,12 +13,25 @@ import jax
 import jax.numpy as jnp
 import optax
 import pytest
+from flax import struct
 from flax.training.train_state import TrainState
 
 from ajax.agents.update_steps import critic_step
 from ajax.extensions.base import ExtensionContext, ExtensionStack
 from ajax.extensions.instrumentation import BiasVorePenalty
 from ajax.state import Transition
+
+
+@struct.dataclass
+class AgentStateStub:
+    """The agent state's fields the critic step reads, replaceable as a real
+    agent state is (critic_step returns it with its critics stepped)."""
+
+    collector_state: Any
+    critic_state: Any
+    actor_state: Any
+    ext_state: tuple
+
 
 PENALTY = BiasVorePenalty(alpha=0.3)
 CTX = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
@@ -41,7 +54,7 @@ def test_critic_step_hands_the_extensions_the_targets() -> None:
         params={"w": jnp.ones((2, 1))},
         tx=optax.sgd(0.1),
     )
-    state = SimpleNamespace(
+    state = AgentStateStub(
         collector_state=SimpleNamespace(timestep=jnp.asarray(0)),
         critic_state=critic,
         actor_state=None,  # the batch's, for a term sampling the policy
@@ -53,7 +66,7 @@ def test_critic_step_hands_the_extensions_the_targets() -> None:
         return jnp.mean((q - target_q) ** 2), ()
 
     def stepped(extension: BiasVorePenalty) -> jax.Array:
-        critic_state, *_ = critic_step(
+        stepped_state, *_ = critic_step(
             state,
             batch,
             jnp.ones((4, 1)),
@@ -66,7 +79,7 @@ def test_critic_step_hands_the_extensions_the_targets() -> None:
             gamma=0.9,
             reward_scale=1.0,
         )
-        return critic_state.params["w"]
+        return stepped_state.critic_state.params["w"]
 
     moved = stepped(PENALTY) - stepped(BiasVorePenalty(coeff_override=0.0))
     assert float(jnp.abs(moved).max()) > 0.0

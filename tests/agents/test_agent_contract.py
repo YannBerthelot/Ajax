@@ -40,6 +40,7 @@ from ajax.agents.IQL.IQL import IQL
 from ajax.agents.PPO.PPO import PPO
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.REDQ.REDQ import REDQ
+from ajax.agents.RVISAC.RVISAC import RVISAC
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
@@ -137,6 +138,7 @@ CASES = {
         buffer=True,
     ),
     "ASAC": Case(ASAC, OFF_POLICY, CONTINUOUS, alpha=True, buffer=True),
+    "RVISAC": Case(RVISAC, OFF_POLICY, CONTINUOUS, alpha=True, buffer=True),
     "REDQ": Case(
         REDQ,
         {**OFF_POLICY, "num_critic_updates": 2, "num_critics": 4, "subset_size": 2},
@@ -489,7 +491,7 @@ def test_each_evaluation_draws_fresh_keys(name: str, extended_run: Any) -> None:
 #: the 128-row buffer (an unwritten row would read reward 0 for action 0).
 ON_THE_BOX = (
     *("APG", "APO", "ASAC", "AVG", "CrossQ"),
-    *("PPO", "REDQ", "SAC", "TD3", "TQC", "UDRL"),
+    *("PPO", "REDQ", "RVISAC", "SAC", "TD3", "TQC", "UDRL"),
 )
 BOX = (-1.0, 3.0)  # centre 1, half-range 2
 WARM_UP = {"learning_starts": 64, "buffer_size": 128}
@@ -587,8 +589,8 @@ def test_a_world_model_acts_on_the_whole_box(name: str) -> None:
 
 #: Every agent on ActorCritic (TD-MPC2 multi-task, offline, builds no env).
 ACTOR_CRITICS = (
-    "APG APO ASAC AVG CrossQ DAgger DQN DreamerV3 IQL PPO PQN REDQ SAC TD3 TDMPC2 TQC"
-    " UDRL"
+    "APG APO ASAC AVG CrossQ DAgger DQN DreamerV3 IQL PPO PQN REDQ RVISAC SAC TD3 TDMPC2"
+    " TQC UDRL"
 )
 
 
@@ -644,7 +646,7 @@ def test_no_agent_class_lets_its_seeds_update_unequally() -> None:
 #: papers do.
 CLIPS: dict[str, tuple[str, float | None]] = {
     **dict.fromkeys(
-        "AVG CrossQ DAgger DQN IQL REDQ SAC TD3 TQC UDRL".split(),
+        "AVG CrossQ DAgger DQN IQL REDQ RVISAC SAC TD3 TQC UDRL".split(),
         ("max_grad_norm", None),
     ),
     # BobMak/asac @4b68862: every hparams/*/asac.yaml sets max_grad_norm 10.

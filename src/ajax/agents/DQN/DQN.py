@@ -32,6 +32,7 @@ from ajax.agents.critics import (
     ValueAuxiliaries,
     compute_huber_1_td_loss,
     q_gradient_step,
+    q_network_value_readers,
 )
 from ajax.agents.families import (
     ExpertGuided,
@@ -44,6 +45,7 @@ from ajax.agents.families import (
 )
 from ajax.agents.loop import LOOP_PHASES
 from ajax.agents.update_steps import (
+    bootstrap_cuts,
     derive_extensions_key,
     run_if,
     scan_on_indexed_keys,
@@ -108,7 +110,9 @@ class DQN(
     epsilon_end: float = 0.05
     epsilon_decay_frac: float = 0.5
     #: The TD target: None is compute_dqn_td_target; compute_double_dqn_td_target
-    #: is Double DQN's.
+    #: is Double DQN's. Either returns the target, the next actions it scored
+    #: and the values it bootstrapped there, which the extensions learning
+    #: from the target read; a function may return the target alone.
     td_target_fn: Optional[Callable] = None
     #: The TD loss: None is compute_huber_1_td_loss, the reference's TD-error
     #: clip; compute_mse_td_loss (ajax.agents.critics) the squared error.
@@ -221,14 +225,14 @@ class DQN(
         observations, actions, rewards = batch.obs, batch.action, batch.reward
         terminated, next_observations = batch.terminated, batch.next_obs
         # A truncated row bootstraps on its final observation (bootstrap_obs).
-        dones = terminated.astype(jnp.float32)
+        dones = bootstrap_cuts(terminated.astype(jnp.float32), context.extensions)
         td_target_fn = self.td_target_fn
         if td_target_fn is None:
             td_target_fn = compute_dqn_td_target
         td_loss_fn = self.td_loss_fn
         if td_loss_fn is None:
             td_loss_fn = compute_huber_1_td_loss
-        target_q = td_target_fn(
+        targeted: Any = td_target_fn(
             q_state=agent_state.actor_state,
             next_observations=next_observations,
             dones=dones,
@@ -236,6 +240,11 @@ class DQN(
             gamma=self.gamma,
             reward_scale=self.reward_scale,
         )
+        # A td_target_fn returning the target alone (the form before 0.6)
+        # gives the extensions no next actions or values.
+        target_q, next_actions, next_values = targeted, None, None
+        if isinstance(targeted, tuple):
+            target_q, next_actions, next_values = targeted
         # The extensions reshape the target, then add their loss terms, each
         # on a key of its own.
         target_key, loss_key = jax.random.split(derive_extensions_key(sample_key))
@@ -247,8 +256,17 @@ class DQN(
             "dones": dones,
             "gamma": self.gamma,
             "reward_scale": self.reward_scale,
+            "next_actions": next_actions,
+            "next_values": next_values,
+            "terminated": terminated.astype(jnp.float32),
         }
-        target_q, target_metrics = context.extensions.apply_on_target(
+        predictions, target_value_at = q_network_value_readers(
+            agent_state.actor_state, observations, actions
+        )
+        target_batch.update(
+            {"predictions": predictions, "target_value_at": target_value_at}
+        )
+        target_q, target_metrics, ext_state = context.extensions.apply_on_target(
             agent_state,
             target_batch,
             target_q,
@@ -256,6 +274,7 @@ class DQN(
             target_key,
             context.total_timesteps,
         )
+        agent_state = agent_state.replace(ext_state=ext_state)
         q_state, value_aux, loss_metrics = q_gradient_step(
             agent_state,
             observations,
@@ -289,6 +308,7 @@ class DQN(
             "next_action_target",
             "obs_networks",
             "off_policy",
+            "one_step_target",
             "q_critic",
             "replay",
             "target_critic",
@@ -304,7 +324,18 @@ class DQN(
     )
     # Unannotated, as the whole contract, so the dataclass makes it no field.
     phase_batch_keys = {  # noqa: RUF012
-        "on_target": frozenset({"actions", "dones", "reward_scale"}),
+        "on_target": frozenset(
+            {
+                "actions",
+                "dones",
+                "reward_scale",
+                "next_actions",
+                "next_values",
+                "terminated",
+                "predictions",
+                "target_value_at",
+            }
+        ),
         "critic_loss": frozenset({"actions", "q_state"}),
     }
     stores_expert_actions = True
@@ -318,13 +349,19 @@ def compute_dqn_td_target(
     rewards: jax.Array,
     gamma: float,
     reward_scale: float,
-) -> jax.Array:
-    """DQN's target: y = scale r + gamma (1 - d) max_a' Q_target(s', a')."""
+) -> tuple[jax.Array, jax.Array, jax.Array]:
+    """DQN's target: y = scale r + gamma (1 - d) max_a' Q_target(s', a'), the
+    greedy next actions and their values."""
     rewards = rewards * reward_scale
     next_q_values = predict_q(q_state, q_state.target_params, next_observations)
     max_next_q_values = jnp.max(next_q_values, axis=-1, keepdims=True)
     target = rewards + gamma * (1.0 - dones) * max_next_q_values
-    return jax.lax.stop_gradient(target)
+    next_actions = jnp.argmax(next_q_values, axis=-1, keepdims=True)
+    return (
+        jax.lax.stop_gradient(target),
+        next_actions,
+        jax.lax.stop_gradient(max_next_q_values),
+    )
 
 
 def compute_double_dqn_td_target(
@@ -334,7 +371,7 @@ def compute_double_dqn_td_target(
     rewards: jax.Array,
     gamma: float,
     reward_scale: float,
-) -> jax.Array:
+) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Double DQN's target (van Hasselt et al., 2016): the online network
     selects the next action, the target network scores it, which removes
     the maximisation bias of max_a' Q_target::
@@ -343,7 +380,7 @@ def compute_double_dqn_td_target(
         y  = scale r + gamma (1 - d) Q_target(s', a*)
 
     In place of compute_dqn_td_target: DQN(..., td_target_fn=
-    compute_double_dqn_td_target).
+    compute_double_dqn_td_target). Returns the target, a* and Q_target(s', a*).
     """
     rewards = rewards * reward_scale
     next_online_q_values = predict_q(q_state, q_state.params, next_observations)
@@ -351,7 +388,11 @@ def compute_double_dqn_td_target(
     next_target_q_values = predict_q(q_state, q_state.target_params, next_observations)
     next_q_values = jnp.take_along_axis(next_target_q_values, next_actions, axis=-1)
     target = rewards + gamma * (1.0 - dones) * next_q_values
-    return jax.lax.stop_gradient(target)
+    return (
+        jax.lax.stop_gradient(target),
+        next_actions,
+        jax.lax.stop_gradient(next_q_values),
+    )
 
 
 # -- State and logged metrics -------------------------------------------------

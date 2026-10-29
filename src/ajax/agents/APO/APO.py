@@ -277,7 +277,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 "average_reward": average_reward,
                 "gamma": None,  # APO is average-reward (differential V)
             }
-            value_targets, target_metrics = extensions.apply_on_target(
+            value_targets, target_metrics, ext_state = extensions.apply_on_target(
                 agent_state,
                 target_batch,
                 value_targets,
@@ -285,6 +285,7 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
                 derive_extensions_key(shuffle_key),
                 total_timesteps,
             )
+            agent_state = agent_state.replace(ext_state=ext_state)
 
         # Normalised once over the rollout, by the trained rows' mean and
         # torch's unbiased std, floored at 1e-6 (base.py:79-88).

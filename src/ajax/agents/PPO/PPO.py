@@ -284,7 +284,7 @@ class PPO(
             )
             batch_with_outcomes = dict(batch)
             batch_with_outcomes.update(outcomes)
-            gae, value_targets, rollout_metrics = self.compute_advantages(
+            gae, value_targets, rollout_metrics, ext_state = self.compute_advantages(
                 agent_state,
                 batch_with_outcomes,
                 values,
@@ -292,6 +292,7 @@ class PPO(
                 target_key,
                 context,
             )
+            agent_state = agent_state.replace(ext_state=ext_state)
             batch.update({"targets": value_targets, "gae": gae})
 
         def cut_rollout_into_minibatches(epoch_key: jax.Array) -> dict:
@@ -327,11 +328,12 @@ class PPO(
         next_values: jax.Array,
         key: jax.Array,
         context: TrainContext,
-    ) -> tuple[jax.Array, jax.Array, dict]:
+    ) -> tuple[jax.Array, jax.Array, dict, tuple]:
         """GAE and the value targets A + V on steps (the rollout's, or a
         minibatch's: obs, next_obs, rewards, terminated and truncated); the
         extensions' on_target reshapes the targets, drawing on key. Returns
-        the advantages, the targets and the extensions' metrics.
+        the advantages, the targets, the extensions' metrics and their
+        states as on_target left them.
 
         They enter the losses as inputs, computed before the losses are
         differentiated, so no gradient flows back through them (brax computes
@@ -346,7 +348,7 @@ class PPO(
             gae_lambda=self.gae_lambda,
         )
         if not context.extensions:
-            return gae, value_targets, {}
+            return gae, value_targets, {}, agent_state.ext_state
         target_batch = {
             "observations": steps["obs"],
             "next_observations": steps["next_obs"],
@@ -362,10 +364,10 @@ class PPO(
             agent_state.collector_state.timestep,
             context.total_timesteps,
         )
-        value_targets, metrics = context.extensions.apply_on_target(
+        value_targets, metrics, ext_state = context.extensions.apply_on_target(
             agent_state, target_batch, value_targets, timestep, key, horizon
         )
-        return gae, value_targets, metrics
+        return gae, value_targets, metrics, ext_state
 
     def minibatch_step(
         self,
@@ -408,9 +410,10 @@ class PPO(
                 critic_params=critic.params,
                 x=minibatch["next_obs"],
             ).squeeze(0)
-            gae, value_targets, target_metrics = self.compute_advantages(
+            gae, value_targets, target_metrics, ext_state = self.compute_advantages(
                 agent_state, minibatch, values, next_values, target_key, context
             )
+            agent_state = agent_state.replace(ext_state=ext_state)
         else:
             gae, value_targets = minibatch["gae"], minibatch["targets"]
 

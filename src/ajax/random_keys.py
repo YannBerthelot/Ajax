@@ -87,6 +87,9 @@ NAMES: tuple[str, ...] = (
     # A trained policy's stream, off its seed's eval_rng, for the steps it
     # is given no key (ajax.policy.Policy).
     "policy",
+    # The reset cost's critic, off its agent's initialisation key, apart from
+    # the agent's networks (ajax.agents.RVISAC; ajax.extensions.reset_cost).
+    "reset_critic",
 )
 
 TAGS: dict[str, int] = {name: make_tag(name) for name in NAMES}

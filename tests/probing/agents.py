@@ -37,6 +37,7 @@ _Q = {"learning_rate": 1e-3, "architecture": NET, "gamma": GAMMA, "n_envs": 1}
 _PROBE = {
     **dict.fromkeys(("SAC", "TD3", "REDQ"), _SAC),
     "ASAC": {k: v for k, v in _SAC.items() if k != "gamma"},
+    "RVISAC": {k: v for k, v in _SAC.items() if k != "gamma"},
     "AVG": {"actor_architecture": NET, "critic_architecture": NET}
     | {"gamma": GAMMA, "n_envs": 1},
     "PPO": {**_PPO, "gamma": GAMMA},
@@ -108,7 +109,7 @@ _TINY: dict[str, dict[str, Any]] = {
 PRESETS: Mapping[str, Mapping[str, Mapping[str, Any]]] = MappingProxyType(
     {"probe": _PROBE, "bookkeeping": _BOOKKEEPING, "tiny": _TINY}
 )
-DIGEST = "f05e778fb820"
+DIGEST = "4f7d5fb73d18"
 FAMILY = {"PPO": "v", "APO": "v", "DQN": "dqn", "PQN": "dqn"}
 """Which value an agent's readout reads (others: Q at the mean action)."""
 

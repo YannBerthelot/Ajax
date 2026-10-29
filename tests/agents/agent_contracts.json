@@ -103,6 +103,7 @@
    "next_action_target",
    "obs_networks",
    "off_policy",
+   "one_step_target",
    "policy_density",
    "q_critic",
    "replay",
@@ -150,10 +151,14 @@
     "next_action",
     "next_actions",
     "next_observations",
+    "next_values",
     "observations",
+    "predictions",
     "raw_next_observations",
     "reward_scale",
-    "rewards"
+    "rewards",
+    "target_value_at",
+    "terminated"
    ]
   },
   "pretrain_context": [
@@ -194,6 +199,7 @@
    "next_action_target",
    "obs_networks",
    "off_policy",
+   "one_step_target",
    "policy_density",
    "q_critic",
    "reward_learning",
@@ -237,10 +243,14 @@
     "next_action",
     "next_actions",
     "next_observations",
+    "next_values",
     "observations",
+    "predictions",
     "raw_next_observations",
     "reward_scale",
-    "rewards"
+    "rewards",
+    "target_value_at",
+    "terminated"
    ]
   },
   "pretrain_context": [
@@ -278,6 +288,7 @@
    "next_action_target",
    "obs_networks",
    "off_policy",
+   "one_step_target",
    "policy_density",
    "q_critic",
    "replay",
@@ -324,10 +335,14 @@
     "next_action",
     "next_actions",
     "next_observations",
+    "next_values",
     "observations",
+    "predictions",
     "raw_next_observations",
     "reward_scale",
-    "rewards"
+    "rewards",
+    "target_value_at",
+    "terminated"
    ]
   },
   "pretrain_context": [
@@ -415,6 +430,7 @@
    "next_action_target",
    "obs_networks",
    "off_policy",
+   "one_step_target",
    "q_critic",
    "replay",
    "reward_learning",
@@ -438,7 +454,12 @@
    "on_target": [
     "actions",
     "dones",
-    "reward_scale"
+    "next_actions",
+    "next_values",
+    "predictions",
+    "reward_scale",
+    "target_value_at",
+    "terminated"
    ]
   },
   "pretrain_context": [
@@ -509,6 +530,7 @@
    "discounted",
    "obs_networks",
    "off_policy",
+   "one_step_target",
    "policy_density",
    "q_critic",
    "replay",
@@ -556,10 +578,14 @@
     "next_action",
     "next_actions",
     "next_observations",
+    "next_values",
     "observations",
+    "predictions",
     "raw_next_observations",
     "reward_scale",
-    "rewards"
+    "rewards",
+    "target_value_at",
+    "terminated"
    ]
   },
   "pretrain_context": [
@@ -707,6 +733,7 @@
    "next_action_target",
    "obs_networks",
    "off_policy",
+   "one_step_target",
    "policy_density",
    "q_critic",
    "replay",
@@ -760,10 +787,14 @@
     "next_action",
     "next_actions",
     "next_observations",
+    "next_values",
     "observations",
+    "predictions",
     "raw_next_observations",
     "reward_scale",
-    "rewards"
+    "rewards",
+    "target_value_at",
+    "terminated"
    ]
   },
   "pretrain_context": [
@@ -797,6 +828,102 @@
   "supports_memory": true,
   "trains_batch_norm": false
  },
+ "RVISAC": {
+  "capabilities": [
+   "actor",
+   "continuing_target",
+   "critic_ensemble",
+   "next_action_target",
+   "obs_networks",
+   "off_policy",
+   "one_step_target",
+   "policy_density",
+   "q_critic",
+   "replay",
+   "reward_learning",
+   "target_critic",
+   "warmup"
+  ],
+  "extension_context": [
+   "actor_optimizer_args",
+   "buffer",
+   "env_args",
+   "expert_policy"
+  ],
+  "make_train": "ajax.agents.families:ReplayAgent.make_train",
+  "name": "RVISAC",
+  "per_seed_update_counts": false,
+  "phase_batch_keys": {
+   "actor_loss": [
+    "a_expert",
+    "actions",
+    "actor_params",
+    "actor_state",
+    "agent_loss",
+    "critic_state",
+    "observations",
+    "pi_mean",
+    "raw_observations"
+   ],
+   "critic_loss": [
+    "actions",
+    "actor_state",
+    "critic_params",
+    "critic_state",
+    "next_observations",
+    "observations",
+    "return_to_go",
+    "targets"
+   ],
+   "on_target": [
+    "actions",
+    "critic_subset",
+    "dones",
+    "gamma",
+    "next_a_expert",
+    "next_action",
+    "next_actions",
+    "next_observations",
+    "next_values",
+    "observations",
+    "predictions",
+    "raw_next_observations",
+    "reward_scale",
+    "rewards",
+    "target_value_at",
+    "terminated"
+   ]
+  },
+  "pretrain_context": [
+   "buffer",
+   "env_args",
+   "update"
+  ],
+  "replays_transitions": true,
+  "stores_expert_actions": true,
+  "supported_buffer_fields": [
+   "next_action",
+   "raw_next_obs"
+  ],
+  "supported_extension_phases": [
+   "action",
+   "actor_loss",
+   "actuate",
+   "choose_replay_action",
+   "choose_warmup_action",
+   "critic_loss",
+   "eval_action",
+   "eval_metrics",
+   "observe",
+   "on_target",
+   "post_update",
+   "pretrain",
+   "transform_action"
+  ],
+  "supports_batched_env_params": false,
+  "supports_memory": true,
+  "trains_batch_norm": false
+ },
  "SAC": {
   "capabilities": [
    "actor",
@@ -805,6 +932,7 @@
    "next_action_target",
    "obs_networks",
    "off_policy",
+   "one_step_target",
    "policy_density",
    "q_critic",
    "replay",
@@ -861,10 +989,14 @@
     "next_action",
     "next_actions",
     "next_observations",
+    "next_values",
     "observations",
+    "predictions",
     "raw_next_observations",
     "reward_scale",
-    "rewards"
+    "rewards",
+    "target_value_at",
+    "terminated"
    ]
   },
   "pretrain_context": [
@@ -906,6 +1038,7 @@
    "next_action_target",
    "obs_networks",
    "off_policy",
+   "one_step_target",
    "q_critic",
    "replay",
    "reward_learning",
@@ -957,10 +1090,14 @@
     "next_action",
     "next_actions",
     "next_observations",
+    "next_values",
     "observations",
+    "predictions",
     "raw_next_observations",
     "reward_scale",
-    "rewards"
+    "rewards",
+    "target_value_at",
+    "terminated"
    ]
   },
   "pretrain_context": [
@@ -1060,6 +1197,7 @@
    "next_action_target",
    "obs_networks",
    "off_policy",
+   "one_step_target",
    "policy_density",
    "q_critic",
    "replay",
@@ -1111,10 +1249,14 @@
     "next_action",
     "next_actions",
     "next_observations",
+    "next_values",
     "observations",
+    "predictions",
     "raw_next_observations",
     "reward_scale",
-    "rewards"
+    "rewards",
+    "target_value_at",
+    "terminated"
    ]
   },
   "pretrain_context": [

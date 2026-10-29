@@ -5,51 +5,33 @@ so a page's ``python`` blocks run in order in one namespace. A block whose
 first line is ``# doc: skip`` is left out, as in the README
 (tests/test_readme.py). A page with a block that trains (``.train(`` or
 ``.train_offline(``) runs in the slow tier, word for word; the others in the
-fast tier. docs/world_models/ holds the reference implementations' code,
-quoted beside Ajax's, not examples.
+fast tier. tests/doc_examples.py says which blocks run and runs them; the
+Release workflow runs it as a script against the built wheel.
 """
 
 from __future__ import annotations
 
-import pathlib
 import re
-import sys
-import types
 
 import pytest
 
-from tests.test_readme import BLOCK, ROOT
+from tests.doc_examples import ROOT, example_pages, main, run_page, runnable_blocks
 
 DOCS = ROOT / "docs"
-SKIP = "# doc: skip"
 TRAINS = re.compile(r"\.train(_offline)?\(")
 
 
-def runnable_blocks(page: pathlib.Path) -> list[str]:
-    return [
-        code
-        for code in BLOCK.findall(page.read_text())
-        if not code.lstrip().startswith(SKIP)
-    ]
-
-
 def pages() -> list:
-    params = []
-    for page in sorted(DOCS.rglob("*.md")):
-        if "world_models" in page.relative_to(DOCS).parts:
-            continue
-        blocks = runnable_blocks(page)
-        if not blocks:
-            continue
-        trains = any(TRAINS.search(code) for code in blocks)
-        params.append(
-            pytest.param(
-                page,
-                id=page.relative_to(DOCS).as_posix(),
-                marks=[pytest.mark.slow] if trains else [],
-            )
+    return [
+        pytest.param(
+            page,
+            id=page.relative_to(DOCS).as_posix(),
+            marks=[pytest.mark.slow]
+            if any(TRAINS.search(code) for code in runnable_blocks(page))
+            else [],
         )
-    return params
+        for page in example_pages(DOCS)
+    ]
 
 
 @pytest.mark.parametrize("page", pages())
@@ -58,9 +40,41 @@ def test_a_pages_examples_run_in_order(page, tmp_path, monkeypatch):
     it, in a scratch directory so that nothing it writes lands in the
     checkout."""
     monkeypatch.chdir(tmp_path)
-    # A module of its own, as a script is: a dataclass finds its module's
-    # names (string annotations) through sys.modules.
-    module = types.ModuleType("__docs__")
-    monkeypatch.setitem(sys.modules, module.__name__, module)
-    for index, code in enumerate(runnable_blocks(page)):
-        exec(compile(code, f"{page}, block {index}", "exec"), module.__dict__)
+    run_page(page)
+
+
+FAILS = "```python\nraise ValueError\n```\n"
+WRITES = "```python\nopen('written', 'w').close()\n```\n"
+SKIPPED = "```python\n# doc: skip\nraise ValueError\n```\n"
+
+
+def test_the_script_fails_naming_each_failing_example(tmp_path, capsys, monkeypatch):
+    """As the release gate runs it, from the checkout: a failing README
+    block and a failing page make the exit status non-zero and are named; a
+    skipped block and docs/world_models/ do not run; nothing is written in
+    the checkout."""
+    monkeypatch.chdir(tmp_path)
+    readme = tmp_path / "README.md"
+    readme.write_text(WRITES + SKIPPED + FAILS)
+    (tmp_path / "docs" / "guide").mkdir(parents=True)
+    (tmp_path / "docs" / "world_models").mkdir()
+    (tmp_path / "docs" / "guide" / "broken.md").write_text(WRITES + FAILS)
+    (tmp_path / "docs" / "fine.md").write_text(WRITES + WRITES)
+    (tmp_path / "docs" / "world_models" / "quoted.md").write_text(FAILS)
+
+    status = main([readme, tmp_path / "docs"])
+
+    assert status == 1
+    last_line = capsys.readouterr().out.splitlines()[-1]
+    assert last_line == "failed: README.md block2, docs/guide/broken.md"
+    assert not list(tmp_path.rglob("written"))
+
+
+def test_the_script_passes_when_every_example_runs(tmp_path):
+    """A page's later block sees the names its earlier blocks defined."""
+    readme = tmp_path / "README.md"
+    readme.write_text("```python\nx = 1\n```\n")
+    (tmp_path / "docs").mkdir()
+    page = "```python\nx = 1\n```\n```python\nassert x == 1\n```\n"
+    (tmp_path / "docs" / "page.md").write_text(page)
+    assert main([readme, tmp_path / "docs"]) == 0

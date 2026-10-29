@@ -3449,11 +3449,26 @@ lock.</p>
   main, which downstream projects can pin. Public names change by expand
   then contract (CLAUDE.md, rule 10). Tags come only from the <em>Release</em>
   workflow (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/release.yml">release.yml</a>, by hand, with the
-  version): it tags main's head once the slow tier has passed there,
-  running it first if needed, then publishes that commit to PyPI as
-  <code>ajax-rl</code> and its documentation as the site's version X.Y, the one the
-  site opens on (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/docs-deploy.yml">docs-deploy.yml</a>; main's
-  is the site's dev version).</li>
+  version), on main's head. Each job needs the one before it:<ul>
+<li><em>check</em>: the CHANGELOG entry, pyproject's version, no tag yet;</li>
+<li><em>slow</em>: the slow tier green on that commit, run first if needed;</li>
+<li><em>package</em> (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/package.yml">package.yml</a>): the wheel
+  and the sdist built once and checked, then the wheel installed in
+  fresh environments outside the checkout, on Python 3.12 and 3.14:
+  the README and docs examples run against it
+  (<a href="https://github.com/YannBerthelot/Ajax/blob/main/tests/doc_examples.py">tests/doc_examples.py</a>, the docs tests'
+  extraction), and each extra, installed alone, runs its smoke test
+  (<a href="https://github.com/YannBerthelot/Ajax/blob/main/tests/release_smoke.py">tests/release_smoke.py</a>). Pull requests
+  that change the packaging run it too;</li>
+<li><em>tag</em> <code>vX.Y.Z</code>, then <em>publish</em> those same files to PyPI as <code>ajax-rl</code>
+  (trusted publishing, no token);</li>
+<li><em>docs</em>: the site's version X.Y, the one it opens on
+  (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.github/workflows/docs-deploy.yml">docs-deploy.yml</a>; main's is the
+  site's dev version);</li>
+<li><em>verify</em>: <code>ajax-rl==X.Y.Z</code> installed from PyPI, retried for up to 20
+  minutes, runs the README's examples; a failure opens an issue.</li>
+</ul>
+</li>
 </ul>
 <h2 id="style">Style<a class="headerlink" href="#style" title="Permanent link">&para;</a></h2>
 <p>Pre-commit (<a href="https://github.com/YannBerthelot/Ajax/blob/main/.pre-commit-config.yaml">.pre-commit-config.yaml</a>) runs on every

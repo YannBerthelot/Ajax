@@ -120,10 +120,11 @@ def test_temperature_and_theta_read_the_actors_own_sample(monkeypatch):
         batch_size=4,
     )
     agent.train(seed=0, n_timesteps=8)
-    # The update is traced twice: once for it, once for the structure of
-    # the NaN metrics before learning_starts (TrainLoop.maybe_update).
-    assert len(seen) == 4 and len(drawn) == 2
-    assert seen[0] is seen[1] is drawn[0] and seen[2] is seen[3] is drawn[1]
+    # Each trace of the update (how many is JAX's caching to decide) pairs
+    # the temperature and theta steps with the actor's own draw.
+    assert drawn and len(seen) == 2 * len(drawn)
+    for index, log_probabilities in enumerate(drawn):
+        assert seen[2 * index] is seen[2 * index + 1] is log_probabilities
 
 
 def test_a_termination_drops_the_next_value_and_keeps_the_shift():

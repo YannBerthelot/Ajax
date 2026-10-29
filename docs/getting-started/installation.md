@@ -88,6 +88,7 @@ imported.
 | `cuda` | JAX with CUDA, on Linux ([above](#cpu-or-gpu)) |
 | `brax` | [Brax](https://github.com/google/brax), for Brax environments such as `"ant"` |
 | `playground` | [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground) and Brax, for Playground environments such as `"CartpoleBalance"` |
+| `gymnasium` | [Gymnasium](https://gymnasium.farama.org) with MuJoCo, for [Gymnasium environments](../guide/environments.md#gymnasium-environments) such as `"gymnasium:HalfCheetah-v5"`, which step in Python |
 | `compare` | the `adastop` package, whose confidence sequence [`ajax.compare.estimate`](../guide/comparing-agents.md#one-agent-how-sure-is-a-number) uses; AdaStop itself needs no extra |
 | `reproduction` | Hugging Face Hub, pandas and pyarrow, for `ajax.reproduction.load` ([Reproduction](../reproduction/index.md)) |
 | `wandb` | Weights & Biases, for [logging](../guide/logging.md) with `WandbBackend`; the `wandb` group installs it in a checkout |
@@ -99,8 +100,9 @@ uv sync --extra compare
 Brax and MuJoCo Playground come only with their extras: a project that
 uses their environments asks for `ajax-rl[playground]`, or `ajax-rl[brax]`
 for Brax alone. Without them, building a Brax or Playground environment raises
-an error that names the extra. The `dev` group installs both, so `uv sync`
-in this repository has them.
+an error that names the extra. Gymnasium's MuJoCo tasks likewise need the
+`gymnasium` extra. The `dev` group installs all three, so `uv sync` in this
+repository has them.
 
 The `compare` extra takes `adastop` from a commit of its main branch, named
 in `[tool.uv.sources]`, until a release includes the confidence sequence.

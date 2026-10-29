@@ -5,8 +5,10 @@ Ajax trains on JAX environments: [gymnax](https://github.com/RobertTLange/gymnax
 [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground), or
 any environment with gymnax's interface, such as
 [TargetGym](https://github.com/YannBerthelot/TargetGym). The environment
-runs inside the same compiled program as the agent, so it must be written in
-JAX: a Gymnasium environment that steps in Python cannot be used.
+runs inside the same compiled program as the agent, which is what makes
+training fast. A Gymnasium environment, which steps in Python, can be used
+too if you ask for it, at a cost: see
+[Gymnasium environments](#gymnasium-environments).
 
 ## Environments by name
 
@@ -212,6 +214,82 @@ noiseless, and that is what an [expert](expert-guidance.md) reads on a
 gymnax environment. `ObservationNoiseWrapperBrax` does the same on a Brax or
 Playground stack built by `build_env_from_id`; since evaluation rebuilds
 those from their id, add it inside a registered builder.
+
+## Gymnasium environments
+
+A [Gymnasium](https://gymnasium.farama.org) environment steps in Python, so
+Ajax cannot compile it with the agent. You can still train on one, MuJoCo's
+tasks included, by asking for it with the `gymnasium:` prefix:
+
+```python
+from ajax import SAC
+
+agent = SAC("gymnasium:Pendulum-v1", learning_starts=500)
+state, _ = agent.train(seed=0, n_timesteps=1_000)
+```
+
+The rest of the id goes to `gymnasium.make`, so `"gymnasium:my_pkg:MyEnv-v0"`
+imports `my_pkg` first. For an environment that needs arguments, build it
+with `GymnasiumEnv`, which passes them to `gymnasium.make`:
+
+```python
+# doc: skip (needs the gymnasium extra: pip install "ajax-rl[gymnasium]")
+from ajax import SAC
+from ajax.environments.gymnasium import GymnasiumEnv
+
+agent = SAC(GymnasiumEnv("HalfCheetah-v5", ctrl_cost_weight=0.05))
+```
+
+An id without the prefix never reaches Gymnasium: `"CartPole-v1"` is
+gymnax's. MuJoCo's tasks need the `gymnasium` extra
+([Installation](../getting-started/installation.md#extras)).
+
+Every step goes from the compiled program to Python and back, and the copies
+step one after another in Python. Training is slower than on a JAX
+environment, and a GPU does not help. Building one raises a
+`PythonEnvironmentWarning` that says so and names the closest JAX tasks.
+Tasks with the same name do not follow the same rules in Gymnasium, Brax and
+MuJoCo Playground, so the warning says what differs. Returns are not
+comparable across them:
+
+| Gymnasium | Closest JAX task | What differs |
+| --- | --- | --- |
+| `HalfCheetah-v5` | Brax `"halfcheetah"` | Brax's physics only |
+| `Hopper-v5`, `Walker2d-v5` | Brax `"hopper"`, `"walker2d"` | Brax's physics; the healthy reward is also paid on the step that ends the episode |
+| `Ant-v5` | Brax `"ant"` | No contact cost; 27 observations instead of 105 |
+| `Humanoid-v5` | Brax `"humanoid"` | No contact cost; other observations |
+| `HumanoidStandup-v5` | Brax `"humanoidstandup"` | A height reward 5 times smaller, other costs and observations |
+| `InvertedPendulum-v5` | Brax `"inverted_pendulum"` | The reward is also paid on the step that ends the episode |
+| `InvertedDoublePendulum-v5` | Brax `"inverted_double_pendulum"` | A 0.02 s control step instead of 0.05 s; smaller reset noise; 8 observations instead of 9 |
+| `Reacher-v5` | Brax `"reacher"` | 1,000-step episodes by default instead of 50; other targets and observations |
+| `Pusher-v5` | Brax `"pusher"` | The reward is read before the step; other placements |
+| `Swimmer-v5` | Brax `"swimmer"` | Brax's physics only |
+| `CartPole-v1`, `Pendulum-v1`, `Acrobot-v1`, `MountainCar-v0` | gymnax, same id | The same task, in float32 |
+| `MountainCarContinuous-v0` | gymnax, same id | The car is not stopped at the left wall, and the goal also counts when reached moving left |
+
+Brax's physics is its own solver, not MuJoCo's: Euler steps, fewer solver
+iterations, and fewer bodies that collide (usually only the feet). MuJoCo
+Playground has DeepMind Control tasks close to several of them
+(`"CheetahRun"`, `"HopperHop"`, `"WalkerWalk"`, `"HumanoidRun"`,
+`"ReacherEasy"`, ...): other tasks, with another model, a reward between 0
+and 1 and no early termination. The warning names them too.
+
+What changes with a Gymnasium environment:
+
+- **Seeds train one after another**, each the run it would be alone: JAX
+  cannot run a Python step inside the batch of seeds.
+- **Evaluation steps copies of its own**, so training's episodes go on where
+  they were.
+- **Resets follow Gymnasium's generator**: each copy is seeded at its first
+  reset from the run's key, and Ajax's [episode keys](#episode-keys) do not
+  apply. The same seed gives the same run.
+- **Refused**: resuming from a saved state (the simulator's state lives in
+  Python, outside the agent's state), gradients through the environment
+  (APG), `action_repeat` above 1, observation spaces other than a Box,
+  action spaces other than a Discrete starting at 0 or a one-dimensional Box,
+  and environments without a time limit (pass `max_episode_steps`).
+- The environment state Ajax sees holds only the last observation, so
+  wrappers and experts that read gymnax state fields do not apply.
 
 ## Normalisation
 

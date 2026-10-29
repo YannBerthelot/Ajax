@@ -4,6 +4,16 @@ Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged `vX.Y.Z` on main and published to
 PyPI as `ajax-rl`.
 
+## 0.5.1
+
+- **Gymnasium environments, if you choose them**: `"gymnasium:HalfCheetah-v5"`
+  (or `GymnasiumEnv(...)` for an environment of your own) trains any agent on
+  a Gymnasium environment, MuJoCo's tasks included. It steps in Python,
+  outside the compiled program, so it is slower and its seeds train one after
+  another; a warning says so and names the closest JAX tasks, with what
+  differs. The new `gymnasium` extra installs MuJoCo for it. Nothing changes
+  for JAX environments.
+
 ## 0.5.0
 
 What a user of 0.4.0 meets:

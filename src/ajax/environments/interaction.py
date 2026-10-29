@@ -1483,6 +1483,7 @@ def init_collector_state(
     include_next_action: bool = False,
     include_policy_action: bool = False,
     count_episode_steps: bool = False,
+    replay_rows: Optional[int] = None,
 ):
     """Initialise the rollout collector: its first observations carry their
     features (``env_args.observers``) at progress 0; the training loop gives
@@ -1492,7 +1493,8 @@ def init_collector_state(
     expert's initial state (:func:`with_expert_state`). With
     count_episode_steps it counts each env's steps in its episode
     (step_in_episode), for the extensions that read them (JSRLCurriculum);
-    without, collection skips the count."""
+    without, collection skips the count. replay_rows is the replay's ring
+    length (init_buffer's rows_per_env)."""
     include_expert_fields = include_expert_fields or expert_policy is not None
     last_done = jnp.zeros(env_args.n_envs)
 
@@ -1544,6 +1546,7 @@ def init_collector_state(
             include_return_to_go=include_return_to_go,
             include_next_action=include_next_action,
             include_policy_action=include_policy_action,
+            rows_per_env=replay_rows,
         )
         if buffer is not None
         else None

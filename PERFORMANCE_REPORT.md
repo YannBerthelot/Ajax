@@ -533,6 +533,124 @@ computation boundaries, as critique H1 found). Restoring the jit would
 recover it, with that reason, not its earlier one (a configurable scan
 length).
 
+## Speed and memory batch (batch/perf-memory, 2026-10-28)
+
+### The update's own jit, at the shared update call
+
+The batch of 2026-10-25 removed the jit around DQN's gradient step: the
+outputs stayed bitwise, but DQN lost 8.5% of its execution speed, because
+XLA's CPU pipeline schedules the step faster as a call of its own than
+inlined in the scan body (section above). Two questions were registered
+before measuring:
+
+- Q1: does that jit, restored, raise DQN's exec steps/s by at least 8%,
+  outputs bitwise?
+- Q2: does the same jit at the shared update call (`TrainLoop.maybe_update`,
+  the per-step update of every replay and incremental agent) move any other
+  agent beyond its round-to-round spread?
+
+Rule set in advance: if DQN recovers and no agent slows, keep the shared
+jit (general before specific), else DQN's alone.
+
+Method: `benchmarks/agent_bench.py`, CPU (`JAX_PLATFORMS=cpu`), macOS on
+Apple silicon, on the batch's tip `a7fdb93` in three versions: no jit;
+DQN's step jit (DQN only); the shared jit (every agent). Three rounds of
+five trials, the order of the versions rotated each round, nothing else
+running. Medians of each round's five trials, exec steps/s:
+
+| DQN | round 1 | round 2 | round 3 | mean | vs no jit |
+|---|---|---|---|---|---|
+| no jit | 20,035 | 19,336 | 19,409 | 19,593 | |
+| DQN's step jit | 20,886 | 21,343 | 21,203 | 21,144 | +7.9% |
+| shared jit | 21,268 | 20,733 | 21,499 | 21,167 | +8.0% |
+
+Q1: +7.9% by the mean of the round medians, +8.2% by the median of all 15
+trials, round by round +4%, +10% and +9%: on the bar.
+
+Q2, the shared jit against none, means of the round medians; an agent moved
+when the gap exceeds the no-jit rounds' spread:
+
+| Agent | no jit | shared jit | gap | spread | moved |
+|---|---|---|---|---|---|
+| AVG | 10,302 | 11,386 | +10.5% | 192 | faster |
+| SAC/inverted_pendulum | 1,229 | 1,366 | +11.1% | 123 | faster |
+| DQN | 19,593 | 21,167 | +8.0% | 700 | faster |
+| SAC | 2,681 | 2,937 | +9.6% | 373 | |
+| IQL | 1,798 | 2,164 | +20.4% | 421 | |
+| ASAC | 1,543 | 1,696 | +9.9% | 1,208 | |
+| TQC | 351 | 373 | +6.3% | 91 | |
+| TD3 | 3,668 | 3,807 | +3.8% | 201 | |
+| DAgger | 40,948 | 42,142 | +2.9% | 1,203 | |
+| CrossQ | 86.4 | 86.5 | +0.1% | 6.3 | |
+| REDQ | 55.6 | 55.5 | -0.2% | 1.7 | |
+
+The agents the shared jit does not touch (PPO, PQN, APO, APG, UDRL,
+DreamerV3, TD-MPC2) moved by -3.2% to +1.3%, the measurement's noise.
+
+DQN recovers and no agent slows, so the rule keeps the shared jit; the owner
+confirmed it. Unlike DQN's own jit, it is not bitwise: XLA rounds some sums
+otherwise, and training carries the difference on. Against main, 83 of the
+191 exact pins stay bitwise (DQN, the on-policy agents, the world models,
+APG, UDRL) and 108 move: the logged evaluation returns by at most 9e-5
+relative (median 2e-7), the parameters by a median of 2e-7. The
+fingerprints of `tests/agents/test_agent_pins.py` (1e-3) hold, and the 13
+planted faults they catch are still caught. The jit is a deliberate
+workaround for XLA's CPU scheduling, and its comment says so.
+
+### Replays sized to the run
+
+A replay agent's replay held `buffer_size // n_envs` rows per env however
+short the run. It now holds the rows the run writes, plus one, at most that
+many. The benchmark's runs (4 envs, 8,000 steps, one seed):
+
+| Run | rows per env | replay per seed |
+|---|---|---|
+| SAC, Pendulum-v1, before | 250,000 | 38.15 MiB |
+| SAC, Pendulum-v1, after | 2,001 | 0.31 MiB |
+| DQN, CartPole-v1, before | 25,000 | 4.58 MiB |
+| DQN, CartPole-v1, after | 2,001 | 0.37 MiB |
+
+The runs replay the same rows: before the jit moved, every exact pin was
+bitwise on the rows written.
+
+### A new CPU baseline
+
+`benchmarks/agent_baseline.jsonl` now holds the batch's tip `80723b1`:
+macOS on Apple silicon, CPU only, the compile cache off
+(`AJAX_NO_COMPILE_CACHE=1`), the script's defaults (4 envs, 8,000 steps, one
+seed) with five trials, load average 5 to 6.6 (macOS background services).
+CrossQ, TQC, IQL and DAgger are new; each row also names its device
+(`device_kind`). Medians of the five trials, against the baseline of
+2026-10-12 (JAX 0.7.2):
+
+| Agent | Env | exec steps/s | measured steps/s | compile s | trials' exec range | vs 2026-10-12 |
+|---|---|---|---|---|---|---|
+| DAgger | Pendulum-v1 (PD expert) | 42,406 | 9,508 | 0.8 | 42,201-42,653 | new |
+| PQN | CartPole-v1 | 36,260 | 9,040 | 0.9 | 35,035-37,233 | -2% |
+| APO | Pendulum-v1 | 31,243 | 7,203 | 1.2 | 30,252-33,120 | +91% |
+| APG | Pendulum-v1 (tracking) | 28,105 | 6,385 | 1.3 | 27,930-30,015 | -20% |
+| PPO | CartPole-v1 | 25,391 | 6,698 | 1.3 | 24,829-25,954 | +43% |
+| UDRL | Pendulum-v1 | 21,876 | 6,419 | 1.1 | 21,693-22,172 | +74% |
+| DQN | CartPole-v1 | 21,542 | 8,256 | 0.8 | 20,780-21,734 | +29% |
+| AVG | Pendulum-v1 | 11,560 | 5,366 | 1.1 | 11,421-11,643 | +22% |
+| TD3 | Pendulum-v1 | 4,063 | 2,911 | 1.2 | 3,836-4,224 | +53% |
+| IQL | Pendulum-v1 | 3,145 | 2,319 | 1.1 | 2,354-3,462 | new |
+| SAC | Pendulum-v1 | 3,094 | 2,302 | 4.6 | 2,838-3,262 | +39% |
+| ASAC | Pendulum-v1 | 2,135 | 1,709 | 1.2 | 1,532-3,367 | +70% |
+| SAC | inverted_pendulum (terminates) | 1,878 | 1,313 | 5.3 | 1,658-1,965 | +72% |
+| DreamerV3 | CartPole-v1 | 508 | 407 | 7.6 | 455-539 | +38% |
+| TDMPC2 | Pendulum-v1 | 412 | 360 | 4.5 | 410-414 | +41% |
+| TQC | Pendulum-v1 | 392 | 374 | 1.3 | 387-403 | new |
+| CrossQ | Pendulum-v1 | 91 | 90 | 1.7 | 90-93 | new |
+| REDQ | Pendulum-v1 | 63 | 63 | 1.2 | 53-91 | +34% |
+
+Most of the gains since 2026-10-12 come from JAX 0.11 (its section below)
+and this batch's jit; APG's 20% loss is JAX's CPU compiler from 0.9 on, as
+that section found. CrossQ's critics are 2,048 units wide and TQC updates 5
+critics of three 512-unit layers, so both are slow on a CPU. ASAC's and
+REDQ's trials spread the most: judge them on more trials before calling a
+regression.
+
 ## JAX 0.11 and flax 0.12 (PR #199, 2026-10-19)
 
 The lock moves from JAX 0.7.2 / flax 0.10.7 to JAX 0.11.2 / flax 0.12.10;

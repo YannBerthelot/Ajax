@@ -6,6 +6,21 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+- **A replay reserves memory for the rows its run writes.** The replay
+  agents' replays (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN, DAgger,
+  their recurrent forms too) held `buffer_size // n_envs` rows per env
+  however short the run: 38 MB per seed on Pendulum. A run now holds the
+  rows it writes, those written before training (ExpertPrefill, PriorData,
+  an offline dataset) included, plus one, at most `buffer_size // n_envs`
+  per env; a resumed run grows the replay to the uninterrupted run's, as
+  the world models' do. The numbers are unchanged: the runs replay the
+  same rows. A checkpoint saved before restores and resumes as it did.
+  A replay that has wrapped and is resumed by an agent with a larger
+  `buffer_size` now raises, naming `buffer_size`, as DreamerV3's does; it
+  kept its smaller ring silently.
+  The ring rules moved from `ajax.agents.DreamerV3.replay` to
+  `ajax.buffers.ring`: `count_ring_rows` as it was, `size_ring` now
+  returning the ring length alone (each replay grows its own state).
 - **Logging backends.** `LoggingConfig(backends=(...))` names where every
   run logs its evaluations: `TensorBoardBackend(folder)`,
   `WandbBackend(project, group)`, or a backend of your own, any picklable

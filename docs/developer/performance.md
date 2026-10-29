@@ -32,14 +32,16 @@ training run for each agent:
   on `Pendulum-v1`, with 4 environments for 8,000 steps, logging off. The
   environment, `n_envs` and the step count are pinned, and so is
   `learning_starts=1000` for SAC, TD3, REDQ and ASAC, whose defaults (10,000)
-  would outlast the run. Every other hyperparameter is the agent's default,
+  would outlast the run, and for CrossQ, TQC and IQL, so that every replay
+  agent times the same share of updates. Every other hyperparameter is the agent's default,
   so the benchmark follows the agent's own code path rather than a tuned
   configuration. `tests/benchmarks/test_agent_bench.py` checks that every
   entry updates within the run.
-- **Presets and scenarios.** Three agents cannot run that way and get a small
+- **Presets and scenarios.** Four agents cannot run that way and get a small
   documented preset in the script: APG trains on a Pendulum tracking task (it
-  differentiates through the environment), and DreamerV3 and TD-MPC2 run
-  shrunken models that keep every code path. SAC has a second scenario,
+  differentiates through the environment), DAgger imitates the training
+  guide's PD controller on Pendulum (it needs an expert), and DreamerV3 and
+  TD-MPC2 run shrunken models that keep every code path. SAC has a second scenario,
   `SAC/inverted_pendulum`, a Brax task whose episodes terminate, for the
   auto-reset and terminal targets. The offline `TDMPC2MultiTask` is not
   benchmarked.
@@ -54,25 +56,26 @@ training run for each agent:
       lowering and compiling (overlapping spans counted once), and
       `exec_steps_per_s`. This is the run's execution alone.
 
-Each result is one JSON line per trial, tagged with the git commit and the
-JAX backend. `--n-seeds N` trains N seeds at once, the vmapped program
+Each result is one JSON line per trial, tagged with the git commit, the JAX
+backend and the device (`device_kind`, which tells two GPU models apart). `--n-seeds N` trains N seeds at once, the vmapped program
 experiments run; steps per second then count every seed's steps.
 
 ### The baseline
 
 [`benchmarks/agent_baseline.jsonl`](../../benchmarks/agent_baseline.jsonl)
-is the reference a change is compared with. It holds the run of 2026-10-12:
-`main` at `a8a13c2`, macOS on Apple silicon, CPU only, the compile cache off
-(`AJAX_NO_COMPILE_CACHE=1`), the script's defaults (4 envs, 8,000 steps, one
-seed, three trials), 14 entries (every exported agent but `TDMPC2MultiTask`,
-plus `SAC/inverted_pendulum`). The report's
+is the reference a change is compared with. It holds the run of 2026-10-28:
+`batch/perf-memory` at `80723b1`, macOS on Apple silicon, CPU only, the
+compile cache off (`AJAX_NO_COMPILE_CACHE=1`), the script's defaults (4
+envs, 8,000 steps, one seed) with five trials, 18 entries (every exported
+agent but `TDMPC2MultiTask`, plus `SAC/inverted_pendulum`). The report's
 [section of that date](../../PERFORMANCE_REPORT.md) gives the medians.
 
-That baseline breaks with every earlier `benchmarks/agent_*.jsonl` file in
-two ways. Before it, SAC, TD3, REDQ and ASAC ran at their default
-`learning_starts=10_000`, past the end of the run, so their rows timed
-collection alone, with no update. And the earlier files have no `exec_s`.
-Do not compare against them.
+The baseline before it, of 2026-10-12 (`a8a13c2`, JAX 0.7.2, three trials,
+14 entries), is in git history. Most agents run faster since, through JAX
+0.11 and the batch's update jit; APG runs 20% slower, from JAX's CPU compiler
+(the report's JAX 0.11 section). Files from before 2026-10-12 time SAC, TD3,
+REDQ and ASAC collecting without updating, and have no `exec_s`: do not
+compare against them.
 
 ### Checking a change
 
@@ -104,7 +107,8 @@ the baseline itself, capture on the same kind of machine and pass
 - **They belong to the machine.** Steps per second move with the CPU and
   with whatever else runs on it. The report's first DreamerV3 and TD-MPC2
   bench entries, run at a load average of 25 to 35, read 81 and 64-66 steps
-  per second, against 275 and 245 for the whole run in the quiet baseline.
+  per second, against 275 and 245 for the whole run in the quiet baseline
+  of 2026-10-12.
   Compare files measured on one machine, under similar load.
 - **Execution, not compilation.** `exec_s` leaves out tracing, lowering and
   compiling, which a fresh agent repeats in every trial: at the DreamerV3
@@ -113,8 +117,8 @@ the baseline itself, capture on the same kind of machine and pass
   `compile_s` and `measured_s`, so use the same cache setting on both
   sides; the baseline was captured with it off.
 - **Noise.** Single runs swing; the report has seen 15% between identical
-  runs under load, and UDRL's three baseline trials spread from 9,604 to
-  15,069 execution steps per second. Look at the medians, and repeat a
+  runs under load, and ASAC's five baseline trials spread from 1,532 to
+  3,367 execution steps per second. Look at the medians, and repeat a
   measurement before calling a 10% change real.
 
 ### Recorded results
@@ -149,6 +153,8 @@ gets its own section, saying how it breaks with the one before.
 | Script | What it measures |
 | --- | --- |
 | [`benchmarks/perf_bench.py`](../../benchmarks/perf_bench.py) | SAC scenarios one process per measurement, splitting compile from steady-state time and recording peak GPU memory |
+| [`benchmarks/gpu_check.sh`](../../benchmarks/gpu_check.sh) | on Linux with an NVIDIA GPU, one command: at which seed counts PPO, PQN, SAC and DQN run more steps per second on the GPU than on the same machine's CPU (about 2 hours, into `benchmarks/gpu/`) |
+| [`benchmarks/device_report.py`](../../benchmarks/device_report.py) | the table of steps per second by agent, device and seed count that `gpu_check.sh` prints, from `agent_bench.py` rows |
 | [`benchmarks/seed_scaling_report.py`](../../benchmarks/seed_scaling_report.py) | prints time per seed against the number of seeds, from `benchmarks/seed_scaling.jsonl` |
 | [`benchmarks/world_models/learning_checks.py`](../../benchmarks/world_models/learning_checks.py) | whether an agent learns its task on CPU at a small preset (the world models' learning gates); hours long, run outside CI |
 

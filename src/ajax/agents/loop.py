@@ -365,6 +365,16 @@ class TrainLoop:
         end = self.total_timesteps if self.end_timestep is None else self.end_timestep
         return end - self.start_timestep
 
+    def replay_rows_per_env(self) -> int:
+        """The rows per env a fresh run of this call writes to its replay:
+        those its extensions write before training (ExpertPrefill,
+        PriorData), an offline dataset's, then one per tick, none offline."""
+        n_envs = self.env_args.n_envs
+        rows = sum(extension.replay_rows(n_envs) for extension in self.extensions)
+        if self.offline_data is not None:
+            return -(-(rows + len(self.offline_data.reward)) // n_envs)
+        return -(-rows // n_envs) + self.budget // n_envs
+
     def warn_if_partial(self, per_iteration: int, unit: str) -> None:
         """Warn when the budget is not a whole number of iterations of
         ``per_iteration`` env steps (``unit`` names them): the iterations
@@ -474,7 +484,12 @@ class TrainLoop:
         update's structure, filled with NaN (which the logger drops)."""
 
         def do_update(agent_state: Any) -> tuple[Any, Any]:
-            agent_state, aux = update(agent_state)
+            # A jit of its own around the update, a deliberate workaround for
+            # XLA's CPU scheduling: JAX lowers it to a call of its own, which
+            # XLA's CPU pipeline runs up to about 10% faster than the same
+            # operations inlined in the training step (DQN, SAC, AVG;
+            # PERFORMANCE_REPORT.md). The outputs move by rounding at most.
+            agent_state, aux = jax.jit(update)(agent_state)
             # One (1,)-shaped leaf per metric: the metric-flattening contract.
             aux = jax.tree.map(lambda x: jnp.reshape(x, (1,)), aux)
             return self.post_update(agent_state), aux

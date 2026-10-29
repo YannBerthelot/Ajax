@@ -104,32 +104,38 @@ program can be cached.
 
 `benchmarks/agent_bench.py` times every agent on a fixed task (CartPole for
 DQN, PQN, PPO and DreamerV3, a Pendulum tracking task for APG, Pendulum for
-the others), 4 environment copies, 8,000 steps, one seed, 3 trials, the
-compile cache off, on a Mac's CPU. Every agent updates within the run: SAC,
-TD3, REDQ and ASAC start at step 1,000 instead of their default 10,000.
-Medians of the three trials, from the baseline recorded on 2026-10-12:
+the others, DAgger imitating a PD controller), 4 environment copies, 8,000
+steps, one seed, 5 trials, the compile cache off, on a Mac's CPU. Every
+agent updates within the run: the replay agents start at step 1,000 instead
+of their defaults (10,000 for SAC, TD3, REDQ and ASAC). Medians of the five
+trials, from the baseline recorded on 2026-10-28:
 
 | Agent | Steps per second, execution | Steps per second, whole run | Compile and warm-up (s) |
 | --- | --- | --- | --- |
-| PQN | 36,961 | 7,358 | 1.0 |
-| APG | 34,958 | 5,339 | 1.6 |
-| PPO | 17,817 | 4,298 | 2.0 |
-| DQN | 16,662 | 6,395 | 0.9 |
-| APO | 16,390 | 4,024 | 2.0 |
-| UDRL | 12,575 | 4,441 | 1.4 |
-| AVG | 9,460 | 4,027 | 1.5 |
-| TD3 | 2,659 | 1,961 | 1.4 |
-| SAC | 2,218 | 1,635 | 3.8 |
-| ASAC | 1,254 | 1,032 | 1.6 |
-| DreamerV3 | 367 | 275 | 12.9 |
-| TDMPC2 | 292 | 245 | 7.3 |
-| REDQ | 47 | 47 | 1.7 |
+| DAgger | 42,406 | 9,508 | 0.8 |
+| PQN | 36,260 | 9,040 | 0.9 |
+| APO | 31,243 | 7,203 | 1.2 |
+| APG | 28,105 | 6,385 | 1.3 |
+| PPO | 25,391 | 6,698 | 1.3 |
+| UDRL | 21,876 | 6,419 | 1.1 |
+| DQN | 21,542 | 8,256 | 0.8 |
+| AVG | 11,560 | 5,366 | 1.1 |
+| TD3 | 4,063 | 2,911 | 1.2 |
+| IQL | 3,145 | 2,319 | 1.1 |
+| SAC | 3,094 | 2,302 | 4.6 |
+| ASAC | 2,135 | 1,709 | 1.2 |
+| DreamerV3 | 508 | 407 | 7.6 |
+| TDMPC2 | 412 | 360 | 4.5 |
+| TQC | 392 | 374 | 1.3 |
+| CrossQ | 91 | 90 | 1.7 |
+| REDQ | 63 | 63 | 1.2 |
 
 "Execution" leaves out the time JAX spends tracing, lowering and compiling
 the program; "whole run" includes it, because every trial builds a fresh
 agent, whose program is traced again. REDQ is slow by design: from step
-1,000 it makes 20 updates of 10 critics per environment step. UDRL's trials
-spread the most. DreamerV3 and TD-MPC2 run at reduced presets (DreamerV3's
+1,000 it makes 20 updates of 10 critics per environment step. CrossQ's
+critics are 2,048 units wide, and TQC updates 5 critics of three 512-unit
+layers. ASAC's and IQL's trials spread the most. DreamerV3 and TD-MPC2 run at reduced presets (DreamerV3's
 smallest size, `"1m"`; a TD-MPC2 narrowed to 64-unit layers and a smaller
 planner); at its paper's defaults TD-MPC2 would take minutes per bench run
 on a CPU, since it updates its model and plans at every environment step.

@@ -78,6 +78,7 @@ import numpy as np
 from flax import struct
 
 from ajax.agents.TDMPC2.core import IntLike, TDMPC2Batch
+from ajax.buffers.ring import count_ring_rows
 from ajax.environments.row_collector import Row
 
 
@@ -96,7 +97,7 @@ def replay_capacity(buffer_size: int, total_timesteps: int) -> int:
         raise ValueError(f"buffer_size must be >= 1, got {buffer_size}")
     if total_timesteps < 0:
         raise ValueError(f"total_timesteps must be >= 0, got {total_timesteps}")
-    return max(min(buffer_size, total_timesteps), 1)
+    return count_ring_rows(total_timesteps, buffer_size, 1)
 
 
 @struct.dataclass

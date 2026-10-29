@@ -4,6 +4,7 @@ import flashbax as fbx
 import jax
 import jax.numpy as jnp
 from flashbax.buffers.trajectory_buffer import TrajectoryBufferSample
+from flashbax.buffers.trajectory_buffer import init as init_ring
 from jax.tree_util import Partial as partial
 
 from ajax.controller import feature_width
@@ -21,7 +22,9 @@ def get_buffer(
 ):
     """Replay buffer factory: a trajectory buffer of ``buffer_size // n_envs``
     rows per env, whose ``add`` takes the single-step (n_envs, ...)
-    transitions the collector writes.
+    transitions the collector writes. A run's state may hold fewer, the rows
+    it writes (init_buffer's rows_per_env): add and sample read the ring's
+    length from the state.
 
     sequence_length=None (default) samples rows alone, uniformly over every
     stored one: a row holds its next observation, so it needs no successor
@@ -37,8 +40,7 @@ def get_buffer(
         sample_batch_size=batch_size,
         sample_sequence_length=sequence_length or 1,
         period=1,
-        # Rows per env before can_sample: a sample's own, plus one.
-        min_length_time_axis=(sequence_length or batch_size // n_envs) + 1,
+        min_length_time_axis=min_replay_rows(batch_size, n_envs, sequence_length),
         max_length_time_axis=buffer_size // n_envs,
     )
     # The collector adds one transition of shape (n_envs, ...) per call;
@@ -57,6 +59,47 @@ def get_buffer(
     return buffer.replace(add=add_fn, sample=sample_rows)  # type: ignore[attr-defined]
 
 
+def min_replay_rows(
+    batch_size: int, n_envs: int, sequence_length: Optional[int] = None
+) -> int:
+    """The rows per env a replay (get_buffer) holds before it can sample: a
+    sample's own, plus one."""
+    return (sequence_length or batch_size // n_envs) + 1
+
+
+def count_replay_rows(buffer_state: Any) -> tuple[int, int]:
+    """The rows per env a replay's ring holds, and those written to it (the
+    most over the seeds): the rows before its write position, plus the
+    ring's once it has filled. The ring axis follows the env axis, after
+    the seed axes of current_index."""
+    index = jnp.asarray(buffer_state.current_index)
+    values = jax.tree.leaves(buffer_state.experience)[0]
+    held = int(jnp.shape(values)[jnp.ndim(index) + 1])
+    written = index + jnp.where(buffer_state.is_full, held, 0)
+    return held, int(jnp.max(written))
+
+
+def grow_replay(buffer_state: Any, rows: int) -> Any:
+    """A replay that has overwritten none of its rows, its ring lengthened to
+    rows per env: row a stays at slot a, so it is the ring a replay of rows
+    per env holds after the same rows; a ring filled exactly writes its next
+    row past its old end. Host-side, before a resumed run."""
+    index = jnp.asarray(buffer_state.current_index)
+    held, _ = count_replay_rows(buffer_state)
+    axis = jnp.ndim(index) + 1
+
+    def pad(values: jax.Array) -> jax.Array:
+        widths = [(0, 0)] * jnp.ndim(values)
+        widths[axis] = (0, rows - held)
+        return jnp.pad(values, widths)
+
+    return buffer_state.replace(
+        experience=jax.tree.map(pad, buffer_state.experience),
+        current_index=jnp.where(buffer_state.is_full, held, index).astype(index.dtype),
+        is_full=jnp.zeros_like(buffer_state.is_full),
+    )
+
+
 def init_buffer(
     buffer: fbx.flat_buffer.TrajectoryBuffer,
     env_args: EnvironmentConfig,
@@ -68,6 +111,7 @@ def init_buffer(
     include_return_to_go: bool = False,
     include_next_action: bool = False,
     include_policy_action: bool = False,
+    rows_per_env: Optional[int] = None,
 ) -> fbx.flat_buffer.TrajectoryBufferState:
     """
     Initialize the flashbax buffer state with correctly shaped dummy transitions.
@@ -87,6 +131,8 @@ def init_buffer(
     include_policy_action: also keep the action the policy chose,
       ``policy_action``, where it differs from the executed one (a residual
       policy's, for an actor fitting its own actions: IQL's).
+    rows_per_env: the ring's length, the rows a run writes to it
+      (ajax.buffers.ring); None: the buffer's capacity.
 
     A field is stored only for a reader: a row is about 40% raw
     observation, which a run without an expert never reads.
@@ -136,7 +182,9 @@ def init_buffer(
         # R2D2-style stored-state replay: the actor's flattened carry at
         # each step (see ajax.networks.memory.flatten_carry).
         schema["actor_carry"] = jnp.zeros((actor_carry_dim,), dtype=jnp.float32)
-    return buffer.init(schema)
+    if rows_per_env is None:
+        return buffer.init(schema)
+    return init_ring(schema, env_args.n_envs, rows_per_env)
 
 
 class ReplayBatch(NamedTuple):

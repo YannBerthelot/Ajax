@@ -73,7 +73,9 @@ _TDMPC2_PRESET = {
 
 # SAC, TD3, REDQ and ASAC default to learning_starts=10_000, past the end of
 # the TIMESTEPS-step run: their rows timed collection alone. 1,000 is DQN's
-# default, so the replay agents share one warm-up: the updates start an
+# default, so the replay agents share one warm-up (CrossQ, TQC and IQL too,
+# whose defaults of 5,000, 257 and 0 would time other shares of updates;
+# DAgger's is its batch size, not an option): the updates start an
 # eighth into the run and cover the other seven eighths, past SAC's
 # policy_update_start and alpha_update_start (2,000), with more stored steps
 # than any of their batch sizes. tests/benchmarks/test_agent_bench.py checks
@@ -101,6 +103,10 @@ AGENTS: dict[str, tuple[str, dict]] = {
     "AVG": ("Pendulum-v1", {}),
     "APG": ("Pendulum-v1 (APG tracking)", {}),
     "UDRL": ("Pendulum-v1", {}),
+    "CrossQ": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
+    "TQC": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
+    "IQL": ("Pendulum-v1", _WARMUP_INSIDE_RUN),
+    "DAgger": ("Pendulum-v1 (PD expert)", {}),
     # Pendulum's episodes end on the time limit only. Brax's
     # inverted_pendulum ends them when the pole passes 0.2 rad, within tens
     # of steps for an untrained policy: the auto-reset and the terminal
@@ -124,6 +130,7 @@ AGENTS: dict[str, tuple[str, dict]] = {
         },
     ),
     "TDMPC2": ("Pendulum-v1", _TDMPC2_PRESET),
+    # TDMPC2MultiTask is left out: a run of it needs a set of tasks.
 }
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -181,8 +188,23 @@ def _apg_tracking(n_envs: int):
     )
 
 
+def _dagger_pd_expert(n_envs: int):
+    """DAgger preset: DAgger needs an expert to imitate. Pendulum-v1 with
+    the PD controller of the training guide (docs/guide/training.md), on
+    the raw observation [cos theta, sin theta, theta dot]."""
+    import jax.numpy as jnp
+
+    from ajax import DAgger
+
+    def pd_expert(obs):
+        theta = jnp.arctan2(obs[..., 1], obs[..., 0])
+        return jnp.clip(-(2.0 * theta + 0.5 * obs[..., 2]), -2.0, 2.0)[..., None]
+
+    return DAgger("Pendulum-v1", n_envs=n_envs, expert_policy=pd_expert)
+
+
 # agent name -> builder(n_envs) for the presets that are not a plain env id.
-_CUSTOM_BUILDERS = {"APG": _apg_tracking}
+_CUSTOM_BUILDERS = {"APG": _apg_tracking, "DAgger": _dagger_pd_expert}
 
 
 def _build(name: str, env_id: str, kw: dict, n_envs: int):
@@ -302,6 +324,9 @@ def capture(
 
     sha = _git_sha()
     backend = jax.default_backend()
+    # The device's model (e.g. "cpu", "NVIDIA A100-SXM4-40GB"): rows from
+    # different GPUs share the backend "gpu".
+    device_kind = jax.devices()[0].device_kind
     names = only if only else list(AGENTS)
     all_rows: list[dict] = []
     for name in names:
@@ -342,7 +367,7 @@ def capture(
             flush=True,
         )
         for r in rows:
-            r.update(tag=tag, git_sha=sha, jax_backend=backend)
+            r.update(tag=tag, git_sha=sha, jax_backend=backend, device_kind=device_kind)
         all_rows.extend(rows)
 
     with open(out_path, "w") as f:

@@ -1,0 +1,126 @@
+name: Package
+
+# The distribution as users get it (RELEASING.md, steps 3 and 4 of the
+# release): the wheel and the sdist are built once and checked, then the
+# wheel is installed outside the checkout and run. The Release workflow
+# calls it on the commit to tag and publishes the files built here (an
+# artifact uploaded in a called workflow belongs to the caller's run);
+# pull requests that change the packaging run it too. GitHub's runners have
+# no GPU, so JAX runs on the CPU.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit to build.
+        type: string
+        required: true
+  pull_request:
+    branches: [main]
+    paths:
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/package.yml
+      - .github/workflows/release.yml
+      - tests/doc_examples.py
+      - tests/release_smoke.py
+
+concurrency:
+  group: package-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: "0.11.28"
+      - run: uv build --no-sources
+      # The Release workflow's check has matched pyproject's version to the
+      # version to release.
+      - name: Check the wheel and the sdist
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          wheel="dist/ajax_rl-$version-py3-none-any.whl"
+          meta=$(unzip -p "$wheel" '*.dist-info/METADATA')
+          grep -qx "Name: ajax-rl" <<< "$meta" || { echo "the wheel is not ajax-rl"; exit 1; }
+          grep -qx "Version: $version" <<< "$meta" || { echo "the wheel is not $version"; exit 1; }
+          test -f "dist/ajax_rl-$version.tar.gz" || { echo "no sdist for $version"; exit 1; }
+          uvx check-wheel-contents@0.6.3 "$wheel"
+          uvx twine@7.0.0 check --strict dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  # The wheel in a fresh environment outside the checkout, on the oldest and
+  # the newest Python supported: "docs" with the extras the documentation
+  # uses runs the README's and the docs' examples (there are no notebooks),
+  # the others each extra alone with its smoke test (tests/release_smoke.py).
+  installed:
+    name: Installed package (${{ matrix.check }}, ${{ matrix.python }})
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.14"]
+        check: [docs, core, brax, playground, compare, reproduction, wandb, cuda]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: "0.11.28"
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: ${{ runner.temp }}/dist
+      # pip and uv pip do not read [tool.uv.sources]: the compare extra's
+      # adastop comes from the commit pinned there, which has the confidence
+      # sequence ajax.compare.estimate uses. The install runs in the
+      # runner's temporary directory, so no project file of the checkout
+      # configures it.
+      - name: Install the wheel in a fresh environment
+        env:
+          CHECK: ${{ matrix.check }}
+          PYTHON: ${{ matrix.python }}
+        run: |
+          adastop=$(python3 -c 'import tomllib; source = tomllib.load(open("pyproject.toml", "rb"))["tool"]["uv"]["sources"]["adastop"]; print("adastop @ git+" + source["git"] + "@" + source["rev"])')
+          wheel=$(ls "$RUNNER_TEMP"/dist/ajax_rl-*.whl)
+          case "$CHECK" in
+            # matplotlib: the quickstart plots.
+            docs) requirements=("ajax-rl[playground,compare,reproduction,wandb] @ file://$wheel" "$adastop" matplotlib) ;;
+            core) requirements=("ajax-rl @ file://$wheel") ;;
+            compare) requirements=("ajax-rl[compare] @ file://$wheel" "$adastop") ;;
+            *) requirements=("ajax-rl[$CHECK] @ file://$wheel") ;;
+          esac
+          cd "$RUNNER_TEMP"
+          uv venv --python "$PYTHON" env
+          uv pip install --python env/bin/python "${requirements[@]}"
+          echo "$RUNNER_TEMP/env/bin" >> "$GITHUB_PATH"  # python is now the fresh environment's
+      # Run from the checkout, as the examples and the smoke tests are: ajax
+      # must still come from the environment's site-packages.
+      - name: Check that ajax is the installed wheel
+        run: |
+          python -c '
+          import pathlib, sysconfig, ajax
+          location = pathlib.Path(ajax.__file__).resolve()
+          site = pathlib.Path(sysconfig.get_paths()["purelib"]).resolve()
+          print(location)
+          assert location.is_relative_to(site), f"ajax comes from {location}, not {site}"
+          '
+      - if: matrix.check == 'docs'
+        run: python tests/doc_examples.py README.md docs
+      - if: matrix.check != 'docs'
+        run: python tests/release_smoke.py ${{ matrix.check }}

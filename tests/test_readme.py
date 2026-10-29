@@ -20,12 +20,11 @@ import pytest
 
 import ajax
 from tests.agents.test_compatibility import extension_classes
+from tests.doc_examples import ROOT, readme_blocks, run_readme_block
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
 DOCS = ROOT / "docs"
 
-BLOCK = re.compile(r"^```python\n(.*?)^```", re.MULTILINE | re.DOTALL)
 # A Markdown link target or an HTML href, up to an anchor, a quote or a space.
 LINK = re.compile(r'\]\(([^)\s#]+)|href="([^"#]+)"')
 # The README's "## Agents" section, and each agent's link in it: "[SAC](docs/algorithms/sac.md)".
@@ -48,8 +47,7 @@ def _runnable_blocks() -> list:
         pytest.param(
             code, id=f"block{i}", marks=[pytest.mark.slow] if ".train(" in code else []
         )
-        for i, code in enumerate(BLOCK.findall(README.read_text()))
-        if not code.lstrip().startswith("# doc: skip")
+        for i, code in readme_blocks(README)
     ]
 
 
@@ -58,7 +56,7 @@ def test_readme_example_runs(code, tmp_path, monkeypatch):
     """Every runnable example executes without raising, in a scratch
     directory so that nothing it writes lands in the checkout."""
     monkeypatch.chdir(tmp_path)
-    exec(compile(code, str(README), "exec"), {"__name__": "__readme__"})
+    run_readme_block(code, README)
 
 
 def test_readme_agent_list_is_complete():

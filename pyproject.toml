@@ -1,6 +1,6 @@
 [project]
 name = "ajax-rl"
-version = "0.4.0"
+version = "0.5.0"
 description = "Agents in JAX: Jax based implementations of RL algorithms"
 authors = [{ name = "Yann Berthelot", email = "yannberthelot1@gmail.com" }]
 readme = "README.md"

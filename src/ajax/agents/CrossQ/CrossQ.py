@@ -36,7 +36,11 @@ from flax import struct
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import CoreCriticAux, compute_q_regression_loss
+from ajax.agents.critics import (
+    CoreCriticAux,
+    compute_q_regression_loss,
+    critic_value_readers,
+)
 from ajax.agents.families import (
     EntropyTemperature,
     ExpertGuided,
@@ -210,22 +214,29 @@ class CrossQ(
                 action_value_input(batch.next_obs, next_actions),
             ]
         )
+        dones = update_steps.bootstrap_cuts(batch.terminated, context.extensions)
+        # The critic's value at given rows, at its running statistics (the
+        # reference point's); its predictions are the loss's own pass, below.
+        _, target_value_at = critic_value_readers(critic_state, batch.obs, batch.action)
 
         def critic_loss(params: Any) -> tuple[jax.Array, Any]:
             q_values, batch_stats = predict_value_updating_batch_statistics(
                 critic_state, params, rows
             )
             current_q_values, next_q_values = jnp.split(q_values, 2, axis=1)
+            min_next_q_values = jnp.min(next_q_values, axis=0)
             target = compute_soft_bellman_target(
-                jnp.min(next_q_values, axis=0),
+                min_next_q_values,
                 next_log_probs,
                 batch.reward,
-                batch.terminated,
+                dones,
                 self.gamma,
                 alpha,
                 self.reward_scale,
             )
-            target, target_metrics = update_steps.apply_on_target(
+            next_values = min_next_q_values - alpha * next_log_probs
+            # The extensions' states leave through the loss's aux.
+            target, target_metrics, targeted = update_steps.apply_on_target(
                 context.extensions,
                 agent_state,
                 batch,
@@ -233,10 +244,15 @@ class CrossQ(
                 critic_key,
                 context.total_timesteps,
                 rewards=batch.reward,
-                dones=batch.terminated,
+                dones=dones,
                 gamma=self.gamma,
                 reward_scale=self.reward_scale,
                 next_actions=next_actions,
+                next_values=jax.lax.stop_gradient(next_values),
+                predictions=lambda: jax.lax.stop_gradient(
+                    jnp.mean(current_q_values, axis=0)
+                ),
+                target_value_at=target_value_at,
             )
             loss, aux = compute_q_regression_loss(current_q_values, target)
             extra, loss_metrics = update_steps.compute_extensions_critic_loss(
@@ -249,13 +265,17 @@ class CrossQ(
                 context.total_timesteps,
             )
             metrics = merge_metrics(target_metrics, loss_metrics)
-            return loss + extra, (aux, batch_stats, metrics)
+            return loss + extra, (aux, batch_stats, metrics, targeted.ext_state)
 
-        critic_state, (aux, batch_stats, metrics), _ = update_steps.gradient_step(
-            critic_state, critic_loss
+        critic_state, (aux, batch_stats, metrics, ext_state), _ = (
+            update_steps.gradient_step(critic_state, critic_loss)
         )
         critic_state = critic_state.replace(batch_stats=batch_stats)
-        return agent_state.replace(critic_state=critic_state), aux, metrics
+        return (
+            agent_state.replace(critic_state=critic_state, ext_state=ext_state),
+            aux,
+            metrics,
+        )
 
     def update_actor(
         self, agent_state: CrossQState, batch: Transition, context: TrainContext
@@ -322,6 +342,7 @@ class CrossQ(
             "obs_networks",
             "off_policy",
             "policy_density",
+            "one_step_target",
             "q_critic",
             "replay",
             "reward_learning",

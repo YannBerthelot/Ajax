@@ -60,6 +60,58 @@ def compute_mean_critic_loss(
     return compute_q_regression_loss(q_preds, target_q)
 
 
+def critic_value_readers(
+    critic_state: LoadedTrainState, observations: jax.Array, actions: jax.Array
+) -> tuple[Callable, Callable]:
+    """on_target's predictions and target_value_at for an ensemble of Q
+    critics: their mean prediction at the batch's rows (observations,
+    actions) at the step's parameters, which the loss regresses, and their
+    mean value at given observations and actions at the target's (the
+    step's where there are no target critics). No gradient flows back, and
+    each is traced only where an extension reads it."""
+
+    def mean_value(params: FrozenDict, obs: jax.Array, taken: jax.Array) -> jax.Array:
+        values = q_values(critic_state, params, obs, taken)
+        return jax.lax.stop_gradient(jnp.mean(values, axis=0))
+
+    target_params = critic_state.target_params
+    if target_params is None:
+        target_params = critic_state.params
+
+    def predictions() -> jax.Array:
+        return mean_value(critic_state.params, observations, actions)
+
+    def target_value_at(obs: jax.Array, taken: jax.Array) -> jax.Array:
+        return mean_value(target_params, obs, taken)
+
+    return predictions, target_value_at
+
+
+def q_network_value_readers(
+    q_state: LoadedTrainState, observations: jax.Array, actions: jax.Array
+) -> tuple[Callable, Callable]:
+    """critic_value_readers for a Q-network over discrete actions (DQN's):
+    its value at the action indices taken, at the step's parameters and at
+    the target's (the step's where it has none)."""
+
+    def value(params: FrozenDict, obs: jax.Array, taken: jax.Array) -> jax.Array:
+        values = predict_q(q_state, params, obs)
+        chosen = jnp.take_along_axis(values, taken.astype(jnp.int32), axis=-1)
+        return jax.lax.stop_gradient(chosen)
+
+    target_params = q_state.target_params
+    if target_params is None:
+        target_params = q_state.params
+
+    def predictions() -> jax.Array:
+        return value(q_state.params, observations, actions)
+
+    def target_value_at(obs: jax.Array, taken: jax.Array) -> jax.Array:
+        return value(target_params, obs, taken)
+
+    return predictions, target_value_at
+
+
 def compute_q_regression_loss(
     q_preds: jax.Array, target_q: jax.Array
 ) -> Tuple[jax.Array, CoreCriticAux]:

@@ -35,6 +35,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
+from ajax.agents.critics import critic_value_readers
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
     EntropyTemperature,
@@ -307,8 +308,14 @@ class REDQ(
         critic_key, agent_state = agent_state.get_keys_and_new_state()
         alpha = get_alpha(agent_state)
         # A truncated row bootstraps on its final observation (bootstrap_obs).
-        dones = batch.terminated
-        target_q, next_log_probs, next_actions, critic_subset = compute_redq_td_target(
+        dones = update_steps.bootstrap_cuts(batch.terminated, context.extensions)
+        (
+            target_q,
+            next_log_probs,
+            next_actions,
+            critic_subset,
+            next_values,
+        ) = compute_redq_td_target(
             agent_state.actor_state,
             agent_state.critic_state,
             critic_key,
@@ -336,7 +343,10 @@ class REDQ(
                 carries,
             )
 
-        critic_state, aux, _, metrics = update_steps.critic_step(
+        predictions, target_value_at = critic_value_readers(
+            agent_state.critic_state, batch.obs, batch.action
+        )
+        agent_state, aux, _, metrics = update_steps.critic_step(
             agent_state,
             batch,
             target_q,
@@ -350,8 +360,11 @@ class REDQ(
             reward_scale=self.reward_scale,
             next_actions=next_actions,
             critic_subset=critic_subset,
+            next_values=next_values,
+            predictions=predictions,
+            target_value_at=target_value_at,
         )
-        return agent_state.replace(critic_state=critic_state), aux, metrics
+        return agent_state, aux, metrics
 
     def update_actor(
         self,
@@ -407,6 +420,7 @@ class REDQ(
             "obs_networks",
             "off_policy",
             "policy_density",
+            "one_step_target",
             "q_critic",
             "replay",
             "target_critic",
@@ -467,12 +481,13 @@ def compute_redq_td_target(
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
-) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
     """REDQ's Bellman target: the minimum over a random subset of the target
     critics, at the next actions the critics score (map_next_actions: a
     residual policy's executed ones). Returns the target, no gradient
-    flowing back through it, the next actions' log-probs, the next actions
-    and the subset's indices."""
+    flowing back through it, the next actions' log-probs, the next actions,
+    the subset's indices and the value bootstrapped before gamma and the
+    cut."""
     rewards = rewards * reward_scale
     sample_key, subset_key = jax.random.split(rng)
     next_actions, log_probs = sample_next_actions(
@@ -494,7 +509,14 @@ def compute_redq_td_target(
     min_q_target = jnp.min(q_targets[sampled_indexes], axis=0)
 
     target = rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs)
-    return jax.lax.stop_gradient(target), log_probs, next_actions, sampled_indexes
+    next_values = jax.lax.stop_gradient(min_q_target - alpha * log_probs)
+    return (
+        jax.lax.stop_gradient(target),
+        log_probs,
+        next_actions,
+        sampled_indexes,
+        next_values,
+    )
 
 
 def compute_critic_loss(

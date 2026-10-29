@@ -27,7 +27,7 @@ import jax.numpy as jnp
 from flax import struct
 
 from ajax.agents import update_steps
-from ajax.agents.critics import compute_mean_critic_loss
+from ajax.agents.critics import compute_mean_critic_loss, critic_value_readers
 from ajax.agents.families import (
     ExpertGuided,
     GradientClipping,
@@ -227,10 +227,13 @@ class IQL(
             step_actor,
             agent_state,
         )
-        target = compute_bellman_target(
+        target, next_values = compute_bellman_target(
             value_state, batch, self.gamma, self.reward_scale
         )
-        critic_state, critic_loss, _, critic_metrics = update_steps.critic_step(
+        predictions, target_value_at = critic_value_readers(
+            critic, batch.obs, batch.action
+        )
+        critic_stepped, critic_loss, _, critic_metrics = update_steps.critic_step(
             agent_state,
             batch,
             target,
@@ -242,10 +245,14 @@ class IQL(
             dones=batch.terminated,
             gamma=self.gamma,
             reward_scale=self.reward_scale,
+            next_values=next_values,
+            predictions=predictions,
+            target_value_at=target_value_at,
         )
         # The critic's step read the state from before the actor's.
         agent_state = stepped.replace(
-            critic_state=critic_state.soft_update(tau=self.tau),
+            critic_state=critic_stepped.critic_state.soft_update(tau=self.tau),
+            ext_state=critic_stepped.ext_state,
             value_state=value_state,
             n_updates=agent_state.n_updates + 1,
         )
@@ -270,6 +277,7 @@ class IQL(
             "obs_networks",
             "off_policy",
             "policy_density",
+            "one_step_target",
             "q_critic",
             "replay",
             "target_critic",
@@ -340,12 +348,14 @@ def compute_weighted_regression_loss(
 
 def compute_bellman_target(
     value_state: LoadedTrainState, batch: Transition, gamma: float, scale: float
-) -> jax.Array:
-    """scale r + gamma (1 - d) V(s') (learner.py), on the new V."""
+) -> tuple[jax.Array, jax.Array]:
+    """scale r + gamma (1 - d) V(s') (learner.py), on the new V, and the
+    value it bootstrapped, V(s')."""
     next_state_values = predict_value(value_state, value_state.params, batch.next_obs)[
         0
     ]
-    return scale * batch.reward + gamma * (1.0 - batch.terminated) * next_state_values
+    target = scale * batch.reward + gamma * (1.0 - batch.terminated) * next_state_values
+    return target, jax.lax.stop_gradient(next_state_values)
 
 
 def compute_summed_critic_loss(

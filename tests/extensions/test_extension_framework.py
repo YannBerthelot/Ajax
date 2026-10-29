@@ -120,7 +120,7 @@ def test_stack_folds_transforms_and_sums_losses():
         [AddTarget(1.0), AddTarget(10.0), ConstCriticLoss(0.25), ConstCriticLoss(0.75)]
     )
     agent, step, rng = _FakeAgentState(ext_state=((),) * 4), 0, jax.random.PRNGKey(0)
-    target, metrics = stack.apply_on_target(
+    target, metrics, _ = stack.apply_on_target(
         agent, None, jnp.asarray(0.0), step, rng, 100
     )
     assert float(target) == 11.0 and metrics == {}
@@ -148,7 +148,9 @@ def test_a_phase_may_return_its_metrics_beside_its_value():
 
     stack = ExtensionStack([Logged("a"), AddTarget(10.0), Logged("b")])
     agent, step, rng = _FakeAgentState(ext_state=((),) * 3), 0, jax.random.PRNGKey(0)
-    target, metrics = stack.apply_on_target(agent, None, jnp.asarray(0.0), step, rng, 9)
+    target, metrics, _ = stack.apply_on_target(
+        agent, None, jnp.asarray(0.0), step, rng, 9
+    )
     assert float(target) == 12.0
     assert {k: float(v) for k, v in metrics.items()} == {
         "a/target": 0.0,
@@ -308,7 +310,7 @@ def test_apply_helpers_empty_stack_zero_cost():
     assert stack.apply_init_states(agent, rng) is agent
     assert stack.apply_pretrain(agent, step, rng, 100) is agent
     assert stack.apply_post_update(agent, step, rng, 100) is agent
-    folded, metrics = stack.apply_on_target(agent, batch, target, step, rng, 100)
+    folded, metrics, _ = stack.apply_on_target(agent, batch, target, step, rng, 100)
     assert folded is target and metrics == {}
     critic_term = stack.compute_extensions_critic_loss(agent, batch, step, rng, 100)
     actor_term = stack.compute_extensions_actor_loss(agent, batch, step, rng, 100)
@@ -328,7 +330,7 @@ def test_apply_helpers_route_through_phase():
     rng = jax.random.PRNGKey(0)
     step = jnp.asarray(0)
 
-    out, _ = stack.apply_on_target(
+    out, _, _ = stack.apply_on_target(
         agent, batch=None, target=jnp.asarray(0.0), step=step, rng=rng, total_steps=100
     )
     assert float(out) == 11.0
@@ -370,6 +372,44 @@ def test_fold_init_builds_the_states_then_pretrains_at_step_zero():
     assert int(out.ext_state[0]["seen"]) == 0
     np.testing.assert_array_equal(out.ext_state[0]["key"], want.ext_state[0]["key"])
     np.testing.assert_array_equal(out.ext_state[0]["pre"], want.ext_state[0]["pre"])
+
+
+def test_pretraining_keeps_the_states_its_updates_moved():
+    """A pretraining that runs the agent's updates (PriorData, BellmanPretrain)
+    moves the states of the extensions learning from the target: the stack
+    keeps them with its own, and a later pretraining reads them."""
+
+    @dataclass(frozen=True)
+    class RunsUpdates(Extension):
+        name: str = "runs_updates"
+
+        def init_state(self, agent_state, rng):
+            return jnp.asarray(0)
+
+        def pretrain(self, agent_state, ext_state, context):
+            moved = (ext_state, agent_state.ext_state[1] + 5, agent_state.ext_state[2])
+            return agent_state.replace(ext_state=moved), ext_state + 1
+
+    @dataclass(frozen=True)
+    class Learns(Extension):
+        name: str = "learns"
+
+        def init_state(self, agent_state, rng):
+            return jnp.asarray(0)
+
+    @dataclass(frozen=True)
+    class ReadsLater(Extension):
+        name: str = "reads_later"
+
+        def init_state(self, agent_state, rng):
+            return jnp.asarray(0)
+
+        def pretrain(self, agent_state, ext_state, context):
+            return agent_state, agent_state.ext_state[1]
+
+    stack = ExtensionStack([RunsUpdates(), Learns(), ReadsLater()])
+    out = stack.apply_init(_FakeAgentState(), jax.random.PRNGKey(0), 100)
+    assert [int(x) for x in out.ext_state] == [1, 5, 5]
 
 
 def test_fold_init_states_writes_ext_state():
@@ -548,7 +588,7 @@ def test_a_phase_naming_its_context_ctx_still_runs():
     agent = stack.apply_init(_FakeAgentState(), rng, 100)
     assert float(agent.ext_state[0]) == 100.0  # pretrain read ctx.total_steps
     _, rewards, _ = stack.apply_reward(agent, None, jnp.zeros(3), step, rng, 100)
-    target, _ = stack.apply_on_target(agent, None, jnp.asarray(1.0), step, rng, 100)
+    target, _, _ = stack.apply_on_target(agent, None, jnp.asarray(1.0), step, rng, 100)
     critic, _ = stack.compute_extensions_critic_loss(agent, None, step, rng, 100)
     actor, _ = stack.compute_extensions_actor_loss(agent, None, step, rng, 100)
     after = stack.apply_post_update(agent, step, rng, 100)

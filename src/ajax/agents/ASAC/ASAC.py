@@ -39,6 +39,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
+from ajax.agents.critics import critic_value_readers
 from ajax.agents.families import (
     EntropyTemperature,
     ExpertGuided,
@@ -273,7 +274,7 @@ class ASAC(
         critic_key, agent_state = agent_state.get_keys_and_new_state()
         alpha = get_alpha(agent_state)
         dones = batch.terminated
-        target_q, next_log_probs, next_actions = compute_asac_td_target(
+        target_q, next_log_probs, next_actions, next_values = compute_asac_td_target(
             agent_state.actor_state,
             agent_state.critic_state,
             critic_key,
@@ -301,7 +302,10 @@ class ASAC(
             )
 
         # ASAC is average-reward: no gamma, None tells the extensions so.
-        critic_state, aux, _, metrics = update_steps.critic_step(
+        predictions, target_value_at = critic_value_readers(
+            agent_state.critic_state, batch.obs, batch.action
+        )
+        agent_state, aux, _, metrics = update_steps.critic_step(
             agent_state,
             batch,
             target_q,
@@ -314,8 +318,11 @@ class ASAC(
             gamma=None,
             reward_scale=self.reward_scale,
             next_actions=next_actions,
+            next_values=next_values,
+            predictions=predictions,
+            target_value_at=target_value_at,
         )
-        return agent_state.replace(critic_state=critic_state), aux, metrics
+        return agent_state, aux, metrics
 
     def update_actor(
         self,
@@ -370,6 +377,7 @@ class ASAC(
             "obs_networks",
             "off_policy",
             "policy_density",
+            "one_step_target",
             "q_critic",
             "replay",
             "target_critic",
@@ -427,7 +435,7 @@ def compute_asac_td_target(
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
-) -> tuple[jax.Array, jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """r - theta + (1 - done) (min_i Q_target_i(s', a') - alpha (log pi(a'|s')
     - log(1 / nA))) - Q_target(0, 0), r with a termination's penalty.
 
@@ -435,7 +443,8 @@ def compute_asac_td_target(
     next value and is charged the penalty; the origin shift applies to every
     row. a' is the one the critics score (map_next_actions: a residual
     policy's executed one). Returns the target, no gradient flowing back
-    through it, the next actions' log-probs and the next actions.
+    through it, the next actions' log-probs, the next actions and the value
+    bootstrapped before the cut.
     """
     rewards = rewards * reward_scale
     sample_key, _ = jax.random.split(rng)
@@ -475,7 +484,8 @@ def compute_asac_td_target(
     logpi0 = uniform_log_prob(next_actions.shape[-1])
     next_value = (1.0 - dones) * (min_q_target - alpha * (log_probs - logpi0))
     target = rewards - theta + next_value - jnp.mean(shift_value)
-    return jax.lax.stop_gradient(target), log_probs, next_actions
+    bootstrapped = jax.lax.stop_gradient(min_q_target - alpha * (log_probs - logpi0))
+    return jax.lax.stop_gradient(target), log_probs, next_actions, bootstrapped
 
 
 def compute_critic_loss(

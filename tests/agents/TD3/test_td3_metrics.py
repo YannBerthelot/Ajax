@@ -76,7 +76,7 @@ def test_td3_steps_report_the_gap_the_noise_clip_and_gradient_norms() -> None:
     np.testing.assert_allclose(v_aux.q_gap, np.mean(np.abs(q[0] - q[1])), rtol=1e-5)
     # The target noise is drawn on the step's critic key, its first draw.
     key = state.get_keys_and_new_state()[0]
-    target, clip_frac, _ = compute_td3_td_target(
+    target, clip_frac, _, _ = compute_td3_td_target(
         state.actor_state,
         critic,
         key,
@@ -139,7 +139,7 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
     _, v_aux, _ = agent.update_critic(state, batch, None, context)
     critic, actor = state.critic_state, state.actor_state
     alpha = jnp.exp(state.alpha.params["log_alpha"])
-    target, _ = compute_td_target(
+    target, _, _ = compute_td_target(
         actor,
         critic,
         batch.next_obs,

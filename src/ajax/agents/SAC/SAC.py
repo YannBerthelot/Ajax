@@ -34,7 +34,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import compute_mean_critic_loss
+from ajax.agents.critics import compute_mean_critic_loss, critic_value_readers
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
     EntropyTemperature,
@@ -250,9 +250,9 @@ class SAC(
         trained."""
         critic_key, agent_state = agent_state.get_keys_and_new_state()
         # A truncated row bootstraps on its final observation (bootstrap_obs).
-        dones = batch.terminated
+        dones = update_steps.bootstrap_cuts(batch.terminated, context.extensions)
         scored = context.make_scored_actions(batch)
-        target_q, next_actions = compute_td_target(
+        target_q, next_actions, next_values = compute_td_target(
             actor_state=agent_state.actor_state,
             critic_state=agent_state.critic_state,
             next_observations=batch.next_obs,
@@ -277,7 +277,10 @@ class SAC(
                 carries=carries,
             )
 
-        critic_state, aux, grad_norm, metrics = update_steps.critic_step(
+        predictions, target_value_at = critic_value_readers(
+            agent_state.critic_state, batch.obs, batch.action
+        )
+        agent_state, aux, grad_norm, metrics = update_steps.critic_step(
             agent_state,
             batch,
             target_q,
@@ -290,6 +293,9 @@ class SAC(
             gamma=self.gamma,
             reward_scale=self.reward_scale,
             next_actions=next_actions,
+            next_values=next_values,
+            predictions=predictions,
+            target_value_at=target_value_at,
         )
         value_aux = ValueAuxiliaries(
             critic_loss=aux.critic_loss,
@@ -297,7 +303,7 @@ class SAC(
             var_preds=aux.var_preds,
             grad_norm=grad_norm,
         )
-        return agent_state.replace(critic_state=critic_state), value_aux, metrics
+        return agent_state, value_aux, metrics
 
     def update_actor(
         self,
@@ -366,6 +372,7 @@ class SAC(
             "obs_networks",
             "off_policy",
             "policy_density",
+            "one_step_target",
             "q_critic",
             "replay",
             "target_critic",
@@ -416,12 +423,13 @@ def compute_td_target(
     reward_scale: float = 1.0,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
     carries: Optional[RecurrentCarries] = None,
-) -> tuple[jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array, jax.Array]:
     """SAC's Bellman target r + gamma (1 - d)(min_i Q_target_i(s', a') -
     alpha log pi(a'|s')), a' ~ pi(.|s'), no gradient flowing back through
-    it, and the next actions a' it scored; the target extensions (IBRL,
-    CriticBlend, MCVarianceCorrection) may change it before the critic loss
-    reads it.
+    it, the next actions a' it scored and the value it bootstrapped,
+    min_i Q_target_i(s', a') - alpha log pi(a'|s'); the target extensions
+    (IBRL, CriticBlend, MCVarianceCorrection) may change it before the
+    critic loss reads it.
 
     With a residual policy, map_next_actions maps the sampled next actions
     to the executed ones, from the expert's stored next actions
@@ -447,7 +455,8 @@ def compute_td_target(
     target = compute_soft_bellman_target(
         min_q_target, log_probs, rewards, dones, gamma, alpha, reward_scale
     )
-    return jax.lax.stop_gradient(target), next_actions
+    next_values = jax.lax.stop_gradient(min_q_target - alpha * log_probs)
+    return jax.lax.stop_gradient(target), next_actions, next_values
 
 
 def compute_soft_bellman_target(

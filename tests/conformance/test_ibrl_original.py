@@ -122,7 +122,7 @@ def compute_target(
         "map_next_actions": hand_authors_actions,
     }
     if form == "pair":
-        target, _, next_actions = compute_td3_td_target(
+        target, _, next_actions, _ = compute_td3_td_target(
             critic_state=critics,
             target_policy_noise=0.2,
             target_noise_clip=0.5,
@@ -131,7 +131,7 @@ def compute_target(
         subset = None
     else:
         alpha = jnp.asarray(0.0, dtype)
-        target, _, next_actions, subset = compute_redq_td_target(
+        target, _, next_actions, subset, _ = compute_redq_td_target(
             critic_states=critics, alpha=alpha, subset_size=2, **inputs
         )
     batch = {

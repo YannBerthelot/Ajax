@@ -60,6 +60,9 @@ metrics)`` instead of their value: ``metrics``, a dict of scalars named
 ``<extension>/<metric>``, is logged with the update's own metrics (the last
 update's, or the mean over the update's epochs and minibatches, as the
 agent logs its own). Two extensions logging one name raise.
+``on_target`` may also return ``(target, metrics, ext_state)``: the
+extension's state after the update's target, which it learns from
+(ValueCentering's offset, ResetCost's reset critic); the others keep theirs.
 
 Phase batches
 -------------
@@ -290,6 +293,10 @@ class Extension:
     #: (``agent_state.last_rollout``), which an on-policy or incremental
     #: agent then keeps.
     reads_last_rollout: ClassVar[bool] = False
+    #: Whether the agent's target goes on through a termination, bootstrapping
+    #: on the reset observation the replay stores there (ResetCost), instead of
+    #: cutting (update_steps.bootstrap_cuts).
+    continues_through_terminations: ClassVar[bool] = False
 
     #: Whether the observation normaliser covers the columns :meth:`observe`
     #: appends (an expert's action, already in action units, stays raw).
@@ -342,7 +349,7 @@ class Extension:
         del n_envs
         return 0
 
-    # -- per-iteration transforms (state-read-only) ----------------------
+    # -- per-iteration transforms (on_target may update its own state) ---
     def on_target(
         self,
         agent_state: Any,
@@ -351,8 +358,9 @@ class Extension:
         target: jax.Array,
         context: ExtensionContext,
     ) -> Any:
-        """Transform the TD / value target; or return ``(target, metrics)``
-        (the module docstring)."""
+        """Transform the TD / value target; or return ``(target, metrics)``,
+        or ``(target, metrics, ext_state)`` to update its own state (the
+        module docstring)."""
         del agent_state, ext_state, batch, context
         return target
 
@@ -515,6 +523,12 @@ class Extension:
         )
 
     # -- agent-context binding ------------------------------------------
+    def check_stack(self, stack: Sequence["Extension"]) -> None:
+        """Raise when the stack it runs in cannot hold it (another
+        extension's place or the keys it reads; ValueCentering, ResetCost),
+        checked as the stack binds to its agent. Any stack by default."""
+        del stack
+
     def bind_to_agent(self, **agent_context: Any) -> "Extension":
         """Return ``self``, optionally populating closed-over agent context.
 
@@ -616,6 +630,12 @@ class ExtensionStack:
         """The replay-buffer fields the stack's extensions declare they read."""
         return frozenset().union(*(e.buffer_fields for e in self.extensions))
 
+    @property
+    def continues_through_terminations(self) -> bool:
+        """Whether an extension of the stack has the target go on through a
+        termination (Extension.continues_through_terminations)."""
+        return any(e.continues_through_terminations for e in self.extensions)
+
     def _keys(self, rng: jax.Array) -> tuple[jax.Array, ...]:
         """Each extension's key off rng, by its key name (extension_key_names)."""
         names = extension_key_names(self.extensions)
@@ -674,7 +694,6 @@ class ExtensionStack:
         # PriorData's updates) draws on a key lent off the agent's, which
         # then gets its own back: no extension moves the updates' stream.
         lent_keys = self._keys(updates_key)
-        ext_states = list(agent_state.ext_state)
         # The replay's seeders (ExpertPrefill, PriorData) run first, in stack
         # order, since the other pretraining (BellmanPretrain) reads what
         # they write. Each keeps its place in the stack, and so its state.
@@ -686,11 +705,18 @@ class ExtensionStack:
                 step=step, rng=keys[index], total_steps=total_steps, **run_fields
             )
             lent = agent_state.replace(rng=lent_keys[index])
-            agent_state, ext_states[index] = self.extensions[index].pretrain(
-                lent, ext_states[index], context
+            agent_state, own_state = self.extensions[index].pretrain(
+                lent, agent_state.ext_state[index], context
             )
-            agent_state = agent_state.replace(rng=updates_key)
-        return agent_state.replace(ext_state=tuple(ext_states))
+            # The agent's updates it ran (PriorData's, BellmanPretrain's) move
+            # the states of the extensions learning from their targets, and a
+            # later pretraining reads the states the earlier ones left.
+            ext_states = list(agent_state.ext_state)
+            ext_states[index] = own_state
+            agent_state = agent_state.replace(
+                rng=updates_key, ext_state=tuple(ext_states)
+            )
+        return agent_state
 
     def apply_post_update(
         self,
@@ -748,19 +774,23 @@ class ExtensionStack:
         step: Any,
         rng: jax.Array,
         total_steps: int,
-    ) -> tuple[jax.Array, dict]:
+    ) -> tuple[jax.Array, dict, tuple]:
         """Every extension's ``on_target``; returns the (possibly reshaped)
-        target and the extensions' metrics."""
+        target, the extensions' metrics and their states, those that
+        returned one updated."""
         if not self.extensions:
-            return target, {}
+            return target, {}, agent_state.ext_state
         metrics: dict = {}
-        ext_states, keys = agent_state.ext_state, self._keys(rng)
+        ext_states, keys = list(agent_state.ext_state), self._keys(rng)
         for i, ext in enumerate(self.extensions):
             context = ExtensionContext(step=step, rng=keys[i], total_steps=total_steps)
             out = ext.on_target(agent_state, ext_states[i], batch, target, context)
-            target, ext_metrics = phase_output(out)
+            if isinstance(out, tuple) and len(out) == 3:
+                target, ext_metrics, ext_states[i] = out
+            else:
+                target, ext_metrics = phase_output(out)
             metrics = merge_metrics(metrics, ext_metrics)
-        return target, metrics
+        return target, metrics, tuple(ext_states)
 
     def compute_extensions_critic_loss(
         self,
@@ -838,6 +868,8 @@ class ExtensionStack:
         """
         if not self.extensions:
             return self
+        for ext in self.extensions:
+            ext.check_stack(self.extensions)
         return ExtensionStack(
             tuple(ext.bind_to_agent(**agent_context) for ext in self.extensions)
         )

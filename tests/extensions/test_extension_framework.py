@@ -374,6 +374,44 @@ def test_fold_init_builds_the_states_then_pretrains_at_step_zero():
     np.testing.assert_array_equal(out.ext_state[0]["pre"], want.ext_state[0]["pre"])
 
 
+def test_pretraining_keeps_the_states_its_updates_moved():
+    """A pretraining that runs the agent's updates (PriorData, BellmanPretrain)
+    moves the states of the extensions learning from the target: the stack
+    keeps them with its own, and a later pretraining reads them."""
+
+    @dataclass(frozen=True)
+    class RunsUpdates(Extension):
+        name: str = "runs_updates"
+
+        def init_state(self, agent_state, rng):
+            return jnp.asarray(0)
+
+        def pretrain(self, agent_state, ext_state, context):
+            moved = (ext_state, agent_state.ext_state[1] + 5, agent_state.ext_state[2])
+            return agent_state.replace(ext_state=moved), ext_state + 1
+
+    @dataclass(frozen=True)
+    class Learns(Extension):
+        name: str = "learns"
+
+        def init_state(self, agent_state, rng):
+            return jnp.asarray(0)
+
+    @dataclass(frozen=True)
+    class ReadsLater(Extension):
+        name: str = "reads_later"
+
+        def init_state(self, agent_state, rng):
+            return jnp.asarray(0)
+
+        def pretrain(self, agent_state, ext_state, context):
+            return agent_state, agent_state.ext_state[1]
+
+    stack = ExtensionStack([RunsUpdates(), Learns(), ReadsLater()])
+    out = stack.apply_init(_FakeAgentState(), jax.random.PRNGKey(0), 100)
+    assert [int(x) for x in out.ext_state] == [1, 5, 5]
+
+
 def test_fold_init_states_writes_ext_state():
     class Stateful(Extension):
         def init_state(self, agent_state, rng):

@@ -694,7 +694,6 @@ class ExtensionStack:
         # PriorData's updates) draws on a key lent off the agent's, which
         # then gets its own back: no extension moves the updates' stream.
         lent_keys = self._keys(updates_key)
-        ext_states = list(agent_state.ext_state)
         # The replay's seeders (ExpertPrefill, PriorData) run first, in stack
         # order, since the other pretraining (BellmanPretrain) reads what
         # they write. Each keeps its place in the stack, and so its state.
@@ -706,11 +705,18 @@ class ExtensionStack:
                 step=step, rng=keys[index], total_steps=total_steps, **run_fields
             )
             lent = agent_state.replace(rng=lent_keys[index])
-            agent_state, ext_states[index] = self.extensions[index].pretrain(
-                lent, ext_states[index], context
+            agent_state, own_state = self.extensions[index].pretrain(
+                lent, agent_state.ext_state[index], context
             )
-            agent_state = agent_state.replace(rng=updates_key)
-        return agent_state.replace(ext_state=tuple(ext_states))
+            # The agent's updates it ran (PriorData's, BellmanPretrain's) move
+            # the states of the extensions learning from their targets, and a
+            # later pretraining reads the states the earlier ones left.
+            ext_states = list(agent_state.ext_state)
+            ext_states[index] = own_state
+            agent_state = agent_state.replace(
+                rng=updates_key, ext_state=tuple(ext_states)
+            )
+        return agent_state
 
     def apply_post_update(
         self,

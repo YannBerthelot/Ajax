@@ -74,7 +74,7 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.12", "3.14"]
-        check: [docs, core, brax, playground, compare, reproduction, wandb, cuda]
+        check: [docs, core, brax, playground, gymnasium, compare, reproduction, wandb, cuda]
     steps:
       - uses: actions/checkout@v7
         with:

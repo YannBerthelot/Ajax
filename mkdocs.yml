@@ -143,6 +143,7 @@ nav:
       - algorithms/index.md
       - SAC: algorithms/sac.md
       - ASAC: algorithms/asac.md
+      - RVI-SAC: algorithms/rvisac.md
       - REDQ: algorithms/redq.md
       - CrossQ: algorithms/crossq.md
       - TD3: algorithms/td3.md

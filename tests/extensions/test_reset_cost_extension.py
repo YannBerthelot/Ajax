@@ -24,7 +24,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax import APO, ASAC, AVG, DQN, IQL, PPO, REDQ, SAC, TD3, TQC, CrossQ
+from ajax import APO, ASAC, AVG, DQN, IQL, PPO, REDQ, RVISAC, SAC, TD3, TQC, CrossQ
 from ajax.agents.reset_cost import create_reset_cost_state
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.extensions.capabilities import MissingCapability
@@ -123,12 +123,13 @@ def test_with_it_the_target_goes_on_through_terminations(stack):
     "build",
     [
         lambda e: ASAC("Pendulum-v1", extensions=e),
+        lambda e: RVISAC("Pendulum-v1", extensions=e),
         lambda e: PPO("Pendulum-v1", extensions=e),
         lambda e: APO("Pendulum-v1", extensions=e),
         lambda e: AVG("Pendulum-v1", extensions=e),
         lambda e: IQL("Pendulum-v1", extensions=e),
     ],
-    ids=["ASAC", "PPO", "APO", "AVG", "IQL"],
+    ids=["ASAC", "RVISAC", "PPO", "APO", "AVG", "IQL"],
 )
 def test_it_refuses_agents_without_a_replay_a_next_action_or_a_discount(build):
     with pytest.raises(MissingCapability):

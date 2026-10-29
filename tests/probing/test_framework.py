@@ -78,10 +78,13 @@ from . import readouts as R
 # faults/ - 1 (a stale fault deleted), test_framework + 1 (this note, two
 # imports fewer). The q5 cells' unmapped-collector fault: faults/ + 1,
 # test_framework + 2 (this note, the budget's). SpecEnv's record as a
-# wrapper: envs.py + 3, test_framework + 2.
-CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 160, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 248})
-CAPS.update({"test_framework.py": 295, "test_value_chains.py": 1051})
+# wrapper: envs.py + 3, test_framework + 2. RVI-SAC's, ValueCentering's and
+# ResetCost's cells (three, sixteen faults): test_average_reward 186, agents.py
+# + 1, faults/ + 16, test_framework + 4 (this note, the caps, the budget's).
+CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 161, "runs.py": 250}
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 264})
+CAPS.update({"test_average_reward.py": 186})
+CAPS.update({"test_framework.py": 299, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 389, "test_world_models.py": 452})
@@ -261,14 +264,15 @@ def test_the_directory_keeps_to_its_budget() -> None:
     q2 readout read at every carried step and two cells recalibrated, 13 for
     GAIL's signed cell at learning rates 2e-4, 29 for the strict fault verdict,
     3 for the q5 cells' unmapped-collector fault, 6 for SpecEnv's record as a
-    wrapper."""
+    wrapper, 200 for RVI-SAC's, ValueCentering's and ResetCost's three cells and
+    sixteen faults."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8218, total
+    assert total <= 8418, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

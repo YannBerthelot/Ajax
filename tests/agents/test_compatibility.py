@@ -43,7 +43,7 @@ from tests.agents.TDMPC2.test_TDMPC2MultiTask import make_dataset
 ROWS = [
     *(
         (name, "Pendulum-v1")
-        for name in "SAC TD3 REDQ ASAC AVG CrossQ TQC IQL APG TDMPC2".split()
+        for name in "SAC TD3 REDQ ASAC RVISAC AVG CrossQ TQC IQL APG TDMPC2".split()
     ),
     *(
         (name, env)
@@ -117,7 +117,7 @@ GAPS: dict[str, dict[str, str]] = {
         "ValueBox": "TD3 REDQ TQC CrossQ AVG DQN PQN IQL",
     },
     CONTEXT: {
-        "BellmanPretrain": "ASAC DQN IQL",
+        "BellmanPretrain": "ASAC RVISAC DQN IQL",
         "CloningPretrain": "APG PPO UDRL",
     },
     FORM: {
@@ -156,14 +156,15 @@ GAPS: dict[str, dict[str, str]] = {
     IMAGINED: dict.fromkeys(FEATURES[:2], WORLD_ROWS),
     LOGGED: dict.fromkeys(FEATURES[2:], "TDMPC2MultiTask"),
     CNN: {
-        "cnn": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO APO/discrete DAgger"
+        "cnn": "SAC TD3 REDQ TQC CrossQ ASAC RVISAC AVG APG APO APO/discrete DAgger"
         " DAgger/discrete IQL"
     },
     MEMORY: {"memory": "APO APO/discrete DQN PQN DAgger DAgger/discrete IQL"},
     DEFERRED: {"memory": "AVG CrossQ UDRL UDRL/discrete"},
     WARMUP: {"ExpertWarmup": "TDMPC2"},
     REWARD: {
-        "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC AVG APG APO UDRL DAgger IQL DreamerV3"
+        "AdversarialReward": "SAC TD3 REDQ TQC CrossQ ASAC RVISAC AVG APG APO UDRL DAgger"
+        " IQL DreamerV3"
         " TDMPC2 TDMPC2MultiTask"
     },
     OWN_STORE: {

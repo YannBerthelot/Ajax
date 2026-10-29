@@ -26,7 +26,7 @@ state, _ = agent.train(seed=0, n_timesteps=4_096)
 | Agent | Memory |
 | --- | --- |
 | PPO | `memory=`, trained on rollouts |
-| SAC, ASAC, REDQ, TD3, TQC | `memory=`, trained on replayed sequences |
+| SAC, ASAC, RVISAC, REDQ, TD3, TQC | `memory=`, trained on replayed sequences |
 | APG | `memory=`, trained through the simulator |
 | DreamerV3 | built in: its world model is recurrent; `memory=` raises an error |
 | AVG, CrossQ, DQN, PQN, APO, IQL, UDRL, DAgger, TDMPC2, TDMPC2MultiTask | none; `memory=` raises an error |
@@ -205,7 +205,7 @@ critic remembers (the recurrent off-policy critic of Ni et al., 2022).
 
 With memory, SAC, TD3 and REDQ accept no expert policy and no extensions
 (behaviour cloning included, which is the `CloningPretrain` extension), and
-ASAC and PPO no extensions, yet: they raise an error when training starts
+ASAC, RVI-SAC and PPO no extensions, yet: they raise an error when training starts
 rather than run untested combinations. APG takes memory and extensions
 together.
 

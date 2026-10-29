@@ -404,6 +404,11 @@ class NetworkConfig(Replaceable):
     # The tanh log-det's guard, Squash's ``log_det_eps``: 0 keeps the exact
     # log-det; an agent whose reference adds one inside the log sets it.
     squash_log_det_eps: float = flax.struct.field(pytree_node=False, default=0.0)
+    # The squashed policy's deterministic action (Squash's
+    # ``sigma_point_mean``): False, tanh of the latent's mean; True, the mean
+    # of tanh at the latent's mean plus and minus its standard deviation, as
+    # an agent whose reference evaluates so (RVI-SAC's) sets it.
+    squash_sigma_point_mean: bool = flax.struct.field(pytree_node=False, default=False)
     # Read the MLP actor's log-std head as a log-variance: std = exp(out / 2),
     # ``log_std_bounds`` bounding the log-variance, as an agent whose
     # reference does (AVG's) sets it.

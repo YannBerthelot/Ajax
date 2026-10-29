@@ -36,6 +36,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
+from ajax.agents.critics import critic_value_readers
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
     EntropyTemperature,
@@ -244,8 +245,8 @@ class TQC(
         """The quantile critics' step on the truncated target."""
         critic_key, agent_state = agent_state.get_keys_and_new_state()
         # A truncated row bootstraps on its final observation (bootstrap_obs).
-        dones = batch.terminated
-        target_q, next_log_probs, next_actions = compute_tqc_td_target(
+        dones = update_steps.bootstrap_cuts(batch.terminated, context.extensions)
+        target_q, next_log_probs, next_actions, next_values = compute_tqc_td_target(
             agent_state.actor_state,
             agent_state.critic_state,
             critic_key,
@@ -280,7 +281,10 @@ class TQC(
                 target_spread=spread.mean().flatten(),
             )
 
-        critic_state, aux, _, metrics = update_steps.critic_step(
+        predictions, target_value_at = critic_value_readers(
+            agent_state.critic_state, batch.obs, batch.action
+        )
+        agent_state, aux, _, metrics = update_steps.critic_step(
             agent_state,
             batch,
             target_q,
@@ -293,8 +297,11 @@ class TQC(
             gamma=self.gamma,
             reward_scale=self.reward_scale,
             next_actions=next_actions,
+            next_values=next_values,
+            predictions=predictions,
+            target_value_at=target_value_at,
         )
-        return agent_state.replace(critic_state=critic_state), aux, metrics
+        return agent_state, aux, metrics
 
     def update_actor(
         self,
@@ -354,6 +361,7 @@ class TQC(
             "obs_networks",
             "off_policy",
             "policy_density",
+            "one_step_target",
             "q_critic",
             "replay",
             "target_critic",
@@ -386,11 +394,12 @@ def compute_tqc_td_target(
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
-) -> tuple[jax.Array, jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """r + gamma (1 - d)(z - alpha log pi(a'|s')) for every kept target
     quantile z at a' ~ pi(.|s') (trainer.py:45-53), a' as the critics score
     it (map_next_actions: a residual policy's executed one). Returns the
-    held target atoms, the next actions' log-probs and the next actions."""
+    held target atoms, the next actions' log-probs, the next actions and
+    the value bootstrapped, the kept atoms' mean less alpha log pi(a'|s')."""
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, rng, carries, map_next_actions
     )
@@ -403,16 +412,17 @@ def compute_tqc_td_target(
         bootstrap=True,
         quantiles=True,
     )
+    kept = truncated_quantiles(next_quantiles, n_drop)
     target = compute_soft_bellman_target(
-        truncated_quantiles(next_quantiles, n_drop),
-        log_probs,
-        rewards,
-        dones,
-        gamma,
-        alpha,
-        reward_scale,
+        kept, log_probs, rewards, dones, gamma, alpha, reward_scale
     )
-    return jax.lax.stop_gradient(target), log_probs, next_actions
+    next_values = jnp.mean(kept, axis=-1, keepdims=True) - alpha * log_probs
+    return (
+        jax.lax.stop_gradient(target),
+        log_probs,
+        next_actions,
+        jax.lax.stop_gradient(next_values),
+    )
 
 
 def truncated_quantiles(quantiles: jax.Array, n_drop: int) -> jax.Array:

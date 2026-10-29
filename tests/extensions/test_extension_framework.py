@@ -120,7 +120,7 @@ def test_stack_folds_transforms_and_sums_losses():
         [AddTarget(1.0), AddTarget(10.0), ConstCriticLoss(0.25), ConstCriticLoss(0.75)]
     )
     agent, step, rng = _FakeAgentState(ext_state=((),) * 4), 0, jax.random.PRNGKey(0)
-    target, metrics = stack.apply_on_target(
+    target, metrics, _ = stack.apply_on_target(
         agent, None, jnp.asarray(0.0), step, rng, 100
     )
     assert float(target) == 11.0 and metrics == {}
@@ -148,7 +148,9 @@ def test_a_phase_may_return_its_metrics_beside_its_value():
 
     stack = ExtensionStack([Logged("a"), AddTarget(10.0), Logged("b")])
     agent, step, rng = _FakeAgentState(ext_state=((),) * 3), 0, jax.random.PRNGKey(0)
-    target, metrics = stack.apply_on_target(agent, None, jnp.asarray(0.0), step, rng, 9)
+    target, metrics, _ = stack.apply_on_target(
+        agent, None, jnp.asarray(0.0), step, rng, 9
+    )
     assert float(target) == 12.0
     assert {k: float(v) for k, v in metrics.items()} == {
         "a/target": 0.0,
@@ -308,7 +310,7 @@ def test_apply_helpers_empty_stack_zero_cost():
     assert stack.apply_init_states(agent, rng) is agent
     assert stack.apply_pretrain(agent, step, rng, 100) is agent
     assert stack.apply_post_update(agent, step, rng, 100) is agent
-    folded, metrics = stack.apply_on_target(agent, batch, target, step, rng, 100)
+    folded, metrics, _ = stack.apply_on_target(agent, batch, target, step, rng, 100)
     assert folded is target and metrics == {}
     critic_term = stack.compute_extensions_critic_loss(agent, batch, step, rng, 100)
     actor_term = stack.compute_extensions_actor_loss(agent, batch, step, rng, 100)
@@ -328,7 +330,7 @@ def test_apply_helpers_route_through_phase():
     rng = jax.random.PRNGKey(0)
     step = jnp.asarray(0)
 
-    out, _ = stack.apply_on_target(
+    out, _, _ = stack.apply_on_target(
         agent, batch=None, target=jnp.asarray(0.0), step=step, rng=rng, total_steps=100
     )
     assert float(out) == 11.0
@@ -548,7 +550,7 @@ def test_a_phase_naming_its_context_ctx_still_runs():
     agent = stack.apply_init(_FakeAgentState(), rng, 100)
     assert float(agent.ext_state[0]) == 100.0  # pretrain read ctx.total_steps
     _, rewards, _ = stack.apply_reward(agent, None, jnp.zeros(3), step, rng, 100)
-    target, _ = stack.apply_on_target(agent, None, jnp.asarray(1.0), step, rng, 100)
+    target, _, _ = stack.apply_on_target(agent, None, jnp.asarray(1.0), step, rng, 100)
     critic, _ = stack.compute_extensions_critic_loss(agent, None, step, rng, 100)
     actor, _ = stack.compute_extensions_actor_loss(agent, None, step, rng, 100)
     after = stack.apply_post_update(agent, step, rng, 100)

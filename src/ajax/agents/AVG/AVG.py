@@ -34,6 +34,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
+from ajax.agents.critics import critic_value_readers
 from ajax.agents.families import (
     ExpertGuided,
     GradientClipping,
@@ -242,7 +243,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
         # still bootstraps on the final observation, which next_obs holds
         # (get_final_obs).
         dones = transition.terminated
-        target_q, next_log_probs, next_actions = compute_avg_td_target(
+        target_q, next_log_probs, next_actions, next_values = compute_avg_td_target(
             agent_state.actor_state,
             critic_state,
             critic_state.params,
@@ -269,7 +270,10 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
                 agent_state.scaling_coef,
             )
 
-        critic_state, aux, _, metrics = update_steps.critic_step(
+        predictions, target_value_at = critic_value_readers(
+            critic_state, transition.obs, executed.action
+        )
+        agent_state, aux, _, metrics = update_steps.critic_step(
             agent_state,
             executed,
             target_q,
@@ -282,8 +286,11 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             gamma=self.gamma,
             reward_scale=self.reward_scale,
             next_actions=next_actions,
+            next_values=next_values,
+            predictions=predictions,
+            target_value_at=target_value_at,
         )
-        return agent_state.replace(critic_state=critic_state), aux, metrics
+        return agent_state, aux, metrics
 
     def update_actor(
         self,
@@ -341,6 +348,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             "obs_networks",
             "off_policy",
             "policy_density",
+            "one_step_target",
             "q_critic",
             "reward_learning",
             "warmup",
@@ -421,10 +429,11 @@ def compute_avg_td_target(
     alpha: jax.Array,
     reward_scale: float,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
-) -> tuple[jax.Array, jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """AVG's Bellman target, from the current critic (no target network),
     at the next action the critic scores (map_next_actions: a residual
-    policy's executed one), its log-probs and that next action."""
+    policy's executed one), its log-probs, that next action and the value
+    bootstrapped, min_i Q_i(s', a') - alpha log pi(a'|s')."""
     rewards = rewards * reward_scale
     sample_key, _ = jax.random.split(rng)
     next_actions, next_log_probs = sample_next_actions(
@@ -440,7 +449,8 @@ def compute_avg_td_target(
     target = jax.lax.stop_gradient(
         rewards + (1.0 - dones) * gamma * (q_target - alpha * next_log_probs),
     )
-    return target, next_log_probs, next_actions
+    next_values = jax.lax.stop_gradient(q_target - alpha * next_log_probs)
+    return target, next_log_probs, next_actions, next_values
 
 
 def compute_critic_loss(

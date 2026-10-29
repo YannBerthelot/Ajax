@@ -30,7 +30,7 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import compute_mean_critic_loss
+from ajax.agents.critics import compute_mean_critic_loss, critic_value_readers
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
     ExpertGuided,
@@ -201,12 +201,13 @@ class TD3(
         """The critics' step on the smoothed, clipped double-Q target."""
         critic_key, agent_state = agent_state.get_keys_and_new_state()
         # A truncated row bootstraps on its final observation (bootstrap_obs).
-        target_q, clip_fraction, next_actions = compute_td3_td_target(
+        dones = update_steps.bootstrap_cuts(batch.terminated, context.extensions)
+        target_q, clip_fraction, next_actions, next_values = compute_td3_td_target(
             agent_state.actor_state,
             agent_state.critic_state,
             critic_key,
             batch.next_obs,
-            batch.terminated,
+            dones,
             batch.reward,
             self.gamma,
             self.target_policy_noise,
@@ -223,7 +224,10 @@ class TD3(
             self.num_critics,
             clip_fraction,
         )
-        critic_state, aux, grad_norm, metrics = update_steps.critic_step(
+        predictions, target_value_at = critic_value_readers(
+            agent_state.critic_state, batch.obs, batch.action
+        )
+        agent_state, aux, grad_norm, metrics = update_steps.critic_step(
             agent_state,
             batch,
             target_q,
@@ -232,13 +236,16 @@ class TD3(
             critic_key,
             context.total_timesteps,
             rewards=batch.reward,
-            dones=batch.terminated,
+            dones=dones,
             gamma=self.gamma,
             reward_scale=self.reward_scale,
             next_actions=next_actions,
+            next_values=next_values,
+            predictions=predictions,
+            target_value_at=target_value_at,
         )
         aux = aux.replace(grad_norm=grad_norm)
-        return agent_state.replace(critic_state=critic_state), aux, metrics
+        return agent_state, aux, metrics
 
     def update_actor(
         self,
@@ -288,6 +295,7 @@ class TD3(
             "next_action_target",
             "obs_networks",
             "off_policy",
+            "one_step_target",
             "q_critic",
             "replay",
             "target_critic",
@@ -316,12 +324,13 @@ def compute_td3_td_target(
     reward_scale: float,
     carries: Optional[RecurrentCarries] = None,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
-) -> tuple[jax.Array, jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """y = scale r + gamma (1 - d) min_i Q_target_i(s', a') with a' =
     clip(mu_target(s') + clip(N(0, sigma), -c, c), -1, 1), the share of the
-    noise samples the clip to [-c, c] changed, and those smoothed next
+    noise samples the clip to [-c, c] changed, those smoothed next
     actions, as the critics score them (map_next_actions: a residual
-    policy's executed ones, from the expert's stored next actions)."""
+    policy's executed ones, from the expert's stored next actions), and the
+    value bootstrapped, min_i Q_target_i(s', a')."""
     rewards = rewards * reward_scale
     next_action = actor_dist(
         actor_state,
@@ -345,7 +354,8 @@ def compute_td3_td_target(
         bootstrap=True,
     )
     target = rewards + gamma * (1.0 - dones) * jnp.min(q_targets, axis=0)
-    return jax.lax.stop_gradient(target), clip_fraction, next_action
+    next_values = jax.lax.stop_gradient(jnp.min(q_targets, axis=0))
+    return jax.lax.stop_gradient(target), clip_fraction, next_action, next_values
 
 
 def compute_critic_loss(

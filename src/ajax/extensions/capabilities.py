@@ -31,6 +31,10 @@ ALGORITHM_CAPABILITIES: Mapping[str, str] = {
         " or the greedy one), not a state value V(s')"
     ),
     "replay": "its updates sample stored past transitions",
+    "one_step_target": (
+        "its target bootstraps one step ahead on each transition, r + gamma"
+        " V(s'), not on a multi-step or lambda-return"
+    ),
     "off_policy": "its update stays correct on actions its policy did not choose",
     "critic_ensemble": "two critics or more (num_critics, where the agent has it)",
     "target_critic": "a slowly updated copy of its critic, which its bootstrap reads",

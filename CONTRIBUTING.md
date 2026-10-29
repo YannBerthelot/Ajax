@@ -616,11 +616,24 @@ lock.
   main, which downstream projects can pin. Public names change by expand
   then contract (CLAUDE.md, rule 10). Tags come only from the *Release*
   workflow ([release.yml](.github/workflows/release.yml), by hand, with the
-  version): it tags main's head once the slow tier has passed there,
-  running it first if needed, then publishes that commit to PyPI as
-  `ajax-rl` and its documentation as the site's version X.Y, the one the
-  site opens on ([docs-deploy.yml](.github/workflows/docs-deploy.yml); main's
-  is the site's dev version).
+  version), on main's head. Each job needs the one before it:
+    - *check*: the CHANGELOG entry, pyproject's version, no tag yet;
+    - *slow*: the slow tier green on that commit, run first if needed;
+    - *package* ([package.yml](.github/workflows/package.yml)): the wheel
+      and the sdist built once and checked, then the wheel installed in
+      fresh environments outside the checkout, on Python 3.12 and 3.14:
+      the README and docs examples run against it
+      ([tests/doc_examples.py](tests/doc_examples.py), the docs tests'
+      extraction), and each extra, installed alone, runs its smoke test
+      ([tests/release_smoke.py](tests/release_smoke.py)). Pull requests
+      that change the packaging run it too;
+    - *tag* `vX.Y.Z`, then *publish* those same files to PyPI as `ajax-rl`
+      (trusted publishing, no token);
+    - *docs*: the site's version X.Y, the one it opens on
+      ([docs-deploy.yml](.github/workflows/docs-deploy.yml); main's is the
+      site's dev version);
+    - *verify*: `ajax-rl==X.Y.Z` installed from PyPI, retried for up to 20
+      minutes, runs the README's examples; a failure opens an issue.
 
 ## Style
 

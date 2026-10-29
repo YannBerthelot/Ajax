@@ -1,11 +1,13 @@
 name: Release
 
-# Tags a release, by hand, only on a commit the slow tier passed on (the
-# two-tier test plan, owner 2026-10-20): the version's CHANGELOG entry must
-# be on main; with no green Slow tier run on main's head, the slow tier runs
-# there first (slow.yml); then the vX.Y.Z tag is created and the tagged
-# commit is published to PyPI as ajax-rl, and its documentation as the site's
-# version X.Y, the default ("latest"). Tags come only from this workflow.
+# A release, by hand, as RELEASING.md describes it: check (the version's
+# CHANGELOG entry and pyproject version on main's head, no tag yet), the
+# slow tier green there (run first when no green Slow run exists, the
+# two-tier test plan, owner 2026-10-20), the package built once and checked
+# installed outside the checkout (package.yml), then the vX.Y.Z tag, those
+# exact files published to PyPI as ajax-rl, the documentation as the site's
+# version X.Y, the default ("latest"), and the release installed back from
+# PyPI. Tags come only from this workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -14,7 +16,7 @@ on:
         required: true
 
 # The called slow tier opens an issue when red, and reads pull requests to
-# name a bisected merge.
+# name a bisected merge; verify opens one when the published release fails.
 permissions:
   contents: write
   issues: write
@@ -39,6 +41,8 @@ jobs:
         run: |
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be X.Y.Z"; exit 1; }
           grep -qx "## $VERSION" CHANGELOG.md || { echo "CHANGELOG.md has no '## $VERSION'"; exit 1; }
+          project=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          [ "$project" = "$VERSION" ] || { echo "pyproject.toml's version is $project, not $VERSION"; exit 1; }
           if git rev-parse -q --verify "refs/tags/v$VERSION" > /dev/null; then
             echo "v$VERSION exists"; exit 1
           fi
@@ -56,11 +60,19 @@ jobs:
     with:
       ref: ${{ needs.check.outputs.sha }}
 
-  tag:
+  # Skipped jobs upstream skip every job after them unless it says always().
+  package:
     needs: [check, slow]
     if: >-
       always() && needs.check.result == 'success'
       && (needs.slow.result == 'success' || needs.slow.result == 'skipped')
+    uses: ./.github/workflows/package.yml
+    with:
+      ref: ${{ needs.check.outputs.sha }}
+
+  tag:
+    needs: [check, package]
+    if: always() && needs.package.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -74,11 +86,33 @@ jobs:
           git tag -a "v$VERSION" -m "Ajax $VERSION" "${{ needs.check.outputs.sha }}"
           git push origin "v$VERSION"
 
-  # The tag is pushed with the default token, which starts no workflow, so the
-  # site's X.Y is deployed from here; a patch release replaces its minor's.
-  docs:
-    needs: [check, tag]
+  # Trusted publishing: PyPI accepts uploads from this workflow in the pypi
+  # environment, so no token is stored anywhere. The files are the ones the
+  # package job built and checked, not a rebuild.
+  publish:
+    needs: tag
     if: always() && needs.tag.result == 'success'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: "0.11.28"
+      - run: uv publish --trusted-publishing always
+
+  # The tag is pushed with the default token, which starts no workflow, so the
+  # site's X.Y is deployed from here, once the release is on PyPI; a patch
+  # release replaces its minor's.
+  docs:
+    needs: [check, publish]
+    if: always() && needs.publish.result == 'success'
     permissions:
       contents: write
       pages: write
@@ -89,29 +123,46 @@ jobs:
       version: ${{ needs.check.outputs.minor }}
       alias: latest
 
-  # Trusted publishing: PyPI accepts uploads from this workflow in the pypi
-  # environment, so no token is stored anywhere.
-  publish:
-    needs: tag
-    if: always() && needs.tag.result == 'success'
+  # What a user installs: ajax-rl==X.Y.Z from PyPI, in a fresh environment,
+  # retried while the index catches up, then the README's examples, the
+  # quickstart among them. A failure opens an issue; whether to yank the
+  # release is the owner's call, never this workflow's.
+  verify:
+    needs: publish
+    if: always() && needs.publish.result == 'success'
     runs-on: ubuntu-latest
-    environment: pypi
+    timeout-minutes: 45
     permissions:
       contents: read
-      id-token: write
+      issues: write
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: refs/tags/v${{ inputs.version }}
+          ref: v${{ inputs.version }}
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           version: "0.11.28"
-      - run: uv build --no-sources
-      - env:
+      # The README builds a Brax environment: the playground extra.
+      - name: Install the release from PyPI
+        env:
           VERSION: ${{ inputs.version }}
         run: |
-          meta=$(unzip -p "dist/ajax_rl-$VERSION-py3-none-any.whl" '*.dist-info/METADATA')
-          grep -qx "Name: ajax-rl" <<< "$meta" || { echo "the wheel is not ajax-rl"; exit 1; }
-          grep -qx "Version: $VERSION" <<< "$meta" || { echo "the wheel is not $VERSION"; exit 1; }
-          test -f "dist/ajax_rl-$VERSION.tar.gz"
-      - run: uv publish --trusted-publishing always
+          cd "$RUNNER_TEMP"
+          uv venv --python 3.12 env
+          deadline=$((SECONDS + 1200))
+          until uv pip install --python env/bin/python --no-cache "ajax-rl[playground]==$VERSION"; do
+            [ "$SECONDS" -lt "$deadline" ] || { echo "ajax-rl $VERSION is not installable from PyPI after 20 minutes"; exit 1; }
+            sleep 30
+          done
+      - name: Run the README's examples on it
+        run: |
+          "$RUNNER_TEMP/env/bin/python" tests/doc_examples.py README.md
+      - if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --repo "${{ github.repository }}" \
+            --title "ajax-rl $VERSION from PyPI fails its check" \
+            --body "The Release workflow published ajax-rl $VERSION, but installing it from PyPI or running the README's examples on it failed: $RUN. Whether to yank it is the owner's call."

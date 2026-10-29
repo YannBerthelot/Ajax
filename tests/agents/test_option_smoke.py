@@ -37,6 +37,7 @@ from ajax.extensions import (
     instrumentation,
     observe,
     offline,
+    reset_cost,
 )
 from ajax.extensions import pretrain as pre
 from ajax.extensions import target_mods as tm
@@ -202,6 +203,8 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "PIDTermsInput": (lambda: observe.PIDTermsInput((0,), (1,)), "SAC"),
     # Last of the extensions shaping the target, as it requires.
     "ValueCentering": (centering.ValueCentering, "SAC TD3"),
+    # Its rows read nothing of the episode a termination ended (check_stack).
+    "ResetCost": (reset_cost.ResetCost, "DQN"),
 }
 ACTING = {"ValueBox", "EDGEExploration", "JSRLCurriculum", "ResidualPolicy"}
 PHI_STAR = (

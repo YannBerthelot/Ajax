@@ -2471,6 +2471,39 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.min_replay_rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        min_replay_rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.count_replay_rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        count_replay_rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.grow_replay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        grow_replay
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.buffers.utils.init_buffer" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2718,6 +2751,17 @@
     <span class="md-ellipsis">
       
         make_replay_buffer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.recurrent.replayed_window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        replayed_window
       
     </span>
   </a>
@@ -2950,6 +2994,39 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.min_replay_rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        min_replay_rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.count_replay_rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        count_replay_rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.grow_replay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        grow_replay
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.buffers.utils.init_buffer" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3204,6 +3281,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.recurrent.replayed_window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        replayed_window
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.recurrent.actor_dist" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3426,13 +3514,82 @@ the buffer does not store them (:func:<code>init_buffer</code>).</p>
 
         <p>Replay buffer factory: a trajectory buffer of <code>buffer_size // n_envs</code>
 rows per env, whose <code>add</code> takes the single-step (n_envs, ...)
-transitions the collector writes.</p>
+transitions the collector writes. A run's state may hold fewer, the rows
+it writes (init_buffer's rows_per_env): add and sample read the ring's
+length from the state.</p>
 <p>sequence_length=None (default) samples rows alone, uniformly over every
 stored one: a row holds its next observation, so it needs no successor
 (flashbax's flat buffer samples a row with its successor, which leaves
 each env's newest row out). When set (recurrent agents), <code>sample</code>
 yields contiguous per-env sequences of that length, shaped
 (batch_size, sequence_length, ...).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.buffers.utils.min_replay_rows" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">min_replay_rows</span>
+
+
+<a href="#ajax.buffers.utils.min_replay_rows" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">min_replay_rows</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">n_envs</span><span class="p">,</span> <span class="n">sequence_length</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The rows per env a replay (get_buffer) holds before it can sample: a
+sample's own, plus one.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.buffers.utils.count_replay_rows" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">count_replay_rows</span>
+
+
+<a href="#ajax.buffers.utils.count_replay_rows" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">count_replay_rows</span><span class="p">(</span><span class="n">buffer_state</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The rows per env a replay's ring holds, and those written to it (the
+most over the seeds): the rows before its write position, plus the
+ring's once it has filled. The ring axis follows the env axis, after
+the seed axes of current_index.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.buffers.utils.grow_replay" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">grow_replay</span>
+
+
+<a href="#ajax.buffers.utils.grow_replay" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">grow_replay</span><span class="p">(</span><span class="n">buffer_state</span><span class="p">,</span> <span class="n">rows</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>A replay that has overwritten none of its rows, its ring lengthened to
+rows per env: row a stays at slot a, so it is the ring a replay of rows
+per env holds after the same rows; a ring filled exactly writes its next
+row past its old end. Host-side, before a resumed run.</p>
 
 
     </div>
@@ -3458,7 +3615,8 @@ yields contiguous per-env sequences of that length, shaped
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">include_return_to_go</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">include_next_action</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">include_policy_action</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="p">)</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">rows_per_env</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3477,7 +3635,9 @@ include_next_action: also keep a dataset row's next action, its
   episode's next row's, <code>next_action</code> (NaN where unknown).
 include_policy_action: also keep the action the policy chose,
   <code>policy_action</code>, where it differs from the executed one (a residual
-  policy's, for an actor fitting its own actions: IQL's).</p>
+  policy's, for an actor fitting its own actions: IQL's).
+rows_per_env: the ring's length, the rows a run writes to it
+  (ajax.buffers.ring); None: the buffer's capacity.</p>
 <p>A field is stored only for a reader: a row is about 40% raw
 observation, which a run without an expert never reads.</p>
 
@@ -4181,6 +4341,28 @@ trajectories sampled as windows when memory is set. agent holds
 burn_in, sequence_length, stored_state and
 learning_starts: a declared agent (its fields), or an older agent's
 RecurrentReplayConfig.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.recurrent.replayed_window" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">replayed_window</span>
+
+
+<a href="#ajax.agents.recurrent.replayed_window" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">replayed_window</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">memory</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The steps a replayed window spans, for agent's burn_in and
+sequence_length: the burn-in prefix, the trained segment and the
+bootstrap step. None without memory: the replay samples rows alone.</p>
 
 
     </div>

@@ -2410,6 +2410,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.loop.TrainLoop.replay_rows_per_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        replay_rows_per_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.loop.TrainLoop.warn_if_partial" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3360,6 +3371,17 @@
     <span class="md-ellipsis">
       
         create
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.loop.TrainLoop.replay_rows_per_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        replay_rows_per_env
       
     </span>
   </a>
@@ -4351,6 +4373,28 @@ iterations come from its :attr:<code>budget</code>.</p>
 
         <p>The loop of one <code>make_train</code> call; starts the logging worker
 when <code>logging_config</code> names a backend.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.agents.loop.TrainLoop.replay_rows_per_env" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">replay_rows_per_env</span>
+
+
+<a href="#ajax.agents.loop.TrainLoop.replay_rows_per_env" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">replay_rows_per_env</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The rows per env a fresh run of this call writes to its replay:
+those its extensions write before training (ExpertPrefill,
+PriorData), an offline dataset's, then one per tick, none offline.</p>
 
 
     </div>

@@ -2331,6 +2331,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.resumed_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resumed_state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.base.ActorCritic.get_make_train" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2839,6 +2850,39 @@
     <span class="md-ellipsis">
       
         evaluation_kwargs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.families.ReplayAgent.replay_window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        replay_window
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.families.ReplayAgent.replay_length" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        replay_length
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.families.ReplayAgent.resumed_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resumed_state
       
     </span>
   </a>
@@ -3852,6 +3896,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.resumed_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resumed_state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.base.ActorCritic.get_make_train" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4360,6 +4415,39 @@
     <span class="md-ellipsis">
       
         evaluation_kwargs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.families.ReplayAgent.replay_window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        replay_window
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.families.ReplayAgent.replay_length" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        replay_length
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.families.ReplayAgent.resumed_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resumed_state
       
     </span>
   </a>
@@ -5509,6 +5597,28 @@ The default 0 restarts the indices at every <code>train</code> call (every
 existing agent; APG's per-stage cadence relies on it). Agents whose
 schedules are functions of the absolute tick override this to
 return their tick counter -- a host-side int, equal across seeds.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.base.ActorCritic.resumed_state" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">resumed_state</span>
+
+
+<a href="#ajax.agents.base.ActorCritic.resumed_state" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">resumed_state</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="p">,</span> <span class="n">train_options</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The state a resumed call of n_timesteps, with train's other
+options, continues from: state itself, but for a replay agent's
+replay, which grows to the uninterrupted run's.</p>
 
 
     </div>
@@ -7435,7 +7545,9 @@ and update, and may replace collection's action pipeline
             </td>
             <td>
               <div class="doc-md-description">
-                <p>The replay's capacity, in transitions.</p>
+                <p>The replay's capacity, in transitions. A run reserves
+memory for the rows it writes, at most buffer_size // n_envs per
+env, so a short run's replay is small (ajax.buffers.ring).</p>
               </div>
             </td>
             <td>
@@ -7576,6 +7688,72 @@ chooser too (context.env_args.warmups).</p>
 
         <p>DeclaredAgent's, and what each evaluation logs of the replay
 (measure_replay).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.agents.families.ReplayAgent.replay_window" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">replay_window</span>
+
+
+<a href="#ajax.agents.families.ReplayAgent.replay_window" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">replay_window</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The rows one replayed sample spans; None: rows alone.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.agents.families.ReplayAgent.replay_length" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">replay_length</span>
+
+
+<a href="#ajax.agents.families.ReplayAgent.replay_length" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">replay_length</span><span class="p">(</span><span class="n">rows_per_env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The ring length of the replay of a run writing rows_per_env rows
+per env (ajax.buffers.ring): one more, so that it never reports
+full before its capacity, buffer_size // n_envs, at most that, and
+at least the rows it holds before it can sample.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.agents.families.ReplayAgent.resumed_state" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">resumed_state</span>
+
+
+<a href="#ajax.agents.families.ReplayAgent.resumed_state" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">resumed_state</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="p">,</span> <span class="n">train_options</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>state, its replay grown to the uninterrupted run's ring
+(replay_length) where it is shorter: the call writes one row per env
+and tick, none offline. A shorter ring that has overwritten rows is
+refused (size_ring).</p>
 
 
     </div>

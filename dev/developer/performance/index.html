@@ -2797,14 +2797,16 @@ training run for each agent:</p>
   on <code>Pendulum-v1</code>, with 4 environments for 8,000 steps, logging off. The
   environment, <code>n_envs</code> and the step count are pinned, and so is
   <code>learning_starts=1000</code> for SAC, TD3, REDQ and ASAC, whose defaults (10,000)
-  would outlast the run. Every other hyperparameter is the agent's default,
+  would outlast the run, and for CrossQ, TQC and IQL, so that every replay
+  agent times the same share of updates. Every other hyperparameter is the agent's default,
   so the benchmark follows the agent's own code path rather than a tuned
   configuration. <code>tests/benchmarks/test_agent_bench.py</code> checks that every
   entry updates within the run.</li>
-<li><strong>Presets and scenarios.</strong> Three agents cannot run that way and get a small
+<li><strong>Presets and scenarios.</strong> Four agents cannot run that way and get a small
   documented preset in the script: APG trains on a Pendulum tracking task (it
-  differentiates through the environment), and DreamerV3 and TD-MPC2 run
-  shrunken models that keep every code path. SAC has a second scenario,
+  differentiates through the environment), DAgger imitates the training
+  guide's PD controller on Pendulum (it needs an expert), and DreamerV3 and
+  TD-MPC2 run shrunken models that keep every code path. SAC has a second scenario,
   <code>SAC/inverted_pendulum</code>, a Brax task whose episodes terminate, for the
   auto-reset and terminal targets. The offline <code>TDMPC2MultiTask</code> is not
   benchmarked.</li>
@@ -2821,22 +2823,23 @@ training run for each agent:</p>
 </ul>
 </li>
 </ul>
-<p>Each result is one JSON line per trial, tagged with the git commit and the
-JAX backend. <code>--n-seeds N</code> trains N seeds at once, the vmapped program
+<p>Each result is one JSON line per trial, tagged with the git commit, the JAX
+backend and the device (<code>device_kind</code>, which tells two GPU models apart). <code>--n-seeds N</code> trains N seeds at once, the vmapped program
 experiments run; steps per second then count every seed's steps.</p>
 <h3 id="the-baseline">The baseline<a class="headerlink" href="#the-baseline" title="Permanent link">&para;</a></h3>
 <p><a href="https://github.com/YannBerthelot/Ajax/blob/main/benchmarks/agent_baseline.jsonl"><code>benchmarks/agent_baseline.jsonl</code></a>
-is the reference a change is compared with. It holds the run of 2026-10-12:
-<code>main</code> at <code>a8a13c2</code>, macOS on Apple silicon, CPU only, the compile cache off
-(<code>AJAX_NO_COMPILE_CACHE=1</code>), the script's defaults (4 envs, 8,000 steps, one
-seed, three trials), 14 entries (every exported agent but <code>TDMPC2MultiTask</code>,
-plus <code>SAC/inverted_pendulum</code>). The report's
+is the reference a change is compared with. It holds the run of 2026-10-28:
+<code>batch/perf-memory</code> at <code>80723b1</code>, macOS on Apple silicon, CPU only, the
+compile cache off (<code>AJAX_NO_COMPILE_CACHE=1</code>), the script's defaults (4
+envs, 8,000 steps, one seed) with five trials, 18 entries (every exported
+agent but <code>TDMPC2MultiTask</code>, plus <code>SAC/inverted_pendulum</code>). The report's
 <a href="https://github.com/YannBerthelot/Ajax/blob/main/PERFORMANCE_REPORT.md">section of that date</a> gives the medians.</p>
-<p>That baseline breaks with every earlier <code>benchmarks/agent_*.jsonl</code> file in
-two ways. Before it, SAC, TD3, REDQ and ASAC ran at their default
-<code>learning_starts=10_000</code>, past the end of the run, so their rows timed
-collection alone, with no update. And the earlier files have no <code>exec_s</code>.
-Do not compare against them.</p>
+<p>The baseline before it, of 2026-10-12 (<code>a8a13c2</code>, JAX 0.7.2, three trials,
+14 entries), is in git history. Most agents run faster since, through JAX
+0.11 and the batch's update jit; APG runs 20% slower, from JAX's CPU compiler
+(the report's JAX 0.11 section). Files from before 2026-10-12 time SAC, TD3,
+REDQ and ASAC collecting without updating, and have no <code>exec_s</code>: do not
+compare against them.</p>
 <h3 id="checking-a-change">Checking a change<a class="headerlink" href="#checking-a-change" title="Permanent link">&para;</a></h3>
 <p>Measure both sides on the same machine, one after the other, with the same
 settings:</p>
@@ -2861,7 +2864,8 @@ the baseline itself, capture on the same kind of machine and pass
 <li><strong>They belong to the machine.</strong> Steps per second move with the CPU and
   with whatever else runs on it. The report's first DreamerV3 and TD-MPC2
   bench entries, run at a load average of 25 to 35, read 81 and 64-66 steps
-  per second, against 275 and 245 for the whole run in the quiet baseline.
+  per second, against 275 and 245 for the whole run in the quiet baseline
+  of 2026-10-12.
   Compare files measured on one machine, under similar load.</li>
 <li><strong>Execution, not compilation.</strong> <code>exec_s</code> leaves out tracing, lowering and
   compiling, which a fresh agent repeats in every trial: at the DreamerV3
@@ -2870,8 +2874,8 @@ the baseline itself, capture on the same kind of machine and pass
   <code>compile_s</code> and <code>measured_s</code>, so use the same cache setting on both
   sides; the baseline was captured with it off.</li>
 <li><strong>Noise.</strong> Single runs swing; the report has seen 15% between identical
-  runs under load, and UDRL's three baseline trials spread from 9,604 to
-  15,069 execution steps per second. Look at the medians, and repeat a
+  runs under load, and ASAC's five baseline trials spread from 1,532 to
+  3,367 execution steps per second. Look at the medians, and repeat a
   measurement before calling a 10% change real.</li>
 </ul>
 <h3 id="recorded-results">Recorded results<a class="headerlink" href="#recorded-results" title="Permanent link">&para;</a></h3>
@@ -2927,6 +2931,14 @@ gets its own section, saying how it breaks with the one before.</p>
 <tr>
 <td><a href="https://github.com/YannBerthelot/Ajax/blob/main/benchmarks/perf_bench.py"><code>benchmarks/perf_bench.py</code></a></td>
 <td>SAC scenarios one process per measurement, splitting compile from steady-state time and recording peak GPU memory</td>
+</tr>
+<tr>
+<td><a href="https://github.com/YannBerthelot/Ajax/blob/main/benchmarks/gpu_check.sh"><code>benchmarks/gpu_check.sh</code></a></td>
+<td>on Linux with an NVIDIA GPU, one command: at which seed counts PPO, PQN, SAC and DQN run more steps per second on the GPU than on the same machine's CPU (about 2 hours, into <code>benchmarks/gpu/</code>)</td>
+</tr>
+<tr>
+<td><a href="https://github.com/YannBerthelot/Ajax/blob/main/benchmarks/device_report.py"><code>benchmarks/device_report.py</code></a></td>
+<td>the table of steps per second by agent, device and seed count that <code>gpu_check.sh</code> prints, from <code>agent_bench.py</code> rows</td>
 </tr>
 <tr>
 <td><a href="https://github.com/YannBerthelot/Ajax/blob/main/benchmarks/seed_scaling_report.py"><code>benchmarks/seed_scaling_report.py</code></a></td>

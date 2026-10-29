@@ -88,7 +88,7 @@ NAMES: tuple[str, ...] = (
     # is given no key (ajax.policy.Policy).
     "policy",
     # The reset cost's critic, off its agent's initialisation key, apart from
-    # the agent's networks (ajax.extensions.reset_cost).
+    # the agent's networks (ajax.agents.RVISAC; ajax.extensions.reset_cost).
     "reset_critic",
 )
 

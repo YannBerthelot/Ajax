@@ -31,6 +31,10 @@ ALGORITHM_CAPABILITIES: Mapping[str, str] = {
         " or the greedy one), not a state value V(s')"
     ),
     "replay": "its updates sample stored past transitions",
+    "continuing_target": (
+        "its target goes on through a termination into the reset observation,"
+        " cutting nowhere (RVI-SAC's reset scheme)"
+    ),
     "one_step_target": (
         "its target bootstraps one step ahead on each transition, r + gamma"
         " V(s'), not on a multi-step or lambda-return"

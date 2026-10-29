@@ -6,7 +6,9 @@ whose observation [t, c] says which step of which episode a row is:
 [t + 1, c] for its s = [t, c], a time-limited row's the final observation
 (t = LIMIT), not the next episode's first, nor another env's;
 (ii) the flags are those the step raised: ``dones`` (where the target cuts
-the bootstrap) the termination, ``terminated`` and ``truncated`` apart;
+the bootstrap) the termination, or nowhere for a target going on through
+terminations (``continuing_target``: RVI-SAC), ``terminated`` and
+``truncated`` apart;
 (iii) under reward normalisation, an agent learning from its rollout reads
 the normalised channel the env produced, not the raw one it keeps in its
 info; a replay agent reads each replayed row's own reward (on the identity
@@ -109,8 +111,11 @@ def test_on_target_rows_are_their_episodes_transitions(name, monkeypatch):
     assert set(flags).difference({"truncated"}), (
         f"no termination flag in {sorted(BATCHES[0])}"
     )
+    continuing = "continuing_target" in case.cls.capabilities
     for key in flags:
         expected = truncated if key == "truncated" else terminated
+        if key == "dones" and continuing:
+            expected = np.zeros_like(terminated)
         np.testing.assert_array_equal(_column(key) > 0, expected, err_msg=key)
     if not normalising:
         return

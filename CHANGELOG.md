@@ -4,6 +4,50 @@ Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged `vX.Y.Z` on main and published to
 PyPI as `ajax-rl`.
 
+## Unreleased
+
+- **RVI-SAC.** A new average-reward agent, `RVISAC` (Hisaki and Ono, ICML
+  2024): SAC learned by RVI Q-learning, its target `r - c 1(terminated) -
+  xi + V'(s')` going on through terminations, `xi` following the batch mean
+  of the next values, and a reset cost `c` learned as a Lagrange
+  multiplier on the termination rate. Its defaults, initialisation,
+  update order and evaluation action are the authors'
+  (yhisaki/average-reward-drl); one update matches theirs leaf by leaf
+  (`tests/conformance/test_rvisac_original.py`).
+- **ValueCentering and ResetCost.** Two extensions bring RVI-SAC's pieces
+  to the discounted agents. `ValueCentering(rule)` centres a one-step
+  target on a learned reward rate (Naik et al., RLC 2024) by one of three
+  rules in `ajax.agents.centering`: `RVIBatchMean`, `TDErrorCentering`,
+  `ReferencePoint`. `ResetCost()` has the target go on through
+  terminations and charges them a learned cost (`ajax.agents.reset_cost`).
+  RVI-SAC calls the same functions.
+- **What `on_target` may learn from.** An extension's `on_target` may now
+  return `(target, metrics, ext_state)` to update its own state, and its
+  batch holds `next_values` (the value the target bootstrapped),
+  `terminated`, `predictions()` and `target_value_at(obs, actions)`.
+  `update_steps.critic_step` returns the agent state (its critics stepped,
+  the extensions' states updated) in place of the critic state, and
+  `ExtensionStack.apply_on_target` returns the states as a third value.
+  The agents' target helpers (`compute_td_target`, `compute_td3_td_target`,
+  `compute_redq_td_target`, `compute_tqc_td_target`,
+  `compute_asac_td_target`, `compute_avg_td_target`, IQL's
+  `compute_bellman_target`, DQN's two) also return the value they
+  bootstrapped. DQN's `td_target_fn` may return `(target, next_actions,
+  next_values)`; one returning the target alone still works. Two new
+  capabilities: `one_step_target` and `continuing_target`. An
+  `Extension.check_stack(stack)` hook refuses a stack that cannot hold an
+  extension. The outputs of every existing agent and extension are
+  unchanged.
+- **Pretraining keeps the states its updates move.** A pretraining that
+  runs the agent's updates (PriorData, BellmanPretrain) now keeps the
+  states those updates gave the other extensions, and a later pretraining
+  reads the states the earlier ones left, where it read their initial
+  ones.
+- **`NetworkConfig.squash_sigma_point_mean`.** A squashed policy's
+  deterministic action can be the mean of `tanh` at the latent mean plus
+  and minus its standard deviation (RVI-SAC's authors' evaluation action),
+  in place of `tanh` of the mean.
+
 ## 0.5.0
 
 What a user of 0.4.0 meets:

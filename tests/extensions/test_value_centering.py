@@ -6,7 +6,7 @@ Contract (the extension's docstring, from the papers' rules in ajax.agents.cente
   the batch mean of the next values followed at rate (Hisaki & Ono, Eq. 18), the stored offset
   moved by step_size times the mean TD error of the centred target (Naik et al., Eq. 10), or gain
   times the target critics' value at the reference row (zeros where None).
-- It refuses the agents that centre themselves (ASAC, APO: not discounted) and those
+- It refuses the agents that centre themselves (ASAC, APO, RVI-SAC: not discounted) and those
   whose targets are lambda-returns (PPO, PQN), and runs on SAC, TD3 and DQN.
 - It comes last of the extensions shaping the target.
 - In a run, the offset moves from 0 to the reward rate's sign on a task of positive rewards.
@@ -20,7 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax import APO, ASAC, DQN, PPO, PQN, SAC, TD3
+from ajax import APO, ASAC, DQN, PPO, PQN, RVISAC, SAC, TD3
 from ajax.agents.centering import ReferencePoint, RVIBatchMean, TDErrorCentering
 from ajax.extensions.base import ExtensionStack
 from ajax.extensions.capabilities import MissingCapability
@@ -82,11 +82,12 @@ def test_the_reference_rule_reads_the_target_critics_at_its_row_with_zeros_for_n
     "build",
     [
         lambda e: ASAC("Pendulum-v1", extensions=e),
+        lambda e: RVISAC("Pendulum-v1", extensions=e),
         lambda e: APO("Pendulum-v1", extensions=e),
         lambda e: PPO("Pendulum-v1", extensions=e),
         lambda e: PQN("CartPole-v1", extensions=e),
     ],
-    ids=["ASAC", "APO", "PPO", "PQN"],
+    ids=["ASAC", "RVISAC", "APO", "PPO", "PQN"],
 )
 def test_it_refuses_agents_that_centre_themselves_or_return_lambda_returns(build):
     with pytest.raises(MissingCapability):

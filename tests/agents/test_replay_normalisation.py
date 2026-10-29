@@ -34,7 +34,7 @@ REPLAYING = sorted(
 def test_the_replaying_agents_are_the_replay_buffer_ones() -> None:
     assert REPLAYING == [
         *("ASAC", "CrossQ", "DAgger", "DQN", "IQL"),
-        *("REDQ", "SAC", "TD3", "TQC", "UDRL"),
+        *("REDQ", "RVISAC", "SAC", "TD3", "TQC", "UDRL"),
     ]
 
 

@@ -388,6 +388,7 @@ class Squashed(nn.Module):
 
     actor: nn.Module
     log_det_eps: float = 0.0  # Squash's: 0 keeps the exact log-det
+    sigma_point_mean: bool = False  # Squash's: False, tanh of the latent's mean
 
     def setup(self):
         nn.share_scope(self, self.actor)
@@ -395,8 +396,9 @@ class Squashed(nn.Module):
     def __call__(self, *args, **kwargs):
         out = self.actor(*args, **kwargs)
         if isinstance(out, tuple):  # a recurrent actor's (policy, carry)
-            return (squash(out[0], self.log_det_eps), *out[1:])
-        return squash(out, self.log_det_eps)
+            policy = squash(out[0], self.log_det_eps, self.sigma_point_mean)
+            return (policy, *out[1:])
+        return squash(out, self.log_det_eps, self.sigma_point_mean)
 
 
 class Critic(nn.Module):
@@ -652,7 +654,11 @@ def get_initialized_actor_critic(
             memory=memory,
         )
     if squash and continuous:  # a discrete policy has no range to bound
-        actor = Squashed(actor, network_config.squash_log_det_eps)
+        actor = Squashed(
+            actor,
+            network_config.squash_log_det_eps,
+            network_config.squash_sigma_point_mean,
+        )
     critic = MultiCritic(
         input_architecture=network_config.critic_architecture,
         penultimate_normalization=network_config.penultimate_normalization,

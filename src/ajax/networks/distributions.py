@@ -90,10 +90,18 @@ class Squash(distrax.Transformed):
 
     Not exact, as neither has a closed form: :meth:`mean` is ``tanh`` of the
     latent's mean, the deterministic action, not the mean of the squashed
-    action; :meth:`entropy` is sampled.
+    action, or with ``sigma_point_mean`` the mean of ``tanh`` at the latent's
+    mean plus and minus its standard deviation (RVI-SAC's authors' evaluation
+    action, yhisaki/average-reward-drl b5b0d31 modules.py:115-116);
+    :meth:`entropy` is sampled.
     """
 
-    def __init__(self, distribution: distrax.Distribution, log_det_eps: float = 0.0):
+    def __init__(
+        self,
+        distribution: distrax.Distribution,
+        log_det_eps: float = 0.0,
+        sigma_point_mean: bool = False,
+    ):
         if not jnp.issubdtype(distribution.dtype, jnp.floating):
             raise ValueError(
                 "tanh squashes a continuous distribution, not a"
@@ -104,9 +112,18 @@ class Squash(distrax.Transformed):
         if event_ndims:
             bijector = distrax.Block(bijector, event_ndims)
         super().__init__(distribution=distribution, bijector=bijector)
+        self.sigma_point_mean = sigma_point_mean
 
     def mean(self):
-        return self.bijector.forward(self.distribution.mean())
+        mean = self.distribution.mean()
+        if not self.sigma_point_mean:
+            return self.bijector.forward(mean)
+        spread = self.distribution.stddev()
+        upper, lower = (
+            self.bijector.forward(mean + spread),
+            self.bijector.forward(mean - spread),
+        )
+        return (upper + lower) / 2
 
     def log_prob_from_raw(self, raw: jax.Array) -> jax.Array:
         """The log-probability of ``tanh(raw)``, from the latent sample
@@ -135,13 +152,13 @@ class Squash(distrax.Transformed):
         return self.distribution.entropy() + self.bijector.forward_log_det_jacobian(raw)
 
 
-def squash(pi: Any, log_det_eps: float = 0.0) -> Any:
+def squash(pi: Any, log_det_eps: float = 0.0, sigma_point_mean: bool = False) -> Any:
     """``pi`` bounded by ``tanh``: :class:`Squash` of it, or, for a
     :class:`Deterministic` one, ``tanh`` of its action (a point mass has no
     density to correct)."""
     if isinstance(pi, Deterministic):
         return Deterministic(jnp.tanh(pi.mean()))
-    return Squash(pi, log_det_eps)
+    return Squash(pi, log_det_eps, sigma_point_mean)
 
 
 def latent(pi: Any) -> Any:

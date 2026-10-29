@@ -21,6 +21,7 @@ import ajax.extensions
 from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions import (
     adversarial,
+    centering,
     ensemble,
     expert,
     instrumentation,
@@ -47,6 +48,7 @@ BUILD: dict[type, Callable[[], Extension]] = {
     target_mods.LCBGatedBootstrap: lambda: target_mods.LCBGatedBootstrap(_expert),
     target_mods.CriticBlend: lambda: target_mods.CriticBlend(expert_policy=_expert),
     target_mods.MCVarianceCorrection: lambda: target_mods.MCVarianceCorrection(1.0),
+    centering.ValueCentering: centering.ValueCentering,
     adversarial.AdversarialReward: lambda: adversarial.AdversarialReward(
         TransitionDataset([[0.0]], [[0.0]], [0.0], [True], [False], [[0.0]])
     ),

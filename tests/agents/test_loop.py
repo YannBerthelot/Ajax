@@ -47,6 +47,17 @@ from tests.agents.extension_stubs import CounterExt
 
 
 @struct.dataclass
+class AgentStateStub:
+    """The agent state's fields the critic step reads, replaceable as a real
+    agent state is (critic_step returns it with its critics stepped)."""
+
+    collector_state: Any
+    critic_state: Any
+    actor_state: Any
+    ext_state: tuple
+
+
+@struct.dataclass
 class Collector:
     timestep: jax.Array
 
@@ -334,7 +345,7 @@ def test_the_extensions_see_the_cuts_the_target_used() -> None:
     terminations alone), not terminated OR truncated."""
     params = {"w": jnp.zeros(())}
     critic = TrainState.create(apply_fn=None, params=params, tx=optax.sgd(1.0))
-    state = SimpleNamespace(
+    state = AgentStateStub(
         collector_state=Collector(jnp.asarray(0)),
         critic_state=critic,
         actor_state=None,
@@ -380,7 +391,7 @@ def test_the_critic_steps_halves_compose_to_the_step() -> None:
     critic = TrainState.create(
         apply_fn=None, params={"w": jnp.asarray(0.5)}, tx=optax.sgd(1.0)
     )
-    state = SimpleNamespace(
+    state = AgentStateStub(
         collector_state=Collector(jnp.asarray(0)),
         critic_state=critic,
         actor_state=None,
@@ -403,7 +414,7 @@ def test_the_critic_steps_halves_compose_to_the_step() -> None:
     )
 
     def loss_fn(params):
-        target_q, target_metrics = apply_on_target(
+        target_q, target_metrics, _ = apply_on_target(
             stack, state, _ENDS, jnp.ones((4, 1)), key, 100, **target_args
         )
         loss, _ = value_loss(params, target_q)
@@ -413,7 +424,7 @@ def test_the_critic_steps_halves_compose_to_the_step() -> None:
         return loss + extra, merge_metrics(target_metrics, loss_metrics)
 
     composed, own_metrics, _ = gradient_step(critic, loss_fn)
-    assert float(composed.params["w"]) == float(stepped.params["w"])
+    assert float(composed.params["w"]) == float(stepped.critic_state.params["w"])
     assert jax.tree.map(float, own_metrics) == jax.tree.map(float, metrics)
 
 

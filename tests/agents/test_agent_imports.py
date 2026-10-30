@@ -34,6 +34,7 @@ PARENT = {
     "AVG": "SAC",  # incremental SAC, its temperature fixed (Vasan et al., 2024)
     "CrossQ": "SAC",  # SAC without targets, batch-renormalised (Bhatt et al., 2024)
     "REDQ": "SAC",  # an ensemble of SAC's critics (Chen et al., 2021)
+    "RVISAC": "SAC",  # average-reward SAC by RVI Q-learning (Hisaki & Ono, 2024)
     "TQC": "SAC",  # SAC with truncated quantile critics (Kuznetsov et al., 2020)
 }
 #: What a parent's paper defines, which its descendants may import.

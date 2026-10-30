@@ -39,6 +39,10 @@ TARGET_KEYS = frozenset(
         "next_action",
         "next_actions",
         "critic_subset",
+        "next_values",
+        "terminated",
+        "predictions",
+        "target_value_at",
     }
 )
 
@@ -237,20 +241,29 @@ def apply_on_target(
     reward_scale: float,
     next_actions: Optional[jax.Array] = None,
     critic_subset: Optional[jax.Array] = None,
-) -> tuple[jax.Array, dict]:
+    next_values: Optional[jax.Array] = None,
+    predictions: Optional[Callable] = None,
+    target_value_at: Optional[Callable] = None,
+) -> tuple[jax.Array, dict, Any]:
     """target_q with the extensions' on_target applied, no gradient
-    flowing back through it (stop_gradient), and their metrics:
-    critic_step's first half, which an
-    agent whose target comes out of its own critic pass (CrossQ) calls
-    inside its loss.
+    flowing back through it (stop_gradient), their metrics and agent_state
+    with the extensions' states as on_target left them: critic_step's first
+    half, which an agent whose target comes out of its own critic pass
+    (CrossQ) calls inside its loss.
 
     batch is a Transition. rewards, dones (where the bootstrap is cut),
     gamma (None for an average-reward agent), reward_scale and next_actions
     (the next actions the target scored; None for a target scoring a state
     value, IQL's V(s')) and critic_subset (the indices of the target critics
     whose minimum it took, REDQ's random subset; None for a target over all
-    its critics) are what the target used. The phase draws on a key derived
-    from key, the step's (derive_extensions_key).
+    its critics) are what the target used; next_values the value it
+    bootstrapped at s', before gamma, the cut and the reward scale (a
+    distributional target's mean); predictions() the critics' mean
+    prediction at the batch's rows, which the loss regresses, and
+    target_value_at(observations, actions) their mean value at the target's
+    parameters (the step's where there is no target critic), each run only
+    by an extension reading it. The phase draws on a key derived from key,
+    the step's (derive_extensions_key).
     """
     target_batch = {
         "observations": batch.obs,
@@ -268,13 +281,19 @@ def apply_on_target(
         "next_action": batch.next_action,
         "next_actions": next_actions,
         "critic_subset": critic_subset,
+        "next_values": next_values,
+        # The episode's own end, where dones may not cut (a continuing run).
+        "terminated": batch.terminated,
+        "predictions": predictions,
+        "target_value_at": target_value_at,
     }
     target_key, _ = jax.random.split(derive_extensions_key(key))
     timestep = agent_state.collector_state.timestep
-    target_q, metrics = extensions.apply_on_target(
+    target_q, metrics, ext_state = extensions.apply_on_target(
         agent_state, target_batch, target_q, timestep, target_key, total_timesteps
     )
-    return jax.lax.stop_gradient(target_q), metrics
+    agent_state = agent_state.replace(ext_state=ext_state)
+    return jax.lax.stop_gradient(target_q), metrics, agent_state
 
 
 def compute_extensions_critic_loss(
@@ -325,11 +344,11 @@ def critic_step(
     used), then steps the critic down value_loss(params, target_q) ->
     (loss, aux) plus their critic_loss terms
     (compute_extensions_critic_loss). The phases draw on keys derived from key,
-    the step's, on which the agent may draw too. Returns the stepped critic
-    state, aux, the gradients' norm (gradient_step) and the two
-    phases' metrics.
+    the step's, on which the agent may draw too. Returns agent_state with the
+    stepped critic and the extensions' states as on_target left them, aux,
+    the gradients' norm (gradient_step) and the two phases' metrics.
     """
-    target_q, target_metrics = apply_on_target(
+    target_q, target_metrics, agent_state = apply_on_target(
         extensions,
         agent_state,
         batch,
@@ -349,7 +368,17 @@ def critic_step(
     critic_state, (aux, loss_metrics), grad_norm = gradient_step(
         agent_state.critic_state, total_critic_loss
     )
-    return critic_state, aux, grad_norm, merge_metrics(target_metrics, loss_metrics)
+    metrics = merge_metrics(target_metrics, loss_metrics)
+    return agent_state.replace(critic_state=critic_state), aux, grad_norm, metrics
+
+
+def bootstrap_cuts(terminated: jax.Array, extensions: ExtensionStack) -> jax.Array:
+    """Where a replay target cuts its bootstrap: at the terminations, unless
+    an extension has it go on through them into the reset observation the
+    replay stores there (ResetCost)."""
+    if extensions.continues_through_terminations:
+        return jnp.zeros_like(terminated)
+    return terminated
 
 
 def actor_step(

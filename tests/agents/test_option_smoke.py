@@ -30,12 +30,14 @@ from ajax.agents.TD3.TD3 import make_default_action_pipeline
 from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions import (
     adversarial,
+    centering,
     ensemble,
     expert,
     exploration,
     instrumentation,
     observe,
     offline,
+    reset_cost,
 )
 from ajax.extensions import pretrain as pre
 from ajax.extensions import target_mods as tm
@@ -199,6 +201,10 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "ExpertStateInput": (lambda: observe.ExpertStateInput.for_expert(EXPERT), "SAC"),
     "TrainingProgressInput": (observe.TrainingProgressInput, "SAC APG"),
     "PIDTermsInput": (lambda: observe.PIDTermsInput((0,), (1,)), "SAC"),
+    # Last of the extensions shaping the target, as it requires.
+    "ValueCentering": (centering.ValueCentering, "SAC TD3"),
+    # Its rows read nothing of the episode a termination ended (check_stack).
+    "ResetCost": (reset_cost.ResetCost, "DQN"),
 }
 ACTING = {"ValueBox", "EDGEExploration", "JSRLCurriculum", "ResidualPolicy"}
 PHI_STAR = (

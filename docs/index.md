@@ -22,9 +22,9 @@ four ways:
   [Stoix](https://github.com/EdanToledo/Stoix) and
   [Brax](https://github.com/google/brax)'s training agents, with no Python
   step between them, on a CPU or a GPU.
-- **Average-reward agents**: [ASAC](algorithms/asac.md) and
-  [APO](algorithms/apo.md) maximise the reward per step, with no discount, for
-  tasks that never end.
+- **Average-reward agents**: [ASAC](algorithms/asac.md),
+  [RVI-SAC](algorithms/rvisac.md) and [APO](algorithms/apo.md) maximise the
+  reward per step, with no discount, for tasks that never end.
 - **[Expert-guided agents](guide/expert-guidance.md)**: learn from a
   controller you already have, or from recorded transitions, by cloning,
   imitation, residual policies, hand-over, prior data in the replay or
@@ -41,7 +41,7 @@ compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix, Rejax, TorchRL and
 Tianshou, including
 when to use them instead.
 
-Ajax has eighteen agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
+Ajax has nineteen agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
 implements a published paper, and its page lists where it departs from it.
 Several seeds train side by side in one program, on a CPU or a GPU. Research
 features (learning from an expert, exploration rules, diagnostics) are
@@ -76,7 +76,7 @@ print(evaluations["Eval/episodic mean reward"])  # one row per seed, one column 
 
 | Kind | Agents |
 | --- | --- |
-| Off-policy actor-critic | [SAC](algorithms/sac.md), [ASAC](algorithms/asac.md) (average reward), [REDQ](algorithms/redq.md), [CrossQ](algorithms/crossq.md), [TQC](algorithms/tqc.md), [TD3](algorithms/td3.md) |
+| Off-policy actor-critic | [SAC](algorithms/sac.md), [ASAC](algorithms/asac.md) and [RVI-SAC](algorithms/rvisac.md) (average reward), [REDQ](algorithms/redq.md), [CrossQ](algorithms/crossq.md), [TQC](algorithms/tqc.md), [TD3](algorithms/td3.md) |
 | Offline, then online | [IQL](algorithms/iql.md) |
 | Incremental, no replay | [AVG](algorithms/avg.md) |
 | Value-based, discrete actions | [DQN](algorithms/dqn.md), [PQN](algorithms/pqn.md) |

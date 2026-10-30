@@ -14,6 +14,7 @@ notes on using it:
 | --- | --- | --- |
 | SAC | `ajax.agents.SAC.SAC.SAC` | [SAC](../algorithms/sac.md#api) |
 | ASAC | `ajax.agents.ASAC.ASAC.ASAC` | [ASAC](../algorithms/asac.md#api) |
+| RVISAC | `ajax.agents.RVISAC.RVISAC.RVISAC` | [RVI-SAC](../algorithms/rvisac.md#api) |
 | REDQ | `ajax.agents.REDQ.REDQ.REDQ` | [REDQ](../algorithms/redq.md#api) |
 | CrossQ | `ajax.agents.CrossQ.CrossQ.CrossQ` | [CrossQ](../algorithms/crossq.md#api) |
 | TD3 | `ajax.agents.TD3.TD3.TD3` | [TD3](../algorithms/td3.md#api) |
@@ -37,7 +38,7 @@ Every agent but DreamerV3 and TD-MPC2 is a declared agent: its
 hyperparameters are the fields of a dataclass on a family of
 `ajax.agents.families`, which builds its constructor (keyword-only after
 `env_id`), run config and train function: a replay
-(SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL, DQN, DAgger: `ReplayAgent`), each
+(SAC, TQC, REDQ, ASAC, RVISAC, CrossQ, TD3, IQL, DQN, DAgger: `ReplayAgent`), each
 step as it comes (AVG: `IncrementalAgent`), rollouts (PPO, APO, PQN:
 `OnPolicyAgent`) or an iteration of its own (UDRL, APG:
 `OwnIterationAgent`). Its fields are fixed once built:

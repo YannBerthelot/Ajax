@@ -3,7 +3,7 @@
 An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships thirty-two of them,
+or measurements logged at each evaluation. Ajax ships thirty-four of them,
 listed in the [catalogue](#catalogue) below.
 
 Why extensions instead of agent options? An agent's constructor takes its
@@ -359,6 +359,13 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | --- | --- | --- | --- |
 | `KernelRepulsion` | Adds `coef` times the mean similarity (an RBF kernel) between the critics' predictions, which pushes the critics of an ensemble apart. Logs `kernel_repulsion/term`, `kernel_repulsion/kernel` and `kernel_repulsion/bandwidth`. | `critic_loss` | SAC, TD3, REDQ, ASAC with two or more critics; other agents, AVG's single critic included, refuse it when built |
 
+**Continuing tasks** (`ajax.extensions.centering`, `ajax.extensions.reset_cost`)
+
+| Extension | What it does | Phases | Works with |
+| --- | --- | --- | --- |
+| `ValueCentering` | Subtracts from the target an offset learned as the reward rate (reward centering), so the values lose the constant `r(π) / (1 − γ)`. Its `rule` is one of `ajax.agents.centering`'s: `RVIBatchMean(rate)` (the default, 0.005), the batch mean of the next values the target read, followed slowly (RVI-SAC's); `TDErrorCentering(step_size)`, the mean TD error of the centred target (value-based centering); `ReferencePoint(observation, action)`, the target critics' value there (ASAC's `Q(0, 0)`). It comes last of the extensions shaping the target. Centering every step also prices an episode's length on a task whose episodes terminate, unless `ResetCost`, before it, has the target go on through terminations. Logs `centering/offset`. | `on_target` | discounted agents with a one-step target: SAC, TD3, REDQ, TQC, CrossQ, AVG, IQL, DQN; refused on a lambda-return (PPO, PQN) and on the average-reward agents, which centre themselves (ASAC, APO, RVI-SAC) |
+| `ResetCost` | Treats a termination as a step into the reset state: the target bootstraps on the reset observation the replay stores there, and a terminated row is charged `c`. `c` is a Lagrange multiplier: a reset critic learns the policy's termination rate, and `c` rises while that rate exceeds `target_rate` (1e-3) and falls while it is below, never below 0. Its settings are RVI-SAC's (`ajax.agents.reset_cost.ResetCostSettings`). Refuses a stack reading the episode a termination ended (IBRL, CriticBlend, LCBGatedBootstrap, Cal-QL). Logs `reset_cost/cost`, `reset_cost/rate` and `reset_cost/critic_loss`. | `on_target` | discounted replay agents scoring a next action: SAC, TD3, REDQ, TQC, CrossQ, DQN; refused on IQL (no next action), on AVG and the on-policy agents (their rollouts keep the final observation), and on ASAC and RVI-SAC, which price terminations themselves |
+
 **Measuring the critic** (`ajax.extensions.instrumentation`)
 
 | Extension | What it does | Phases | Works with |
@@ -367,7 +374,7 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | `BiasVoreDecomposition` | Splits the critic's squared one-step error into squared bias and variance (`EVarEst/bias_sq`, `EVarEst/var_resid`, `EVarEst/mse`, `EVarEst/abs_bias`), against a one-step target on its current parameters, or your own `value_target_fn`. | `eval_metrics` | as `ConditioningMetrics` |
 | `BiasVorePenalty` | Adds `((1 − 2α)/α) · Var(residual)` to the critic loss; `alpha=0.5` adds nothing. Logs `bias_vore/penalty` and `bias_vore/residual_var`. | `critic_loss` | every agent with a `critic_loss` phase: SAC, TD3, REDQ, ASAC, AVG, PPO, APO, DQN, PQN |
 
-Sources: TD3+BC is Fujimoto and Gu, 2021; CQL is Kumar et al., 2020, Cal-QL Nakamoto et al., 2023, and ReBRAC Tarasov et al., 2023; GAIL is Ho and Ermon, 2016; Q-filtered BC is Nair et al.,
+Sources: reward centering is Naik, Wan, Tomar and Sutton, RLC 2024, and the reset cost Hisaki and Ono, ICML 2024; TD3+BC is Fujimoto and Gu, 2021; CQL is Kumar et al., 2020, Cal-QL Nakamoto et al., 2023, and ReBRAC Tarasov et al., 2023; GAIL is Ho and Ermon, 2016; Q-filtered BC is Nair et al.,
 ICRA 2018; residual RL is Johannink et al., 2019; JSRL is Uchendu et al.,
 2023; the kernel's bandwidth follows the median heuristic of SVGD (Liu and
 Wang, 2016); effective rank is Kumar et al., 2021, and dormant units Sokar et

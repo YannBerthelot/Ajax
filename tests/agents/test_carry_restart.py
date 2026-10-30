@@ -46,6 +46,7 @@ AGENTS: dict[str, tuple[dict[str, Any], int]] = {
     ),
     "SAC": (OFF_POLICY, 32),
     "ASAC": (OFF_POLICY, 32),
+    "RVISAC": (OFF_POLICY, 32),
     "REDQ": (
         {**OFF_POLICY, "num_critics": 3, "subset_size": 2, "num_critic_updates": 2},
         32,

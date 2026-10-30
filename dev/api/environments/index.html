@@ -2464,6 +2464,78 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        gymnasium
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="gymnasium">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.PythonEnvironmentWarning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PythonEnvironmentWarning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.JaxCounterpart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JaxCounterpart
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.GymnasiumEnv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GymnasiumEnv
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.warning_text" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        warning_text
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.with_own_copies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_own_copies
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#ajax.wrappers" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3489,6 +3561,78 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        gymnasium
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="gymnasium">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.PythonEnvironmentWarning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PythonEnvironmentWarning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.JaxCounterpart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JaxCounterpart
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.GymnasiumEnv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GymnasiumEnv
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.warning_text" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        warning_text
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.gymnasium.with_own_copies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_own_copies
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#ajax.wrappers" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4303,7 +4447,8 @@
 
 <h1 id="environments-and-wrappers">Environments and wrappers<a class="headerlink" href="#environments-and-wrappers" title="Permanent link">&para;</a></h1>
 <p>Agents take a gymnax, Brax or MuJoCo Playground environment, or its id, and
-wrap it themselves. Every continuous agent acts in <code>[-1, 1]</code>, and
+wrap it themselves; a Gymnasium environment, which steps in Python, comes in
+through <code>"gymnasium:&lt;id&gt;"</code> or <code>GymnasiumEnv</code>. Every continuous agent acts in <code>[-1, 1]</code>, and
 <code>agent_action_to_env</code> maps its action onto the environment's bounds; an
 expert speaks the environment's units, and the agent reads it through
 <code>ExpertInAgentUnits</code>. See <a href="../../guide/environments/">Environments</a> and
@@ -4418,6 +4563,9 @@ To support <code>action_repeat &gt; 1</code> the builder must also accept an
     <div class="doc doc-contents ">
 
         <p>Build a wrapped env from its id (gymnax, mujoco_playground or brax).</p>
+<p><code>"gymnasium:&lt;id&gt;"</code> builds the Gymnasium environment <code>&lt;id&gt;</code>, which
+steps in Python (:class:<code>ajax.environments.gymnasium.GymnasiumEnv</code>); the
+keywords below other than <code>action_repeat</code> do not concern it.</p>
 <p><code>fresh_reset</code> only concerns mujoco_playground envs (see
 <code>_build_playground_env</code>); gymnax and Ajax's brax stack already draw a
 new initial state for every episode.</p>
@@ -4529,6 +4677,241 @@ one place they are composed.</p>
 those layers with :func:<code>add_ajax_wrappers</code>. Everything under them is
 the task: the user's wrappers, the flattening of
 :func:<code>build_env_from_id</code>, a brax stack's time limit.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="ajax.environments.gymnasium" class="doc doc-heading">
+            <span class="doc doc-object-name doc-module-name">ajax.environments.gymnasium</span>
+
+
+<a href="#ajax.environments.gymnasium" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>Gymnasium environments, stepped in Python from Ajax's compiled training.</p>
+<p>Ajax compiles the environment and the agent into one program, which is why it
+trains on JAX environments. A Gymnasium environment steps in Python instead:
+<code>GymnasiumEnv</code> gives it gymnax's interface, so every agent trains on it
+unchanged, and its <code>reset</code> and <code>step</code> leave the compiled program through
+<code>jax.experimental.io_callback</code> (JAX's callback for code with side effects,
+which the compiler never skips, merges or repeats). EnvPool's XLA interface
+steps its C++ environments from compiled code the same way.</p>
+<p>One Python call steps every copy: a <code>custom_vmap</code> rule flattens each
+<code>vmap</code> around the callback into one batch, and a copy's place in that batch
+is its slot in the pool of Gymnasium environments. JAX cannot batch such a
+callback inside a <code>lax.cond</code>, where Ajax's training runs its evaluations, so
+the seeds of a run train one after another (<code>ajax.agents.base</code>).</p>
+<p>The pool lives in Python, outside the JAX state: evaluation steps copies of
+its own (:func:<code>with_own_copies</code>), a saved state cannot resume
+the episodes it was in, gradients cannot flow through a step, and resets
+follow each copy's own Gymnasium generator, seeded at its reset from the
+run's key, rather than Ajax's episode keys.</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.gymnasium.PythonEnvironmentWarning" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">PythonEnvironmentWarning</span>
+
+
+<a href="#ajax.environments.gymnasium.PythonEnvironmentWarning" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="UserWarning">UserWarning</span></code></p>
+
+
+
+        <p>A Gymnasium environment steps in Python, outside the compiled training.</p>
+
+
+
+
+
+
+
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.gymnasium.JaxCounterpart" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">JaxCounterpart</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#ajax.environments.gymnasium.JaxCounterpart" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">JaxCounterpart</span><span class="p">(</span><span class="n">backend</span><span class="p">,</span> <span class="n">env_ids</span><span class="p">,</span> <span class="n">differences</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>A JAX task close to a Gymnasium one, and what differs between them.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.gymnasium.GymnasiumEnv" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">GymnasiumEnv</span>
+
+
+<a href="#ajax.environments.gymnasium.GymnasiumEnv" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">GymnasiumEnv</span><span class="p">(</span><span class="n">env_id</span><span class="p">,</span> <span class="o">**</span><span class="n">make_kwargs</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="gymnax.environments.environment.Environment">Environment</span></code></p>
+
+
+
+        <p>A Gymnasium environment, <code>gymnasium.make(env_id, **make_kwargs)</code>,
+with gymnax's interface. <code>"gymnasium:&lt;env_id&gt;"</code> builds one by id.</p>
+<p>It needs a time limit (<code>max_episode_steps</code>), a Box observation space
+(flattened) and a Discrete or one-dimensional Box action space.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.gymnasium.warning_text" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">warning_text</span>
+
+
+<a href="#ajax.environments.gymnasium.warning_text" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">warning_text</span><span class="p">(</span><span class="n">env_id</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>What :class:<code>PythonEnvironmentWarning</code> says for <code>env_id</code>.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.environments.gymnasium.with_own_copies" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">with_own_copies</span>
+
+
+<a href="#ajax.environments.gymnasium.with_own_copies" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">with_own_copies</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>env</code> with every :class:<code>GymnasiumEnv</code> under its wrappers given a
+pool of its own, so that stepping it (evaluation does) leaves <code>env</code>'s
+episodes where they are. Other environments come back as they are.</p>
 
 
     </div>

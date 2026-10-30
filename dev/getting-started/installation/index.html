@@ -2835,6 +2835,10 @@ imported.</p>
 <td><a href="https://github.com/google-deepmind/mujoco_playground">MuJoCo Playground</a> and Brax, for Playground environments such as <code>"CartpoleBalance"</code></td>
 </tr>
 <tr>
+<td><code>gymnasium</code></td>
+<td><a href="https://gymnasium.farama.org">Gymnasium</a> with MuJoCo, for <a href="../../guide/environments/#gymnasium-environments">Gymnasium environments</a> such as <code>"gymnasium:HalfCheetah-v5"</code>, which step in Python</td>
+</tr>
+<tr>
 <td><code>compare</code></td>
 <td>the <code>adastop</code> package, whose confidence sequence <a href="../../guide/comparing-agents/#one-agent-how-sure-is-a-number"><code>ajax.compare.estimate</code></a> uses; AdaStop itself needs no extra</td>
 </tr>
@@ -2853,8 +2857,9 @@ imported.</p>
 <p>Brax and MuJoCo Playground come only with their extras: a project that
 uses their environments asks for <code>ajax-rl[playground]</code>, or <code>ajax-rl[brax]</code>
 for Brax alone. Without them, building a Brax or Playground environment raises
-an error that names the extra. The <code>dev</code> group installs both, so <code>uv sync</code>
-in this repository has them.</p>
+an error that names the extra. Gymnasium's MuJoCo tasks likewise need the
+<code>gymnasium</code> extra. The <code>dev</code> group installs all three, so <code>uv sync</code> in this
+repository has them.</p>
 <p>The <code>compare</code> extra takes <code>adastop</code> from a commit of its main branch, named
 in <code>[tool.uv.sources]</code>, until a release includes the confidence sequence.
 pip does not read that table: with pip, install <code>adastop</code> from that commit

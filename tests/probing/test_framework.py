@@ -80,8 +80,8 @@ from . import readouts as R
 # test_framework + 2 (this note, the budget's). SpecEnv's record as a
 # wrapper: envs.py + 3, test_framework + 2. RVI-SAC's, ValueCentering's and
 # ResetCost's cells (three, sixteen faults): test_average_reward 186, agents.py
-# + 1, faults/ + 16, test_framework + 4 (this note, the caps, the budget's).
-CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 161, "runs.py": 250}
+# + 2 (its resume check's preset too), faults/ + 16, test_framework + 4 (this note, the caps, the budget's).
+CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 162, "runs.py": 250}
 CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 264})
 CAPS.update({"test_average_reward.py": 186})
 CAPS.update({"test_framework.py": 299, "test_value_chains.py": 1051})
@@ -264,15 +264,15 @@ def test_the_directory_keeps_to_its_budget() -> None:
     q2 readout read at every carried step and two cells recalibrated, 13 for
     GAIL's signed cell at learning rates 2e-4, 29 for the strict fault verdict,
     3 for the q5 cells' unmapped-collector fault, 6 for SpecEnv's record as a
-    wrapper, 200 for RVI-SAC's, ValueCentering's and ResetCost's three cells and
-    sixteen faults."""
+    wrapper, 201 for RVI-SAC's, ValueCentering's and ResetCost's three cells,
+    sixteen faults and its resume check's preset."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8418, total
+    assert total <= 8419, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

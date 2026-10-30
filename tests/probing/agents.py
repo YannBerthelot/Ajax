@@ -69,6 +69,7 @@ _BOOKKEEPING = {
     "TD3": {**_B_SAC, "policy_delay": 3},
     "REDQ": {**_B_SAC, "num_critics": 4, "subset_size": 2, "num_critic_updates": 3},
     "ASAC": {k: v for k, v in _B_SAC.items() if k != "gamma"},
+    "RVISAC": {k: v for k, v in _B_SAC.items() if k != "gamma"},
     # AVG always normalises observations and never rewards (AVG.py:80-93).
     "AVG": {**_split(SMALL), "gamma": GAMMA, "learning_starts": 0, "n_envs": 1},
     "PPO": {**_B_PPO, "gamma": GAMMA},
@@ -109,7 +110,7 @@ _TINY: dict[str, dict[str, Any]] = {
 PRESETS: Mapping[str, Mapping[str, Mapping[str, Any]]] = MappingProxyType(
     {"probe": _PROBE, "bookkeeping": _BOOKKEEPING, "tiny": _TINY}
 )
-DIGEST = "4f7d5fb73d18"
+DIGEST = "d9f57cb949a5"
 FAMILY = {"PPO": "v", "APO": "v", "DQN": "dqn", "PQN": "dqn"}
 """Which value an agent's readout reads (others: Q at the mean action)."""
 

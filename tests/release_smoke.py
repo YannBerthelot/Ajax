@@ -2,7 +2,7 @@
 Release workflow's installed-package gate: the core install, and each extra
 installed on its own.
 
-    python tests/release_smoke.py core|brax|playground|compare|reproduction|wandb|cuda
+    python tests/release_smoke.py core|brax|playground|gymnasium|compare|reproduction|wandb|cuda
 
 Each check is the smallest real use, seconds long. It imports only the
 standard library and what the install it checks brings, not even pytest,
@@ -80,6 +80,27 @@ def step_env(env_id: str) -> None:
     assert state.reward.shape == (2,) and bool(jnp.isfinite(state.reward).all())
 
 
+def gymnasium_env() -> None:
+    """Builds two copies of Gymnasium's HalfCheetah (MuJoCo comes with the
+    extra), resets and steps them once from compiled code."""
+    import warnings
+
+    import jax
+    import jax.numpy as jnp
+
+    from ajax.environments.create import build_env_from_id
+    from ajax.environments.gymnasium import PythonEnvironmentWarning
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", PythonEnvironmentWarning)
+        env, params = build_env_from_id("gymnasium:HalfCheetah-v5")
+    keys = jax.random.split(jax.random.PRNGKey(0), 2)
+    _, state = jax.jit(jax.vmap(env.reset))(keys)
+    action = jnp.zeros((2, *env.action_space(params).shape))
+    _, _, reward, *_ = jax.jit(jax.vmap(env.step))(keys, state, action)
+    assert reward.shape == (2,) and bool(jnp.isfinite(reward).all())
+
+
 def compare() -> None:
     """estimate's confidence sequence (adastop) on made-up scores, all 0.5:
     an agent whose train returns them instead of training."""
@@ -143,6 +164,7 @@ CHECKS = {
     "core": core,
     "brax": lambda: step_env("fast"),
     "playground": lambda: step_env("CartpoleBalance"),
+    "gymnasium": gymnasium_env,
     "compare": compare,
     "reproduction": reproduction,
     "wandb": wandb_backend,

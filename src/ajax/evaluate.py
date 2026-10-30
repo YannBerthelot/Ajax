@@ -32,6 +32,7 @@ from ajax.environments.utils import (
     flatten_action_column,
     get_env_type,
     get_raw_env,
+    steps_in_python,
     wrapper_chain,
 )
 from ajax.networks.memory import tree_where_reset
@@ -181,6 +182,12 @@ def setup_environment(
             "action_repeat > 1 is not supported on gymnax envs (see"
             " ajax.environments.create.build_env_from_id)."
         )
+    elif steps_in_python(env):
+        from ajax.environments.gymnasium import with_own_copies
+
+        # Evaluation steps copies of its own: stepping the training ones
+        # would cut the episodes training is in.
+        env = with_own_copies(env)
 
     normaliser: dict = {}
     if norm_info is not None:

@@ -26,6 +26,7 @@ from ajax.agents.TDMPC2 import core, multitask, train_TDMPC2MultiTask
 from ajax.agents.TDMPC2.core import TASK_EMB
 from ajax.agents.TDMPC2.dataset import MultiTaskDataset, TaskEpisodes, pool_tasks
 from ajax.agents.TDMPC2.state import TDMPC2Config
+from ajax.environments.gymnasium import PythonEnvironmentWarning
 from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.extension_stubs import TargetTweak
@@ -272,6 +273,12 @@ def test_construction_is_validated():
         )
     with pytest.raises(ValueError, match="episode length"):
         TDMPC2MultiTask(dataset, eval_envs=[TargetEnv(o, a, T + 1) for o, a in DIMS])
+    # Its seeds evaluate in one compiled batch, which a Python env cannot join.
+    with (
+        pytest.warns(PythonEnvironmentWarning),
+        pytest.raises(ValueError, match="steps in Python"),
+    ):
+        TDMPC2MultiTask(dataset, eval_envs=["gymnasium:Pendulum-v1", *eval_envs()[1:]])
     with pytest.raises(ValueError, match="horizon"):
         TDMPC2MultiTask(dataset, horizon=T + 1)
     with pytest.raises(ValueError, match="task_dim"):

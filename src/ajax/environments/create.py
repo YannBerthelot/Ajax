@@ -31,6 +31,8 @@ from ajax.wrappers import (
     get_wrappers,
 )
 
+# The opt-in for a Gymnasium environment, which steps in Python.
+GYMNASIUM_PREFIX = "gymnasium:"
 # External callers (e.g. SafetyExperiments) can register a custom builder for
 # a playground env id here, overriding the default wrapper stack below. The
 # builder signature is (n_envs, episode_length) -> env with `_ajax_env_id`
@@ -299,6 +301,10 @@ def build_env_from_id(
 ) -> tuple[EnvType, Optional[EnvParams]]:
     """Build a wrapped env from its id (gymnax, mujoco_playground or brax).
 
+    ``"gymnasium:<id>"`` builds the Gymnasium environment ``<id>``, which
+    steps in Python (:class:`ajax.environments.gymnasium.GymnasiumEnv`); the
+    keywords below other than ``action_repeat`` do not concern it.
+
     ``fresh_reset`` only concerns mujoco_playground envs (see
     ``_build_playground_env``); gymnax and Ajax's brax stack already draw a
     new initial state for every episode.
@@ -336,6 +342,18 @@ def build_env_from_id(
     playground's cached auto-reset (``fresh_reset=False``) ignores it.
     """
     check_action_repeat(action_repeat)
+    if env_id.startswith(GYMNASIUM_PREFIX):
+        # Opt-in only: an id without the prefix never falls back to Gymnasium.
+        if action_repeat > 1:
+            raise NotImplementedError(
+                f"action_repeat={action_repeat} is not supported on Gymnasium envs"
+                f" ({env_id!r})."
+            )
+        from ajax.environments.gymnasium import GymnasiumEnv
+
+        gymnasium_env = GymnasiumEnv(env_id.removeprefix(GYMNASIUM_PREFIX))
+        return gymnasium_env, gymnasium_env.default_params
+
     if env_id in gymnax.registered_envs:
         if action_repeat > 1:
             raise NotImplementedError(

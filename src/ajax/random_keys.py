@@ -90,6 +90,15 @@ NAMES: tuple[str, ...] = (
     # The reset cost's critic, off its agent's initialisation key, apart from
     # the agent's networks (ajax.agents.RVISAC; ajax.extensions.reset_cost).
     "reset_critic",
+    # An agent's four streams at its initialisation, off its seed's key: its
+    # updates', its networks', its collection's and its evaluation's
+    # (ajax.agents.RVISAC; the older agents split the key by position).
+    "updates",
+    "networks",
+    "collection",
+    "evaluation",
+    # A target's next actions, off its step's key (ajax.agents.RVISAC).
+    "next_actions",
 )
 
 TAGS: dict[str, int] = {name: make_tag(name) for name in NAMES}

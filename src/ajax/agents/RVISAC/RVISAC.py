@@ -164,7 +164,9 @@ class RVISAC(
     def init(self, key: jax.Array, context: TrainContext) -> RVISACState:
         """A squashed Gaussian actor, two Q critics with their targets, the
         temperature, the offset xi from 0 and the reset cost's state."""
-        training_key, init_key, collector_key, evaluation_key = jax.random.split(key, 4)
+        training_key, init_key = derive_key(key, "updates"), derive_key(key, "networks")
+        collector_key = derive_key(key, "collection")
+        evaluation_key = derive_key(key, "evaluation")
         actor_state, critic_state = context.make_actor_critic(
             init_key,
             continuous=True,
@@ -264,7 +266,7 @@ class RVISAC(
         next_actions, next_log_probs = sample_next_actions(
             agent_state.actor_state,
             batch.next_obs,
-            jax.random.split(critic_key)[0],
+            derive_key(critic_key, "next_actions"),
             carries,
             scored.map_next_actions,
         )

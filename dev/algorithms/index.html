@@ -994,6 +994,8 @@
       
         
       
+        
+      
     
     
     
@@ -1091,6 +1093,34 @@
     
   
     ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="rvisac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RVI-SAC
   
 
     
@@ -2546,7 +2576,7 @@
 
 
 <h1 id="algorithms">Algorithms<a class="headerlink" href="#algorithms" title="Permanent link">&para;</a></h1>
-<p>Ajax has eighteen agents, all exported from <code>ajax</code>. Each follows a published
+<p>Ajax has nineteen agents, all exported from <code>ajax</code>. Each follows a published
 paper, and each page says where Ajax departs from it. Every agent takes an
 environment (<code>TDMPC2MultiTask</code>: a dataset, and environments to evaluate
 on), its own hyperparameters, <code>episode_length</code> and <code>action_repeat</code> (for
@@ -2578,6 +2608,14 @@ several seeds in a single compiled program with
 <td><a href="asac/">ASAC</a></td>
 <td>off-policy actor-critic, average reward</td>
 <td>Adamczyk et al. 2025 (<a href="https://arxiv.org/abs/2501.09080v2">arXiv:2501.09080v2</a>)</td>
+<td>continuous</td>
+<td>yes</td>
+<td><code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code></td>
+</tr>
+<tr>
+<td><a href="rvisac/">RVISAC</a></td>
+<td>off-policy actor-critic, average reward, RVI Q-learning (RVI-SAC)</td>
+<td>Hisaki and Ono, ICML 2024 (<a href="https://arxiv.org/abs/2408.01972">arXiv:2408.01972</a>)</td>
 <td>continuous</td>
 <td>yes</td>
 <td><code>on_target</code>, <code>critic_loss</code>, <code>actor_loss</code></td>
@@ -2753,8 +2791,10 @@ a replay buffer. <a href="sac/">SAC</a> is the default; <a href="td3/">TD3</a> l
 deterministic policy; <a href="redq/">REDQ</a> trains an ensemble of ten critics with
 twenty critic updates per step, so it does far more work per sample.</p>
 <p><strong>A task that never ends,</strong> such as holding a setpoint: discounting only
-shortens the agent's view. <a href="asac/">ASAC</a> (off-policy) and <a href="apo/">APO</a>
-(on-policy) optimise the average reward per step instead.</p>
+shortens the agent's view. <a href="asac/">ASAC</a> and <a href="rvisac/">RVI-SAC</a>
+(off-policy) and <a href="apo/">APO</a> (on-policy) optimise the average reward per
+step instead. A discounted agent can also centre its values on the reward
+rate with <a href="../guide/extensions/#catalogue"><code>ValueCentering</code></a>.</p>
 <p><strong>Only a dataset, no simulator to explore with</strong> (logged runs, a plant's
 history): <a href="iql/">IQL</a> trains on it offline (<code>train_offline</code>) and can
 fine-tune online after; TD3+BC is TD3 with a cloning term

@@ -992,6 +992,8 @@
       
         
       
+        
+      
     
     
     
@@ -1089,6 +1091,34 @@
     
   
     ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/rvisac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RVI-SAC
   
 
     
@@ -5242,6 +5272,11 @@ notes on using it:</p>
 <td><a href="../../algorithms/asac/#api">ASAC</a></td>
 </tr>
 <tr>
+<td>RVISAC</td>
+<td><code>ajax.agents.RVISAC.RVISAC.RVISAC</code></td>
+<td><a href="../../algorithms/rvisac/#api">RVI-SAC</a></td>
+</tr>
+<tr>
 <td>REDQ</td>
 <td><code>ajax.agents.REDQ.REDQ.REDQ</code></td>
 <td><a href="../../algorithms/redq/#api">REDQ</a></td>
@@ -5328,7 +5363,7 @@ notes on using it:</p>
 hyperparameters are the fields of a dataclass on a family of
 <code>ajax.agents.families</code>, which builds its constructor (keyword-only after
 <code>env_id</code>), run config and train function: a replay
-(SAC, TQC, REDQ, ASAC, CrossQ, TD3, IQL, DQN, DAgger: <code>ReplayAgent</code>), each
+(SAC, TQC, REDQ, ASAC, RVISAC, CrossQ, TD3, IQL, DQN, DAgger: <code>ReplayAgent</code>), each
 step as it comes (AVG: <code>IncrementalAgent</code>), rollouts (PPO, APO, PQN:
 <code>OnPolicyAgent</code>) or an iteration of its own (UDRL, APG:
 <code>OwnIterationAgent</code>). Its fields are fixed once built:

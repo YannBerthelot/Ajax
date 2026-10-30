@@ -1072,6 +1072,8 @@
       
         
       
+        
+      
     
     
     
@@ -1169,6 +1171,34 @@
     
   
     ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="algorithms/rvisac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RVI-SAC
   
 
     
@@ -2645,9 +2675,9 @@ four ways:</p>
   <a href="https://github.com/EdanToledo/Stoix">Stoix</a> and
   <a href="https://github.com/google/brax">Brax</a>'s training agents, with no Python
   step between them, on a CPU or a GPU.</li>
-<li><strong>Average-reward agents</strong>: <a href="algorithms/asac/">ASAC</a> and
-  <a href="algorithms/apo/">APO</a> maximise the reward per step, with no discount, for
-  tasks that never end.</li>
+<li><strong>Average-reward agents</strong>: <a href="algorithms/asac/">ASAC</a>,
+  <a href="algorithms/rvisac/">RVI-SAC</a> and <a href="algorithms/apo/">APO</a> maximise the
+  reward per step, with no discount, for tasks that never end.</li>
 <li><strong><a href="guide/expert-guidance/">Expert-guided agents</a></strong>: learn from a
   controller you already have, or from recorded transitions, by cloning,
   imitation, residual policies, hand-over, prior data in the replay or
@@ -2663,7 +2693,7 @@ four ways:</p>
 compares Ajax with SB3, SBX, PureJaxRL, Brax, Stoix, Rejax, TorchRL and
 Tianshou, including
 when to use them instead.</p>
-<p>Ajax has eighteen agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
+<p>Ajax has nineteen agents, from SAC and PPO to DreamerV3 and TD-MPC2. Each
 implements a published paper, and its page lists where it departs from it.
 Several seeds train side by side in one program, on a CPU or a GPU. Research
 features (learning from an expert, exploration rules, diagnostics) are
@@ -2699,7 +2729,7 @@ agent runs which.</p>
 <tbody>
 <tr>
 <td>Off-policy actor-critic</td>
-<td><a href="algorithms/sac/">SAC</a>, <a href="algorithms/asac/">ASAC</a> (average reward), <a href="algorithms/redq/">REDQ</a>, <a href="algorithms/crossq/">CrossQ</a>, <a href="algorithms/tqc/">TQC</a>, <a href="algorithms/td3/">TD3</a></td>
+<td><a href="algorithms/sac/">SAC</a>, <a href="algorithms/asac/">ASAC</a> and <a href="algorithms/rvisac/">RVI-SAC</a> (average reward), <a href="algorithms/redq/">REDQ</a>, <a href="algorithms/crossq/">CrossQ</a>, <a href="algorithms/tqc/">TQC</a>, <a href="algorithms/td3/">TD3</a></td>
 </tr>
 <tr>
 <td>Offline, then online</td>

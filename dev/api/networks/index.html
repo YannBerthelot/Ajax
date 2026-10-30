@@ -992,6 +992,8 @@
       
         
       
+        
+      
     
     
     
@@ -1089,6 +1091,34 @@
     
   
     ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/rvisac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RVI-SAC
   
 
     
@@ -6216,7 +6246,9 @@ compute it; distrax's own is exact.</p>
 
 
 <a href="#ajax.networks.distributions.Squash" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">Squash</span><span class="p">(</span><span class="n">distribution</span><span class="p">,</span> <span class="n">log_det_eps</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">Squash</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">distribution</span><span class="p">,</span> <span class="n">log_det_eps</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">sigma_point_mean</span><span class="o">=</span><span class="kc">False</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -6235,7 +6267,10 @@ distribution (a <code>Block</code> spans its event dimensions, if it has any).
 finite.</p>
 <p>Not exact, as neither has a closed form: :meth:<code>mean</code> is <code>tanh</code> of the
 latent's mean, the deterministic action, not the mean of the squashed
-action; :meth:<code>entropy</code> is sampled.</p>
+action, or with <code>sigma_point_mean</code> the mean of <code>tanh</code> at the latent's
+mean plus and minus its standard deviation (RVI-SAC's authors' evaluation
+action, yhisaki/average-reward-drl b5b0d31 modules.py:115-116);
+:meth:<code>entropy</code> is sampled.</p>
 
 
 
@@ -6340,7 +6375,7 @@ mean; the latent's entropy alone grows without bound in its scale.</p>
 
 
 <a href="#ajax.networks.distributions.squash" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">squash</span><span class="p">(</span><span class="n">pi</span><span class="p">,</span> <span class="n">log_det_eps</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">squash</span><span class="p">(</span><span class="n">pi</span><span class="p">,</span> <span class="n">log_det_eps</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">sigma_point_mean</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">

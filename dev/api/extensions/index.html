@@ -992,6 +992,8 @@
       
         
       
+        
+      
     
     
     
@@ -1089,6 +1091,34 @@
     
   
     ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/rvisac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RVI-SAC
   
 
     
@@ -2696,6 +2726,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.extensions.base.Extension.check_stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check_stack
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.extensions.base.Extension.bind_to_agent" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2722,6 +2763,17 @@
   
     <nav class="md-nav" aria-label="ExtensionStack">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.extensions.base.ExtensionStack.continues_through_terminations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        continues_through_terminations
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#ajax.extensions.base.ExtensionStack.implemented_phases" class="md-nav__link">
@@ -5026,6 +5078,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.extensions.base.Extension.check_stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check_stack
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.extensions.base.Extension.bind_to_agent" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5052,6 +5115,17 @@
   
     <nav class="md-nav" aria-label="ExtensionStack">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.extensions.base.ExtensionStack.continues_through_terminations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        continues_through_terminations
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#ajax.extensions.base.ExtensionStack.implemented_phases" class="md-nav__link">
@@ -6930,7 +7004,10 @@ phase, in list order.</p>
 metrics)</code> instead of their value: <code>metrics</code>, a dict of scalars named
 <code>&lt;extension&gt;/&lt;metric&gt;</code>, is logged with the update's own metrics (the last
 update's, or the mean over the update's epochs and minibatches, as the
-agent logs its own). Two extensions logging one name raise.</p>
+agent logs its own). Two extensions logging one name raise.
+<code>on_target</code> may also return <code>(target, metrics, ext_state)</code>: the
+extension's state after the update's target, which it learns from
+(ValueCentering's offset, ResetCost's reset critic); the others keep theirs.</p>
 <h4 id="ajax.extensions.base--phase-batches">Phase batches<a class="headerlink" href="#ajax.extensions.base--phase-batches" title="Permanent link">&para;</a></h4>
 <p>The <code>batch</code> dict of a phase holds the keys :data:<code>COMMON_BATCH_KEYS</code>
 lists, on every agent that folds it, and those the agent declares in its
@@ -7201,8 +7278,9 @@ overhead in <code>BaseAgentState.ext_state</code>.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Transform the TD / value target; or return <code>(target, metrics)</code>
-(the module docstring).</p>
+        <p>Transform the TD / value target; or return <code>(target, metrics)</code>,
+or <code>(target, metrics, ext_state)</code> to update its own state (the
+module docstring).</p>
 
 
     </div>
@@ -7599,6 +7677,28 @@ policy's are gains. None does by default.</p>
 <div class="doc doc-object doc-function">
 
 
+<h4 id="ajax.extensions.base.Extension.check_stack" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">check_stack</span>
+
+
+<a href="#ajax.extensions.base.Extension.check_stack" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">check_stack</span><span class="p">(</span><span class="n">stack</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Raise when the stack it runs in cannot hold it (another
+extension's place or the keys it reads; ValueCentering, ResetCost),
+checked as the stack binds to its agent. Any stack by default.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h4 id="ajax.extensions.base.Extension.bind_to_agent" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">bind_to_agent</span>
 
@@ -7668,6 +7768,31 @@ Hashable (so it can be a JIT static argument) iff its extensions are.</p>
 
 
 
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="ajax.extensions.base.ExtensionStack.continues_through_terminations" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">continues_through_terminations</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#ajax.extensions.base.ExtensionStack.continues_through_terminations" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">continues_through_terminations</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Whether an extension of the stack has the target go on through a
+termination (Extension.continues_through_terminations).</p>
+
+    </div>
+
+</div>
 
 
 
@@ -7841,7 +7966,8 @@ updated), the rewards and the metrics.</p>
     <div class="doc doc-contents ">
 
         <p>Every extension's <code>on_target</code>; returns the (possibly reshaped)
-target and the extensions' metrics.</p>
+target, the extensions' metrics and their states, those that
+returned one updated.</p>
 
 
     </div>

@@ -1135,6 +1135,8 @@
       
         
       
+        
+      
     
     
     
@@ -1232,6 +1234,34 @@
     
   
     ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/rvisac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RVI-SAC
   
 
     
@@ -2780,7 +2810,7 @@ training.</p>
 <td><code>memory=</code>, trained on rollouts</td>
 </tr>
 <tr>
-<td>SAC, ASAC, REDQ, TD3, TQC</td>
+<td>SAC, ASAC, RVISAC, REDQ, TD3, TQC</td>
 <td><code>memory=</code>, trained on replayed sequences</td>
 </tr>
 <tr>
@@ -3078,7 +3108,7 @@ the critic's head, so asking about another action does not change what the
 critic remembers (the recurrent off-policy critic of Ni et al., 2022).</p>
 <p>With memory, SAC, TD3 and REDQ accept no expert policy and no extensions
 (behaviour cloning included, which is the <code>CloningPretrain</code> extension), and
-ASAC and PPO no extensions, yet: they raise an error when training starts
+ASAC, RVI-SAC and PPO no extensions, yet: they raise an error when training starts
 rather than run untested combinations. APG takes memory and extensions
 together.</p>
 <h2 id="evaluation-and-deployment">Evaluation and deployment<a class="headerlink" href="#evaluation-and-deployment" title="Permanent link">&para;</a></h2>

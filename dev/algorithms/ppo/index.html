@@ -994,6 +994,8 @@
       
         
       
+        
+      
     
     
     
@@ -1091,6 +1093,34 @@
     
   
     ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rvisac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RVI-SAC
   
 
     
@@ -3381,7 +3411,8 @@ agent_state_at_rollout_start: n_epochs passes over its minibatches.</p>
         <p>GAE and the value targets A + V on steps (the rollout's, or a
 minibatch's: obs, next_obs, rewards, terminated and truncated); the
 extensions' on_target reshapes the targets, drawing on key. Returns
-the advantages, the targets and the extensions' metrics.</p>
+the advantages, the targets, the extensions' metrics and their
+states as on_target left them.</p>
 <p>They enter the losses as inputs, computed before the losses are
 differentiated, so no gradient flows back through them (brax computes
 GAE inside its loss and stops the gradient there instead).</p>

@@ -992,6 +992,8 @@
       
         
       
+        
+      
     
     
     
@@ -1089,6 +1091,34 @@
     
   
     ASAC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/rvisac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RVI-SAC
   
 
     
@@ -2828,6 +2858,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.update_steps.bootstrap_cuts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bootstrap_cuts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.update_steps.actor_step" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3789,6 +3830,17 @@
     <span class="md-ellipsis">
       
         critic_step
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.update_steps.bootstrap_cuts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bootstrap_cuts
       
     </span>
   </a>
@@ -5341,23 +5393,32 @@ does not log it leaves it to dead-code elimination).</p>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">reward_scale</span><span class="p">,</span>
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">next_actions</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">critic_subset</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="p">)</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">next_values</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">predictions</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">target_value_at</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p>target_q with the extensions' on_target applied, no gradient
-flowing back through it (stop_gradient), and their metrics:
-critic_step's first half, which an
-agent whose target comes out of its own critic pass (CrossQ) calls
-inside its loss.</p>
+flowing back through it (stop_gradient), their metrics and agent_state
+with the extensions' states as on_target left them: critic_step's first
+half, which an agent whose target comes out of its own critic pass
+(CrossQ) calls inside its loss.</p>
 <p>batch is a Transition. rewards, dones (where the bootstrap is cut),
 gamma (None for an average-reward agent), reward_scale and next_actions
 (the next actions the target scored; None for a target scoring a state
 value, IQL's V(s')) and critic_subset (the indices of the target critics
 whose minimum it took, REDQ's random subset; None for a target over all
-its critics) are what the target used. The phase draws on a key derived
-from key, the step's (derive_extensions_key).</p>
+its critics) are what the target used; next_values the value it
+bootstrapped at s', before gamma, the cut and the reward scale (a
+distributional target's mean); predictions() the critics' mean
+prediction at the batch's rows, which the loss regresses, and
+target_value_at(observations, actions) their mean value at the target's
+parameters (the step's where there is no target critic), each run only
+by an extension reading it. The phase draws on a key derived from key,
+the step's (derive_extensions_key).</p>
 
 
     </div>
@@ -5424,9 +5485,31 @@ back through it (apply_on_target, which target_args reach: what the target
 used), then steps the critic down value_loss(params, target_q) -&gt;
 (loss, aux) plus their critic_loss terms
 (compute_extensions_critic_loss). The phases draw on keys derived from key,
-the step's, on which the agent may draw too. Returns the stepped critic
-state, aux, the gradients' norm (gradient_step) and the two
-phases' metrics.</p>
+the step's, on which the agent may draw too. Returns agent_state with the
+stepped critic and the extensions' states as on_target left them, aux,
+the gradients' norm (gradient_step) and the two phases' metrics.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.update_steps.bootstrap_cuts" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">bootstrap_cuts</span>
+
+
+<a href="#ajax.agents.update_steps.bootstrap_cuts" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">bootstrap_cuts</span><span class="p">(</span><span class="n">terminated</span><span class="p">,</span> <span class="n">extensions</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Where a replay target cuts its bootstrap: at the terminations, unless
+an extension has it go on through them into the reset observation the
+replay stores there (ResetCost).</p>
 
 
     </div>

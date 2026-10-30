@@ -55,6 +55,10 @@ brax = ["brax>=0.14.2"]
 # MuJoCo Playground environments, which run in brax's wrappers: `uv sync
 # --extra playground`, or depend on `ajax-rl[playground]`.
 playground = ["ajax-rl[brax]", "playground>=0.2.0,<0.3"]
+# Gymnasium environments, stepped in Python ("gymnasium:HalfCheetah-v5", ...,
+# see ajax.environments.gymnasium), MuJoCo's tasks included: `uv sync --extra
+# gymnasium`, or depend on `ajax-rl[gymnasium]`.
+gymnasium = ["gymnasium[mujoco]>=1.0"]
 # Weights & Biases logging (ajax.logging.WandbBackend): `uv sync --extra
 # wandb`, or depend on `ajax-rl[wandb]`.
 wandb = ["wandb>=0.19.9"]
@@ -67,8 +71,9 @@ Issues = "https://github.com/YannBerthelot/Ajax/issues"
 
 [dependency-groups]
 dev = [
-    # The tests build Brax and MuJoCo Playground environments.
+    # The tests build Brax, MuJoCo Playground and Gymnasium environments.
     "ajax-rl[playground]",
+    "ajax-rl[gymnasium]",
     "mypy>=1.4.1,<2",
     "types-PyYAML>=6.0.0",
     "pre-commit>=3.3.3,<4",

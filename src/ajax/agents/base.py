@@ -17,7 +17,7 @@ from ajax.controller import (
 from ajax.environments.action_stage import check_action_slots
 from ajax.environments.create import prepare_env
 from ajax.environments.system_class import env_params_is_batched
-from ajax.environments.utils import ExpertInAgentUnits
+from ajax.environments.utils import ExpertInAgentUnits, steps_in_python
 from ajax.extensions.base import (
     CONTROLLER_PHASES,
     Extension,
@@ -54,6 +54,16 @@ def run_config(
     config = {k: v for k, v in arguments.items() if k not in dropped}
     config.update({"algo_name": name})
     return config
+
+
+def _seed_by_seed(train: Callable, keys: jax.Array, index: jax.Array) -> Any:
+    """``jax.vmap(train)(keys, index)``, one seed after another, for an env
+    that steps in Python: JAX cannot batch its callback inside the ``cond``
+    that gates evaluations ("IO effect not supported in vmap-of-cond").
+    The seeds share one compilation."""
+    compiled = jax.jit(train)
+    runs = [compiled(keys[i], index[i]) for i in range(len(index))]
+    return jax.tree.map(lambda *leaves: jnp.stack(leaves), *runs)
 
 
 def shared_counters(state: Any, per_seed_updates: bool = False) -> dict[str, jax.Array]:
@@ -550,6 +560,13 @@ class ActorCritic:
         # ``agent.train()`` returns ``(state, out)``: accept either form.
         if isinstance(initial_state, tuple) and len(initial_state) == 2:
             initial_state = initial_state[0]
+        in_python = steps_in_python(self.env_args.env)
+        if initial_state is not None and in_python:
+            raise ValueError(
+                "A Gymnasium environment cannot resume from a saved state: its"
+                " simulator's state lives in Python, outside the state, so the"
+                " episodes it was in cannot continue."
+            )
         counters = (
             {}
             if initial_state is None
@@ -592,7 +609,9 @@ class ActorCritic:
 
         index = jnp.arange(len(seed))
         keys = jax.vmap(jax.random.PRNGKey)(jnp.array(seed))
-        if initial_state is None:
+        if in_python:
+            result = _seed_by_seed(train_jit, keys, index)
+        elif initial_state is None:
             result = jax.vmap(train_jit)(keys, index)
         else:
             # Only passed when non-zero: the default (0) keeps the call --

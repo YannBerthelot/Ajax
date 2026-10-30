@@ -1,13 +1,16 @@
 # Environments and wrappers
 
 Agents take a gymnax, Brax or MuJoCo Playground environment, or its id, and
-wrap it themselves. Every continuous agent acts in `[-1, 1]`, and
+wrap it themselves; a Gymnasium environment, which steps in Python, comes in
+through `"gymnasium:<id>"` or `GymnasiumEnv`. Every continuous agent acts in `[-1, 1]`, and
 `agent_action_to_env` maps its action onto the environment's bounds; an
 expert speaks the environment's units, and the agent reads it through
 `ExpertInAgentUnits`. See [Environments](../guide/environments.md) and
 [Differentiable simulation](../guide/differentiable-simulation.md).
 
 ::: ajax.environments.create
+
+::: ajax.environments.gymnasium
 
 ::: ajax.wrappers
 

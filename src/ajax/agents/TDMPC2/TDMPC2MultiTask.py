@@ -38,6 +38,7 @@ from ajax.environments.utils import (
     get_action_dim,
     get_env_type,
     get_state_action_shapes,
+    steps_in_python,
 )
 from ajax.extensions.base import Extension, ExtensionStack, check_extensions
 from ajax.extensions.capabilities import run_capabilities
@@ -267,6 +268,12 @@ class TDMPC2MultiTask:
                 n_envs=1,
                 action_repeat=action_repeat,
             )
+            if steps_in_python(env):
+                raise ValueError(
+                    f"eval_envs[{i}] steps in Python (Gymnasium); TDMPC2MultiTask"
+                    " evaluates its seeds in one compiled batch, which a Python"
+                    " environment cannot join."
+                )
             if env_params is None and get_env_type(env) == "gymnax":
                 env_params = env.default_params
             obs_shape, _ = get_state_action_shapes(env)

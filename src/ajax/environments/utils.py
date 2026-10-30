@@ -156,6 +156,13 @@ def raw_obs_columns(env: EnvType) -> int:
     return int(getattr(env, "raw_obs_columns", 0))
 
 
+def steps_in_python(env: EnvType) -> bool:
+    """Whether ``env`` (wrapped or not) steps in Python, outside the compiled
+    training: a Gymnasium environment
+    (:class:`ajax.environments.gymnasium.GymnasiumEnv`)."""
+    return bool(getattr(get_raw_env(env), "steps_in_python", False))
+
+
 def check_env_is_gymnax(env) -> bool:
     env = get_raw_env(env)
     return isinstance(env, GymnaxEnv) or "gymnax" in str(type(env)).lower()

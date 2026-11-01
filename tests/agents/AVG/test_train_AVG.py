@@ -192,7 +192,13 @@ def test_the_actor_loss_takes_the_executed_action(
     for critic, transition, q_min in seen:
         executed = transition.reward / paid_action.HIGH
         q = q_values(critic, critic.params, transition.obs, executed).min(0)
-        np.testing.assert_allclose(q_min, q.mean(), rtol=1e-5)
+        # q_min comes from the compiled training step and q from a separate
+        # host computation, so float32 rounding may differ: about 1e-7 absolute
+        # (the critic sums 256 products of size ~0.1 per layer; 8e-8 seen on
+        # Linux CI). A Q near zero makes that relative gap large, hence the
+        # absolute floor. A wrong action moves Q by 1e-4 or more (1e-4 for an
+        # action off by 0.01; 1e-3 to 1 for a resampled one), far above it.
+        np.testing.assert_allclose(q_min, q.mean(), rtol=1e-5, atol=1e-6)
 
 
 def test_the_critic_scores_the_action_its_step_executed(

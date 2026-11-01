@@ -4,8 +4,158 @@ Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged `vX.Y.Z` on main and published to
 PyPI as `ajax-rl`.
 
-## Unreleased
+## 0.5.0
 
+What a user of 0.4.0 meets:
+
+- **Three new agents**, CrossQ (Bhatt et al., ICLR 2024), TQC (Kuznetsov
+  et al., ICML 2020) and RVI-SAC (Hisaki and Ono, ICML 2024), an
+  average-reward SAC, each checked one training step at a time against its
+  authors' code. Ajax has nineteen agents.
+- **Gymnasium environments, if you choose them** (`"gymnasium:<id>"`, the
+  `gymnasium` extra): slower, as they step in Python, and a warning says
+  so.
+- **A trained agent acts and loads in one call**: `agent.policy`,
+  `agent.predict` and `load_checkpoint`.
+- **Logging goes through backends**, TensorBoard by default.
+- **Each agent is one file on a shared family**, and the expert tools
+  (residual RL, gain mode, observation features, EDGE, IBRL, JSRL, the
+  warm-up and the prefill) work on every agent they fit.
+- **Random numbers are stable**: keys are derived by name, so an option or
+  an extension leaves every other draw as it was, and resets are keyed by
+  episode.
+- **Agents do what their authors' code does** where they differed: ASAC,
+  REDQ, AVG, PQN, APO, IQL, APG's schedule and IBRL.
+- **A replay reserves memory for the rows a run writes**, and the replay
+  and incremental agents' updates run faster on a CPU.
+- **The documentation site has a version per release.**
+
+### Upgrading from 0.4.0
+
+Each change below can break code or results that worked on 0.4.0, with
+what to do about it. The sections after it give the details.
+
+- **Every run draws other numbers from the same seed.** Keys are derived
+  by name, collection and updates draw on two streams, resets are keyed by
+  episode and evaluations by phase and timestep; several agents now follow
+  their authors' code (next item); and the replay and incremental agents'
+  update runs under a jit of its own, which XLA rounds differently.
+  *What to do:* compare 0.5.0 results with 0.5.0 runs, not with 0.4.0's.
+  `episode_keys=False` (`ajax.environments.create.build_env_from_id`, or
+  `with_episode_keys(env, on=False)`) keeps 0.4.0's resets, but not its
+  other draws.
+- **Agents that now follow their authors' code**, so their results move:
+  ASAC (a termination drops the next value), REDQ, AVG (its log-std head
+  read as a log-variance), PQN and APO (time limits), IQL (its two
+  critics' errors summed), APG (its learning-rate schedule steps the
+  matrices alone), IBRL (its target selects on a fresh critic subset),
+  EDGE (it scores the action executed). DQN draws its warm-up actions as
+  the other agents do; PPO, APO and IQL start a PID actor's log-std at -1,
+  as the others do; PPO, APO, PQN and AVG keep one set of observation
+  statistics, in the collector. A pretraining that runs the agent's updates
+  (`PriorData`, `BellmanPretrain`) keeps the states those updates give the
+  other extensions, where the next phase read their initial states.
+  *What to do:* nothing; re-run results you compare against.
+- **IBRL acts as its authors' code does by default**
+  (`IBRL(hybrid_acting=True)`): collection and evaluation execute the
+  expert's action where the target critics rate it higher. *What to do:*
+  `IBRL(hybrid_acting=False)` keeps 0.4.0's IBRL, which changed the target
+  alone.
+- **SAC with an expert no longer adds `ExpertWarmup(fraction=0.7)` and
+  `ExpertPrefill(n_steps=20_000)` on its own.** *What to do:* pass them in
+  `extensions=` to keep them.
+- **Runs log to TensorBoard by default**, under `./tensorboard/<run id>/`,
+  where 0.4.0 logged to Weights & Biases. `use_wandb` and
+  `use_tensorboard` still work, with a FutureWarning. *What to do:*
+  `LoggingConfig(backends=(WandbBackend(project, group),))` for W&B (with
+  `pip install "ajax-rl[wandb]"`), `backends=()` for no files.
+- **Checkpoints are written in format 3.** One saved before resets were
+  keyed by episode is refused by an agent whose environment keys them.
+  *What to do:* resume it with the environment built with
+  `episode_keys=False`. `load_checkpoint(agent, path)` restores a
+  checkpoint without a 0-step `train` call.
+- **Brax environments reset as Playground's do** (`FreshAutoResetWrapper`)
+  when resets are keyed by episode, the default. *What to do:*
+  `episode_keys=False` keeps 0.4.0's stack.
+- **Public names removed or moved.** The 0.4.0 compatibility layer is gone
+  (Removed, below): each agent's `train_<A>`, `state`, `utils` and `core`
+  modules, the `<A>Config` views and `agent.agent_config`, SAC's
+  deprecated keywords, and the old step and loss names. Besides:
+  - `agent.dreamer_config`, and TD-MPC2's `agent.agent_config`, are
+    `agent.model_config`;
+  - `ajax.agents.DreamerV3` and `ajax.agents.TDMPC2` no longer re-export
+    `DreamerV3Config`, `MODEL_SIZES` and `TDMPC2Config`: import them from
+    `ajax.agents.DreamerV3.state` and `ajax.agents.TDMPC2.state`;
+  - the agents' target helpers (`compute_td_target`, `compute_td3_td_target`
+    and the others), now in their agents' files, also return the value they
+    bootstrapped: unpack one more value;
+  - `PIDTermsWrapper` is the `PIDTermsInput` extension;
+    `ActionPipelineResult.rng` is gone; `ajax.agents.steps` is
+    `ajax.agents.update_steps`; the ring rules moved from
+    `ajax.agents.DreamerV3.replay` to `ajax.buffers.ring`;
+  - a name an agent module only imported for its own use (`ActorCritic`,
+    `EnvParams`, `CNNSpec`, `AlphaConfig`, `run_config` and the like) no
+    longer imports from that module: import it from its own module;
+  - the helpers of SAC's removed observation keywords (`augment_obs`,
+    `augment_from_batch`, `expert_state_dim`, `flatten_expert_state` and
+    `maybe_append_train_frac` in `ajax.evaluate` and
+    `ajax.environments.interaction`, `expert_next_actions`) are gone:
+    `ExpertActionInput`, `ExpertStateInput` and `TrainingProgressInput` do
+    their work.
+- **Calls that ran on 0.4.0 and now raise**, each naming what to pass:
+  `EDGEExploration` under gain mode (EDGE executes the expert's env action
+  where the policy's gains go), refused when the agent is built; `BellmanPretrain` without a seeded replay
+  (`ExpertPrefill` or `PriorData`), where it ran on an empty one;
+  `ConditioningMetrics` and `BiasVoreDecomposition` on an agent that
+  stores no steps (APG), where they logged nothing; IBRL's acting with an
+  expert other than the agent's under a residual policy; a replay that has
+  wrapped, resumed by an agent with a larger `buffer_size`.
+- **No dependency moved into an extra.** A new one, `gymnasium`, installs
+  Gymnasium with MuJoCo for the opt-in Gymnasium environments. In a
+  checkout, `uv sync` no longer installs wandb: `uv sync --group wandb`
+  does.
+- **The benchmark** (`benchmarks/agent_bench.py`) adds CrossQ, TQC, IQL
+  and DAgger and records each row's device; the other agents' runs are
+  unchanged, and its baseline is re-recorded with five trials.
+
+### New since 0.4.0, in brief
+
+Not all of it has a section below:
+
+- **CrossQ** and **TQC**: declared agents, with conformance checks against
+  their authors' code; critics may predict quantiles
+  (`NetworkConfig(critic_quantiles=N)`).
+- **RVI-SAC** and the pieces it brings to the discounted agents:
+  `ValueCentering` (a target centred on a learned reward rate) and
+  `ResetCost` (terminations charged a learned cost); an extension's
+  `on_target` may now learn from the target.
+- **Gymnasium environments**, opt-in, by id or as `GymnasiumEnv`.
+- **IBRL** acts as its authors' code does (`hybrid_acting`, on by default)
+  and can choose softly (`soft_choice=True`, `soft_choice_beta`), as their
+  `ibrl_soft`; its target selects on a fresh critic subset.
+- **The expert tools reach every agent they fit**: EDGE's gates every
+  continuous off-policy agent with an expert; residual RL and gain mode
+  every continuous agent with one; the observation features
+  (`ExpertActionInput`, `ExpertStateInput`, `TrainingProgressInput`,
+  `PIDTermsInput`) every agent on the shared collector. Evaluations log
+  the replay's expert share (`Eval/expert share`).
+- **Evaluation acts through the agent's controller**, as collection does.
+  Fixed: Brax and Playground evaluation now keeps the wrappers a user put
+  over Ajax's environment; it ran without them.
+- **The update's own jit**: the replay and incremental agents' update is
+  compiled as a call of its own, which XLA's CPU pipeline runs about 8-10%
+  faster (DQN, SAC, AVG; PERFORMANCE_REPORT.md), a deliberate workaround
+  for its scheduling.
+
+### Changes in detail
+
+- **Gymnasium environments, if you choose them**: `"gymnasium:HalfCheetah-v5"`
+  (or `GymnasiumEnv(...)` for an environment of your own) trains any agent on
+  a Gymnasium environment, MuJoCo's tasks included. It steps in Python,
+  outside the compiled program, so it is slower and its seeds train one after
+  another; a warning says so and names the closest JAX tasks, with what
+  differs. The new `gymnasium` extra installs MuJoCo for it. Nothing changes
+  for JAX environments.
 - **RVI-SAC.** A new average-reward agent, `RVISAC` (Hisaki and Ono, ICML
   2024): SAC learned by RVI Q-learning, its target `r - c 1(terminated) -
   xi + V'(s')` going on through terminations, `xi` following the batch mean
@@ -47,146 +197,6 @@ PyPI as `ajax-rl`.
   deterministic action can be the mean of `tanh` at the latent mean plus
   and minus its standard deviation (RVI-SAC's authors' evaluation action),
   in place of `tanh` of the mean.
-
-## 0.5.1
-
-- **Gymnasium environments, if you choose them**: `"gymnasium:HalfCheetah-v5"`
-  (or `GymnasiumEnv(...)` for an environment of your own) trains any agent on
-  a Gymnasium environment, MuJoCo's tasks included. It steps in Python,
-  outside the compiled program, so it is slower and its seeds train one after
-  another; a warning says so and names the closest JAX tasks, with what
-  differs. The new `gymnasium` extra installs MuJoCo for it. Nothing changes
-  for JAX environments.
-
-## 0.5.0
-
-What a user of 0.4.0 meets:
-
-- **Two new agents**, CrossQ (Bhatt et al., ICLR 2024) and TQC (Kuznetsov
-  et al., ICML 2020), each checked one training step at a time against its
-  authors' code. Ajax has eighteen agents.
-- **A trained agent acts and loads in one call**: `agent.policy`,
-  `agent.predict` and `load_checkpoint`.
-- **Logging goes through backends**, TensorBoard by default.
-- **Each agent is one file on a shared family**, and the expert tools
-  (residual RL, gain mode, observation features, EDGE, IBRL, JSRL, the
-  warm-up and the prefill) work on every agent they fit.
-- **Random numbers are stable**: keys are derived by name, so an option or
-  an extension leaves every other draw as it was, and resets are keyed by
-  episode.
-- **Agents do what their authors' code does** where they differed: ASAC,
-  REDQ, AVG, PQN, APO, IQL, APG's schedule and IBRL.
-- **A replay reserves memory for the rows a run writes**, and the replay
-  and incremental agents' updates run faster on a CPU.
-- **The documentation site has a version per release.**
-
-### Upgrading from 0.4.0
-
-Each change below can break code or results that worked on 0.4.0, with
-what to do about it. The sections after it give the details.
-
-- **Every run draws other numbers from the same seed.** Keys are derived
-  by name, collection and updates draw on two streams, resets are keyed by
-  episode and evaluations by phase and timestep; several agents now follow
-  their authors' code (next item); and the replay and incremental agents'
-  update runs under a jit of its own, which XLA rounds differently.
-  *What to do:* compare 0.5.0 results with 0.5.0 runs, not with 0.4.0's.
-  `episode_keys=False` (`ajax.environments.create.build_env_from_id`, or
-  `with_episode_keys(env, on=False)`) keeps 0.4.0's resets, but not its
-  other draws.
-- **Agents that now follow their authors' code**, so their results move:
-  ASAC (a termination drops the next value), REDQ, AVG (its log-std head
-  read as a log-variance), PQN and APO (time limits), IQL (its two
-  critics' errors summed), APG (its learning-rate schedule steps the
-  matrices alone), IBRL (its target selects on a fresh critic subset),
-  EDGE (it scores the action executed). DQN draws its warm-up actions as
-  the other agents do; PPO, APO and IQL start a PID actor's log-std at -1,
-  as the others do; PPO, APO, PQN and AVG keep one set of observation
-  statistics, in the collector. *What to do:* nothing; re-run results you
-  compare against.
-- **IBRL acts as its authors' code does by default**
-  (`IBRL(hybrid_acting=True)`): collection and evaluation execute the
-  expert's action where the target critics rate it higher. *What to do:*
-  `IBRL(hybrid_acting=False)` keeps 0.4.0's IBRL, which changed the target
-  alone.
-- **SAC with an expert no longer adds `ExpertWarmup(fraction=0.7)` and
-  `ExpertPrefill(n_steps=20_000)` on its own.** *What to do:* pass them in
-  `extensions=` to keep them.
-- **Runs log to TensorBoard by default**, under `./tensorboard/<run id>/`,
-  where 0.4.0 logged to Weights & Biases. `use_wandb` and
-  `use_tensorboard` still work, with a FutureWarning. *What to do:*
-  `LoggingConfig(backends=(WandbBackend(project, group),))` for W&B (with
-  `pip install "ajax-rl[wandb]"`), `backends=()` for no files.
-- **Checkpoints are written in format 3.** One saved before resets were
-  keyed by episode is refused by an agent whose environment keys them.
-  *What to do:* resume it with the environment built with
-  `episode_keys=False`. `load_checkpoint(agent, path)` restores a
-  checkpoint without a 0-step `train` call.
-- **Brax environments reset as Playground's do** (`FreshAutoResetWrapper`)
-  when resets are keyed by episode, the default. *What to do:*
-  `episode_keys=False` keeps 0.4.0's stack.
-- **Public names removed or moved.** The 0.4.0 compatibility layer is gone
-  (Removed, below): each agent's `train_<A>`, `state`, `utils` and `core`
-  modules, the `<A>Config` views and `agent.agent_config`, SAC's
-  deprecated keywords, and the old step and loss names. Besides:
-  - `agent.dreamer_config`, and TD-MPC2's `agent.agent_config`, are
-    `agent.model_config`;
-  - `ajax.agents.DreamerV3` and `ajax.agents.TDMPC2` no longer re-export
-    `DreamerV3Config`, `MODEL_SIZES` and `TDMPC2Config`: import them from
-    `ajax.agents.DreamerV3.state` and `ajax.agents.TDMPC2.state`;
-  - `PIDTermsWrapper` is the `PIDTermsInput` extension;
-    `ActionPipelineResult.rng` is gone; `ajax.agents.steps` is
-    `ajax.agents.update_steps`; the ring rules moved from
-    `ajax.agents.DreamerV3.replay` to `ajax.buffers.ring`;
-  - a name an agent module only imported for its own use (`ActorCritic`,
-    `EnvParams`, `CNNSpec`, `AlphaConfig`, `run_config` and the like) no
-    longer imports from that module: import it from its own module;
-  - the helpers of SAC's removed observation keywords (`augment_obs`,
-    `augment_from_batch`, `expert_state_dim`, `flatten_expert_state` and
-    `maybe_append_train_frac` in `ajax.evaluate` and
-    `ajax.environments.interaction`, `expert_next_actions`) are gone:
-    `ExpertActionInput`, `ExpertStateInput` and `TrainingProgressInput` do
-    their work.
-- **Calls that ran on 0.4.0 and now raise**, each naming what to pass:
-  `EDGEExploration` under gain mode (EDGE executes the expert's env action
-  where the policy's gains go), refused when the agent is built; `BellmanPretrain` without a seeded replay
-  (`ExpertPrefill` or `PriorData`), where it ran on an empty one;
-  `ConditioningMetrics` and `BiasVoreDecomposition` on an agent that
-  stores no steps (APG), where they logged nothing; IBRL's acting with an
-  expert other than the agent's under a residual policy; a replay that has
-  wrapped, resumed by an agent with a larger `buffer_size`.
-- **No dependency moved into an extra.** In a checkout, `uv sync` no longer
-  installs wandb: `uv sync --group wandb` does.
-- **The benchmark** (`benchmarks/agent_bench.py`) adds CrossQ, TQC, IQL
-  and DAgger and records each row's device; the other agents' runs are
-  unchanged, and its baseline is re-recorded with five trials.
-
-### New since 0.4.0, in brief
-
-Not all of it has a section below:
-
-- **CrossQ** and **TQC**: declared agents, with conformance checks against
-  their authors' code; critics may predict quantiles
-  (`NetworkConfig(critic_quantiles=N)`).
-- **IBRL** acts as its authors' code does (`hybrid_acting`, on by default)
-  and can choose softly (`soft_choice=True`, `soft_choice_beta`), as their
-  `ibrl_soft`; its target selects on a fresh critic subset.
-- **The expert tools reach every agent they fit**: EDGE's gates every
-  continuous off-policy agent with an expert; residual RL and gain mode
-  every continuous agent with one; the observation features
-  (`ExpertActionInput`, `ExpertStateInput`, `TrainingProgressInput`,
-  `PIDTermsInput`) every agent on the shared collector. Evaluations log
-  the replay's expert share (`Eval/expert share`).
-- **Evaluation acts through the agent's controller**, as collection does.
-  Fixed: Brax and Playground evaluation now keeps the wrappers a user put
-  over Ajax's environment; it ran without them.
-- **The update's own jit**: the replay and incremental agents' update is
-  compiled as a call of its own, which XLA's CPU pipeline runs about 8-10%
-  faster (DQN, SAC, AVG; PERFORMANCE_REPORT.md), a deliberate workaround
-  for its scheduling.
-
-### Changes in detail
-
 - **A replay reserves memory for the rows its run writes.** The replay
   agents' replays (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN, DAgger,
   their recurrent forms too) held `buffer_size // n_envs` rows per env

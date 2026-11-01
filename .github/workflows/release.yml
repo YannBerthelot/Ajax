@@ -2,12 +2,12 @@ name: Release
 
 # A release, by hand, as RELEASING.md describes it: check (the version's
 # CHANGELOG entry and pyproject version on main's head, no tag yet), the
-# slow tier green there (run first when no green Slow run exists, the
-# two-tier test plan, owner 2026-10-20), the package built once and checked
-# installed outside the checkout (package.yml), then the vX.Y.Z tag, those
-# exact files published to PyPI as ajax-rl, the documentation as the site's
-# version X.Y, the default ("latest"), and the release installed back from
-# PyPI. Tags come only from this workflow.
+# slow tier green there (run first when no run there had all its shards
+# pass; the two-tier test plan, owner 2026-10-20), the package built once
+# and checked installed outside the checkout (package.yml), then the vX.Y.Z
+# tag, those exact files published to PyPI as ajax-rl, the documentation as
+# the site's version X.Y, the default ("latest"), and the release installed
+# back from PyPI. Tags come only from this workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -47,11 +47,11 @@ jobs:
             echo "v$VERSION exists"; exit 1
           fi
           sha=$(git rev-parse HEAD)
-          runs="repos/${{ github.repository }}/actions/workflows/slow.yml/runs"
-          green=$(gh api "$runs?head_sha=$sha&status=success" -q '.total_count')
+          # Green means a slow-tier run at this commit whose shards all ran
+          # and passed: a run that skipped them also concludes success.
+          python3 .github/scripts/slow_runs.py green-at "$sha" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "minor=${VERSION%.*}" >> "$GITHUB_OUTPUT"
-          echo "green=$([ "$green" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
   slow:
     needs: check

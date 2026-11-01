@@ -33,8 +33,10 @@ env:
   JAX_PLATFORM_NAME: cpu
 
 jobs:
-  # A daily run is skipped when the last green or red daily or by-hand run
-  # on main tested main's head: a red one already has its issue.
+  # A daily run is skipped when the last daily or by-hand run on main whose
+  # shards ran tested main's head: a red one already has its issue. Runs
+  # count by their shard jobs (.github/scripts/slow_runs.py): a run whose
+  # shards were skipped concludes success but tested nothing.
   changed:
     if: github.event_name != 'pull_request' || github.event.label.name == 'run-slow-tier'
     runs-on: ubuntu-latest
@@ -43,20 +45,22 @@ jobs:
       sha: ${{ steps.check.outputs.sha }}
       last_green: ${{ steps.check.outputs.last_green }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
       - id: check
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
         run: |
-          runs="repos/${{ github.repository }}/actions/workflows/slow.yml/runs?branch=main&status=completed&per_page=50"
-          ours='.workflow_runs[] | select(.event == "schedule" or .event == "workflow_dispatch")
-            | select(.conclusion == "success" or .conclusion == "failure")'
-          last=$(gh api "$runs" -q "[$ours][0].head_sha // empty")
-          green=$(gh api "$runs" -q "[$ours | select(.conclusion == \"success\")][0].head_sha // empty")
+          # An assignment, so that a failure of the script fails the step.
+          history=$(python3 .github/scripts/slow_runs.py history)
+          eval "$history"  # sets last and last_green
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "last_green=$green" >> "$GITHUB_OUTPUT"
+          echo "last_green=$last_green" >> "$GITHUB_OUTPUT"
           if [ "${{ github.event_name }}" = schedule ] && [ "$last" = "$SHA" ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipped: an earlier run on main tested $SHA, so this run tested nothing." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi

@@ -12,6 +12,10 @@ PyPI as `ajax-rl`.
   and list what their matched arms still cannot match. PQN's specs (version
   3) drop the optimiser from that list, since Ajax's PQN now uses
   purejaxql's.
+- **Expert guidance on Pendulum.** A pre-registered comparison of
+  `ExpertPrefill`, `JSRLCurriculum`, `IBRL` and `ResidualPolicy` against SAC
+  alone, with a swing-up controller as the expert; the results are in the
+  reproduction docs.
 
 ## 0.5.0
 

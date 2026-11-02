@@ -486,3 +486,5 @@ continuous-action agent.
 - [Extensions](extensions.md): the phases and the full catalogue.
 - [SAC](../algorithms/sac.md): every SAC option.
 - [Networks and the PID policy](networks.md).
+- [Expert guidance on Pendulum](../reproduction/expert-guidance.md): four of
+  these extensions against SAC alone, with a swing-up controller as the expert.

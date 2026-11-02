@@ -12,6 +12,10 @@ PyPI as `ajax-rl`.
   and list what their matched arms still cannot match. PQN's specs (version
   3) drop the optimiser from that list, since Ajax's PQN now uses
   purejaxql's.
+- **Expert guidance on Pendulum.** A pre-registered comparison of
+  `ExpertPrefill`, `JSRLCurriculum`, `IBRL` and `ResidualPolicy` against SAC
+  alone, with a swing-up controller as the expert; the results are in the
+  reproduction docs.
 - **A benchmark of every agent** (`benchmarks/suite/agent_suite.py`): the
   continuous agents on MuJoCo Playground's CheetahRun, the discrete ones on
   Breakout-MinAtar, each at its defaults. `time` measures an agent's

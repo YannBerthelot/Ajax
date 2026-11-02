@@ -1762,10 +1762,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#sac-version-1" class="md-nav__link">
+  <a href="#sac-version-2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        SAC, version 1
+        SAC, version 2
       
     </span>
   </a>
@@ -1773,10 +1773,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#td3-version-1" class="md-nav__link">
+  <a href="#td3-version-2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        TD3, version 1
+        TD3, version 2
       
     </span>
   </a>
@@ -1784,10 +1784,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#pqn-version-2" class="md-nav__link">
+  <a href="#pqn-version-3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PQN, version 2
+        PQN, version 3
       
     </span>
   </a>
@@ -1795,10 +1795,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#pqn-asterix-version-2" class="md-nav__link">
+  <a href="#pqn-asterix-version-3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PQN-Asterix, version 2
+        PQN-Asterix, version 3
       
     </span>
   </a>
@@ -2686,10 +2686,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#sac-version-1" class="md-nav__link">
+  <a href="#sac-version-2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        SAC, version 1
+        SAC, version 2
       
     </span>
   </a>
@@ -2697,10 +2697,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#td3-version-1" class="md-nav__link">
+  <a href="#td3-version-2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        TD3, version 1
+        TD3, version 2
       
     </span>
   </a>
@@ -2708,10 +2708,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#pqn-version-2" class="md-nav__link">
+  <a href="#pqn-version-3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PQN, version 2
+        PQN, version 3
       
     </span>
   </a>
@@ -2719,10 +2719,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#pqn-asterix-version-2" class="md-nav__link">
+  <a href="#pqn-asterix-version-3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PQN-Asterix, version 2
+        PQN-Asterix, version 3
       
     </span>
   </a>
@@ -3114,15 +3114,15 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <li>weight initialisation (torch default vs Ajax's)</li>
 <li>Adam eps: 1e-5 in Ajax, 1e-8 in the reference</li>
 </ul>
-<h2 id="sac-version-1">SAC, version 1<a class="headerlink" href="#sac-version-1" title="Permanent link">&para;</a></h2>
+<h2 id="sac-version-2">SAC, version 2<a class="headerlink" href="#sac-version-2" title="Permanent link">&para;</a></h2>
 <p>Ajax's SAC against stable-baselines3's SAC, MlpPolicy.</p>
 <ul>
 <li>Environment: gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step episodes); SB3 steps it through refcmp_sb3.gymnax_vec_env.</li>
 <li>Budget: 20,000 steps per seed.</li>
 <li>Evaluation: 10 episodes of the deterministic policy, every 1,000 steps; a seed's score is the last one's mean return.</li>
 <li>AdaStop: n = 4, K = 24, alpha = 0.05.</li>
-<li>Margin: none registered yet.</li>
-<li>Spec hash: <code>3639b4ebc6ea4944</code>.</li>
+<li>Margin: ±14.</li>
+<li>Spec hash: <code>cf3e8fe9d284263a</code>.</li>
 <li>Reproduce: <code>uv run python benchmarks/reference/refcmp_protocol.py run SAC --cache DIR</code></li>
 </ul>
 <table>
@@ -3200,19 +3200,19 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <p>Ajax settings without a reference counterpart: <code>n_envs=1</code>, <code>alpha_init=1.0</code>, <code>target_entropy_per_dim=-1.0</code>, <code>policy_update_start=0</code>, <code>alpha_update_start=0</code>, <code>actor_architecture=('256', 'relu', '256', 'relu')</code>, <code>critic_architecture=('256', 'relu', '256', 'relu')</code>.</p>
 <p>Not matched:</p>
 <ul>
-<li>weight initialisation</li>
-<li>initial policy std: exp(-1) in Ajax, about 1 in SB3</li>
-<li>Adam eps: 1e-5 in Ajax, 1e-8 in the reference</li>
+<li>weight initialisation: Glorot-uniform kernels and zero biases in Ajax (softlearning's), torch's nn.Linear default in SB3</li>
+<li>tanh log-det: exact in Ajax (softlearning's), log(1 - tanh(u)^2 + 1e-6) in SB3</li>
+<li>update order: SB3 steps the temperature first, on the log-probabilities of the actor before its step, and the actor's loss reuses that sample; Ajax steps the critics, the actor on its own sample, then the temperature on a fresh sample of the stepped actor</li>
 </ul>
-<h2 id="td3-version-1">TD3, version 1<a class="headerlink" href="#td3-version-1" title="Permanent link">&para;</a></h2>
+<h2 id="td3-version-2">TD3, version 2<a class="headerlink" href="#td3-version-2" title="Permanent link">&para;</a></h2>
 <p>Ajax's TD3 against stable-baselines3's TD3, MlpPolicy.</p>
 <ul>
 <li>Environment: gymnax Pendulum-v1, a port of Gymnasium's Pendulum-v1 (200-step episodes); SB3 steps it through refcmp_sb3.gymnax_vec_env.</li>
 <li>Budget: 20,000 steps per seed.</li>
 <li>Evaluation: 10 episodes of the deterministic policy, every 1,000 steps; a seed's score is the last one's mean return.</li>
 <li>AdaStop: n = 4, K = 24, alpha = 0.05.</li>
-<li>Margin: none registered yet.</li>
-<li>Spec hash: <code>7d9a3c8804e712ba</code>.</li>
+<li>Margin: ±14.</li>
+<li>Spec hash: <code>2c446c578a818c0d</code>.</li>
 <li>Reproduce: <code>uv run python benchmarks/reference/refcmp_protocol.py run TD3 --cache DIR</code></li>
 </ul>
 <table>
@@ -3308,10 +3308,9 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <p>Ajax settings without a reference counterpart: <code>n_envs=1</code>, <code>actor_architecture=('400', 'relu', '300', 'relu')</code>, <code>critic_architecture=('400', 'relu', '300', 'relu')</code>.</p>
 <p>Not matched:</p>
 <ul>
-<li>weight initialisation</li>
-<li>Adam eps: 1e-5 in Ajax, 1e-8 in the reference</li>
+<li>warm-up actions: SB3 adds the behaviour noise to its uniform warm-up actions and clips them, Ajax takes them uniform</li>
 </ul>
-<h2 id="pqn-version-2">PQN, version 2<a class="headerlink" href="#pqn-version-2" title="Permanent link">&para;</a></h2>
+<h2 id="pqn-version-3">PQN, version 3<a class="headerlink" href="#pqn-version-3" title="Permanent link">&para;</a></h2>
 <p>Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py.</p>
 <ul>
 <li>Environment: gymnax CartPole-v1, a port of Gymnasium's CartPole-v1.</li>
@@ -3319,7 +3318,7 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <li>Evaluation: 128 episodes of the deterministic policy, every 24,576 steps; a seed's score is the last one's mean return.</li>
 <li>AdaStop: n = 4, K = 24, alpha = 0.05.</li>
 <li>Margin: ±25.</li>
-<li>Spec hash: <code>100ff8e434eecb1a</code>.</li>
+<li>Spec hash: <code>1b1dcb8e69ef4bd0</code>.</li>
 <li>Reproduce: <code>uv run python benchmarks/reference/refcmp_protocol.py run PQN --cache DIR</code></li>
 </ul>
 <table>
@@ -3493,11 +3492,10 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <p>Ajax settings without a reference counterpart: <code>architecture=('256', 'relu', '256', 'relu')</code>, <code>lr_decay=('linear', 1e-20, 15360)</code>, <code>td_loss='half_squared'</code>.</p>
 <p>Not matched:</p>
 <ul>
-<li>optimiser: RAdam (eps 1e-8) in purejaxql, Adam (eps 1e-5) in Ajax</li>
 <li>weight initialisation (lecun_normal vs Ajax's)</li>
 <li>evaluation: purejaxql scores the last episode each of its 128 test envs ends within one 500-step window, Ajax one episode per env</li>
 </ul>
-<h2 id="pqn-asterix-version-2">PQN-Asterix, version 2<a class="headerlink" href="#pqn-asterix-version-2" title="Permanent link">&para;</a></h2>
+<h2 id="pqn-asterix-version-3">PQN-Asterix, version 3<a class="headerlink" href="#pqn-asterix-version-3" title="Permanent link">&para;</a></h2>
 <p>Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py with config/alg/pqn_minatar.yaml but the length. That config is for pqn_minatar.py, whose CNN Ajax's CNN encoder cannot build (VALID padding, LayerNorm after the convolution); both sides use pqn_gymnax.py's MLP on the flattened image instead.</p>
 <ul>
 <li>Environment: gymnax Asterix-MinAtar, a port of MinAtar's Asterix with a 1000-step limit and no sticky actions.</li>
@@ -3505,7 +3503,7 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <li>Evaluation: 128 episodes of the deterministic policy, every 61,440 steps; a seed's score is the last one's mean return.</li>
 <li>AdaStop: n = 4, K = 24, alpha = 0.05.</li>
 <li>Margin: ±5% of the reference's mean score.</li>
-<li>Spec hash: <code>c2753ca9a0052abe</code>.</li>
+<li>Spec hash: <code>705d741cc22b3dcc</code>.</li>
 <li>Reproduce: <code>uv run python benchmarks/reference/refcmp_protocol.py run PQN-Asterix --cache DIR</code></li>
 </ul>
 <table>
@@ -3661,7 +3659,6 @@ version (see the <a href="../protocol/">protocol</a>).</p>
 <p>Ajax settings without a reference counterpart: <code>architecture=('128', 'relu', '128', 'relu')</code>, <code>lr_decay=('linear', 1e-20, 19200)</code>, <code>td_loss='half_squared'</code>.</p>
 <p>Not matched:</p>
 <ul>
-<li>optimiser: RAdam (eps 1e-8) in purejaxql, Adam (eps 1e-5) in Ajax</li>
 <li>weight initialisation (lecun_normal vs Ajax's)</li>
 <li>evaluation: purejaxql scores the last episode each of its 128 test envs ends within one 1000-step window, Ajax one episode per env</li>
 </ul>

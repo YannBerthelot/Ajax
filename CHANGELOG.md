@@ -16,6 +16,11 @@ PyPI as `ajax-rl`.
   `ExpertPrefill`, `JSRLCurriculum`, `IBRL` and `ResidualPolicy` against SAC
   alone, with a swing-up controller as the expert; the results are in the
   reproduction docs.
+- **A benchmark of every agent** (`benchmarks/suite/agent_suite.py`): the
+  continuous agents on MuJoCo Playground's CheetahRun, the discrete ones on
+  Breakout-MinAtar, each at its defaults. `time` measures an agent's
+  compile time, speed and memory; `run` trains a range of seeds in chunks
+  that resume where the last one stopped and commits a record after each.
 
 ## 0.5.0
 

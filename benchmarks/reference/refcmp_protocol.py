@@ -43,7 +43,7 @@ from refcmp_specs import COMPARISONS, spec_sha256
 from ajax.compare import AdaStop, difference, resolution
 
 # docs/reproduction/protocol.md's version, recorded with every batch.
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 HERE = pathlib.Path(__file__).parent
 ROOT = HERE.parents[1]
 CACHE = HERE / "results" / "protocol"

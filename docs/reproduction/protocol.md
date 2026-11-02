@@ -1,8 +1,10 @@
 # Reproduction protocol
 
-Version 1, 2026-10-17. Every batch of runs records the version it followed;
+Version 2, 2026-11-02. Every batch of runs records the version it followed;
 a change to this page that changes what is run or how it is judged is a
-new version.
+new version. Version 2 lets a comparison register a margin other than 5%
+of the range, with its reason, where the range says nothing about learning
+(below); version 1 ran the pilot.
 
 Does each Ajax agent learn like the implementation it reproduces? The
 protocol trains an Ajax agent and a reference implementation of the same
@@ -88,8 +90,14 @@ and an Ajax arm again after a change to Ajax.
 Each comparison registers a margin with its spec: how far apart the two
 mean scores may be and still count as similar. It is 5% of the score's
 range (±25 on CartPole's 0 to 500), or 5% of the reference's mean score
-when the score has no fixed range. The verdict sets the 95% bootstrap
-interval of the gap, Ajax's mean score minus the reference's, against it:
+when the score has no fixed range. Where the range says nothing about
+learning, the spec registers another margin and says why. Pendulum's
+returns run from about -3255 to 0, but a policy that learns scores near
+-140, and 5% of the range, ±163, would call similar an Ajax mean of
+-300, short of the -200 that counts as solved. SAC and TD3 therefore register ±14, 10% of the reference's mean
+in an earlier recording: about the tightest margin 96 seeds a side can
+confirm there. The verdict sets the 95% bootstrap interval of the gap,
+Ajax's mean score minus the reference's, against the margin:
 
 - **similar**: the interval lies inside the margin, whether or not
   AdaStop detected a difference;

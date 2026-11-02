@@ -28,8 +28,9 @@ and interim, at most K interims, the family-wise error alpha.
 
 ``margin`` is how far apart the two sides' mean scores may be and still
 count as similar: 5% of the score's range, or, for a score without a fixed
-range, ``relative_margin`` times the reference's mean score. A comparison
-without either gets no verdict.
+range, ``relative_margin`` times the reference's mean score. Where the range
+says nothing about learning, the margin is set otherwise and its comment
+says why. A comparison without either gets no verdict.
 
 A spec is written before its runs and not edited once results exist: a
 change becomes a new ``version``. Every record keeps the version and the
@@ -120,10 +121,7 @@ PUREJAXQL_RENAMES = {
     "REW_SCALE": "reward_scale",
     "MAX_GRAD_NORM": "max_grad_norm",
 }
-PUREJAXQL_UNMATCHED = (
-    "optimiser: RAdam (eps 1e-8) in purejaxql, Adam (eps 1e-5) in Ajax",
-    "weight initialisation (lecun_normal vs Ajax's)",
-)
+PUREJAXQL_UNMATCHED = ("weight initialisation (lecun_normal vs Ajax's)",)
 
 _AVG_CHECKS = "tests/conformance/test_avg_original.py::"
 #: gauthamvasan/avg (6b6822c) against Ajax's AVG, from the conformance check (no outcome comparison).
@@ -346,6 +344,12 @@ COMPARISONS = {
         ),
     ),
     "SAC": Comparison(
+        # Version 2, before any protocol run. Ajax's SAC now has SB3's Adam
+        # eps, 1e-8, and an initial policy std of about 1 (its log-std head
+        # starts near 0; measured medians 0.7-1.0 on Ajax's side, 0.7-1.2 on
+        # SB3's), so neither is unmatched. Its initialisation is now
+        # softlearning's; the tanh log-det and the update order are written
+        # out, and the margin is registered.
         renames={
             "learning_rate": (
                 "actor_learning_rate",
@@ -392,12 +396,27 @@ COMPARISONS = {
             "critic_architecture": ("256", "relu", "256", "relu"),
         },
         unmatched=(
-            "weight initialisation",
-            "initial policy std: exp(-1) in Ajax, about 1 in SB3",
-            "Adam eps: 1e-5 in Ajax, 1e-8 in the reference",
+            "weight initialisation: Glorot-uniform kernels and zero biases in"
+            " Ajax (softlearning's), torch's nn.Linear default in SB3",
+            "tanh log-det: exact in Ajax (softlearning's),"
+            " log(1 - tanh(u)^2 + 1e-6) in SB3",
+            "update order: SB3 steps the temperature first, on the"
+            " log-probabilities of the actor before its step, and the actor's"
+            " loss reuses that sample; Ajax steps the critics, the actor on its"
+            " own sample, then the temperature on a fresh sample of the stepped"
+            " actor",
         ),
+        # 10% of SB3's mean, -141 in the 2026-10-17 recording (16 seeds). 5% of
+        # the range would be +-163: the range runs to -3255, far below any
+        # policy that learns. At 96 seeds a side the gap's 95% interval is
+        # about +-7, so +-14 is near the tightest margin AdaStop can confirm.
+        margin=14.0,
+        version=2,
     ),
     "TD3": Comparison(
+        # Version 2, before any protocol run. Ajax's TD3 now starts as torch's
+        # nn.Linear does, as SB3's does, and has its Adam eps, 1e-8; the
+        # warm-up's noise is written out, and the margin is registered.
         renames={
             "learning_rate": ("actor_learning_rate", "critic_learning_rate"),
             "action_noise_std": "exploration_noise",
@@ -444,16 +463,22 @@ COMPARISONS = {
             "critic_architecture": ("400", "relu", "300", "relu"),
         },
         unmatched=(
-            "weight initialisation",
-            "Adam eps: 1e-5 in Ajax, 1e-8 in the reference",
+            "warm-up actions: SB3 adds the behaviour noise to its uniform"
+            " warm-up actions and clips them, Ajax takes them uniform",
         ),
+        # As SAC's: about 10% of SB3's -144 in the same recording; the gap's
+        # interval at 96 seeds a side is about +-5.
+        margin=14.0,
+        version=2,
     ),
     "PQN": Comparison(
         # Version 2: Ajax's PQN does what purejaxql does where version 1's
         # conformance check found it apart (epsilon read once per update, a
         # time limit ending an episode, the Q(lambda) off-by-one), so time
-        # limits leave the unmatched list.
-        version=2,
+        # limits leave the unmatched list. Version 3, before any run of
+        # version 2: Ajax's PQN now steps purejaxql's optimiser, RAdam with
+        # eps 1e-8, so the optimiser leaves it too.
+        version=3,
         renames=PUREJAXQL_RENAMES,
         agent="PQN",
         env_id="CartPole-v1",
@@ -524,7 +549,7 @@ COMPARISONS = {
         ),
     ),
     "PQN-Asterix": Comparison(
-        version=2,  # as PQN's
+        version=3,  # as PQN's
         renames=PUREJAXQL_RENAMES,
         agent="PQN",
         env_id="Asterix-MinAtar",

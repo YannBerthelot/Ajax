@@ -4,6 +4,15 @@ Versions follow semantic versioning; before 1.0, a breaking change bumps
 the minor version. Each release is tagged `vX.Y.Z` on main and published to
 PyPI as `ajax-rl`.
 
+## Unreleased
+
+- **Reproduction protocol, version 2.** A comparison whose score range says
+  nothing about learning registers its own margin, with the reason. SAC and
+  TD3 against Stable-Baselines3 on Pendulum (specs version 2) register ±14
+  and list what their matched arms still cannot match. PQN's specs (version
+  3) drop the optimiser from that list, since Ajax's PQN now uses
+  purejaxql's.
+
 ## 0.5.0
 
 What a user of 0.4.0 meets:

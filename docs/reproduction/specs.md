@@ -115,7 +115,7 @@ Not matched:
 - weight initialisation (torch default vs Ajax's)
 - Adam eps: 1e-5 in Ajax, 1e-8 in the reference
 
-## SAC, version 1
+## SAC, version 2
 
 Ajax's SAC against stable-baselines3's SAC, MlpPolicy.
 
@@ -123,8 +123,8 @@ Ajax's SAC against stable-baselines3's SAC, MlpPolicy.
 - Budget: 20,000 steps per seed.
 - Evaluation: 10 episodes of the deterministic policy, every 1,000 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
-- Margin: none registered yet.
-- Spec hash: `3639b4ebc6ea4944`.
+- Margin: ±14.
+- Spec hash: `cf3e8fe9d284263a`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run SAC --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -144,11 +144,11 @@ Ajax settings without a reference counterpart: `n_envs=1`, `alpha_init=1.0`, `ta
 
 Not matched:
 
-- weight initialisation
-- initial policy std: exp(-1) in Ajax, about 1 in SB3
-- Adam eps: 1e-5 in Ajax, 1e-8 in the reference
+- weight initialisation: Glorot-uniform kernels and zero biases in Ajax (softlearning's), torch's nn.Linear default in SB3
+- tanh log-det: exact in Ajax (softlearning's), log(1 - tanh(u)^2 + 1e-6) in SB3
+- update order: SB3 steps the temperature first, on the log-probabilities of the actor before its step, and the actor's loss reuses that sample; Ajax steps the critics, the actor on its own sample, then the temperature on a fresh sample of the stepped actor
 
-## TD3, version 1
+## TD3, version 2
 
 Ajax's TD3 against stable-baselines3's TD3, MlpPolicy.
 
@@ -156,8 +156,8 @@ Ajax's TD3 against stable-baselines3's TD3, MlpPolicy.
 - Budget: 20,000 steps per seed.
 - Evaluation: 10 episodes of the deterministic policy, every 1,000 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
-- Margin: none registered yet.
-- Spec hash: `7d9a3c8804e712ba`.
+- Margin: ±14.
+- Spec hash: `2c446c578a818c0d`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run TD3 --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -180,10 +180,9 @@ Ajax settings without a reference counterpart: `n_envs=1`, `actor_architecture=(
 
 Not matched:
 
-- weight initialisation
-- Adam eps: 1e-5 in Ajax, 1e-8 in the reference
+- warm-up actions: SB3 adds the behaviour noise to its uniform warm-up actions and clips them, Ajax takes them uniform
 
-## PQN, version 2
+## PQN, version 3
 
 Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py.
 
@@ -192,7 +191,7 @@ Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py.
 - Evaluation: 128 episodes of the deterministic policy, every 24,576 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
 - Margin: ±25.
-- Spec hash: `100ff8e434eecb1a`.
+- Spec hash: `1b1dcb8e69ef4bd0`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PQN --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -228,11 +227,10 @@ Ajax settings without a reference counterpart: `architecture=('256', 'relu', '25
 
 Not matched:
 
-- optimiser: RAdam (eps 1e-8) in purejaxql, Adam (eps 1e-5) in Ajax
 - weight initialisation (lecun_normal vs Ajax's)
 - evaluation: purejaxql scores the last episode each of its 128 test envs ends within one 500-step window, Ajax one episode per env
 
-## PQN-Asterix, version 2
+## PQN-Asterix, version 3
 
 Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py with config/alg/pqn_minatar.yaml but the length. That config is for pqn_minatar.py, whose CNN Ajax's CNN encoder cannot build (VALID padding, LayerNorm after the convolution); both sides use pqn_gymnax.py's MLP on the flattened image instead.
 
@@ -241,7 +239,7 @@ Ajax's PQN against purejaxql 47af6d7: vendor/purejaxql/pqn_gymnax.py with config
 - Evaluation: 128 episodes of the deterministic policy, every 61,440 steps; a seed's score is the last one's mean return.
 - AdaStop: n = 4, K = 24, alpha = 0.05.
 - Margin: ±5% of the reference's mean score.
-- Spec hash: `c2753ca9a0052abe`.
+- Spec hash: `705d741cc22b3dcc`.
 - Reproduce: `uv run python benchmarks/reference/refcmp_protocol.py run PQN-Asterix --cache DIR`
 
 | Reference setting | Value | Ajax setting | Value |
@@ -274,7 +272,6 @@ Ajax settings without a reference counterpart: `architecture=('128', 'relu', '12
 
 Not matched:
 
-- optimiser: RAdam (eps 1e-8) in purejaxql, Adam (eps 1e-5) in Ajax
 - weight initialisation (lecun_normal vs Ajax's)
 - evaluation: purejaxql scores the last episode each of its 128 test envs ends within one 1000-step window, Ajax one episode per env
 

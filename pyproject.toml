@@ -184,6 +184,7 @@ pythonpath = [
     "benchmarks/world_models",
     "benchmarks/reference",
     "benchmarks/expert_guidance",
+    "benchmarks/suite",
 ]
 # An unregistered mark is an error, not a silent no-op.
 addopts = "--strict-markers"

@@ -12,6 +12,11 @@ PyPI as `ajax-rl`.
   and list what their matched arms still cannot match. PQN's specs (version
   3) drop the optimiser from that list, since Ajax's PQN now uses
   purejaxql's.
+- **A benchmark of every agent** (`benchmarks/suite/agent_suite.py`): the
+  continuous agents on MuJoCo Playground's CheetahRun, the discrete ones on
+  Breakout-MinAtar, each at its defaults. `time` measures an agent's
+  compile time, speed and memory; `run` trains a range of seeds in chunks
+  that resume where the last one stopped and commits a record after each.
 
 ## 0.5.0
 

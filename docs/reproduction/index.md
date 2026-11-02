@@ -10,6 +10,8 @@ AdaStop decides how many seeds the answer takes.
 - [Specifications](specs.md): every comparison's settings, written before
   its runs.
 - [Results](results.md): the verdicts, speeds and learning curves.
+- [Expert guidance](expert-guidance.md): four ways of using an expert
+  against SAC alone on Pendulum, registered before they ran.
 
 The harness is [`benchmarks/reference`](../../benchmarks/reference/README.md),
 run on demand, not in CI. The [conformance checks](../developer/testing.md#conformance-checks),

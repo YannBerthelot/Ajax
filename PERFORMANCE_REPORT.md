@@ -651,6 +651,19 @@ critics of three 512-unit layers, so both are slow on a CPU. ASAC's and
 REDQ's trials spread the most: judge them on more trials before calling a
 regression.
 
+## On-policy agents train the steps they are asked for (2026-11-03)
+
+PPO, APO and PQN no longer train one rollout past their budget. The bench
+counts the 8,000 steps it asks for, not the steps trained, so only PQN's
+work changed: its rollouts of 4 x 128 steps went from 16 (8,192 steps) to 15
+(7,680). PPO and APO still train their one 8,192-step rollout (a budget
+under one rollout trains one). Back to back on the same Mac, five trials
+each, main (126ab58) then the change, execution steps per second (medians):
+PQN 36,117 to 37,683 (+4.3%: 6% fewer steps, less the fixed cost of a run),
+PPO 24,230 to 23,816 (-1.7%) and APO 32,572 to 31,288 (-3.9%), the same work
+within this machine's noise. PQN's baseline rows are re-recorded from that
+run; main's PQN measured 0.4% from its 2026-10-28 rows.
+
 ## JAX 0.11 and flax 0.12 (PR #199, 2026-10-19)
 
 The lock moves from JAX 0.7.2 / flax 0.10.7 to JAX 0.11.2 / flax 0.12.10;

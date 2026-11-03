@@ -2095,3 +2095,79 @@ _GOLDEN.update(
         },
     }
 )
+
+# Re-recorded on macOS ARM CPU once the on-policy agents trained the whole
+# rollouts of their budget, as their original code does (they trained one
+# rollout more, TrainLoop.n_rollouts). n_updates drops by one: APO-nudge,
+# PPO-discrete-nudge, PPO-env-split(-nudge) and PPO-gru 5 -> 4, PPO-flat,
+# PPO-mcc and PPO-unroll 3 -> 2, PQN(-nudge) 9 -> 8. Relative shifts:
+# actor -0.22% to +1.23%, critic -1.30% to -0.04%, nudge -0.25% (PQN's
+# +0.65%); the targets unchanged.
+_GOLDEN.update(
+    {
+        "APO-nudge": {
+            "actor": 9.138960838317871,
+            "critic": 8.01103687286377,
+            "target": 9.211957931518555,
+            "n_updates": 4.0,
+            "nudge": 0.8760150671005249,
+        },
+        "PPO-discrete-nudge": {
+            "actor": 7.3403401374816895,
+            "critic": 8.971855163574219,
+            "target": 8.000201225280762,
+            "n_updates": 4.0,
+            "nudge": 0.8760150671005249,
+        },
+        "PPO-env-split": {
+            "actor": 6.0382161140441895,
+            "critic": 7.14845609664917,
+            "target": 6.0001020431518555,
+            "n_updates": 4.0,
+        },
+        "PPO-env-split-nudge": {
+            "actor": 5.701735973358154,
+            "critic": 7.114599227905273,
+            "target": 6.0001020431518555,
+            "n_updates": 4.0,
+            "nudge": 0.8760150671005249,
+        },
+        "PPO-flat": {
+            "actor": 6.004338264465332,
+            "critic": 7.137857437133789,
+            "target": 6.0001020431518555,
+            "n_updates": 2.0,
+        },
+        "PPO-gru": {
+            "actor": 56.994728088378906,
+            "critic": 54.49913787841797,
+            "target": 56.98634719848633,
+            "n_updates": 4.0,
+        },
+        "PPO-mcc": {
+            "actor": 4.038685321807861,
+            "critic": 5.010842800140381,
+            "target": 4.000099182128906,
+            "n_updates": 2.0,
+        },
+        "PPO-unroll": {
+            "actor": 5.998679161071777,
+            "critic": 7.159586429595947,
+            "target": 6.0001020431518555,
+            "n_updates": 2.0,
+        },
+        "PQN": {
+            "actor": 34.021881103515625,
+            "critic": 34.03536605834961,
+            "target": 34.03536605834961,
+            "n_updates": 8.0,
+        },
+        "PQN-nudge": {
+            "actor": 34.021873474121094,
+            "critic": 34.03536605834961,
+            "target": 34.03536605834961,
+            "n_updates": 8.0,
+            "nudge": 0.8321770429611206,
+        },
+    }
+)

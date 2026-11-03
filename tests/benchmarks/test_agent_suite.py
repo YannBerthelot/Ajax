@@ -7,10 +7,12 @@ module's docstring:
 - every public agent is benchmarked or excluded with a reason; a benchmarked
   agent builds on its env with its defaults but n_envs, and its budget is
   whole evaluation intervals of whole training iterations;
-- ``run`` trains a seed range to its budget chunk by chunk: the first chunk
-  one evaluation interval, the next ones the whole intervals that fill the
-  chunk time at the measured pace; it records each chunk (its evaluations,
-  steps, speed and manifest) and publishes it;
+- ``run`` trains a seed range to its budget chunk by chunk: one evaluation
+  interval until a chunk has begun past the agent's warm-up, then the whole
+  intervals that fill the chunk time at the measured pace of the last chunk
+  begun past it (warm-up steps run without updates, faster than training);
+  it records each chunk (its evaluations, steps, speed and manifest) and
+  publishes it;
 - an invocation stops before a chunk predicted to end past its time limit,
   and the next one trains only the chunks not recorded, from the kept state;
   without that state (its machine gone) it starts a new attempt from step 0,
@@ -19,8 +21,9 @@ module's docstring:
 - ``time`` resumes past the warm-up and counts every seed's steps.
 
 The run tests use a fake trainer on a fake clock: a chunk takes COMPILE_S
-plus its steps at PACE steps per second, and each evaluation returns its own
-step, so a record's returns show which steps it evaluated.
+plus its steps at PACE steps per second (WARM_UP_PACE before its warm-up
+ends), and each evaluation returns its own step, so a record's returns show
+which steps it evaluated.
 """
 
 import json
@@ -37,6 +40,7 @@ import ajax
 EVAL = 100
 BUDGET = 1000
 PACE = 10.0  # run steps per second
+WARM_UP_PACE = 100.0  # steps per second before the updates start
 COMPILE_S = 5.0
 SEEDS = [0, 1]
 #: The (path, message) of every publication, cleared before each test.
@@ -55,8 +59,8 @@ class FakeTrainer:
     """Keeps states by step as AjaxTrainer does (the chunk's start and end),
     and refuses to resume from a state it does not hold."""
 
-    def __init__(self, clock: Clock, saved=()) -> None:
-        self.clock, self.saved = clock, set(saved)
+    def __init__(self, clock: Clock, saved=(), warm_up: int = 0) -> None:
+        self.clock, self.saved, self.warm_up = clock, set(saved), warm_up
         self.calls: list[tuple[int, int]] = []
 
     def saved_steps(self) -> set:
@@ -66,13 +70,15 @@ class FakeTrainer:
         if start and start not in self.saved:
             raise FileNotFoundError(f"no state at step {start}")
         self.calls.append((start, end))
-        self.clock.now += COMPILE_S + (end - start) / PACE
+        warming = max(min(end, self.warm_up) - start, 0)
+        training = end - start - warming
+        self.clock.now += COMPILE_S + warming / WARM_UP_PACE + training / PACE
         self.saved = {start, end}
         steps = list(range(start + EVAL, end + 1, EVAL))
         return {"returns": [steps for _ in SEEDS], "compile_s": COMPILE_S}
 
 
-def run(trainer, path, clock, seeds=SEEDS, chunk_s=30.0, stop_after_s=1e9):
+def run(trainer, path, clock, seeds=SEEDS, chunk_s=30.0, stop_after_s=1e9, warm_up=0):
     return agent_suite.run_seeds(
         "SAC",
         seeds,
@@ -85,6 +91,7 @@ def run(trainer, path, clock, seeds=SEEDS, chunk_s=30.0, stop_after_s=1e9):
         stop_after_s=stop_after_s,
         clock=clock,
         describe=lambda: {"commit": "abc"},
+        warm_up=warm_up,
     )
 
 
@@ -143,6 +150,30 @@ def test_a_run_trains_its_budget_in_chunks_sized_to_the_measured_pace(tmp_path):
         assert record["run_steps_per_s"] == PACE
         assert record["seeds"] == SEEDS and record["budget"] == BUDGET
     assert [p for p, _ in published] == [path] * len(written)
+
+
+def test_a_chunk_begun_inside_the_warm_up_does_not_set_the_pace(tmp_path):
+    clock, path = Clock(), tmp_path / "seeds-0-1.jsonl"
+    trainer = FakeTrainer(clock, warm_up=150)
+
+    finished = run(trainer, path, clock, warm_up=150)
+
+    # Steps before 150 run at 100/s, the later ones at 10/s. The first chunk
+    # (0-100) is all warm-up, 100 steps/s once compiled: sized at that pace, a
+    # 30 s chunk would hold the whole rest of the budget, about 90 s of
+    # training. The chunk begun at 100 still holds warm-up steps (100-150), so
+    # the one begun at 200 is one interval too. From its pace, 10 steps/s, a
+    # 30 s chunk holds two whole intervals.
+    assert finished
+    assert trainer.calls == [
+        (0, 100),
+        (100, 200),
+        (200, 300),
+        (300, 500),
+        (500, 700),
+        (700, 900),
+        (900, 1000),
+    ]
 
 
 def test_an_interrupted_run_trains_only_the_chunks_not_recorded(tmp_path):

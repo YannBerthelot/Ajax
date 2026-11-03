@@ -12,8 +12,9 @@ past its warm-up, compiling aside, evaluations off) and the peak memory. It
 appends one record per seed count to ``results/timing/<LABEL>.jsonl``.
 
 ``run`` trains seeds A to B at once, in chunks of whole evaluation intervals
-of at most ``--chunk-minutes``, the first chunk one interval long and the
-next ones sized at its pace. After each chunk it appends a record to
+of at most ``--chunk-minutes``: one interval long until a chunk has begun
+past the agent's warm-up, then sized at the pace of the last chunk begun past
+it. After each chunk it appends a record to
 ``results/<LABEL>/seeds-A-B.jsonl`` (the evaluations, the steps, the speed
 and a manifest), then commits and pushes it. It stops before a chunk that
 would end past ``--stop-after-minutes``: exit 0 when the run reached its
@@ -348,6 +349,7 @@ def run_seeds(
     stop_after_s: float,
     clock: Callable[[], float] = time.perf_counter,
     describe: Callable[[], dict] = manifest,
+    warm_up: int = 0,
 ) -> bool:
     """Train seeds to budget chunk by chunk, appending each chunk's record to
     path and publishing it. True once the run reached its budget; False when
@@ -357,7 +359,8 @@ def run_seeds(
     train(start, end), which trains from start (a fresh run at 0, else the
     state kept at start) to end, keeps the states at start and end, and
     returns {"returns": the chunk's evaluations, one row per seed,
-    "compile_s": its seconds compiling}."""
+    "compile_s": its seconds compiling}. warm_up: the steps before the
+    agent's updates run."""
     records = read_records(path)
     if records and records[-1]["budget"] != budget:
         raise ValueError(
@@ -366,7 +369,12 @@ def run_seeds(
     attempt, step = resume_point(records, trainer.saved_steps())
     began, chunks = clock(), 0
     while step < budget:
-        previous = records[-1] if records else None
+        # A chunk begun inside the warm-up ran steps without updates, faster
+        # than training: sized at its pace, the next chunk would overrun its
+        # time several fold. Only a chunk begun past the warm-up sets the
+        # pace; until one has, chunks are one interval.
+        paced = [record for record in records if record["start"] >= warm_up]
+        previous = paced[-1] if paced else None
         steps = chunk_steps(previous, budget - step, eval_every, chunk_s)
         if chunks and previous is not None:
             predicted = previous["compile_s"] + steps / previous["run_steps_per_s"]
@@ -458,16 +466,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("commit first: every record names the commit it ran")
     name = range_name(seeds)
     folder = args.results / "checkpoints" / args.label / name
+    trainer = AjaxTrainer(args.label, seeds, budget, eval_every, folder)
     finished = run_seeds(
         args.label,
         seeds,
         budget,
         eval_every,
-        AjaxTrainer(args.label, seeds, budget, eval_every, folder),
+        trainer,
         args.results / args.label / f"{name}.jsonl",
         (lambda *_: None) if args.no_git else commit_and_push,
         args.chunk_minutes * 60,
         args.stop_after_minutes * 60,
+        warm_up=warm_up_steps(trainer.agent),
     )
     print(
         "finished" if finished else "unfinished: run the same command again", flush=True

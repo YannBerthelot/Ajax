@@ -122,6 +122,22 @@ def test_every_benchmark_builds_and_chunks_on_whole_iterations(label):
     assert benchmark.eval_every % agent_suite.iteration_steps(agent) == 0
 
 
+def test_a_label_on_a_further_task_runs_its_benchmark_on_that_env():
+    # The owner's request (2026-11-03): the same agents, with the same
+    # settings, on more tasks.
+    base = agent_suite.BENCHMARKS["PPO-MinAtar"]
+    further = agent_suite.on_more_tasks(("PPO-MinAtar",), ("Asterix-MinAtar",))
+    assert list(further) == ["PPO-MinAtar-Asterix"]
+    benchmark = further["PPO-MinAtar-Asterix"]
+    assert benchmark.env_id == "Asterix-MinAtar"
+    assert (benchmark.budget, benchmark.eval_every, benchmark.options) == (
+        base.budget,
+        base.eval_every,
+        base.options,
+    )
+    assert agent_suite.BENCHMARKS["APO-WalkerWalk"].options == {"n_envs": 10}
+
+
 # --- run, on the fake trainer ------------------------------------------------
 def test_a_run_trains_its_budget_in_chunks_sized_to_the_measured_pace(tmp_path):
     clock, path = Clock(), tmp_path / "seeds-0-1.jsonl"

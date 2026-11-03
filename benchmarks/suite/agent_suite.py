@@ -109,6 +109,53 @@ BENCHMARKS = {
         "one env; discrete actions and episodic returns, as most of its paper's tasks"
     ),
 }
+
+
+def on_more_tasks(labels: tuple[str, ...], env_ids: tuple[str, ...]) -> dict:
+    """Each label's benchmark on further envs, as LABEL-TASK (the env id
+    without its "-MinAtar"): the same budget, evaluations and options."""
+    benchmarks = {}
+    for label in labels:
+        for env_id in env_ids:
+            task = env_id.removesuffix("-MinAtar")
+            benchmarks[f"{label}-{task}"] = dataclasses.replace(
+                BENCHMARKS[label], env_id=env_id
+            )
+    return benchmarks
+
+
+#: The other DeepMind Control tasks on MJX. Timed with PPO on a CPU
+#: (2026-11-03), only HumanoidWalk's physics costs more than CheetahRun's
+#: (1.3 times); the others cost 0.2 to 0.9 times as much.
+CONTROL_TASKS = (
+    "WalkerWalk",
+    "WalkerRun",
+    "WalkerStand",
+    "HopperHop",
+    "HopperStand",
+    "FingerSpin",
+    "FingerTurnHard",
+    "ReacherHard",
+    "CartpoleSwingup",
+    "AcrobotSwingup",
+    "PendulumSwingup",
+    "BallInCup",
+    "FishSwim",
+    "HumanoidWalk",
+)
+#: The agents fast enough on a CPU to run every control task in a day; the
+#: slower ones take two classic tasks, one body each.
+BENCHMARKS.update(on_more_tasks(("PPO", "APO", "AVG"), CONTROL_TASKS))
+BENCHMARKS.update(
+    on_more_tasks(("SAC", "TD3", "ASAC", "RVISAC"), ("WalkerWalk", "HopperHop"))
+)
+#: The other MinAtar games gymnax runs.
+BENCHMARKS.update(
+    on_more_tasks(
+        ("PQN", "PPO-MinAtar", "DQN", "UDRL"),
+        ("Asterix-MinAtar", "Freeway-MinAtar", "SpaceInvaders-MinAtar"),
+    )
+)
 #: Agents left out, each for a reason inherent to it.
 EXCLUDED = {
     "APG": "learns through the environment's gradients: it needs a"

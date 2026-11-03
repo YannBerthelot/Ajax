@@ -2862,10 +2862,10 @@ the steps the whole run does.</p>
 <ul>
 <li><strong>The seeds must stand at the same timestep.</strong> A state whose seeds
   disagree on the timestep cannot be resumed and raises an error.</li>
-<li><strong>On-policy agents add a rollout per call.</strong> PPO, APO and PQN train in
-  whole rollouts plus one, so each call ends up to a rollout past its budget.
-  A run split into calls ends where one call does when its last call trains
-  the rest, <code>total_timesteps</code> minus the timestep reached
+<li><strong>On-policy agents train whole rollouts.</strong> PPO, APO and PQN train the
+  whole rollouts (<code>n_envs x n_steps</code> steps) a call's <code>n_timesteps</code> holds, at
+  least one, and warn when it is not a whole number of them. A run split
+  into calls of whole rollouts ends where one call does
   (<a href="../training/#continuing-a-run">Continuing a run</a>); otherwise it may end
   elsewhere.</li>
 <li><strong>APG restarts its optimiser on a resume</strong> by default, which its staged

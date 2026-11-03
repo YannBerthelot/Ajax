@@ -4522,7 +4522,8 @@ never happens (its row stays NaN).</p>
 
         <p>The iterations of :meth:<code>on_policy</code> for <code>n_steps</code> rollouts over
 <code>timesteps</code> (<code>None</code>: the budget, warning when it is not whole
-rollouts): in whole rollouts, plus one (as PPO always ran).</p>
+rollouts): the whole rollouts it holds, as purejaxrl, ppo2, CleanRL
+and purejaxql train, and one when it holds none (as UDRL and APG).</p>
 
 
     </div>
@@ -4917,8 +4918,9 @@ agent_state_at_rollout_start), resets every env on brax's
 cadence when forced_resets, (resets_per_eval, num_evals),
 asks for any (forced_reset), and applies post_update;
 expose_rollout keeps the rollout on agent_state.last_rollout.
-The budget is n_rollouts; the last one may reach past the
-call's end, and evaluates there when the horizon is further.</p>
+The budget is n_rollouts; a budget under one rollout trains one,
+which reaches past the call's end and evaluates there when the
+horizon is further.</p>
 
 
     </div>

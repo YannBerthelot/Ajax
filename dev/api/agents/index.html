@@ -5757,7 +5757,10 @@ rest.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Timesteps this call trains for.</p>
+                <p>Timesteps this call trains for. An agent
+that trains in iterations (an on-policy rollout of n_envs x
+n_steps steps) trains the whole iterations it holds, at
+least one, and warns when it is not a whole number of them.</p>
               </div>
             </td>
             <td>
@@ -5810,8 +5813,9 @@ to resume from: the run continues from its timestep.</p>
 (training fraction, extensions, exploration, the logging's
 end) runs over; <code>None</code>: this call's end, its start (0, or
 the resumed timestep) plus <code>n_timesteps</code>. Pass the same
-horizon to every call of a run split into calls to follow
-the schedules of one call.</p>
+horizon to every call of a run split into calls of whole
+iterations to follow the schedules of one call and end
+where it ends.</p>
               </div>
             </td>
             <td>

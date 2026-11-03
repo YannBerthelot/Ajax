@@ -32,7 +32,7 @@ commands that reproduce these runs are described in
   hardware, resolved settings).
 - `summary.jsonl`: per comparison, AdaStop's decision, the seeds it took,
   the difference in mean final return with its 95% interval, the smallest
-  gap the budget resolves, and each side's speed.
+  gap the budget resolves, and each side's speed with the machines it ran on.
 - `specs.json`: each comparison's settings, as `refcmp_specs.py` holds them.
 
 ## Loading

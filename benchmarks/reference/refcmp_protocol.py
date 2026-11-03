@@ -335,24 +335,36 @@ def spec_of(name: str, record: dict):
     spec, manifest = COMPARISONS[name], record.get("manifest", {})
     if manifest.get("spec_sha256", spec_sha256(spec)) == spec_sha256(spec):
         return spec
-    path = "benchmarks/reference/refcmp_specs.py"
+    commit, path = manifest["ajax_commit"], "benchmarks/reference/refcmp_specs.py"
+    source = _run("git", "show", f"{commit}:{path}")
+    # git prints nothing when the clone lacks the commit, as a shallow clone
+    # lacks older ones.
+    if not source:
+        raise LookupError(
+            f"{name}: this clone has no {path} at {commit}, the commit the record"
+            " ran; `git fetch --unshallow origin main` fetches the older commits"
+        )
     namespace: dict = {}
-    exec(_run("git", "show", f"{manifest['ajax_commit']}:{path}"), namespace)
+    exec(source, namespace)
     old = namespace["COMPARISONS"][name]
     if namespace["spec_sha256"](old) != manifest["spec_sha256"]:
-        raise LookupError(f"{name}: no spec at {manifest['ajax_commit']} has its hash")
+        raise LookupError(f"{name}: no spec at {commit} has its hash")
     return old
 
 
 def speed(name: str, side: str, steps: int, key: str) -> dict:
-    """Medians over the side's batches of fingerprint ``key``."""
+    """Medians over the side's batches of fingerprint ``key``, and the
+    machines those batches ran on."""
     batches = current(name, side, key)
     per_million = [1e6 * b["speed"]["cpu_s"] / len(b["seeds"]) / steps for b in batches]
     median = lambda k: float(np.median([b["speed"][k] for b in batches]))  # noqa: E731
+    hardware = [b["manifest"]["hardware"] for b in batches]
+    machines = {f"{h['cpu']}, {h['cores']} cores" for h in hardware}
     return {
         "env_steps_per_s": median("env_steps_per_s"),
         "cpu_s_per_1m_steps": float(np.median(per_million)),
         "compile_s": median("compile_s"),
+        "machines": sorted(machines),
     }
 
 

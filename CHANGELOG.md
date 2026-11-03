@@ -28,6 +28,10 @@ The next release is 0.6.0: the first item changes results.
   Breakout-MinAtar, each at its defaults. `time` measures an agent's
   compile time, speed and memory; `run` trains a range of seeds in chunks
   that resume where the last one stopped and commits a record after each.
+- **Known issue: the hopper tasks with several seeds.** An XLA bug stops
+  Playground's `HopperHop` and `HopperStand` from compiling when they are
+  batched two ways, such as several seeds evaluated over several episodes.
+  The environments guide gives the workaround, an XLA flag.
 
 ### Upgrading from 0.5.0
 

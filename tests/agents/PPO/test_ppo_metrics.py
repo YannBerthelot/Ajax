@@ -232,6 +232,7 @@ class _ZeroActorLoss(Extension):
 
 
 WIDE = {"squash": True, "log_std_init": 1.0}  # std 2.7: tanh saturates
+DISCRETE = {"env_id": "CartPole-v1", "env_params": None}
 
 
 @pytest.mark.parametrize(
@@ -240,8 +241,9 @@ WIDE = {"squash": True, "log_std_init": 1.0}  # std 2.7: tanh saturates
         (PPO, WIDE),
         (PPO, {**WIDE, "extensions": (_ZeroActorLoss(),)}),
         (APO, {"normalize_observations": True}),
+        (PPO, DISCRETE),
     ],
-    ids=["PPO-squash", "PPO-extension", "APO-normalized"],
+    ids=["PPO-squash", "PPO-extension", "APO-normalized", "PPO-discrete"],
 )
 def test_a_frozen_actor_recomputes_its_rollouts_log_probs(
     cls: Any, kwargs: dict
@@ -250,12 +252,14 @@ def test_a_frozen_actor_recomputes_its_rollouts_log_probs(
     that acted, so it recomputes every stored log-probability exactly: from
     the stored pre-tanh sample (through arctanh a saturated tanh is off),
     summed over the 2 action dimensions, on the observations the actor saw
-    (normalised). The ratio is 1 and nothing clips at clip_range 1e-4
-    (tests/probing/test_bookkeeping's Q8 cells)."""
+    (normalised); a discrete one, of the action it took. The ratio is 1 and
+    nothing clips at clip_range 1e-4 (tests/probing/test_bookkeeping's Q8
+    cells)."""
     env, params = paid_action.make((-1.0, 1.0), length=8, dim=2)
+    setting = {"env_id": env, "env_params": params}
+    setting.update(kwargs)
     agent = cls(
-        env,
-        env_params=params,
+        **setting,
         n_envs=1,
         n_steps=32,
         batch_size=32,
@@ -264,7 +268,6 @@ def test_a_frozen_actor_recomputes_its_rollouts_log_probs(
         clip_range=1e-4,
         actor_architecture=NET,
         critic_architecture=NET,
-        **kwargs,
     )
     logging = LoggingConfig(log_frequency=32, backends=())
     _, out = agent.train(seed=[0], n_timesteps=128, logging_config=logging)

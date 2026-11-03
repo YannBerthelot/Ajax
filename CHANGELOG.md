@@ -6,6 +6,13 @@ PyPI as `ajax-rl`.
 
 ## Unreleased
 
+The next release is 0.6.0: the first item changes results.
+
+- **On-policy agents train the steps they are asked for.** PPO (with or
+  without memory), APO and PQN trained one rollout more than their budget
+  in every `train` call. They now train the whole rollouts the budget
+  holds, at least one, as their original implementations do, and a run
+  split into calls of whole rollouts ends where one call does.
 - **Reproduction protocol, version 2.** A comparison whose score range says
   nothing about learning registers its own margin, with the reason. SAC and
   TD3 against Stable-Baselines3 on Pendulum (specs version 2) register ±14
@@ -21,6 +28,14 @@ PyPI as `ajax-rl`.
   Breakout-MinAtar, each at its defaults. `time` measures an agent's
   compile time, speed and memory; `run` trains a range of seeds in chunks
   that resume where the last one stopped and commits a record after each.
+
+### Upgrading from 0.5.0
+
+- **On-policy runs train one rollout fewer per `train` call**, so their
+  results move a little. A call asked for 8,192 steps of 1,024-step rollouts
+  now stops at 8,192, not 9,216. *What to do:* compare with runs of this
+  version. Code that took a second call's budget from the timestep reached
+  can pass the run's remaining budget instead.
 
 ## 0.5.0
 

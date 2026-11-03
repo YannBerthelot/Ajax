@@ -160,7 +160,7 @@ from ajax import PPO
 agent = PPO("CartPole-v1", n_envs=8, n_steps=128)
 state, _ = agent.train(seed=[0, 1], n_timesteps=8_192)
 state, _ = agent.train(seed=[0, 1], n_timesteps=8_192, initial_state=state)
-print(state.collector_state.timestep)  # [18432 18432]
+print(state.collector_state.timestep)  # [16384 16384]
 ```
 
 The second call continues from the first call's timestep. Its schedules
@@ -172,21 +172,19 @@ training, such as DQN's epsilon decay, has already finished at the end of a
 first call. To split a run and keep the schedules of one call, pass the
 whole run's horizon to every call. A call whose `n_timesteps` would take it
 past the horizon is refused, so the last call trains the rest. An on-policy
-call trains in whole rollouts plus one and ends up to a rollout past its
-budget (the last call past the horizon, as one call does), so take the rest
-from the timestep reached:
+agent (PPO, APO, PQN) trains in whole rollouts of `n_envs x n_steps` steps,
+as its original code does: give each call a whole number of them (8,192 is
+8 rollouts of 1,024 here) and the calls end where one call does. A budget
+that is not whole rollouts stops at the last whole one, with a warning; a
+budget under one rollout trains one.
 
 ```python
 total = 16_384
 state, _ = agent.train(seed=[0, 1], n_timesteps=8_192, total_timesteps=total)
-reached = int(state.collector_state.timestep[0])  # 9216: one rollout past
 state, _ = agent.train(
-    seed=[0, 1],
-    n_timesteps=total - reached,
-    initial_state=state,
-    total_timesteps=total,
+    seed=[0, 1], n_timesteps=8_192, initial_state=state, total_timesteps=total
 )
-print(state.collector_state.timestep)  # [17408 17408], as one call of 16_384
+print(state.collector_state.timestep)  # [16384 16384], as one call of 16_384
 ```
 
 To resume in another process, save the state first:

@@ -115,10 +115,10 @@ the steps the whole run does.
 
 - **The seeds must stand at the same timestep.** A state whose seeds
   disagree on the timestep cannot be resumed and raises an error.
-- **On-policy agents add a rollout per call.** PPO, APO and PQN train in
-  whole rollouts plus one, so each call ends up to a rollout past its budget.
-  A run split into calls ends where one call does when its last call trains
-  the rest, `total_timesteps` minus the timestep reached
+- **On-policy agents train whole rollouts.** PPO, APO and PQN train the
+  whole rollouts (`n_envs x n_steps` steps) a call's `n_timesteps` holds, at
+  least one, and warn when it is not a whole number of them. A run split
+  into calls of whole rollouts ends where one call does
   ([Continuing a run](training.md#continuing-a-run)); otherwise it may end
   elsewhere.
 - **APG restarts its optimiser on a resume** by default, which its staged

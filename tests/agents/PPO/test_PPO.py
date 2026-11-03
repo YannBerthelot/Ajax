@@ -121,11 +121,11 @@ def test_a_forced_reset_marks_an_episode_start_for_a_recurrent_policy(kind):
 
 def test_a_split_run_resets_on_the_one_calls_cadence():
     """brax's ``num_resets_per_eval`` divides the run's updates: a run of 96
-    steps (7 updates of 16, whole rollouts plus one) with ``num_evals=3``
-    resets every 4 updates, once. Split in two, it resets as the one call
-    does, on update 4, its second leg's first: the first leg is told the
-    run's horizon, the second ends where the run does (its own end is the
-    horizon) and counts the run's updates, not its own."""
+    steps (6 updates of 16) with ``num_evals=3`` resets every 3 updates.
+    Split in two, it resets as the one call does, on update 3, its second
+    leg's first, and on update 6: the first leg is told the run's horizon,
+    the second ends where the run does (its own end is the horizon) and
+    counts the run's updates, not its own."""
 
     def agent():
         return PPO(
@@ -139,8 +139,8 @@ def test_a_split_run_resets_on_the_one_calls_cadence():
 
     one, _ = agent().train(seed=0, n_timesteps=96)
     first, _ = agent().train(seed=0, n_timesteps=32, total_timesteps=96)
-    np.testing.assert_array_equal(first.n_updates, 3)
-    split, _ = agent().train(seed=0, n_timesteps=96 - 48, initial_state=first)
+    np.testing.assert_array_equal(first.n_updates, 2)
+    split, _ = agent().train(seed=0, n_timesteps=96 - 32, initial_state=first)
     # The two runs are separately compiled programs: some CI runners round them
     # 1.67e-6 apart (the env's last torque). A wrong cadence changes the keys,
     # the pendulum's state by 1 to 6 and the weights by 9e-3 or more.

@@ -92,10 +92,9 @@ def test_a_resumed_run_equals_the_uninterrupted_run(
     build, budget, kw = _row(name, memory)
     full = runs.train(build(), SEEDS, budget, **kw).state
     first = runs.train(build(), SEEDS, budget // 2, **kw).state
-    # An on-policy call runs one rollout past its budget (TrainLoop.n_rollouts):
-    # the second leg's budget leaves room for its own.
-    ended, end = (int(np.asarray(s.collector_state.timestep)[0]) for s in (first, full))
-    second = end - ended - (ended - budget // 2)
+    # The second leg trains the rest of the budget (both legs whole iterations).
+    ended = int(np.asarray(first.collector_state.timestep)[0])
+    second = budget - budget // 2
     agent, path = build(), str(tmp_path / "checkpoint.pkl")
     save_checkpoint(first, path)
     restored = restore_into(runs.train(agent, SEEDS, 0, **kw).state, path)

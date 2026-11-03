@@ -103,9 +103,9 @@ def build(name: str) -> tuple[Any, int]:
 
 def evaluated_run(agent: Any, steps: int) -> tuple[Any, float]:
     """The agent's final state and its logged evaluation return there. A
-    first run finds the final timestep (an on-policy run collects one
-    rollout past its budget); the second, the same run, evaluates there
-    alone, its horizon past it."""
+    first run finds the final timestep (where its last whole iteration
+    ends); the second, the same run, evaluates there alone, its horizon
+    past it."""
     horizon = 4 * steps
     state, _ = agent.train(seed=0, n_timesteps=steps, total_timesteps=horizon)
     final = int(state.collector_state.timestep[0])

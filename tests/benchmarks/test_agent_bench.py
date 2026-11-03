@@ -10,8 +10,6 @@ import agent_bench
 import jax.numpy as jnp
 import pytest
 
-from ajax.agents.loop import TrainLoop
-
 
 def updates_in_run(agent, n_envs: int, timesteps: int) -> int:
     """The updates a run of ``timesteps`` makes, from the agent's config."""
@@ -27,12 +25,10 @@ def updates_in_run(agent, n_envs: int, timesteps: int) -> int:
         iterations = timesteps // n_envs
         first = max(1, -(-agent.learning_starts // n_envs))
         return max(0, iterations - first + 1)
-    if hasattr(agent, "n_steps"):  # one update per rollout
-        loop = TrainLoop.create(agent.env_args, timesteps, num_episode_test=0)
-        return loop.n_rollouts(agent.n_steps)
-    # APG: one update per closed-loop rollout of horizon steps
-    # (APG.count_iteration_steps's).
-    return max(timesteps // (n_envs * agent.horizon), 1)
+    # One update per whole rollout of n_steps (APG: closed-loop rollout of
+    # horizon steps), at least one (TrainLoop.n_rollouts, APG's).
+    steps = agent.n_steps if hasattr(agent, "n_steps") else agent.horizon
+    return max(timesteps // (n_envs * steps), 1)
 
 
 @pytest.mark.parametrize("name", sorted(agent_bench.AGENTS))

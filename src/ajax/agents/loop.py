@@ -396,12 +396,13 @@ class TrainLoop:
     def n_rollouts(self, n_steps: int, timesteps: Optional[int] = None) -> int:
         """The iterations of :meth:`on_policy` for ``n_steps`` rollouts over
         ``timesteps`` (``None``: the budget, warning when it is not whole
-        rollouts): in whole rollouts, plus one (as PPO always ran)."""
+        rollouts): the whole rollouts it holds, as purejaxrl, ppo2, CleanRL
+        and purejaxql train, and one when it holds none (as UDRL and APG)."""
         per_rollout = self.env_args.n_envs * n_steps
         if timesteps is None:
             self.warn_if_partial(per_rollout, "n_envs x n_steps")
             timesteps = self.budget
-        return timesteps // per_rollout + 1
+        return max(timesteps // per_rollout, 1)
 
     @property
     def n_evaluations(self) -> int:
@@ -930,8 +931,9 @@ class TrainLoop:
         cadence when forced_resets, (resets_per_eval, num_evals),
         asks for any (forced_reset), and applies post_update;
         expose_rollout keeps the rollout on agent_state.last_rollout.
-        The budget is n_rollouts; the last one may reach past the
-        call's end, and evaluates there when the horizon is further.
+        The budget is n_rollouts; a budget under one rollout trains one,
+        which reaches past the call's end and evaluates there when the
+        horizon is further.
         """
         collect = self.collect_kwargs(recurrent, **(collect_kwargs or {}))
 

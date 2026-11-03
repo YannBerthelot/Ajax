@@ -215,8 +215,12 @@ def docs(reps: int = 200) -> None:
         "",
         "## Speed",
         "",
-        "| Comparison | Side | Steps per second | CPU seconds per 1M steps | Compile seconds |",
-        "|---|---|---|---|---|",
+        "Each row names the machine its batches ran on; speeds from different",
+        "machines are not comparable.",
+        "",
+        "| Comparison | Side | Steps per second | CPU seconds per 1M steps "
+        "| Compile seconds | Machine |",
+        "|---|---|---|---|---|---|",
     ]
     for name in recorded():
         for row in protocol.summary(name, reps=reps):
@@ -237,10 +241,10 @@ def docs(reps: int = 200) -> None:
                 s = row["speed"][side]
                 speeds.append(
                     f"| {name} | {label} | {s['env_steps_per_s']:,.0f} "
-                    f"| {s['cpu_s_per_1m_steps']:,.0f} | {s['compile_s']:.1f} |"
+                    f"| {s['cpu_s_per_1m_steps']:,.0f} | {s['compile_s']:.1f} "
+                    f"| {'; '.join(s['machines'])} |"
                 )
-    machine = protocol.records(recorded()[0])[0]["manifest"]["hardware"]
-    speeds += ["", f"Machine: {machine['cpu']}, {machine['cores']} cores.", ""]
+    speeds.append("")
     figures = ["## Learning curves", ""]
     for name in recorded():
         plot(name, DOCS / f"{name}.svg")

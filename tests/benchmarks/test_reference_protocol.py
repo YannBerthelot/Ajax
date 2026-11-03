@@ -25,7 +25,7 @@ def cache(tmp_path, monkeypatch):
     return tmp_path
 
 
-def fake_train(calls, final):
+def fake_train(calls, final, cpu="M"):
     def train(name, side, seeds):
         calls.append((side, seeds))
         curve = [[0.0, final[side]] for _ in seeds]
@@ -39,7 +39,7 @@ def fake_train(calls, final):
             "steps": [1, 2],
             "curve": curve,
             "speed": speed,
-            "manifest": {"hardware": {"cpu": "M", "cores": 2}},
+            "manifest": {"hardware": {"cpu": cpu, "cores": 2}},
         }
 
     return train
@@ -162,6 +162,32 @@ def test_the_dataset_loads_back_and_the_docs_draw_from_it(cache, monkeypatch, tm
     assert (tmp_path / "PQN.svg").read_text().startswith("<?xml")
 
 
+def test_each_speed_row_names_the_machine_its_batches_ran_on(
+    cache, monkeypatch, tmp_path
+):
+    # As in the records: PPO ran on one machine; PQN ran an older spec
+    # version on that machine and the version it reports on another.
+    old, new = "CPU @ 2.10GHz", "CPU @ 2.80GHz"
+    pqn = COMPARISONS["PQN"]
+    older = dataclasses.replace(
+        pqn, version=pqn.version - 1, n_eval_episodes=pqn.n_eval_episodes + 1
+    )
+    runs = [("PPO", COMPARISONS["PPO"], old), ("PQN", older, old), ("PQN", pqn, new)]
+    for name, spec, cpu in runs:
+        monkeypatch.setitem(COMPARISONS, name, spec)
+        finals = {"reference": 500.0, "matched": 9.0}
+        monkeypatch.setattr(protocol, "train", fake_train([], finals, cpu))
+        protocol.decide(name)
+    monkeypatch.setattr(refcmp_publish, "DOCS", tmp_path)
+    refcmp_publish.docs(reps=10)
+    lines = (tmp_path / "results.md").read_text().splitlines()
+    for name, cpu in (("PPO", old), ("PQN", new)):
+        naming = [line for line in lines if cpu in line]
+        # The reference's speed row and Ajax's, and no line about the others.
+        assert len(naming) == 2, naming
+        assert all(line.startswith(f"| {name} | ") for line in naming), naming
+
+
 def test_recorded_results_ran_the_current_spec_from_a_clean_tree():
     # A spec edited after its results must become a new version instead.
     for path in protocol.CACHE.glob("*.jsonl"):
@@ -217,6 +243,20 @@ def test_a_record_is_judged_under_the_spec_it_ran(monkeypatch):
     record["manifest"]["spec_sha256"] = "0" * 64
     with pytest.raises(LookupError, match="has its hash"):
         protocol.spec_of("PQN", record)
+
+
+def test_a_record_from_a_commit_the_clone_lacks_says_how_to_fetch_it():
+    # A shallow clone lacks older commits, so it cannot read the spec an
+    # older record ran: the error names the commit and the file, and the
+    # command that fetches them.
+    missing = "f" * 40
+    record = {"manifest": {"ajax_commit": missing, "spec_sha256": "0" * 64}}
+    with pytest.raises(LookupError) as error:
+        protocol.spec_of("PQN", record)
+    message = str(error.value)
+    assert missing in message
+    assert "benchmarks/reference/refcmp_specs.py" in message
+    assert "git fetch --unshallow origin main" in message
 
 
 def test_deviations_document_the_codes_without_changing_what_a_spec_runs():

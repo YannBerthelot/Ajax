@@ -22,22 +22,23 @@ the [specifications](specs.md) list, and the Ajax commit it ran.
 
 ## Speed
 
-| Comparison | Side | Steps per second | CPU seconds per 1M steps | Compile seconds |
-|---|---|---|---|---|
-| PPO | sb3 | 7,663 | 502 | 4.0 |
-| PPO | Ajax | 33,506 | 54 | 1.7 |
-| PPO-inverted_pendulum | brax | 15,876 | 246 | 56.1 |
-| PPO-inverted_pendulum | Ajax | 10,094 | 225 | 30.5 |
-| PQN | purejaxql | 17,757 | 121 | 8.3 |
-| PQN | Ajax | 25,134 | 96 | 1.3 |
-| PQN-Asterix | purejaxql | 31,759 | 63 | 13.6 |
-| PQN-Asterix | Ajax | 33,435 | 61 | 11.9 |
-| SAC | sb3 | 164 | 23,620 | 4.8 |
-| SAC | Ajax | 227 | 13,242 | 1.4 |
-| TD3 | sb3 | 175 | 22,334 | 4.9 |
-| TD3 | Ajax | 179 | 17,257 | 1.5 |
+Each row names the machine its batches ran on; speeds from different
+machines are not comparable.
 
-Machine: Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores.
+| Comparison | Side | Steps per second | CPU seconds per 1M steps | Compile seconds | Machine |
+|---|---|---|---|---|---|
+| PPO | sb3 | 7,663 | 502 | 4.0 | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
+| PPO | Ajax | 33,506 | 54 | 1.7 | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
+| PPO-inverted_pendulum | brax | 15,876 | 246 | 56.1 | Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores |
+| PPO-inverted_pendulum | Ajax | 10,094 | 225 | 30.5 | Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores |
+| PQN | purejaxql | 17,757 | 121 | 8.3 | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
+| PQN | Ajax | 25,134 | 96 | 1.3 | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
+| PQN-Asterix | purejaxql | 31,759 | 63 | 13.6 | Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores |
+| PQN-Asterix | Ajax | 33,435 | 61 | 11.9 | Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores |
+| SAC | sb3 | 164 | 23,620 | 4.8 | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
+| SAC | Ajax | 227 | 13,242 | 1.4 | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
+| TD3 | sb3 | 175 | 22,334 | 4.9 | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
+| TD3 | Ajax | 179 | 17,257 | 1.5 | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
 
 ## Learning curves
 

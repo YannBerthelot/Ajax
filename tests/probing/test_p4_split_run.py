@@ -83,9 +83,8 @@ def _apg() -> Any:
 # coupling env (the discrete discounting env has one action), epsilon constant
 # (the legs are not told the run's horizon, so its default would decay to each
 # leg's own end, as DQN's make_train builds it; test_resume_contract covers the
-# schedules); PQN's two minibatches make its shuffle matter. PPO and PQN run
-# one iteration more per call (TrainLoop.n_rollouts): their second leg is one
-# shorter. PQN's run is short: the two programs round apart (JAX 0.11), and
+# schedules); PQN's two minibatches make its shuffle matter. PQN's run is
+# short: the two programs round apart (JAX 0.11), and
 # over 2,560 steps one RAdam moment drifted past the tolerance on a CI runner
 # (0.18 of it at 768 steps on macOS ARM, 0.48 at 2,560).
 NETS = {"actor_architecture": N32, "critic_architecture": N32}
@@ -106,8 +105,8 @@ EQUIVALENT = {
     # move it 2e-2 or more. Its catalogue faults change counters or keys.
     "SAC": Split(_make("SAC", RD, SAC_KW), 400, 200, 200, atol=1e-3),
     "DQN": Split(_make("DQN", PV, DQN_KW), 400, 200, 200),
-    "PQN": Split(_make("PQN", PV, {**EPS, "num_minibatches": 2}), 768, 256, 384),
-    "PPO": Split(_make("PPO", RD, NETS), 640, 320, 288),
+    "PQN": Split(_make("PQN", PV, {**EPS, "num_minibatches": 2}), 768, 256, 512),
+    "PPO": Split(_make("PPO", RD, NETS), 640, 320, 320),
     "UDRL": Split(_make("UDRL", PV, UDRL_KW), 128, 64, 64),
     "DAgger": Split(_make("DAgger", RD, DAGGER_KW), 128, 64, 64),
     # IQL's run is short for the same reason as PQN's: at 400 steps its value
@@ -125,8 +124,7 @@ ELSEWHERE = {  # world models whose own tests assert a resume equals one call
     "TDMPC2": "TDMPC2/test_TDMPC2.py::test_a_new_agent_resumes_a_checkpoint_as_the_uninterrupted_run",
     "TDMPC2MultiTask": "TDMPC2/test_TDMPC2MultiTask.py::test_a_resumed_run_computes_the_uninterrupted_run",
 }
-# PPO's and PQN's log points two iterations apart, none at a leg's overshoot:
-# ten a run, PQN's three.
+# PPO's and PQN's log points two iterations apart: ten a run, PQN's three.
 LOGGED = {"SAC": 40, "DQN": 40, "PPO": 64, "PQN": 256}
 PROGRESS = {**SAC_KW, "extensions": (TrainingProgressInput(),)}
 TRAIN_FRAC = Split(_make("SAC", RD, PROGRESS), 400, 200, 200)
@@ -150,10 +148,10 @@ def test_a_resumed_run_equals_the_uninterrupted_run(name: str, tmp_path: Path) -
 @pytest.mark.parametrize("name", COUNTED)
 def test_the_agent_resumes_from_a_checkpoint(name: str, tmp_path: Path) -> None:
     """On the bookkeeping preset (D2), resumed after 64 of 128 steps, the call
-    ends where one call ends (APO runs an extra iteration per call: 32 more)."""
-    build, second = _make(name, VL, {}, "bookkeeping"), 32 if name == "APO" else 64
+    ends where one call ends."""
+    build = _make(name, VL, {}, "bookkeeping")
     first = runs.train(build(), SEEDS, 64, **TEST)
-    split = runs.resume(first, second, str(tmp_path), build(), **TEST).state
+    split = runs.resume(first, 64, str(tmp_path), build(), **TEST).state
     full = runs.train(first.agent, SEEDS, 128, **TEST).state
     split_steps, full_steps = (
         np.asarray(s.collector_state.timestep) for s in (split, full)

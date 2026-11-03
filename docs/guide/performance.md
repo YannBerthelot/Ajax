@@ -108,12 +108,13 @@ the others, DAgger imitating a PD controller), 4 environment copies, 8,000
 steps, one seed, 5 trials, the compile cache off, on a Mac's CPU. Every
 agent updates within the run: the replay agents start at step 1,000 instead
 of their defaults (10,000 for SAC, TD3, REDQ and ASAC). Medians of the five
-trials, from the baseline recorded on 2026-10-28:
+trials, from the baseline recorded on 2026-10-28 (PQN's on 2026-11-03, once
+it stopped training a rollout past its budget):
 
 | Agent | Steps per second, execution | Steps per second, whole run | Compile and warm-up (s) |
 | --- | --- | --- | --- |
 | DAgger | 42,406 | 9,508 | 0.8 |
-| PQN | 36,260 | 9,040 | 0.9 |
+| PQN | 37,683 | 8,973 | 0.9 |
 | APO | 31,243 | 7,203 | 1.2 |
 | APG | 28,105 | 6,385 | 1.3 |
 | PPO | 25,391 | 6,698 | 1.3 |

@@ -397,7 +397,7 @@ def test_p3_e8_post_update_counts_update_iterations(agent: str) -> None:
     cfg, want = BOOKKEEPING[agent], 1000
     per = cfg.get("n_steps", cfg.get("horizon", 1))  # env steps per iteration
     for leg, (count, _, _) in enumerate(p3_counter(agent)):
-        its = runs.iterations(agent, 2, 1000, per, 1000 * leg)
+        its = runs.iterations(2, 1000, per, 1000 * leg)
         want += sum(t >= cfg.get("learning_starts", 0) for t in its)
         np.testing.assert_array_equal(count, want)
 

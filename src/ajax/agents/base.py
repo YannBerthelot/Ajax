@@ -539,7 +539,10 @@ class ActorCritic:
         Train the agent, every seed at once.
 
         Args:
-            n_timesteps (int): Timesteps this call trains for.
+            n_timesteps (int): Timesteps this call trains for. An agent
+                that trains in iterations (an on-policy rollout of n_envs x
+                n_steps steps) trains the whole iterations it holds, at
+                least one, and warns when it is not a whole number of them.
             num_episode_test (int): Number of episodes for evaluation during training.
             initial_state: a state (or ``(state, out)``) ``train`` returned,
                 to resume from: the run continues from its timestep.
@@ -547,8 +550,9 @@ class ActorCritic:
                 (training fraction, extensions, exploration, the logging's
                 end) runs over; ``None``: this call's end, its start (0, or
                 the resumed timestep) plus ``n_timesteps``. Pass the same
-                horizon to every call of a run split into calls to follow
-                the schedules of one call.
+                horizon to every call of a run split into calls of whole
+                iterations to follow the schedules of one call and end
+                where it ends.
 
         Returns ``(state, out)``, each leaf with a leading seed axis. On the
         shared loop (``ajax.agents.loop``) ``out`` is ``None`` without a

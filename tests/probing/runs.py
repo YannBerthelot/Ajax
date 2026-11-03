@@ -27,7 +27,6 @@ from ajax.logging import LoggingConfig, TensorBoardBackend, load_scalars_from_tf
 from . import readouts
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-ROLLOUT_AGENTS = ("PPO", "APO", "PQN")
 TRAIN_KEYS = (
     "Train/episodic mean reward",
     "Eval/episodic mean reward",
@@ -160,14 +159,12 @@ def readings(
     }
 
 
-def iterations(
-    agent: str, n_envs: int, budget: int, rollout: int = 1, start: int = 0
-) -> list[int]:
+def iterations(n_envs: int, budget: int, rollout: int = 1, start: int = 0) -> list[int]:
     """The post-collection timestep of every training iteration of
-    ``rollout`` steps per env: rollout agents run one past the budget
-    (TrainLoop.n_rollouts), others at least one."""
+    ``rollout`` steps per env: the whole iterations the budget holds, at
+    least one."""
     per = n_envs * rollout
-    count = budget // per + 1 if agent in ROLLOUT_AGENTS else max(budget // per, 1)
+    count = max(budget // per, 1)
     return [start + k * per for k in range(1, count + 1)]
 
 

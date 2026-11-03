@@ -323,6 +323,31 @@ def test_ajax_runs_resume_a_new_process_from_the_kept_checkpoint(tmp_path):
     assert trainer.saved_steps() == {64, 128}
 
 
+def test_an_on_policy_run_ends_each_chunk_where_it_is_asked(tmp_path, monkeypatch):
+    """An on-policy chunk of whole evaluation intervals trains its whole
+    rollouts and no more: on a tiny PQN (rollouts of 2 envs x 8 steps,
+    evaluated every 2 of them), each chunk ends where run_seeds asks."""
+    options = {"n_envs": 2, "n_steps": 8, "architecture": ("8", "relu")}
+    tiny = agent_suite.Benchmark("CartPole-v1", 64, 32, "tiny", options)
+    monkeypatch.setitem(agent_suite.BENCHMARKS, "PQN", tiny)
+    path = tmp_path / "seeds-0-1.jsonl"
+    trainer = agent_suite.AjaxTrainer("PQN", SEEDS, 64, 32, tmp_path / "states")
+    finished = agent_suite.run_seeds(
+        "PQN",
+        SEEDS,
+        64,
+        32,
+        trainer,
+        path,
+        publish=lambda *_: None,
+        chunk_s=0.0,  # one evaluation interval a chunk
+        stop_after_s=1e9,
+        describe=lambda: {},
+    )
+    assert finished
+    assert [(r["start"], r["end"]) for r in records(path)] == [(0, 32), (32, 64)]
+
+
 # --- time ----------------------------------------------------------------------
 def test_time_resumes_past_the_warm_up_and_counts_every_seeds_steps():
     record = agent_suite.time_agent("DQN", n_seeds=2, steps=64)

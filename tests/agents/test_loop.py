@@ -192,9 +192,9 @@ def test_a_resumed_call_trains_its_budget_toward_the_run_horizon() -> None:
 
 
 def test_a_call_told_a_later_horizon_trains_to_its_own_end() -> None:
-    """A first call to 64 of a run to 100 trains 64 steps (whole rollouts
-    plus one: 3 of 32), folds its extensions over the whole run and has a
-    row for each log point up to where it reaches, never past the horizon."""
+    """A first call to 64 of a run to 100 trains 64 steps (2 whole rollouts
+    of 32), folds its extensions over the whole run and has a row for each
+    log point up to where it reaches, never past the horizon."""
     seen = []
 
     @dataclass(frozen=True)
@@ -212,7 +212,7 @@ def test_a_call_told_a_later_horizon_trains_to_its_own_end() -> None:
         log=True,
         log_frequency=10,
     )
-    assert (first.budget, first.n_evaluations, first.n_rollouts(8)) == (64, 6, 3)
+    assert (first.budget, first.n_evaluations, first.n_rollouts(8)) == (64, 6, 2)
     assert (first.evaluations_until(96), first.evaluations_until(160)) == (9, 10)
     first.post_update(_state(10, (jnp.asarray(0),)))
     assert seen == [100]
@@ -233,10 +233,18 @@ def test_the_post_update_runs_after_the_update() -> None:
     assert float(out.ext_state[0]) == 2.0
 
 
-def test_on_policy_runs_the_budget_in_whole_rollouts_plus_one() -> None:
+def test_on_policy_runs_the_whole_rollouts_of_its_budget_and_at_least_one() -> None:
+    """As purejaxrl, ppo2, CleanRL and purejaxql: 100 steps hold 3 whole
+    rollouts of 4 envs x 8 steps (96), and 5 of 4 x 5 (exactly); a budget
+    under one rollout (4 x 32 = 128) trains one, as UDRL and APG do."""
     loop = dataclasses.replace(_loop(), env_args=SimpleNamespace(n_envs=4))  # type: ignore[arg-type]
     with pytest.warns(UserWarning, match="not a multiple"):
-        assert loop.n_rollouts(8) == 100 // 32 + 1
+        assert loop.n_rollouts(8) == 3
+    with pytest.warns(UserWarning, match="not a multiple"):
+        assert loop.n_rollouts(32) == 1
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert loop.n_rollouts(5) == 5
 
 
 def test_a_budget_off_whole_iterations_warns() -> None:
@@ -254,7 +262,7 @@ def test_a_budget_off_whole_iterations_warns() -> None:
         loop.warn_if_partial(3, "n_envs")
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        assert loop.n_rollouts(5) == 100 // 20 + 1
+        loop.n_rollouts(5)
         loop.warn_if_partial(4, "n_envs")
 
 
@@ -269,10 +277,10 @@ def test_a_split_call_warns_at_its_own_end_and_a_run_count_stays_quiet() -> None
         end_timestep=60,
     )
     with pytest.warns(UserWarning, match=r"evaluation due at timestep 60 "):
-        assert first.n_rollouts(8) == 60 // 32 + 1
+        assert first.n_rollouts(8) == 1  # 32 of its 60 steps
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        assert first.n_rollouts(8, 100) == 100 // 32 + 1
+        assert first.n_rollouts(8, 100) == 3  # 96 of the run's 100
 
 
 def test_gradient_step_applies_the_loss_gradient() -> None:
@@ -608,26 +616,41 @@ def test_a_logged_run_resumes_from_its_checkpoint(tmp_path: Any) -> None:
         initial_state=restore_into(skeleton, path),
     )
     save_checkpoint((resumed, resumed_rows), path)
-    # The run continues from 80 (the first call's extra rollout) to its
-    # horizon 80 + 64: it evaluates there, in rows 144 // 10 - 80 // 10.
-    np.testing.assert_array_equal(resumed.collector_state.timestep, 2 * 80)
-    logged = [96, 112, 128, 144, -1, -1]
+    # The run continues from 64 to its horizon 64 + 64, evaluating after
+    # each 16-step rollout, in rows 128 // 10 - 64 // 10.
+    np.testing.assert_array_equal(resumed.collector_state.timestep, 2 * 64)
+    logged = [80, 96, 112, 128, -1, -1]
     np.testing.assert_array_equal(resumed_rows["timestep"], [logged] * len(SEEDS))
 
 
-def test_a_rollout_past_the_calls_end_evaluates_before_the_horizon() -> None:
-    """Told the run ends at 144, a call of 64 steps evaluates at its extra
-    rollout's 80 (a 16-step frequency), as the run's one call would, and
-    returns a row for it."""
-    _, rows = _apo().train(
-        seed=SEEDS,
-        n_timesteps=BUDGET,
-        num_episode_test=1,
-        logging_config=_config(log_frequency=16),
-        total_timesteps=144,
+def test_a_run_split_in_whole_rollouts_ends_where_one_call_ends() -> None:
+    """Calls passing the run's total_timesteps follow one call (train's
+    contract): two calls of 32 steps end at 64 after 4 updates of 16 steps,
+    as one call of 64 does."""
+    agent = _apo()
+    one, _ = agent.train(seed=SEEDS, n_timesteps=64)
+    first, _ = agent.train(seed=SEEDS, n_timesteps=32, total_timesteps=64)
+    split, _ = agent.train(
+        seed=SEEDS, n_timesteps=32, initial_state=first, total_timesteps=64
     )
-    logged = [16, 32, 48, 64, 80]
-    np.testing.assert_array_equal(rows["timestep"], [logged] * len(SEEDS))
+    for state in (one, split):
+        np.testing.assert_array_equal(state.collector_state.timestep, 64)
+        np.testing.assert_array_equal(state.n_updates, 4)
+
+
+def test_a_budget_under_one_rollout_trains_one_and_evaluates_at_its_end() -> None:
+    """Told the run ends at 144, a call of 8 steps trains one 16-step
+    rollout and evaluates at its end, 16 (a 16-step frequency), as the
+    run's one call would, and returns a row for it."""
+    with pytest.warns(UserWarning, match="not a multiple"):
+        _, rows = _apo().train(
+            seed=SEEDS,
+            n_timesteps=8,
+            num_episode_test=1,
+            logging_config=_config(log_frequency=16),
+            total_timesteps=144,
+        )
+    np.testing.assert_array_equal(rows["timestep"], [[16]] * len(SEEDS))
 
 
 class _HalfTorque:

@@ -85,12 +85,11 @@ def p2_run(agent: str, n_envs: int, actions: int = -1, terminate: bool = True, *
 
 
 def iterations(agent: str, n_envs: int) -> list[int]:
-    return runs.iterations(agent, n_envs, BUDGET[n_envs], ROLLOUT.get(agent, 1))
+    return runs.iterations(n_envs, BUDGET[n_envs], ROLLOUT.get(agent, 1))
 
 
 def log_timesteps(agent: str, n_envs: int) -> list[int]:
-    """Replay of evaluate_and_log's gate (log.py:276-293, 411-413): the
-    rollout agents' overshoot iteration is never logged."""
+    """Replay of evaluate_and_log's gate (log.py:276-293, 411-413)."""
     n_logs, out = 0, []
     for t in iterations(agent, n_envs):
         due = t - n_logs * LOG_EVERY >= LOG_EVERY
@@ -188,17 +187,19 @@ def errors(
 
 
 def test_p2_oracle_reproduces_the_replayed_counts() -> None:
-    """The replayed counts: final timestep 1400/2800, 1408/2816 for rollout
-    agents; 10/20 and 9/19 log events; AVG from the step collected at
-    timestep 100, 675 updates."""
+    """The replayed counts: final timestep 1400/2800; for rollout agents the
+    last whole rollout's, 43 x 32 = 1376 / 21 x 128 = 2688 (PPO, APO) and
+    87 x 16 = 1392 / 43 x 64 = 2752 (PQN); 10/20 and 9/19 log events (no
+    rollout ends at 1400 or 2800); AVG from the step collected at timestep
+    100, 675 updates."""
     for agent, n, final, events in (
         ("SAC", 1, 1400, 10),
         ("SAC", 4, 2800, 20),
-        ("PPO", 1, 1408, 9),
-        ("PPO", 4, 2816, 19),
-        ("APO", 4, 2816, 19),
-        ("PQN", 1, 1408, 9),
-        ("PQN", 4, 2816, 19),
+        ("PPO", 1, 1376, 9),
+        ("PPO", 4, 2688, 19),
+        ("APO", 4, 2688, 19),
+        ("PQN", 1, 1392, 9),
+        ("PQN", 4, 2752, 19),
     ):
         got = iterations(agent, n)[-1], len(log_timesteps(agent, n))
         assert got == (final, events), agent
@@ -770,7 +771,7 @@ def test_q5_ppo_trains_and_evaluates_the_same_action() -> None:
     action executed in training and in evaluate(), the box's top, 2.0 (the
     env pays it): clipped to [-1, 1] and mapped onto Box(0, 2) in both."""
     kw = {"log_std_init": -20.0, "mean_kernel_init": "0.0", "actor_bias_init": "1.5"}
-    run, trained = q5_run("PPO", (0, 1), 32, True, actor_learning_rate=0.0, **kw)
+    run, trained = q5_run("PPO", (0, 1), 64, True, actor_learning_rate=0.0, **kw)
     start, s, args = envs.one_hot(0, L + 1), run.state, run.agent.env_args
     sent = R.per_seed(lambda n: {"a": R.action(n, start, False)}, R.nets(s))["a"]
     if not np.allclose(sent, 1.5, atol=1e-6) or np.ptp(trained, 1).any():

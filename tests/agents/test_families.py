@@ -399,7 +399,7 @@ def test_an_on_policy_agent_runs_its_update_on_each_rollout() -> None:
         and context.buffer is None
     )
     assert agent.init(jax.random.PRNGKey(0), context).collector_state.timestep == 0
-    state, _ = agent.train(seed=0, n_timesteps=4)  # 4 // 4 + 1 rollouts
+    state, _ = agent.train(seed=0, n_timesteps=8)  # two whole rollouts of 4
     assert np.asarray(state.n_updates).tolist() == [2]  # one seed
     with pytest.raises(ValueError, match="cannot train offline"):
         agent.train_offline(dataset=None, n_updates=1)

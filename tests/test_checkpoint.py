@@ -254,6 +254,40 @@ def _without(state_dict, field):
     }
 
 
+def _without_key(state_dict, key):
+    if not isinstance(state_dict, dict):
+        return state_dict
+    return {k: _without_key(v, key) for k, v in state_dict.items() if k != key}
+
+
+def test_a_checkpoint_saved_before_the_non_finite_count_restores(tmp_path):
+    """The envs' info gained the count: a run saved before it never counted,
+    and starts at 0. Any other key missing from it still fails."""
+    import pickle
+
+    from ajax.agents.PPO.PPO import PPO
+    from ajax.environments.interaction import non_finite_env_steps
+    from ajax.wrappers import NON_FINITE_STEPS_KEY
+
+    agent = PPO(env_id="fast", n_envs=2, n_steps=8, batch_size=8, n_epochs=1)
+    state, _ = agent.train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    old = _without_key(saved, NON_FINITE_STEPS_KEY)
+    assert old != saved  # the key was there to drop
+    with open(path, "wb") as fh:
+        pickle.dump(old, fh)
+    assert (
+        non_finite_env_steps(restore_into(state, path).collector_state.env_state) == 0
+    )
+    with open(path, "wb") as fh:
+        pickle.dump(_without_key(old, "steps"), fh)
+    with pytest.raises(ValueError):
+        restore_into(state, path)
+
+
 @pytest.mark.parametrize("agent_name", ["SAC", "PPO"])
 def test_a_checkpoint_saved_before_a_transition_field_restores(tmp_path, agent_name):
     """Transition gained raw_next_obs, empty in every rollout the collector

@@ -550,7 +550,7 @@ class TrainLoop:
             self.log_frequency,
             self.total_timesteps,
             extra_eval_metrics=compose_eval_metrics(
-                self.extensions, self.total_timesteps, agent_metrics
+                self.extensions, self.total_timesteps, agent_metrics, self.mode
             ),
             **kwargs,
         )
@@ -571,7 +571,7 @@ class TrainLoop:
             metrics_fn=evaluation.metrics,
             evaluate_fn=evaluation.evaluate or (lambda *_: {}),
             extra_eval_metrics=compose_eval_metrics(
-                self.extensions, self.total_timesteps
+                self.extensions, self.total_timesteps, mode=self.mode
             ),
             log=self.log,
             log_fn=self.log_fn,

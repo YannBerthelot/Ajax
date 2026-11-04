@@ -113,6 +113,8 @@ RAW_FINAL_OBS_KEY = "raw_final_obs"
 RAW_OBS_KEY = "raw_obs"
 # Where a reward normaliser keeps the step's reward in the env's own units.
 RAW_REWARD_KEY = "raw_reward"
+# Where NonFiniteStepWrapper counts the non-finite steps of each env.
+NON_FINITE_STEPS_KEY = "non_finite_steps"
 
 
 class FlattenObservationWrapper(GymnaxWrapper):
@@ -771,6 +773,44 @@ class BatchRngWrapper(BraxWrapper):
         if rng.ndim == 1:
             rng = jax.random.split(rng, self.n_envs)
         return self.env.reset(rng)
+
+
+class NonFiniteStepWrapper(BraxWrapper):
+    """Ends the episode of a step that left the simulator non-finite.
+
+    A deliberate workaround for a physics bug, not a fix of it. On Playground's
+    humanoid (5 ms steps, eulerdamp off), a hard impact can push a hip to gimbal
+    lock, where explicit joint damping multiplies a speed by -1.5 per step and
+    the state runs away to NaN. C MuJoCo catches this and resets; MJX does not,
+    and one NaN reward or final observation then turns every parameter NaN: a
+    value dropped at an episode's end is multiplied by 0, and NaN times 0 is NaN.
+
+    Such a step ends as a termination: reward 0, the observation its action was
+    taken from as the final one (only ever multiplied by 0), metrics 0. The
+    auto-reset restarts the physics, and each env counts these steps over the
+    run. Goes directly over the raw env: EpisodeWrapper then reads this ``done``
+    for its time limit, and its ``*= (1 - done)`` would keep a NaN metric for
+    ever.
+    """
+
+    def reset(self, rng: jax.Array) -> "State":
+        state = self.env.reset(rng)
+        state.info[NON_FINITE_STEPS_KEY] = jnp.zeros((), jnp.int32)
+        return state
+
+    def step(self, state: "State", action: jax.Array) -> "State":
+        next_state = self.env.step(state, action)
+        finite = jnp.isfinite(next_state.obs).all() & jnp.isfinite(next_state.reward)
+        count = state.info[NON_FINITE_STEPS_KEY] + (~finite).astype(jnp.int32)
+        return next_state.replace(
+            obs=jnp.where(finite, next_state.obs, state.obs),
+            reward=jnp.where(finite, next_state.reward, 0.0),
+            done=jnp.where(finite, next_state.done, 1.0),
+            metrics=jax.tree.map(
+                lambda metric: jnp.where(finite, metric, 0), next_state.metrics
+            ),
+            info={**next_state.info, NON_FINITE_STEPS_KEY: count},
+        )
 
 
 class FinalObsWrapper(BraxWrapper):

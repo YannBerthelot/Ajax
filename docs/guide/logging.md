@@ -62,6 +62,7 @@ Each evaluation records:
 | `Eval/episodic mean expert reward`, `Eval/expert bias` | with an expert policy: the expert's return on the same episodes, and the agent's minus it; NaN without |
 | `Eval/expert share` | with an extension choosing the evaluation's action (`eval_action`): the share of the evaluated steps it executed the expert's action |
 | `Train/episodic mean reward` | mean return of the training episodes that ended recently |
+| `Train/non-finite env steps` | on Brax and Playground envs: the steps the simulator diverged on so far, over all the seed's envs ([Environments](environments.md#diverging-simulators)) |
 | `<group>/<metric>` | the agent's training metrics, such as `value/critic_loss` or `policy/policy_loss` |
 
 Extensions add their own, such as `ConditioningMetrics`'s

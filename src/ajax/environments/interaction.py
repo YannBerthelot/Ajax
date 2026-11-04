@@ -61,6 +61,7 @@ from ajax.state import (
 from ajax.types import BufferType, NormalizationInfo
 from ajax.wrappers import (
     _FINAL_OBS_KEYS,
+    NON_FINITE_STEPS_KEY,
     RAW_FINAL_OBS_KEY,
     RAW_OBS_KEY,
     RAW_REWARD_KEY,
@@ -117,6 +118,13 @@ def with_reward_statistics(env_state: Any, stats: NormalizationInfo) -> Any:
         return env_state.replace(info={**info, "normalization_info": norm})
     norm = env_state.normalization_info.replace(reward=stats)
     return env_state.replace(normalization_info=norm)
+
+
+def non_finite_env_steps(env_state: Any) -> jax.Array:
+    """The steps :class:`ajax.wrappers.NonFiniteStepWrapper` ended, over all
+    the envs of a brax state; 0 on a registered stack without it."""
+    info = getattr(env_state, "info", {})
+    return jnp.sum(info.get(NON_FINITE_STEPS_KEY, 0), dtype=jnp.float32)
 
 
 def get_raw_final_obs(info: Any, fallback: jax.Array) -> jax.Array:
@@ -1628,6 +1636,11 @@ def force_reset(
         else:
             new_env_state = new_env_state.replace(normalization_info=saved)
     collector = agent_state.collector_state
+    if NON_FINITE_STEPS_KEY in getattr(new_env_state, "info", {}):
+        # The run's count, not the episode's: the reset restarts it too.
+        count = collector.env_state.info[NON_FINITE_STEPS_KEY]
+        info = {**new_env_state.info, NON_FINITE_STEPS_KEY: count}
+        new_env_state = new_env_state.replace(info=info)
     observer_states = collector.observer_states
     if env_args.observers:
         new_obs, observer_states = reset_features(

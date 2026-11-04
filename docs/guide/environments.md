@@ -58,8 +58,9 @@ env, _ = build_env_from_id("CartpoleBalance", n_envs=4, episode_length=1_000, fr
 agent = SAC(env, n_envs=4)
 ```
 
-`HopperHop` and `HopperStand` do not compile when the hopper is batched two
-ways with different sizes, such as several seeds, each with several
+The hopper and finger tasks (`HopperHop`, `HopperStand`, `FingerSpin`,
+`FingerTurnEasy` and `FingerTurnHard`) do not compile when the body is batched
+two ways with different sizes, such as several seeds, each with several
 environments or evaluated over several episodes: training stops at its first evaluation with `JaxRuntimeError:
 INTERNAL: during context [hlo verifier]`. The fault is in XLA's algebraic
 simplifier (seen with jax 0.11.2 and 0.12.0.1, on a CPU). Until it is fixed

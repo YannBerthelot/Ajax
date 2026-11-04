@@ -3023,8 +3023,9 @@ to the agent with the same <code>n_envs</code>:</p>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">env</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">build_env_from_id</span><span class="p">(</span><span class="s2">&quot;CartpoleBalance&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">episode_length</span><span class="o">=</span><span class="mi">1_000</span><span class="p">,</span> <span class="n">fresh_reset</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
 </code></pre></div>
-<p><code>HopperHop</code> and <code>HopperStand</code> do not compile when the hopper is batched two
-ways with different sizes, such as several seeds, each with several
+<p>The hopper and finger tasks (<code>HopperHop</code>, <code>HopperStand</code>, <code>FingerSpin</code>,
+<code>FingerTurnEasy</code> and <code>FingerTurnHard</code>) do not compile when the body is batched
+two ways with different sizes, such as several seeds, each with several
 environments or evaluated over several episodes: training stops at its first evaluation with <code>JaxRuntimeError:
 INTERNAL: during context [hlo verifier]</code>. The fault is in XLA's algebraic
 simplifier (seen with jax 0.11.2 and 0.12.0.1, on a CPU). Until it is fixed

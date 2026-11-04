@@ -20,7 +20,7 @@ import pytest
 from brax.envs.base import Env, State
 from mujoco_playground._src import mjx_env
 
-from ajax import APO, PPO, SAC
+from ajax import APO, PPO, SAC, UDRL
 from ajax.environments.create import build_env_from_id
 from ajax.environments.interaction import get_final_obs, reset, step
 from ajax.logging.wandb_logging import LoggingConfig
@@ -169,3 +169,23 @@ def test_an_agent_trains_and_evaluates_through_a_non_finite_step(agent_class, op
     assert all(np.isfinite(leaf).all() for leaf in jax.tree.leaves(params))
     assert np.asarray(evaluations["Eval/episodic mean reward"]).item() == 2
     assert np.asarray(evaluations["Train/non-finite env steps"]).item() == 4
+
+
+def test_an_agent_with_its_own_evaluation_logs_the_count():
+    """UDRL evaluates on its own schedule (TrainLoop.evaluate_every): the same
+    4 non-finite steps as above, logged on that path."""
+    agent = UDRL(
+        env_id=ALWAYS,
+        n_envs=2,
+        n_steps=8,
+        batch_size=4,
+        buffer_capacity=8,
+        n_updates_per_iter=1,
+        actor_architecture=NET,
+    )
+    _, evaluations = agent.train(
+        seed=0,
+        n_timesteps=16,
+        logging_config=LoggingConfig(log_frequency=16, backends=()),
+    )
+    assert np.asarray(evaluations["Train/non-finite env steps"]).reshape(-1)[-1] == 4

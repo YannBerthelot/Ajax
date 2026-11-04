@@ -13,6 +13,7 @@ from ajax.evaluate import ValueEstimate, evaluate
 from ajax.random_keys import derive_key
 from ajax.state import BaseAgentState, EnvironmentConfig
 from ajax.types import Replaceable
+from ajax.wrappers import NON_FINITE_STEPS_KEY
 
 if TYPE_CHECKING:
     from ajax.extensions.base import ExtensionStack
@@ -22,20 +23,21 @@ def compose_eval_metrics(
     extensions: "ExtensionStack",
     total_timesteps: int,
     agent_metrics: Optional[Callable[[Any], dict]] = None,
-    mode: str = "gymnax",
+    env_state: Any = None,
 ) -> Optional[Callable]:
     """(agent_state, rng) -> dict: the agent's family's agent_metrics(agent_state)
-    (the replay's expert share), on a brax or playground env (mode) its count
-    of non-finite steps, and the stack's apply_eval_metrics at the collector's
+    (the replay's expert share), the count of non-finite steps when env_state's
+    stack keeps one, and the stack's apply_eval_metrics at the collector's
     timestep, the extra_eval_metrics of evaluate_and_log and
     maybe_eval_and_log; None without any, so that their zero-overhead branch
     stays."""
-    if not extensions and agent_metrics is None and mode != "brax":
+    counts_non_finite = NON_FINITE_STEPS_KEY in getattr(env_state, "info", {})
+    if not extensions and agent_metrics is None and not counts_non_finite:
         return None
 
     def eval_metrics(agent_state, rng):
         metrics = {} if agent_metrics is None else dict(agent_metrics(agent_state))
-        if mode == "brax":
+        if counts_non_finite:
             metrics["Train/non-finite env steps"] = non_finite_env_steps(
                 agent_state.collector_state.env_state
             )

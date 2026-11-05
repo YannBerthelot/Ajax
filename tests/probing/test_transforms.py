@@ -247,8 +247,16 @@ def velocity_case(agent: str, budget: int, tol: tuple = (), note: str = "") -> C
             Query(f"a2({s:g})", 0.0, {"the position form": position}),
         )
     )
+    # Twice the worst of the 64 seeds' a2 is 0.118, past the default ceiling; the
+    # wrong answer is 0.29 away, so 0.12 still tells them apart.
     return Case(
-        f"velocity-{agent}", queries, velocity_readings(agent), budget, tol, note=note
+        f"velocity-{agent}",
+        queries,
+        velocity_readings(agent),
+        budget,
+        tol,
+        ceiling=0.12,
+        note=note,
     )
 
 
@@ -261,9 +269,13 @@ CASES: dict[str, Case] = {
         residual_case("ASAC", 16000, (0.089, 0.077), _LADDER),
         gain_case("ASAC", 8000, (0.094, 0.099), _LADDER),
         gain_case("SAC", 32000, (0.084, 0.086), _LADDER + ", then 32000"),
+        reference_case("SAC", 16000, (0.044, 0.042), _LADDER),
+        velocity_case(
+            "SAC", 32000, (0.052, 0.118, 0.052, 0.118), "16000 and 32000 on the same"
+        ),
     )
 }
-ANSWER_DIGEST = "d57719eb620e"  # verdict.digest(CASES): every answer, pinned
+ANSWER_DIGEST = "2bedd32576eb"  # verdict.digest(CASES): every answer, pinned
 
 
 @pytest.mark.parametrize("case", params(CASES))

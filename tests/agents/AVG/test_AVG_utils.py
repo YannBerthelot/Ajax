@@ -32,13 +32,22 @@ def _moments(value, count=0.0, mean=0.0, mean_2=0.0) -> RunningMoments:
         # No return yet, but var(r) = 4 > 0.01: scaled by 2, as the authors'
         # code does on a task without terminations.
         ([[0.0], [4.0]], [[0.99], [0.99]], [[NAN], [NAN]], 2.0, 0),
+        # var(r) = 0.125^2 = 0.015625, just over the 0.01 cutoff: scaled by its
+        # square root, 0.125 (a cutoff of 0.02 would leave it unscaled).
+        ([[0.0], [0.25]], [[0.99], [0.99]], [[NAN], [NAN]], 0.125, 0),
         # One of two envs ended with G = 3: one return, E[G^2] = 9, and the
         # discount's variance (0.99 / 2)^2 enters.
         ([[1.0], [1.0]], [[0.0], [0.99]], [[3.0], [NAN]], 3 * 0.99 / 2, 1),
         # A return seen and no variance: the 1e-4 floor, sigma = 0.01.
         ([[1.0]], [[0.0]], [[2.0]], 0.01, 1),
     ],
-    ids=["unscaled", "no-return-scaled", "one-return-of-two-envs", "floor"],
+    ids=[
+        "unscaled",
+        "no-return-scaled",
+        "just-over-the-cutoff",
+        "one-return-of-two-envs",
+        "floor",
+    ],
 )
 def test_the_scale_is_the_authors_td_error_scaler(
     reward, gamma, G_return, scale, G_count

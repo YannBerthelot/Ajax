@@ -9,6 +9,7 @@ change with the hostname, which macOS changes on every network switch.
 
 from __future__ import annotations
 
+import io
 import os
 import platform
 import subprocess
@@ -76,6 +77,29 @@ def test_the_cpu_flags_tell_two_cpus_of_one_model_apart(key):
     sse = _compile_cache._read_cpuinfo(text.format("fpu sse2").splitlines())
     assert avx[0] == sse[0] == "Xeon"
     assert avx[1] != sse[1]
+
+
+@pytest.mark.parametrize(
+    "cpuinfo, named",
+    [
+        ("model name : Xeon\n", "Xeon"),  # an ARM host whose list has no flags
+        ("flags : fpu avx512f\n", "flags="),  # a host that gives no model name
+    ],
+    ids=["model-only", "flags-only"],
+)
+def test_one_cpu_detail_is_enough_to_name_a_linux_cpu(monkeypatch, cpuinfo, named):
+    """Catches a fingerprint that falls back to platform.processor() ('' on
+    Linux) unless /proc/cpuinfo gives both a model and flags: every CPU of such
+    a host would then share one cache directory."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(platform, "processor", lambda: "")
+    monkeypatch.setattr(
+        _compile_cache, "open", lambda path: io.StringIO(cpuinfo), raising=False
+    )
+    fields = dict(
+        part.split("=", 1) for part in _compile_cache.host_fingerprint().split("|")
+    )
+    assert named in fields["cpu"]
 
 
 def test_configure_uses_the_fingerprint_subdirectory(cache_root):

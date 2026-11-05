@@ -212,6 +212,22 @@ def test_backends_with_a_flag_set_are_refused(flag: dict) -> None:
         LoggingConfig(backends=(TensorBoardBackend(),), **flag)
 
 
+def test_a_wandb_backend_sends_the_evaluations_unless_told_not_to(
+    wandb_calls: str,
+) -> None:
+    """Catches a default that sends nothing: a run created by a plain
+    WandbBackend() would show no curve. The evaluations are the run.log calls
+    of a resumed run, which a run without steps never makes."""
+    backend = WandbBackend(project="p", batch_size=1)
+    run = RunInfo(run_id="abcd1234", name="run_abcd1234", config={})
+    backend.start(run)
+    backend.open(run)
+    backend.log("abcd1234", 1, {"return": 1.0})
+
+    calls = fake_wandb.read_calls(wandb_calls)
+    assert "run.log" in {c["call"] for c in calls if c["run_id"] == "abcd1234"}
+
+
 def test_a_wandb_backend_without_steps_creates_each_run_and_sends_it_nothing(
     wandb_calls: str,
 ) -> None:

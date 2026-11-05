@@ -40,6 +40,16 @@ def test_topk_counts_an_episode_spanning_segments_whole():
     np.testing.assert_allclose((mean_r, std_r, mean_h), (10.0, 0.0, 10.0))
 
 
+def test_topk_spread_is_the_standard_deviation_of_the_returns():
+    """Two whole episodes, steps 0 .. 3 and 4 .. 7, each step paying its index:
+    returns 6 and 22, so mean 14 and std sqrt(((6-14)^2 + (22-14)^2) / 2) = 8
+    (the population std, the mean of the squares less the square of the mean);
+    both last 4 steps."""
+    stream = episode_stream(_buffer(2, 2, (3, 7), reward_is_step=True))
+    mean_r, std_r, mean_h = topk_command_stats(stream, k=2)
+    np.testing.assert_allclose((mean_r, std_r, mean_h), (14.0, 8.0, 4.0), rtol=1e-6)
+
+
 def test_topk_skips_the_fragment_whose_start_was_evicted():
     """Five segments into three slots (steps 8 .. 19 held), dones at 9 and
     15: the episode ending at 9 lost its start; the one of steps 10 .. 15

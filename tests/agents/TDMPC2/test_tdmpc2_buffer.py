@@ -251,6 +251,17 @@ def test_capacity_and_memory():
         EpisodeBuffer(n_envs=1, episode_length=3, n_rounds=1, obs_dim=1, action_dim=1)
 
 
+def test_a_ring_needs_an_env_and_a_step_per_episode_and_one_of_each_is_enough():
+    """No env or an empty episode is refused; the smallest ring, one env and
+    one-step episodes, is built."""
+    sizes = {"n_rounds": 2, "obs_dim": 1, "action_dim": 1}
+    with pytest.raises(ValueError, match="episode_length"):
+        EpisodeBuffer(n_envs=0, episode_length=1, **sizes)
+    with pytest.raises(ValueError, match="episode_length"):
+        EpisodeBuffer(n_envs=1, episode_length=0, **sizes)
+    assert EpisodeBuffer(n_envs=1, episode_length=1, **sizes).nbytes > 0
+
+
 # ---------------------------------------------------------------------------
 # A resumed run adopts the ring it carries
 # ---------------------------------------------------------------------------

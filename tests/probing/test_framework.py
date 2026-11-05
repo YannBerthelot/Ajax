@@ -81,10 +81,10 @@ from . import readouts as R
 # wrapper: envs.py + 3, test_framework + 2. RVI-SAC's, ValueCentering's and
 # ResetCost's cells (three, sixteen faults): test_average_reward 186, agents.py
 # + 2 (its resume check's preset too), faults/ + 16, test_framework + 4 (this note, the caps, the budget's).
-# Faults a fast test alone catches (contracts.jsonl, sixty): faults/ + 60,
+# Faults a fast test alone catches (contracts.jsonl, 64): faults/ + 64,
 # test_framework + 3 (this note, the budget's).
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 162, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 324})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 328})
 CAPS.update({"test_average_reward.py": 186})
 CAPS.update({"test_framework.py": 302, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})

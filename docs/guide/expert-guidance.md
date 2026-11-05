@@ -359,6 +359,8 @@ Ajax" marks a feature with no external reference.
 | You want to | Use | Method |
 | --- | --- | --- |
 | Start the replay with good experience | `ExpertPrefill(n_steps)` (SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL, DQN); `PriorData` with a [transition dataset](../api/buffers.md) (SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN) | expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates |
+| Keep good experience for the whole run | `RetainedDemonstrations(n_steps)`, with `CloningPretrain` for a BC start (SAC, TD3, REDQ, ASAC, RVISAC, TQC, CrossQ, IQL, DQN) | DDPGfD (Vecerik et al., 2017); BC start plus prefill (Bhatt et al., 2026) |
+| Learn online with half of each batch from recorded data | `RLPD` on LayerNorm critics (SAC, TD3, REDQ, ASAC, RVISAC, TQC, CrossQ, IQL, DQN) | RLPD (Ball et al., 2023) |
 | Train on recorded transitions alone, then fine-tune online | `agent.train_offline(dataset, n_updates)` (SAC, TD3, REDQ, ASAC, DQN, IQL) | offline training on the agent's own update; IQL (Kostrikov et al., 2022) |
 | Keep the actor near the dataset's actions | `ImitationLoss(None, target="replay", alpha=2.5)` (SAC, TD3, REDQ, ASAC) | TD3+BC (Fujimoto and Gu, 2021) on TD3 |
 | Keep the critic's target near the dataset's actions too | `TargetBC` with TD3+BC's term (TD3) | ReBRAC (Tarasov et al., 2023) |
@@ -369,6 +371,7 @@ Ajax" marks a feature with no external reference.
 | Keep the actor near the expert early on | `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger; PPO, APG, UDRL with a stateless expert), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |
 | Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC, TD3, REDQ, ASAC, AVG) | Q-filtered behaviour cloning (Nair et al., 2018) |
 | Let the expert act while the agent is poor | `JSRLCurriculum` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger, DQN, PQN, UDRL), `EDGEExploration` (the same with continuous actions; on UDRL its fixed gate alone, UDRL having no Q critic), `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
+| Blend with the expert where the critics disagree | `CHEQ` (SAC, TD3, REDQ, ASAC, RVISAC, CrossQ, IQL) | CHEQ (Cramer et al., 2024) |
 | Learn a correction to the expert | `ResidualPolicy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL) | residual RL (Johannink et al., 2019) |
 | Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` (SAC) | developed with Ajax |
 | Make the target account for the expert | `IBRL` (SAC, TD3, REDQ, AVG), `LCBGatedBootstrap` (SAC, TD3, REDQ) | IBRL (Hu et al., 2023); the LCB gate developed with Ajax |

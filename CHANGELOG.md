@@ -8,6 +8,12 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **Three more ways to use an expert or recorded data.** `RLPD` and
+  `RetainedDemonstrations` keep their rows in a ring of their own, which no
+  later step evicts, and `RLPD` fills half of each batch from it. `CHEQ` blends
+  the agent's action with the expert's, by a weight that falls as the critics
+  disagree. The update ratio and the critics stay the agent's own settings.
+  Each one's docstring lists where it departs from its paper.
 - **On-policy agents train the steps they are asked for.** PPO (with or
   without memory), APO and PQN trained one rollout more than their budget
   in every `train` call. They now train the whole rollouts the budget

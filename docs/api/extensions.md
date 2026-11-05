@@ -15,6 +15,10 @@ it uses. The [user guide](../guide/extensions.md) shows how to use them and
 ::: ajax.extensions.adversarial
 ::: ajax.extensions.offline
 
+::: ajax.extensions.retained
+
+::: ajax.extensions.cheq
+
 ::: ajax.extensions.exploration
 
 ::: ajax.extensions.ensemble

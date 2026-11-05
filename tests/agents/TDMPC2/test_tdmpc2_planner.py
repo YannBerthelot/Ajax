@@ -191,6 +191,8 @@ def test_plan_rejects_noise_drawn_for_another_setting(obs):
         {"num_pi_trajs": 600},
         {"min_std": 0.0},
         {"min_std": 3.0, "max_std": 2.0},
+        {"horizon": 0},
+        {"batch_size": 0},
     ],
 )
 def test_config_rejects_invalid_planning_settings(overrides):

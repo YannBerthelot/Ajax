@@ -2,6 +2,7 @@
 scores, the training rounds it asks for, and a tiny comparison of two agents;
 the same for :func:`estimate`'s confidence sequences, and their coverage."""
 
+import inspect
 import itertools
 from functools import partial
 
@@ -72,6 +73,14 @@ def test_scores_tied_up_to_rounding_are_not_a_difference():
     test = AdaStop("ab", n=4, K=2, B=2000)
     run(test, {"a": [[0.1] * 4, [0.1] * 3 + [0.6]], "b": np.full((2, 4), 0.1)})
     assert test.decisions == {("a", "b"): "equal"}
+
+
+def test_the_published_defaults_stay_as_they_are():
+    """Pins the published defaults: AdaStop's 10,000 permutations and
+    estimate's 64-seed cap; changing one changes every call that leaves it
+    out, a breaking change."""
+    assert inspect.signature(AdaStop).parameters["B"].default == 10_000
+    assert inspect.signature(estimate).parameters["max_seeds"].default == 64
 
 
 def test_decisions_repeat_for_a_seed():

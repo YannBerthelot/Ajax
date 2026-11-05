@@ -340,6 +340,15 @@ def test_unsupported_extension_phases_are_rejected():
     TDMPC2("Pendulum-v1", extensions=[CounterExt(), MetricExt()])
 
 
+@pytest.mark.parametrize("gamma", [0.0, 1.01])
+def test_a_discount_outside_zero_to_one_is_rejected(gamma):
+    """A discount of 0 or above 1 makes the value targets meaningless; 1 (the
+    undiscounted task) is allowed."""
+    with pytest.raises(ValueError, match="gamma"):
+        TDMPC2("Pendulum-v1", gamma=gamma)
+    assert TDMPC2("Pendulum-v1", gamma=1.0).resolved_gamma == 1.0
+
+
 def test_episodes_shorter_than_the_horizon_are_rejected():
     with pytest.raises(ValueError, match="horizon"):
         TDMPC2(TerminatingEnv(length=2), horizon=3)

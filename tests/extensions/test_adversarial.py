@@ -47,6 +47,17 @@ def test_the_rewards_are_minus_log_one_minus_d_before_the_discriminator_steps() 
     assert int(stepped.step) == 3 and set(metrics) >= {"gail/disc_loss", "gail/reward"}
 
 
+def test_a_round_takes_two_discriminator_steps_by_default() -> None:
+    """Pins the published default of two discriminator updates per round;
+    changing it is a breaking change."""
+    gail = AdversarialReward(demos())
+    context = ExtensionContext(step=jnp.asarray(0), rng=KEY)
+    _, stepped, _ = gail.reward(
+        None, gail.init_state(None, KEY), rollout(), jnp.zeros((4, 2, 1)), context
+    )
+    assert int(stepped.step) == 2
+
+
 def test_the_discriminator_reads_the_executed_action() -> None:
     """A sample beyond [-1, 1] runs as the bound, and is scored as it; a
     demonstration's action too."""

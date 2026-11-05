@@ -204,9 +204,12 @@ class _GainExpert:
     def step_with_gains(self, state: Any, obs: jnp.ndarray, gains: Any) -> tuple:
         return -gains[0] * obs[..., :1], state
 
+    def track(self, state: Any, obs: jnp.ndarray, action: jnp.ndarray) -> Any:
+        return state + action
+
 
 #: The agent's expert a module needs beyond the stateless one.
-MODULE_EXPERTS = {"ExpertGains": _GainExpert()}
+MODULE_EXPERTS = {"ExpertGains": _GainExpert(), "BumplessTracking": _GainExpert()}
 
 
 @cache
@@ -232,6 +235,8 @@ def field_values(env: str) -> dict[str, Any]:
     episode = TransitionDataset(one, one, one[:, 0], one[:, 0] + 1, one[:, 0], one)
     return {
         "expert_policy": expert,
+        "target_channels": (0,),
+        "max_change": (0.1,),
         "threshold": 1.0,
         "n_steps": 4,
         "fraction": 0.5,

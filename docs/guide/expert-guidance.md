@@ -390,6 +390,9 @@ Ajax" marks a feature with no external reference.
 | Let the expert act while the agent is poor | `JSRLCurriculum` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger, DQN, PQN, UDRL), `EDGEExploration` (the same with continuous actions; on UDRL its fixed gate alone, UDRL having no Q critic), `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
 | Blend with the expert where the critics disagree | `CHEQ` (SAC, TD3, REDQ, ASAC, RVISAC, CrossQ, IQL) | CHEQ (Cramer et al., 2024) |
 | Learn a correction to the expert | `ResidualPolicy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL) | residual RL (Johannink et al., 2019; Silver et al., 2018) |
+| Move the target the expert reads | `OuterLoopReference` | outer-loop control (Arroyo and Giraldo, 2020) |
+| Schedule the expert's gains each step | `ExpertGains` on a `GainScheduledLaw` | control-informed RL (Bloor et al., 2024) |
+| Keep the expert's memory true to what ran | `BumplessTracking` | the conditioning technique (Hanus et al., 1987) |
 | Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` (SAC) | developed with Ajax |
 | Make the target account for the expert | `IBRL` (SAC, TD3, REDQ, AVG), `LCBGatedBootstrap` (SAC, TD3, REDQ) | IBRL (Hu et al., 2023); the LCB gate developed with Ajax |
 | Measure how the critic rates the expert | `ExpertValueMetrics` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, IQL, DQN) | |
@@ -472,7 +475,8 @@ and `step_with_gains` (TargetGym's `FunctionalExpertPolicy` after
 instead of acting directly: SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL run it with the expert as their
 `expert_policy`. The
 actor outputs one number `a` in `[-1, 1]` per learnable gain; the gain
-applied is `anchor · 10^a`, between a tenth and ten times the expert's own.
+applied is `anchor · max_factor^a`, by default between a tenth and ten times
+the expert's own.
 The PID computes the action. The replay, or the rollout, holds the gains
 (the agent's actions, as many as the learnable gains), so the critics score
 them and the warm-up draws uniform gains; the expert's own action is stored
@@ -487,6 +491,45 @@ SAC with its collection extensions (their `action` phase never runs in it).
 It is different from the [PID policy](networks.md#the-pid-policy), in which
 the actor itself is a PID whose gains are learned, for any
 continuous-action agent.
+
+## Acting around a controller
+
+`ajax.extensions.structure` needs the expert's law, not only its call. An
+`ExpertLaw` holds it: a pure `step(params, memory, obs)` for one env, its
+`params` and `memory`, `reading_channels` (the observation columns its errors
+read) and `gain_names` (the leaves of `params` that are gains). TargetGym's
+`Controller` has that form:
+
+```python
+# doc: skip
+from target_gym.registry import REGISTRY
+
+from ajax.extensions.structure import ExpertLaw
+
+law = ExpertLaw.of(
+    REGISTRY["four_tank"].make_pid_controller(),
+    reading_channels=(0, 1),
+    gain_names=("Kp_1", "Ti_1", "Kp_2", "Ti_2"),
+)
+```
+
+- **Moving the target.** `OuterLoopReference(target_channels, max_change)`
+  with the law as `expert_policy`: the policy outputs one change per target,
+  bounded by `max_change` in the target's units, and the expert acts on the
+  moved target. No change is the expert.
+- **Scheduling gains.** `GainScheduledLaw(law, obs_width)` as `expert_policy`,
+  with `ExpertGains(max_factor=2.0)`: the policy sets a multiplier per gain,
+  and the multipliers move at most `max_log_rate` a step. The action changes
+  as the law does between two steps at the same gains, the velocity form, so a
+  new gain alone moves nothing, and unit multipliers are the law. Add
+  `ExpertStateInput.for_expert(layer)`, so that the policy reads the
+  multipliers it moves from.
+- **Tracking what ran.** Add `BumplessTracking()` to a switching or blending
+  arm (`JSRLCurriculum`, `CHEQ`, `IBRL`, `ResidualPolicy`): the law's memory
+  takes the error at which it would have output the executed action, in
+  collection and evaluation. Without it, the memory advances on the error
+  whoever acts. A law sitting at its own limit keeps its own anti-windup, and
+  handing back still steps by the proportional term.
 
 ## Limits and caveats
 

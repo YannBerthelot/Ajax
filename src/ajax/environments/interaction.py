@@ -25,6 +25,7 @@ from ajax.controller import (
     observe_features,
     read_the_residual,
     restart_observers,
+    tracks_executed_action,
     warmup_expert_flags,
 )
 from ajax.environments.action_stage import apply_action_extensions
@@ -881,7 +882,9 @@ def expert_collect_kwargs(
     action (a pipeline of the agent's applies it itself); an actuate one (gain
     mode) executes the chosen action through the expert, which that steps,
     and the chosen one is stored. The run's warm-up chooser (warmups) runs
-    in the default pipeline; a pipeline of the agent's runs it itself.
+    in the default pipeline; a pipeline of the agent's runs it itself. With
+    BumplessTracking in extensions, the expert's next state follows the
+    action the step executes (its track).
     Without an expert, action_pipeline alone, in the action stage where an
     extension acts there with an expert of its own (IBRL)."""
     if expert_policy is None:
@@ -902,6 +905,7 @@ def expert_collect_kwargs(
     actuate = None
     if transform is not None and "actuate" in transform.implemented_phases():
         actuate = transform
+    tracks = tracks_executed_action(extensions)
 
     def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, action_key):
         a_expert, new_state = expert_step(expert_policy, acting, raw_obs, n_envs)
@@ -911,11 +915,14 @@ def expert_collect_kwargs(
             result = result._replace(a_expert=a_expert)
         if result.new_expert_state is None:
             result = result._replace(new_expert_state=new_state)
-        if actuate is None:
+        if actuate is None and not tracks:
             return result
         state = None
         if hasattr(expert_policy, "init_state"):
             state = expert_state_at_step(expert_policy, acting, n_envs)
+        if actuate is None:
+            tracked = expert_policy.track(state, raw_obs, result.env_action)
+            return result._replace(new_expert_state=jax.lax.stop_gradient(tracked))
         inputs = TransformInputs(expert_policy, state, raw_obs, a_expert)
         env_action, new_state = actuate.actuate(result.env_action, inputs)
         return result._replace(

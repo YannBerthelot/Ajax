@@ -300,6 +300,10 @@ class Extension:
     #: cutting (update_steps.bootstrap_cuts).
     continues_through_terminations: ClassVar[bool] = False
 
+    #: Whether the agent's expert's memory follows the executed action, through
+    #: its track(memory, obs, action), not the expert's own (BumplessTracking).
+    tracks_executed_action: ClassVar[bool] = False
+
     #: Whether the observation normaliser covers the columns :meth:`observe`
     #: appends (an expert's action, already in action units, stays raw).
     observes_normalised: ClassVar[bool] = True

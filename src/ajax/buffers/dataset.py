@@ -223,6 +223,7 @@ def _replay_rows(data: TransitionDataset) -> dict[str, np.ndarray]:
         "raw_next_obs": data.next_obs,
         "return_to_go": col(data.return_to_go),
         "next_action": next_actions(data),
+        "seam": np.zeros((len(data.reward), 1), np.float32),
     }
 
 
@@ -237,8 +238,9 @@ def next_actions(data: TransitionDataset) -> np.ndarray:
 def fill_replay(buffer: Any, buffer_state: Any, data: TransitionDataset) -> Any:
     """``buffer_state`` with ``data``'s rows added, one row per env per
     add as collection adds its own: each env's replay row gets a contiguous
-    run of ``data``, so a sequence replay reads its episodes whole. A replay
-    already holding rows drops its oldest when full, as collection does.
+    run of ``data``, so a sequence replay reads its episodes whole, and its
+    last row is a seam (init_buffer's include_seam). A replay already holding
+    rows drops its oldest when full, as collection does.
 
     Raises ``ValueError`` when the replay keeps fields ``data`` does not
     hold or of another width, when ``data``'s rows do not divide among its
@@ -267,7 +269,10 @@ def fill_replay(buffer: Any, buffer_state: Any, data: TransitionDataset) -> Any:
     def add(state: Any, row: dict) -> tuple[Any, None]:
         return buffer.add(state, row), None
 
-    return jax.lax.scan(add, buffer_state, {k: stream(k) for k in schema})[0]
+    streams = {k: stream(k) for k in schema}
+    if "seam" in streams:
+        streams["seam"] = streams["seam"].at[-1].set(1.0)
+    return jax.lax.scan(add, buffer_state, streams)[0]
 
 
 def save(data: TransitionDataset, path: str) -> None:

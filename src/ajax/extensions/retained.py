@@ -16,7 +16,7 @@ is REDQ's defaults with ``critic_architecture=("256", "layernorm", "relu",
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar, Optional
 
@@ -37,11 +37,11 @@ class RetainedDemonstrations(Extension):
 
     DDPGfD (Vecerik et al. 2017, sec. 3) "loads the demonstration
     transitions into the replay buffer before the training begins and keeps
-    all transitions forever". The rows are the agent's expert's, ``n_steps``
-    per env (ExpertPrefill's: with the run's observation features), or those
-    of ``dataset`` (``n_steps`` 0), whose observations hold no features. They
-    count once in the normalisers, in no timestep, and the replay's capacity
-    leaves them out.
+    all transitions forever". The rows are an expert's, ``n_steps`` per env
+    (ExpertPrefill's: with the run's observation features), the agent's or,
+    so that no online step calls one, ``expert``'s; or those of ``dataset``
+    (``n_steps`` 0), whose observations hold no features. They count once in
+    the normalisers, in no timestep, and the replay's capacity leaves them out.
 
     ``share`` is the part of each batch they fill. None draws each row over
     all the rows held, so they fade as the agent's own rows arrive, as in a
@@ -57,13 +57,15 @@ class RetainedDemonstrations(Extension):
     n_steps: int
     dataset: Optional[TransitionDataset] = None
     share: Optional[float] = None
-    # The agent's expert, in agent units, bound by bind_to_agent.
-    expert: Any = None
+    # In agent units: the agent's is bound by bind_to_agent, one given here
+    # converted by ExtensionStack.with_experts.
+    expert: Optional[Callable] = None
     name: str = "retained_demonstrations"
     requires: ClassVar[frozenset[str]] = frozenset({"off_policy", "replay"})
     provides: ClassVar[frozenset[str]] = frozenset({"seeded_replay"})
     context: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
     pretrain_context: ClassVar[frozenset[str]] = frozenset({"buffer", "env_args"})
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert"})
 
     def __post_init__(self) -> None:
         if (self.dataset is None) != (self.n_steps > 0):
@@ -75,12 +77,14 @@ class RetainedDemonstrations(Extension):
             raise ValueError(f"share is a part of a batch, got {self.share}.")
 
     def needs(self) -> frozenset[str]:
-        """The agent's expert, unless a dataset gives the rows."""
-        if self.dataset is not None:
+        """The agent's expert, unless a dataset or its own gives the rows."""
+        if self.dataset is not None or self.expert is not None:
             return super().needs()
         return super().needs().union({"agent_expert"})
 
     def bind_to_agent(self, **agent_context: Any) -> Any:
+        if self.expert is not None:
+            return self
         return dataclasses.replace(self, expert=agent_context.get("expert_policy"))
 
     def pretrain(

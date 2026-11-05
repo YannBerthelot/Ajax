@@ -299,6 +299,7 @@ def sample_replay(
         next_action=sampled.next_action,
         is_expert=sampled.is_expert,
         policy_action=sampled.policy_action,
+        bootstrap_discount=sampled.bootstrap_discount,
     )
     return batch, None
 

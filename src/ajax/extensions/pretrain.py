@@ -897,7 +897,7 @@ class PhiRefresh(Extension):
     reads_stored_expert: bool = False  # bound: the agent's expert
     name: str = "phi_refresh"
     requires: ClassVar[frozenset[str]] = frozenset(
-        {"discounted", "phi_star", "q_critic", "replay"}
+        {"discounted", "one_step_target", "phi_star", "q_critic", "replay"}
     )
     context: ClassVar[frozenset[str]] = frozenset({"buffer", "gamma", "reward_scale"})
     expert_fields: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
@@ -1006,7 +1006,7 @@ def store_expert_transitions(
     replay row by row as the live collector does (replay_row): one step of
     every env per add (the buffer's add batch is the env axis), with the
     expert's actions at s and s' as a_expert and next_a_expert, and
-    is_expert 1."""
+    is_expert 1, the last row a seam (init_buffer's include_seam)."""
     schema = buffer_state.experience
     if "actor_carry" in schema:
         raise ValueError(
@@ -1026,7 +1026,8 @@ def store_expert_transitions(
     if transform is not None and (stores_choice or "policy_action" in schema):
         choose_for_expert = transform.policy_action_for_expert
 
-    def add_step(buffer_state: Any, step: Any) -> tuple[Any, None]:
+    def add_step(buffer_state: Any, stepped: tuple) -> tuple[Any, None]:
+        step, seam = stepped
         chosen = step.action
         if choose_for_expert is not None:
             # Shaped like the policy's actions at this step.
@@ -1048,19 +1049,36 @@ def store_expert_transitions(
             next_a_expert=step.next_a_expert,
             raw_next_obs=step.raw_next_obs,
             policy_action=chosen,
+            seam=seam,
         )
         # The replay's dtypes: the expert collector keeps the env's.
         row = {name: value.astype(schema[name].dtype) for name, value in row.items()}
         return buffer.add(buffer_state, row), None
 
-    buffer_state, _ = jax.lax.scan(add_step, buffer_state, transitions)
+    seams = jnp.zeros_like(transitions.reward).at[-1].set(1.0)
+    buffer_state, _ = jax.lax.scan(add_step, buffer_state, (transitions, seams))
     return buffer_state
+
+
+def run_offline_updates(agent_state: Any, agent_update: Any, n_updates: int) -> Any:
+    """agent_state after n_updates of the agent's update on its replay, with
+    no post_update between them."""
+
+    def update(agent_state: Any, _: None) -> tuple[Any, None]:
+        return agent_update(agent_state, None)[0], None
+
+    # The scan's carry holds, from the first update, the slot an update
+    # keeping its actor's last metrics writes.
+    agent_state = with_actor_metrics_slot(
+        agent_state, lambda state: agent_update(state, None)[0]
+    )
+    return jax.lax.scan(update, agent_state, None, length=n_updates)[0]
 
 
 @dataclass(frozen=True)
 class ExpertPrefill(Extension):
-    """The agent's expert acts n_steps steps in every env before training,
-    and its transitions go to the replay as collection writes its own
+    """An expert acts n_steps steps in every env before training, and its
+    transitions go to the replay as collection writes its own
     (store_expert_transitions): with the agent's features at
     training progress 0, is_expert 1, and under an action transform the
     policy action that executes the expert's own. The rows count once in
@@ -1068,21 +1086,39 @@ class ExpertPrefill(Extension):
     own do (count_in_normalisers), and in no timestep, so learning_starts
     counts live steps.
 
-    It needs the agent's expert, a replay and an update that stays correct
-    on actions the policy did not choose: SAC, REDQ, ASAC, TQC, TD3, CrossQ
-    and IQL take it. It runs before the other pretraining, which may read
-    its rows (ExtensionStack.apply_pretrain)."""
+    Then offline_updates of the agent's update run on the replay, as
+    PriorData's do: they need no env step, and they do not wait for
+    policy_update_start or alpha_update_start. They are how an offline phase
+    reads the agent's observation features, which a dataset does not hold.
+
+    The expert is the agent's, unless expert names one for the prefill alone:
+    an agent's expert_policy is called on every step collected, and this one
+    on the prefill's alone.
+
+    It needs an expert, a replay and an update that stays correct on actions
+    the policy did not choose: SAC, REDQ, ASAC, TQC, TD3, CrossQ and IQL take
+    it. It runs before the other pretraining, which may read its rows
+    (ExtensionStack.apply_pretrain)."""
 
     n_steps: int
-    # The agent's expert, in agent units, bound by bind_to_agent.
-    expert: Any = None
+    # In agent units: the agent's is bound by bind_to_agent, one given here
+    # converted by ExtensionStack.with_experts.
+    expert: Optional[Callable] = None
+    offline_updates: int = 0
     name: str = "expert_prefill"
-    requires: ClassVar[frozenset[str]] = frozenset(
-        {"agent_expert", "off_policy", "replay"}
-    )
+    requires: ClassVar[frozenset[str]] = frozenset({"off_policy", "replay"})
     provides: ClassVar[frozenset[str]] = frozenset({"seeded_replay"})
     context: ClassVar[frozenset[str]] = frozenset({"expert_policy"})
-    pretrain_context: ClassVar[frozenset[str]] = frozenset({"buffer", "env_args"})
+    pretrain_context: ClassVar[frozenset[str]] = frozenset(
+        {"buffer", "env_args", "update"}
+    )
+    expert_fields: ClassVar[frozenset[str]] = frozenset({"expert"})
+
+    def needs(self) -> frozenset[str]:
+        """The agent's expert, unless it has its own."""
+        if self.expert is not None:
+            return super().needs()
+        return super().needs().union({"agent_expert"})
 
     def bind_to_agent(self, **agent_context: Any) -> "ExpertPrefill":
         if self.expert is not None or "expert_policy" not in agent_context:
@@ -1119,6 +1155,10 @@ class ExpertPrefill(Extension):
             transitions.truncated,
             env_args,
         )
+        if self.offline_updates:
+            agent_state = run_offline_updates(
+                agent_state, context.update, self.offline_updates
+            )
         return agent_state, ext_state
 
 
@@ -1167,19 +1207,10 @@ class PriorData(Extension):
         agent_state = seed_replay(
             agent_state, context.buffer, self.dataset, context.env_args
         )
-
-        def update(agent_state: Any, _: None) -> tuple[Any, None]:
-            return agent_update(agent_state, None)[0], None
-
-        # The scan's carry holds, from the first update, the slot an update
-        # keeping its actor's last metrics writes.
-        agent_state = with_actor_metrics_slot(
-            agent_state, lambda state: agent_update(state, None)[0]
+        return (
+            run_offline_updates(agent_state, agent_update, self.offline_updates),
+            ext_state,
         )
-        agent_state, _ = jax.lax.scan(
-            update, agent_state, None, length=self.offline_updates
-        )
-        return agent_state, ext_state
 
 
 __all__ = [

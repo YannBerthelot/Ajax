@@ -34,6 +34,7 @@ from ajax.agents.families import (
     ObservationNormalization,
     PolicyUpdateStart,
     ReplayAgent,
+    RewardNormalization,
     TrainContext,
 )
 from ajax.agents.recurrent import q_values, sample_replay
@@ -55,6 +56,7 @@ class IQL(
     PolicyUpdateStart,
     GradientClipping,
     ObservationNormalization,
+    RewardNormalization,
     ExpertGuided,
     ReplayAgent,
 ):
@@ -75,7 +77,10 @@ class IQL(
     actor's offline learning rate to 0 by a cosine over its updates: pass
     actor_learning_rate=optax.cosine_decay_schedule(3e-4, n_updates)
     for that. Its locomotion rewards are scaled by 1000 over the dataset's
-    range of returns: reward_scale.
+    range of returns: reward_scale. normalize_rewards, off by default, is
+    Ajax's, not the reference's: it divides them by a running standard
+    deviation that counts a dataset's rows and each step collected, as on the
+    other agents.
     """
 
     actor_learning_rate: FloatOrCallable = 3e-4

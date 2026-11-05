@@ -14,6 +14,24 @@ The next release is 0.6.0: the first item changes results.
   the agent's action with the expert's, by a weight that falls as the critics
   disagree. The update ratio and the critics stay the agent's own settings.
   Each one's docstring lists where it departs from its paper.
+- **n-step returns on SAC.** `n_step` sums that many rewards before the
+  critics' target bootstraps, stopping at an episode's end. The return is
+  uncorrected, as Rainbow's is, with no entropy bonus for the steps between.
+  The first update waits for each env's replay to hold `n_step` rows. 1 is the
+  default and changes nothing.
+- **An offline phase on the agent's own observations.** `ExpertPrefill` takes
+  `offline_updates`, as `PriorData` does, so an agent reading observation
+  features has offline updates on rows that hold them, which a dataset cannot.
+- **A recording expert of its own.** `ExpertPrefill`, `RetainedDemonstrations`
+  and `RLPD` take `expert=`. The agent's `expert_policy` is called on every
+  step collected; this one on the recording's steps alone, so an arm with no
+  expert online queries none.
+- **IQL takes `normalize_rewards`**, as SAC does. Off by default.
+- **`ajax.ledger` charges `JSRLCurriculum`'s gate** and
+  `ResidualPolicy(zero_start=True)`, whose pretraining costs no step, where it
+  refused one and missed the other. A run with a gate can stop short of its
+  budget by less than one evaluation, which no run length spends exactly, and
+  `assert_budget` takes that.
 - **Representations during training.** `RepresentationProbe` reads an
   agent's activations and parameters on a fixed set of states every
   `probe_interval` steps, writes them to a directory per seed, and logs each
@@ -74,6 +92,9 @@ The next release is 0.6.0: the first item changes results.
   to the next stage when a moving average of the combined policy's evaluations
   comes within a tolerance of its best. `schedule="random"` is JSRL-Random.
   To keep the old form, pass `schedule="time"`: `decay_frac` alone now raises.
+  `eval_episodes` now defaults to 1, Ajax's value and not the paper's, since
+  each evaluation spends steps on the plant. *What to do:* pass
+  `eval_episodes=10` for the old gate.
 - **`ResidualPolicy` keeps the expert during the warm-up.** Its warm-up executed
   uniform actions without the expert; it now draws uniform residuals around
   it. `zero_start=True` starts the policy as the expert, and

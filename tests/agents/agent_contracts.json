@@ -92,6 +92,7 @@
    "on_target",
    "post_update",
    "pretrain",
+   "track_memory",
    "transform_action"
   ],
   "supports_batched_env_params": false,
@@ -188,6 +189,7 @@
    "on_target",
    "post_update",
    "pretrain",
+   "track_memory",
    "transform_action"
   ],
   "supports_batched_env_params": false,
@@ -278,6 +280,7 @@
    "on_target",
    "post_update",
    "pretrain",
+   "track_memory",
    "transform_action"
   ],
   "supports_batched_env_params": false,
@@ -375,6 +378,7 @@
    "on_target",
    "post_update",
    "pretrain",
+   "track_memory",
    "transform_action"
   ],
   "supports_batched_env_params": false,
@@ -424,7 +428,8 @@
    "eval_metrics",
    "observe",
    "post_update",
-   "pretrain"
+   "pretrain",
+   "track_memory"
   ],
   "supports_batched_env_params": false,
   "supports_memory": false,
@@ -489,7 +494,8 @@
    "observe",
    "on_target",
    "post_update",
-   "pretrain"
+   "pretrain",
+   "track_memory"
   ],
   "supports_batched_env_params": false,
   "supports_memory": false,
@@ -622,6 +628,7 @@
    "on_target",
    "post_update",
    "pretrain",
+   "track_memory",
    "transform_action"
   ],
   "supports_batched_env_params": false,
@@ -685,6 +692,7 @@
    "post_update",
    "pretrain",
    "reward",
+   "track_memory",
    "transform_action"
   ],
   "supports_batched_env_params": false,
@@ -734,7 +742,8 @@
    "observe",
    "on_target",
    "post_update",
-   "pretrain"
+   "pretrain",
+   "track_memory"
   ],
   "supports_batched_env_params": false,
   "supports_memory": false,
@@ -838,6 +847,7 @@
    "on_target",
    "post_update",
    "pretrain",
+   "track_memory",
    "transform_action"
   ],
   "supports_batched_env_params": false,
@@ -935,6 +945,7 @@
    "on_target",
    "post_update",
    "pretrain",
+   "track_memory",
    "transform_action"
   ],
   "supports_batched_env_params": false,
@@ -1042,6 +1053,7 @@
    "on_target",
    "post_update",
    "pretrain",
+   "track_memory",
    "transform_action"
   ],
   "supports_batched_env_params": false,
@@ -1144,6 +1156,7 @@
    "on_target",
    "post_update",
    "pretrain",
+   "track_memory",
    "transform_action"
   ],
   "supports_batched_env_params": false,
@@ -1304,6 +1317,7 @@
    "on_target",
    "post_update",
    "pretrain",
+   "track_memory",
    "transform_action"
   ],
   "supports_batched_env_params": false,

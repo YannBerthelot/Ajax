@@ -123,6 +123,9 @@ class EveryPhase(Extension):
     def choose_replay_action(self, executed_actions, policy_actions):
         return executed_actions
 
+    def track_memory(self, expert, memory, obs, command, applied):
+        return expert(memory, obs)[1]
+
     def post_update(self, agent_state, ext_state, context):
         return agent_state, ext_state
 
@@ -270,10 +273,11 @@ def test_an_agent_declares_the_batch_keys_it_passes():
 
 def test_agents_accept_only_the_phases_they_fold():
     """The base accepts none; every agent the loop's, observe, action (the
-    action stage's slots) and eval_action (the shared evaluation's
-    choosers) but where it collects and evaluates on its own (APG's
-    rollout and the collectors of UDRL and the world models observe the
-    features themselves, and UDRL's runs the action stage),
+    action stage's slots), track_memory (after the shared collector's env
+    step) and eval_action (the shared evaluation's choosers) but where it
+    collects and evaluates on its own (APG's rollout and the collectors of
+    UDRL and the world models observe the features themselves, and UDRL's
+    runs the action stage),
     transform_action (a residual policy) the agents whose
     critics score executed actions, and choose_warmup_action those whose
     collection has a uniform warm-up, choose_replay_action those whose
@@ -286,7 +290,7 @@ def test_agents_accept_only_the_phases_they_fold():
     for name in AGENTS:
         agent = getattr(importlib.import_module(f"ajax.agents.{name}.{name}"), name)
         phases = agent.supported_extension_phases
-        own = {"observe", "action", "eval_action"}
+        own = {"observe", "action", "eval_action", "track_memory"}
         assert LOOP_PHASES.difference(own) <= phases, name
         own_collector = name in ("APG", "UDRL", "DreamerV3", "TDMPC2")
         for phase in own:

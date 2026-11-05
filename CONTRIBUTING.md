@@ -210,6 +210,12 @@ own-iteration family below); an agent storing rows in a replay of its own,
 sized for each call, on `OwnReplayAgent`, as DreamerV3 and TD-MPC2 do (the
 own-replay family below).
 
+**Start with a tracer bullet.** Get the thinnest path working end to end first:
+rollout, update, logging, checkpoint and one passing probe, on the simplest
+config, in the real loop and in CI. Then add paper fidelity one piece at a
+time, each with its conformance check or probe. The steps below list what an
+agent needs; this is the order to build it in.
+
 **1. `FOO/FOO.py`, the one file.** Its hyperparameters are the fields of a
 dataclass, declared once with the paper's defaults: the family generates the
 constructor (keyword-only after `env_id`), logs the run config, builds the
@@ -407,7 +413,9 @@ entry in `AGENTS` and a baseline (see [Performance](#performance)).
 
 ## Adding an extension
 
-Add an extension, never a flag or a keyword on an agent.
+Add an extension, never a flag or a keyword on an agent. Start with a tracer
+bullet: the smallest phase that does something visible, on one agent, with one
+probe cell. Then build out the rest one piece at a time.
 
 1. **Pick the phases** from the [table](#extensions) and check that the agents
    you target fold them. If one does not, adding the fold to that agent is a
@@ -472,8 +480,15 @@ Two kinds of tests check the code, each answering its own question
   environment whose answer is known, and check only what learning shows: the
   right value, the right action, the right count.
 
-A convention that differs from a reference implementation (an ordering, a
-default, a constant) is for code review, not for a test. *Pins* record what a
+**Every test names the realistic bug it would catch**, in its name or
+docstring. If you cannot name one, do not write the test. When a concern
+deserves protection, add a
+[planted fault](docs/developer/testing.md#planted-faults) and make sure a test
+catches it.
+
+A setting copied from a reference implementation (an ordering, a default, a
+constant) may have a test, which cites the reference. Whether a setting should
+follow the reference is for code review. *Pins* record what a
 tiny run produces today, so a restructuring can show it changed nothing:
 `tests/agents/test_agent_pins.py` (tiny runs' fingerprints),
 `tests/agents/test_agent_surface.py` (every public name the agent modules

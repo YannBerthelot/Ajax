@@ -1043,6 +1043,47 @@ class TerminatedTruncatedWrapper(GymnaxWrapper):
         return obs, state, reward, terminated, truncated, info
 
 
+#: Where an env reports the reward its own sensors give (MeasuredRewardWrapper).
+MEASURED_REWARD_KEY = "measured_reward"
+
+
+def _reports_measured_reward(env: Any) -> bool:
+    """Whether a step of the gymnax env env reports it, read without running."""
+    params = getattr(env, "default_params", None)
+    if params is None:
+        return False
+
+    def info(key: jax.Array) -> dict:
+        _, state = env.reset(key, params)
+        return env.step(key, state, env.action_space(params).sample(key), params)[-1]
+
+    return MEASURED_REWARD_KEY in jax.eval_shape(info, jax.random.PRNGKey(0))
+
+
+class MeasuredRewardWrapper(GymnaxWrapper):
+    """Trains on what a plant can compute from its own sensors: each step's
+    reward is the env's ``info["measured_reward"]``, so the replay, every
+    rollout before training and any reward normaliser read it. Keep it over
+    any wrappers of yours: evaluation strips it with Ajax's own layers
+    (strip_ajax_wrappers), which stop at the first of yours, and so reports
+    the true reward. An env that reports no measured reward is refused."""
+
+    def __init__(self, env: Any):
+        super().__init__(env)
+        if not _reports_measured_reward(env):
+            raise ValueError(
+                f"{type(env).__name__} reports no"
+                f' info["{MEASURED_REWARD_KEY}"] to train on.'
+            )
+
+    def step(self, key, state, action, params=None):
+        obs, state, _, terminated, truncated, info = self._env.step(
+            key, state, action, params
+        )
+        reward = info[MEASURED_REWARD_KEY]
+        return obs, state, reward, terminated, truncated, info
+
+
 class ObservationNoiseWrapper(GymnaxWrapper):
     """Sensor noise on a gymnax env's observations, ``obs + sigma * scale *
     N(0, I)``, drawn afresh at every reset and step from a key folded off

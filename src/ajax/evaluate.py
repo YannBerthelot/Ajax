@@ -213,12 +213,13 @@ def _over_the_built_stack(env: Any) -> list:
     return []
 
 
-def _expert_obs(state, env, mode) -> jax.Array:
+def _expert_obs(state, env, mode, env_params) -> jax.Array:
     """The observations an expert is given, as the collector gives them
     (:func:`~ajax.environments.interaction.get_raw_obs`): the environment's
-    own, before any observation normalisation; an expert is defined in the
-    environment's units."""
-    return get_raw_obs(env_state=state, env=env, mode=mode).astype(jnp.float32)
+    own under the run's env_params, before any observation normalisation; an
+    expert is defined in the environment's units."""
+    raw = get_raw_obs(state, env, mode, env_params)
+    return raw.astype(jnp.float32)
 
 
 class EpisodeRecord(NamedTuple):
@@ -366,7 +367,7 @@ def step_environment(
         # The expert acts on the environment's own observations, as in
         # collection: not normalised, without the training-fraction column.
         reads_expert = expert_policy is not None or controller.choosers
-        expert_obs = _expert_obs(state, env, mode) if reads_expert else None
+        expert_obs = _expert_obs(state, env, mode, env_params) if reads_expert else None
         acted = act(
             obs,
             done,
@@ -429,7 +430,7 @@ def step_environment(
             fresh = init_observers(controller.observers, obs.shape[0])
             observer_states = tree_where_reset(new_done, fresh, observer_states)
             inputs = ObserveInputs(
-                _expert_obs(new_state, env, mode),
+                _expert_obs(new_state, env, mode, env_params),
                 expert=expert_policy,
                 expert_state=new_expert_state if expert_is_stateful else None,
                 progress=progress_now,
@@ -476,7 +477,7 @@ def step_environment_expert(mode, env, env_params, expert_policy):
             else step_key
         )
 
-        expert_obs = _expert_obs(carry.state, env, mode)  # as in step_environment
+        expert_obs = _expert_obs(carry.state, env, mode, env_params)  # as there
         actions, new_expert_state = call_expert(
             expert_policy, carry.expert_state, expert_obs
         )
@@ -633,7 +634,7 @@ def _start_rollout(
     if controller.observers:
         stateful = expert_policy is not None and hasattr(expert_policy, "init_state")
         inputs = ObserveInputs(
-            _expert_obs(state, env, mode),
+            _expert_obs(state, env, mode, env_params),
             expert=expert_policy,
             expert_state=expert_state if stateful else None,
             progress=frozen_progress(agent_state),

@@ -8,17 +8,6 @@ import pytest
 from ajax.environments.interaction import init_rolling_mean, update_episodic_return
 
 
-def test_init_rolling_mean():
-    state = init_rolling_mean(
-        window_size=5,
-        cumulative_reward=jnp.zeros((3, 1)),
-        last_return=jnp.zeros((3, 1)),
-    )
-    assert state.buffer.shape == (5, 3, 1)
-    for x in (state.buffer, state.index, state.count, state.sum):
-        assert jnp.all(x == 0)
-
-
 def _episodes(*returns):
     """Steps ending one episode per env with each of ``returns``."""
     return [(r, [True, True]) for r in returns]

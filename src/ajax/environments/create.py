@@ -26,6 +26,7 @@ from ajax.wrappers import (
     FinalObsWrapper,
     FlattenObservationWrapper,
     FreshAutoResetWrapper,
+    MeasuredRewardWrapper,
     NonFiniteStepWrapper,
     NormalizeVecObservationBrax,
     NormalizeVecObservationGymnax,
@@ -478,7 +479,9 @@ def strip_ajax_wrappers(env: EnvType) -> tuple[EnvType, dict]:
     """The task env under Ajax's own layers, and the keywords that rebuild
     those layers with :func:`add_ajax_wrappers`. Everything under them is
     the task: the user's wrappers, the flattening of
-    :func:`build_env_from_id`, a brax stack's time limit."""
+    :func:`build_env_from_id`, a brax stack's time limit. A
+    MeasuredRewardWrapper comes off and stays off: it is what training reads,
+    and an evaluation reports the true reward."""
     layers: dict = {}
     for layer in wrapper_chain(env):
         if isinstance(layer, _NORMALISERS):
@@ -489,7 +492,7 @@ def strip_ajax_wrappers(env: EnvType) -> tuple[EnvType, dict]:
                     "gamma": layer.gamma,
                 }
             )
-        elif not isinstance(layer, _CLIPS):
+        elif not isinstance(layer, (*_CLIPS, MeasuredRewardWrapper)):
             return layer, layers
     raise ValueError(f"No task env under the Ajax wrappers of {env!r}")
 

@@ -85,11 +85,14 @@ def test_bias_vore_penalty_scales_the_residual_variance():
     assert float(metrics["bias_vore/residual_var"]) == pytest.approx(32 / 9)
 
 
-def test_bias_vore_penalty_coeff_matches_paper_formula():
-    """coeff = (1 - 2 alpha) / alpha for alpha != 0.5."""
-    for alpha in (0.1, 0.3, 0.7, 0.9):
-        ext = BiasVorePenalty(alpha=alpha)
-        assert ext._coeff() == pytest.approx(evarest_coeff(alpha))
+@pytest.mark.parametrize(
+    "alpha, coeff",
+    [(0.1, 8.0), (0.25, 2.0), (0.75, -2.0 / 3.0)],
+)
+def test_the_penalty_coefficient_is_the_papers_equation_6(alpha, coeff):
+    """Eq. (6), (1 - 2 alpha) / alpha, worked by hand: the wrong form would
+    weight the variance penalty wrongly on every update."""
+    assert evarest_coeff(alpha) == pytest.approx(coeff)
 
 
 def test_bias_vore_penalty_coeff_override_wins():

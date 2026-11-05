@@ -90,18 +90,12 @@ def test_edge_boltzmann_gate_draws_a_bool_mask_on_its_key():
     assert jnp.array_equal(mask, jax.random.uniform(rng, gap.shape) < p_expert)
 
 
-def test_edge_fixed_gate_zero_prob_never_fires():
-    rng = jax.random.PRNGKey(0)
-    decay = jnp.ones((3, 1))
-    mask = edge_fixed_gate(decay, rng, fixed_prob=0.0)
-    assert not jnp.any(mask)
-
-
-def test_edge_fixed_gate_full_prob_always_fires():
-    rng = jax.random.PRNGKey(0)
-    decay = jnp.ones((3, 1))
-    mask = edge_fixed_gate(decay, rng, fixed_prob=1.0)
-    assert jnp.all(mask)
+@pytest.mark.parametrize("fixed_prob, fires", [(0.0, False), (1.0, True)])
+def test_edge_fixed_gate_follows_its_probability_at_the_extremes(fixed_prob, fires):
+    mask = edge_fixed_gate(
+        jnp.ones((3, 1)), jax.random.PRNGKey(0), fixed_prob=fixed_prob
+    )
+    assert jnp.all(mask == fires)
 
 
 # ---------------------------------------------------------------------------
@@ -153,18 +147,14 @@ def test_box_compute_state_no_bonus_when_already_inside(critic_stub):
     assert jnp.allclose(entry_bonus, 0.0)
 
 
-def test_box_action_override_picks_expert_inside_box():
+@pytest.mark.parametrize(
+    "in_box, expected", [(True, [[0.9, -0.9]]), (False, [[0.1, 0.2]])]
+)
+def test_box_action_override_takes_the_expert_only_inside_the_box(in_box, expected):
     action = jnp.array([[0.1, 0.2]])
     expert = jnp.array([[0.9, -0.9]])
-    out = box_action_override(action, expert, in_box=jnp.asarray(True))
-    assert jnp.allclose(out, expert)
-
-
-def test_box_action_override_passes_through_outside_box():
-    action = jnp.array([[0.1, 0.2]])
-    expert = jnp.array([[0.9, -0.9]])
-    out = box_action_override(action, expert, in_box=jnp.asarray(False))
-    assert jnp.allclose(out, action)
+    out = box_action_override(action, expert, in_box=jnp.asarray(in_box))
+    assert jnp.allclose(out, jnp.array(expected))
 
 
 def test_box_entry_is_flagged_whatever_the_sign_of_the_expert_value(critic_stub):

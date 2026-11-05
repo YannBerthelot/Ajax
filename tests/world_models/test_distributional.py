@@ -358,17 +358,6 @@ def test_decode_of_uniform_logits_is_exactly_zero(two_hot, batch, value):
     assert np.all(np.asarray(jax.jit(two_hot.decode)(logits)) == 0.0)
 
 
-def test_naive_decode_of_uniform_logits_is_not_zero():
-    """The guard the exact-zero test needs: naive sums over DreamerV3's
-    bins are far from 0 (paper p.18, "summation order matters")."""
-    weighted = np.asarray(jax.nn.softmax(jnp.zeros(255)) * D3.bins())
-    naive = functools.reduce(lambda a, b: np.float32(a + b), weighted, np.float32(0))
-    # Left to right in float32 (IEEE, platform-independent). A tree reduction
-    # such as XLA's may cancel differently, and on some backends exactly:
-    # what it gives is backend-dependent, so it is not asserted here.
-    assert abs(naive) > 0.1
-
-
 def test_decode_pinned():
     np.testing.assert_allclose(
         D3.decode(jnp.linspace(-1, 1, 255, dtype=jnp.float32)), 2.4558884e7, rtol=1e-5

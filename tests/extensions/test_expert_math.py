@@ -58,37 +58,30 @@ def test_blend_modify_target_matches_convex_combination():
 # ---------------------------------------------------------------------------
 
 
-def test_mc_correction_preserves_low_variance_entries(critic_stub):
+@pytest.mark.parametrize(
+    "q_var, expected",
+    [
+        ([0.0, 0.0, 0.0], [[1.0], [2.0], [3.0]]),
+        ([1.0, 1.0, 1.0], [[9.0], [9.0], [9.0]]),
+        ([1.0, 0.0, 1.0], [[9.0], [2.0], [9.0]]),
+    ],
+    ids=["low-variance-kept", "high-variance-replaced", "chosen-per-entry"],
+)
+def test_mc_correction_replaces_only_high_variance_entries(
+    critic_stub, q_var, expected
+):
     critic_state = critic_stub(lambda x: jnp.full((x.shape[0], 1), 9.0))
     target_q = jnp.array([[1.0], [2.0], [3.0]])
-    q_var = jnp.array([0.0, 0.0, 0.0])  # below threshold
     out = mc_correction_modify_target(
         target_q,
         critic_state,
         critic_params_mc={"mc": 1.0},
         observations=jnp.zeros((3, 2)),
         actions=jnp.zeros((3, 1)),
-        q_var=q_var,
+        q_var=jnp.array(q_var),
         mc_variance_threshold=0.5,
     )
-    assert jnp.allclose(out, target_q)
-
-
-def test_mc_correction_replaces_high_variance_entries(critic_stub):
-    critic_state = critic_stub(lambda x: jnp.full((x.shape[0], 1), 9.0))
-    target_q = jnp.array([[1.0], [2.0], [3.0]])
-    q_var = jnp.array([1.0, 1.0, 1.0])  # above threshold everywhere
-    out = mc_correction_modify_target(
-        target_q,
-        critic_state,
-        critic_params_mc={"mc": 1.0},
-        observations=jnp.zeros((3, 2)),
-        actions=jnp.zeros((3, 1)),
-        q_var=q_var,
-        mc_variance_threshold=0.5,
-    )
-    # All entries replaced by q_mc_target = 9.0.
-    assert jnp.allclose(out, jnp.full_like(target_q, 9.0))
+    assert jnp.allclose(out, jnp.array(expected))
 
 
 # ---------------------------------------------------------------------------

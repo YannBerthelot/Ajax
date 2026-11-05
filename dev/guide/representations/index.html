@@ -941,6 +941,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-it-costs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it costs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#resuming" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2754,6 +2765,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-it-costs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it costs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#resuming" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2943,6 +2965,14 @@ Aligned UMAP's work, and <code>--max-nodes</code> M-PHATE's, whose kernel holds 
 nodes: its default of 20,000 nodes takes some gigabytes. <code>ajax.representation</code>'s
 <code>run_data</code> reads a run back as NumPy arrays, and <code>embeddings</code> holds the embeddings
 without the figures.</p>
+<h2 id="what-it-costs">What it costs<a class="headerlink" href="#what-it-costs" title="Permanent link">&para;</a></h2>
+<p>A run that does not list the probe compiles what it always did. A run that lists
+it pays for each probe and for nothing between probes, most of that in the SVDs.
+So the overhead falls with the steps between probes: about 10% measured at a
+probe every 300 to 500 steps of a small task on a CPU, so about 1% at one every
+5,000 steps, and 0.5% for 100 probes over a million steps. <code>layers=</code> and a longer
+<code>probe_interval</code> reduce it. A probe takes 13 MB per seed on SAC's defaults.
+<code>PERFORMANCE_REPORT.md</code> has the measurements.</p>
 <h2 id="resuming">Resuming<a class="headerlink" href="#resuming" title="Permanent link">&para;</a></h2>
 <p>A resumed run goes on from its last probe. The state it resumes from has each
 seed's own probe counters, which turns the compiled gate into a select: the probe

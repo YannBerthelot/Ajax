@@ -88,6 +88,10 @@ IBRL's golden was re-captured when IBRL came to act as its authors' code
 acts (hybrid_acting, on by default: owner, 2026-10-26), executing the
 expert's action where the target critics rate it higher: critic -2.2e-3,
 actor +3.5e-4, target -4.5e-5, alpha -3.6e-5.
+
+ResidualPolicy's golden was re-captured when its warm-up came to keep the
+expert, drawing uniform residuals around it instead of uniform executed
+actions: critic -4.7e-3. With that one change undone the old golden held.
 """
 
 from __future__ import annotations

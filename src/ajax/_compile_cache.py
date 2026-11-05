@@ -41,8 +41,25 @@ import os
 import platform
 import subprocess
 import sys
+from typing import Iterable
 
 _TRUTHY = ("1", "true", "yes")
+
+
+def _read_cpuinfo(lines: Iterable[str]) -> tuple[str, str]:
+    """The first model name in /proc/cpuinfo's ``lines`` and a hash of the
+    first feature list (``flags`` on x86, ``Features`` on ARM)."""
+    model, flags = "", ""
+    for line in lines:
+        key, _, value = line.partition(":")
+        key = key.strip().lower()
+        if key == "model name" and not model:
+            model = value.strip()
+        elif key in ("flags", "features") and not flags:
+            flags = hashlib.sha256(value.strip().encode()).hexdigest()[:12]
+        if model and flags:
+            break
+    return model, flags
 
 
 def _cpu_description() -> str:
@@ -65,15 +82,7 @@ def _cpu_description() -> str:
     model, flags = "", ""
     try:
         with open("/proc/cpuinfo") as fh:
-            for line in fh:
-                key, _, value = line.partition(":")
-                key = key.strip().lower()
-                if key == "model name" and not model:
-                    model = value.strip()
-                elif key in ("flags", "features") and not flags:
-                    flags = hashlib.sha256(value.strip().encode()).hexdigest()[:12]
-                if model and flags:
-                    break
+            model, flags = _read_cpuinfo(fh)
     except OSError:
         pass
     return f"{model} flags={flags}" if model or flags else platform.processor()

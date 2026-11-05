@@ -49,6 +49,22 @@ class MockGymnaxEnv:
         return obs, state, reward, terminated, truncated, info
 
 
+class _HandsBackTheAction:
+    """An env stepping to the action it was given."""
+
+    def step(self, state, action):
+        return action
+
+
+def test_clip_action_brax_keeps_raw_actions_in_the_box():
+    """Catches an action reaching brax unclipped: raw stepping has no other
+    guard, as agents' actions are mapped onto the box first."""
+    clipped = ClipActionBrax(_HandsBackTheAction(), low=-0.5, high=0.5).step(
+        None, jnp.array([-2.0, 0.25, 2.0])
+    )
+    np.testing.assert_array_equal(clipped, [-0.5, 0.25, 0.5])
+
+
 class MockBraxEnv:
     """Mock Brax environment for testing."""
 

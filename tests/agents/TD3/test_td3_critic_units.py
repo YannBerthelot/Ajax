@@ -6,14 +6,17 @@ from __future__ import annotations
 
 from typing import Any
 
+import gymnax
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from ajax.agents.PQN.PQN import PQN
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC.SAC import SAC
 from ajax.agents.TD3.TD3 import TD3
+from ajax.environments.system_class import broadcast_env_params
 from ajax.environments.utils import critic_action_units
 from ajax.extensions.expert import td3bc_lambda
 from ajax.networks.deterministic import get_initialized_td3_actor_critic
@@ -40,6 +43,34 @@ def test_the_units_are_the_env_map_without_its_clip_or_none():
     assert units(TD3("Pendulum-v1")) == ((0.0,), (2.0,))  # torque in [-2, 2]
     assert units(TD3("MountainCarContinuous-v0")) is None  # already [-1, 1]
     assert units(PQN("CartPole-v1")) is None  # discrete
+
+
+@pytest.mark.parametrize(
+    "low, high, several",
+    [
+        ((-3.0, -3.0), (5.0, 5.0), False),
+        ((-1.0, 0.0), (1.0, 2.0), True),
+        ((-1.0, -2.0), (1.0, 2.0), True),
+    ],
+    ids=["one-box", "two-centres", "two-half-ranges"],
+)
+def test_per_env_boxes_must_be_one_box(low, high, several):
+    """Catches a critic reading one env's units for another's rows, which
+    share its batch: a box differing in its centre alone or its half-range
+    alone is refused, and envs sharing a box are not."""
+    env, params = gymnax.make("MountainCarContinuous-v0")
+    per_env = broadcast_env_params(params, 2).replace(
+        min_action=jnp.array(low), max_action=jnp.array(high)
+    )
+
+    def refused() -> bool:
+        try:
+            critic_action_units(env, per_env)
+        except ValueError:
+            return True
+        return False
+
+    assert refused() == several
 
 
 def test_the_critic_reads_the_mapped_actions():

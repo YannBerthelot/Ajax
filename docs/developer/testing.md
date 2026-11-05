@@ -345,7 +345,9 @@ uv run python -m tests.probing.verdict answers test_value_chains
 ### Planted faults
 
 A probe that has never caught a bug has not shown it can. Each scenario
-module has a catalogue, `faults/<module>.jsonl`, with one line per fault:
+module has a catalogue, `faults/<module>.jsonl`, with one line per fault
+(`faults/contracts.jsonl` holds the faults no scenario module is about,
+caught by a fast test alone):
 
 ```json
 {"id": "P0a-D01-DQN", "path": "agents/DQN/DQN.py",
@@ -385,8 +387,7 @@ CI does not plant faults; `test_framework.py` runs
 that each `old` text still occurs once and that each listed node still
 exists. This is why a change under `src/ajax` runs `test_framework.py`
 before the push: when a change moves the code a fault edits, update the
-fault's line and run it again. The catalogue holds 247 faults across twelve
-modules.
+fault's line and run it again.
 
 ### Known defects
 

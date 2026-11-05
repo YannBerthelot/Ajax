@@ -67,6 +67,17 @@ def test_fingerprint_changes_with_the_cpu(monkeypatch):
     assert _compile_cache.host_fingerprint() != before
 
 
+@pytest.mark.parametrize("key", ["flags", "Features"], ids=["x86", "ARM"])
+def test_the_cpu_flags_tell_two_cpus_of_one_model_apart(key):
+    """Catches a Linux fingerprint without the feature list: code compiled for
+    AVX-512 would load on a CPU of the same name without it, and crash."""
+    text = "processor : 0\nmodel name : Xeon\n" + key + " : {}\nbogomips : 1\n"
+    avx = _compile_cache._read_cpuinfo(text.format("fpu avx512f").splitlines())
+    sse = _compile_cache._read_cpuinfo(text.format("fpu sse2").splitlines())
+    assert avx[0] == sse[0] == "Xeon"
+    assert avx[1] != sse[1]
+
+
 def test_configure_uses_the_fingerprint_subdirectory(cache_root):
     _compile_cache.configure()
 

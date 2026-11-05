@@ -3528,7 +3528,9 @@ digest. To see what a module's digest covers:</p>
 </code></pre></div>
 <h3 id="planted-faults">Planted faults<a class="headerlink" href="#planted-faults" title="Permanent link">&para;</a></h3>
 <p>A probe that has never caught a bug has not shown it can. Each scenario
-module has a catalogue, <code>faults/&lt;module&gt;.jsonl</code>, with one line per fault:</p>
+module has a catalogue, <code>faults/&lt;module&gt;.jsonl</code>, with one line per fault
+(<code>faults/contracts.jsonl</code> holds the faults no scenario module is about,
+caught by a fast test alone):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;P0a-D01-DQN&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;agents/DQN/DQN.py&quot;</span><span class="p">,</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w"> </span><span class="nt">&quot;old&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;    max_q_next = jnp.max(q_next, axis=-1, keepdims=True)\n&quot;</span><span class="p">,</span>
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w"> </span><span class="nt">&quot;new&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;    max_q_next = jnp.mean(q_next, axis=-1, keepdims=True)\n&quot;</span><span class="p">,</span>
@@ -3561,8 +3563,7 @@ setting (<code>faults.py</code> lists the cases).</p>
 that each <code>old</code> text still occurs once and that each listed node still
 exists. This is why a change under <code>src/ajax</code> runs <code>test_framework.py</code>
 before the push: when a change moves the code a fault edits, update the
-fault's line and run it again. The catalogue holds 247 faults across twelve
-modules.</p>
+fault's line and run it again.</p>
 <h3 id="known-defects">Known defects<a class="headerlink" href="#known-defects" title="Permanent link">&para;</a></h3>
 <p>A probe that finds a live bug keeps failing, visibly. The case gets a
 <code>defect</code>, which turns it into a strict xfail whose reason names the defect

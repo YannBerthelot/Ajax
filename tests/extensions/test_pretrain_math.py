@@ -116,7 +116,8 @@ def test_pretrain_critic_online_light_changes_params(rng, pretrain_batches):
 
 def test_pretrain_critic_online_light_zero_lr_is_no_op(rng, pretrain_batches):
     critic_state = _make_critic_state(rng)
-    expert_params = critic_state.params  # same as online — zero loss anyway
+    # A different expert, so the loss is not zero and only lr_scale stops the step.
+    expert_params = _make_critic_state(jax.random.fold_in(rng, 1)).params
     state = FakePretrainState(
         critic_state=critic_state,
         expert_critic_params=expert_params,

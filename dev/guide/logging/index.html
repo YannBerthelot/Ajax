@@ -3195,7 +3195,12 @@ agent state at each evaluation:</p>
 <tr>
 <td><code>jsrl/horizon</code>, <code>jsrl/expert_frac</code></td>
 <td><code>JSRLCurriculum</code></td>
-<td>the guide horizon <code>H_t</code>, and the share of envs the expert drove on the last collection step</td>
+<td>the guide horizon <code>h</code>, and the share of envs the expert drove on the last collection step</td>
+</tr>
+<tr>
+<td><code>jsrl/stage</code>, <code>jsrl/best</code></td>
+<td><code>JSRLCurriculum(schedule="performance")</code></td>
+<td>the curriculum's stage, and the best return its evaluations of the combined policy read</td>
 </tr>
 <tr>
 <td><code>lcb_bootstrap/beta</code></td>

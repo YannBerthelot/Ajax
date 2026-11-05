@@ -27,7 +27,10 @@ An expert maps observations to actions. Ajax accepts two forms:
   object with `init_state(n_envs)`, which returns the starting state for
   `n_envs` environments, and `expert(state, obs) -> (action, new_state)`.
   TargetGym's PID experts (`target_gym.experts.pid.FunctionalExpertPolicy`)
-  follow this form.
+  follow this form: build one with
+  `target_gym.registry.REGISTRY[name].make_pid_controller().batched()`.
+  `target_gym.make_expert(name)` returns TargetGym's own form, with `reset`
+  and `step`, which Ajax does not call.
 
 Four conventions matter:
 

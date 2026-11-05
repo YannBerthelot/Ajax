@@ -3138,6 +3138,11 @@ iteration is its own on <code>OwnIterationAgent</code>, as UDRL and APG do (the
 own-iteration family below); an agent storing rows in a replay of its own,
 sized for each call, on <code>OwnReplayAgent</code>, as DreamerV3 and TD-MPC2 do (the
 own-replay family below).</p>
+<p><strong>Start with a tracer bullet.</strong> Get the thinnest path working end to end first:
+rollout, update, logging, checkpoint and one passing probe, on the simplest
+config, in the real loop and in CI. Then add paper fidelity one piece at a
+time, each with its conformance check or probe. The steps below list what an
+agent needs; this is the order to build it in.</p>
 <p><strong>1. <code>FOO/FOO.py</code>, the one file.</strong> Its hyperparameters are the fields of a
 dataclass, declared once with the paper's defaults: the family generates the
 constructor (keyword-only after <code>env_id</code>), logs the run config, builds the
@@ -3321,7 +3326,9 @@ cases that fit (<code>test_framework.py</code> fails while an exported agent has
 restructuring can show it changed nothing. <code>benchmarks/agent_bench.py</code>: an
 entry in <code>AGENTS</code> and a baseline (see <a href="#performance">Performance</a>).</p>
 <h2 id="adding-an-extension">Adding an extension<a class="headerlink" href="#adding-an-extension" title="Permanent link">&para;</a></h2>
-<p>Add an extension, never a flag or a keyword on an agent.</p>
+<p>Add an extension, never a flag or a keyword on an agent. Start with a tracer
+bullet: the smallest phase that does something visible, on one agent, with one
+probe cell. Then build out the rest one piece at a time.</p>
 <ol>
 <li><strong>Pick the phases</strong> from the <a href="#extensions">table</a> and check that the agents
    you target fold them. If one does not, adding the fold to that agent is a
@@ -3383,8 +3390,14 @@ pins them. Add none.</p>
   environment whose answer is known, and check only what learning shows: the
   right value, the right action, the right count.</li>
 </ul>
-<p>A convention that differs from a reference implementation (an ordering, a
-default, a constant) is for code review, not for a test. <em>Pins</em> record what a
+<p><strong>Every test names the realistic bug it would catch</strong>, in its name or
+docstring. If you cannot name one, do not write the test. When a concern
+deserves protection, add a
+<a href="../testing/#planted-faults">planted fault</a> and make sure a test
+catches it.</p>
+<p>A setting copied from a reference implementation (an ordering, a default, a
+constant) may have a test, which cites the reference. Whether a setting should
+follow the reference is for code review. <em>Pins</em> record what a
 tiny run produces today, so a restructuring can show it changed nothing:
 <code>tests/agents/test_agent_pins.py</code> (tiny runs' fingerprints),
 <code>tests/agents/test_agent_surface.py</code> (every public name the agent modules

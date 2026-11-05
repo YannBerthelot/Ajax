@@ -110,7 +110,8 @@ def make_act(
     command.actor_input(obs, command_value). The controller's choosers (an
     extension's eval_action phase) may then replace the executed action by
     the expert's (choose_in_evaluation), on keys derived from rng, so they
-    move no other draw.
+    move no other draw. A tracker then has the expert's memory follow the
+    executed action.
     """
     controller = Controller() if controller is None else controller
     # The statistics the agent's controller normalises with, as they stand.
@@ -161,6 +162,11 @@ def make_act(
                 agent_state, acting, controller.choosers, choice, rng
             )
             actions = choice["executed_action"]
+        if controller.tracker is not None:
+            # No env has stepped here: the command is all that is known.
+            new_expert_state = controller.tracker.track_memory(
+                expert_policy, expert_state, expert_obs, actions, actions
+            )
         return Acted(
             actions,
             actor_actions,

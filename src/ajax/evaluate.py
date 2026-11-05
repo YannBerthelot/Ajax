@@ -15,6 +15,8 @@ from ajax.controller import (
     observe_features,
 )
 from ajax.environments.interaction import (
+    APPLIED_ACTION_KEY,
+    applied_action,
     get_raw_obs,
     reset,
     step,
@@ -398,6 +400,14 @@ def step_environment(
             mode,
             env_params,
         )
+        if controller.tracker is not None and APPLIED_ACTION_KEY in info:
+            new_expert_state = controller.tracker.track_memory(
+                expert_policy,
+                carry.expert_state,
+                expert_obs,
+                actions,
+                applied_action(info, actions, env, env_params),
+            )
 
         new_done = jnp.logical_or(new_term, new_trunc)
         still_running = 1 - done

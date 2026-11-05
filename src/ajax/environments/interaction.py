@@ -22,6 +22,7 @@ from ajax.controller import (
     feature_width,
     find_expert_action_in_choice_space,
     init_observers,
+    memory_tracker_of,
     observe_features,
     read_the_residual,
     restart_observers,
@@ -41,6 +42,7 @@ from ajax.environments.utils import (
     agent_action_to_env,
     check_env_is_playground,
     check_if_environment_has_continuous_actions,
+    env_action_to_agent,
     env_keys,
     flatten_action_column,
     get_raw_env,
@@ -867,6 +869,20 @@ def make_next_expert_fn(expert_policy: Any) -> Optional[Callable]:
     return next_expert_fn
 
 
+#: Where an env reports what its actuator did with the action it was sent.
+APPLIED_ACTION_KEY = "applied_action"
+
+
+def applied_action(
+    info: Any, command: jax.Array, env: Any, env_params: Optional[EnvParams]
+) -> jax.Array:
+    """What the actuator made of command, in agent units: the env's report
+    (info["applied_action"]), else the command."""
+    if APPLIED_ACTION_KEY not in info:
+        return command
+    return env_action_to_agent(info[APPLIED_ACTION_KEY], env, env_params)
+
+
 def expert_collect_kwargs(
     expert_policy: Any,
     action_pipeline: Optional[Callable],
@@ -890,7 +906,10 @@ def expert_collect_kwargs(
     action (a pipeline of the agent's applies it itself); an actuate one (gain
     mode) executes the chosen action through the expert, which that steps,
     and the chosen one is stored. The run's warm-up chooser (warmups) runs
-    in the default pipeline; a pipeline of the agent's runs it itself.
+    in the default pipeline; a pipeline of the agent's runs it itself. A
+    tracker among extensions (BumplessTracking) gives a track_expert, which
+    has the expert's next state follow the action applied, once the env has
+    stepped. An actuated expert acts itself: it needs none.
     Without an expert, action_pipeline alone, in the action stage where an
     extension acts there with an expert of its own (IBRL)."""
     if expert_policy is None:
@@ -933,10 +952,22 @@ def expert_collect_kwargs(
             new_expert_state=new_state,
         )
 
-    return {
+    kwargs: dict[str, Any] = {
         "action_pipeline": pipeline,
         "next_expert_fn": make_next_expert_fn(expert_policy),
     }
+    tracker = memory_tracker_of(extensions)
+    if tracker is not None and actuate is None:
+
+        def track_expert(acting, raw_obs, command, applied):
+            state = expert_state_at_step(expert_policy, acting, n_envs)
+            tracked = tracker.track_memory(
+                expert_policy, state, raw_obs, command, applied
+            )
+            return jax.lax.stop_gradient(tracked)
+
+        kwargs["track_expert"] = track_expert
+    return kwargs
 
 
 def step_features(
@@ -1029,6 +1060,7 @@ def replay_row(
         "buffer",
         "action_pipeline",
         "next_expert_fn",
+        "track_expert",
         "store_hidden",
         "store_raw_next_obs",
         "store_executed_action",
@@ -1045,6 +1077,7 @@ def collect_experience(
     uniform: bool = False,
     action_pipeline: Optional[Callable] = None,
     next_expert_fn: Optional[Callable] = None,
+    track_expert: Optional[Callable] = None,
     store_hidden: bool = False,
     store_raw_next_obs: bool = False,
     store_executed_action: bool = False,
@@ -1067,6 +1100,8 @@ def collect_experience(
                 step's :class:`~ajax.controller.ActingState`, ``rng`` the
                 collection's carry, which only the action stage derives its
                 key from (apply_action_extensions).
+        track_expert: The expert's next state from what the step applied, once
+            the env has stepped (expert_collect_kwargs); None: the pipeline's.
     """
     # The collection's own stream: an update drawing more or fewer keys
     # leaves the env steps, the actions' noise and the warm-up as they were.
@@ -1160,6 +1195,9 @@ def collect_experience(
             env_args.env_params,
         )
     )
+    if track_expert is not None:
+        applied = applied_action(info, env_action, env_args.env, env_args.env_params)
+        new_expert_state = track_expert(acting, raw_obs, env_action, applied)
 
     final_obs = get_final_obs(info, obsv).astype(obsv.dtype)
     # The same in the environment's own units, what an expert reads.

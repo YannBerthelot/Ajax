@@ -566,14 +566,16 @@ class ResidualPolicy(Extension):
 @dataclass(frozen=True)
 class ExpertGains(Extension):
     """Gain mode: the policy's action sets the agent's expert's learnable
-    gains, ``anchor_gains · 10**a`` per gain, and the expert acts with them
-    (its ``step_with_gains``, which advances its state). The replay and the
-    critics hold the policy's action, the gains: the agent acts in a space
+    gains, ``anchor_gains · max_factor**a`` per gain, and the expert acts with
+    them (its ``step_with_gains``, which advances its state). The replay and
+    the critics hold the policy's action, the gains: the agent acts in a space
     as wide as the expert's learnable gains, and the warm-up draws uniform
     gains. The expert needs ``learnable_fields`` and ``anchor_gains``
-    (``register_learnable_gains``).
+    (``register_learnable_gains``, or a ``GainScheduledLaw``, whose gains are
+    multipliers).
     """
 
+    max_factor: float = 10.0
     name: str = "expert_gains"
     requires: ClassVar[frozenset[str]] = frozenset(
         {"agent_expert", "obs_networks", "reward_learning"}
@@ -596,7 +598,7 @@ class ExpertGains(Extension):
 
     def actuate(self, actions: jax.Array, inputs: Any) -> tuple[jax.Array, Any]:
         expert = inputs.expert
-        gains = expert.anchor_gains * jnp.exp(jnp.log(10.0) * actions)
+        gains = expert.anchor_gains * jnp.exp(jnp.log(self.max_factor) * actions)
         return expert.step_with_gains(inputs.expert_state, inputs.raw_obs, gains)
 
     def policy_action_for_expert(self, policy_actions: jax.Array) -> jax.Array:

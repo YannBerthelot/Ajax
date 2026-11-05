@@ -2895,6 +2895,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.wrappers.MeasuredRewardWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MeasuredRewardWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.wrappers.ObservationNoiseWrapper" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4036,6 +4047,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.wrappers.MeasuredRewardWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MeasuredRewardWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.wrappers.ObservationNoiseWrapper" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4884,7 +4906,9 @@ one place they are composed.</p>
         <p>The task env under Ajax's own layers, and the keywords that rebuild
 those layers with :func:<code>add_ajax_wrappers</code>. Everything under them is
 the task: the user's wrappers, the flattening of
-:func:<code>build_env_from_id</code>, a brax stack's time limit.</p>
+:func:<code>build_env_from_id</code>, a brax stack's time limit. A
+MeasuredRewardWrapper comes off and stays off: it is what training reads,
+and an evaluation reports the true reward.</p>
 
 
     </div>
@@ -6080,6 +6104,60 @@ long-running states.</p>
 <p>The time limit is the <code>truncated</code> flag gymnax's base <code>step</code> reports:
 it is computed from the pre-reset state, whereas the returned state has
 already been auto-reset (<code>time == 0</code>) at the limit.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.MeasuredRewardWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">MeasuredRewardWrapper</span>
+
+
+<a href="#ajax.wrappers.MeasuredRewardWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">MeasuredRewardWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="GymnaxWrapper (ajax.wrappers.GymnaxWrapper)" href="#ajax.wrappers.GymnaxWrapper">GymnaxWrapper</a></code></p>
+
+
+
+        <p>Trains on what a plant can compute from its own sensors: each step's
+reward is the env's <code>info["measured_reward"]</code>, so the replay, every
+rollout before training and any reward normaliser read it. Keep it over
+any wrappers of yours: evaluation strips it with Ajax's own layers
+(strip_ajax_wrappers), which stop at the first of yours, and so reports
+the true reward. An env that reports no measured reward is refused.</p>
 
 
 

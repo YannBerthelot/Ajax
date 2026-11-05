@@ -58,6 +58,21 @@ env, _ = build_env_from_id("CartpoleBalance", n_envs=4, episode_length=1_000, fr
 agent = SAC(env, n_envs=4)
 ```
 
+The hopper and finger tasks (`HopperHop`, `HopperStand`, `FingerSpin`,
+`FingerTurnEasy` and `FingerTurnHard`) do not compile when the body is batched
+two ways with different sizes, such as several seeds, each with several
+environments or evaluated over several episodes: training stops at its first evaluation with `JaxRuntimeError:
+INTERNAL: during context [hlo verifier]`. The fault is in XLA's algebraic
+simplifier (seen with jax 0.11.2 and 0.12.0.1, on a CPU). Until it is fixed
+there, turn that pass off for these runs:
+
+```bash
+XLA_FLAGS=--xla_disable_hlo_passes=algsimp python train.py
+```
+
+Results are the same up to floating-point rounding; training ran 8 to 15%
+slower on a CPU. A single seed compiles without it.
+
 ### Episode keys
 
 Every environment's resets are keyed by episode: copy `i`'s `k`-th episode

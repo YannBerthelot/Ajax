@@ -144,9 +144,12 @@ def apply_action_extensions(
     index's column, DAgger's choice) stores the substituted one, in its
     layout; one storing its choice apart from it (IQL's residual) keeps,
     where a slot handed the expert the step, the choice that executes the
-    expert's action (policy_action_for_expert). The extensions' keys derive
-    from the stage's, itself derived from the pipeline's key (rng, the
-    collection's carry), which it leaves as it is."""
+    expert's action (policy_action_for_expert). A post-warm-up extension
+    executing another action than the one to learn from writes the latter
+    as replay_action (CHEQ's RL action, uniform in the warm-up), which the
+    replay stores. The extensions' keys derive from the stage's, itself
+    derived from the pipeline's key (rng, the collection's carry), which it
+    leaves as it is."""
     pre_warmup = slotted_extensions(extensions, "pre_warmup")
     post_warmup = slotted_extensions(extensions, "post_warmup")
     if not pre_warmup and not post_warmup:
@@ -217,6 +220,7 @@ def apply_action_extensions(
         stored = result.buffer_action
         if stored is not None:
             stored = env_action.reshape(stored.shape).astype(stored.dtype)
+        stored = box.get("replay_action", stored)
         kept_choice = result.stored_policy_action
         if result.policy_action_for_expert is not None:
             kept_choice = keep_choice_for_expert(result, masks, uniform, n_envs)

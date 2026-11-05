@@ -31,6 +31,7 @@ from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions import (
     adversarial,
     centering,
+    cheq,
     ensemble,
     expert,
     exploration,
@@ -180,6 +181,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "RetainedDemonstrations": (lambda: retained.RetainedDemonstrations(8), "SAC TD3"),
     # Critics without LayerNorm: the rows' options leave the architecture.
     "RLPD": (lambda: retained.RLPD(8, critic_layer_norm=False), "SAC REDQ"),
+    "CHEQ": (lambda: cheq.CHEQ(adaptation_start=0), "SAC"),
     "ExpertPrefill": (
         lambda: pre.ExpertPrefill(n_steps=8),
         "SAC TD3 REDQ ASAC TQC CrossQ IQL DQN",
@@ -228,12 +230,15 @@ NEEDS_EXPERT = (
     "ExpertWarmup",
     "RetainedDemonstrations",
     "RLPD",
+    "CHEQ",
 )
 #: What an option or extension needs on in its row: phi* is MCPretrain's,
 #: BellmanPretrain reads its prefilled replay.
 REQUIRES = {o: {"MCPretrain"} for o in (*PHI_STAR.split(), "BellmanPretrain")}
 REQUIRES.update({o: {"expert_policy"} for o in NEEDS_EXPERT})
 REQUIRES.update({"MCPretrain": {"expert_policy", "ExpertPrefill"}})
+# The rows' expert has memory, which CHEQ's observations must then hold.
+REQUIRES.update({"CHEQ": {"expert_policy", "PIDTermsInput"}})
 REQUIRES.update(
     {
         o: {"expose_recent_rollout"}
@@ -243,7 +248,7 @@ REQUIRES.update(
 EXPERTS = {"expert_policy", "eval_expert_policy"}
 USES_EXPERT_ACTIONS = {"OnlineBC", "CriticBlend", "PhiRefresh", "IBRL"}
 USES_EXPERT_ACTIONS.update({"LCBGatedBootstrap", "ExpertValueMetrics", "ImitationLoss"})
-USES_EXPERT_ACTIONS.update({"CloningPretrain", "MCPretrain"})
+USES_EXPERT_ACTIONS.update({"CloningPretrain", "MCPretrain", "CHEQ"})
 #: Options no row takes together: one of each group, and no pair across these.
 ONE_OF = [{"normalize_rewards", "reward_normalization_gamma"}, MEMORY, set(ENVS)]
 ONE_OF += [{"cnn_image_shape", "mlp"}]  # else the CNN takes every row
@@ -270,7 +275,7 @@ EXCLUSIVE = [
     (
         {"PriorData"},
         {"fast", "CartPole-v1", "TrainingProgressInput"}.union(
-            {"PIDTermsInput"}, EXPERTS
+            {"PIDTermsInput", "CHEQ"}, EXPERTS
         ),
     ),
     # A replay keeps one ring of retained rows.

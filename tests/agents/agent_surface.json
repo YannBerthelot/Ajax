@@ -371,6 +371,7 @@
 "ajax.agents.cloning:bc_statistics",
 "ajax.agents.cloning:cloning_columns",
 "ajax.agents.cloning:pre_train",
+"ajax.agents.cloning:zero_output_head",
 "ajax.agents.critics:CoreCriticAux",
 "ajax.agents.critics:ValueAuxiliaries",
 "ajax.agents.critics:compute_huber_1_td_loss",

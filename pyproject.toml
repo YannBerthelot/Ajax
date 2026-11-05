@@ -207,7 +207,7 @@ parallel = true
 
 [tool.coverage.report]
 ignore_errors = true
-fail_under = 70
+fail_under = 90
 
 exclude_also = [
     "def __repr__",

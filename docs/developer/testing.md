@@ -13,8 +13,14 @@ against an agent's original implementation):
   agent: that it learns the right value, picks the right action, counts the
   right steps.
 
-A convention that differs from a reference implementation (an ordering, a
-default, a constant) is a matter for code review only, not for a test.
+Every test names the realistic bug it would catch, in its name or docstring.
+If you cannot name one, do not write the test. When a concern deserves
+protection, add a [planted fault](#planted-faults) and make sure a test
+catches it.
+
+A setting copied from a reference implementation (an ordering, a default, a
+constant) may have a test, which cites the reference. Whether a setting should
+follow the reference is a matter for code review.
 
 The two kinds do not overlap. A unit test can show that a TD target takes a
 `max` rather than a `mean`; it cannot show that the trained agent's values

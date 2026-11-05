@@ -238,6 +238,27 @@ def test_an_agent_keeps_its_rollout_for_the_measurements_unasked(name):
         assert np.isfinite(np.asarray(metrics[key])[evaluated]).all(), key
 
 
+def test_conditioning_metrics_alone_keep_the_rollout_they_read():
+    """Contract: ConditioningMetrics asks an on-policy agent to keep its last
+    rollout without BiasVoreDecomposition beside it (which asks for it too),
+    and without expose_recent_rollout: its Cond/ keys are finite."""
+    case = CASES["PPO"]
+    agent = case.cls(
+        env_id=case.envs[-1],
+        n_envs=2,
+        **case.kwargs,
+        extensions=(ConditioningMetrics(),),
+    )
+    _, metrics = agent.train(
+        seed=0, n_timesteps=case.n_timesteps, logging_config=EVALUATE_OFTEN
+    )
+    evaluated = np.asarray(metrics["timestep"]) >= 0
+    assert evaluated.any()
+    for key in COND_METRIC_KEYS:
+        assert key in metrics, key
+        assert np.isfinite(np.asarray(metrics[key])[evaluated]).all(), key
+
+
 def test_an_agent_with_neither_replay_nor_rollout_refuses_the_measurements():
     """Contract: without a replay or a kept rollout (APG), the measurements
     have no steps to read: the agent refuses them, naming stored_steps."""

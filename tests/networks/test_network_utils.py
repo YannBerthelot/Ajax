@@ -16,6 +16,7 @@ from ajax.networks.utils import (
     parse_function_string,
     parse_initialization,
     parse_layer,
+    scale_by_learning_rate_per_rank,
     trunc_normal_fan_in,
 )
 from ajax.state import OptimizerConfig
@@ -80,6 +81,17 @@ def test_a_vector_rate_steps_the_vectors_and_keeps_a_scheduled_state_layout():
     split = get_adam_tx(schedule, vector_learning_rate=0.5).init(params)
     plain = get_adam_tx(schedule).init(params)
     assert jax.tree.structure(split) == jax.tree.structure(plain)
+
+
+def test_a_rank_scales_each_update_by_minus_its_rate():
+    """Matrices step at the learning rate, vectors at the vector rate: an
+    update u becomes -rate * u, so u = 2 at rate 1 gives -2 and u = 4 at rate
+    0.5 gives -2 (a division would give -0.5 and -0.125)."""
+    updates = {"w": jnp.full((2, 2), 2.0), "b": jnp.full(2, 4.0)}
+    tx = scale_by_learning_rate_per_rank(1.0, vector_learning_rate=0.5)
+    scaled, _ = tx.update(updates, tx.init(updates))
+    np.testing.assert_allclose(scaled["w"], -2.0)
+    np.testing.assert_allclose(scaled["b"], -2.0)
 
 
 def _members(key: jax.Array) -> dict:

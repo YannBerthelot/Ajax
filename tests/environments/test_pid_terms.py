@@ -55,6 +55,8 @@ def test_integral_limit_clamps_and_unwinds_at_once():
         {"current_idx": (), "target_idx": ()},
         {"current_idx": (0,), "target_idx": (1,), "dt": 0.0},
         {"current_idx": (0,), "target_idx": (1,), "integral_limit": -1.0},
+        # A clamp of 0 pins the integral at 0, so it is not positive either.
+        {"current_idx": (0,), "target_idx": (1,), "integral_limit": 0.0},
     ],
 )
 def test_bad_configurations_raise(kwargs):

@@ -1,5 +1,7 @@
 """Tests for system classes (distributions over EnvParams)."""
 
+from types import SimpleNamespace
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -23,6 +25,15 @@ N = 6
 @pytest.fixture
 def pendulum():
     return make_gymnax_env("Pendulum-v1")
+
+
+def test_a_perturbation_names_the_fields_of_a_plain_params_object():
+    """The nominal params need not be a dataclass: its attributes are the
+    fields a perturbation may name, and a typo is refused at construction."""
+    nominal = SimpleNamespace(kp=1.0, kd=0.5)
+    assert UniformPerturbation(nominal, ("kp",)).fields == ("kp",)
+    with pytest.raises(ValueError, match="kx"):
+        UniformPerturbation(nominal, ("kx",))
 
 
 def test_unbatched_params_are_detected_as_such(pendulum):

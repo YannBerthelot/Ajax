@@ -364,6 +364,14 @@ def test_the_replay_reports_the_bytes_it_stores():
     assert buffer.nbytes == sum(leaf.nbytes for leaf in jax.tree.leaves(buffer.init()))
 
 
+def test_a_replay_needs_an_env_and_a_row_and_one_of_each_is_enough():
+    """No env or no row is refused; one env with one row is built."""
+    for n_envs, capacity in [(0, 8), (2, 0)]:
+        with pytest.raises(ValueError, match="capacity"):
+            EpisodicBuffer(n_envs=n_envs, capacity=capacity, obs_dim=3, action_dim=1)
+    assert EpisodicBuffer(n_envs=1, capacity=1, obs_dim=3, action_dim=1).nbytes > 0
+
+
 def test_the_replay_draws_whole_episodes_uniformly_then_a_uniform_offset():
     """The finished episodes of at least H + 1 rows (A, C, E, F: not the
     one-step B, not the running D and G) are drawn uniformly, then an offset

@@ -501,6 +501,8 @@
       
         
       
+        
+      
     
     
     
@@ -813,6 +815,34 @@
     
   
     Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/representations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Representations during training
   
 
     
@@ -2732,6 +2762,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.networks.networks.critic_input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        critic_input
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.networks.networks.predict_value_sequence" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4137,6 +4178,17 @@
     <span class="md-ellipsis">
       
         in_critic_units
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.networks.critic_input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        critic_input
       
     </span>
   </a>
@@ -5874,6 +5926,28 @@ batch-sized to <code>n_envs</code>.</p>
 
         <p><code>actions</code> as the critic reads them: <code>critic_state.action_units</code>'
 affine map of the agent's [-1, 1] actions, or the actions themselves.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.networks.networks.critic_input" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">critic_input</span>
+
+
+<a href="#ajax.networks.networks.critic_input" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">critic_input</span><span class="p">(</span><span class="n">critic_state</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>x</code> (obs, or <code>concat(obs, action)</code> with the agent's action) as a
+feedforward critic reads it: its observations normalised, its action in
+its units.</p>
 
 
     </div>

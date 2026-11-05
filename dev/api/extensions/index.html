@@ -501,6 +501,8 @@
       
         
       
+        
+      
     
     
     
@@ -813,6 +815,34 @@
     
   
     Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/representations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Representations during training
   
 
     
@@ -4497,6 +4527,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.extensions.instrumentation.critic_takes_action" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        critic_takes_action
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.extensions.instrumentation.evarest_coeff" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6849,6 +6890,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.extensions.instrumentation.critic_takes_action" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        critic_takes_action
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.extensions.instrumentation.evarest_coeff" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -7123,7 +7175,8 @@ The <code>pretrain</code> phase of a run on <code>ajax.agents.loop.TrainLoop</co
 gets its static <code>env_args</code> and, off-policy, its <code>update(agent_state,
 experience) -&gt; (agent_state, aux)</code> and replay <code>buffer</code>, so an
 extension can run the agent's own update; each is None where the run
-has none.</p>
+has none. <code>seed_index</code> (traced) is the seed's place among those trained
+together, for what names a file per seed.</p>
 
 
 
@@ -7957,8 +8010,8 @@ each) in its <code>ext_state</code>.</p>
     <div class="doc doc-contents ">
 
         <p>The one-shot pretrain; returns the updated <code>agent_state</code>.
-<code>run_fields</code>: the run's static :class:<code>ExtensionContext</code> fields
-(<code>env_args</code>, <code>update</code>, <code>buffer</code>).</p>
+<code>run_fields</code>: the run's :class:<code>ExtensionContext</code> fields
+(<code>env_args</code>, <code>update</code>, <code>buffer</code>, <code>seed_index</code>).</p>
 
 
     </div>
@@ -12592,7 +12645,7 @@ from the agent's name or the batch source: the critic branch when
 <code>critic_state</code>'s network is an ensemble critic (it exposes
 <code>apply_encoder_ensemble</code>), the actor branch otherwise; on the critic
 branch, the action is concatenated when the critic's parameters were
-built on the observation and action (:func:<code>_takes_action</code>).</p>
+built on the observation and action (:func:<code>critic_takes_action</code>).</p>
 <p>Pass <code>buffer=agent.buffer</code> for off-policy agents whose buffer object
 isn't on the agent state itself; on-policy and incremental agents keep
 their last rollout for it.</p>
@@ -12821,6 +12874,34 @@ total spectral mass. <code>feats</code> is the (batch, d) feature matrix.</p>
 <p>A unit is dormant when its mean-|activation| score, normalised by
 the layer mean, is &lt;= tau. <code>feats</code> is the (batch, d) post-
 activation feature matrix.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.extensions.instrumentation.critic_takes_action" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">critic_takes_action</span>
+
+
+<a href="#ajax.extensions.instrumentation.critic_takes_action" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">critic_takes_action</span><span class="p">(</span><span class="n">critic_state</span><span class="p">,</span> <span class="n">obs</span><span class="p">,</span> <span class="n">act</span><span class="p">,</span> <span class="n">rng</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Whether an ensemble critic reads the observation and action (an
+action-value critic) or the observation alone (a state-value one).</p>
+<p>The answer is the input its parameters were built on: each candidate
+goes through the critic's <code>init</code> abstractly (shapes only, nothing is
+computed) and the one that rebuilds the critic's parameter shapes wins.
+A candidate the critic refuses is not it: a CNN encoder checks its
+input's width (ValueError) where an MLP builds other shapes. Where the
+batch comes from does not say it: AVG learns an action-value critic
+from its rollout, without a replay buffer.</p>
 
 
     </div>

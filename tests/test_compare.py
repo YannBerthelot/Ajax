@@ -2,6 +2,9 @@
 scores, the training rounds it asks for, and a tiny comparison of two agents;
 the same for :func:`estimate`'s confidence sequences, and their coverage."""
 
+import itertools
+from functools import partial
+
 import matplotlib
 import numpy as np
 import pytest
@@ -84,6 +87,218 @@ def test_decisions_repeat_for_a_seed():
     assert decide(3) == decide(3)
 
 
+def enumerated_p_value(differences):
+    """The exact two-sided sign-flip p-value, over every one of the 2^n sign
+    patterns: the share as extreme as the observed sum."""
+    d = np.asarray(differences, float)
+    flips = np.array(list(itertools.product([-1.0, 1.0], repeat=d.size)))
+    return (np.abs(flips @ d) >= abs(d.sum()) - 1e-12).mean()
+
+
+@pytest.mark.parametrize(
+    "differences, alpha, verdict",
+    [
+        # 1 + 2 + 3 + 4 + 5 = 15 is the largest sum: 2 of 32 patterns reach it.
+        ([1, 2, 3, 4, 5], 0.10, "larger"),
+        ([1, 2, 3, 4, 5], 0.05, "equal"),
+        ([-1, -2, -3, -4, -5], 0.10, "smaller"),
+        # 13 falls one flip short of the largest: 4 of 32 reach it.
+        ([5, 4, 3, 2, -1], 0.15, "larger"),
+        ([5, 4, 3, 2, -1], 0.10, "equal"),
+        ([0, 0, 0, 0, 0], 0.50, "equal"),
+    ],
+)
+def test_two_agents_decide_as_the_enumerated_sign_flip_test(
+    differences, alpha, verdict
+):
+    """Flipping the pooled scores, or dropping the identity, leaves this test
+    at another level than the textbook one on the same differences."""
+    p_value = enumerated_p_value(differences)
+    assert (p_value <= alpha) == (verdict != "equal") or p_value == 1.0
+
+    test = AdaStop("ab", n=5, K=1, alpha=alpha, B=200_000, paired=True)
+    test.update({"a": differences, "b": np.zeros(5)})
+
+    assert test.decisions[("a", "b")] == verdict
+
+
+def test_comparisons_share_their_sign_flips():
+    """Two identical comparisons are one question: under shared flips the
+    largest of them is that one statistic, and decides as it does alone
+    (2 of 32 patterns reach 15, within alpha 0.1). Flips drawn per comparison
+    would raise the boundary for nothing, and turn this into "equal"."""
+    test = AdaStop(
+        "abc",
+        n=5,
+        K=1,
+        alpha=0.1,
+        B=200_000,
+        comparisons=[("a", "b"), ("a", "c")],
+        paired=True,
+    )
+
+    test.update({"a": [1, 2, 3, 4, 5], "b": np.zeros(5), "c": np.zeros(5)})
+
+    assert test.decisions == {("a", "b"): "larger", ("a", "c"): "larger"}
+
+
+def test_paired_evidence_accumulates_across_interims():
+    """Hand-derived with [1, 2, 3], a quarter of whose sign patterns reach 6:
+    one interim cannot reject at alpha 0.2, and two reach 12, which 2 of 64
+    patterns do. A test reading the last interim alone stays "equal"."""
+    test = AdaStop("ab", n=3, K=2, alpha=0.2, B=100_000, paired=True)
+    test.update({"a": [1, 2, 3], "b": np.zeros(3)})
+    assert test.decisions[("a", "b")] == "continue"
+
+    test.update({"a": [1, 2, 3], "b": np.zeros(3)})
+    assert test.decisions[("a", "b")] == "larger"
+
+
+def test_what_a_row_shares_leaves_a_paired_comparison():
+    """Pooled scores would carry the seed's effect into the statistic: a
+    large row effect would then hide the gap a paired test exists to find."""
+    gap, effect = np.array([1.0, 2, 3, 4, 5]), np.array([9.0, -40, 3, 70, -11])
+    plain = AdaStop("ab", n=5, K=1, alpha=0.1, B=20_000, paired=True)
+    shared = AdaStop("ab", n=5, K=1, alpha=0.1, B=20_000, paired=True)
+
+    plain.update({"a": gap, "b": np.zeros(5)})
+    shared.update({"a": effect + gap, "b": effect})
+
+    assert plain.decisions == shared.decisions == {("a", "b"): "larger"}
+
+
+def test_correlated_pairs_gain_power():
+    """Rows sharing 90% of their variance leave differences of variance 0.2
+    instead of 2, so a one-sigma gap over 10 rows stands at about 7 standard
+    errors paired and 2.2 unpaired. Losing the pairing loses that margin."""
+    rng, reps = np.random.default_rng(5), 200
+    hits = {True: 0, False: 0}
+    for r in range(reps):
+        shared = np.sqrt(0.9) * rng.normal(size=(2, 5))
+        noise = np.sqrt(0.1) * rng.normal(size=(2, 2, 5))
+        scores = {"a": shared + noise[0] + 1.0, "b": shared + noise[1]}
+        for paired in hits:
+            test = AdaStop("ab", n=5, K=2, alpha=0.05, B=1000, seed=r, paired=paired)
+            run(test, scores)
+            hits[paired] += test.decisions[("a", "b")] == "larger"
+    assert hits[True] / reps >= 0.95
+    assert hits[False] / reps <= 0.75
+
+
+@pytest.mark.parametrize("names", ["ab", "abcd"])
+def test_paired_family_wise_error_stays_at_alpha_under_the_null(names):
+    """A statistic left unflipped, or flips drawn apart from the observed
+    row, inflates the error. The rows share 60% of their variance, which
+    pairing must cancel, not count. Tolerance: 3 binomial standard errors of
+    the replicates; 12 agents measure 0.049 over 3,000 replicates."""
+    rng, reps, alpha = np.random.default_rng(6), 1500, 0.05
+    rejected = 0
+    for r in range(reps):
+        shared = np.sqrt(0.6) * rng.normal(size=(5, 5))
+        test = AdaStop(names, alpha=alpha, B=1000, seed=r, paired=True)
+        run(
+            test,
+            {a: shared + np.sqrt(0.4) * rng.normal(size=(5, 5)) for a in names},
+        )
+        rejected += any(d != "equal" for d in test.decisions.values())
+    assert rejected / reps <= alpha + 3 * np.sqrt(alpha * (1 - alpha) / reps)
+
+
+def test_an_agent_that_stopped_leaves_the_others_rows_aligned():
+    """Rows go by interim, so c stopping early must change nothing for a and
+    b: the pair decides as it would without c. A row index counted per agent
+    would shift a's rows against b's from then on."""
+    rng = np.random.default_rng(7)
+    scores = {a: rng.normal(size=(3, 6)) for a in "ab"}
+    scores["a"] = scores["a"] + np.array([[0.0], [1.0], [1.0]])
+    scores["c"] = rng.normal(50, size=(3, 6))
+    with_c = AdaStop("abc", n=6, K=3, alpha=0.2, B=5000, paired=True)
+    without_c = AdaStop("ab", n=6, K=3, alpha=0.2, B=5000, paired=True)
+
+    used = run(with_c, scores)
+    run(without_c, scores)
+
+    # All six rows one sign: 2 of 64 patterns, within the first 0.2 / 3.
+    assert used["c"] == 6 < used["a"]
+    assert with_c.decisions[("a", "b")] == without_c.decisions[("a", "b")]
+
+
+@pytest.mark.parametrize(
+    "scores",
+    [
+        {"a": np.zeros(4), "b": np.zeros(3)},
+        {"a": np.zeros(4), "b": np.zeros(1)},  # would broadcast
+        {"a": np.zeros(3), "b": np.zeros(3)},
+    ],
+)
+def test_paired_rows_of_unequal_lengths_are_refused(scores):
+    """A difference of unequal rows pairs the wrong seeds, or broadcasts one
+    score across them all."""
+    test = AdaStop("ab", n=4, K=2, paired=True)
+    with pytest.raises(ValueError):
+        test.update(scores)
+
+
+def test_characterization_the_default_test_stays_as_it_was():
+    """Pins current behaviour, not verified against a spec: the unpaired test
+    before paired mode existed. Forty permutations on a close call turn on the
+    draws themselves, so verdicts over 64 seeds move with the default stream;
+    an option drawing from it first fails here."""
+    a, b = np.random.default_rng(3).normal(size=(2, 5))
+    verdicts = ""
+    for seed in range(64):
+        test = AdaStop("ab", n=5, K=1, alpha=0.1, B=40, seed=seed)
+        test.update({"a": a + 2.7, "b": b})
+        verdicts += test.decisions[("a", "b")][0]
+
+    x = np.random.default_rng(3).normal(size=16)
+    y = np.random.default_rng(4).normal(0.5, 2.0, size=16)
+    gap, interval = difference(x, y, B=2000, seed=5)
+
+    assert (
+        verdicts == "lleleeleeleeeeleelleeeleeeleeelllelleelllllellelleellelleeelelle"
+    )
+    assert gap == pytest.approx(-0.903848501620633, rel=1e-9)
+    low, high = interval
+    assert (low, high) == pytest.approx((-2.1558344823027142, 0.31378846390516485))
+
+
+def test_paired_difference_drops_what_the_rows_share():
+    """Hand-derived: b plus a constant has no spread in its differences, so
+    the interval closes on the gap. Resampling each sample alone would leave
+    the rows' own spread in it."""
+    b = np.array([-3.0, 7.0, 0.5, 12.0, -8.0, 2.0])
+
+    gap, interval = difference(b + 1.5, b, paired=True)
+
+    assert gap == pytest.approx(1.5)
+    assert interval == pytest.approx((1.5, 1.5))
+    assert np.diff(difference(b + 1.5, b)[1]) > 1.0
+
+
+def test_paired_resolution_keeps_what_the_rows_share():
+    """Rows sharing 90% of their variance detect far smaller gaps. Replicates
+    drawing each sample alone would break the pairs and report the unpaired
+    test's resolution for a paired one."""
+    rng = np.random.default_rng(8)
+    shared = rng.normal(size=32)
+    a = np.sqrt(0.9) * shared + np.sqrt(0.1) * rng.normal(size=32)
+    b = np.sqrt(0.9) * shared + np.sqrt(0.1) * rng.normal(size=32)
+
+    settings = {"n": 8, "K": 2, "reps": 40, "B": 500}
+    paired = resolution(a, b, paired=True, **settings)
+    unpaired = resolution(a, b, **settings)
+
+    assert paired < unpaired / 2
+
+
+@pytest.mark.parametrize("function", [difference, partial(resolution, n=2, K=1)])
+def test_paired_samples_of_unequal_lengths_are_refused(function):
+    """Their rows cannot be one seed number each."""
+    with pytest.raises(ValueError, match="differ in length"):
+        function(np.zeros(4), np.zeros(5), paired=True)
+
+
 def test_scores_read_the_last_evaluation_the_last_third_or_the_mean():
     curves = np.array([[0.0, 1, 2, 3, 4, 5], [6, 6, 6, 6, 6, 0]])
     assert final_return(curves).tolist() == [5, 0]
@@ -120,6 +335,19 @@ def test_compare_trains_new_seeds_for_undecided_agents_only():
     }
     assert len(Constant.calls) == 8 and result.scores["c"].tolist() == [9.0] * 6
     assert result.plot().get_title() == "a = b, a < c"
+
+
+def test_paired_agents_train_the_same_seeds_at_each_interim():
+    """Rows pair only if seed number i is one seed in every agent: disjoint
+    seeds would pair strangers. An agent that stopped keeps a prefix of them."""
+    agents = {"a": lambda: Constant(0.0), "b": lambda: Constant(0.0)}
+    agents["c"] = lambda: Constant(99.0)
+
+    result = compare(agents, 8, 8, seed=100, n=3, K=2, alpha=0.6, B=500, paired=True)
+
+    # c differs in every row: 2 of 8 sign patterns, within the first 0.6 / 2.
+    assert result.seeds["c"] == [100, 101, 102]
+    assert result.seeds["a"] == result.seeds["b"] == [100, 101, 102, 103, 104, 105]
 
 
 def test_two_agents_compare_end_to_end():

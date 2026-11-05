@@ -277,7 +277,7 @@ def test_the_directory_keeps_to_its_budget() -> None:
     alone catches, 5 for the final evaluation's and the ledger's faults, 18 for
     the expert methods' fixes (22 lines, 4 of them spare), 6 for RLPD's and
     CHEQ's faults, 5 for noise levels' faults, 4 for RepresentationProbe's, 34
-    for the faults of 32 random edits the fast tier missed, 15 for the study
+    for the faults of 32 random edits the fast tier missed, 16 for the study
     harness's gaps."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
@@ -285,7 +285,7 @@ def test_the_directory_keeps_to_its_budget() -> None:
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8569, total
+    assert total <= 8570, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

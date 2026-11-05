@@ -23,6 +23,7 @@ from ajax.controller import (
     find_expert_action_in_choice_space,
     init_observers,
     observe_features,
+    read_the_residual,
     restart_observers,
     warmup_expert_flags,
 )
@@ -1127,6 +1128,12 @@ def collect_experience(
         )
     raw_action = action if result.raw_action is None else result.raw_action
     buffer_action = env_action if result.buffer_action is None else result.buffer_action
+    kept_choice = (
+        action if result.stored_policy_action is None else result.stored_policy_action
+    )
+    # Critics reading a residual policy's residual score what the policy chose.
+    if read_the_residual(env_args.transforms):
+        buffer_action = kept_choice
     # The run's replay action chooser (StorePolicyAction) may store another.
     for chooser in env_args.replay_action_choosers:
         buffer_action = chooser.choose_replay_action(buffer_action, action)
@@ -1222,11 +1229,7 @@ def collect_experience(
             a_expert=_a_expert_for_buf,
             next_a_expert=_next_a_expert_for_buf,
             raw_next_obs=raw_final_obs.astype(jnp.float32),
-            policy_action=(
-                action
-                if result.stored_policy_action is None
-                else result.stored_policy_action
-            ),
+            policy_action=kept_choice,
             actor_carry=_pre_actor_carry_flat if store_hidden else None,
         )
         buffer_state = buffer.add(buffer_state, row)

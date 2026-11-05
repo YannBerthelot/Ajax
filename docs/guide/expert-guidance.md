@@ -252,7 +252,10 @@ too, which draws uniform residuals around the expert), in the critics'
 target, in the actor's loss and in evaluation; the replay stores the
 executed action. The policy then learns a correction to the expert
 (residual RL). `zero_start=True` puts the actor's output head at 0, so that
-the policy starts as the expert. SAC, TD3, REDQ, TQC, CrossQ, ASAC and AVG
+the policy starts as the expert (Silver et al., 2018).
+`critic_reads_residual=True` stores the residual and has the critics read it,
+as both Johannink et al. and Silver et al. do; it needs a Q critic and refuses
+what puts an expert's action where a residual goes. SAC, TD3, REDQ, TQC, CrossQ, ASAC and AVG
 run it, their critics scoring the executed action; PPO and APO too, their
 ratio reading the policy's own sample; and IQL, whose replay also keeps the
 residual the policy chose, which its actor fits. Where a
@@ -383,7 +386,7 @@ Ajax" marks a feature with no external reference.
 | Keep the actor near the expert early on | `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger; PPO, APG, UDRL with a stateless expert), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |
 | Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC, TD3, REDQ, ASAC, AVG) | Q-filtered behaviour cloning (Nair et al., 2018) |
 | Let the expert act while the agent is poor | `JSRLCurriculum` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger, DQN, PQN, UDRL), `EDGEExploration` (the same with continuous actions; on UDRL its fixed gate alone, UDRL having no Q critic), `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
-| Learn a correction to the expert | `ResidualPolicy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL) | residual RL (Johannink et al., 2019) |
+| Learn a correction to the expert | `ResidualPolicy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL) | residual RL (Johannink et al., 2019; Silver et al., 2018) |
 | Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` (SAC) | developed with Ajax |
 | Make the target account for the expert | `IBRL` (SAC, TD3, REDQ, AVG), `LCBGatedBootstrap` (SAC, TD3, REDQ) | IBRL (Hu et al., 2023); the LCB gate developed with Ajax |
 | Measure how the critic rates the expert | `ExpertValueMetrics` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, IQL, DQN) | |

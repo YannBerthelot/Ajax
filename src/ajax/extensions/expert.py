@@ -491,11 +491,21 @@ class ResidualPolicy(Extension):
     agent's expert policy.
 
     ``zero_start`` puts the actor's output head at 0, so that the policy
-    starts as the expert: its mean residual is 0 at every observation.
+    starts as the expert: its mean residual is 0 at every observation. It is
+    Silver et al.'s (Sec. IV-A), not Johannink et al.'s.
+
+    ``critic_reads_residual`` is both papers' critic: the replay stores the
+    residual and the critics read it (Johannink et al.'s Algorithm 1 stores
+    ``u_t``; Silver et al.'s residual MDP holds the expert in its
+    transitions). The default, the critics scoring the executed action, is
+    neither's. It needs a Q critic, and refuses what puts an expert's action
+    where a residual goes (uses_expert_actions_as_policy_actions, rows seeded
+    in the replay).
     """
 
     scale: float = 1.0
     zero_start: bool = False
+    critic_reads_residual: bool = False
     name: str = "residual_policy"
     # Its base is the agent's expert, which an agent learning from that
     # expert's labels alone (DAgger) would learn to cancel, and which an
@@ -508,6 +518,26 @@ class ResidualPolicy(Extension):
         """Its pretraining only with a zero start."""
         phases = super().implemented_phases()
         return phases if self.zero_start else phases.difference({"pretrain"})
+
+    def needs(self) -> frozenset[str]:
+        needs = super().needs()
+        return needs.union({"q_critic"}) if self.critic_reads_residual else needs
+
+    def check_stack(self, stack: Any) -> None:
+        if not self.critic_reads_residual:
+            return
+        mixing = [
+            extension.name
+            for extension in stack
+            if extension.uses_expert_actions_as_policy_actions()
+            or "seeded_replay" in extension.provides
+        ]
+        if mixing:
+            raise ValueError(
+                f"ResidualPolicy(critic_reads_residual=True) cannot run with"
+                f" {mixing}: each puts an expert's action where the critics read"
+                " a residual, and the two are not the same space."
+            )
 
     def pretrain(
         self, agent_state: Any, ext_state: Any, context: ExtensionContext

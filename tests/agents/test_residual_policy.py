@@ -11,12 +11,14 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax import APG, UDRL
+from ajax import APG, SAC, UDRL
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC.SAC import compute_soft_policy_loss, sample_next_actions
 from ajax.agents.TD3.TD3 import compute_td3_td_target
 from ajax.controller import make_scored_actions
-from ajax.extensions.expert import ResidualPolicy
+from ajax.extensions.capabilities import MissingCapability
+from ajax.extensions.expert import ImitationLoss, JSRLCurriculum, ResidualPolicy
+from ajax.extensions.pretrain import ExpertPrefill
 from tests.agents.test_agent_contract import CASES
 from tests.environments import paid_action
 
@@ -119,6 +121,70 @@ def test_td3s_actor_scores_the_executed_action():
         trained.actor_state.params,
         untrained.actor_state.params,
     )
+
+
+READS_RESIDUAL = ResidualPolicy(scale=0.0, critic_reads_residual=True)
+
+
+@pytest.mark.parametrize("name", [*REPLAY, "IQL"])
+def test_the_replay_can_store_the_residual_for_the_critics(name):
+    """Johannink et al. 2019, Algorithm 1, execute ``u_t + pi_H(s_t)`` and store
+    ``(s_t, u_t, s_t+1)``; Silver et al. 2018 put the base in the MDP's
+    transitions. At scale 0 Pendulum still receives the expert's torque,
+    while the rows hold the residuals, none of them the expert's action."""
+    steps = CASES[name].n_timesteps
+    state = _agent(name, READS_RESIDUAL).train(seed=0, n_timesteps=steps)[0]
+    np.testing.assert_allclose(
+        np.asarray(state.collector_state.env_state.last_u), 1.0, rtol=1e-6
+    )
+    rows = state.collector_state.buffer_state.experience
+    action = np.asarray(rows["action"])[..., : steps // 2, 0]
+    assert not np.isclose(action, 0.5).any()
+
+
+def test_the_critics_read_the_residual_and_the_actor_learns_through_it():
+    """Scoring the executed action at scale 0 leaves TD3's actor without a
+    gradient (test_td3s_actor_scores_the_executed_action). Reading the
+    residual, Q(s, pi(s)) depends on the actor whatever the scale, so it
+    moves. A bug mapping the critics' input back to the executed action would
+    freeze it."""
+    steps = CASES["TD3"].n_timesteps
+    trained = _agent("TD3", READS_RESIDUAL).train(seed=0, n_timesteps=steps)[0]
+    untrained = _agent("TD3", READS_RESIDUAL).train(seed=0, n_timesteps=0)[0]
+    moved = jax.tree.map(
+        lambda a, b: not np.array_equal(a, b),
+        trained.actor_state.params,
+        untrained.actor_state.params,
+    )
+    assert any(jax.tree.leaves(moved))
+
+
+@pytest.mark.parametrize(
+    "extension",
+    [
+        ImitationLoss(_one),
+        ExpertPrefill(n_steps=4),
+        JSRLCurriculum(schedule="random"),
+    ],
+    ids=["clones-the-expert", "fills-the-replay", "hands-the-expert-steps"],
+)
+def test_expert_actions_cannot_meet_critics_reading_residuals(extension):
+    """An expert's action is no residual: as the critics' input or the actor's
+    target it would mix two spaces, as gain mode's refusal says for gains."""
+    with pytest.raises(ValueError, match="critic_reads_residual"):
+        SAC(
+            env_id="Pendulum-v1",
+            n_envs=2,
+            expert_policy=_one,
+            extensions=(READS_RESIDUAL, extension),
+            **CASES["SAC"].kwargs,
+        ).train(seed=0, n_timesteps=8)
+
+
+@pytest.mark.parametrize("name", ["PPO", "APO"])
+def test_a_state_value_critic_has_no_action_to_read(name):
+    with pytest.raises(MissingCapability, match="q_critic"):
+        _agent(name, READS_RESIDUAL).train(seed=0, n_timesteps=8)
 
 
 @pytest.mark.parametrize("name", ["PPO", "APO"])

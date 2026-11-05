@@ -4,9 +4,9 @@ Guidance for Claude Code (and any agent) working in the Ajax repository.
 
 ## Commit requirement
 
-**Nothing merges into main unless every check below is green.** The full
-test suite is expensive (about an hour of CPU), so it runs in GitHub CI on
-the pull request, not locally before each commit. Before committing, run
+**Nothing merges into main unless every check below is green.** They
+cost about half an hour of CPU, so they run in GitHub CI on the pull
+request, not locally before each commit. Before committing, run
 the cheap checks locally: pre-commit (step 1), `uv run pytest
 --collect-only -q`, and the test files that exercise what you changed.
 A change under `src/ajax` also runs `uv run pytest
@@ -19,31 +19,26 @@ reports on the same branch. The checks:
 
 1. **pre-commit** (`make ci-precommit`) — `uv run pre-commit run
    --all-files` (ruff lint, ruff-format, mypy).
-2. **Tests not marked slow + coverage** (`make ci-test`) — `uv run
-   coverage erase` (parallel mode never removes old data files), then
-   `uv run coverage run -m pytest -m "not slow" --ignore=tests/probing
-   --ignore=tests/conformance`,
-   then `uv run coverage combine`
-   (coverage measures subprocesses, one data file each), then `uv
-   run coverage report --fail-under=70`.
-3. **Slow tests** (`make ci-slow`) — `uv run pytest -m slow
-   --ignore=tests/probing --ignore=tests/conformance`.
-4. **Probing tests** (`make ci-probe`) — `uv run pytest tests/probing`.
-5. **Conformance tests** (`make ci-conformance`) — `uv run pytest
+2. **The fast tier + coverage** (`make ci-test`) — the tests not marked
+   slow, conformance aside, then `uv run coverage report --fail-under=90`.
+3. **Conformance tests** (`make ci-conformance`) — `uv run pytest
    tests/conformance`: one training step of each agent against its
    original implementation.
-6. **Docs** (`make docs`) — `uv run --group docs mkdocs build --strict`.
+4. **Docs** (`make docs`) — `uv run --group docs mkdocs build --strict`.
 
-`make ci` runs all six locally when you do want them, with the GPU
+`make ci` runs all four locally when you do want them, with the GPU
 hidden (`CUDA_VISIBLE_DEVICES=""`, `JAX_PLATFORMS=cpu`) so they never
 compete with a running experiment. `.github/workflows/ci.yml` runs the
-same commands on CPU as parallel jobs: pre-commit; the tests not marked
-slow in three shards, whose coverage one more job combines and checks;
-the slow tests; probing in five shards; conformance; the docs build. Its *Lint and Test* job, the one
+same commands on CPU as parallel jobs. Its *Lint and Test* job, the one
 check branch protection requires, passes only when all of them passed.
 Never merge while any of them is red. If a failure is
 pre-existing and unrelated to the change, call it out explicitly instead
 of merging over it.
+
+The slow tier (`make ci-slow`: `tests/probing` and the tests marked slow)
+runs daily on main, by hand, and on a pull request with the label
+`run-slow-tier`. A pull request that changes how an agent trains gets the
+label before it merges. A release needs it green.
 
 See `CONTRIBUTING.md` for repository layout, the agent-implementation
 template, and the Extension framework conventions.
@@ -51,8 +46,10 @@ template, and the Extension framework conventions.
 ## Refactoring & code-quality standards
 
 Heavy or risky changes go on a dedicated branch — never committed
-directly to a shared branch. Tests ship with new code: no new module
-or function lands without a covering test. Full CI must be green
+directly to a shared branch. Every test names the realistic bug it
+would catch, in its name or docstring; if you cannot name one, do not
+write the test. When a concern deserves protection, add a planted fault
+to `tests/probing/faults/` and make sure a test catches it. Full CI must be green
 before a branch merges; never build new work on a red branch (if a
 failure is pre-existing and unrelated, call it out explicitly instead
 of merging over it).

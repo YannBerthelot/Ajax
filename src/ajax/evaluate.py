@@ -219,6 +219,35 @@ def _expert_obs(state, env, mode) -> jax.Array:
     return get_raw_obs(env_state=state, env=env, mode=mode).astype(jnp.float32)
 
 
+class EpisodeRecord(NamedTuple):
+    """Each episode of a rollout, one entry per episode, to its first done.
+    cost_per_step: the mean of minus the reward over the episode's steps,
+    every one of them. trips: the steps the plant tripped on, as the env
+    reports them (info["tripped"]); NaN from an env reporting none, whose
+    count is unknown, not zero."""
+
+    cost_per_step: Any
+    trips: Any
+
+
+class _EpisodeTally(NamedTuple):
+    """A per-episode rollout's counts, per env, to the env's first done."""
+
+    steps: jax.Array
+    trips: jax.Array
+
+
+def _count_step(
+    tally: Optional[_EpisodeTally], still_running: jax.Array, info: Any
+) -> Optional[_EpisodeTally]:
+    """tally after a step, an env's steps past its first done left out."""
+    if tally is None:
+        return None
+    running = still_running.astype(jnp.float32)
+    tripped = info.get("tripped", jnp.nan)
+    return _EpisodeTally(tally.steps + running, tally.trips + running * tripped)
+
+
 class _EvalCarry(NamedTuple):
     """The evaluation scan's carry; per env unless noted."""
 
@@ -238,6 +267,7 @@ class _EvalCarry(NamedTuple):
     # (1,): the steps a chooser handed the expert, meaned over running envs;
     # None without a chooser.
     expert_steps: Any = None
+    tally: Any = None  # an _EpisodeTally in a per-episode rollout; else None
 
 
 def _init_eval_carry(
@@ -250,6 +280,7 @@ def _init_eval_carry(
     command=None,
     observer_states=None,
     expert_steps=None,
+    tally=None,
 ) -> _EvalCarry:
     return _EvalCarry(
         rewards=jnp.zeros(num_episodes),
@@ -266,6 +297,7 @@ def _init_eval_carry(
         command=jnp.zeros((1,)) if command is None else command,
         observer_states=observer_states,
         expert_steps=expert_steps,
+        tally=tally,
     )
 
 
@@ -357,7 +389,7 @@ def step_environment(
                 acted.actor_actions if controller.actuates else actions,
             )
         )
-        obs, new_state, new_rewards, new_term, new_trunc, _ = step(
+        obs, new_state, new_rewards, new_term, new_trunc, info = step(
             step_keys,
             state,
             agent_action_to_env(actions, env, env_params),
@@ -411,6 +443,7 @@ def step_environment(
             command=new_command,
             observer_states=observer_states,
             expert_steps=expert_steps,
+            tally=_count_step(carry.tally, still_running, info),
         )
 
     return fn
@@ -438,7 +471,7 @@ def step_environment_expert(mode, env, env_params, expert_policy):
             expert_policy, carry.expert_state, expert_obs
         )
         actions = flatten_action_column(actions, continuous)
-        obs, new_state, new_rewards, new_term, new_trunc, _ = step(
+        obs, new_state, new_rewards, new_term, new_trunc, info = step(
             step_keys,
             carry.state,
             agent_action_to_env(actions, env, env_params),
@@ -457,6 +490,7 @@ def step_environment_expert(mode, env, env_params, expert_policy):
             step_count=carry.step_count + still_running.mean(),
             last_reward=new_rewards,
             expert_state=new_expert_state,
+            tally=_count_step(carry.tally, still_running, info),
         )
 
     return fn
@@ -511,20 +545,136 @@ def _reset_envs(env, mode, env_params, num_episodes, rng):
     return (key, *reset(reset_keys, env, mode, env_params))
 
 
-def _expert_return(
-    mode, env, env_params, expert_policy, key, obs, state, num_episodes, length
-):
-    """The expert's mean return over ``num_episodes`` episodes from the
-    reset ``(obs, state)``, ``length`` steps, each env's after its first
-    ``done`` masked."""
+def _expert_rollout(
+    mode, env, env_params, expert_policy, key, obs, state, num_episodes, length, tally
+) -> _EvalCarry:
+    """The last carry of the expert's rollout of ``num_episodes`` episodes
+    from the reset ``(obs, state)``, ``length`` steps, each env's after its
+    first ``done`` masked."""
     carry = _init_eval_carry(
-        num_episodes, key, obs, state, _init_expert_state(expert_policy, num_episodes)
+        num_episodes,
+        key,
+        obs,
+        state,
+        _init_expert_state(expert_policy, num_episodes),
+        tally=tally,
     )
     step_fn = step_environment_expert(mode, env, env_params, expert_policy)
     final, _ = jax.lax.scan(
         lambda carry, _: (step_fn(carry), None), carry, None, length=length
     )
-    return jnp.nanmean(final.rewards)
+    return final
+
+
+class _PolicyRollout(NamedTuple):
+    """An evaluation's rollout, ready to scan ``steps`` steps of ``step_fn``
+    from ``carry``: the evaluation env, its mode, and the reset the expert's
+    rollout starts from too (the rollout's ``key``, ``obs``, ``state``)."""
+
+    env: Any
+    mode: str
+    key: jax.Array
+    obs: jax.Array
+    state: Any
+    carry: _EvalCarry
+    step_fn: Callable[[_EvalCarry], _EvalCarry]
+    steps: int
+
+
+def _start_rollout(
+    env,
+    actor_state,
+    num_episodes: int,
+    rng: jax.Array,
+    env_params: Optional[EnvParams],
+    recurrent: bool,
+    gamma: float,
+    norm_info: Optional[NormalizationInfo],
+    expert_policy: Optional[Callable],
+    max_eval_steps: Optional[int],
+    agent_state: Any,
+    controller: Controller,
+    value_estimate: Optional[ValueEstimate],
+    command: Optional[Any],
+) -> _PolicyRollout:
+    """The evaluation env reset from ``rng`` and the policy's rollout on it,
+    from fresh memory, features and expert state."""
+    env, mode, continuous, key, obs, state = _reset_eval_env(
+        env, env_params, num_episodes, norm_info, rng, gamma
+    )
+    # Fresh actor memory for evaluation: same structure as the live carry,
+    # but batch-sized to num_episodes and zeroed (every supported memory
+    # cell has a zero initial carry). Without this the eval loop would
+    # reuse the training envs' carry, whose batch size doesn't even match.
+    actor_hidden = None  # feedforward: a dummy slot
+    if (
+        recurrent
+        and actor_state is not None
+        and getattr(actor_state, "hidden_state", None) is not None
+    ):
+        actor_hidden = jax.tree.map(
+            lambda x: jnp.zeros((num_episodes,) + x.shape[1:], x.dtype),
+            actor_state.hidden_state,
+        )
+
+    first_obs = obs
+    expert_state = _init_expert_state(expert_policy, num_episodes)
+    observer_states = None
+    if controller.observers:
+        stateful = expert_policy is not None and hasattr(expert_policy, "init_state")
+        inputs = ObserveInputs(
+            _expert_obs(state, env, mode),
+            expert=expert_policy,
+            expert_state=expert_state if stateful else None,
+            progress=frozen_progress(agent_state),
+        )
+        first_obs, observer_states = observe_features(
+            first_obs,
+            inputs,
+            controller.observers,
+            init_observers(controller.observers, num_episodes),
+        )
+    init_carry_agent = _init_eval_carry(
+        num_episodes,
+        key,
+        first_obs,
+        state,
+        expert_state,
+        actor_hidden,
+        None if command is None else command.initial(agent_state, num_episodes),
+        observer_states,
+        jnp.zeros(1) if controller.choosers else None,
+    )
+
+    step_fn = step_environment(
+        mode,
+        env,
+        env_params,
+        recurrent,
+        actor_state,
+        continuous,
+        expert_policy=expert_policy,
+        agent_state=agent_state,
+        controller=controller,
+        value_estimate=None if recurrent else value_estimate,
+        command=command,
+        norm_info=norm_info,
+    )
+
+    # Main loop. We use `scan` with a fixed length rather than `while_loop`
+    # because mjx-warp kernels (mujoco_playground's physics backend) fail
+    # `contact_dim` shape assertions under `vmap` + `while_loop` but compose
+    # cleanly under `vmap` + `scan`. The step_fn already done-masks via
+    # `still_running = 1 - done`, so iterating past the natural termination
+    # of every lane is a no-op on the accumulated reward/entropy/step_count.
+    steps_bound = (
+        int(max_eval_steps)
+        if max_eval_steps is not None
+        else _infer_max_eval_steps(env, env_params)
+    )
+    return _PolicyRollout(
+        env, mode, key, obs, state, init_carry_agent, step_fn, steps_bound
+    )
 
 
 @partial(
@@ -587,79 +737,22 @@ def evaluate(
     """
     expert_policy = ExpertInAgentUnits.wrap(expert_policy, env, env_params)
     eval_expert_policy = ExpertInAgentUnits.wrap(eval_expert_policy, env, env_params)
-    env, mode, continuous, key, obs, state = _reset_eval_env(
-        env, env_params, num_episodes, norm_info, rng, gamma
-    )
-    # Fresh actor memory for evaluation: same structure as the live carry,
-    # but batch-sized to num_episodes and zeroed (every supported memory
-    # cell has a zero initial carry). Without this the eval loop would
-    # reuse the training envs' carry, whose batch size doesn't even match.
-    actor_hidden = None  # feedforward: a dummy slot
-    if (
-        recurrent
-        and actor_state is not None
-        and getattr(actor_state, "hidden_state", None) is not None
-    ):
-        actor_hidden = jax.tree.map(
-            lambda x: jnp.zeros((num_episodes,) + x.shape[1:], x.dtype),
-            actor_state.hidden_state,
-        )
-
-    first_obs = obs
-    expert_state = _init_expert_state(expert_policy, num_episodes)
-    observer_states = None
     controller = Controller() if controller is None else controller
-    if controller.observers:
-        stateful = expert_policy is not None and hasattr(expert_policy, "init_state")
-        inputs = ObserveInputs(
-            _expert_obs(state, env, mode),
-            expert=expert_policy,
-            expert_state=expert_state if stateful else None,
-            progress=frozen_progress(agent_state),
-        )
-        first_obs, observer_states = observe_features(
-            first_obs,
-            inputs,
-            controller.observers,
-            init_observers(controller.observers, num_episodes),
-        )
-    init_carry_agent = _init_eval_carry(
-        num_episodes,
-        key,
-        first_obs,
-        state,
-        expert_state,
-        actor_hidden,
-        None if command is None else command.initial(agent_state, num_episodes),
-        observer_states,
-        jnp.zeros(1) if controller.choosers else None,
-    )
-
-    step_fn = step_environment(
-        mode,
+    env, mode, key, obs, state, init_carry_agent, step_fn, steps_bound = _start_rollout(
         env,
+        actor_state,
+        num_episodes,
+        rng,
         env_params,
         recurrent,
-        actor_state,
-        continuous,
-        expert_policy=expert_policy,
-        agent_state=agent_state,
-        controller=controller,
-        value_estimate=None if recurrent else value_estimate,
-        command=command,
-        norm_info=norm_info,
-    )
-
-    # Main loop. We use `scan` with a fixed length rather than `while_loop`
-    # because mjx-warp kernels (mujoco_playground's physics backend) fail
-    # `contact_dim` shape assertions under `vmap` + `while_loop` but compose
-    # cleanly under `vmap` + `scan`. The step_fn already done-masks via
-    # `still_running = 1 - done`, so iterating past the natural termination
-    # of every lane is a no-op on the accumulated reward/entropy/step_count.
-    steps_bound = (
-        int(max_eval_steps)
-        if max_eval_steps is not None
-        else _infer_max_eval_steps(env, env_params)
+        gamma,
+        norm_info,
+        expert_policy,
+        max_eval_steps,
+        agent_state,
+        controller,
+        value_estimate,
+        command,
     )
 
     def _scan_body(carry, _):
@@ -684,16 +777,19 @@ def evaluate(
 
     expert_reward: jax.Array | float = jnp.nan
     if expert_policy is not None or eval_expert_policy is not None:
-        expert_reward = _expert_return(
-            mode,
-            env,
-            env_params,
-            eval_expert_policy or expert_policy,
-            key,
-            obs,
-            state,
-            num_episodes,
-            steps_bound,
+        expert_reward = jnp.nanmean(
+            _expert_rollout(
+                mode,
+                env,
+                env_params,
+                eval_expert_policy or expert_policy,
+                key,
+                obs,
+                state,
+                num_episodes,
+                steps_bound,
+                None,
+            ).rewards
         )
 
     avg_reward = jnp.nan
@@ -722,6 +818,108 @@ def evaluate(
         return outputs
     handed = final_carry.expert_steps / jnp.maximum(step_count, 1.0)
     return (*outputs, handed.mean())
+
+
+def _fresh_tally(num_episodes: int) -> _EpisodeTally:
+    return _EpisodeTally(jnp.zeros(num_episodes), jnp.zeros(num_episodes))
+
+
+def _episode_record(final: _EvalCarry) -> EpisodeRecord:
+    return EpisodeRecord(-final.rewards / final.tally.steps, final.tally.trips)
+
+
+@partial(
+    jax.jit,
+    static_argnames=[
+        "recurrent",
+        "env_params",
+        "num_episodes",
+        "env",
+        "expert_policy",
+        "controller",
+    ],
+)
+def policy_episodes(
+    env,
+    actor_state,
+    num_episodes: int,
+    rng: jax.Array,
+    env_params: Optional[EnvParams],
+    recurrent: bool = False,
+    norm_info: Optional[NormalizationInfo] = None,
+    expert_policy: Optional[Callable] = None,
+    agent_state: Any = None,
+    controller: Optional[Controller] = None,
+) -> EpisodeRecord:
+    """The record of each of ``num_episodes`` episodes, one per env, of the
+    policy :func:`evaluate` runs on ``rng``. A diverged episode, whose
+    rewards went NaN, costs inf: what the policy did, where a NaN cost means
+    a broken measurement.
+
+    The env's draws come from ``rng`` alone: the rollout splits its own key
+    before it acts, and an action's draws derive from that key by name
+    (:func:`ajax.policy.make_act`), so a policy sampling its action moves
+    none of them."""
+    expert_policy = ExpertInAgentUnits.wrap(expert_policy, env, env_params)
+    rollout = _start_rollout(
+        env,
+        actor_state,
+        num_episodes,
+        rng,
+        env_params,
+        recurrent,
+        0.99,  # unused: evaluation never normalises rewards
+        norm_info,
+        expert_policy,
+        None,
+        agent_state,
+        Controller() if controller is None else controller,
+        None,
+        None,
+    )
+    final, _ = jax.lax.scan(
+        lambda carry, _: (rollout.step_fn(carry), None),
+        rollout.carry._replace(tally=_fresh_tally(num_episodes)),
+        None,
+        length=rollout.steps,
+    )
+    record = _episode_record(final)
+    cost = record.cost_per_step
+    return record._replace(cost_per_step=jnp.where(jnp.isnan(cost), jnp.inf, cost))
+
+
+@partial(
+    jax.jit, static_argnames=["env", "expert_policy", "num_episodes", "env_params"]
+)
+def expert_episodes(
+    env,
+    expert_policy: Callable,
+    num_episodes: int,
+    rng: jax.Array,
+    env_params: Optional[EnvParams],
+) -> EpisodeRecord:
+    """:func:`policy_episodes` of the expert alone, on the same reset and the
+    same steps for the same ``rng``; it speaks env units
+    (:class:`ExpertInAgentUnits`). Its NaN costs stay NaN: a reference that
+    diverged is a broken baseline, which the score refuses."""
+    expert_policy = ExpertInAgentUnits.wrap(expert_policy, env, env_params)
+    env, mode, _, key, obs, state = _reset_eval_env(
+        env, env_params, num_episodes, None, rng
+    )
+    return _episode_record(
+        _expert_rollout(
+            mode,
+            env,
+            env_params,
+            expert_policy,
+            key,
+            obs,
+            state,
+            num_episodes,
+            _infer_max_eval_steps(env, env_params),
+            _fresh_tally(num_episodes),
+        )
+    )
 
 
 def evaluate_policy(

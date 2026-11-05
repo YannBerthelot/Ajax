@@ -2,7 +2,7 @@
 Release workflow's installed-package gate: the core install, and each extra
 installed on its own.
 
-    python tests/release_smoke.py core|brax|playground|gymnasium|compare|reproduction|wandb|cuda
+    python tests/release_smoke.py core|brax|playground|gymnasium|compare|reproduction|manifolds|wandb|cuda
 
 Each check is the smallest real use, seconds long. It imports only the
 standard library and what the install it checks brings, not even pytest,
@@ -160,6 +160,17 @@ def cuda() -> None:
     print(jax.devices())
 
 
+def manifolds() -> None:
+    """Each embedding library runs, on a small random trace."""
+    import numpy as np
+
+    from ajax.representation import embeddings
+
+    trace = np.random.default_rng(0).normal(size=(8, 32, 64))
+    assert embeddings.mphate(trace).shape == (256, 2)
+    assert embeddings.aligned_umap(trace).shape == (8, 32, 2)
+
+
 CHECKS = {
     "core": core,
     "brax": lambda: step_env("fast"),
@@ -167,6 +178,7 @@ CHECKS = {
     "gymnasium": gymnasium_env,
     "compare": compare,
     "reproduction": reproduction,
+    "manifolds": manifolds,
     "wandb": wandb_backend,
     "cuda": cuda,
 }

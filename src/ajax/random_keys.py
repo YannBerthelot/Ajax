@@ -38,6 +38,11 @@ def make_tag(name: str) -> int:
 #: Every name a key is derived by (derive_key), so that the registry's test
 #: sees each tag once.
 NAMES: tuple[str, ...] = (
+    # A random rollout's reset, each step's action and its env step, off the
+    # rollout's key (ajax.representation.probe_set).
+    "rollout_reset",
+    "rollout_action",
+    "rollout_env_step",
     # The collection's stream of a checkpoint saved before it had its own
     # (ajax.checkpoint), derived from the updates' stream.
     "collector",

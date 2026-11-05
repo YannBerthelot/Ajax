@@ -14,6 +14,18 @@ The next release is 0.6.0: the first item changes results.
   the agent's action with the expert's, by a weight that falls as the critics
   disagree. The update ratio and the critics stay the agent's own settings.
   Each one's docstring lists where it departs from its paper.
+- **Representations during training.** `RepresentationProbe` reads an
+  agent's activations and parameters on a fixed set of states every
+  `probe_interval` steps, writes them to a directory per seed, and logs each
+  layer's effective rank, alignment with the previous probe, activation norm
+  and dead units. Off unless listed. An architecture's activations are now
+  layers without parameters, so flax's `capture_intermediates` reads a layer
+  after its nonlinearity; saved parameters are unchanged. The agents on the
+  on-policy family now bind `env_args` for their extensions. `python -m
+  ajax.representation`, with the new `manifolds` extra, embeds a run's
+  activations (Aligned UMAP, M-PHATE) and weights (PCA beside a matched random
+  walk) and plots its metrics. `replay_states=` also keeps observations of a
+  training batch at each probe, on a replay agent.
 - **On-policy agents train the steps they are asked for.** PPO (with or
   without memory), APO and PQN trained one rollout more than their budget
   in every `train` call. They now train the whole rollouts the budget

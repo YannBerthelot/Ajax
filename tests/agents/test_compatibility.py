@@ -119,6 +119,9 @@ GAPS: dict[str, dict[str, str]] = {
     CONTEXT: {
         "BellmanPretrain": "ASAC RVISAC DQN IQL",
         "CloningPretrain": "APG PPO UDRL",
+        # UDRL's networks read a command the env's rollouts cannot give, and
+        # APG's controller may keep a state between steps.
+        "RepresentationProbe": "APG UDRL UDRL/discrete",
     },
     FORM: {
         "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"
@@ -232,6 +235,8 @@ def field_values(env: str) -> dict[str, Any]:
         "threshold": 1.0,
         "n_steps": 4,
         "fraction": 0.5,
+        "run_directory": "unused",
+        "probe_interval": 1,
         "dataset": episode,
         "demonstrations": episode,
         # A PID's error x[1] - x[0], on every row's observation.

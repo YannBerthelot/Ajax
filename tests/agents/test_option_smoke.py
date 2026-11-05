@@ -12,6 +12,7 @@ import importlib
 import inspect
 import itertools
 import pkgutil
+import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
@@ -38,6 +39,7 @@ from ajax.extensions import (
     instrumentation,
     observe,
     offline,
+    representation,
     reset_cost,
     retained,
 )
@@ -211,6 +213,11 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "ValueCentering": (centering.ValueCentering, "SAC TD3"),
     # Its rows read nothing of the episode a termination ended (check_stack).
     "ResetCost": (reset_cost.ResetCost, "DQN"),
+    # Last too, as CloningPretrain refuses a pretraining before it.
+    "RepresentationProbe": (
+        lambda: representation.RepresentationProbe(tempfile.mkdtemp(), 16, n_states=8),
+        "SAC PPO",
+    ),
 }
 ACTING = {"ValueBox", "EDGEExploration", "JSRLCurriculum", "ResidualPolicy"}
 PHI_STAR = (
@@ -249,6 +256,12 @@ EXPERTS = {"expert_policy", "eval_expert_policy"}
 USES_EXPERT_ACTIONS = {"OnlineBC", "CriticBlend", "PhiRefresh", "IBRL"}
 USES_EXPERT_ACTIONS.update({"LCBGatedBootstrap", "ExpertValueMetrics", "ImitationLoss"})
 USES_EXPERT_ACTIONS.update({"CloningPretrain", "MCPretrain", "CHEQ"})
+FEATURES_ON_OBSERVATIONS = (
+    "ExpertActionInput",
+    "ExpertStateInput",
+    "TrainingProgressInput",
+    "PIDTermsInput",
+)
 #: Options no row takes together: one of each group, and no pair across these.
 ONE_OF = [{"normalize_rewards", "reward_normalization_gamma"}, MEMORY, set(ENVS)]
 ONE_OF += [{"cnn_image_shape", "mlp"}]  # else the CNN takes every row
@@ -283,6 +296,12 @@ EXCLUSIVE = [
     # Cal-QL is CQL's term with a floor: a stack holds one of them.
     ({"ConservativeQ"}, {"CalQL"}),
     ({"AdversarialReward"}, {"fast", "CartPole-v1"}),
+    # The probe's states come from the env alone, and it reads a network's
+    # activation layers, which a CNN encoder has not.
+    (
+        {"RepresentationProbe"},
+        set(FEATURES_ON_OBSERVATIONS).union({"CHEQ", "ExpertGains", "cnn_image_shape"}),
+    ),
 ]
 TABLE = {**CASES, "APG": Case(APG, {"horizon": 1, "pid": None}, ())}
 #: The exported agents off TABLE, and the tests that run their options.

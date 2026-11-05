@@ -49,6 +49,9 @@ compare = ["adastop"]
 # ajax.reproduction.load, the reference comparisons' published data:
 # `uv sync --extra reproduction`, or depend on `ajax-rl[reproduction]`.
 reproduction = ["huggingface-hub>=0.30,<2", "pandas>=2.2,<3", "pyarrow>=15"]
+# Embedding RepresentationProbe's runs (python -m ajax.representation): `uv
+# sync --extra manifolds`, or depend on `ajax-rl[manifolds]`.
+manifolds = ["m-phate>=0.1.6", "matplotlib>=3.8.0,<4", "phate>=2.0", "umap-learn>=0.5.7"]
 # Brax environments ("ant", "fast", ...): `uv sync --extra brax`, or depend on
 # `ajax-rl[brax]`.
 brax = ["brax>=0.14.2"]
@@ -89,6 +92,8 @@ dev = [
     "probing-environments",
     # The compare extra, for its tests; from the commit in [tool.uv.sources].
     "adastop",
+    # The embedding libraries, for tests/representation's end-to-end tests.
+    "ajax-rl[manifolds]",
     # benchmarks/reference/refcmp_publish.py writes, and its tests read,
     # the reproduction extra's Parquet tables.
     "pandas>=2.2,<3",

@@ -153,7 +153,7 @@ def _is_ensemble_critic(train_state: Any) -> bool:
     return hasattr(_network(train_state), "apply_encoder_ensemble")
 
 
-def _takes_action(
+def critic_takes_action(
     critic_state: Any, obs: jax.Array, act: jax.Array, rng: jax.Array
 ) -> bool:
     """Whether an ensemble critic reads the observation and action (an
@@ -196,7 +196,7 @@ def _critic_kind(
     (its output carries ``q_values``)."""
     critic_state = getattr(agent_state, "critic_state", None)
     if _is_ensemble_critic(critic_state):
-        return "q" if _takes_action(critic_state, obs, act, rng) else "v"
+        return "q" if critic_takes_action(critic_state, obs, act, rng) else "v"
     actor = agent_state.actor_state
     if hasattr(actor.apply_fn(with_batch_stats(actor, actor.params), obs), "q_values"):
         return "qnet"
@@ -249,7 +249,7 @@ class ConditioningMetrics(Extension):
     ``critic_state``'s network is an ensemble critic (it exposes
     ``apply_encoder_ensemble``), the actor branch otherwise; on the critic
     branch, the action is concatenated when the critic's parameters were
-    built on the observation and action (:func:`_takes_action`).
+    built on the observation and action (:func:`critic_takes_action`).
 
     Pass ``buffer=agent.buffer`` for off-policy agents whose buffer object
     isn't on the agent state itself; on-policy and incremental agents keep
@@ -277,7 +277,7 @@ class ConditioningMetrics(Extension):
         critic_state = agent_state.critic_state
         concat = self.concat_action
         if concat == "auto":
-            concat = _takes_action(critic_state, obs, act, rng)
+            concat = critic_takes_action(critic_state, obs, act, rng)
         x = action_value_input(obs, act.astype(obs.dtype)) if concat else obs
         return _encoder_features_ppo_sac(critic_state, x)
 

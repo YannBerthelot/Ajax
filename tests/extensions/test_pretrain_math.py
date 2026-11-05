@@ -289,6 +289,14 @@ def test_cloning_pretrain_needs_the_agent_context():
         CloningPretrain(expert_policy=abs).pretrain(None, (), context)
 
 
+def test_mc_pretrain_needs_the_agent_context():
+    """Unbound (only SAC binds it), its pretrain phase raises rather than
+    building phi* from no env, network or optimiser."""
+    context = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0))
+    with pytest.raises(ValueError, match="did not bind"):
+        MCPretrain(expert_policy=abs).pretrain(None, (), context)
+
+
 def test_phi_refresh_needs_the_agent_context():
     """Unbound (no agent handed it its buffer), its post_update raises
     rather than never refreshing phi*."""

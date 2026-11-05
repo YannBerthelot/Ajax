@@ -1,6 +1,7 @@
 """End-to-end tests for the APG agent and its contextual-controller configuration."""
 
 import importlib
+import inspect
 from types import SimpleNamespace
 
 import jax
@@ -235,6 +236,17 @@ def test_contextual_controller_configuration(env_and_class):
     assert jnp.isfinite(aux.loss).all()
 
 
+def test_contextual_controller_differentiates_through_the_papers_horizon(
+    env_and_class,
+):
+    """Busetto et al. 2024 (Table 2) train on a horizon of N = 100 steps."""
+    env, sc = env_and_class
+    agent = APG.contextual_controller(
+        env, sc, n_layers=1, n_heads=2, d_model=8, context=8
+    )
+    assert agent.horizon == 100
+
+
 def test_contextual_controller_rebuilds_a_transformer_without_its_final_norm(
     env_and_class,
 ):
@@ -439,6 +451,13 @@ def test_curriculum_chains_stages(env_and_class):
     state_final = results[-1][0]
     assert int(state_final.collector_state.timestep[0]) == 5 * N_ENVS * HORIZON
     assert results[-1][1].loss.shape == (1, 3)
+
+
+def test_curriculum_defaults_stay_as_published():
+    """Pins the published defaults (seed 42, 10 test episodes); changing one
+    changes every curriculum run that leaves it out, a breaking change."""
+    defaults = inspect.signature(train_curriculum).parameters
+    assert (defaults["seed"].default, defaults["num_episode_test"].default) == (42, 10)
 
 
 def test_curriculum_rejects_incompatible_stages(env_and_class):

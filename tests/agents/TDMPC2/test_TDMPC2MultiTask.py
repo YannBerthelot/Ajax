@@ -506,6 +506,15 @@ def test_evaluation_does_not_persist_the_renorm(runs, monkeypatch):
     np.testing.assert_array_equal(out.world_model_state.params[TASK_EMB], table)
 
 
+def test_a_run_resumes_from_what_train_returned():
+    """train returns (state, history); handing that pair back continues the
+    run from its state, as the state alone does: 2 updates then 3 make 5."""
+    agent = TDMPC2MultiTask(make_dataset(), **TINY)
+    first = agent.train(seed=SEEDS, n_timesteps=2)
+    resumed, _ = agent.train(seed=SEEDS, n_timesteps=3, initial_state=first)
+    np.testing.assert_array_equal(resumed.n_updates, [5, 5])
+
+
 def test_evaluation_plans_per_task_without_changing_the_state(runs):
     agent = runs.agent
     state = runs.resumed  # its evaluation programs are compiled

@@ -112,7 +112,9 @@ def test_a_terminated_prefill_row_keeps_the_next_observation_collection_keeps():
 
 
 def test_the_prefill_refuses_a_recurrent_actors_stored_carry():
-    with pytest.raises(ValueError, match="actor_carry"):
+    # The reason (the carry exists only along the agent's own rollouts), not
+    # the generic "cannot fill field" a row would raise on the same schema.
+    with pytest.raises(ValueError, match="recurrent actor's carry"):
         prefill(actor_carry_dim=4)
 
 

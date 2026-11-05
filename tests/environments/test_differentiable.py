@@ -47,6 +47,17 @@ def test_with_transition_gradients_rejects_unsupported_env():
         with_transition_gradients(env)
 
 
+def test_an_env_with_no_transition_gradients_at_all_is_refused_by_name():
+    """An env that neither supports them nor has a way to enable them is
+    refused with the reason, not with a missing-attribute error."""
+
+    class Plain:
+        pass
+
+    with pytest.raises(ValueError, match="Plain does not support"):
+        with_transition_gradients(Plain())
+
+
 def test_with_transition_gradients_walks_wrappers(pendulum):
     env, _ = pendulum
     wrapped = ClipAction(env)

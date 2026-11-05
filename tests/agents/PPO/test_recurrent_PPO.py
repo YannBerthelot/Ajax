@@ -104,7 +104,9 @@ def test_recurrent_ppo_bptt_length(kind):
 
 
 def test_bptt_length_guards():
-    with pytest.raises(ValueError, match="must divide"):
+    # The rollout's own length is what it must divide (not only the minibatch
+    # split, whose message says "must divide 30" without the n_steps).
+    with pytest.raises(ValueError, match="must divide n_steps"):
         PPO(
             env_id="CartPole-v1",
             n_steps=30,

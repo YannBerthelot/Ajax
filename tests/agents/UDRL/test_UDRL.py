@@ -81,6 +81,29 @@ def test_the_actor_sees_the_command_scaled_once_when_acting_and_training(
     )
 
 
+def test_each_env_draws_its_own_exploratory_return_once_the_returns_spread(monkeypatch):
+    """Algorithm 5 restarts an env's command at d_r ~ U(R, R + std), a draw
+    per env: once the top episodes' returns differ (std > 0), the envs'
+    fresh returns differ too. Catches a draw collapsed to its upper end, which
+    gives every env the command R + std and no exploration."""
+    drawn, update_command = [], udrl_file.update_command
+
+    def recording(last_return, last_horizon, reward, done, initial_return, horizon):
+        jax.debug.callback(lambda r: drawn.append(np.asarray(r)), initial_return)
+        return update_command(
+            last_return, last_horizon, reward, done, initial_return, horizon
+        )
+
+    monkeypatch.setattr(udrl_file, "update_command", recording)
+    agent = UDRL(
+        env_id="CartPole-v1", n_envs=8, n_steps=16, batch_size=8, n_updates_per_iter=1
+    )
+    state, _ = agent.train(seed=0, n_timesteps=8 * 16 * 6)
+    jax.effects_barrier()
+    assert np.all(np.asarray(state.command_target_return_std) > 0)  # the premise
+    assert np.ptp(drawn[-1]) > 0
+
+
 def test_UDRL_logs_its_training_metrics_and_evaluation_without_a_backend():
     """With a logging config and no backend, ``train`` returns a row per
     log (every 32 env steps: 4 iterations of 8) of the training metrics and

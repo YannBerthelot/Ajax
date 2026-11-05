@@ -2852,6 +2852,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.evaluate.EpisodeRecord" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EpisodeRecord
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.evaluate.setup_environment" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2889,6 +2900,28 @@
     <span class="md-ellipsis">
       
         evaluate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.evaluate.policy_episodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        policy_episodes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.evaluate.expert_episodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        expert_episodes
       
     </span>
   </a>
@@ -3299,6 +3332,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.evaluate.EpisodeRecord" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EpisodeRecord
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.evaluate.setup_environment" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3336,6 +3380,28 @@
     <span class="md-ellipsis">
       
         evaluate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.evaluate.policy_episodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        policy_episodes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.evaluate.expert_episodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        expert_episodes
       
     </span>
   </a>
@@ -4202,6 +4268,58 @@ return from <code>obs</code> taking <code>action</code>, of the rewards times
 
 </div>
 
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.evaluate.EpisodeRecord" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">EpisodeRecord</span>
+
+
+<a href="#ajax.evaluate.EpisodeRecord" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="typing.NamedTuple">NamedTuple</span></code></p>
+
+
+
+        <p>Each episode of a rollout, one entry per episode, to its first done.
+cost_per_step: the mean of minus the reward over the episode's steps,
+every one of them. trips: the steps the plant tripped on, as the env
+reports them (info["tripped"]); NaN from an env reporting none, whose
+count is unknown, not zero.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
 
 <div class="doc doc-object doc-function">
 
@@ -4369,6 +4487,69 @@ the rewards normalised as in training (:func:<code>normalised_reward</code>) and
 scaled. A recurrent critic's memory is not run here: NaN then. A
 controller with choosers (step_environment) adds a seventh: the share of
 the evaluated steps they handed the expert.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.evaluate.policy_episodes" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">policy_episodes</span>
+
+
+<a href="#ajax.evaluate.policy_episodes" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">policy_episodes</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">env</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">actor_state</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">num_episodes</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">rng</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">env_params</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">recurrent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">norm_info</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">agent_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">controller</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The record of each of <code>num_episodes</code> episodes, one per env, of the
+policy :func:<code>evaluate</code> runs on <code>rng</code>. A diverged episode, whose
+rewards went NaN, costs inf: what the policy did, where a NaN cost means
+a broken measurement.</p>
+<p>The env's draws come from <code>rng</code> alone: the rollout splits its own key
+before it acts, and an action's draws derive from that key by name
+(:func:<code>ajax.policy.make_act</code>), so a policy sampling its action moves
+none of them.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.evaluate.expert_episodes" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">expert_episodes</span>
+
+
+<a href="#ajax.evaluate.expert_episodes" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">expert_episodes</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">env</span><span class="p">,</span> <span class="n">expert_policy</span><span class="p">,</span> <span class="n">num_episodes</span><span class="p">,</span> <span class="n">rng</span><span class="p">,</span> <span class="n">env_params</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>:func:<code>policy_episodes</code> of the expert alone, on the same reset and the
+same steps for the same <code>rng</code>; it speaks env units
+(:class:<code>ExpertInAgentUnits</code>). Its NaN costs stay NaN: a reference that
+diverged is a broken baseline, which the score refuses.</p>
 
 
     </div>

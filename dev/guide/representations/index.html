@@ -930,6 +930,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#embedding-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Embedding a run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#resuming" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2732,6 +2743,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#embedding-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Embedding a run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#resuming" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2871,6 +2893,52 @@ ensemble's members:</p>
 <p>Each evaluation logs the latest probe's, as
 <code>Representation/&lt;layer&gt;/&lt;metric&gt;</code>, to the run's backends and to the returned
 evaluations. Every probe's are in its file.</p>
+<h2 id="embedding-a-run">Embedding a run<a class="headerlink" href="#embedding-a-run" title="Permanent link">&para;</a></h2>
+<p>The embeddings run offline, on a CPU, in minutes, and need the <code>manifolds</code>
+extra (umap-learn, M-PHATE, matplotlib):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;ajax-rl[manifolds]&quot;</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>python<span class="w"> </span>-m<span class="w"> </span>ajax.representation<span class="w"> </span>runs/pendulum<span class="w"> </span>figures/pendulum<span class="w"> </span>--truth<span class="w"> </span>theta_dot
+</code></pre></div>
+<p>To set the metrics against the returns, keep the evaluations with the probes
+first:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.representation.run_data</span><span class="w"> </span><span class="kn">import</span> <span class="n">save_evaluations</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">save_evaluations</span><span class="p">(</span><span class="s2">&quot;runs/pendulum&quot;</span><span class="p">,</span> <span class="n">evaluations</span><span class="p">)</span>
+</code></pre></div>
+<p>The command writes, for the actor and the critic (the critic's first member):</p>
+<table>
+<thead>
+<tr>
+<th>Figure</th>
+<th>Shows</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>manifold_&lt;network&gt;.png</code></td>
+<td>the last hidden layer's states on an Aligned UMAP: one embedding per probe, tied to the next by the states they share, coloured by env step, the critic's value and the observation columns, then the value at six probes</td>
+</tr>
+<tr>
+<td><code>units_&lt;network&gt;.png</code></td>
+<td>the network's hidden units on M-PHATE (Gigante et al., 2019): each point is one unit at one probe, placed by what it responds to, by env step and by layer</td>
+</tr>
+<tr>
+<td><code>weights_&lt;network&gt;.png</code></td>
+<td>the weights on their two principal components, beside a random walk of the same step lengths</td>
+</tr>
+<tr>
+<td><code>metrics.png</code></td>
+<td>every layer's metrics against env steps, each seed and their mean, under the return</td>
+</tr>
+</tbody>
+</table>
+<p>Read the weights figure with its random walk beside it: PCA draws any
+high-dimensional random walk as a smooth curve explaining most of its variance
+(Antognini and Sohl-Dickstein, 2018). <code>--max-probes</code> and <code>--max-states</code> bound
+Aligned UMAP's work, and <code>--max-nodes</code> M-PHATE's, whose kernel holds a pair of
+nodes: its default of 20,000 nodes takes some gigabytes. <code>ajax.representation</code>'s
+<code>run_data</code> reads a run back as NumPy arrays, and <code>embeddings</code> holds the embeddings
+without the figures.</p>
 <h2 id="resuming">Resuming<a class="headerlink" href="#resuming" title="Permanent link">&para;</a></h2>
 <p>A resumed run goes on from its last probe. The state it resumes from has each
 seed's own probe counters, which turns the compiled gate into a select: the probe

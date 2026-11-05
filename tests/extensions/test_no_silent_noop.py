@@ -27,6 +27,7 @@ from ajax.extensions import (
     instrumentation,
     offline,
     reset_cost,
+    retained,
     target_mods,
 )
 from ajax.extensions.base import Extension, ExtensionContext
@@ -38,6 +39,7 @@ def _expert(obs: jax.Array) -> jax.Array:
 
 #: Each extension configured to act (BiasVorePenalty's default coefficient is 0).
 BUILD: dict[type, Callable[[], Extension]] = {
+    retained.RLPD: lambda: retained.RLPD(1, critic_subset=2),
     ensemble.KernelRepulsion: ensemble.KernelRepulsion,
     offline.ConservativeQ: offline.ConservativeQ,
     offline.CalQL: offline.CalQL,

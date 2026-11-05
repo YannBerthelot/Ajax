@@ -38,6 +38,7 @@ from ajax.extensions import (
     observe,
     offline,
     reset_cost,
+    retained,
 )
 from ajax.extensions import pretrain as pre
 from ajax.extensions import target_mods as tm
@@ -176,6 +177,9 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "ExpertValueMetrics": (expert.ExpertValueMetrics, "SAC DQN"),
     "BellmanPretrain": (lambda: pre.BellmanPretrain(n_steps=4), "SAC"),
     "PriorData": (prior_data, "SAC TD3 REDQ ASAC"),
+    "RetainedDemonstrations": (lambda: retained.RetainedDemonstrations(8), "SAC TD3"),
+    # Critics without LayerNorm: the rows' options leave the architecture.
+    "RLPD": (lambda: retained.RLPD(8, critic_layer_norm=False), "SAC REDQ"),
     "ExpertPrefill": (
         lambda: pre.ExpertPrefill(n_steps=8),
         "SAC TD3 REDQ ASAC TQC CrossQ IQL DQN",
@@ -222,6 +226,8 @@ NEEDS_EXPERT = (
     "ExpertGains",
     "ExpertPrefill",
     "ExpertWarmup",
+    "RetainedDemonstrations",
+    "RLPD",
 )
 #: What an option or extension needs on in its row: phi* is MCPretrain's,
 #: BellmanPretrain reads its prefilled replay.
@@ -267,6 +273,8 @@ EXCLUSIVE = [
             {"PIDTermsInput"}, EXPERTS
         ),
     ),
+    # A replay keeps one ring of retained rows.
+    ({"RLPD"}, {"RetainedDemonstrations"}),
     # Cal-QL is CQL's term with a floor: a stack holds one of them.
     ({"ConservativeQ"}, {"CalQL"}),
     ({"AdversarialReward"}, {"fast", "CartPole-v1"}),

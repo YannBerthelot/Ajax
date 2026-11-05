@@ -1,9 +1,13 @@
-from typing import Any, NamedTuple, Optional
+from typing import Any, Callable, NamedTuple, Optional
 
+import chex
 import flashbax as fbx
 import jax
 import jax.numpy as jnp
-from flashbax.buffers.trajectory_buffer import TrajectoryBufferSample
+from flashbax.buffers.trajectory_buffer import (
+    TrajectoryBufferSample,
+    TrajectoryBufferState,
+)
 from flashbax.buffers.trajectory_buffer import init as init_ring
 from jax.tree_util import Partial as partial
 
@@ -12,6 +16,85 @@ from ajax.environments.utils import get_state_action_shapes
 from ajax.state import EnvironmentConfig
 from ajax.types import BufferType, NormalizationInfo
 from ajax.utils import online_normalize
+
+
+@chex.dataclass(frozen=True)
+class TwoBufferState(TrajectoryBufferState):
+    """A replay's ring, which collection writes and evicts from, beside a ring
+    of rows that stay for the whole run (RLPD's offline buffer, DDPGfD's
+    demonstrations). The readers of a replay see the first ring; sampling
+    reads both (:func:`sample_two_buffers`).
+
+    Attributes:
+        retained: The ring of kept rows, with the first ring's fields.
+        share: The share of each batch drawn from it, exact in every batch;
+            None: each row of a batch is drawn over the rows of both rings
+            alike, so the share falls as the first ring fills.
+    """
+
+    retained: Any = None
+    share: Optional[float] = None
+
+
+def written_rows(buffer_state: Any) -> jax.Array:
+    """The rows per env a ring holds: those written, up to its length."""
+    held = jax.tree.leaves(buffer_state.experience)[0].shape[1]
+    return jnp.where(buffer_state.is_full, held, buffer_state.current_index)
+
+
+def empty_ring_like(buffer_state: Any, rows_per_env: int) -> Any:
+    """An empty ring of rows_per_env rows, with buffer_state's fields."""
+
+    def empty(values: jax.Array) -> jax.Array:
+        shape = (values.shape[0], rows_per_env, *values.shape[2:])
+        return jnp.zeros(shape, values.dtype)
+
+    return buffer_state.replace(
+        experience=jax.tree.map(empty, buffer_state.experience),
+        current_index=jnp.zeros_like(buffer_state.current_index),
+        is_full=jnp.zeros_like(buffer_state.is_full),
+    )
+
+
+def with_retained_rows(
+    buffer_state: Any, retained: Any, share: Optional[float]
+) -> TwoBufferState:
+    """buffer_state, its next batches also drawing from the ring retained."""
+    if isinstance(buffer_state, TwoBufferState):
+        raise ValueError("A replay keeps one ring of retained rows.")
+    return TwoBufferState(
+        experience=buffer_state.experience,
+        current_index=buffer_state.current_index,
+        is_full=buffer_state.is_full,
+        retained=retained,
+        share=share,
+    )
+
+
+def sample_two_buffers(
+    sample: Callable, state: Any, key: jax.Array
+) -> TrajectoryBufferSample:
+    """sample(state, key) on a plain ring. On a TwoBufferState, one draw from
+    each ring, on a key of its own, kept row by row: the first rows of the
+    batch from the retained ring where a share is fixed (RLPD's N/2 from
+    each), else each row with the retained ring's share of the rows held."""
+    if not isinstance(state, TwoBufferState):
+        return sample(state, key)
+    online_key, retained_key, share_key = jax.random.split(key, 3)
+    online = sample(state, online_key).experience
+    retained = sample(state.retained, retained_key).experience
+    size = jax.tree.leaves(online)[0].shape[0]
+    if state.share is None:
+        kept, written = written_rows(state.retained), written_rows(state)
+        from_retained = jax.random.uniform(share_key, (size,)) < kept / (kept + written)
+    else:
+        from_retained = jnp.arange(size) < jnp.round(state.share * size)
+
+    def choose(new: jax.Array, old: jax.Array) -> jax.Array:
+        mask = from_retained.reshape((size,) + (1,) * (new.ndim - 1))
+        return jnp.where(mask, old, new)
+
+    return TrajectoryBufferSample(experience=jax.tree.map(choose, online, retained))
 
 
 def get_buffer(
@@ -31,7 +114,9 @@ def get_buffer(
     (flashbax's flat buffer samples a row with its successor, which leaves
     each env's newest row out). When set (recurrent agents), ``sample``
     yields contiguous per-env sequences of that length, shaped
-    (batch_size, sequence_length, ...).
+    (batch_size, sequence_length, ...). Rows alone, a TwoBufferState also
+    draws from its retained ring (:func:`sample_two_buffers`); no window
+    reads one, as a run with memory refuses the extensions that write it.
     """
     from flashbax.utils import add_dim_to_args
 
@@ -52,7 +137,8 @@ def get_buffer(
         return buffer.replace(add=add_fn)  # type: ignore[attr-defined]
 
     def sample_rows(state: Any, key: jax.Array) -> TrajectoryBufferSample:
-        experience = buffer.sample(state, key).experience  # (B, 1, ...)
+        # (B, 1, ...)
+        experience = sample_two_buffers(buffer.sample, state, key).experience
         rows = jax.tree.map(lambda x: x[:, 0], experience)
         return TrajectoryBufferSample(experience=rows)
 

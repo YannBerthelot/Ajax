@@ -171,7 +171,7 @@ GAPS: dict[str, dict[str, str]] = {
         "StorePolicyAction": "DreamerV3 DreamerV3/discrete TDMPC2 TDMPC2MultiTask"
     },
     PRIOR: dict.fromkeys(
-        ("PriorData", "ExpertPrefill"),
+        ("PriorData", "ExpertPrefill", "RLPD", "RetainedDemonstrations"),
         "UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3"
         " DreamerV3/discrete TDMPC2MultiTask",
     ),

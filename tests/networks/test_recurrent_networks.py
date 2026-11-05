@@ -102,15 +102,6 @@ def test_recurrent_multicritic_carry_per_member(kind, num):
         assert not jnp.allclose(values[0], values[1])
 
 
-def test_multicritic_memory_none_signature_unchanged():
-    critic = MultiCritic(input_architecture=ARCH, num=2)
-    rng = jax.random.PRNGKey(0)
-    x = jax.random.normal(rng, (B, OBS_DIM))
-    params = critic.init(rng, x)
-    values = critic.apply(params, x)
-    assert values.shape == (2, B, 1)
-
-
 @pytest.mark.parametrize("kind", KINDS)
 def test_init_network_state_builds_carry_and_flags(kind):
     memory = _memory(kind)

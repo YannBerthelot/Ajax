@@ -56,8 +56,16 @@ manifolds = ["m-phate>=0.1.6", "matplotlib>=3.8.0,<4", "phate>=2.0", "umap-learn
 # `ajax-rl[brax]`.
 brax = ["brax>=0.14.2"]
 # MuJoCo Playground environments, which run in brax's wrappers: `uv sync
-# --extra playground`, or depend on `ajax-rl[playground]`.
-playground = ["ajax-rl[brax]", "playground>=0.2.0,<0.3"]
+# --extra playground`, or depend on `ajax-rl[playground]`. MuJoCo stays below
+# 3.10 until a release of playground holds its commit 33f1b284: 0.2.0 compares
+# versions as strings, so its Reacher tasks take "3.10.0" for older than "3.3.0"
+# and call a method MuJoCo has removed. Its wheels for Python 3.14 start at 3.8.
+playground = [
+    "ajax-rl[brax]",
+    "mujoco>=3.6,<3.10",
+    "mujoco>=3.8; python_version >= '3.14'",
+    "playground>=0.2.0,<0.3",
+]
 # Gymnasium environments, stepped in Python ("gymnasium:HalfCheetah-v5", ...,
 # see ajax.environments.gymnasium), MuJoCo's tasks included: `uv sync --extra
 # gymnasium`, or depend on `ajax-rl[gymnasium]`.

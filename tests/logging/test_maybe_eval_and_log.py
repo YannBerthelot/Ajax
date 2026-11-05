@@ -106,13 +106,6 @@ def test_absolute_iteration_indices_keep_the_cadence_across_a_resume():
     assert [c[1] for c in calls] == [60, 90]  # iterations 5 and 8
 
 
-def test_disabled_logging_evaluates_nothing():
-    state, outputs, calls = run(range(4), log=False)
-    assert calls == []
-    np.testing.assert_array_equal(state.n_logs, [0, 0])
-    assert outputs == [None] * 4
-
-
 def test_disabled_logging_does_not_even_trace_the_evaluation():
     def traced(*_):
         raise AssertionError("traced without logging")

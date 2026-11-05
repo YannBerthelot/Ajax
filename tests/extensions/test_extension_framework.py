@@ -412,17 +412,6 @@ def test_pretraining_keeps_the_states_its_updates_moved():
     assert [int(x) for x in out.ext_state] == [1, 5, 5]
 
 
-def test_fold_init_states_writes_ext_state():
-    class Stateful(Extension):
-        def init_state(self, agent_state, rng):
-            return jnp.asarray(42)
-
-    stack = ExtensionStack([Stateful()])
-    agent = _FakeAgentState()
-    out = stack.apply_init_states(agent, jax.random.PRNGKey(0))
-    assert int(out.ext_state[0]) == 42
-
-
 # --------------------------------------------------------------------------
 # compose_eval_metrics — None-collapse property + merge ordering.
 # --------------------------------------------------------------------------

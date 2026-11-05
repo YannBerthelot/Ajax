@@ -288,7 +288,7 @@ class UDRL(
         raw = None
         if self.expert is not None:
             raw = get_raw_obs(
-                env_state=collector.env_state, env=env_args.env, mode=mode
+                collector.env_state, env_args.env, mode, env_args.env_params
             )
         result = pipeline(
             agent_state, acting, raw, collection_key, False, None, action_key

@@ -99,6 +99,11 @@ The next release is 0.6.0: the first item changes results.
 - **The `plane` group takes `target-gym>=0.7,<0.9`**, from a commit until 0.8.0
   is released. Build its experts with
   `REGISTRY[name].make_pid_controller().batched()`.
+- **Fresh `playground` installs build the Reacher tasks.** The extra now keeps
+  `mujoco` below 3.10. MuJoCo Playground 0.2.0 compares versions as strings, so
+  `ReacherEasy` and `ReacherHard` failed on `mujoco` 3.10 and later with
+  `'MjSpec' object has no attribute 'find_body'`. The cap goes once a Playground
+  release holds the fix.
 
 ## 0.5.0
 

@@ -99,6 +99,9 @@ The next release is 0.6.0: the first item changes results.
   `ReacherEasy` and `ReacherHard` failed on `mujoco` 3.10 and later with
   `'MjSpec' object has no attribute 'find_body'`. The cap goes once a Playground
   release holds the fix.
+- **`log_frequency=1` evaluates from the first step.** With one env it skipped
+  the evaluation at step 1, so the run came out one evaluation short and its
+  last row stayed empty. Other settings evaluate as before.
 
 ## 0.5.0
 

@@ -1,19 +1,20 @@
 """What RL can change around a controller it keeps.
 
-Most expert features only call the expert, expert(memory, obs). Three need its
-law, and ExpertLaw is all they ask of it: one pure step(params, memory, obs) ->
-(action, memory) for one env, with params and memory pytrees, as TargetGym's
-Controller holds it, and the names of what they touch.
-
 * OuterLoopReference: the policy moves the target the expert reads.
 * GainScheduledLaw, under ExpertGains: the policy sets multipliers on its gains.
-* BumplessTracking: the expert's memory follows the action executed.
+* BumplessTracking: the expert's memory follows the action applied.
+
+Each asks only what it uses of a stateful expert, expert(memory, obs) ->
+(action, memory): the first and the last which columns to move, the second its
+gains through step_with_gains. TargetGym's batched controllers have that form,
+and its envs name the columns (obs_target_index, obs_value_index). ExpertLaw gives
+gains to a law that form does not cover.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, ClassVar, Optional
+from typing import Any, Callable, ClassVar
 
 import jax
 import jax.numpy as jnp
@@ -21,32 +22,17 @@ from flax import struct
 
 from ajax.controller import call_expert
 from ajax.extensions.base import Extension
-
-
-def path_name(path: tuple) -> str:
-    """A pytree leaf's dotted name, "tecs.time_const"."""
-    return ".".join(str(getattr(key, "name", key)) for key in path)
-
-
-def scale_gains(params: Any, names: tuple[str, ...], factors: jax.Array) -> Any:
-    """params with each leaf of names multiplied by its factor."""
-
-    def scaled(path: tuple, leaf: Any) -> Any:
-        name = path_name(path)
-        return leaf * factors[names.index(name)] if name in names else leaf
-
-    return jax.tree_util.tree_map_with_path(scaled, params)
+from ajax.networks.memory import tree_where_reset
 
 
 def conditioned_memory(
-    step: Callable,
-    params: Any,
+    expert: Any,
     memory: Any,
     obs: jax.Array,
     action: jax.Array,
     channels: tuple[int, ...],
 ) -> Any:
-    """The memory after a step that executed action, for one env: Hanus,
+    """The batched expert's memory after a step that executed action: Hanus,
     Kinnaert and Henrotte (Automatica 1987), for a controller x+ = A x + B e,
     u = C x + D e, with the state fed the realisable error, the one at which
     the controller would have output the executed action::
@@ -55,24 +41,98 @@ def conditioned_memory(
 
     The paper is paywalled: the equations are as MERL TR2019-054 restates them.
 
-    D is the law's derivative in the readings it compares with its targets, so
-    a cascade's is the whole cascade's. The error moves through the reading,
+    D is the expert's derivative in the readings it compares with its targets,
+    so a cascade's is the whole cascade's. The error moves through the reading,
     not the target as the paper has it: a law biasing on its target (four_tank's
     steady voltages, cstr's steady temperature) has that bias stay put, and may
     not be defined at a moved one. D's pseudo-inverse leaves a law sitting at
-    its own limit, D = 0, to its own anti-windup, and the action a law chose
-    itself shifts nothing, so that step is the law's own. One Newton step,
-    exact for a law affine in its readings.
+    its own limit, D = 0, to its own anti-windup. One Newton step, exact for a
+    law affine in its readings.
     """
     columns = jnp.asarray(channels)
 
-    def stepped(shift: jax.Array) -> tuple[jax.Array, Any]:
-        return step(params, memory, obs.at[columns].add(shift))
+    def one_env(env_memory: Any, env_obs: jax.Array, executed: jax.Array) -> Any:
+        def stepped(shift: jax.Array) -> tuple[jax.Array, Any]:
+            batch = jax.tree.map(lambda leaf: leaf[None], env_memory)
+            actions, after = expert(batch, env_obs.at[columns].add(shift)[None])
+            return actions[0], jax.tree.map(lambda leaf: leaf[0], after)
 
-    no_shift = jnp.zeros(columns.shape, obs.dtype)
-    sensitivity = jax.jacfwd(lambda shift: stepped(shift)[0])(no_shift)
-    shift = jnp.linalg.pinv(sensitivity) @ (action - stepped(no_shift)[0])
-    return stepped(shift)[1]
+        no_shift = jnp.zeros(columns.shape, env_obs.dtype)
+        gap = executed - stepped(no_shift)[0]
+        sensitivity = jax.jacfwd(lambda shift: stepped(shift)[0])(no_shift)
+        return stepped(jnp.linalg.pinv(sensitivity) @ gap)[1]
+
+    return jax.vmap(one_env)(memory, obs, action)
+
+
+def path_name(path: tuple) -> str:
+    """A pytree leaf's dotted name, "tecs.time_const"."""
+    return ".".join(str(getattr(key, "name", key)) for key in path)
+
+
+@dataclass(frozen=True, eq=False)
+class ExpertLaw:
+    """An expert with step_with_gains, from its law: step(params, memory, obs)
+    -> (action, memory) for one env, with params and memory pytrees, as
+    TargetGym's Controller holds it, and gain_names the dotted leaves of params
+    that are gains.
+
+    TargetGym's batched form has step_with_gains too, for a law whose flat gains
+    are registered. Most are not, TECS nests its gains, and that form makes
+    every param an array, which wind_turbine's law cannot take to numpy.
+    """
+
+    step: Callable
+    params: Any
+    memory: Any
+    gain_names: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        unknown = set(self.gain_names).difference(self._leaves())
+        if unknown:
+            raise ValueError(f"The law's params have no gains {sorted(unknown)}.")
+
+    def _leaves(self) -> dict[str, Any]:
+        leaves = jax.tree_util.tree_flatten_with_path(self.params)[0]
+        return {path_name(path): leaf for path, leaf in leaves}
+
+    @classmethod
+    def of(cls, controller: Any, gain_names: tuple[str, ...]) -> "ExpertLaw":
+        """The law of a controller with step, params and init_state."""
+        step, params = controller.step, controller.params
+        return cls(step, params, controller.init_state, gain_names)
+
+    @property
+    def learnable_fields(self) -> tuple[str, ...]:
+        return self.gain_names
+
+    @property
+    def anchor_gains(self) -> jax.Array:
+        leaves = self._leaves()
+        return jnp.array([float(leaves[name]) for name in self.gain_names])
+
+    def init_state(self, n_envs: int) -> Any:
+        return batched(self.memory, n_envs)
+
+    def __call__(self, state: Any, obs: jax.Array) -> tuple[jax.Array, Any]:
+        return jax.vmap(self.step, (None, 0, 0))(self.params, state, obs)
+
+    def step_with_gains(
+        self, state: Any, obs: jax.Array, gains: jax.Array
+    ) -> tuple[jax.Array, Any]:
+        """A step at gains, (n_envs, n_gains), the other params left as they are."""
+
+        def one_env(env_gains: jax.Array, memory: Any, reading: jax.Array) -> Any:
+            def gained(path: tuple, leaf: Any) -> Any:
+                name = path_name(path)
+                if name not in self.gain_names:
+                    return leaf
+                return env_gains[self.gain_names.index(name)]
+
+            params = jax.tree_util.tree_map_with_path(gained, self.params)
+            return self.step(params, memory, reading)
+
+        return jax.vmap(one_env)(gains, state, obs)
 
 
 def batched(tree: Any, n_envs: int) -> Any:
@@ -83,66 +143,6 @@ def batched(tree: Any, n_envs: int) -> Any:
         return jnp.broadcast_to(leaf, (n_envs, *leaf.shape))
 
     return jax.tree.map(repeat, tree)
-
-
-@dataclass(frozen=True, eq=False)
-class ExpertLaw:
-    """An expert as its law, batched over envs, for an agent's expert_policy.
-
-    step, params and memory as the module docstring says, in the env's units.
-    reading_channels are the observation columns its errors read, one per
-    loop; gain_names the dotted leaves of params its gains are.
-    """
-
-    step: Callable
-    params: Any
-    memory: Any
-    reading_channels: tuple[int, ...] = ()
-    gain_names: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        known = [
-            path_name(path)
-            for path, _ in jax.tree_util.tree_flatten_with_path(self.params)[0]
-        ]
-        unknown = [name for name in self.gain_names if name not in known]
-        if unknown:
-            raise ValueError(f"The law's params have no gains {unknown}.")
-
-    @classmethod
-    def of(cls, controller: Any, **names: Any) -> "ExpertLaw":
-        """The law of a controller with step, params and init_state."""
-        step, params = controller.step, controller.params
-        return cls(step, params, controller.init_state, **names)
-
-    def act(self, params: Any, memory: Any, obs: jax.Array) -> tuple[jax.Array, Any]:
-        """One env's step, its action a column: battery's law returns a number,
-        which the agent's (n_envs, n_actions) action does not take."""
-        action, memory = self.step(params, memory, obs)
-        return jnp.ravel(action), memory
-
-    def init_state(self, n_envs: int) -> Any:
-        return batched(self.memory, n_envs)
-
-    def __call__(self, state: Any, obs: jax.Array) -> tuple[jax.Array, Any]:
-        return jax.vmap(self.act, (None, 0, 0))(self.params, state, obs)
-
-    def track(self, state: Any, obs: jax.Array, action: jax.Array) -> Any:
-        """The memory after the executed action (conditioned_memory)."""
-        if not self.reading_channels:
-            raise ValueError("Tracking an action needs the law's reading_channels.")
-
-        def one_env(memory: Any, reading: jax.Array, executed: jax.Array) -> Any:
-            return conditioned_memory(
-                self.act,
-                self.params,
-                memory,
-                reading,
-                executed,
-                self.reading_channels,
-            )
-
-        return jax.vmap(one_env)(state, obs, action)
 
 
 @struct.dataclass
@@ -163,7 +163,8 @@ class GainLayerState:
 class GainScheduledLaw:
     """A law whose gains take multipliers each step, through a velocity form
     (Bloor et al., arXiv 2408.13566, eq. 10): for ExpertGains, which bounds the
-    multipliers (max_factor), and an agent's expert_policy.
+    multipliers (max_factor), and an agent's expert_policy. expert is any with
+    step_with_gains, learnable_fields, anchor_gains and init_state.
 
     The paper's layer is a PID. These laws are not all PIDs, so the form is
     theirs, held at the step's gains: the change in the action is the law's
@@ -178,7 +179,8 @@ class GainScheduledLaw:
     by one number through its reciprocal, not by one per env). bias_retention
     scales the bias each step: at 1 this is eq. 10, below it a law at its own
     limit, or holding an inner integrator, cannot stay held off that limit by
-    an old bias.
+    an old bias. Near a law's own limit the difference is of limited outputs, so
+    a higher gain can move the action less, where eq. 10 on a PID would not.
 
     Beyond the paper, whose gains jump each step: log multipliers move at most
     max_log_rate a step. The memory they hold joins the state, so the policy
@@ -186,7 +188,7 @@ class GainScheduledLaw:
     trains by particle swarm; Ajax's SAC here has no published result.
     """
 
-    law: ExpertLaw
+    expert: Any
     obs_width: int
     max_log_rate: float = 0.05
     bias_retention: float = 0.99
@@ -194,31 +196,24 @@ class GainScheduledLaw:
 
     @property
     def learnable_fields(self) -> tuple[str, ...]:
-        return self.law.gain_names
+        return self.expert.learnable_fields
 
     @property
     def anchor_gains(self) -> jax.Array:
         """Ones: the gains ExpertGains sets here are the multipliers."""
-        return jnp.ones(len(self.law.gain_names))
+        return jnp.ones(len(self.learnable_fields))
 
     def init_state(self, n_envs: int) -> GainLayerState:
-        law = self.law
-        obs = jnp.zeros(self.obs_width)
-
-        def action_at(memory: Any, reading: jax.Array) -> jax.Array:
-            return law.act(law.params, memory, reading)[0]
-
-        action = jax.eval_shape(action_at, law.memory, obs)
-        return batched(
-            GainLayerState(
-                memory=law.memory,
-                last_memory=law.memory,
-                last_obs=obs,
-                last_action=jnp.zeros(action.shape, action.dtype),
-                log_factors=jnp.zeros(len(law.gain_names)),
-                started=jnp.zeros((), jnp.bool_),
-            ),
-            n_envs,
+        memory = self.expert.init_state(n_envs)
+        obs = jnp.zeros((n_envs, self.obs_width))
+        action = jax.eval_shape(self.expert, memory, obs)[0]
+        return GainLayerState(
+            memory=memory,
+            last_memory=memory,
+            last_obs=obs,
+            last_action=jnp.zeros(action.shape, action.dtype),
+            log_factors=jnp.zeros((n_envs, len(self.learnable_fields))),
+            started=jnp.zeros((n_envs,), jnp.bool_),
         )
 
     def __call__(self, state: GainLayerState, obs: jax.Array) -> Any:
@@ -230,20 +225,12 @@ class GainScheduledLaw:
     ) -> tuple[jax.Array, GainLayerState]:
         """One step at the multipliers factors, (n_envs, n_gains), as far as
         the rate limit lets them move."""
-        law = self.law
         change = jnp.log(factors) - state.log_factors
         change = jnp.clip(change, -self.max_log_rate, self.max_log_rate)
         log_factors = state.log_factors + change
-
-        def one_env(log_factor: jax.Array, memory: Any, last_memory: Any, *rest: Any):
-            last_obs, reading = rest
-            params = scale_gains(law.params, law.gain_names, jnp.exp(log_factor))
-            held = law.act(params, last_memory, last_obs)[0]
-            return held, *law.act(params, memory, reading)
-
-        held, action, memory = jax.vmap(one_env)(
-            log_factors, state.memory, state.last_memory, state.last_obs, obs
-        )
+        gains = self.expert.anchor_gains * jnp.exp(log_factors)
+        held, _ = self.expert.step_with_gains(state.last_memory, state.last_obs, gains)
+        action, memory = self.expert.step_with_gains(state.memory, obs, gains)
         bias = self.bias_retention * (state.last_action - held)
         bias = jnp.where(state.started[:, None], bias, 0.0)
         action = jnp.clip(action + bias, *self.action_limits)
@@ -304,31 +291,48 @@ class OuterLoopReference(Extension):
 
 @dataclass(frozen=True)
 class BumplessTracking(Extension):
-    """The agent's expert's memory follows the action executed: without it the
+    """The agent's expert's memory follows the action applied: without it the
     memory advances on the error whoever acts, so its integral winds up while
-    a learner holds the plant. It makes no difference to what the arm chooses,
-    so it stacks on any switching or blending arm, and leaving it out is the
-    ablation. The agent's expert needs track(memory, obs, action) -> memory,
-    which ExpertLaw gives.
+    a learner holds the plant. It changes nothing the arm chooses, so it stacks
+    on any switching or blending arm, and leaving it out is the ablation.
+
+    reading_channels are the columns the expert's errors read, TargetGym's
+    obs_value_index. What it follows is the actuator's report, the env's
+    info["applied_action"], or the commanded action where the env gives none or
+    no env is stepped (a deployed policy). A step the expert chose itself stays
+    its own, its anti-windup with it, whatever the actuator made of it: that is
+    the expert the study scores, and its discrepancy is not a takeover.
     """
 
+    reading_channels: tuple[int, ...]
     name: str = "bumpless_tracking"
-    tracks_executed_action: ClassVar[bool] = True
-    # An agent differentiating through the expert's memory (APG) has no use for
-    # a memory that a pseudo-inverse rewrites, and a world model's imagined steps
-    # (obs_networks) execute no action.
-    requires: ClassVar[frozenset[str]] = frozenset(
-        {"agent_expert", "obs_networks", "off_policy"}
-    )
+    requires: ClassVar[frozenset[str]] = frozenset({"agent_expert", "obs_networks"})
+
+    def __post_init__(self) -> None:
+        # A tuple: the extension is a static, hashed argument.
+        object.__setattr__(self, "reading_channels", tuple(self.reading_channels))
+        if not self.reading_channels:
+            raise ValueError("BumplessTracking needs the expert's reading_channels.")
 
     def bind_to_agent(self, **agent_context: Any) -> "BumplessTracking":
-        expert: Optional[Any] = agent_context.get("expert_policy")
-        if not hasattr(expert, "track"):
-            raise ValueError(
-                "BumplessTracking needs an expert with track(memory, obs, action):"
-                " give the agent an ExpertLaw with its reading_channels."
-            )
+        if not hasattr(agent_context.get("expert_policy"), "init_state"):
+            raise ValueError("BumplessTracking needs a stateful expert_policy.")
         return self
+
+    def track_memory(
+        self,
+        expert: Any,
+        memory: Any,
+        obs: jax.Array,
+        command: jax.Array,
+        applied: jax.Array,
+    ) -> Any:
+        own_action, own_memory = expert(memory, obs)
+        tracked = conditioned_memory(
+            expert, memory, obs, applied, self.reading_channels
+        )
+        chose_itself = jnp.all(command == own_action, axis=-1)
+        return tree_where_reset(chose_itself, own_memory, tracked)
 
 
 __all__ = [

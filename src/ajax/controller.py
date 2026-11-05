@@ -195,9 +195,11 @@ def observe_features(
     return jnp.concatenate([raw_obs, columns], axis=-1), states
 
 
-def tracks_executed_action(stack: Any) -> bool:
-    """Whether the stack has the expert's memory follow the executed action."""
-    return any(extension.tracks_executed_action for extension in stack)
+def memory_tracker_of(stack: Any) -> Any:
+    """The extension of stack with the expert's memory following what was
+    applied (BumplessTracking), or None."""
+    found = [e for e in stack if "track_memory" in e.implemented_phases()]
+    return found[0] if found else None
 
 
 def transforms_of(stack: Any) -> tuple[Any, ...]:
@@ -420,8 +422,8 @@ class Controller:
     # evaluation's executed action (their eval_action phase): the index is
     # their state's, the key name their keys' (extension_key_names).
     choosers: tuple = ()
-    # Whether the expert's memory follows the executed action (BumplessTracking).
-    tracks_executed: bool = False
+    # The extension the expert's memory follows the applied action through.
+    tracker: Any = None
 
     @property
     def actuates(self) -> bool:
@@ -489,8 +491,9 @@ def make_run_controller(
     )
     if choosers:
         controller = replace(controller, choosers=choosers)
-    if tracks_executed_action(extensions):
-        controller = replace(controller, tracks_executed=True)
+    tracker = memory_tracker_of(extensions)
+    if tracker is not None:
+        controller = replace(controller, tracker=tracker)
     if env_args.store_normalized_obs:
         columns = raw_obs_columns(env_args.env)
         controller = replace(controller, normalize_obs=True, raw_columns=columns)

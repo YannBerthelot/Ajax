@@ -494,11 +494,36 @@ continuous-action agent.
 
 ## Acting around a controller
 
-`ajax.extensions.structure` needs the expert's law, not only its call. An
-`ExpertLaw` holds it: a pure `step(params, memory, obs)` for one env, its
-`params` and `memory`, `reading_channels` (the observation columns its errors
-read) and `gain_names` (the leaves of `params` that are gains). TargetGym's
-`Controller` has that form:
+`ajax.extensions.structure` holds three arms that keep the expert and change what
+is around it. Each asks only for what it uses: the expert's call
+`expert(memory, obs)`, which columns of the observation hold its targets and its
+readings, and its gains. TargetGym's batched controllers have that form, and its
+envs name the columns in `obs_target_index` and `obs_value_index`. Read them from
+the env rather than writing positions, since observation layouts change between
+versions.
+
+- **Moving the target.** `OuterLoopReference(target_channels, max_change)` with the
+  expert as `expert_policy`: the policy outputs one change per target, bounded by
+  `max_change` in the target's units, and the expert acts on the moved target. No
+  change is the expert.
+- **Scheduling gains.** `GainScheduledLaw(expert, obs_width)` as `expert_policy`,
+  with `ExpertGains(max_factor=2.0)`: the policy sets a multiplier per gain, and the
+  multipliers move at most `max_log_rate` a step. The action changes as the law does
+  between two steps at the same gains, the velocity form, so a new gain alone moves
+  nothing, and unit multipliers are the law. Add
+  `ExpertStateInput.for_expert(layer)`, so that the policy reads the multipliers it
+  moves from.
+- **Tracking what ran.** Add `BumplessTracking(reading_channels)` to a switching or
+  blending arm (`JSRLCurriculum`, `CHEQ`, `IBRL`, `ResidualPolicy`): the expert's
+  memory takes the error at which it would have output the action applied, which an
+  env reports in `info["applied_action"]`, and otherwise the command. Without it, the
+  memory advances on the error whoever acts. A step the expert chose itself stays its
+  own, and a law sitting at its own limit keeps its own anti-windup. Handing back
+  still steps by the proportional term.
+
+`GainScheduledLaw` reads the expert's `step_with_gains`, `learnable_fields` and
+`anchor_gains`. TargetGym's batched form has them for the laws it registers. For the
+others, `ExpertLaw` builds them from the law:
 
 ```python
 # doc: skip
@@ -508,28 +533,9 @@ from ajax.extensions.structure import ExpertLaw
 
 law = ExpertLaw.of(
     REGISTRY["four_tank"].make_pid_controller(),
-    reading_channels=(0, 1),
     gain_names=("Kp_1", "Ti_1", "Kp_2", "Ti_2"),
 )
 ```
-
-- **Moving the target.** `OuterLoopReference(target_channels, max_change)`
-  with the law as `expert_policy`: the policy outputs one change per target,
-  bounded by `max_change` in the target's units, and the expert acts on the
-  moved target. No change is the expert.
-- **Scheduling gains.** `GainScheduledLaw(law, obs_width)` as `expert_policy`,
-  with `ExpertGains(max_factor=2.0)`: the policy sets a multiplier per gain,
-  and the multipliers move at most `max_log_rate` a step. The action changes
-  as the law does between two steps at the same gains, the velocity form, so a
-  new gain alone moves nothing, and unit multipliers are the law. Add
-  `ExpertStateInput.for_expert(layer)`, so that the policy reads the
-  multipliers it moves from.
-- **Tracking what ran.** Add `BumplessTracking()` to a switching or blending
-  arm (`JSRLCurriculum`, `CHEQ`, `IBRL`, `ResidualPolicy`): the law's memory
-  takes the error at which it would have output the executed action, in
-  collection and evaluation. Without it, the memory advances on the error
-  whoever acts. A law sitting at its own limit keeps its own anti-windup, and
-  handing back still steps by the proportional term.
 
 ## Limits and caveats
 

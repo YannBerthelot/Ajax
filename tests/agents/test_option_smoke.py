@@ -70,9 +70,6 @@ class Expert:
     def step_with_gains(self, state: Any, obs: jax.Array, gains: Any) -> Any:
         return jnp.clip(-gains[0] * obs[..., :1], -2.0, 2.0), state + obs[..., :1]
 
-    def track(self, state: Any, obs: jax.Array, action: jax.Array) -> Any:
-        return state + obs[..., :1] + action
-
 
 def stateless_expert(obs: jax.Array) -> jax.Array:
     return jnp.clip(-obs[..., :1], -2.0, 2.0)
@@ -182,7 +179,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "ResidualPolicy": (expert.ResidualPolicy, "SAC"),
     "ExpertGains": (expert.ExpertGains, "SAC"),
     "OuterLoopReference": (lambda: structure.OuterLoopReference((0,), (0.1,)), "SAC"),
-    "BumplessTracking": (structure.BumplessTracking, "SAC TD3"),
+    "BumplessTracking": (lambda: structure.BumplessTracking((0,)), "SAC TD3"),
     "ExpertValueMetrics": (expert.ExpertValueMetrics, "SAC DQN"),
     "BellmanPretrain": (lambda: pre.BellmanPretrain(n_steps=4), "SAC"),
     "PriorData": (prior_data, "SAC TD3 REDQ ASAC"),

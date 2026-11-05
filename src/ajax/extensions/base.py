@@ -54,6 +54,8 @@ Phases
                  expert mix), uniform by default
 ``choose_replay_action`` the action a replay row stores (StorePolicyAction:
                  the policy's), the executed one by default
+``track_memory`` the agent's expert's memory after a step that executed
+                 another's action (BumplessTracking); its own step by default
 
 ``on_target``, ``critic_loss`` and ``actor_loss`` may return ``(value,
 metrics)`` instead of their value: ``metrics``, a dict of scalars named
@@ -133,6 +135,7 @@ PHASES: tuple[str, ...] = (
     "actuate",
     "choose_warmup_action",
     "choose_replay_action",
+    "track_memory",
     "post_update",
     "eval_metrics",
 )
@@ -300,10 +303,6 @@ class Extension:
     #: cutting (update_steps.bootstrap_cuts).
     continues_through_terminations: ClassVar[bool] = False
 
-    #: Whether the agent's expert's memory follows the executed action, through
-    #: its track(memory, obs, action), not the expert's own (BumplessTracking).
-    tracks_executed_action: ClassVar[bool] = False
-
     #: Whether the observation normaliser covers the columns :meth:`observe`
     #: appends (an expert's action, already in action units, stays raw).
     observes_normalised: ClassVar[bool] = True
@@ -455,6 +454,21 @@ class Extension:
         generated the step's reward and next observation."""
         del policy_actions
         return executed_actions
+
+    def track_memory(
+        self,
+        expert: Any,
+        memory: Any,
+        obs: jax.Array,
+        command: jax.Array,
+        applied: jax.Array,
+    ) -> Any:
+        """The agent's expert's memory after a step from memory at obs, once
+        the env has stepped: command is the action sent, applied the action
+        the actuator made of it, both in agent units. The expert's own step by
+        default."""
+        del command, applied
+        return expert(memory, obs)[1]
 
     def policy_action_for_expert(self, policy_actions: jax.Array) -> jax.Array:
         """For an action transform: the policy action, shaped like

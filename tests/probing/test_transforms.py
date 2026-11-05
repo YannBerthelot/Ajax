@@ -15,6 +15,17 @@ Gain mode: a P expert acts g s, its gain g = 0.4 * 10^a set by the agent's
 action a, so the agent must learn the gain 0.8 (a = log10 2) and execute
 0.8 s. Untrained, the agent leaves the expert near its anchor gain: 0.4 s.
 
+Outer-loop reference (Arroyo and Giraldo, 2020): the same expert reads its
+target, s, moved by 2 a, so the agent must learn a = s / 2 and execute 0.8 s.
+Untrained, the target stays where it is: 0.4 s.
+
+Velocity-form gains (Bloor et al., 2024, eq. 10): two steps from s, on an
+integrating expert k I with k = 0.2, whose integral I holds s then 2 s. The
+agent sets a multiplier m = 4^a on k, and the steps pay -(u - 0.4 s)^2 then
+-(u - 0.6 s)^2. The form's change at step 2 is m k s, so m = 2 then m = 1, a =
+0.5 then 0. A law in position form acts m k 2 s at step 2, which asks for m =
+1.5, a = 0.29.
+
 The cells are the agents whose answer here is the greedy one, calibrated on
 2000-16000 steps (2026-10-24). Left out, each for an answer of its own:
 - PPO and APO: an unsquashed Gaussian that keeps its spread within these
@@ -32,6 +43,7 @@ Their wiring is tests/agents/test_residual_policy.py's and test_gain_mode.py's.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import jax
@@ -39,6 +51,7 @@ import jax.numpy as jnp
 import pytest
 
 from ajax.extensions.expert import ExpertGains, ResidualPolicy
+from ajax.extensions.structure import GainScheduledLaw, OuterLoopReference
 
 from . import agents, envs, runs
 from . import readouts as R
@@ -46,6 +59,8 @@ from .verdict import Case, Query, check, params
 
 TARGET, BASE = 0.8, 0.4  # the best executed action, and the expert's, times s
 SAMPLES = 256  # of the policy's actions per reading
+MOVE = 2.0  # the most the outer loop moves the target
+RATE, FIRST, SECOND, FACTOR = 0.2, 0.4, 0.6, 4.0  # the velocity-form problem's
 
 
 def bandit() -> envs.Spec:
@@ -79,6 +94,42 @@ class GainExpert:
         return jnp.clip(gains[..., :1] * obs[..., :1], -1.0, 1.0), state
 
 
+def two_steps() -> envs.Spec:
+    def transition(st: envs.State, a: jax.Array, key: Any) -> tuple:
+        a = a.reshape(-1)[0]
+        wanted = jnp.where(st.s == 0, FIRST, SECOND) * st.c
+        return st.replace(s=st.s + 1), -((a - wanted) ** 2), st.s == 1
+
+    def reset(key: jax.Array, params: Any) -> tuple:
+        return 0, jnp.where(jax.random.bernoulli(key), 1.0, -1.0)
+
+    def obs(st: envs.State) -> jax.Array:
+        return jnp.stack([st.c, st.s.astype(jnp.float32)])
+
+    return envs.Spec(
+        "velocity_gains", transition, obs, reset, obs_dim=2, obs_box=(-1.0, 1.0)
+    )
+
+
+class IntegratingExpert:
+    """``k I`` on the integral of the observation's first column, its gain
+    learnable, anchored at ``RATE``."""
+
+    learnable_fields, anchor_gains = ("k",), jnp.array([RATE])
+
+    def init_state(self, n_envs: int) -> jax.Array:
+        return jnp.zeros((n_envs, 1))
+
+    def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+        return self.step_with_gains(state, obs, self.anchor_gains)
+
+    def step_with_gains(self, state: jax.Array, obs: jax.Array, gains: Any) -> tuple:
+        # No limit of its own: past one, the form's difference of two limited
+        # outputs falls as the gain rises, which gives the step a second answer.
+        integral = state + obs[..., :1]
+        return gains[..., :1] * integral, integral
+
+
 #: Overrides of the probe preset for the agents it lacks or whose defaults
 #: never warm up on one step.
 EXTRA: dict[str, dict[str, Any]] = {
@@ -87,18 +138,27 @@ EXTRA: dict[str, dict[str, Any]] = {
 }
 
 
-def transform_readings(agent: str, gains: bool) -> Any:
+def transform_readings(agent: str, arm: str) -> Any:
     def build() -> Any:
         env, params = bandit().make()
-        transform = ExpertGains() if gains else ResidualPolicy(scale=1.0)
-        expert = GainExpert() if gains else residual_expert
+        transform, expert = {
+            "gain": (ExpertGains(), GainExpert()),
+            "residual": (ResidualPolicy(scale=1.0), residual_expert),
+            "reference": (OuterLoopReference((0,), (MOVE,)), residual_expert),
+        }[arm]
         kw = EXTRA.get(agent, {}) | {"expert_policy": expert}
         return agents.make(agent, env, params, extensions=(transform,), **kw)
 
     def executed(a: jax.Array, s: float) -> jax.Array:
-        if gains:
-            return jnp.clip(BASE * 10**a * s, -1.0, 1.0)
-        return jnp.clip(BASE * s + a, -1.0, 1.0)
+        return jnp.clip(
+            {
+                "gain": BASE * 10**a * s,
+                "residual": BASE * s + a,
+                "reference": BASE * (s + MOVE * a),
+            }[arm],
+            -1.0,
+            1.0,
+        )
 
     def read(run: runs.Run) -> dict:
         def at(n: R.Nets) -> dict:
@@ -124,7 +184,9 @@ def residual_case(agent: str, budget: int, tol: tuple = (), note: str = "") -> C
         for s in (-1.0, 1.0)
     )
     name = f"residual-{agent}"
-    return Case(name, queries, transform_readings(agent, False), budget, tol, note=note)
+    return Case(
+        name, queries, transform_readings(agent, "residual"), budget, tol, note=note
+    )
 
 
 def gain_case(agent: str, budget: int, tol: tuple = (), note: str = "") -> Case:
@@ -133,7 +195,61 @@ def gain_case(agent: str, budget: int, tol: tuple = (), note: str = "") -> Case:
         for s in (-1.0, 1.0)
     )
     name = f"gain-{agent}"
-    return Case(name, queries, transform_readings(agent, True), budget, tol, note=note)
+    return Case(
+        name, queries, transform_readings(agent, "gain"), budget, tol, note=note
+    )
+
+
+def reference_case(agent: str, budget: int, tol: tuple = (), note: str = "") -> Case:
+    queries = tuple(
+        Query(f"a({s:g})", TARGET * s, {"the target left alone": BASE * s})
+        for s in (-1.0, 1.0)
+    )
+    name = f"reference-{agent}"
+    return Case(
+        name, queries, transform_readings(agent, "reference"), budget, tol, note=note
+    )
+
+
+def velocity_readings(agent: str) -> Any:
+    def build() -> Any:
+        env, params = two_steps().make()
+        layer = GainScheduledLaw(
+            IntegratingExpert(), 2, max_log_rate=10.0, bias_retention=1.0
+        )
+        kw = EXTRA.get(agent, {}) | {"expert_policy": layer}
+        arm = ExpertGains(max_factor=FACTOR)
+        return agents.make(agent, env, params, extensions=(arm,), **kw)
+
+    def read(run: runs.Run) -> dict:
+        def at(n: R.Nets) -> dict:
+            out = {}
+            for s in (-1.0, 1.0):
+                for step in (0, 1):
+                    pi = R.pi(n, [s, float(step)])
+                    a = pi.sample(seed=jax.random.PRNGKey(0), sample_shape=SAMPLES)
+                    a = jnp.clip(a.reshape(-1), -1.0, 1.0)
+                    out[f"a{step + 1}({s:g})"] = a.mean()
+            return out
+
+        return R.per_seed(at, R.nets(run.state))
+
+    return runs.readings(build, read)
+
+
+def velocity_case(agent: str, budget: int, tol: tuple = (), note: str = "") -> Case:
+    position = math.log(1.5, FACTOR)
+    queries = tuple(
+        q
+        for s in (-1.0, 1.0)
+        for q in (
+            Query(f"a1({s:g})", 0.5, {"unit gains": 0.0}),
+            Query(f"a2({s:g})", 0.0, {"the position form": position}),
+        )
+    )
+    return Case(
+        f"velocity-{agent}", queries, velocity_readings(agent), budget, tol, note=note
+    )
 
 
 _LADDER = "ladder 2000-16000 on 1000-1031, 2000-2031"

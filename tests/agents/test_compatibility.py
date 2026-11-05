@@ -70,6 +70,7 @@ CONTEXT = "the agent binds no context for it yet"
 FORM = (
     "no form for this agent yet (cross-entropy for discrete actors; a policy's encoder)"
 )
+OWN_COLLECTOR = "its collector steps the env itself, with no track_memory phase yet"
 WORLD = "world models fold no loss phase for extensions and build their own encoders"
 CNN = "the cnn options are not on this agent yet (batch network-reach)"
 MEMORY = "memory is not wired on this agent yet (batch network-reach)"
@@ -123,6 +124,7 @@ GAPS: dict[str, dict[str, str]] = {
         # APG's controller may keep a state between steps.
         "RepresentationProbe": "APG UDRL UDRL/discrete",
     },
+    OWN_COLLECTOR: {"BumplessTracking": "APG UDRL UDRL/discrete"},
     FORM: {
         "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"
         " DreamerV3/discrete",
@@ -204,9 +206,6 @@ class _GainExpert:
     def step_with_gains(self, state: Any, obs: jnp.ndarray, gains: Any) -> tuple:
         return -gains[0] * obs[..., :1], state
 
-    def track(self, state: Any, obs: jnp.ndarray, action: jnp.ndarray) -> Any:
-        return state + action
-
 
 #: The agent's expert a module needs beyond the stateless one.
 MODULE_EXPERTS = {"ExpertGains": _GainExpert(), "BumplessTracking": _GainExpert()}
@@ -236,6 +235,7 @@ def field_values(env: str) -> dict[str, Any]:
     return {
         "expert_policy": expert,
         "target_channels": (0,),
+        "reading_channels": (0,),
         "max_change": (0.1,),
         "threshold": 1.0,
         "n_steps": 4,

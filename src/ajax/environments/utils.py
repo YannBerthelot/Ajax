@@ -383,23 +383,14 @@ def _to_agent_units(action: jax.Array, bounds: Optional[tuple[Any, Any]]) -> jax
     return (action - centre) / half
 
 
-def _to_env_units(action: jax.Array, bounds: Optional[tuple[Any, Any]]) -> jax.Array:
-    """``centre + half * action``: the inverse of :func:`_to_agent_units`."""
-    if bounds is None:
-        return action
-    centre, half = (jnp.asarray(x, dtype=action.dtype) for x in bounds)
-    return centre + half * action
-
-
 class ExpertInAgentUnits:
     """An expert written in env units, read in agent units (``[-1, 1]``).
 
     What the expert returns -- ``expert(obs)``, a stateful ``expert(state,
     obs)``'s action, ``step_with_gains``'s action -- goes through
-    :func:`env_action_to_agent`'s map, unclipped, and the executed action
-    its ``track(state, obs, action)`` is given comes back. ``init_state``,
-    ``learnable_fields``, ``anchor_gains``, ``step_with_gains`` and ``track``
-    exist exactly when the expert's do (``hasattr`` still tells a stateful
+    :func:`env_action_to_agent`'s map, unclipped. ``init_state``,
+    ``learnable_fields``, ``anchor_gains`` and ``step_with_gains`` exist
+    exactly when the expert's do (``hasattr`` still tells a stateful
     expert). It hashes by identity, for jit's static arguments.
 
     Its bounds are one ``(A,)`` box read from concrete params, also inside
@@ -462,11 +453,4 @@ class ExpertInAgentUnits:
                 return _to_agent_units(action, self._bounds), state
 
             return step_with_gains
-        if name == "track":
-            track = self.expert.track
-
-            def track_in_env_units(state: Any, obs: Any, action: Any) -> Any:
-                return track(state, obs, _to_env_units(action, self._bounds))
-
-            return track_in_env_units
         raise AttributeError(name)

@@ -119,6 +119,17 @@ def test_learning_starts_must_cover_a_burn_in_and_a_sequence(name: str) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(AGENTS))
+def test_the_first_update_waits_for_a_full_window_in_every_env(name: str) -> None:
+    """A window is burn_in + sequence_length + 1 steps (4 + 8 + 1 = 13), and
+    learning_starts // n_envs must exceed it so every env's trajectory holds
+    one: 13 is refused and 14 is built."""
+    window = {"burn_in": 4, "sequence_length": 8, "memory": MemoryConfig(kind="gru")}
+    with pytest.raises(ValueError, match="learning_starts"):
+        _agent(name, learning_starts=13, **window)
+    assert _agent(name, learning_starts=14, **window) is not None
+
+
+@pytest.mark.parametrize("name", sorted(AGENTS))
 def test_stored_state_requires_memory(name: str) -> None:
     with pytest.raises(ValueError, match="stored_state"):
         _agent(name, stored_state=True)

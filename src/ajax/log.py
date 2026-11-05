@@ -497,10 +497,7 @@ def evaluate_and_log(
     else:
         close_to_end_flag = True
 
-    flag = jnp.logical_and(
-        jnp.logical_and(log_flag, timestep > 1),
-        not_finished_flag,
-    )
+    flag = jnp.logical_and(log_flag, not_finished_flag)
     flag = jnp.logical_and(flag, close_to_end_flag)
 
     choosers = controller is not None and bool(controller.choosers)

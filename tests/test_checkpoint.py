@@ -1,12 +1,14 @@
 """Tests for ajax.checkpoint: save/load and resume-training round-trip."""
 
 import os
+import pickle
 from types import SimpleNamespace
 from typing import ClassVar, NamedTuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 import pytest
 from flax import struct
 
@@ -417,6 +419,31 @@ def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path, agent_n
             np.array_equal, getattr(restored, name).opt_state, opt_state
         )
         assert all(jax.tree.leaves(same)), name
+
+
+def test_an_optimiser_state_of_another_network_behind_a_clip_is_refused(tmp_path):
+    """The clip shim applies only to the layout it knows: a state behind a clip
+    whose first moments hold a parameter the network does not (a checkpoint of
+    another architecture) is refused as any other layout is, not read as the
+    known one with the extra moment dropped."""
+    from ajax.agents.PPO.PPO import PPO
+
+    agent = PPO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
+    skeleton = agent.train(seed=0, n_timesteps=0)[0]
+    actor = skeleton.actor_state
+    old = skeleton.replace(
+        actor_state=actor.replace(opt_state=(optax.EmptyState(), actor.opt_state))
+    )
+    path = str(tmp_path / "clipped.pkl")
+    save_checkpoint(old, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    first_moments = saved["actor_state"]["opt_state"]["1"]["0"]["mu"]["params"]
+    first_moments["an_extra_layer"] = np.zeros(3, np.float32)
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    with pytest.raises(ValueError):
+        restore_into(skeleton, path)
 
 
 def test_another_agents_optimiser_saved_behind_a_clip_is_refused(sac_run, tmp_path):

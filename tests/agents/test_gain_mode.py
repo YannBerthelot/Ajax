@@ -3,6 +3,7 @@ agent acts in the expert's gain space, as wide as its learnable gains, and
 its replay or rollout holds the gains (that the agents learn them is
 tests/probing's)."""
 
+from types import SimpleNamespace
 from typing import Any
 
 import jax
@@ -36,6 +37,27 @@ class TwoGains:
     def step_with_gains(self, state: jax.Array, obs: jax.Array, gains: Any) -> tuple:
         action = -gains[..., :1] * obs[..., 1:2] - gains[..., 1:] * obs[..., 2:3]
         return jnp.clip(action, -2.0, 2.0), state + 1.0
+
+
+class OnlyGains:
+    """Learnable gains but no state: not an expert gain mode can drive."""
+
+    learnable_fields = ("kp",)
+
+
+class OnlyState:
+    """A state but no learnable gains: nothing for the policy to set."""
+
+    def init_state(self, n_envs: int) -> jax.Array:
+        return jnp.zeros((n_envs, 1))
+
+
+@pytest.mark.parametrize("expert", [OnlyGains(), OnlyState()], ids=["gains", "state"])
+def test_gain_mode_refuses_an_expert_missing_gains_or_state(expert):
+    """Either half missing is refused alone: gain mode needs both the gains to
+    set and a state to advance."""
+    with pytest.raises(ValueError, match="learnable_fields"):
+        ExpertGains().policy_action_dim(SimpleNamespace(observers=()), expert)
 
 
 @pytest.mark.parametrize("name", AGENTS)

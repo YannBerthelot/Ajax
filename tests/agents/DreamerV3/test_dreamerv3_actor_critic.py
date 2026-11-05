@@ -986,6 +986,21 @@ def test_agc_clips_each_tensor_by_its_own_norm():
     np.testing.assert_array_equal(clipped["big"], grads["big"])  # |g| = 2.4 < 6
 
 
+def test_agc_defaults_are_the_papers_clip_and_floor():
+    """DreamerV3's adaptive clipping is 0.3 with a parameter-norm floor of
+    1e-3 (dreamerv3_spec 4.4): any gradient on a zero tensor is cut to 0.3 * 1e-3, whatever the call leaves out. Changing a default is
+    a breaking change."""
+    grads, params = {"zero": jnp.ones((2, 2))}, {"zero": jnp.zeros((2, 2))}
+    clipped, _ = scale_by_agc().update(grads, optax.EmptyState(), params)
+    np.testing.assert_allclose(jnp.linalg.norm(clipped["zero"]), 0.3 * 1e-3, rtol=1e-5)
+
+
+def test_agc_needs_the_parameters_it_measures():
+    """Without params the clip has no bound to apply: refused, not skipped."""
+    with pytest.raises(ValueError):
+        scale_by_agc().update({"w": jnp.ones(2)}, optax.EmptyState(), None)
+
+
 def test_laprop_matches_a_hand_recursion():
     """Algorithm I in float64: per-tensor AGC on the raw gradient, RMS
     normalisation with bias correction and ``eps`` after the square root,

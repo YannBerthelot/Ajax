@@ -20,6 +20,7 @@ from ajax.environments.action_stage import (
     apply_action_extensions,
     as_env_column,
     check_action_slots,
+    choose_in_evaluation,
 )
 from ajax.environments.interaction import ActionPipelineResult, collect_experience
 from ajax.extensions.base import Extension
@@ -42,6 +43,16 @@ class HandOver(Extension):
         obs["expert_mask"] = mask
         column = mask.reshape((-1,) + (1,) * (obs["expert_action"].ndim - 1))
         return jnp.where(column, obs["expert_action"], obs["post_warmup_action"])
+
+
+@dataclass(frozen=True)
+class ReadsHorizon(Extension):
+    """A chooser whose evaluation action is the run's horizon it is told."""
+
+    name: str = "reads_horizon"
+
+    def eval_action(self, agent_state, ext_state, obs, rng, context):
+        return jnp.full_like(obs["executed_action"], context.total_steps)
 
 
 @dataclass(frozen=True)
@@ -106,6 +117,18 @@ def test_without_the_agents_expert_the_stage_runs_an_extensions_own():
     result = staged(agent_state, acting, raw_obs, key, jnp.asarray(False), key, key)
     np.testing.assert_array_equal(result.buffer_action, [[3], [2]])
     np.testing.assert_array_equal(result.is_expert_flag, [[1.0], [0.0]])
+
+
+def test_evaluation_tells_its_choosers_no_horizon():
+    """Evaluation holds no horizon (total_steps 0), so a chooser scheduling on
+    the run's length finds none: catches a horizon of 1, which would schedule
+    evaluation as a one-step run."""
+    state = SimpleNamespace(ext_state=((),))
+    acting = SimpleNamespace(timestep=jnp.asarray(5))
+    step = {"executed_action": jnp.full((N_ENVS, 1), 7.0)}
+    choosers = ((0, "reads_horizon", ReadsHorizon()),)
+    step, _ = choose_in_evaluation(state, acting, choosers, step, jax.random.PRNGKey(0))
+    np.testing.assert_array_equal(step["executed_action"], jnp.zeros((N_ENVS, 1)))
 
 
 def test_an_action_extension_without_a_slot_is_refused():

@@ -72,6 +72,17 @@ def test_actor_critic_builds_the_env_with_action_repeat():
         ActorCritic(env_id="Pendulum-v1", n_envs=1, action_repeat=2)
 
 
+@pytest.mark.parametrize(
+    "attributes", [{}, {"action_repeat": None}], ids=["no-attribute", "attribute-none"]
+)
+def test_a_brax_stack_without_an_episode_wrapper_runs_one_simulator_step(attributes):
+    """Catches a repeat of 0 for a brax stack that does not state one: every
+    simulator step count derived from it would be 0. (Named for brax, as the
+    check reads the type's name when brax is not imported.)"""
+    stack = type("BraxStackWithoutEpisodeWrapper", (), attributes)()
+    assert env_action_repeat(stack) == 1
+
+
 def test_action_repeat_must_be_a_positive_int():
     with pytest.raises(ValueError, match="positive"):
         build_env_from_id("fast", action_repeat=0)

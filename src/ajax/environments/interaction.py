@@ -462,15 +462,26 @@ def maybe_vmap(f, vmap_on, **kwargs):
     return f
 
 
-def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
+def get_raw_obs(
+    env_state: EnvState,
+    env: Environment,
+    mode: str,
+    env_params: Optional[EnvParams] = None,
+) -> jax.Array:
+    """The environment's own observation, what an expert reads, under
+    env_params (one system per env where they are batched): the run's, or
+    the expert reads other sensors than the agent. None: the env's default
+    params."""
     vmap_on = (
         max(jax.tree_util.tree_leaves(jax.tree.map(lambda x: x.ndim, env_state))) > 0
     )
     if mode == "gymnax":
         # gymnax 1.0's signature is `get_obs(state, params, key=None)`, and some
         # envs (e.g. MemoryChain) make `params` required rather than optional.
-        env_params = getattr(env, "default_params", None)
-        return maybe_vmap(lambda st: env.get_obs(st, env_params), vmap_on)(env_state)
+        if env_params is None:
+            env_params = getattr(env, "default_params", None)
+        axes = (0, 0 if env_params_is_batched(env_params) else None)
+        return maybe_vmap(env.get_obs, vmap_on, in_axes=axes)(env_state, env_params)
     # An observation normaliser overwrites a brax state's obs and keeps the
     # raw one in its info.
     if RAW_OBS_KEY in getattr(env_state, "info", {}):
@@ -919,7 +930,7 @@ def step_features(
     start, expert_start = restart_observers(
         ended, observers, observer_states, expert, expert_state, n_envs
     )
-    raw_next = get_raw_obs(env_state=env_state, env=env_args.env, mode=mode)
+    raw_next = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
     raw_next = raw_next.astype(jnp.float32)
     next_inputs = ObserveInputs(raw_next, expert, expert_start, **at)
     final_inputs = ObserveInputs(raw_final_obs, expert, expert_state, **at)
@@ -1064,9 +1075,10 @@ def collect_experience(
     # to the float32-schema buffer; coerce int obs (e.g. discrete probing
     # envs) so flashbax's dtype check passes.
     raw_obs = get_raw_obs(
-        env_state=agent_state.collector_state.env_state,
-        env=env_args.env,
-        mode=mode,
+        agent_state.collector_state.env_state,
+        env_args.env,
+        mode,
+        env_args.env_params,
     ).astype(jnp.float32)
 
     # The agent's own pipeline (SAC's expert, EDGE, the value box, ...) or
@@ -1317,7 +1329,7 @@ def collect_experience_from_expert_policy(
     before_training: dict[str, Any] = {"progress": 0.0}
     observer_states = None
     if observers:
-        raw = get_raw_obs(env_state=env_state, env=env_args.env, mode=mode)
+        raw = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
         inputs = ObserveInputs(
             raw.astype(jnp.float32),
             expert_policy,
@@ -1335,11 +1347,7 @@ def collect_experience_from_expert_policy(
         rng_step = env_keys(env_step_key, mode, env_args.n_envs)
 
         # The expert reads the raw env obs (NOT normalized).
-        raw_obs = get_raw_obs(
-            env_state=env_state,
-            env=env_args.env,
-            mode=mode,
-        )
+        raw_obs = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
         if expert_is_stateful:
             action, new_expert_state = expert_policy(expert_state, raw_obs)
         else:
@@ -1464,7 +1472,7 @@ def reset_features(
     the observers' states after them."""
     n_envs = env_args.n_envs
     stateful = expert is not None and hasattr(expert, "init_state")
-    raw = get_raw_obs(env_state=env_state, env=env_args.env, mode=mode)
+    raw = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
     inputs = ObserveInputs(
         raw.astype(jnp.float32),
         expert=expert,

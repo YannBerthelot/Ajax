@@ -237,7 +237,7 @@ def test_the_log_frequency_leaves_the_evaluations_at_a_timestep() -> None:
 def test_a_log_frequency_of_one_evaluates_every_step_from_the_first() -> None:
     """Catches a gate that skips the first step: the run comes out one
     evaluation short and its last row stays empty (timestep -1)."""
-    agent = SAC(env_id="Pendulum-v1", n_envs=1, **_NETS, **_REPLAY)
+    agent = SAC(env_id="Pendulum-v1", n_envs=1, batch_size=8, buffer_size=64)
     config = LoggingConfig(log_frequency=1, backends=())
     _, out = agent.train(seed=0, n_timesteps=4, logging_config=config)
     np.testing.assert_array_equal(np.ravel(out["timestep"]), [1, 2, 3, 4])

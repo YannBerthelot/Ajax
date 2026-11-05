@@ -25,6 +25,7 @@ from typing import Any, Callable, ClassVar, Optional
 import jax
 import jax.numpy as jnp
 
+from ajax.agents.cloning import zero_output_head
 from ajax.environments.utils import critic_action_units
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.observe import ExpertActionInput
@@ -469,19 +470,23 @@ class ImitationLoss(Extension):
 
 @dataclass(frozen=True)
 class ResidualPolicy(Extension):
-    """Residual RL (Johannink et al. 2019).
+    """Residual RL (Johannink et al. 2019; Silver et al. 2018).
 
     The executed action is ``clip(a_expert + scale·a_pi, -1, 1)``, from the
-    agent's tracked expert. Collection applies it before the action is
-    chosen (the warm-up draws executed actions), the replay stores the
-    executed action, the critics score it (the TD-target bootstrap at
+    agent's tracked expert, at every step: the warm-up draws uniform
+    residuals, not uniform executed actions. The replay stores the executed
+    action, the critics score it (the TD-target bootstrap at
     ``next_a_expert`` and the actor's policy gradient flow through the same
     transform, :func:`ajax.controller.executed_actions`), and evaluation
     acts through it. Its presence alone turns residual RL on, with the
     agent's expert policy.
+
+    ``zero_start`` puts the actor's output head at 0, so that the policy
+    starts as the expert: its mean residual is 0 at every observation.
     """
 
     scale: float = 1.0
+    zero_start: bool = False
     name: str = "residual_policy"
     # Its base is the agent's expert, which an agent learning from that
     # expert's labels alone (DAgger) would learn to cancel, and which an
@@ -489,6 +494,24 @@ class ResidualPolicy(Extension):
     requires: ClassVar[frozenset[str]] = frozenset(
         {"agent_expert", "obs_networks", "reward_learning"}
     )
+
+    def implemented_phases(self) -> frozenset[str]:
+        """Its pretraining only with a zero start."""
+        phases = super().implemented_phases()
+        return phases if self.zero_start else phases.difference({"pretrain"})
+
+    def pretrain(
+        self, agent_state: Any, ext_state: Any, context: ExtensionContext
+    ) -> tuple[Any, Any]:
+        del context
+        if not self.zero_start:
+            return agent_state, ext_state
+        actor = agent_state.actor_state.replace(
+            params=zero_output_head(agent_state.actor_state.params)
+        )
+        if actor.target_params is not None:  # TD3's target actor starts equal
+            actor = actor.replace(target_params=zero_output_head(actor.target_params))
+        return agent_state.replace(actor_state=actor), ext_state
 
     def transform_action(self, actions: jax.Array, inputs: Any) -> jax.Array:
         """``clip(a_expert + scale·a_pi, -1, 1)`` — the residual mix."""

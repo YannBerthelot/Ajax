@@ -29,35 +29,82 @@ def _one(obs: jax.Array) -> jax.Array:
     return jnp.ones(obs.shape[:-1] + (1,))
 
 
-def _residual_run(name: str, n_timesteps: int, **extra: Any) -> tuple:
+def _agent(name: str, residual: ResidualPolicy, **extra: Any) -> Any:
     case = CASES[name]
     cls: Any = case.cls  # each agent's own keywords
-    agent = cls(
+    return cls(
         env_id="Pendulum-v1",
         n_envs=2,
         expert_policy=_one,
-        extensions=(ResidualPolicy(scale=0.0),),
-        **case.kwargs,
-        **extra,
+        extensions=(residual,),
+        **{**case.kwargs, **extra},
     )
-    return agent.train(seed=0, n_timesteps=n_timesteps)[0], case
+
+
+def _residual_run(name: str, n_timesteps: int, **extra: Any) -> tuple:
+    agent = _agent(name, ResidualPolicy(scale=0.0), **extra)
+    return agent.train(seed=0, n_timesteps=n_timesteps)[0], CASES[name]
 
 
 @pytest.mark.parametrize("name", REPLAY)
 def test_at_scale_zero_the_replay_stores_the_experts_executed_action(name):
-    """With scale 0 the executed action is the expert's: every row past the
-    warm-up (uniform executed actions; TQC has none, as its authors' code)
-    stores it, as its a_expert."""
+    """With scale 0 the executed action is the expert's: every row, the
+    warm-up's too (the expert stays under the residual), stores it, as its
+    a_expert."""
     steps = CASES[name].n_timesteps
-    state, case = _residual_run(name, steps)
+    state, _ = _residual_run(name, steps)
     rows = state.collector_state.buffer_state.experience
-    start = 0 if name == "TQC" else case.kwargs["learning_starts"] // 2
     stop = steps // 2  # rows per env
-    action = np.asarray(rows["action"])[..., start:stop, 0]
+    action = np.asarray(rows["action"])[..., :stop, 0]
     np.testing.assert_allclose(action, 0.5, rtol=1e-6)
-    np.testing.assert_allclose(np.asarray(rows["a_expert"])[..., start:stop, 0], 0.5)
-    if start:
-        assert not np.allclose(np.asarray(rows["action"])[..., :start, 0], 0.5)
+    np.testing.assert_allclose(np.asarray(rows["a_expert"])[..., :stop, 0], 0.5)
+
+
+@pytest.mark.parametrize("name", ["SAC", "TD3", "REDQ", "CrossQ", "ASAC"])
+def test_the_warm_up_explores_around_the_expert(name):
+    """Residual RL acts through the base at every step (Johannink et al.
+    2019; Silver et al. 2018): uniform warm-up actions without it restart
+    from nothing and trip what the controller holds. Warm-up residuals in
+    [-1, 1] at scale 0.25 execute within 0.25 of the expert's 0.5. A bug
+    dropping the expert executes uniform actions, far outside that band."""
+    steps = CASES[name].kwargs["learning_starts"]
+    state = _agent(name, ResidualPolicy(scale=0.25)).train(seed=0, n_timesteps=steps)[0]
+    rows = state.collector_state.buffer_state.experience
+    action = np.asarray(rows["action"])[..., : steps // 2, 0]
+    assert np.abs(action - 0.5).max() <= 0.25 + 1e-6
+    assert action.std() > 0.05  # the residuals' spread, 0.25 / sqrt(3)
+
+
+def _untrained_actions(name: str, residual: ResidualPolicy) -> np.ndarray:
+    """The untrained policy's actions on four observations, in Pendulum's
+    units."""
+    agent = _agent(name, residual)
+    policy = agent.policy(agent.train(seed=0, n_timesteps=0))
+    obs = jax.random.normal(jax.random.PRNGKey(0), (4, 3))
+    return np.asarray(policy.act(obs, policy.reset(4))[0])
+
+
+@pytest.mark.parametrize("name", [*REPLAY, "IQL", "AVG"])
+def test_a_zero_start_acts_as_the_expert(name):
+    """Silver et al. 2018: an untrained residual of exactly 0, so learning
+    starts from the expert's behaviour. A bug leaving the head random acts
+    the expert plus an arbitrary offset."""
+    np.testing.assert_allclose(
+        _untrained_actions(name, ResidualPolicy(zero_start=True)), 1.0, rtol=1e-5
+    )  # the expert's torque
+
+
+def test_a_zero_start_leaves_tds_target_actor_equal_to_its_actor():
+    """TD3 bootstraps on its target actor: left random, the first targets
+    read another policy than the one acting."""
+    agent = _agent("TD3", ResidualPolicy(zero_start=True))
+    actor = agent.train(seed=0, n_timesteps=0)[0].actor_state
+    jax.tree.map(np.testing.assert_array_equal, actor.params, actor.target_params)
+
+
+def test_without_a_zero_start_the_residual_stays_the_agents_own():
+    """The default keeps the agent's reference initialisation."""
+    assert not np.allclose(_untrained_actions("SAC", ResidualPolicy()), 1.0)
 
 
 def test_td3s_actor_scores_the_executed_action():

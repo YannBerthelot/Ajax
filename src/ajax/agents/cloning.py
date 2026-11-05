@@ -34,9 +34,10 @@ _LOG_STD_NAMES = frozenset({"log_std", "log_std_param"})
 
 def _is_output_head(names: list) -> bool:
     """Whether a parameter belongs to the actor's output head: Actor's
-    ``mean`` layer, or a PID law's gains (fixed ``kp``, ``ki`` and ``kd``,
-    or the ``head`` predicting them from the observation)."""
-    if len(names) > 1 and names[-2] == "mean":
+    ``mean`` layer, DeterministicActor's ``head``, or a PID law's gains (fixed
+    ``kp``, ``ki`` and ``kd``, or the ``head`` predicting them from the
+    observation)."""
+    if len(names) > 1 and names[-2] in ("mean", "head"):
         return True
     return "pid" in names and ("head" in names or names[-1] in GAIN_NAMES)
 
@@ -53,6 +54,17 @@ def _reset_actor_heads(cloned: Any, before: Any, reset_actor_head: bool) -> Any:
         return old if reset_actor_head and _is_output_head(names) else new
 
     return jax.tree_util.tree_map_with_path(reset, cloned, before)
+
+
+def zero_output_head(params: Any) -> Any:
+    """The actor's params with its output head at 0: it starts by outputting
+    0 at every observation (the log-std stays, so it still explores)."""
+
+    def zero(path: Any, leaf: jax.Array) -> jax.Array:
+        names = [getattr(k, "key", None) for k in path]
+        return jnp.zeros_like(leaf) if _is_output_head(names) else leaf
+
+    return jax.tree_util.tree_map_with_path(zero, params)
 
 
 @partial(

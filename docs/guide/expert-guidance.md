@@ -237,14 +237,15 @@ of 0), which its actor then fits under the command the step realised:
 Ajax's composition of JSRL and EDGE with UDRL, not a published pairing.
 
 `ResidualPolicy` changes what the policy's action means: the agent executes
-`clip(a_E + scale · a_π, −1, 1)`, in agent units, in collection (before the
-warm-up's choice, so the warm-up draws executed actions), in the critics'
+`clip(a_E + scale · a_π, −1, 1)`, in agent units, in collection (the warm-up
+too, which draws uniform residuals around the expert), in the critics'
 target, in the actor's loss and in evaluation; the replay stores the
 executed action. The policy then learns a correction to the expert
-(residual RL). SAC, TD3, REDQ, TQC, CrossQ, ASAC and AVG run it, their
-critics scoring the executed action; PPO and APO too, their ratio reading
-the policy's own sample; and IQL, whose replay also keeps the residual the
-policy chose (its warm-up draws residuals), which its actor fits. Where a
+(residual RL). `zero_start=True` puts the actor's output head at 0, so that
+the policy starts as the expert. SAC, TD3, REDQ, TQC, CrossQ, ASAC and AVG
+run it, their critics scoring the executed action; PPO and APO too, their
+ratio reading the policy's own sample; and IQL, whose replay also keeps the
+residual the policy chose, which its actor fits. Where a
 collection extension handed the agent's expert the step, IQL's replay keeps
 the residual that executes the expert's action, 0, which is Ajax's own
 composition of JSRL, EDGE and IBRL with residual IQL. UDRL

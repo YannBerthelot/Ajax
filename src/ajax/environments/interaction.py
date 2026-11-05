@@ -575,17 +575,15 @@ def policy_pipeline(
     after_choice: bool = False,
     warmups: tuple = (),
 ) -> ActionPipelineResult:
-    """The default action pipeline: the policy's action, through the run's
-    residual ``transform`` (its ``transform_action``) where it has one, or a
-    uniform one in [-1, 1] while ``uniform`` (the warm-up). The residual
-    acts before the choice, so the warm-up draws executed actions; with
-    ``after_choice`` it acts on the chosen one, so the warm-up draws
-    residuals, and the policy's action stored is the one chosen (an actor
-    fitting its own stored actions: IQL's). The run's warm-up chooser
-    (warmups: ExpertWarmup) may take a warm-up step instead of the uniform
-    action, the expert's action entering in the space the warm-up draws,
-    and the replay flags the steps the expert took. rng, the collection's
-    carry, is the action stage's (apply_action_extensions)."""
+    """The default action pipeline: the policy's action or, while ``uniform``
+    (the warm-up), a uniform one in [-1, 1]. With ``after_choice`` the run's
+    residual ``transform`` (its ``transform_action``) acts on the chosen
+    action, so the warm-up draws residuals around the expert, and the policy
+    action stored is the one chosen. The run's warm-up chooser (warmups:
+    ExpertWarmup) may take a warm-up step instead of the uniform action, the
+    expert's action entering in the space the warm-up draws, and the replay
+    flags the steps the expert took. rng, the collection's carry, is the
+    action stage's (apply_action_extensions)."""
     del rng
     action, log_probs, raw_action, agent_state = get_action_and_log_probs(
         action_key=action_key,
@@ -648,6 +646,14 @@ def policy_pipeline(
 Explore = Callable[[Any, jax.Array, jax.Array], jax.Array]
 
 
+def acts_on_the_choice(transform: Any) -> bool:
+    """Whether transform is a residual one, whose base the warm-up keeps: it
+    acts on the chosen action, a uniform one included."""
+    return transform is not None and (
+        "transform_action" in transform.implemented_phases()
+    )
+
+
 def executed_action(
     transform: Any, action: jax.Array, acting: ActingState, raw_obs: jax.Array
 ) -> jax.Array:
@@ -669,10 +675,11 @@ def explore_pipeline(
     warmups: tuple = (),
 ) -> Callable:
     """The action pipeline of the behaviour policy ``explore`` (``n_actions``:
-    a discrete action space's size), through the run's residual
-    ``transform`` where it has one, or uniform actions, on ``mix_key``,
+    a discrete action space's size), or uniform actions, on ``mix_key``,
     during the warm-up; an agent that never warms up (``warmup=False``, an
-    on-policy one) draws none. The run's warm-up chooser (warmups:
+    on-policy one) draws none. The run's residual ``transform`` acts on
+    either, so the warm-up draws residuals around the expert, and the policy
+    action stored is the one chosen. The run's warm-up chooser (warmups:
     ExpertWarmup) may take a warm-up step instead of the uniform action,
     the expert's action entering in the space the warm-up draws, and the
     replay flags the steps the expert took.
@@ -691,6 +698,7 @@ def explore_pipeline(
         env_action = executed_action(transform, action, acting, raw_obs)
         discrete = n_actions is not None
         is_expert_flag = None
+        after_choice = acts_on_the_choice(transform)
         if warmup:
             if n_actions is None:
                 uniform_action = jax.random.uniform(
@@ -701,11 +709,10 @@ def explore_pipeline(
                     mix_key, action.shape, minval=0, maxval=n_actions
                 ).astype(action.dtype)
             # Traced only with a warm-up chooser: a run without one is
-            # unchanged. The residual acts before the choice, so the
-            # expert's action enters as executed.
+            # unchanged.
             if warmups:
                 expert_action = find_expert_action_in_choice_space(
-                    transform, False, acting.expert_action, action
+                    transform, after_choice, acting.expert_action, action
                 )
                 # A discrete expert's (n_envs, 1) index column would broadcast
                 # against the policy's (n_envs,) indices in the choice.
@@ -721,14 +728,26 @@ def explore_pipeline(
                 is_expert_flag = warmup_expert_flags(
                     took_this_step, stored_policy_action
                 )
-            executed = env_action
-            env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: executed)
+            if after_choice:
+                action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
+                env_action = executed_action(transform, action, acting, raw_obs)
+            else:
+                executed = env_action
+                env_action = jax.lax.cond(
+                    uniform, lambda: uniform_action, lambda: executed
+                )
+        policy_action_for_expert = None
+        if after_choice:
+            policy_action_for_expert = find_expert_action_in_choice_space(
+                transform, after_choice, acting.expert_action, action
+            )
         return ActionPipelineResult(
             env_action=env_action,
             policy_action=action[:, None] if discrete else action,
             is_expert_flag=is_expert_flag,
             buffer_action=env_action[:, None] if discrete else None,
             new_actor_hidden=actor.hidden_state if recurrent else None,
+            policy_action_for_expert=policy_action_for_expert,
         )
 
     return pipeline
@@ -857,8 +876,8 @@ def expert_collect_kwargs(
     expert's next state are the call's where the pipeline returns none of
     its own. The run's action extensions act on the pipeline's result (the
     action stage, apply_action_extensions, over total_timesteps). The run's
-    transform: a residual one the default pipeline applies before the choice
-    (a pipeline of the agent's applies it itself); an actuate one (gain
+    transform: a residual one the default pipeline applies to the chosen
+    action (a pipeline of the agent's applies it itself); an actuate one (gain
     mode) executes the chosen action through the expert, which that steps,
     and the chosen one is stored. The run's warm-up chooser (warmups) runs
     in the default pipeline; a pipeline of the agent's runs it itself.
@@ -875,6 +894,7 @@ def expert_collect_kwargs(
         recurrent=recurrent,
         n_envs=n_envs,
         transform=transform,
+        after_choice=acts_on_the_choice(transform),
         warmups=warmups,
     )
     inner = apply_action_extensions(inner, extensions, n_envs, total_timesteps)

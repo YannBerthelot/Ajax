@@ -176,9 +176,9 @@ class ActorCritic:
     # in ajax.agents.loop (TARGET_KEYS, CRITIC_LOSS_KEYS, ...) and its own.
     phase_batch_keys: Mapping[str, frozenset] = {}
     # The ExtensionContext fields its loop fills for its extensions'
-    # pretraining (the shared loop: env_args; off-policy also update, and
-    # buffer with a replay).
-    pretrain_context: frozenset = frozenset({"env_args"})
+    # pretraining (the shared loop: env_args and seed_index; off-policy also
+    # update, and buffer with a replay).
+    pretrain_context: frozenset = frozenset({"env_args", "seed_index"})
     # Replay-buffer fields beyond its own this agent stores on an
     # extension's declaration (Extension.buffer_fields); any other is
     # rejected at construction.

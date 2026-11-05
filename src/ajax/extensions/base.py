@@ -104,7 +104,8 @@ class ExtensionContext:
     gets its static ``env_args`` and, off-policy, its ``update(agent_state,
     experience) -> (agent_state, aux)`` and replay ``buffer``, so an
     extension can run the agent's own update; each is None where the run
-    has none.
+    has none. ``seed_index`` (traced) is the seed's place among those trained
+    together, for what names a file per seed.
     """
 
     step: jax.Array  # current global timestep (traced)
@@ -113,6 +114,7 @@ class ExtensionContext:
     env_args: Any = struct.field(pytree_node=False, default=None)
     update: Optional[Callable] = struct.field(pytree_node=False, default=None)
     buffer: Any = struct.field(pytree_node=False, default=None)
+    seed_index: Any = None
 
 
 # Phase methods an Extension may override. Used for the construction-time
@@ -275,7 +277,7 @@ class Extension:
     #: The agent-context keys it cannot work without (:meth:`bind_to_agent`).
     context: ClassVar[frozenset[str]] = frozenset()
     #: The :class:`ExtensionContext` fields its ``pretrain`` reads (``env_args``,
-    #: ``update``, ``buffer``), which the agent's loop fills.
+    #: ``update``, ``buffer``, ``seed_index``), which the agent's loop fills.
     pretrain_context: ClassVar[frozenset[str]] = frozenset()
     #: Per phase, the batch keys it reads beyond those every agent folding
     #: the phase passes (``COMMON_BATCH_KEYS``).
@@ -685,8 +687,8 @@ class ExtensionStack:
         **run_fields: Any,
     ) -> Any:
         """The one-shot pretrain; returns the updated ``agent_state``.
-        ``run_fields``: the run's static :class:`ExtensionContext` fields
-        (``env_args``, ``update``, ``buffer``)."""
+        ``run_fields``: the run's :class:`ExtensionContext` fields
+        (``env_args``, ``update``, ``buffer``, ``seed_index``)."""
         if not self.extensions:
             return agent_state
         keys, updates_key = self._keys(rng), agent_state.rng

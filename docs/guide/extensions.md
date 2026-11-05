@@ -3,7 +3,7 @@
 An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships thirty-four of them,
+or measurements logged at each evaluation. Ajax ships thirty-five of them,
 listed in the [catalogue](#catalogue) below.
 
 Why extensions instead of agent options? An agent's constructor takes its
@@ -373,6 +373,12 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | `ConditioningMetrics` | Logs the critic's effective rank (`Cond/critic_srank`), its fraction of dormant units, its feature and weight norms. It finds the critic from the agent's networks: an ensemble critic, or a Q-network. | `eval_metrics` | replay agents given `buffer=` (SAC, TD3, REDQ, ASAC, DQN); PPO, APO, PQN and AVG, which keep their latest rollout for it (AVG's is one step per copy) |
 | `BiasVoreDecomposition` | Splits the critic's squared one-step error into squared bias and variance (`EVarEst/bias_sq`, `EVarEst/var_resid`, `EVarEst/mse`, `EVarEst/abs_bias`), against a one-step target on its current parameters, or your own `value_target_fn`. | `eval_metrics` | as `ConditioningMetrics` |
 | `BiasVorePenalty` | Adds `((1 − 2α)/α) · Var(residual)` to the critic loss; `alpha=0.5` adds nothing. Logs `bias_vore/penalty` and `bias_vore/residual_var`. | `critic_loss` | every agent with a `critic_loss` phase: SAC, TD3, REDQ, ASAC, AVG, PPO, APO, DQN, PQN |
+
+**Recording representations** (`ajax.extensions.representation`)
+
+| Extension | What it does | Phases | Works with |
+| --- | --- | --- | --- |
+| `RepresentationProbe` | Reads the networks' activations and parameters on a fixed set of states every `probe_interval` steps, writes them to a directory and logs each layer's effective rank, alignment with the previous probe, activation norm and dead units ([guide](representations.md)). | `pretrain`, `post_update`, `eval_metrics` | every agent whose networks read the observation alone, without memory: not APG, UDRL or the world models |
 
 Sources: reward centering is Naik, Wan, Tomar and Sutton, RLC 2024, and the reset cost Hisaki and Ono, ICML 2024; TD3+BC is Fujimoto and Gu, 2021; CQL is Kumar et al., 2020, Cal-QL Nakamoto et al., 2023, and ReBRAC Tarasov et al., 2023; GAIL is Ho and Ermon, 2016; Q-filtered BC is Nair et al.,
 ICRA 2018; residual RL is Johannink et al., 2019; JSRL is Uchendu et al.,

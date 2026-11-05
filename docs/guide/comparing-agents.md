@@ -65,6 +65,55 @@ larger than the resolution; it says nothing about smaller ones. On normal
 scores with 32 runs each (`n = 8`, `K = 4`) the resolution is about 0.75
 standard deviations.
 
+## Paired runs
+
+Two agents that share something run by run compare better as pairs. If
+seed number `i` of every agent meets the same episodes, a hard set of
+episodes costs both agents, and that spread says nothing about which is
+better. With `paired=True`, each comparison reads the differences between
+same-numbered runs, so what they share cancels:
+
+```python
+import numpy as np
+
+from ajax.compare import AdaStop
+
+rng = np.random.default_rng(0)
+hardness = rng.normal(size=(2, 10))  # each seed number's episodes, two interims
+test = AdaStop(["a", "b"], n=10, K=2, paired=True)
+while not test.finished:
+    test.update(
+        {
+            "a": hardness[test.k] + 0.3 + 0.1 * rng.normal(size=10),
+            "b": hardness[test.k] + 0.1 * rng.normal(size=10),
+        }
+    )
+test.decisions  # {("a", "b"): "larger"}
+```
+
+- **Rows go by interim.** Row `i` of interim `k` must be the same seed number
+  in every agent, whichever agents have stopped. Rows of unequal length are
+  refused. `compare` trains the same seeds in every agent when you pass
+  `paired=True`, instead of disjoint ones.
+- **Pairing only helps if the rows share something.** Runs that share nothing
+  gain nothing, and lose a little: the test then rests on `n * K` differences,
+  not `2 * n * K` scores.
+- **The test.** Each permutation flips the sign of whole rows, with the same
+  flips in every comparison and the observed rows first. The rest is the
+  unpaired test: step-down, boundaries, ties and level carried over.
+- **What holds exactly.** For two equal agents the level is exact when a row's
+  two scores are exchangeable. With three or more it is exact for symmetric
+  noise, and otherwise rests on the shared flips, which came out cautious on
+  skewed noise (0.03 at `alpha = 0.05`, 12 agents).
+- **`difference` and `resolution` take `paired=True` too.** They then resample
+  whole rows. Without it they describe an unpaired test: `difference` gives
+  an interval that still holds the rows' shared spread, and `resolution` the
+  gap an unpaired test would detect.
+
+The `paired` branch of the authors' `adastop` package tests each pair's
+differences against a dummy agent of zeros. Here the signs flip row by row,
+and `active` still says which agents can stop.
+
 ## The score
 
 The test compares one number per run, and the choice of that number changes
@@ -89,6 +138,14 @@ itself takes milliseconds; the training is the cost.
 
 The [reference comparison](../../benchmarks/reference/README.md) reports an
 AdaStop verdict on its recorded runs.
+
+**A small `alpha` needs more permutations.** Only about `alpha * B / K`
+permutations sit beyond each interim's boundary: 13 at `alpha = 0.05 / 19`,
+`K = 2` and `B = 10,000`. Below `B = 1 / alpha` there are none, and nothing can
+be rejected. The error rate held at those settings: 0.0030 over 12,000
+simulated paired runs of 12 equal agents, against a level of 0.0026. But a
+boundary read off so few permutations is noisy, so raise `B` with a small
+`alpha`. It costs seconds rather than milliseconds.
 
 ## Differences from the paper and the authors' package
 

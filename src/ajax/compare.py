@@ -55,6 +55,10 @@ class AdaStop:
         B: the Monte Carlo permutations.
         comparisons: the pairs of names to test; every pair when None.
         seed: draws the permutations, independently of the scores.
+        paired: row i of an interim is the same seed number in every agent:
+            each comparison reads the rows' differences, and each permutation
+            flips a row's sign, with the same flips in every comparison.
+            The rows must share something (episodes, a seed) for this to help.
     """
 
     def __init__(
@@ -66,8 +70,10 @@ class AdaStop:
         B: int = 10_000,
         comparisons: Optional[Sequence[tuple[str, str]]] = None,
         seed: int = 0,
+        paired: bool = False,
     ):
         self.names, self.n, self.K, self.k = list(names), n, K, 0
+        self.paired = paired
         self.comparisons = list(comparisons or itertools.combinations(self.names, 2))
         self.decisions = dict.fromkeys(self.comparisons, "continue")
         # How many of the B permutations may have crossed a boundary by each
@@ -76,10 +82,16 @@ class AdaStop:
         # One permutation per interim, shared by every comparison (Appendix
         # D.1), as signs over a pair's 2n pooled scores: +1 counts for the
         # first agent. Permutation 0 is the identity, the observed statistic.
-        identity = np.repeat([1.0, -1.0], n)
-        draws = np.broadcast_to(identity, (B, K, 2 * n))
-        self._signs = np.random.default_rng(seed).permuted(draws, axis=-1)
-        self._signs[0] = identity
+        # Paired, the signs fall on a pair's n differences instead.
+        rng = np.random.default_rng(seed)
+        if paired:
+            self._signs = rng.choice([-1.0, 1.0], (B, K, n))
+            self._signs[0] = 1.0
+        else:
+            identity = np.repeat([1.0, -1.0], n)
+            draws = np.broadcast_to(identity, (B, K, 2 * n))
+            self._signs = rng.permuted(draws, axis=-1)
+            self._signs[0] = identity
         # Eq. 8 before the absolute value, per comparison, interim, permutation,
         # and the sum of |scores| behind it, the scale of its rounding.
         self._sums = np.zeros((len(self.comparisons), K, B))
@@ -99,7 +111,9 @@ class AdaStop:
     def update(self, scores: Mapping[str, Any]) -> dict:
         """Run interim ``k`` on the ``n`` new scores of every active agent;
         ``decisions[(a, b)]`` becomes "larger" (a's mean is larger),
-        "smaller", or, after the last interim, "equal"."""
+        "smaller", or, after the last interim, "equal". Paired, row i of
+        interim k is one seed number in every agent, so seed numbers go by
+        interim: an agent that stopped leaves no gap in the others' rows."""
         k = self.k
         undecided = [
             c
@@ -107,14 +121,15 @@ class AdaStop:
             if self.decisions[pair] == "continue"
         ]
         for c in undecided:
-            pooled = np.concatenate(
-                [np.asarray(scores[a], float) for a in self.comparisons[c]]
-            )
-            if pooled.shape != (2 * self.n,):
+            first, second = [np.asarray(scores[a], float) for a in self.comparisons[c]]
+            if self.paired and first.shape != second.shape:
+                raise ValueError(f"{self.comparisons[c]} differ in rows at interim {k}")
+            rows = first - second if self.paired else np.concatenate([first, second])
+            if rows.shape != self._signs.shape[2:]:
                 raise ValueError(f"interim {k} needs {self.n} scores per agent")
-            signed = (self._signs[:, k] * pooled).sum(axis=1)
+            signed = (self._signs[:, k] * rows).sum(axis=1)
             self._sums[c, k] = signed + (self._sums[c, k - 1] if k else 0)
-            self._size[c] += np.abs(pooled).sum()
+            self._size[c] += np.abs(rows).sum()
         # Step-down: reject the largest statistic while it crosses the
         # boundary of the comparisons left, recomputed after each rejection.
         while undecided:
@@ -209,8 +224,10 @@ def compare(
         baseline: compare it with each other agent; every pair when None.
         num_episode_test: episodes per evaluation.
         seed: the permutations' seed and the first run seed. Agents train
-            disjoint seeds, so their runs are independent.
-        **adastop: :class:`AdaStop`'s ``n``, ``K``, ``alpha`` and ``B``.
+            disjoint seeds, so their runs are independent; with ``paired``,
+            the same seeds at each interim, so their rows match.
+        **adastop: :class:`AdaStop`'s ``n``, ``K``, ``alpha``, ``B`` and
+            ``paired``.
     """
     names = list(agents)
     pairs = [(baseline, a) for a in names if a != baseline] if baseline else None
@@ -223,7 +240,8 @@ def compare(
         new = {}
         for i, name in enumerate(names):
             if name in test.active:
-                run_seeds = [seed + (i * K + test.k) * n + r for r in range(n)]
+                block = test.k if test.paired else i * K + test.k
+                run_seeds = [seed + block * n + r for r in range(n)]
                 _, evals = agents[name]().train(
                     seed=run_seeds,
                     n_timesteps=n_timesteps,
@@ -239,18 +257,34 @@ def compare(
     )
 
 
+def _samples(
+    a: Sequence[float], b: Sequence[float], paired: bool
+) -> tuple[np.ndarray, np.ndarray]:
+    """a and b as arrays; rows of one seed number each when paired."""
+    x, y = np.asarray(a, float), np.asarray(b, float)
+    if paired and x.shape != y.shape:
+        raise ValueError(f"paired samples differ in length: {x.size}, {y.size}")
+    return x, y
+
+
 def difference(
     a: Sequence[float],
     b: Sequence[float],
     confidence: float = 0.95,
     B: int = 10_000,
     seed: int = 0,
+    paired: bool = False,
 ) -> tuple[float, tuple[float, float]]:
     """``mean(a) - mean(b)`` and its percentile bootstrap interval: ``B``
-    resamples of each sample, with replacement."""
+    resamples of each sample, with replacement. ``paired`` resamples rows,
+    a's and b's together: what the rows share then leaves the interval, as
+    it leaves a paired :class:`AdaStop`."""
     rng = np.random.default_rng(seed)
-    x, y = np.asarray(a, float), np.asarray(b, float)
-    boot = rng.choice(x, (B, x.size)).mean(1) - rng.choice(y, (B, y.size)).mean(1)
+    x, y = _samples(a, b, paired)
+    if paired:
+        boot = rng.choice(x - y, (B, x.size)).mean(1)
+    else:
+        boot = rng.choice(x, (B, x.size)).mean(1) - rng.choice(y, (B, y.size)).mean(1)
     low, high = np.quantile(boot, [(1 - confidence) / 2, (1 + confidence) / 2])
     return float(x.mean() - y.mean()), (float(low), float(high))
 
@@ -265,6 +299,7 @@ def resolution(
     reps: int = 200,
     B: int = 10_000,
     seed: int = 0,
+    paired: bool = False,
 ) -> float:
     """The smallest gap between two means that AdaStop, run with ``n``,
     ``K`` and ``alpha``, detects with probability ``power``, for scores
@@ -277,18 +312,29 @@ def resolution(
     every gap, which a bisection narrows to 1/1000 of the samples' spread;
     samples without spread give 0. Shifting every score says little about a
     gap made of a few failing runs among scores at a task's maximum.
+
+    For a paired test pass ``paired``: replicates then draw whole rows, a's
+    and b's together, which keeps what the rows share. Unpaired replicates
+    lose it, and report the resolution of a test the rows do not help.
     """
     rng = np.random.default_rng(seed)
-    x, y = np.asarray(a, float), np.asarray(b, float)
-    draws = [
-        (rng.choice(x - x.mean(), (K, n)), rng.choice(y - y.mean(), (K, n)), s)
-        for s in rng.integers(2**31, size=reps)
-    ]
+    x, y = _samples(a, b, paired)
+    centred_a, centred_b = x - x.mean(), y - y.mean()
+
+    def resample() -> tuple[np.ndarray, np.ndarray]:
+        if paired:
+            rows = rng.integers(x.size, size=(K, n))
+            return centred_a[rows], centred_b[rows]
+        return rng.choice(centred_a, (K, n)), rng.choice(centred_b, (K, n))
+
+    draws = [(*resample(), s) for s in rng.integers(2**31, size=reps)]
 
     def detected(gap: float) -> float:
         hits = 0
         for da, db, s in draws:
-            test = AdaStop(["a", "b"], n=n, K=K, alpha=alpha, B=B, seed=int(s))
+            test = AdaStop(
+                ["a", "b"], n=n, K=K, alpha=alpha, B=B, seed=int(s), paired=paired
+            )
             while not test.finished:
                 test.update({"a": da[test.k], "b": db[test.k] + gap})
             hits += test.decisions[("a", "b")] != "equal"

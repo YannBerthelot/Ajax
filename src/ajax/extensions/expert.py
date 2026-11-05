@@ -711,8 +711,8 @@ def combined_policy_return(
     parts = evaluation_policy(
         env_args, agent_state, expert, make_run_controller(env_args)
     )
-    reset_key, carry_key = jax.random.split(key)
-    obs, env_state = reset(env_keys(reset_key, mode, n_episodes), env, mode, params)
+    reset_key = env_keys(derive_key(key, "rollout_reset"), mode, n_episodes)
+    obs, env_state = reset(reset_key, env, mode, params)
     guide_state = (
         expert.init_state(n_episodes) if hasattr(expert, "init_state") else None
     )
@@ -720,22 +720,24 @@ def combined_policy_return(
     zeros = jnp.zeros(n_episodes)
 
     def body(carry: tuple, index: jax.Array) -> tuple[tuple, None]:
-        obs, env_state, policy, guide_state, running, total, key = carry
-        key, act_key, step_key = jax.random.split(key, 3)
+        obs, env_state, policy, guide_state, running, total = carry
+        step_key = fold_index(key, index)
+        act_key = derive_key(step_key, "rollout_action")
+        env_key = env_keys(derive_key(step_key, "rollout_env_step"), mode, n_episodes)
         starts = jnp.full(n_episodes, index == 0)
         learner, policy = parts.step(obs, policy, starts, zeros, act_key)
         guide, guide_state = call_expert(expert, guide_state, obs.astype(jnp.float32))
         guide = agent_action_to_env(guide, env, params).reshape(learner.shape)
         action = jnp.where(index < guide_steps, guide, learner)
         obs, env_state, reward, terminated, truncated, _ = step(
-            env_keys(step_key, mode, n_episodes), env_state, action, env, mode, params
+            env_key, env_state, action, env, mode, params
         )
         total = total + jnp.where(running, reward, 0.0)
         running = running & ~((terminated > 0) | (truncated > 0))
-        return (obs, env_state, policy, guide_state, running, total, key), None
+        return (obs, env_state, policy, guide_state, running, total), None
 
-    carry = (obs, env_state, parts.initial(n_episodes), guide_state, running)
-    final, _ = jax.lax.scan(body, (*carry, zeros, carry_key), jnp.arange(length))
+    carry = (obs, env_state, parts.initial(n_episodes), guide_state, running, zeros)
+    final, _ = jax.lax.scan(body, carry, jnp.arange(length))
     return final[5].mean()
 
 

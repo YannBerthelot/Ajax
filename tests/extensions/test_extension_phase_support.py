@@ -432,7 +432,7 @@ class ContextSpy(Extension):
         return dataclasses.replace(self, bound=frozenset(agent_context))
 
     def pretrain(self, agent_state, ext_state, context):
-        fields = ("env_args", "update", "buffer")
+        fields = ("env_args", "update", "buffer", "seed_index")
         raise _Reached(
             self.bound, {f for f in fields if getattr(context, f) is not None}
         )

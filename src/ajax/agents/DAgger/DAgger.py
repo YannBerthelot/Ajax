@@ -221,7 +221,7 @@ class DAgger(GradientClipping, ObservationNormalization, ExpertGuided, ReplayAge
     }
     # Its replay is not handed to pretraining: it stores the expert's next
     # action, which a transition dataset does not hold (PriorData).
-    pretrain_context = frozenset({"env_args"})
+    pretrain_context = frozenset({"env_args", "seed_index"})
     stores_expert_actions = True
 
 

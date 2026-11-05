@@ -59,6 +59,11 @@ values above 65504 infinite; parameters stay float32, since rounding them would
 swamp the small steps between two probes. A probe of SAC's defaults, 2,048 states
 and six layers of 256 units, takes 13 MB per seed.
 
+`replay_states=256` also keeps that many observations of a training batch in
+each probe after the first (`replay/observations`, on an agent with a replay),
+to set what the agent trains on against the probe set later;
+`run_data.load_replay_observations` reads them back.
+
 ## Metrics
 
 Computed in the compiled program at each probe, per layer, averaged over an

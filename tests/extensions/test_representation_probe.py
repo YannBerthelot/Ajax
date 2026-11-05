@@ -31,6 +31,7 @@ from ajax.extensions.representation import RepresentationProbe
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import action_value_input, predict_value
 from ajax.representation.probe_set import ProbeSet, make_probe_set
+from ajax.representation.run_data import load_replay_observations
 from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
 from tests.agents.test_agent_contract import CASES
 
@@ -349,6 +350,32 @@ def test_a_given_probe_set_is_used_as_it_is(tmp_path):
     agent.train(seed=[0], n_timesteps=16)
 
     assert probes_of(tmp_path)[0][f"layers/{ACTOR}1"].shape == (16, 8)
+
+
+def test_a_probe_keeps_observations_the_agent_trains_on(tmp_path):
+    """Catches a sample from an empty or wrong source: every kept row is a row
+    of this seed's replay, none at step 0, whose replay holds nothing yet."""
+    extension = probe(tmp_path, replay_states=4)
+    agent = SAC(ENV, extensions=(extension,), **OFF_POLICY)
+
+    state, _ = agent.train(seed=[0], n_timesteps=64)
+
+    found = probes_of(tmp_path)
+    assert "replay/observations" not in found[0].files
+    kept = load_replay_observations(tmp_path)
+    assert kept.shape == (4, 4, 3)
+    replay = seed_of(state).collector_state.buffer_state.experience
+    stored = np.asarray(replay["obs"]).reshape(-1, 3)
+    for row in kept.reshape(-1, 3):
+        assert (np.abs(stored - row).max(axis=1) < 1e-6).any()
+
+
+def test_replay_states_on_an_agent_without_a_replay_is_refused(tmp_path):
+    """Catches a run recording nothing it asked for: PPO keeps no replay."""
+    agent = PPO(ENV, extensions=(probe(tmp_path, replay_states=4),), **ON_POLICY)
+
+    with pytest.raises(ValueError, match="replay"):
+        agent.train(seed=[0], n_timesteps=16)
 
 
 TRACES: list[int] = []

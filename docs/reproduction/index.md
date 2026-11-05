@@ -12,6 +12,8 @@ AdaStop decides how many seeds the answer takes.
 - [Results](results.md): the verdicts, speeds and learning curves.
 - [Expert guidance](expert-guidance.md): four ways of using an expert
   against SAC alone on Pendulum, registered before they ran.
+- [Agent benchmark](benchmark.md): ten agents on nineteen tasks, without a
+  reference to match.
 
 The harness is [`benchmarks/reference`](../../benchmarks/reference/README.md),
 run on demand, not in CI. The [conformance checks](../developer/testing.md#conformance-checks),

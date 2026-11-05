@@ -81,7 +81,10 @@ PRETRAINING = (
     PriorData(episodes(3, discrete=False), offline_updates=2),
     BellmanPretrain(n_steps=2),
 )
-GATES = (JSRLCurriculum(episode_length=8, decay_frac=0.5), ExpertWarmup(fraction=0.5))
+GATES = (
+    JSRLCurriculum(episode_length=8, decay_frac=0.5, schedule="time"),
+    ExpertWarmup(fraction=0.5),
+)
 DREAMER: dict[str, Any] = {**DREAMER_TINY, "env_id": "CartPole-v1", "n_envs": 2}
 DREAMER.update({"train_ratio": 32, "replay_capacity": 80})
 TDMPC2_KW: dict[str, Any] = {**TDMPC2_TINY, "env_id": "Pendulum-v1", "n_envs": 2}

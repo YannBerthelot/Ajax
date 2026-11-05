@@ -42,7 +42,7 @@ def _metrics(ext: Any, t: int = 25, bounds: dict | None = None) -> dict:
 
 
 def test_jsrl_logs_its_guide_horizon_and_expert_share() -> None:
-    jsrl = JSRLCurriculum(episode_length=200, decay_frac=0.5)
+    jsrl = JSRLCurriculum(episode_length=200, decay_frac=0.5, schedule="time")
     assert _metrics(jsrl) == {"jsrl/horizon": 100.0, "jsrl/expert_frac": 0.25}
     assert _metrics(jsrl, t=60)["jsrl/horizon"] == 0.0
 

@@ -22,7 +22,7 @@ from ajax.extensions.observe import (
 LIMIT, STEPS, N_ENVS = 5, 16, 2  # Pendulum's episode length here, segment steps
 STARTS = np.arange(STEPS) % LIMIT == 0  # Pendulum's episode starts
 #: The expert acts the first step of each episode, the policy the others.
-FIRST_STEP = JSRLCurriculum(episode_length=1, decay_frac=1e6)
+FIRST_STEP = JSRLCurriculum(episode_length=1, decay_frac=1e6, schedule="time")
 
 
 def torque(obs: jax.Array) -> jax.Array:

@@ -13,12 +13,37 @@ sees: the env's columns and the normalised features; the raw features (an
 expert's action) come last and stay raw.
 """
 
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import jax.numpy as jnp
 
 from ajax.utils import online_normalize
 from ajax.wrappers import NormalizationInfo, init_norm_info
+
+#: The floor under the variance a normaliser divides by (online_normalize's
+#: eps): a constant column reads as 0, not as noise blown up.
+VARIANCE_FLOOR = 1e-8
+
+
+def normaliser_std(variance: jnp.ndarray) -> jnp.ndarray:
+    """What a normaliser of this variance divides by, at run time and in
+    cloning, whose inputs the actor must read again at run time."""
+    return jnp.sqrt(variance + VARIANCE_FLOOR)
+
+
+def seeded_obs_norm(
+    mean: jnp.ndarray, std: jnp.ndarray, n_samples: int
+) -> NormalizationInfo:
+    """Agent-side statistics of n_samples rows, which read as dividing by std
+    (:func:`normaliser_std`'s, as cloning trained on them)."""
+    var = jnp.maximum(std**2 - VARIANCE_FLOOR, 0.0).reshape(1, -1)
+    return NormalizationInfo(
+        count=jnp.full((1, 1), float(n_samples)),
+        mean=mean.reshape(1, -1),
+        mean_2=var * n_samples,
+        var=var,
+        returns=None,
+    )
 
 
 def init_agent_obs_norm(obs_dim: int) -> NormalizationInfo:
@@ -101,6 +126,18 @@ def normalized_obs(
     return _joined(normalised, raw)
 
 
+def mirror_obs_norm(agent_state: Any, stats: Optional[NormalizationInfo]) -> Any:
+    """agent_state with stats mirrored on every network reading observations,
+    which apply them: its actor, its critics and, where it has one apart from
+    them, its state value (IQL's)."""
+    names = ["actor_state", "critic_state"]
+    if getattr(agent_state, "value_state", None) is not None:
+        names.append("value_state")
+    networks = (getattr(agent_state, name) for name in names)
+    mirrored = (network.replace(obs_norm_info=stats) for network in networks)
+    return agent_state.replace(**dict(zip(names, mirrored, strict=True)))
+
+
 def apply_obs_norm(obs: jnp.ndarray, info: Optional[NormalizationInfo]) -> jnp.ndarray:
     """Normalize ``obs`` using existing stats (no update). Used at every
     actor/critic ``apply_fn`` site that consumes obs sampled from the
@@ -116,7 +153,7 @@ def apply_obs_norm(obs: jnp.ndarray, info: Optional[NormalizationInfo]) -> jnp.n
     if info is None or info.var is None:
         return obs
     count_total = jnp.sum(info.count)
-    std = jnp.sqrt(info.var + 1e-8)
+    std = normaliser_std(info.var)
     own, appended = obs[..., : info.mean.shape[-1]], obs[..., info.mean.shape[-1] :]
     normalized = jnp.where(count_total > 0, (own - info.mean) / std, own)
     return jnp.concatenate([normalized, appended], axis=-1)

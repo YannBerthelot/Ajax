@@ -117,7 +117,8 @@ agent state at each evaluation:
 | --- | --- | --- |
 | `edge/live_expert_frac` | `EDGEExploration` | the share of envs the expert drove on the last collection step |
 | `edge/decay`, `edge/beta` | `EDGEExploration` | the gate's schedule: the decay (`"fixed"`, `"argmax"`, `"boltzmann"`) or the LCB pessimism (`"lcb"`, `"argmax_lcb"`); the `"thompson"` gate has none |
-| `jsrl/horizon`, `jsrl/expert_frac` | `JSRLCurriculum` | the guide horizon `H_t`, and the share of envs the expert drove on the last collection step |
+| `jsrl/horizon`, `jsrl/expert_frac` | `JSRLCurriculum` | the guide horizon `h`, and the share of envs the expert drove on the last collection step |
+| `jsrl/stage`, `jsrl/best` | `JSRLCurriculum(schedule="performance")` | the curriculum's stage, and the best return its evaluations of the combined policy read |
 | `lcb_bootstrap/beta` | `LCBGatedBootstrap` | the LCB pessimism `β` |
 | `critic_blend/expert_weight` | `CriticBlend` | the weight `α` of the expert's target in the blend |
 | `value_box/threshold` | `ValueBox` | the expert value above which the expert acts |

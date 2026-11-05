@@ -11,12 +11,14 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax import APG, UDRL
+from ajax import APG, SAC, UDRL
 from ajax.agents.recurrent import q_values
 from ajax.agents.SAC.SAC import compute_soft_policy_loss, sample_next_actions
 from ajax.agents.TD3.TD3 import compute_td3_td_target
 from ajax.controller import make_scored_actions
-from ajax.extensions.expert import ResidualPolicy
+from ajax.extensions.capabilities import MissingCapability
+from ajax.extensions.expert import ImitationLoss, JSRLCurriculum, ResidualPolicy
+from ajax.extensions.pretrain import ExpertPrefill
 from tests.agents.test_agent_contract import CASES
 from tests.environments import paid_action
 
@@ -29,35 +31,82 @@ def _one(obs: jax.Array) -> jax.Array:
     return jnp.ones(obs.shape[:-1] + (1,))
 
 
-def _residual_run(name: str, n_timesteps: int, **extra: Any) -> tuple:
+def _agent(name: str, residual: ResidualPolicy, **extra: Any) -> Any:
     case = CASES[name]
     cls: Any = case.cls  # each agent's own keywords
-    agent = cls(
+    return cls(
         env_id="Pendulum-v1",
         n_envs=2,
         expert_policy=_one,
-        extensions=(ResidualPolicy(scale=0.0),),
-        **case.kwargs,
-        **extra,
+        extensions=(residual,),
+        **{**case.kwargs, **extra},
     )
-    return agent.train(seed=0, n_timesteps=n_timesteps)[0], case
+
+
+def _residual_run(name: str, n_timesteps: int, **extra: Any) -> tuple:
+    agent = _agent(name, ResidualPolicy(scale=0.0), **extra)
+    return agent.train(seed=0, n_timesteps=n_timesteps)[0], CASES[name]
 
 
 @pytest.mark.parametrize("name", REPLAY)
 def test_at_scale_zero_the_replay_stores_the_experts_executed_action(name):
-    """With scale 0 the executed action is the expert's: every row past the
-    warm-up (uniform executed actions; TQC has none, as its authors' code)
-    stores it, as its a_expert."""
+    """With scale 0 the executed action is the expert's: every row, the
+    warm-up's too (the expert stays under the residual), stores it, as its
+    a_expert."""
     steps = CASES[name].n_timesteps
-    state, case = _residual_run(name, steps)
+    state, _ = _residual_run(name, steps)
     rows = state.collector_state.buffer_state.experience
-    start = 0 if name == "TQC" else case.kwargs["learning_starts"] // 2
     stop = steps // 2  # rows per env
-    action = np.asarray(rows["action"])[..., start:stop, 0]
+    action = np.asarray(rows["action"])[..., :stop, 0]
     np.testing.assert_allclose(action, 0.5, rtol=1e-6)
-    np.testing.assert_allclose(np.asarray(rows["a_expert"])[..., start:stop, 0], 0.5)
-    if start:
-        assert not np.allclose(np.asarray(rows["action"])[..., :start, 0], 0.5)
+    np.testing.assert_allclose(np.asarray(rows["a_expert"])[..., :stop, 0], 0.5)
+
+
+@pytest.mark.parametrize("name", ["SAC", "TD3", "REDQ", "CrossQ", "ASAC"])
+def test_the_warm_up_explores_around_the_expert(name):
+    """Residual RL acts through the base at every step (Johannink et al.
+    2019; Silver et al. 2018): uniform warm-up actions without it restart
+    from nothing and trip what the controller holds. Warm-up residuals in
+    [-1, 1] at scale 0.25 execute within 0.25 of the expert's 0.5. A bug
+    dropping the expert executes uniform actions, far outside that band."""
+    steps = CASES[name].kwargs["learning_starts"]
+    state = _agent(name, ResidualPolicy(scale=0.25)).train(seed=0, n_timesteps=steps)[0]
+    rows = state.collector_state.buffer_state.experience
+    action = np.asarray(rows["action"])[..., : steps // 2, 0]
+    assert np.abs(action - 0.5).max() <= 0.25 + 1e-6
+    assert action.std() > 0.05  # the residuals' spread, 0.25 / sqrt(3)
+
+
+def _untrained_actions(name: str, residual: ResidualPolicy) -> np.ndarray:
+    """The untrained policy's actions on four observations, in Pendulum's
+    units."""
+    agent = _agent(name, residual)
+    policy = agent.policy(agent.train(seed=0, n_timesteps=0))
+    obs = jax.random.normal(jax.random.PRNGKey(0), (4, 3))
+    return np.asarray(policy.act(obs, policy.reset(4))[0])
+
+
+@pytest.mark.parametrize("name", [*REPLAY, "IQL", "AVG"])
+def test_a_zero_start_acts_as_the_expert(name):
+    """Silver et al. 2018: an untrained residual of exactly 0, so learning
+    starts from the expert's behaviour. A bug leaving the head random acts
+    the expert plus an arbitrary offset."""
+    np.testing.assert_allclose(
+        _untrained_actions(name, ResidualPolicy(zero_start=True)), 1.0, rtol=1e-5
+    )  # the expert's torque
+
+
+def test_a_zero_start_leaves_tds_target_actor_equal_to_its_actor():
+    """TD3 bootstraps on its target actor: left random, the first targets
+    read another policy than the one acting."""
+    agent = _agent("TD3", ResidualPolicy(zero_start=True))
+    actor = agent.train(seed=0, n_timesteps=0)[0].actor_state
+    jax.tree.map(np.testing.assert_array_equal, actor.params, actor.target_params)
+
+
+def test_without_a_zero_start_the_residual_stays_the_agents_own():
+    """The default keeps the agent's reference initialisation."""
+    assert not np.allclose(_untrained_actions("SAC", ResidualPolicy()), 1.0)
 
 
 def test_td3s_actor_scores_the_executed_action():
@@ -72,6 +121,70 @@ def test_td3s_actor_scores_the_executed_action():
         trained.actor_state.params,
         untrained.actor_state.params,
     )
+
+
+READS_RESIDUAL = ResidualPolicy(scale=0.0, critic_reads_residual=True)
+
+
+@pytest.mark.parametrize("name", [*REPLAY, "IQL"])
+def test_the_replay_can_store_the_residual_for_the_critics(name):
+    """Johannink et al. 2019, Algorithm 1, execute ``u_t + pi_H(s_t)`` and store
+    ``(s_t, u_t, s_t+1)``; Silver et al. 2018 put the base in the MDP's
+    transitions. At scale 0 Pendulum still receives the expert's torque,
+    while the rows hold the residuals, none of them the expert's action."""
+    steps = CASES[name].n_timesteps
+    state = _agent(name, READS_RESIDUAL).train(seed=0, n_timesteps=steps)[0]
+    np.testing.assert_allclose(
+        np.asarray(state.collector_state.env_state.last_u), 1.0, rtol=1e-6
+    )
+    rows = state.collector_state.buffer_state.experience
+    action = np.asarray(rows["action"])[..., : steps // 2, 0]
+    assert not np.isclose(action, 0.5).any()
+
+
+def test_the_critics_read_the_residual_and_the_actor_learns_through_it():
+    """Scoring the executed action at scale 0 leaves TD3's actor without a
+    gradient (test_td3s_actor_scores_the_executed_action). Reading the
+    residual, Q(s, pi(s)) depends on the actor whatever the scale, so it
+    moves. A bug mapping the critics' input back to the executed action would
+    freeze it."""
+    steps = CASES["TD3"].n_timesteps
+    trained = _agent("TD3", READS_RESIDUAL).train(seed=0, n_timesteps=steps)[0]
+    untrained = _agent("TD3", READS_RESIDUAL).train(seed=0, n_timesteps=0)[0]
+    moved = jax.tree.map(
+        lambda a, b: not np.array_equal(a, b),
+        trained.actor_state.params,
+        untrained.actor_state.params,
+    )
+    assert any(jax.tree.leaves(moved))
+
+
+@pytest.mark.parametrize(
+    "extension",
+    [
+        ImitationLoss(_one),
+        ExpertPrefill(n_steps=4),
+        JSRLCurriculum(schedule="random"),
+    ],
+    ids=["clones-the-expert", "fills-the-replay", "hands-the-expert-steps"],
+)
+def test_expert_actions_cannot_meet_critics_reading_residuals(extension):
+    """An expert's action is no residual: as the critics' input or the actor's
+    target it would mix two spaces, as gain mode's refusal says for gains."""
+    with pytest.raises(ValueError, match="critic_reads_residual"):
+        SAC(
+            env_id="Pendulum-v1",
+            n_envs=2,
+            expert_policy=_one,
+            extensions=(READS_RESIDUAL, extension),
+            **CASES["SAC"].kwargs,
+        ).train(seed=0, n_timesteps=8)
+
+
+@pytest.mark.parametrize("name", ["PPO", "APO"])
+def test_a_state_value_critic_has_no_action_to_read(name):
+    with pytest.raises(MissingCapability, match="q_critic"):
+        _agent(name, READS_RESIDUAL).train(seed=0, n_timesteps=8)
 
 
 @pytest.mark.parametrize("name", ["PPO", "APO"])

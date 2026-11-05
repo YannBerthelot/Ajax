@@ -107,7 +107,7 @@ dev = [
 wandb = ["ajax-rl[wandb]"]
 # The Plane3DCircle scenario of benchmarks/perf_bench.py needs target_gym;
 # the framework does not. Opt in with `uv sync --group plane`.
-plane = ["target-gym>=0.6.1,<0.7"]
+plane = ["target-gym>=0.7,<0.9"]
 # The documentation site (mkdocs.yml). mkdocstrings reads the docstrings from
 # the source without importing it, so the site builds without the runtime
 # (`uv sync --only-group docs`). It formats the API signatures with ruff when
@@ -132,6 +132,9 @@ probing-environments = { git = "https://github.com/YannBerthelot/ProbingEnvironm
 # confidence sequence behind ajax.compare.estimate, is only in upstream main
 # (added 2026-07-16); 0.1.3 predates it. Pin the first release that has it.
 adastop = { git = "https://github.com/TimotheeMathieu/adastop.git", rev = "07e7159643f11467c154266b5ef3b1be6ca8ddd8" }
+# TEMPORARY: this should be target-gym from PyPI. The expert benchmark needs
+# what main holds for 0.8.0; restore the PyPI pin once 0.8.0 ships.
+target-gym = { git = "https://github.com/YannBerthelot/TargetGym.git", rev = "1ac3a0927bcea352c35611a17df638ee051d46d1" }
 
 [tool.uv.build-backend]
 # The distribution is "ajax-rl" (on PyPI, "ajax" is another project); the

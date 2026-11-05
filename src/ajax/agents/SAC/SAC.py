@@ -83,7 +83,8 @@ class SAC(
     TensorFlow's eps 1e-8, tau 0.005, gamma 0.99, a target entropy of -1
     per action dimension, a 1e6 replay, batch 256 and 1e4 warm-up steps.
     The actor's and the temperature's steps wait for 2000 steps
-    (policy_update_start, alpha_update_start), inert at that warm-up.
+    (policy_update_start, alpha_update_start), inert at that warm-up; updates
+    on a dataset before any env step (PriorData) do not wait.
 
     Args:
         tau: The target critics' Polyak rate.

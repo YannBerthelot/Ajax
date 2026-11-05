@@ -70,7 +70,9 @@ ARMS = {
     "A1": {"expert_policy": EXPERT, "extensions": (ExpertPrefill(n_steps=2_000),)},
     "A2": {
         "expert_policy": EXPERT,
-        "extensions": (JSRLCurriculum(episode_length=200, decay_frac=0.5),),
+        "extensions": (
+            JSRLCurriculum(episode_length=200, decay_frac=0.5, schedule="time"),
+        ),
     },
     "A3": {"expert_policy": EXPERT, "extensions": (IBRL(expert_policy=EXPERT),)},
     "A4": {"expert_policy": EXPERT, "extensions": (ResidualPolicy(scale=1.0),)},

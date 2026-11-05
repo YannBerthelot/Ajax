@@ -33,9 +33,9 @@ def test_jsrl_hands_over_to_the_policy_at_the_guide_horizon() -> None:
         timestep=jnp.asarray(25), step_in_episode=jnp.array([99, 100])
     )
     stage = {"post_warmup_action": jnp.zeros((2, 1)), "expert_action": jnp.ones((2, 1))}
-    actions = JSRLCurriculum(episode_length=200, decay_frac=0.5).action(
-        SimpleNamespace(collector_state=collector), None, stage, CTX.rng, CTX
-    )
+    actions = JSRLCurriculum(
+        episode_length=200, decay_frac=0.5, schedule="time"
+    ).action(SimpleNamespace(collector_state=collector), None, stage, CTX.rng, CTX)
     np.testing.assert_array_equal(actions, [[1.0], [0.0]])
 
 

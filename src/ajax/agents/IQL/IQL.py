@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -38,7 +38,7 @@ from ajax.agents.families import (
 )
 from ajax.agents.recurrent import q_values, sample_replay
 from ajax.controller import executed_fn
-from ajax.environments.interaction import get_pi, policy_pipeline
+from ajax.environments.interaction import get_pi
 from ajax.extensions.base import merge_metrics
 from ajax.networks.networks import predict_value
 from ajax.state import BaseAgentState, LoadedTrainState, Transition
@@ -135,20 +135,6 @@ class IQL(
                 " replay has no residual to keep. Give the extension the agent's"
                 " expert_policy."
             )
-
-    def choose_behaviour(self, context: TrainContext) -> Optional[Callable]:
-        # A residual policy acts on the chosen action, so the warm-up draws
-        # residuals (and the replay keeps the one the actor fits, init).
-        if context.executed is None:
-            return None
-        return partial(
-            policy_pipeline,
-            recurrent=False,
-            n_envs=context.env_args.n_envs,
-            transform=context.env_args.transforms[0],
-            after_choice=True,
-            warmups=context.env_args.warmups,
-        )
 
     def init(self, key: jax.Array, context: TrainContext) -> IQLState:
         """A Gaussian actor, two Q critics with their targets, and V(s)."""

@@ -32,6 +32,7 @@ from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions import (
     adversarial,
     centering,
+    cheq,
     ensemble,
     expert,
     exploration,
@@ -40,6 +41,7 @@ from ajax.extensions import (
     offline,
     representation,
     reset_cost,
+    retained,
 )
 from ajax.extensions import pretrain as pre
 from ajax.extensions import target_mods as tm
@@ -170,7 +172,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "LCBGatedBootstrap": (lambda: tm.LCBGatedBootstrap(EXPERT), "SAC"),
     "EDGEExploration": (exploration.EDGEExploration, "SAC"),
     "JSRLCurriculum": (
-        lambda: expert.JSRLCurriculum(episode_length=8),
+        lambda: expert.JSRLCurriculum(episode_length=8, schedule="time"),
         "SAC DQN PQN UDRL",
     ),
     "ResidualPolicy": (expert.ResidualPolicy, "SAC"),
@@ -178,6 +180,10 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "ExpertValueMetrics": (expert.ExpertValueMetrics, "SAC DQN"),
     "BellmanPretrain": (lambda: pre.BellmanPretrain(n_steps=4), "SAC"),
     "PriorData": (prior_data, "SAC TD3 REDQ ASAC"),
+    "RetainedDemonstrations": (lambda: retained.RetainedDemonstrations(8), "SAC TD3"),
+    # Critics without LayerNorm: the rows' options leave the architecture.
+    "RLPD": (lambda: retained.RLPD(8, critic_layer_norm=False), "SAC REDQ"),
+    "CHEQ": (lambda: cheq.CHEQ(adaptation_start=0), "SAC"),
     "ExpertPrefill": (
         lambda: pre.ExpertPrefill(n_steps=8),
         "SAC TD3 REDQ ASAC TQC CrossQ IQL DQN",
@@ -229,12 +235,17 @@ NEEDS_EXPERT = (
     "ExpertGains",
     "ExpertPrefill",
     "ExpertWarmup",
+    "RetainedDemonstrations",
+    "RLPD",
+    "CHEQ",
 )
 #: What an option or extension needs on in its row: phi* is MCPretrain's,
 #: BellmanPretrain reads its prefilled replay.
 REQUIRES = {o: {"MCPretrain"} for o in (*PHI_STAR.split(), "BellmanPretrain")}
 REQUIRES.update({o: {"expert_policy"} for o in NEEDS_EXPERT})
 REQUIRES.update({"MCPretrain": {"expert_policy", "ExpertPrefill"}})
+# The rows' expert has memory, which CHEQ's observations must then hold.
+REQUIRES.update({"CHEQ": {"expert_policy", "PIDTermsInput"}})
 REQUIRES.update(
     {
         o: {"expose_recent_rollout"}
@@ -244,7 +255,7 @@ REQUIRES.update(
 EXPERTS = {"expert_policy", "eval_expert_policy"}
 USES_EXPERT_ACTIONS = {"OnlineBC", "CriticBlend", "PhiRefresh", "IBRL"}
 USES_EXPERT_ACTIONS.update({"LCBGatedBootstrap", "ExpertValueMetrics", "ImitationLoss"})
-USES_EXPERT_ACTIONS.update({"CloningPretrain", "MCPretrain"})
+USES_EXPERT_ACTIONS.update({"CloningPretrain", "MCPretrain", "CHEQ"})
 FEATURES_ON_OBSERVATIONS = (
     "ExpertActionInput",
     "ExpertStateInput",
@@ -277,9 +288,11 @@ EXCLUSIVE = [
     (
         {"PriorData"},
         {"fast", "CartPole-v1", "TrainingProgressInput"}.union(
-            {"PIDTermsInput"}, EXPERTS
+            {"PIDTermsInput", "CHEQ"}, EXPERTS
         ),
     ),
+    # A replay keeps one ring of retained rows.
+    ({"RLPD"}, {"RetainedDemonstrations"}),
     # Cal-QL is CQL's term with a floor: a stack holds one of them.
     ({"ConservativeQ"}, {"CalQL"}),
     ({"AdversarialReward"}, {"fast", "CartPole-v1"}),
@@ -287,7 +300,7 @@ EXCLUSIVE = [
     # activation layers, which a CNN encoder has not.
     (
         {"RepresentationProbe"},
-        set(FEATURES_ON_OBSERVATIONS).union({"ExpertGains", "cnn_image_shape"}),
+        set(FEATURES_ON_OBSERVATIONS).union({"CHEQ", "ExpertGains", "cnn_image_shape"}),
     ),
 ]
 TABLE = {**CASES, "APG": Case(APG, {"horizon": 1, "pid": None}, ())}

@@ -23,6 +23,7 @@ from ajax.controller import (
     find_expert_action_in_choice_space,
     init_observers,
     observe_features,
+    read_the_residual,
     restart_observers,
     warmup_expert_flags,
 )
@@ -30,6 +31,7 @@ from ajax.environments.action_stage import apply_action_extensions
 from ajax.environments.obs_norm import (
     apply_obs_norm,
     init_agent_obs_norm,
+    mirror_obs_norm,
     normalized_obs,
     update_obs_norm,
 )
@@ -462,15 +464,26 @@ def maybe_vmap(f, vmap_on, **kwargs):
     return f
 
 
-def get_raw_obs(env_state: EnvState, env: Environment, mode: str) -> jax.Array:
+def get_raw_obs(
+    env_state: EnvState,
+    env: Environment,
+    mode: str,
+    env_params: Optional[EnvParams] = None,
+) -> jax.Array:
+    """The environment's own observation, what an expert reads, under
+    env_params (one system per env where they are batched): the run's, or
+    the expert reads other sensors than the agent. None: the env's default
+    params."""
     vmap_on = (
         max(jax.tree_util.tree_leaves(jax.tree.map(lambda x: x.ndim, env_state))) > 0
     )
     if mode == "gymnax":
         # gymnax 1.0's signature is `get_obs(state, params, key=None)`, and some
         # envs (e.g. MemoryChain) make `params` required rather than optional.
-        env_params = getattr(env, "default_params", None)
-        return maybe_vmap(lambda st: env.get_obs(st, env_params), vmap_on)(env_state)
+        if env_params is None:
+            env_params = getattr(env, "default_params", None)
+        axes = (0, 0 if env_params_is_batched(env_params) else None)
+        return maybe_vmap(env.get_obs, vmap_on, in_axes=axes)(env_state, env_params)
     # An observation normaliser overwrites a brax state's obs and keeps the
     # raw one in its info.
     if RAW_OBS_KEY in getattr(env_state, "info", {}):
@@ -563,17 +576,15 @@ def policy_pipeline(
     after_choice: bool = False,
     warmups: tuple = (),
 ) -> ActionPipelineResult:
-    """The default action pipeline: the policy's action, through the run's
-    residual ``transform`` (its ``transform_action``) where it has one, or a
-    uniform one in [-1, 1] while ``uniform`` (the warm-up). The residual
-    acts before the choice, so the warm-up draws executed actions; with
-    ``after_choice`` it acts on the chosen one, so the warm-up draws
-    residuals, and the policy's action stored is the one chosen (an actor
-    fitting its own stored actions: IQL's). The run's warm-up chooser
-    (warmups: ExpertWarmup) may take a warm-up step instead of the uniform
-    action, the expert's action entering in the space the warm-up draws,
-    and the replay flags the steps the expert took. rng, the collection's
-    carry, is the action stage's (apply_action_extensions)."""
+    """The default action pipeline: the policy's action or, while ``uniform``
+    (the warm-up), a uniform one in [-1, 1]. With ``after_choice`` the run's
+    residual ``transform`` (its ``transform_action``) acts on the chosen
+    action, so the warm-up draws residuals around the expert, and the policy
+    action stored is the one chosen. The run's warm-up chooser (warmups:
+    ExpertWarmup) may take a warm-up step instead of the uniform action, the
+    expert's action entering in the space the warm-up draws, and the replay
+    flags the steps the expert took. rng, the collection's carry, is the
+    action stage's (apply_action_extensions)."""
     del rng
     action, log_probs, raw_action, agent_state = get_action_and_log_probs(
         action_key=action_key,
@@ -636,6 +647,14 @@ def policy_pipeline(
 Explore = Callable[[Any, jax.Array, jax.Array], jax.Array]
 
 
+def acts_on_the_choice(transform: Any) -> bool:
+    """Whether transform is a residual one, whose base the warm-up keeps: it
+    acts on the chosen action, a uniform one included."""
+    return transform is not None and (
+        "transform_action" in transform.implemented_phases()
+    )
+
+
 def executed_action(
     transform: Any, action: jax.Array, acting: ActingState, raw_obs: jax.Array
 ) -> jax.Array:
@@ -657,10 +676,11 @@ def explore_pipeline(
     warmups: tuple = (),
 ) -> Callable:
     """The action pipeline of the behaviour policy ``explore`` (``n_actions``:
-    a discrete action space's size), through the run's residual
-    ``transform`` where it has one, or uniform actions, on ``mix_key``,
+    a discrete action space's size), or uniform actions, on ``mix_key``,
     during the warm-up; an agent that never warms up (``warmup=False``, an
-    on-policy one) draws none. The run's warm-up chooser (warmups:
+    on-policy one) draws none. The run's residual ``transform`` acts on
+    either, so the warm-up draws residuals around the expert, and the policy
+    action stored is the one chosen. The run's warm-up chooser (warmups:
     ExpertWarmup) may take a warm-up step instead of the uniform action,
     the expert's action entering in the space the warm-up draws, and the
     replay flags the steps the expert took.
@@ -679,6 +699,7 @@ def explore_pipeline(
         env_action = executed_action(transform, action, acting, raw_obs)
         discrete = n_actions is not None
         is_expert_flag = None
+        after_choice = acts_on_the_choice(transform)
         if warmup:
             if n_actions is None:
                 uniform_action = jax.random.uniform(
@@ -689,11 +710,10 @@ def explore_pipeline(
                     mix_key, action.shape, minval=0, maxval=n_actions
                 ).astype(action.dtype)
             # Traced only with a warm-up chooser: a run without one is
-            # unchanged. The residual acts before the choice, so the
-            # expert's action enters as executed.
+            # unchanged.
             if warmups:
                 expert_action = find_expert_action_in_choice_space(
-                    transform, False, acting.expert_action, action
+                    transform, after_choice, acting.expert_action, action
                 )
                 # A discrete expert's (n_envs, 1) index column would broadcast
                 # against the policy's (n_envs,) indices in the choice.
@@ -709,14 +729,26 @@ def explore_pipeline(
                 is_expert_flag = warmup_expert_flags(
                     took_this_step, stored_policy_action
                 )
-            executed = env_action
-            env_action = jax.lax.cond(uniform, lambda: uniform_action, lambda: executed)
+            if after_choice:
+                action = jax.lax.cond(uniform, lambda: uniform_action, lambda: action)
+                env_action = executed_action(transform, action, acting, raw_obs)
+            else:
+                executed = env_action
+                env_action = jax.lax.cond(
+                    uniform, lambda: uniform_action, lambda: executed
+                )
+        policy_action_for_expert = None
+        if after_choice:
+            policy_action_for_expert = find_expert_action_in_choice_space(
+                transform, after_choice, acting.expert_action, action
+            )
         return ActionPipelineResult(
             env_action=env_action,
             policy_action=action[:, None] if discrete else action,
             is_expert_flag=is_expert_flag,
             buffer_action=env_action[:, None] if discrete else None,
             new_actor_hidden=actor.hidden_state if recurrent else None,
+            policy_action_for_expert=policy_action_for_expert,
         )
 
     return pipeline
@@ -845,8 +877,8 @@ def expert_collect_kwargs(
     expert's next state are the call's where the pipeline returns none of
     its own. The run's action extensions act on the pipeline's result (the
     action stage, apply_action_extensions, over total_timesteps). The run's
-    transform: a residual one the default pipeline applies before the choice
-    (a pipeline of the agent's applies it itself); an actuate one (gain
+    transform: a residual one the default pipeline applies to the chosen
+    action (a pipeline of the agent's applies it itself); an actuate one (gain
     mode) executes the chosen action through the expert, which that steps,
     and the chosen one is stored. The run's warm-up chooser (warmups) runs
     in the default pipeline; a pipeline of the agent's runs it itself.
@@ -863,6 +895,7 @@ def expert_collect_kwargs(
         recurrent=recurrent,
         n_envs=n_envs,
         transform=transform,
+        after_choice=acts_on_the_choice(transform),
         warmups=warmups,
     )
     inner = apply_action_extensions(inner, extensions, n_envs, total_timesteps)
@@ -919,7 +952,7 @@ def step_features(
     start, expert_start = restart_observers(
         ended, observers, observer_states, expert, expert_state, n_envs
     )
-    raw_next = get_raw_obs(env_state=env_state, env=env_args.env, mode=mode)
+    raw_next = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
     raw_next = raw_next.astype(jnp.float32)
     next_inputs = ObserveInputs(raw_next, expert, expert_start, **at)
     final_inputs = ObserveInputs(raw_final_obs, expert, expert_state, **at)
@@ -1052,21 +1085,23 @@ def collect_experience(
             agent_state.collector_state.obs_norm_info,
             raw_obs_columns(env_args.env),
         )
-        agent_state = agent_state.replace(
-            collector_state=agent_state.collector_state.replace(
-                obs_norm_info=_new_obs_norm
+        agent_state = mirror_obs_norm(
+            agent_state.replace(
+                collector_state=agent_state.collector_state.replace(
+                    obs_norm_info=_new_obs_norm
+                )
             ),
-            actor_state=agent_state.actor_state.replace(obs_norm_info=_new_obs_norm),
-            critic_state=agent_state.critic_state.replace(obs_norm_info=_new_obs_norm),
+            _new_obs_norm,
         )
 
     # Raw obs (needed by action_pipeline for expert policy). It is written
     # to the float32-schema buffer; coerce int obs (e.g. discrete probing
     # envs) so flashbax's dtype check passes.
     raw_obs = get_raw_obs(
-        env_state=agent_state.collector_state.env_state,
-        env=env_args.env,
-        mode=mode,
+        agent_state.collector_state.env_state,
+        env_args.env,
+        mode,
+        env_args.env_params,
     ).astype(jnp.float32)
 
     # The agent's own pipeline (SAC's expert, EDGE, the value box, ...) or
@@ -1093,6 +1128,12 @@ def collect_experience(
         )
     raw_action = action if result.raw_action is None else result.raw_action
     buffer_action = env_action if result.buffer_action is None else result.buffer_action
+    kept_choice = (
+        action if result.stored_policy_action is None else result.stored_policy_action
+    )
+    # Critics reading a residual policy's residual score what the policy chose.
+    if read_the_residual(env_args.transforms):
+        buffer_action = kept_choice
     # The run's replay action chooser (StorePolicyAction) may store another.
     for chooser in env_args.replay_action_choosers:
         buffer_action = chooser.choose_replay_action(buffer_action, action)
@@ -1188,11 +1229,7 @@ def collect_experience(
             a_expert=_a_expert_for_buf,
             next_a_expert=_next_a_expert_for_buf,
             raw_next_obs=raw_final_obs.astype(jnp.float32),
-            policy_action=(
-                action
-                if result.stored_policy_action is None
-                else result.stored_policy_action
-            ),
+            policy_action=kept_choice,
             actor_carry=_pre_actor_carry_flat if store_hidden else None,
         )
         buffer_state = buffer.add(buffer_state, row)
@@ -1317,7 +1354,7 @@ def collect_experience_from_expert_policy(
     before_training: dict[str, Any] = {"progress": 0.0}
     observer_states = None
     if observers:
-        raw = get_raw_obs(env_state=env_state, env=env_args.env, mode=mode)
+        raw = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
         inputs = ObserveInputs(
             raw.astype(jnp.float32),
             expert_policy,
@@ -1335,11 +1372,7 @@ def collect_experience_from_expert_policy(
         rng_step = env_keys(env_step_key, mode, env_args.n_envs)
 
         # The expert reads the raw env obs (NOT normalized).
-        raw_obs = get_raw_obs(
-            env_state=env_state,
-            env=env_args.env,
-            mode=mode,
-        )
+        raw_obs = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
         if expert_is_stateful:
             action, new_expert_state = expert_policy(expert_state, raw_obs)
         else:
@@ -1464,7 +1497,7 @@ def reset_features(
     the observers' states after them."""
     n_envs = env_args.n_envs
     stateful = expert is not None and hasattr(expert, "init_state")
-    raw = get_raw_obs(env_state=env_state, env=env_args.env, mode=mode)
+    raw = get_raw_obs(env_state, env_args.env, mode, env_args.env_params)
     inputs = ObserveInputs(
         raw.astype(jnp.float32),
         expert=expert,

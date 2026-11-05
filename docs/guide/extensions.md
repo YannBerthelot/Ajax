@@ -3,7 +3,7 @@
 An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships thirty-five of them,
+or measurements logged at each evaluation. Ajax ships thirty-eight of them,
 listed in the [catalogue](#catalogue) below.
 
 Why extensions instead of agent options? An agent's constructor takes its
@@ -77,12 +77,12 @@ where it may act. Every other phase keeps a default that changes nothing.
 | Phase | When it runs | What it may do | Across a stack |
 | --- | --- | --- | --- |
 | `init_state` | once, on a fresh run | build the extension's state | one state per extension |
-| `pretrain` | once, before training, on a fresh run | change the agent's state (clone the actor, pre-train a critic) | in list order, the replay's seeders (`ExpertPrefill`, `PriorData`) first |
+| `pretrain` | once, before training, on a fresh run | change the agent's state (clone the actor, pre-train a critic) | in list order, the replay's seeders (`ExpertPrefill`, `PriorData`, `RetainedDemonstrations`, `RLPD`) first |
 | `reward` | after each rollout, before the agent's targets | replace the rollout's rewards, and update the extension's own state | in list order, each sees the previous result |
 | `on_target` | at each critic update | change the TD or value target, and log metrics | in list order, each sees the previous result |
 | `critic_loss` | at each critic update | add a term to the critic loss, and log metrics | summed |
 | `actor_loss` | at each actor update | add a term to the actor loss, and log metrics | summed |
-| `action` | at each collection step | replace the action the agent would take | the last proposal wins |
+| `action` | at each collection step | replace the action the agent would take; after the warm-up's choice it may also write `replay_action`, the action the replay stores (`CHEQ`'s RL action) | the last proposal wins |
 | `eval_action` | at each evaluation step, on the agents evaluating through the shared loop | replace the executed action | the last proposal wins |
 | `transform_action` | at each collection step, before the action is chosen, in the losses and at evaluation | make the executed action a function of the policy's and the expert's; the replay stores the executed one, which the critics score | one per agent |
 | `actuate` | at each collection step, after the action is chosen, and at evaluation | execute the chosen action through the expert (gain mode); the replay stores the chosen one | one per agent |
@@ -299,7 +299,7 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | `ResidualPolicy` | Executes `clip(a_E + scale · a_π, −1, 1)`: the policy learns a correction on top of the expert. The replay stores the executed action and the critics score it. | `transform_action` | SAC (without gain mode), TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with an expert |
 | `ExpertGains` | Gain mode: the policy's action `a` sets each of the expert's learnable gains to `anchor · 10^a`, and the expert acts with them; the replay and the critics hold the gains. Needs a stateful expert with `learnable_fields` (`register_learnable_gains`). | `actuate` | SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with such an expert, without `ExpertActionInput` |
 | `ExpertWarmup` | During the warm-up, the expert takes a share `fraction` of the steps (one draw per step for every copy) and uniform random actions the others; the replay flags the rows the expert took. It acts in the controller only: no state, no key in the learner. | `choose_warmup_action` | SAC, TD3, REDQ, ASAC, CrossQ, IQL, AVG and DQN with an expert and `learning_starts > 0` |
-| `JSRLCurriculum` | The expert acts for the first `H_t` steps of each episode, the policy afterwards; `H_t` shrinks from `episode_length` to 0 over `decay_frac` of training. Logs `jsrl/horizon` and `jsrl/expert_frac`. | `action`, `eval_metrics` | an off-policy agent with an expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger, DQN, PQN), and UDRL |
+| `JSRLCurriculum` | The expert acts for the first `h` steps of each episode, the policy afterwards. `schedule="performance"` (the paper's, the default) lowers `h` from the task's horizon a stage at a time when an evaluation of the combined policy passes; `"random"` draws it each episode; `"time"` (Ajax's own) lowers it to 0 over `decay_frac` of training. Logs `jsrl/horizon` and `jsrl/expert_frac`, and with `"performance"` `jsrl/stage` and `jsrl/best`. | `action`, `post_update`, `eval_metrics` | an off-policy agent with an expert (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger, DQN, PQN), and UDRL |
 | `StorePolicyAction` | An off-policy-correctness ablation: the replay stores the action the policy chose, not the one executed, so the rows an expert, a warm-up or a residual acted in no longer hold the action behind their reward and next observation. It acts in the controller only. | `choose_replay_action` | SAC, TD3, TQC, REDQ, ASAC, CrossQ, IQL, DQN and UDRL; not DAgger, which learns from no stored action |
 | `ExpertValueMetrics` | Logs the critic's value at the expert's actions (`value/q_expert_mean`), its gap to the value of the actions taken (`value/q_gap`) and, with `MCPretrain`, its gap to `φ*` (`value/phi_star_q_gap_ood`), on one replay batch per evaluation. | `eval_metrics` | SAC, TD3, REDQ, TQC, CrossQ, ASAC, IQL and DQN with an expert |
 
@@ -338,6 +338,21 @@ accepts it. "SAC with an expert" means `SAC(..., expert_policy=...)`.
 | `PhiRefresh` | Every `interval` steps, refits `φ*` for `steps` updates on the replay rows where the expert acted. | `post_update` | SAC with an expert and `MCPretrain` |
 | `PriorData` | Adds a transition dataset (`ajax.buffers.dataset`) to the replay, where it stays, and to the observation and reward statistics, then runs `offline_updates` of the agent's own update on it before acting. Pair it with `learning_starts=0`. | `pretrain` | SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL, DQN (other agents refuse it when built) |
 | `ExpertPrefill` | The agent's expert acts `n_steps` steps in every copy before training, and its transitions go to the replay as collection writes its own, flagged as expert rows. They count once in the observation and reward statistics, as `PriorData`'s do, and in no timestep. It runs before the other pre-training, which may read its rows. | `pretrain` | SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL with an `expert_policy` |
+
+**Rows kept for the whole run** (`ajax.extensions.retained`)
+
+These put their rows in a ring of their own beside the one collection writes, so nothing evicts them. The update ratio, the critics and their architecture stay the agent's.
+
+| Extension | What it does | Phases | Works with |
+| --- | --- | --- | --- |
+| `RetainedDemonstrations` | Keeps `n_steps` steps of the agent's expert per copy, or a transition `dataset`, for the whole run (DDPGfD). `share` is the part of each batch they fill; `None` draws each row over all the rows held. After `CloningPretrain` in the stack, with `share=0.5`, it is Rainbow-DemoRL's BC start plus prefill. | `pretrain` | SAC, TD3, REDQ, ASAC, RVISAC, TQC, CrossQ, IQL, DQN; the expert's rows need an `expert_policy` |
+| `RLPD` | The same rows at `share=0.5`, exact in every batch, on critics with LayerNorm: pass `critic_architecture=("256", "layernorm", "relu", "256", "layernorm", "relu")`, or `critic_layer_norm=False` for the ablation. `critic_subset` makes each target bootstrap on that many target critics drawn at random. The original configuration is `REDQ` with those critics. | `pretrain`, `on_target` | as `RetainedDemonstrations`; `critic_subset` needs a Q critic with targets and next actions, and an agent without its own subset |
+
+**Blending with the expert** (`ajax.extensions.cheq`)
+
+| Extension | What it does | Phases | Works with |
+| --- | --- | --- | --- |
+| `CHEQ` | Executes `(1 - λ) a_E + λ a_RL`, with `λ` falling from `lambda_max` to `lambda_min` as the critics' disagreement, a share of the spread of the values their targets bootstrap, rises from `u_low` to `u_high`. `λ` joins every observation, the replay stores `a_RL`, and a stateful expert needs `PIDTermsInput` or `ExpertStateInput` in the stack. Logs `cheq/weight`, `cheq/uncertainty` and `cheq/value_spread`. | `observe`, `action`, `eval_action`, `on_target`, `critic_loss`, `post_update`, `eval_metrics` | SAC, TD3, REDQ, ASAC, RVISAC, CrossQ, IQL with an `expert_policy` and two critics or more |
 
 **Offline RL** (`ajax.extensions.offline`)
 

@@ -23,6 +23,7 @@ from ajax.environments.action_stage import (
 )
 from ajax.environments.interaction import ActionPipelineResult, collect_experience
 from ajax.extensions.base import Extension
+from ajax.extensions.cheq import CHEQ
 from ajax.extensions.expert import ExpertWarmup, ResidualPolicy
 from tests.agents.test_agent_contract import CASES
 
@@ -164,6 +165,60 @@ def test_the_replay_keeps_the_choice_executing_the_expert_where_it_was_handed():
         np.testing.assert_allclose(result.stored_policy_action, kept)
         np.testing.assert_allclose(result.policy_action, 0.7)
     assert _stage_result(uniform=False).stored_policy_action is None
+
+
+def _stage_rows(extension: Extension, uniform: bool) -> ActionPipelineResult:
+    """The stage's result for the chosen action 0.5 (a warm-up's uniform draw
+    where uniform), the policy's sample -0.5, the expert's action 0.1 and the
+    observation's last column 0.25."""
+
+    def pipeline(agent_state, acting, raw_obs, rng, uniform, mix_key, key):
+        return ActionPipelineResult(
+            env_action=jnp.full((N_ENVS, 1), 0.5),
+            policy_action=jnp.full((N_ENVS, 1), -0.5),
+        )
+
+    staged = apply_action_extensions(pipeline, (extension,), N_ENVS, 10)
+    acting = ActingState(
+        obs=jnp.full((N_ENVS, 3), 0.25),
+        done=jnp.zeros(N_ENVS, bool),
+        timestep=jnp.asarray(0),
+        expert_action=jnp.full((N_ENVS, 1), 0.1),
+    )
+    key = jax.random.PRNGKey(0)
+    state = SimpleNamespace(ext_state=((),))
+    return staged(state, acting, None, key, jnp.asarray(uniform), key, key)
+
+
+@pytest.mark.parametrize("uniform", [True, False])
+def test_a_cheq_row_stores_the_chosen_action_and_executes_the_blend(uniform) -> None:
+    """Algorithm 2 executes (1 - lambda) a_prior + lambda a_RL and stores a_RL,
+    which appendix A.1's warm-up draws uniformly. By hand at lambda 0.25:
+    0.75 * 0.1 + 0.25 * 0.5 = 0.2, stored 0.5, not the policy's -0.5."""
+    result = _stage_rows(CHEQ(weight_column=2), uniform)
+    np.testing.assert_allclose(result.env_action, 0.2, rtol=1e-6)
+    np.testing.assert_allclose(np.asarray(result.buffer_action), 0.5, rtol=1e-6)
+
+
+@dataclass(frozen=True)
+class Override(Extension):
+    """Overrides the action after the warm-up, writing no replay_action, as
+    ValueBox does."""
+
+    name: str = "override"
+    action_slot: ClassVar[str] = "post_warmup"
+
+    def action(self, agent_state, ext_state, obs, rng, context):
+        return obs["expert_action"]
+
+
+def test_an_override_writing_no_replay_action_stores_as_it_did() -> None:
+    """Only a chooser writing replay_action changes the row: a stage without
+    one leaves buffer_action to collection, which stores the executed action,
+    the expert's here. A default of the policy's action would store -0.5."""
+    result = _stage_rows(Override(), True)
+    np.testing.assert_allclose(result.env_action, 0.1, rtol=1e-6)
+    assert result.buffer_action is None
 
 
 def test_a_mask_for_every_env_becomes_one_column():

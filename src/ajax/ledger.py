@@ -25,6 +25,7 @@ from ajax.extensions.pretrain import (
     MCPretrain,
     PriorData,
 )
+from ajax.extensions.retained import RetainedDemonstrations
 
 #: The steps every arm of the study shares.
 BUDGET = 1_000_000
@@ -73,12 +74,14 @@ def _pretraining_charge(extension: Any, n_envs: int) -> Charge:
     """The steps an extension's pretrain phase costs: every one of them the
     expert's, but a dataset's, whose is_expert rows it says. A pretraining
     the ledger does not know is refused, not left uncounted."""
-    if isinstance(extension, PriorData):
-        rows, dataset = extension.replay_rows(n_envs), extension.dataset
+    logged = isinstance(extension, (PriorData, RetainedDemonstrations))
+    if logged and extension.dataset is not None:
+        dataset = extension.dataset
+        rows = len(dataset.reward)
         return Charge("recorded dataset", rows, int(np.sum(dataset.is_expert)))
     if isinstance(extension, ExpertPrefill):
         steps = extension.replay_rows(n_envs)
-    elif isinstance(extension, CloningPretrain):
+    elif isinstance(extension, (CloningPretrain, RetainedDemonstrations)):
         steps = extension.n_steps * n_envs
     elif isinstance(extension, MCPretrain):
         total = extension.n_mc_steps * extension.n_mc_episodes

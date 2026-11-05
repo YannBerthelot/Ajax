@@ -61,7 +61,9 @@ def test_pqn_fits_q_where_the_expert_acted(monkeypatch):
         num_minibatches=2,
         architecture=("16", "relu"),
         expert_policy=lambda obs: jnp.zeros(obs.shape[:-1] + (1,), jnp.int32),
-        extensions=(JSRLCurriculum(episode_length=1000, decay_frac=1e6),),
+        extensions=(
+            JSRLCurriculum(episode_length=1000, decay_frac=1e6, schedule="time"),
+        ),
     )
     agent.train(seed=0, n_timesteps=32)
     jax.effects_barrier()

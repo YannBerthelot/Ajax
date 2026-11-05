@@ -36,11 +36,9 @@ from ajax.representation.metrics import (
     mean_activation_norm,
 )
 from ajax.representation.probe_set import ProbeSet, probe_set_for
+from ajax.representation.run_data import PROBE_FILE
 from ajax.state import with_batch_stats
 from ajax.types import Replaceable
-
-#: A probe's file in a run directory: seed index, then probe index.
-PROBE_FILE = "seed{seed:03d}_probe{probe:05d}.npz"
 
 
 def probe_metrics(layer: jax.Array, previous: jax.Array) -> dict[str, jax.Array]:

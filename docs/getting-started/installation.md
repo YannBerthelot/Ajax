@@ -91,6 +91,7 @@ imported.
 | `gymnasium` | [Gymnasium](https://gymnasium.farama.org) with MuJoCo, for [Gymnasium environments](../guide/environments.md#gymnasium-environments) such as `"gymnasium:HalfCheetah-v5"`, which step in Python |
 | `compare` | the `adastop` package, whose confidence sequence [`ajax.compare.estimate`](../guide/comparing-agents.md#one-agent-how-sure-is-a-number) uses; AdaStop itself needs no extra |
 | `reproduction` | Hugging Face Hub, pandas and pyarrow, for `ajax.reproduction.load` ([Reproduction](../reproduction/index.md)) |
+| `manifolds` | umap-learn, M-PHATE and matplotlib, for embedding a recorded run ([Representations during training](../guide/representations.md#embedding-a-run)) |
 | `wandb` | Weights & Biases, for [logging](../guide/logging.md) with `WandbBackend`; the `wandb` group installs it in a checkout |
 
 ```bash

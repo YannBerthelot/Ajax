@@ -75,6 +75,42 @@ Each evaluation logs the latest probe's, as
 `Representation/<layer>/<metric>`, to the run's backends and to the returned
 evaluations. Every probe's are in its file.
 
+## Embedding a run
+
+The embeddings run offline, on a CPU, in minutes, and need the `manifolds`
+extra (umap-learn, M-PHATE, matplotlib):
+
+```bash
+pip install "ajax-rl[manifolds]"
+python -m ajax.representation runs/pendulum figures/pendulum --truth theta_dot
+```
+
+To set the metrics against the returns, keep the evaluations with the probes
+first:
+
+```python
+from ajax.representation.run_data import save_evaluations
+
+save_evaluations("runs/pendulum", evaluations)
+```
+
+The command writes, for the actor and the critic (the critic's first member):
+
+| Figure | Shows |
+| --- | --- |
+| `manifold_<network>.png` | the last hidden layer's states on an Aligned UMAP: one embedding per probe, tied to the next by the states they share, coloured by env step, the critic's value and the observation columns, then the value at six probes |
+| `units_<network>.png` | the network's hidden units on M-PHATE (Gigante et al., 2019): each point is one unit at one probe, placed by what it responds to, by env step and by layer |
+| `weights_<network>.png` | the weights on their two principal components, beside a random walk of the same step lengths |
+| `metrics.png` | every layer's metrics against env steps, each seed and their mean, under the return |
+
+Read the weights figure with its random walk beside it: PCA draws any
+high-dimensional random walk as a smooth curve explaining most of its variance
+(Antognini and Sohl-Dickstein, 2018). `--max-probes` and `--max-states` bound
+Aligned UMAP's work, and `--max-nodes` M-PHATE's, whose kernel holds a pair of
+nodes: its default of 20,000 nodes takes some gigabytes. `ajax.representation`'s
+`run_data` reads a run back as NumPy arrays, and `embeddings` holds the embeddings
+without the figures.
+
 ## Resuming
 
 A resumed run goes on from its last probe. The state it resumes from has each

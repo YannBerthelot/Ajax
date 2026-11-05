@@ -15,7 +15,10 @@ The next release is 0.6.0: the first item changes results.
   and dead units. Off unless listed. An architecture's activations are now
   layers without parameters, so flax's `capture_intermediates` reads a layer
   after its nonlinearity; saved parameters are unchanged. The agents on the
-  on-policy family now bind `env_args` for their extensions.
+  on-policy family now bind `env_args` for their extensions. `python -m
+  ajax.representation`, with the new `manifolds` extra, embeds a run's
+  activations (Aligned UMAP, M-PHATE) and weights (PCA beside a matched random
+  walk) and plots its metrics.
 - **On-policy agents train the steps they are asked for.** PPO (with or
   without memory), APO and PQN trained one rollout more than their budget
   in every `train` call. They now train the whole rollouts the budget

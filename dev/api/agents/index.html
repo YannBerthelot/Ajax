@@ -9869,7 +9869,8 @@ environment's own observation. A command-conditioned actor reads
 command.actor_input(obs, command_value). The controller's choosers (an
 extension's eval_action phase) may then replace the executed action by
 the expert's (choose_in_evaluation), on keys derived from rng, so they
-move no other draw.</p>
+move no other draw. A tracker then has the expert's memory follow the
+executed action.</p>
 
 
     </div>

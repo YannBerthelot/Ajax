@@ -1113,6 +1113,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#acting-around-a-controller" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Acting around a controller
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#limits-and-caveats" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2997,6 +3008,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#acting-around-a-controller" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Acting around a controller
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#limits-and-caveats" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3463,6 +3485,21 @@ Ajax" marks a feature with no external reference.</p>
 <td>residual RL (Johannink et al., 2019; Silver et al., 2018)</td>
 </tr>
 <tr>
+<td>Move the target the expert reads</td>
+<td><code>OuterLoopReference</code></td>
+<td>outer-loop control (Arroyo and Giraldo, 2020)</td>
+</tr>
+<tr>
+<td>Schedule the expert's gains each step</td>
+<td><code>ExpertGains</code> on a <code>GainScheduledLaw</code></td>
+<td>control-informed RL (Bloor et al., 2024)</td>
+</tr>
+<tr>
+<td>Keep the expert's memory true to what ran</td>
+<td><code>BumplessTracking</code></td>
+<td>the conditioning technique (Hanus et al., 1987)</td>
+</tr>
+<tr>
 <td>Give the critic a head start</td>
 <td><code>MCPretrain</code>, then <code>CriticBlend</code>, <code>MCVarianceCorrection</code>, <code>PhiRefresh</code> (SAC)</td>
 <td>developed with Ajax</td>
@@ -3594,7 +3631,8 @@ and <code>step_with_gains</code> (TargetGym's <code>FunctionalExpertPolicy</code
 instead of acting directly: SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL run it with the expert as their
 <code>expert_policy</code>. The
 actor outputs one number <code>a</code> in <code>[-1, 1]</code> per learnable gain; the gain
-applied is <code>anchor · 10^a</code>, between a tenth and ten times the expert's own.
+applied is <code>anchor · max_factor^a</code>, by default between a tenth and ten times
+the expert's own.
 The PID computes the action. The replay, or the rollout, holds the gains
 (the agent's actions, as many as the learnable gains), so the critics score
 them and the warm-up draws uniform gains; the expert's own action is stored
@@ -3608,6 +3646,47 @@ SAC with its collection extensions (their <code>action</code> phase never runs i
 <p>It is different from the <a href="../networks/#the-pid-policy">PID policy</a>, in which
 the actor itself is a PID whose gains are learned, for any
 continuous-action agent.</p>
+<h2 id="acting-around-a-controller">Acting around a controller<a class="headerlink" href="#acting-around-a-controller" title="Permanent link">&para;</a></h2>
+<p><code>ajax.extensions.structure</code> holds three arms that keep the expert and change what
+is around it. Each asks only for what it uses: the expert's call
+<code>expert(memory, obs)</code>, which columns of the observation hold its targets and its
+readings, and its gains. TargetGym's batched controllers have that form, and its
+envs name the columns in <code>obs_target_index</code> and <code>obs_value_index</code>. Read them from
+the env rather than writing positions, since observation layouts change between
+versions.</p>
+<ul>
+<li><strong>Moving the target.</strong> <code>OuterLoopReference(target_channels, max_change)</code> with the
+  expert as <code>expert_policy</code>: the policy outputs one change per target, bounded by
+  <code>max_change</code> in the target's units, and the expert acts on the moved target. No
+  change is the expert.</li>
+<li><strong>Scheduling gains.</strong> <code>GainScheduledLaw(expert, obs_width)</code> as <code>expert_policy</code>,
+  with <code>ExpertGains(max_factor=2.0)</code>: the policy sets a multiplier per gain, and the
+  multipliers move at most <code>max_log_rate</code> a step. The action changes as the law does
+  between two steps at the same gains, the velocity form, so a new gain alone moves
+  nothing, and unit multipliers are the law. Add
+  <code>ExpertStateInput.for_expert(layer)</code>, so that the policy reads the multipliers it
+  moves from.</li>
+<li><strong>Tracking what ran.</strong> Add <code>BumplessTracking(reading_channels)</code> to a switching or
+  blending arm (<code>JSRLCurriculum</code>, <code>CHEQ</code>, <code>IBRL</code>, <code>ResidualPolicy</code>): the expert's
+  memory takes the error at which it would have output the action applied, which an
+  env reports in <code>info["applied_action"]</code>, and otherwise the command. Without it, the
+  memory advances on the error whoever acts. A step the expert chose itself stays its
+  own, and a law sitting at its own limit keeps its own anti-windup. Handing back
+  still steps by the proportional term.</li>
+</ul>
+<p><code>GainScheduledLaw</code> reads the expert's <code>step_with_gains</code>, <code>learnable_fields</code> and
+<code>anchor_gains</code>. TargetGym's batched form has them for the laws it registers. For the
+others, <code>ExpertLaw</code> builds them from the law:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># doc: skip</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">target_gym.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">REGISTRY</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.extensions.structure</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExpertLaw</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">law</span> <span class="o">=</span> <span class="n">ExpertLaw</span><span class="o">.</span><span class="n">of</span><span class="p">(</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">REGISTRY</span><span class="p">[</span><span class="s2">&quot;four_tank&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">make_pid_controller</span><span class="p">(),</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="n">gain_names</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;Kp_1&quot;</span><span class="p">,</span> <span class="s2">&quot;Ti_1&quot;</span><span class="p">,</span> <span class="s2">&quot;Kp_2&quot;</span><span class="p">,</span> <span class="s2">&quot;Ti_2&quot;</span><span class="p">),</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="p">)</span>
+</code></pre></div>
 <h2 id="limits-and-caveats">Limits and caveats<a class="headerlink" href="#limits-and-caveats" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>No memory.</strong> Recurrent SAC, TD3, REDQ and ASAC refuse an expert and

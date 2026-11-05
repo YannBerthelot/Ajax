@@ -2947,7 +2947,7 @@
 <p>An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships thirty-eight of them,
+or measurements logged at each evaluation. Ajax ships forty of them,
 listed in the <a href="#catalogue">catalogue</a> below.</p>
 <p>Why extensions instead of agent options? An agent's constructor takes its
 paper's hyperparameters plus <code>extensions=()</code>. The exceptions are
@@ -3481,9 +3481,21 @@ accepts it. "SAC with an expert" means <code>SAC(..., expert_policy=...)</code>.
 </tr>
 <tr>
 <td><code>ExpertGains</code></td>
-<td>Gain mode: the policy's action <code>a</code> sets each of the expert's learnable gains to <code>anchor · 10^a</code>, and the expert acts with them; the replay and the critics hold the gains. Needs a stateful expert with <code>learnable_fields</code> (<code>register_learnable_gains</code>).</td>
+<td>Gain mode: the policy's action <code>a</code> sets each of the expert's learnable gains to <code>anchor · max_factor^a</code>, and the expert acts with them; the replay and the critics hold the gains. Needs a stateful expert with <code>learnable_fields</code> (<code>register_learnable_gains</code>, or a <code>GainScheduledLaw</code>).</td>
 <td><code>actuate</code></td>
 <td>SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL with such an expert, without <code>ExpertActionInput</code></td>
+</tr>
+<tr>
+<td><code>OuterLoopReference</code></td>
+<td>The policy's action moves the targets the expert reads, each by at most its <code>max_change</code>, and the unchanged expert acts; the replay and the critics hold the changes.</td>
+<td><code>actuate</code></td>
+<td>the same agents as <code>ExpertGains</code>, with an expert</td>
+</tr>
+<tr>
+<td><code>BumplessTracking</code></td>
+<td>The expert's memory follows the action applied, by the conditioning technique, from the columns its errors read.</td>
+<td><code>track_memory</code></td>
+<td>agents on the shared collector with a stateful expert; not APG or UDRL yet, whose collectors step the env themselves</td>
 </tr>
 <tr>
 <td><code>ExpertWarmup</code></td>

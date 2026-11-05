@@ -2866,6 +2866,33 @@
 <td>not yet</td>
 </tr>
 <tr>
+<td><code>BumplessTracking</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>not yet</td>
+<td>no</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>yes</td>
+<td>yes</td>
+<td>no</td>
+<td>no</td>
+<td>yes</td>
+<td>yes</td>
+<td>no</td>
+</tr>
+<tr>
 <td><code>CHEQ</code></td>
 <td>yes</td>
 <td>yes</td>
@@ -3433,6 +3460,33 @@
 <td>not yet</td>
 </tr>
 <tr>
+<td><code>OuterLoopReference</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>no</td>
+<td>yes</td>
+<td>no</td>
+<td>yes</td>
+<td>no</td>
+<td>yes</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr>
 <td><code>PIDTermsInput</code></td>
 <td>yes</td>
 <td>yes</td>
@@ -3905,6 +3959,7 @@
 <li><code>BiasVoreDecomposition</code> needs critic, stored_steps: not on APG</li>
 <li><code>BiasVorePenalty</code> needs critic, scalar_target: not on APG, UDRL, UDRL/discrete, DAgger, DAgger/discrete</li>
 <li><code>BiasVorePenalty</code> needs scalar_target: not on TQC</li>
+<li><code>BumplessTracking</code> needs obs_networks: not on TDMPC2, DreamerV3, DreamerV3/discrete, TDMPC2MultiTask</li>
 <li><code>CHEQ</code> needs continuous_actions, critic, critic_ensemble, q_critic, scalar_target: not on UDRL/discrete, DAgger/discrete</li>
 <li><code>CHEQ</code> needs continuous_actions, critic_ensemble: not on DQN</li>
 <li><code>CHEQ</code> needs continuous_actions, critic_ensemble, obs_networks, q_critic: not on DreamerV3/discrete</li>
@@ -4012,6 +4067,11 @@
 <li><code>OnlineBC</code> needs discounted: not on ASAC, RVISAC</li>
 <li><code>OnlineBC</code> needs discounted, q_critic: not on APO</li>
 <li><code>OnlineBC</code> needs q_critic: not on PPO, DreamerV3</li>
+<li><code>OuterLoopReference</code> needs continuous_actions: not on PPO/discrete, APO/discrete, UDRL/discrete, DQN, PQN</li>
+<li><code>OuterLoopReference</code> needs continuous_actions, obs_networks: not on DreamerV3/discrete</li>
+<li><code>OuterLoopReference</code> needs continuous_actions, reward_learning: not on DAgger/discrete</li>
+<li><code>OuterLoopReference</code> needs obs_networks: not on TDMPC2, DreamerV3, TDMPC2MultiTask</li>
+<li><code>OuterLoopReference</code> needs reward_learning: not on DAgger</li>
 <li><code>PhiRefresh</code> needs critic, discounted, q_critic: not on UDRL, UDRL/discrete, DAgger, DAgger/discrete</li>
 <li><code>PhiRefresh</code> needs critic, discounted, q_critic, replay: not on APG</li>
 <li><code>PhiRefresh</code> needs discounted: not on ASAC, RVISAC</li>
@@ -4073,6 +4133,7 @@
 <ul>
 <li>MCPretrain binds only on SAC (batch module-reach): <code>CriticBlend</code> on TD3 REDQ CrossQ AVG DQN PQN IQL; <code>MCPretrain</code> on TD3 REDQ TQC CrossQ AVG PPO PPO/discrete DQN PQN IQL; <code>MCVarianceCorrection</code> on TD3 REDQ CrossQ IQL; <code>OnlineBC</code> on TD3 REDQ TQC CrossQ AVG IQL; <code>PhiRefresh</code> on TD3 REDQ TQC CrossQ DQN IQL; <code>ValueBox</code> on TD3 REDQ TQC CrossQ AVG DQN PQN IQL</li>
 <li>the agent binds no context for it yet: <code>BellmanPretrain</code> on ASAC RVISAC DQN IQL; <code>CloningPretrain</code> on APG PPO UDRL; <code>RepresentationProbe</code> on APG UDRL UDRL/discrete</li>
+<li>its collector steps the env itself, with no track_memory phase yet: <code>BumplessTracking</code> on APG UDRL UDRL/discrete</li>
 <li>no form for this agent yet (cross-entropy for discrete actors; a policy's encoder): <code>CloningPretrain</code> on PPO/discrete APO/discrete UDRL/discrete DAgger/discrete DreamerV3/discrete; <code>ImitationLoss</code> on PPO/discrete APO/discrete UDRL/discrete DAgger/discrete DreamerV3/discrete; <code>ConditioningMetrics</code> on UDRL UDRL/discrete DAgger DAgger/discrete</li>
 <li>world models fold no loss phase for extensions and build their own encoders: <code>CriticBlend</code> on TDMPC2 TDMPC2MultiTask; <code>IBRL</code> on TDMPC2 TDMPC2MultiTask; <code>KernelRepulsion</code> on TDMPC2 TDMPC2MultiTask; <code>LCBGatedBootstrap</code> on TDMPC2 TDMPC2MultiTask; <code>MCVarianceCorrection</code> on TDMPC2 TDMPC2MultiTask; <code>OnlineBC</code> on TDMPC2 TDMPC2MultiTask; <code>PhiRefresh</code> on TDMPC2 TDMPC2MultiTask; <code>ValueBox</code> on TDMPC2 TDMPC2MultiTask; <code>ExpertValueMetrics</code> on TDMPC2 TDMPC2MultiTask; <code>ImitationLoss(q_filter=True)</code> on TDMPC2 TDMPC2MultiTask; <code>ImitationLoss(target='replay', alpha=2.5)</code> on TDMPC2 TDMPC2MultiTask; <code>ConservativeQ</code> on TDMPC2 TDMPC2MultiTask; <code>CalQL</code> on TDMPC2 TDMPC2MultiTask; <code>TargetBC</code> on TDMPC2 TDMPC2MultiTask; <code>JSRLCurriculum</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>MCPretrain</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>BiasVorePenalty</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>cnn</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>EDGEExploration</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>BellmanPretrain</code> on TDMPC2 TDMPC2MultiTask; <code>CloningPretrain</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>ImitationLoss</code> on TDMPC2 DreamerV3 TDMPC2MultiTask</li>
 <li>imagination has no observation for the expert to read: inherent, refused as unwired: <code>ExpertActionInput</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>ExpertStateInput</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask</li>

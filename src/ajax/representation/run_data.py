@@ -71,6 +71,17 @@ def load_values(directory: str | os.PathLike, seed: int = 0) -> np.ndarray | Non
     return np.stack(probes)
 
 
+def load_replay_observations(directory: str | os.PathLike, seed: int = 0) -> np.ndarray:
+    """The training batches' observations at the probes that kept them,
+    ``(n_probes, replay_states, n_columns)``."""
+    probes = []
+    for path in probe_paths(directory)[seed]:
+        with np.load(path) as probe:
+            if "replay/observations" in probe.files:
+                probes.append(probe["replay/observations"])
+    return np.stack(probes)
+
+
 def load_parameters(
     directory: str | os.PathLike, network: str, seed: int = 0
 ) -> np.ndarray:

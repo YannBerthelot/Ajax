@@ -25,7 +25,11 @@ from ajax.agents.update_steps import run_if
 from ajax.environments.obs_norm import apply_obs_norm, normalized_obs
 from ajax.environments.utils import raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionContext
-from ajax.extensions.instrumentation import _is_ensemble_critic, critic_takes_action
+from ajax.extensions.instrumentation import (
+    _is_ensemble_critic,
+    _sample_transitions,
+    critic_takes_action,
+)
 from ajax.log import gated_log_callback, unevaluated
 from ajax.networks.networks import action_value_input, critic_input
 from ajax.networks.utils import Activation
@@ -122,6 +126,10 @@ class RepresentationProbe(Extension):
     the seed ``probe_seed`` unless it exists: runs pointed at one directory
     read the same states. Give ``probe_set`` to bring your own.
 
+    ``replay_states`` also keeps that many observations of a training batch
+    at each probe after the first (``replay/observations``), on an agent with
+    a replay, to set what it learns from against the probe set later.
+
     ``layers`` keeps the layers whose name (``actor/encoder/network/layers_1``)
     holds one of the strings; empty, every one. ``float16`` halves the
     activations' size, and turns values above 65504 infinite. Parameters stay
@@ -137,8 +145,10 @@ class RepresentationProbe(Extension):
     probe_seed: int = 0
     layers: tuple[str, ...] = ()
     float16: bool = False
+    replay_states: int = 0
     probe_set: Optional[ProbeSet] = field(default=None, compare=False, repr=False)
     env_args: Any = field(default=None, compare=False, repr=False)
+    buffer: Any = field(default=None, compare=False, repr=False)
     name: str = "representation_probe"
     requires: ClassVar[frozenset[str]] = frozenset({"obs_networks"})
     context: ClassVar[frozenset[str]] = frozenset({"env_args"})
@@ -154,7 +164,8 @@ class RepresentationProbe(Extension):
         """Copies the agent's ``env_args`` and fetches the probe set.
 
         Raises ``ValueError`` on observation columns or actions the env's
-        own random rollouts cannot give the networks."""
+        own random rollouts cannot give the networks, and on ``replay_states``
+        without a replay."""
         env_args = agent_context["env_args"]
         if env_args.observers or env_args.policy_action_dim is not None:
             raise ValueError(
@@ -162,12 +173,17 @@ class RepresentationProbe(Extension):
                 " read a network on observation features or a gain policy's"
                 " actions."
             )
+        buffer = agent_context.get("buffer")
+        if self.replay_states and buffer is None:
+            raise ValueError("replay_states reads a replay, which this agent has not.")
         probe_set = self.probe_set
         if probe_set is None:
             probe_set = probe_set_for(
                 self.run_directory, env_args, self.n_states, self.probe_seed
             )
-        return dataclasses.replace(self, env_args=env_args, probe_set=probe_set)
+        return dataclasses.replace(
+            self, env_args=env_args, probe_set=probe_set, buffer=buffer
+        )
 
     def read_networks(
         self,
@@ -237,7 +253,13 @@ class RepresentationProbe(Extension):
         )
 
     def measure(
-        self, agent_state: Any, state: ProbeState, step: Any, rng: jax.Array, due: Any
+        self,
+        agent_state: Any,
+        state: ProbeState,
+        step: Any,
+        rng: jax.Array,
+        due: Any,
+        replay_filled: bool = True,
     ) -> ProbeState:
         """Reads the networks, writes the file and keeps the metrics."""
         layers, values, parameters = self.read_networks(
@@ -251,7 +273,11 @@ class RepresentationProbe(Extension):
             "values": values,
             "parameters": parameters,
             "metrics": metrics,
+            "replay_observations": None,
         }
+        if self.replay_states and replay_filled:
+            batch = _sample_transitions(agent_state, rng, self.buffer, 0)
+            record["replay_observations"] = batch[0][: self.replay_states]
         # Gated inside the callback: under a batched gate (a resumed run) the
         # cond is a select, and this branch runs at every update.
         gated_log_callback(self.write, due, record, state.seed_index)
@@ -268,7 +294,7 @@ class RepresentationProbe(Extension):
         ext_state = ext_state.replace(seed_index=jnp.asarray(index))
         first = jnp.asarray(True)
         ext_state = self.measure(
-            agent_state, ext_state, context.step, context.rng, first
+            agent_state, ext_state, context.step, context.rng, first, False
         )
         layers, _, _ = self.read_networks(
             agent_state, ext_state.observations, ext_state.actions, context.rng
@@ -322,6 +348,8 @@ class RepresentationProbe(Extension):
         arrays = {"step": record["step"]}
         if record["values"] is not None:
             arrays["values"] = record["values"]
+        if record["replay_observations"] is not None:
+            arrays["replay/observations"] = record["replay_observations"]
         arrays.update({f"metrics/{k}": v for k, v in record["metrics"].items()})
         for layer, activations in record["layers"].items():
             arrays[f"layers/{layer}"] = np.asarray(activations, activation_type)

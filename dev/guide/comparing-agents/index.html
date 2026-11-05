@@ -863,6 +863,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#paired-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Paired runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-score" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2743,6 +2754,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#paired-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Paired runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-score" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2867,6 +2889,51 @@ scores instead of assuming a distribution. An "equal" rules out gaps much
 larger than the resolution; it says nothing about smaller ones. On normal
 scores with 32 runs each (<code>n = 8</code>, <code>K = 4</code>) the resolution is about 0.75
 standard deviations.</p>
+<h2 id="paired-runs">Paired runs<a class="headerlink" href="#paired-runs" title="Permanent link">&para;</a></h2>
+<p>Two agents that share something run by run compare better as pairs. If
+seed number <code>i</code> of every agent meets the same episodes, a hard set of
+episodes costs both agents, and that spread says nothing about which is
+better. With <code>paired=True</code>, each comparison reads the differences between
+same-numbered runs, so what they share cancels:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.compare</span><span class="w"> </span><span class="kn">import</span> <span class="n">AdaStop</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">hardness</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>  <span class="c1"># each seed number&#39;s episodes, two interims</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">test</span> <span class="o">=</span> <span class="n">AdaStop</span><span class="p">([</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="s2">&quot;b&quot;</span><span class="p">],</span> <span class="n">n</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">K</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">paired</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="k">while</span> <span class="ow">not</span> <span class="n">test</span><span class="o">.</span><span class="n">finished</span><span class="p">:</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="n">test</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>        <span class="p">{</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>            <span class="s2">&quot;a&quot;</span><span class="p">:</span> <span class="n">hardness</span><span class="p">[</span><span class="n">test</span><span class="o">.</span><span class="n">k</span><span class="p">]</span> <span class="o">+</span> <span class="mf">0.3</span> <span class="o">+</span> <span class="mf">0.1</span> <span class="o">*</span> <span class="n">rng</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>            <span class="s2">&quot;b&quot;</span><span class="p">:</span> <span class="n">hardness</span><span class="p">[</span><span class="n">test</span><span class="o">.</span><span class="n">k</span><span class="p">]</span> <span class="o">+</span> <span class="mf">0.1</span> <span class="o">*</span> <span class="n">rng</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>        <span class="p">}</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    <span class="p">)</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="n">test</span><span class="o">.</span><span class="n">decisions</span>  <span class="c1"># {(&quot;a&quot;, &quot;b&quot;): &quot;larger&quot;}</span>
+</code></pre></div>
+<ul>
+<li><strong>Rows go by interim.</strong> Row <code>i</code> of interim <code>k</code> must be the same seed number
+  in every agent, whichever agents have stopped. Rows of unequal length are
+  refused. <code>compare</code> trains the same seeds in every agent when you pass
+  <code>paired=True</code>, instead of disjoint ones.</li>
+<li><strong>Pairing only helps if the rows share something.</strong> Runs that share nothing
+  gain nothing, and lose a little: the test then rests on <code>n * K</code> differences,
+  not <code>2 * n * K</code> scores.</li>
+<li><strong>The test.</strong> Each permutation flips the sign of whole rows, with the same
+  flips in every comparison and the observed rows first. The rest is the
+  unpaired test: step-down, boundaries, ties and level carried over.</li>
+<li><strong>What holds exactly.</strong> For two equal agents the level is exact when a row's
+  two scores are exchangeable. With three or more it is exact for symmetric
+  noise, and otherwise rests on the shared flips, which came out cautious on
+  skewed noise (0.03 at <code>alpha = 0.05</code>, 12 agents).</li>
+<li><strong><code>difference</code> and <code>resolution</code> take <code>paired=True</code> too.</strong> They then resample
+  whole rows. Without it they describe an unpaired test: <code>difference</code> gives
+  an interval that still holds the rows' shared spread, and <code>resolution</code> the
+  gap an unpaired test would detect.</li>
+</ul>
+<p>The <code>paired</code> branch of the authors' <code>adastop</code> package tests each pair's
+differences against a dummy agent of zeros. Here the signs flip row by row,
+and <code>active</code> still says which agents can stop.</p>
 <h2 id="the-score">The score<a class="headerlink" href="#the-score" title="Permanent link">&para;</a></h2>
 <p>The test compares one number per run, and the choice of that number changes
 the question:</p>
@@ -2887,6 +2954,13 @@ the means to be well estimated. Very few runs cannot reject anything: with
 itself takes milliseconds; the training is the cost.</p>
 <p>The <a href="https://github.com/YannBerthelot/Ajax/blob/main/benchmarks/reference/README.md">reference comparison</a> reports an
 AdaStop verdict on its recorded runs.</p>
+<p><strong>A small <code>alpha</code> needs more permutations.</strong> Only about <code>alpha * B / K</code>
+permutations sit beyond each interim's boundary: 13 at <code>alpha = 0.05 / 19</code>,
+<code>K = 2</code> and <code>B = 10,000</code>. Below <code>B = 1 / alpha</code> there are none, and nothing can
+be rejected. The error rate held at those settings: 0.0030 over 12,000
+simulated paired runs of 12 equal agents, against a level of 0.0026. But a
+boundary read off so few permutations is noisy, so raise <code>B</code> with a small
+<code>alpha</code>. It costs seconds rather than milliseconds.</p>
 <h2 id="differences-from-the-paper-and-the-authors-package">Differences from the paper and the authors' package<a class="headerlink" href="#differences-from-the-paper-and-the-authors-package" title="Permanent link">&para;</a></h2>
 <p>The authors' <code>adastop</code> package (0.1.3) compares the observed difference with
 quantiles of the signed permuted differences, which about doubles the error
@@ -2908,29 +2982,29 @@ statistic. <code>ajax.compare</code> follows the paper instead, with these choic
 <p>With nothing to compare, the question is how well one agent does: its
 success rate, say. <code>estimate</code> trains <code>n</code> seeds per <code>train</code> call until each
 chosen metric is known well enough, or <code>max_seeds</code> have trained:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># doc: skip (trains 16 to 128 seeds: tens of minutes on a CPU; tests/test_compare.py covers estimate)</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.compare</span><span class="w"> </span><span class="kn">import</span> <span class="n">estimate</span><span class="p">,</span> <span class="n">final_return</span><span class="p">,</span> <span class="n">half_width</span><span class="p">,</span> <span class="n">threshold</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="k">def</span><span class="w"> </span><span class="nf">final</span><span class="p">(</span><span class="n">evals</span><span class="p">):</span>  <span class="c1"># evals: train&#39;s evaluations, each (seeds, evaluations)</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="k">return</span> <span class="n">final_return</span><span class="p">(</span><span class="n">evals</span><span class="p">[</span><span class="s2">&quot;Eval/episodic mean reward&quot;</span><span class="p">])</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="n">result</span> <span class="o">=</span> <span class="n">estimate</span><span class="p">(</span>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="k">lambda</span><span class="p">:</span> <span class="n">ajax</span><span class="o">.</span><span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">),</span>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>    <span class="c1"># Whole rollouts (12 of PPO&#39;s 4 x 2,048 steps): a budget ending inside</span>
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>    <span class="c1"># one leaves its last evaluation NaN.</span>
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>    <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">98_304</span><span class="p">,</span>
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    <span class="n">eval_every</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span>
-<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>    <span class="n">metrics</span><span class="o">=</span><span class="p">{</span>  <span class="c1"># name: (per-seed score, its true bounds, when to stop)</span>
-<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>        <span class="s2">&quot;solved&quot;</span><span class="p">:</span> <span class="p">(</span><span class="k">lambda</span> <span class="n">evals</span><span class="p">:</span> <span class="n">final</span><span class="p">(</span><span class="n">evals</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">475</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">threshold</span><span class="p">(</span><span class="mf">0.8</span><span class="p">)),</span>
-<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>        <span class="s2">&quot;final return&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">final</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">500</span><span class="p">),</span> <span class="n">half_width</span><span class="p">(</span><span class="mi">25</span><span class="p">)),</span>
-<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>    <span class="p">},</span>
-<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>    <span class="n">n</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
-<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>    <span class="n">max_seeds</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
-<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="p">)</span>
-<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="n">result</span><span class="o">.</span><span class="n">interval</span>  <span class="c1"># {&quot;solved&quot;: (0.83, 1.0), &quot;final return&quot;: (452.1, 500.0)}, say</span>
-<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="n">result</span><span class="o">.</span><span class="n">mean</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">met</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">seeds</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">scores</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># doc: skip (trains 16 to 128 seeds: tens of minutes on a CPU; tests/test_compare.py covers estimate)</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.compare</span><span class="w"> </span><span class="kn">import</span> <span class="n">estimate</span><span class="p">,</span> <span class="n">final_return</span><span class="p">,</span> <span class="n">half_width</span><span class="p">,</span> <span class="n">threshold</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="k">def</span><span class="w"> </span><span class="nf">final</span><span class="p">(</span><span class="n">evals</span><span class="p">):</span>  <span class="c1"># evals: train&#39;s evaluations, each (seeds, evaluations)</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="k">return</span> <span class="n">final_return</span><span class="p">(</span><span class="n">evals</span><span class="p">[</span><span class="s2">&quot;Eval/episodic mean reward&quot;</span><span class="p">])</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">result</span> <span class="o">=</span> <span class="n">estimate</span><span class="p">(</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="k">lambda</span><span class="p">:</span> <span class="n">ajax</span><span class="o">.</span><span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">),</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>    <span class="c1"># Whole rollouts (12 of PPO&#39;s 4 x 2,048 steps): a budget ending inside</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>    <span class="c1"># one leaves its last evaluation NaN.</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>    <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">98_304</span><span class="p">,</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>    <span class="n">eval_every</span><span class="o">=</span><span class="mi">8_192</span><span class="p">,</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>    <span class="n">metrics</span><span class="o">=</span><span class="p">{</span>  <span class="c1"># name: (per-seed score, its true bounds, when to stop)</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>        <span class="s2">&quot;solved&quot;</span><span class="p">:</span> <span class="p">(</span><span class="k">lambda</span> <span class="n">evals</span><span class="p">:</span> <span class="n">final</span><span class="p">(</span><span class="n">evals</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">475</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">threshold</span><span class="p">(</span><span class="mf">0.8</span><span class="p">)),</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>        <span class="s2">&quot;final return&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">final</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">500</span><span class="p">),</span> <span class="n">half_width</span><span class="p">(</span><span class="mi">25</span><span class="p">)),</span>
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>    <span class="p">},</span>
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a>    <span class="n">n</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a>    <span class="n">max_seeds</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="p">)</span>
+<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="n">result</span><span class="o">.</span><span class="n">interval</span>  <span class="c1"># {&quot;solved&quot;: (0.83, 1.0), &quot;final return&quot;: (452.1, 500.0)}, say</span>
+<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="n">result</span><span class="o">.</span><span class="n">mean</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">met</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">seeds</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">scores</span>
 </code></pre></div>
 <p><code>threshold(t)</code> stops once the interval lies above or below <code>t</code>, deciding
 whether the mean is above <code>t</code>; <code>half_width(w)</code> once it is at most <code>2 * w</code>

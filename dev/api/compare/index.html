@@ -3212,7 +3212,8 @@ confidence sequence pins down each chosen metric.</p>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">B</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">comparisons</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">paired</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3345,6 +3346,25 @@ confidence sequence pins down each chosen metric.</p>
                   <code>0</code>
             </td>
           </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>paired</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>row i of an interim is the same seed number in every agent:
+each comparison reads the rows' differences, and each permutation
+flips a row's sign, with the same flips in every comparison.
+The rows must share something (episodes, a seed) for this to help.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
       </tbody>
     </table>
 
@@ -3408,7 +3428,9 @@ confidence sequence pins down each chosen metric.</p>
 
         <p>Run interim <code>k</code> on the <code>n</code> new scores of every active agent;
 <code>decisions[(a, b)]</code> becomes "larger" (a's mean is larger),
-"smaller", or, after the last interim, "equal".</p>
+"smaller", or, after the last interim, "equal". Paired, row i of
+interim k is one seed number in every agent, so seed numbers go by
+interim: an agent that stopped leaves no gap in the others' rows.</p>
 
 
     </div>
@@ -3762,7 +3784,8 @@ another map from evaluation curves to per-seed scores.</p>
             <td>
               <div class="doc-md-description">
                 <p>the permutations' seed and the first run seed. Agents train
-disjoint seeds, so their runs are independent.</p>
+disjoint seeds, so their runs are independent; with <code>paired</code>,
+the same seeds at each interim, so their rows match.</p>
               </div>
             </td>
             <td>
@@ -3778,7 +3801,8 @@ disjoint seeds, so their runs are independent.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>:class:<code>AdaStop</code>'s <code>n</code>, <code>K</code>, <code>alpha</code> and <code>B</code>.</p>
+                <p>:class:<code>AdaStop</code>'s <code>n</code>, <code>K</code>, <code>alpha</code>, <code>B</code> and
+<code>paired</code>.</p>
               </div>
             </td>
             <td>
@@ -3801,13 +3825,17 @@ disjoint seeds, so their runs are independent.</p>
 
 
 <a href="#ajax.compare.difference" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">difference</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">confidence</span><span class="o">=</span><span class="mf">0.95</span><span class="p">,</span> <span class="n">B</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">difference</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">confidence</span><span class="o">=</span><span class="mf">0.95</span><span class="p">,</span> <span class="n">B</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">paired</span><span class="o">=</span><span class="kc">False</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p><code>mean(a) - mean(b)</code> and its percentile bootstrap interval: <code>B</code>
-resamples of each sample, with replacement.</p>
+resamples of each sample, with replacement. <code>paired</code> resamples rows,
+a's and b's together: what the rows share then leaves the interval, as
+it leaves a paired :class:<code>AdaStop</code>.</p>
 
 
     </div>
@@ -3832,7 +3860,8 @@ resamples of each sample, with replacement.</p>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">reps</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">B</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="p">)</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">paired</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3847,6 +3876,9 @@ centred on its mean, and adds the gap to <code>b</code>'s. The same draws serve
 every gap, which a bisection narrows to 1/1000 of the samples' spread;
 samples without spread give 0. Shifting every score says little about a
 gap made of a few failing runs among scores at a task's maximum.</p>
+<p>For a paired test pass <code>paired</code>: replicates then draw whole rows, a's
+and b's together, which keeps what the rows share. Unpaired replicates
+lose it, and report the resolution of a test the rows do not help.</p>
 
 
     </div>

@@ -91,6 +91,17 @@ def playground_stack():
     return W.BatchRngWrapper(env, n_envs=N_ENVS)
 
 
+class MeasuredIdentity(IdentityEnv):
+    """The identity task reporting a measured reward beside its own."""
+
+    def step_env(self, key, state, action, params):
+        obs, state, reward, terminated, info = super().step_env(
+            key, state, action, params
+        )
+        measured = {W.MEASURED_REWARD_KEY: 0.5 * reward}
+        return obs, state, reward, terminated, {**info, **measured}
+
+
 def redraw_c(key, state, params):
     return state.replace(c=jax.random.uniform(key, minval=-1.0, maxval=1.0))
 
@@ -107,6 +118,7 @@ ROWS = {
         IdentityEnv()
     ),
     W.ObservationNoiseWrapper: lambda: W.ObservationNoiseWrapper(IdentityEnv(), 0.1),
+    W.MeasuredRewardWrapper: lambda: W.MeasuredRewardWrapper(MeasuredIdentity()),
     ModelReferenceWrapper: lambda: ModelReferenceWrapper(
         IdentityEnv(),
         StepReference(LIMIT, -1.0, 1.0, 1, 2),

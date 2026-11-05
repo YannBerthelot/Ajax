@@ -55,6 +55,10 @@ NAMES: tuple[str, ...] = (
     # An actor step's key when the step counts on some updates only
     # (ajax.agents.update_steps.derive_actor_key).
     "actor",
+    # A replay's draw from its retained ring, and the rows it keeps, off the
+    # batch's key (ajax.buffers.utils.sample_two_buffers).
+    "retained_rows",
+    "retained_share",
     # PPO's and APO's minibatch keys, off each epoch's key.
     "minibatch_entropy",
     # ExpertWarmup's decision, off the uniform actions' key.

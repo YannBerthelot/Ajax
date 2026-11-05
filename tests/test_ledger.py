@@ -30,8 +30,9 @@ from ajax.extensions.pretrain import (
     MCPretrain,
     PriorData,
 )
+from ajax.extensions.retained import RLPD, RetainedDemonstrations
 from ajax.extensions.target_mods import IBRL
-from ajax.ledger import BUDGET, online_steps, run_ledger
+from ajax.ledger import BUDGET, online_steps, pretraining_charges, run_ledger
 
 
 def expert(obs: jax.Array) -> jax.Array:
@@ -193,3 +194,18 @@ def test_the_ledger_is_the_plants_own_count():
     assert len(calls) == 8 + 12 + 260 + 16
     timestep = int(state.collector_state.timestep[0])
     assert run_ledger(agent, timestep).env_steps == len(calls)
+
+
+@pytest.mark.parametrize("module", [RLPD, RetainedDemonstrations])
+def test_rows_kept_beside_the_replay_are_charged(module) -> None:
+    """Their rows take no slot of the replay (replay_rows is 0), and they cost
+    the plant all the same: charging replay_rows would give the arm free
+    data. 500 expert steps in 2 envs are 1,000 steps and as many queries; a
+    dataset of 300 rows, 120 of them the expert's, is 300 steps, 120 queries."""
+    rolled = agent_with(module(n_steps=500), n_envs=2, expert_policy=expert)
+    (charge,) = pretraining_charges(rolled)
+    assert (charge.env_steps, charge.expert_queries) == (1_000, 1_000)
+    logged = agent_with(module(n_steps=0, dataset=dataset(300, 120)))
+    (charge,) = pretraining_charges(logged)
+    assert (charge.source, charge.env_steps) == ("recorded dataset", 300)
+    assert charge.expert_queries == 120

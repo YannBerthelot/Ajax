@@ -195,6 +195,33 @@ def test_scores_outside_their_bounds_or_one_short_are_refused(bad):
         estimate(lambda: Draws(), 1, 1, {"x": metric}, n=2)
 
 
+def test_the_metrics_share_delta():
+    """Catches each interval spending the whole delta, which voids the level
+    they promise together: a second metric widens the first's on its same
+    scores."""
+    draw = {"x": lambda g: g.uniform(), "y": lambda g: g.uniform()}
+    x, y = ((last(k), (0, 1), half_width(0)) for k in draw)
+    size = {"n": 32, "max_seeds": 128}  # few scores leave both at the whole range
+    alone = estimate(lambda: Draws(**draw), 1, 1, {"x": x}, **size)
+    shared = estimate(lambda: Draws(**draw), 1, 1, {"x": x, "y": y}, **size)
+    assert np.ptp(shared.interval["x"]) > np.ptp(alone.interval["x"])
+
+
+def test_half_width_bounds_half_the_interval():
+    """Catches the rule reading the interval's whole width: (0, 2) lies within
+    1 of its middle."""
+    assert half_width(1.0)(0.0, 2.0)
+    assert not half_width(1.0)(0.0, 2.5)
+
+
+def test_an_interim_of_the_wrong_size_is_refused():
+    """Catches a short interim reaching the permutations: one pooled score
+    would broadcast over a pair's four signs and pass as a whole interim."""
+    test = AdaStop(["a", "b"], n=2, K=2, B=16)
+    with pytest.raises(ValueError, match="needs 2 scores"):
+        test.update({"a": [1.0], "b": []})
+
+
 def test_estimates_repeat_for_a_seed():
     metrics = {"x": (last("x"), (0, 1), half_width(0.2))}
     a, b = (

@@ -16,6 +16,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import struct
 
 from ajax.environments.create import build_env_from_id
 from ajax.wrappers import FreshAutoResetWrapper, _call_if_any
@@ -155,6 +156,44 @@ def test_eval_rebuild_keeps_the_reset_semantics():
             env, None, num_episodes=2, norm_info=None, gamma=0.99
         )
         assert eval_env._ajax_fresh_reset is fresh_reset
+
+
+@struct.dataclass
+class _EndlessState:
+    obs: jax.Array
+    done: jax.Array
+    data: jax.Array
+    info: dict
+
+
+class _EndlessEnv:
+    """A batched env whose episodes never end, counting the resets it runs."""
+
+    def __init__(self) -> None:
+        self.resets: list = []
+        self.unwrapped = self
+
+    def reset(self, keys):
+        jax.debug.callback(lambda: self.resets.append(1))
+        zeros = jnp.zeros(keys.shape[:-1])
+        return _EndlessState(zeros, zeros, zeros, {})
+
+    def step(self, state, action):
+        return state
+
+
+def test_a_step_where_no_episode_ends_runs_no_reset_by_default():
+    """Catches the reset running on every step, the cost this wrapper exists
+    to avoid (about 180 times a step on CheetahRun): three steps add nothing
+    to the first reset."""
+    env = _EndlessEnv()
+    wrapper = FreshAutoResetWrapper(env)
+    state = wrapper.reset(jax.random.split(jax.random.PRNGKey(0), N_ENVS))
+    step = jax.jit(wrapper.step)
+    for _ in range(3):
+        state = step(state, jnp.zeros(N_ENVS))
+    jax.effects_barrier()
+    assert len(env.resets) == 1
 
 
 def _fn(keys):

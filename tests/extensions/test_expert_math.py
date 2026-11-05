@@ -11,6 +11,7 @@ import pytest
 from ajax.extensions import target_mods
 from ajax.extensions.base import ExtensionContext
 from ajax.extensions.expert import (
+    JSRLCurriculum,
     OnlineBC,
     compute_online_bc_loss,
     residual_action_transform,
@@ -22,6 +23,21 @@ from ajax.extensions.target_mods import (
 )
 
 CTX = ExtensionContext(step=jnp.asarray(0), rng=jax.random.PRNGKey(0), total_steps=100)
+
+
+def test_jsrl_hands_over_to_the_policy_at_the_guide_horizon() -> None:
+    """Catches an off-by-one at the horizon: H = 200 (1 - (25 / 100) / 0.5) =
+    100 at timestep 25, so the expert takes steps 0 to 99 and the policy step
+    100 (Uchendu et al. 2023, the expert's guide policy for the first H)."""
+    collector = SimpleNamespace(
+        timestep=jnp.asarray(25), step_in_episode=jnp.array([99, 100])
+    )
+    stage = {"post_warmup_action": jnp.zeros((2, 1)), "expert_action": jnp.ones((2, 1))}
+    actions = JSRLCurriculum(episode_length=200, decay_frac=0.5).action(
+        SimpleNamespace(collector_state=collector), None, stage, CTX.rng, CTX
+    )
+    np.testing.assert_array_equal(actions, [[1.0], [0.0]])
+
 
 # ---------------------------------------------------------------------------
 # Blend target modifier

@@ -455,6 +455,15 @@ def test_curriculum_rejects_incompatible_stages(env_and_class):
                 CurriculumStage(make_agent(env, sc, actor_architecture=("8",)), 64),
             ]
         )
+    with pytest.raises(ValueError, match="controller head"):
+        train_curriculum(
+            [
+                CurriculumStage(a, 64),
+                CurriculumStage(
+                    make_agent(env, sc, pid=PIDHeadConfig(kp_init=2.0)), 64
+                ),
+            ]
+        )
     with pytest.raises(ValueError, match="at least one"):
         train_curriculum([])
 

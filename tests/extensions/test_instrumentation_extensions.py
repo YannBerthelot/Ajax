@@ -35,7 +35,9 @@ from ajax.extensions.instrumentation import (
     ConditioningMetrics,
     _sample_transitions,
     _takes_action,
+    dormant_fraction,
     evarest_coeff,
+    srank,
 )
 from ajax.logging.wandb_logging import LoggingConfig
 from ajax.networks.networks import get_initialized_actor_critic
@@ -126,6 +128,46 @@ def test_a_rollout_batch_is_one_row_per_step():
     assert jnp.array_equal(next_rows, rows + 1.0)
     assert actions.shape == rewards.shape == (6, 1)
     assert done[:, 0].tolist() == [False, False, True, False, False, True]
+
+
+def test_the_effective_rank_leaves_out_one_percent_of_the_spectrum():
+    """Kumar et al. (2021) take delta = 0.01: the first of the singular values
+    98.5 and 1.5 holds 98.5% of the mass, short of 99%, so the rank is 2."""
+    assert float(srank(jnp.diag(jnp.array([98.5, 1.5])))) == 2.0
+
+
+def test_a_unit_is_dormant_under_a_fortieth_of_the_mean_activation():
+    """Catches the dormancy threshold's default moving: of units at 0.02 and
+    0.1 of a layer's mean activation (the mean of these four is 1), only the
+    first is under tau = 0.025, the threshold the module takes from EVAREST."""
+    feats = jnp.array([[0.02, 0.1, 1.94, 1.94]])
+    assert float(dormant_fraction(feats)) == 0.25
+
+
+def test_the_bias_decomposition_hands_its_target_function_the_batch():
+    """Catches the target function reading the wrong columns: it gets the
+    measurement batch's observations and actions, one row per step."""
+    obs, flags = 2.0 * jnp.ones((2, 2, 3)), jnp.zeros((2, 2), dtype=bool)
+    rollout = Transition(
+        obs=obs,
+        action=jnp.ones((2, 2, 1)),
+        reward=jnp.ones((2, 2)),
+        terminated=flags,
+        truncated=flags,
+        next_obs=obs,
+    )
+    seen = {}
+
+    def target_and_predictions(state, batch, key):
+        seen.update(batch)
+        return jnp.zeros(4), jnp.zeros(4)
+
+    state = SimpleNamespace(collector_state=None, last_rollout=rollout)
+    BiasVoreDecomposition(value_target_fn=target_and_predictions).eval_metrics(
+        state, None, jax.random.PRNGKey(0), None
+    )
+    np.testing.assert_array_equal(seen["observations"], obs.reshape(4, 3))
+    np.testing.assert_array_equal(seen["actions"], jnp.ones((4, 1)))
 
 
 # --------------------------------------------------------------------------

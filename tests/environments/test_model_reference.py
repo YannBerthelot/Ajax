@@ -68,6 +68,14 @@ def test_step_reference_shape_range_and_segment_lengths():
         assert jnp.all(lengths >= 4) and jnp.all(lengths <= 9)
 
 
+def test_step_reference_holds_for_either_end_of_its_duration_range():
+    """Catches an exclusive upper bound on the durations: the docstring's
+    range is inclusive, and over 200 steps of durations 2 or 3 both occur."""
+    seq = StepReference(200, 0.0, 1.0, 2, 3).sample(jax.random.PRNGKey(0))[:, 0]
+    change = jnp.flatnonzero(jnp.diff(seq) != 0) + 1
+    assert set(jnp.diff(change).tolist()) == {2, 3}
+
+
 def test_step_reference_is_deterministic_under_key():
     ref = StepReference(N, -1.0, 1.0, 5, 15)
     assert jnp.array_equal(

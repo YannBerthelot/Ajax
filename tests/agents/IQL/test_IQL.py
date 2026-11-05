@@ -30,15 +30,12 @@ def _constant(params, value: float):
     return jax.tree_util.tree_map_with_path(leaf, params)
 
 
-def test_the_actor_weighs_each_row_by_its_clipped_advantage() -> None:
-    """The actor's loss is ``-mean(w log pi(a | s))`` with ``w = min(exp(
-    temperature (q - V(s))), 100)`` (actor.py). With the target critics at q
-    and V at 0 everywhere, q = 10 is past the clip (exp(30)) and q = 0 weighs
-    each row about 1 (V's one step, on Adam's momentum alone, barely moves
-    it): on the same batch and actor, the first loss is 100 times the second."""
+@pytest.fixture(scope="module")
+def update_with_values():
+    """One update of a tiny trained IQL with its target critics at ``q`` and
+    its V at ``v`` everywhere, on the same batch and actor: its logs."""
     agent = IQL("Pendulum-v1", batch_size=8, actor_architecture=("8", "relu"))
     state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=16)[0])
-    value = state.value_state.replace(params=_constant(state.value_state.params, 0.0))
     context = TrainContext(  # what the update reads: the replay, the extensions
         env_args=agent.env_args,
         network_args=agent.network_args,
@@ -50,15 +47,36 @@ def test_the_actor_weighs_each_row_by_its_clipped_advantage() -> None:
         buffer=agent.buffer,
     )
 
-    def actor_loss(q: float) -> float:
+    def update(q: float, v: float):
         critic = state.critic_state
         critic = critic.replace(target_params=_constant(critic.target_params, q))
-        _, aux = agent.update(
+        value = state.value_state
+        value = value.replace(params=_constant(value.params, v))
+        return agent.update(
             state.replace(critic_state=critic, value_state=value), context
-        )
-        return float(aux.value.actor_loss)
+        )[1].value
 
-    np.testing.assert_allclose(actor_loss(10.0) / actor_loss(0.0), 100.0, rtol=1e-3)
+    return update
+
+
+def test_the_actor_weighs_each_row_by_its_clipped_advantage(update_with_values) -> None:
+    """The actor's loss is ``-mean(w log pi(a | s))`` with ``w = min(exp(
+    temperature (q - V(s))), 100)`` (actor.py). With the target critics at q
+    and V at 0 everywhere, q = 10 is past the clip (exp(30)) and q = 0 weighs
+    each row about 1 (V's one step, on Adam's momentum alone, barely moves
+    it): on the same batch and actor, the first loss is 100 times the second."""
+    clipped = update_with_values(10.0, 0.0).actor_loss
+    unit = update_with_values(0.0, 0.0).actor_loss
+    np.testing.assert_allclose(float(clipped) / float(unit), 100.0, rtol=1e-3)
+
+
+def test_the_logged_advantage_is_the_critics_value_less_v(update_with_values) -> None:
+    """Catches a logged advantage that adds V: q = 10 less V = 4 is 6. V's
+    one step moves it by about a learning rate, 3e-4, well within the
+    tolerance."""
+    assert float(update_with_values(10.0, 4.0).advantage) == pytest.approx(
+        6.0, abs=0.01
+    )
 
 
 def test_the_defaults_are_the_reference_codes() -> None:

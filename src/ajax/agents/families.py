@@ -1234,7 +1234,6 @@ class OwnIterationAgent(DeclaredAgent):
     supported_extension_phases = LOOP_PHASES.difference(
         {"observe", "action", "eval_action"}
     )
-    extension_context = frozenset({"env_args"})
     #: Whether train returns every iteration's output (make_iteration_output),
     #: stacked, logging or not, instead of the evaluations.
     returns_iterations = False

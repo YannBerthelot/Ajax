@@ -119,6 +119,9 @@ GAPS: dict[str, dict[str, str]] = {
     CONTEXT: {
         "BellmanPretrain": "ASAC RVISAC DQN IQL",
         "CloningPretrain": "APG PPO UDRL",
+        # UDRL's networks read a command the env's rollouts cannot give, and
+        # APG's controller may keep a state between steps.
+        "RepresentationProbe": "APG UDRL UDRL/discrete",
     },
     FORM: {
         "CloningPretrain": "PPO/discrete APO/discrete UDRL/discrete DAgger/discrete"

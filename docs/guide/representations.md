@@ -19,9 +19,10 @@ state, evaluations = agent.train(seed=[0, 1], n_timesteps=10_000, logging_config
 ```
 
 It adds nothing to a run that does not list it. A run that lists it trains as
-it would without it: the probe draws on no key of the agent's. Recurrent agents
-and the world models are refused, and so is a network without an activation
-layer the probe can read, such as a CNN encoder's.
+it would without it: the probe draws on no key of the agent's. It reads
+networks that take the observation alone: agents with memory, the world models,
+APG and UDRL are refused, and so is a network without an activation layer the
+probe can read, such as a CNN encoder's.
 
 ## The probe set
 

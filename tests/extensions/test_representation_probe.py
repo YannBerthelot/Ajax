@@ -25,7 +25,7 @@ import pytest
 from ajax import PPO, SAC
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.environments.obs_norm import apply_obs_norm, normalized_obs
-from ajax.extensions.capabilities import MissingCapability
+from ajax.extensions.capabilities import MissingCapability, NotWired
 from ajax.extensions.observe import ExpertActionInput
 from ajax.extensions.representation import RepresentationProbe
 from ajax.logging.wandb_logging import LoggingConfig
@@ -399,7 +399,8 @@ def test_a_non_positive_interval_is_refused(tmp_path):
 @pytest.mark.parametrize("name", sorted(CASES))
 def test_every_agent_reading_observations_can_be_probed(tmp_path, name):
     """Catches an agent's networks or state the probe cannot read. A new agent
-    joins through CASES; one without obs_networks must be refused instead."""
+    joins through CASES; one without obs_networks must be refused instead, as
+    UDRL is until a probe set can hold its command."""
     case = CASES[name]
     extension = probe(tmp_path, 8)
     kwargs = dict(case.kwargs)
@@ -407,6 +408,9 @@ def test_every_agent_reading_observations_can_be_probed(tmp_path, name):
         agent = case.cls(case.envs[-1], extensions=(extension,), **kwargs)
     except MissingCapability as refusal:
         assert "obs_networks" in str(refusal)
+        return
+    except NotWired:
+        assert name == "UDRL"
         return
 
     agent.train(seed=[0], n_timesteps=case.n_timesteps)

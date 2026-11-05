@@ -5,9 +5,7 @@
    "obs_networks",
    "reward_learning"
   ],
-  "extension_context": [
-   "env_args"
-  ],
+  "extension_context": [],
   "make_train": "ajax.agents.families:OwnIterationAgent.make_train",
   "name": "APG",
   "per_seed_update_counts": false,
@@ -1321,9 +1319,7 @@
    "replay",
    "reward_learning"
   ],
-  "extension_context": [
-   "env_args"
-  ],
+  "extension_context": [],
   "make_train": "ajax.agents.families:OwnIterationAgent.make_train",
   "name": "UDRL",
   "per_seed_update_counts": false,

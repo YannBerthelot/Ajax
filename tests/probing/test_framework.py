@@ -82,11 +82,12 @@ from . import readouts as R
 # ResetCost's cells (three, sixteen faults): test_average_reward 186, agents.py
 # + 2 (its resume check's preset too), faults/ + 16, test_framework + 4 (this note, the caps, the budget's).
 # Faults a fast test alone catches (contracts.jsonl, sixty): faults/ + 60,
-# test_framework + 3 (this note, the budget's).
+# test_framework + 3 (this note, the budget's). The final evaluation's and the
+# ledger's: faults/ + 4, test_framework + 1.
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 162, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 324})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 328})
 CAPS.update({"test_average_reward.py": 186})
-CAPS.update({"test_framework.py": 302, "test_value_chains.py": 1051})
+CAPS.update({"test_framework.py": 303, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 389, "test_world_models.py": 452})
@@ -268,14 +269,14 @@ def test_the_directory_keeps_to_its_budget() -> None:
     3 for the q5 cells' unmapped-collector fault, 6 for SpecEnv's record as a
     wrapper, 201 for RVI-SAC's, ValueCentering's and ResetCost's three cells,
     sixteen faults and its resume check's preset, 63 for the faults a fast test
-    alone catches."""
+    alone catches, 5 for the final evaluation's and the ledger's faults."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8482, total
+    assert total <= 8487, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

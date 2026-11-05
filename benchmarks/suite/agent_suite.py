@@ -16,7 +16,11 @@ of at most ``--chunk-minutes``: one interval long until a chunk has begun
 past the agent's warm-up, then sized at the pace of the last chunk begun past
 it. After each chunk it appends a record to
 ``results/<LABEL>/seeds-A-B.jsonl`` (the evaluations, the steps, the speed
-and a manifest), then commits and pushes it. It stops before a chunk that
+and a manifest), then commits and pushes it. Each evaluation also records,
+per seed, ``non_finite_steps``, the training steps the simulator diverged on
+so far in the run, and ``eval_lengths``, the mean length of its episodes,
+which a task whose episodes run to their limit shows a divergence by. It
+stops before a chunk that
 would end past ``--stop-after-minutes``: exit 0 when the run reached its
 budget, 3 when the same command must run again to continue. A chunk resumes
 from the previous chunk's checkpoint (``results/checkpoints``, git-ignored);
@@ -44,6 +48,8 @@ HERE = pathlib.Path(__file__).parent
 ROOT = HERE.parents[1]
 RESULTS = HERE / "results"
 EVALUATION_KEY = "Eval/episodic mean reward"
+NON_FINITE_KEY = "Train/non-finite env steps"
+LENGTH_KEY = "Eval/mean episodic length"
 #: The warm-up of an agent without learning_starts or a seed phase: past
 #: DreamerV3's replay gate (1040 steps over its 16 envs); the on-policy
 #: agents update from their first rollout.
@@ -353,8 +359,18 @@ class AjaxTrainer:
         for path in self.folder.glob("step-*.pkl"):
             if path not in (self.checkpoint(start), self.checkpoint(end)):
                 path.unlink()
+
+        def rows(key: str) -> Optional[list]:
+            return (
+                None
+                if key not in evaluations
+                else (np.asarray(evaluations[key]).round(3).tolist())
+            )
+
         return {
             "returns": returns.round(3).tolist(),
+            "non_finite_steps": rows(NON_FINITE_KEY),
+            "eval_lengths": rows(LENGTH_KEY),
             "compile_s": covered_seconds(spans),
         }
 
@@ -406,8 +422,9 @@ def run_seeds(
     train(start, end), which trains from start (a fresh run at 0, else the
     state kept at start) to end, keeps the states at start and end, and
     returns {"returns": the chunk's evaluations, one row per seed,
-    "compile_s": its seconds compiling}. warm_up: the steps before the
-    agent's updates run."""
+    "non_finite_steps" and "eval_lengths": the same shape, or None for a
+    metric the agent does not log, "compile_s": its seconds compiling}.
+    warm_up: the steps before the agent's updates run."""
     records = read_records(path)
     if records and records[-1]["budget"] != budget:
         raise ValueError(
@@ -439,6 +456,8 @@ def run_seeds(
             "budget": budget,
             "eval_steps": list(range(step + eval_every, step + steps + 1, eval_every)),
             "returns": result["returns"],
+            "non_finite_steps": result["non_finite_steps"],
+            "eval_lengths": result["eval_lengths"],
             "wall_s": round(wall_s, 1),
             "compile_s": round(result["compile_s"], 1),
             "run_steps_per_s": round(

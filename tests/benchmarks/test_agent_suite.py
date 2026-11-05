@@ -36,6 +36,7 @@ import numpy as np
 import pytest
 
 import ajax
+from tests.environments.breaking_env import ALWAYS
 
 EVAL = 100
 BUDGET = 1000
@@ -75,7 +76,12 @@ class FakeTrainer:
         self.clock.now += COMPILE_S + warming / WARM_UP_PACE + training / PACE
         self.saved = {start, end}
         steps = list(range(start + EVAL, end + 1, EVAL))
-        return {"returns": [steps for _ in SEEDS], "compile_s": COMPILE_S}
+        return {
+            "returns": [steps for _ in SEEDS],
+            "non_finite_steps": [[0 for _ in steps] for _ in SEEDS],
+            "eval_lengths": [[1000 for _ in steps] for _ in SEEDS],
+            "compile_s": COMPILE_S,
+        }
 
 
 def run(trainer, path, clock, seeds=SEEDS, chunk_s=30.0, stop_after_s=1e9, warm_up=0):
@@ -163,6 +169,12 @@ def test_a_run_trains_its_budget_in_chunks_sized_to_the_measured_pace(tmp_path):
     ]
     for record in written:
         assert record["returns"] == [record["eval_steps"]] * len(SEEDS)
+        zeros, lengths = (
+            [0 for _ in record["eval_steps"]],
+            [1000 for _ in record["eval_steps"]],
+        )
+        assert record["non_finite_steps"] == [zeros] * len(SEEDS)
+        assert record["eval_lengths"] == [lengths] * len(SEEDS)
         assert record["run_steps_per_s"] == PACE
         assert record["seeds"] == SEEDS and record["budget"] == BUDGET
     assert [p for p, _ in published] == [path] * len(written)
@@ -302,6 +314,18 @@ def test_each_record_carries_its_manifest(tmp_path):
     assert manifest["jax"] == jax.__version__
 
 
+def test_a_chunk_reports_each_seeds_non_finite_steps(monkeypatch, tmp_path):
+    """The stand-in's episodes diverge at step 3. Each seed's 2 envs, 8 steps
+    each, diverge at steps 3 and 6: 4. An evaluation episode lasts those 3."""
+    options = {"n_envs": 2, "n_steps": 8, "batch_size": 8, "n_epochs": 1}
+    benchmark = agent_suite.Benchmark(ALWAYS, 16, 16, "", options)
+    monkeypatch.setitem(agent_suite.BENCHMARKS, "PPO-Breaks", benchmark)
+    trainer = agent_suite.AjaxTrainer("PPO-Breaks", SEEDS, 16, 16, tmp_path)
+    result = trainer.train(0, 16)
+    assert result["non_finite_steps"] == [[4] for _ in SEEDS]
+    assert result["eval_lengths"] == [[3] for _ in SEEDS]
+
+
 # --- the real wiring, on DQN's benchmark at a tiny budget --------------------
 def test_ajax_runs_resume_a_new_process_from_the_kept_checkpoint(tmp_path):
     # 128 steps, under DQN's 1000-step warm-up: no update, the wiring alone.
@@ -336,6 +360,8 @@ def test_ajax_runs_resume_a_new_process_from_the_kept_checkpoint(tmp_path):
     for record in written:
         returns = np.asarray(record["returns"])
         assert returns.shape == (len(SEEDS), 1) and np.isfinite(returns).all()
+        assert record["non_finite_steps"] is None  # gymnax has no guard to count
+        assert np.asarray(record["eval_lengths"]).shape == returns.shape
     assert trainer.saved_steps() == {64, 128}
 
 

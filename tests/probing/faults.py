@@ -17,8 +17,8 @@ A node catches a fault by failing on an assertion (CAUGHT), not by crashing:
 a probe that crashed measured nothing (its checks on the library assert), and
 a fast test may crash only because the planted text meets its stand-in state,
 which the bug would not. ``raises`` names the error a fault's fast tests may
-fail with instead where the bug cannot run in their setting: TD-MPC2's
-multi-task tests swap tasks of different shapes (q10's tasks share one).
+fail with instead: the bug cannot run in their setting (TD-MPC2's multi-task
+tests swap tasks of different shapes, q10's share one) or is a wrong refusal.
 """
 
 from __future__ import annotations

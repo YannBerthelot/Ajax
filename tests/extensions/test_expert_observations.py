@@ -392,6 +392,23 @@ def test_extensions_querying_critics_train_with_augmentation(stack):
     assert np.isfinite(np.asarray(jax.tree.leaves(state.critic_state.params)[0])).all()
 
 
+def test_phi_refresh_runs_only_on_its_interval():
+    """Catches the refresh firing on every update but the interval's. The run
+    updates at timesteps 16, 18, ..., 64, four of them multiples of 16 and
+    none a multiple of 128; each refresh is two steps of phi*'s optimiser."""
+
+    def phi_star_steps(interval: int) -> int:
+        expert = RecordingExpert(action=-0.9)
+        refresh = PhiRefresh(expert_policy=expert, interval=interval, steps=2)
+        state = train(
+            expert_policy=expert,
+            extensions=(_mc(expert), refresh, ExpertActionInput()),
+        )
+        return int(state.expert_critic_state.step[0])
+
+    assert phi_star_steps(16) - phi_star_steps(128) == 4 * 2
+
+
 # --- the observation normaliser ------------------------------------------------
 
 

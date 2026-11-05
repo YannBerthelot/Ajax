@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax.agents.APO.APO import APO
+from ajax.agents.APO.APO import APO, valid_mean
 from ajax.agents.PPO.PPO import PPO, PPO_HIDDEN_INIT
 from ajax.state import LOG_STD_BOUNDS
 
@@ -15,6 +15,12 @@ def test_APO_rejects_minibatch_sizes_that_do_not_divide():
     with pytest.raises(ValueError, match="must divide"):
         APO(env_id="Pendulum-v1", n_steps=48, batch_size=32)
     APO(env_id="Pendulum-v1", n_steps=48, batch_size=32, num_minibatches=2)
+
+
+def test_a_minibatch_of_cut_rows_averages_to_zero() -> None:
+    """Catches rlpyt's 0 / 0, which would turn every parameter NaN: a
+    minibatch can hold only rows a time limit cut."""
+    assert float(valid_mean(jnp.ones(4), jnp.zeros(4))) == 0.0
 
 
 def test_APO_records_and_builds_its_log_std_bounds():

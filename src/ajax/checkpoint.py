@@ -32,6 +32,7 @@ from flax import serialization
 
 from ajax.random_keys import derive_key
 from ajax.state import CollectorState
+from ajax.wrappers import NON_FINITE_STEPS_KEY
 
 
 def _to_host_numpy(state: Any) -> Any:
@@ -257,7 +258,8 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
     extension appended to a stack the checkpoint was saved without (SAC's
     expert prefill, which joins its stack as ExpertPrefill). An empty field
     has no data to restore; a field with data stays required, so a
-    mismatched checkpoint still fails.
+    mismatched checkpoint still fails. The count of non-finite steps comes
+    from the skeleton too, at 0: the run that saved it never counted.
 
     Expand-then-contract shim (CLAUDE.md, refactoring rule 10), as
     ``_with_replay_next_obs``.
@@ -268,7 +270,11 @@ def _with_new_empty_fields(skeleton: Any, saved: Any) -> Any:
     for key, value in skeleton.items():
         if key in out:
             out[key] = _with_new_empty_fields(value, out[key])
-        elif value is None or (isinstance(value, dict) and not value):
+        elif (
+            value is None
+            or (isinstance(value, dict) and not value)
+            or key == NON_FINITE_STEPS_KEY
+        ):
             out[key] = value
     return out
 

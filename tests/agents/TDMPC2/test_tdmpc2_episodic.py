@@ -357,6 +357,13 @@ def _draws(buffer: EpisodicBuffer, n: int = 4000) -> core.TDMPC2Batch:
     )
 
 
+def test_the_replay_reports_the_bytes_it_stores():
+    """Catches a memory check that miscounts the replay: a run sized by nbytes
+    must fit, so it counts every array init allocates."""
+    buffer = EpisodicBuffer(n_envs=2, capacity=8, obs_dim=3, action_dim=4)
+    assert buffer.nbytes == sum(leaf.nbytes for leaf in jax.tree.leaves(buffer.init()))
+
+
 def test_the_replay_draws_whole_episodes_uniformly_then_a_uniform_offset():
     """The finished episodes of at least H + 1 rows (A, C, E, F: not the
     one-step B, not the running D and G) are drawn uniformly, then an offset

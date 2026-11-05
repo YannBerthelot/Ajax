@@ -8,6 +8,7 @@ from ajax.environments.create import strip_ajax_wrappers
 from ajax.environments.interaction import (
     collect_experience,
     force_reset,
+    non_finite_env_steps,
     normalisation_info,
     reset,
 )
@@ -16,6 +17,7 @@ from ajax.networks.memory import MEMORY_KINDS, MemoryConfig, zeros_carry_like
 from ajax.networks.networks import get_initialized_actor_critic
 from ajax.random_keys import derive_key
 from tests.agents.extension_stubs import RawProgress
+from tests.environments.breaking_env import ALWAYS
 from tests.probing import readouts
 
 
@@ -55,6 +57,16 @@ def test_a_forced_reset_keeps_the_normaliser_statistics(env_id, mode):
     std = np.sqrt(np.asarray(stats.var) + 1e-8)
     want = (raw - np.asarray(stats.mean)) / std
     np.testing.assert_allclose(after.last_obs, want.reshape(raw.shape), atol=1e-4)
+
+
+def test_a_forced_reset_keeps_the_count_of_non_finite_steps():
+    """The count is the run's, not an episode's: 8 steps on 2 envs break at
+    steps 3 and 6."""
+    agent = PPO(env_id=ALWAYS, n_envs=2, n_steps=8, n_epochs=1)
+    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=16)[0])
+    assert non_finite_env_steps(state.collector_state.env_state) == 4
+    after = force_reset(state, agent.env_args, "brax").collector_state
+    assert non_finite_env_steps(after.env_state) == 4
 
 
 def test_a_forced_reset_gives_the_reset_observations_their_features():

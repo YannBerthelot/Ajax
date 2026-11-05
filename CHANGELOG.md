@@ -21,6 +21,14 @@ The next release is 0.6.0: the first item changes results.
   in every `train` call. They now train the whole rollouts the budget
   holds, at least one, as their original implementations do, and a run
   split into calls of whole rollouts ends where one call does.
+- **A simulator that diverges no longer ends a run.** On a Brax or Playground
+  env, a step whose observation or reward is not finite now ends its episode
+  as a termination, with reward 0, and the run goes on. Before, one such step
+  made every network parameter NaN. This is a workaround: the physics behind
+  it, on Playground's humanoid tasks, is unchanged. Runs log the count as
+  `Train/non-finite env steps`, and the benchmark's records keep it per seed.
+  Runs without such a step are unchanged, and checkpoints saved before this
+  restore, their count at 0.
 - **Reproduction protocol, version 2.** A comparison whose score range says
   nothing about learning registers its own margin, with the reason. SAC and
   TD3 against Stable-Baselines3 on Pendulum (specs version 2) register ±14

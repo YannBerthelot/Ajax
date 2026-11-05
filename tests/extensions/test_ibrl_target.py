@@ -117,3 +117,22 @@ def test_lcb_blends_the_minima_over_the_targets_subset(
     gate = jax.nn.sigmoid(jnp.min(Q_EXPERT, 0) - jnp.min(Q_POLICY, 0))
     want = 0.5 * gate * (jnp.min(Q_EXPERT[:2], 0) - jnp.min(Q_POLICY[:2], 0))
     np.testing.assert_allclose(target, want, rtol=1e-6)
+
+
+def test_lcb_bootstraps_nothing_past_a_terminated_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches the blend reaching past an episode's end: every row of these
+    critics has a gap to blend in, and the two terminated ones keep their
+    target, which the blend must leave exact."""
+    monkeypatch.setattr(
+        target_mods, "score_next_actions", lambda *a: (Q_EXPERT, Q_POLICY)
+    )
+    timestep = jnp.asarray(0)
+    state = SimpleNamespace(collector_state=SimpleNamespace(timestep=timestep))
+    batch = {"dones": jnp.array([[1.0], [0.0], [1.0]]), "gamma": 0.5}
+    batch["critic_subset"] = jnp.arange(4)
+    lcb = LCBGatedBootstrap(expert_policy=abs, lcb_beta_init=0.0)
+    target, _ = lcb.on_target(state, None, batch, jnp.zeros((3, 1)), CONTEXT)
+    assert float(target[0, 0]) == float(target[2, 0]) == 0.0
+    assert float(target[1, 0]) != 0.0

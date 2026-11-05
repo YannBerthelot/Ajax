@@ -73,6 +73,27 @@ XLA_FLAGS=--xla_disable_hlo_passes=algsimp python train.py
 Results are the same up to floating-point rounding; training ran 8 to 15%
 slower on a CPU. A single seed compiles without it.
 
+### Diverging simulators
+
+A simulator can diverge. Playground's humanoid tasks can, rarely, after a hard
+impact. Left alone, one such step would reach the agent as a NaN reward and a
+NaN observation, and turn every network parameter NaN in the next update.
+
+So on these envs a step whose observation or reward is not finite ends its
+episode: a termination, with reward 0, then the usual reset. The agent and the
+evaluations never see the NaN, an evaluation episode that diverges keeps the
+return it had and shows as a shorter `Eval/mean episodic length`, and the run
+logs the training steps as `Train/non-finite env steps`. This is a workaround:
+if that count grows, the task's physics needs a look.
+
+Only non-finite values are caught. The very large finite steps just before them
+still reach the agent, and would move any running observation statistics.
+Environments from a registered builder keep the stack it returns, so add
+`ajax.wrappers.NonFiniteStepWrapper` there, directly over the raw env. Gymnax
+environments go without it: reading the observation inside their compiled step
+shifts their rounding, which would break the bit-for-bit checks against some
+agents' original implementations.
+
 ### Episode keys
 
 Every environment's resets are keyed by episode: copy `i`'s `k`-th episode

@@ -8,7 +8,11 @@ import numpy as np
 import pytest
 
 from ajax import TQC
-from ajax.agents.TQC.TQC import quantile_huber_loss, truncated_quantiles
+from ajax.agents.TQC.TQC import (
+    compute_tqc_td_target,
+    quantile_huber_loss,
+    truncated_quantiles,
+)
 from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.instrumentation import BiasVorePenalty
 
@@ -34,6 +38,37 @@ def test_the_target_keeps_the_smallest_pooled_quantiles() -> None:
     largest dropped: the four smallest of the six."""
     quantiles = jnp.array([[[1.0, 5.0, 3.0]], [[2.0, 6.0, 4.0]]])  # (N, B, M)
     np.testing.assert_array_equal(truncated_quantiles(quantiles, 2), [[1, 2, 3, 4]])
+
+
+def test_the_value_bootstrapped_is_the_mean_of_the_targets_atoms() -> None:
+    """Catches next_values, which the average-reward centering reads, parting
+    from the target: with no reward, no discount and no ending, each target
+    atom is ``z - alpha log pi``, so their mean is the value handed on."""
+    net = ("8", "relu")
+    agent = TQC(
+        "Pendulum-v1",
+        num_critics=2,
+        n_quantiles=3,
+        top_quantiles_to_drop_per_net=1,
+        actor_architecture=net,
+        critic_architecture=net,
+    )
+    key = jax.random.PRNGKey(0)
+    state = agent.init(key, agent.make_context(1)[1])
+    zeros = jnp.zeros((4, 1))
+    target, _, _, next_values = compute_tqc_td_target(
+        state.actor_state,
+        state.critic_state,
+        key,
+        jnp.ones((4, 3)),
+        zeros,
+        zeros,
+        gamma=1.0,
+        alpha=jnp.asarray(0.5),
+        n_drop=2,
+        reward_scale=1.0,
+    )
+    np.testing.assert_allclose(target.mean(-1, keepdims=True), next_values, rtol=1e-5)
 
 
 def _authors_loss(quantiles: np.ndarray, samples: np.ndarray) -> float:
@@ -68,6 +103,14 @@ def test_it_refuses_discrete_actions_and_dropping_every_quantile() -> None:
         TQC("CartPole-v1")
     with pytest.raises(ValueError, match="keeps some"):
         TQC("Pendulum-v1", n_quantiles=2, top_quantiles_to_drop_per_net=2)
+    with pytest.raises(ValueError, match="keeps some"):
+        TQC("Pendulum-v1", n_quantiles=0, top_quantiles_to_drop_per_net=0)
+
+
+def test_one_quantile_a_critic_is_allowed() -> None:
+    """Catches the refusal reaching the smallest valid setting: the message
+    promises n_quantiles >= 1."""
+    TQC("Pendulum-v1", n_quantiles=1, top_quantiles_to_drop_per_net=0)
 
 
 def test_an_extension_reading_one_target_value_refuses_its_quantiles() -> None:

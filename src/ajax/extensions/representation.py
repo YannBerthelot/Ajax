@@ -36,7 +36,7 @@ from ajax.representation.metrics import (
     mean_activation_norm,
 )
 from ajax.representation.probe_set import ProbeSet, probe_set_for
-from ajax.state import with_batch_stats, zeros_like_abstract_pytree
+from ajax.state import with_batch_stats
 from ajax.types import Replaceable
 
 #: A probe's file in a run directory: seed index, then probe index.
@@ -67,7 +67,9 @@ def named_metrics(layers: dict, previous: dict) -> dict[str, jax.Array]:
     """Every layer's metrics, by the name the logger shows them under."""
     named = {}
     for layer, activations in layers.items():
-        measured = layer_metrics(activations, previous[layer])
+        measured = layer_metrics(
+            activations, previous[layer].reshape(activations.shape)
+        )
         named.update({f"Representation/{layer}/{k}": v for k, v in measured.items()})
     return named
 
@@ -99,7 +101,7 @@ class ProbeState(Replaceable):
     #: The next probe's number and the step of the last one.
     probe_index: jax.Array
     last_step: jax.Array
-    #: Per layer, its activations at the last probe.
+    #: Per layer, its activations at the last probe, flat.
     previous: dict
     #: Per name, the last probe's metrics, which the evaluations log.
     metrics: dict
@@ -222,8 +224,10 @@ class RepresentationProbe(Extension):
         layers = jax.eval_shape(
             lambda: self.read_networks(agent_state, observations, actions, rng)[0]
         )
-        previous = zeros_like_abstract_pytree(layers)
-        metrics = jax.eval_shape(named_metrics, previous, previous)
+        metrics = jax.eval_shape(named_metrics, layers, layers)
+        previous = jax.tree.map(
+            lambda layer: jnp.zeros(layer.size, layer.dtype), layers
+        )
         return ProbeState(
             observations=observations,
             actions=actions,
@@ -234,7 +238,7 @@ class RepresentationProbe(Extension):
             metrics=unevaluated(metrics),
         )
 
-    def probe(
+    def measure(
         self, agent_state: Any, state: ProbeState, step: Any, rng: jax.Array, due: Any
     ) -> ProbeState:
         """Reads the networks, writes the file and keeps the metrics."""
@@ -254,10 +258,7 @@ class RepresentationProbe(Extension):
         # cond is a select, and this branch runs at every update.
         gated_log_callback(self.write, due, record, state.seed_index)
         return state.replace(
-            probe_index=state.probe_index + 1,
-            last_step=step,
-            previous=layers,
-            metrics=metrics,
+            probe_index=state.probe_index + 1, last_step=step, metrics=metrics
         )
 
     def pretrain(
@@ -268,9 +269,13 @@ class RepresentationProbe(Extension):
         index = 0 if context.seed_index is None else context.seed_index
         ext_state = ext_state.replace(seed_index=jnp.asarray(index))
         first = jnp.asarray(True)
-        return agent_state, self.probe(
+        ext_state = self.measure(
             agent_state, ext_state, context.step, context.rng, first
         )
+        layers, _, _ = self.read_networks(
+            agent_state, ext_state.observations, ext_state.actions, context.rng
+        )
+        return agent_state, ext_state.replace(previous=jax.tree.map(jnp.ravel, layers))
 
     def post_update(
         self, agent_state: Any, ext_state: ProbeState, context: ExtensionContext
@@ -278,10 +283,29 @@ class RepresentationProbe(Extension):
         interval = self.probe_interval
         due = context.step // interval > ext_state.last_step // interval
 
-        def probed(state: ProbeState) -> ProbeState:
-            return self.probe(agent_state, state, context.step, context.rng, due)
+        def measured(state: ProbeState) -> ProbeState:
+            return self.measure(agent_state, state, context.step, context.rng, due)
 
-        return agent_state, run_if(due, probed, ext_state)
+        def remembered(previous: dict) -> dict:
+            del previous
+            layers = self.read_networks(
+                agent_state, ext_state.observations, ext_state.actions, context.rng
+            )[0]
+            return jax.tree.map(jnp.ravel, layers)
+
+        # A deliberate workaround for XLA's buffers, so that a skipped probe
+        # costs nothing. One cond reading the old activations and writing the
+        # new ones keeps both in memory, so that each skip copies the old ones
+        # through, at every step: 19 MB on SAC's defaults. Hence two conds and
+        # the forward pass twice at a probe; the second's gate reads the
+        # first's result, which tells XLA that nothing reads the old ones by
+        # then and the new ones can take their place. They are carried flat,
+        # as XLA can give a matrix another memory layout in one branch, which
+        # the other would then copy into.
+        ext_state = run_if(due, measured, ext_state)
+        just_measured = ext_state.last_step == context.step
+        previous = run_if(just_measured, remembered, ext_state.previous)
+        return agent_state, ext_state.replace(previous=previous)
 
     def eval_metrics(
         self,

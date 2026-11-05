@@ -26,6 +26,7 @@ from ajax.wrappers import (
     FinalObsWrapper,
     FlattenObservationWrapper,
     FreshAutoResetWrapper,
+    NonFiniteStepWrapper,
     NormalizeVecObservationBrax,
     NormalizeVecObservationGymnax,
     get_wrappers,
@@ -211,6 +212,7 @@ def _build_playground_env(
 
     _overrides = {"impl": "jax"} if jax.default_backend() == "cpu" else None
     env = registry.load(env_id, config_overrides=_overrides)
+    env = NonFiniteStepWrapper(env)
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env)
     env = FinalObsWrapper(env)
@@ -275,6 +277,7 @@ def _build_brax_env(
         if error.args != (env_id,):
             raise
         raise _unknown_env(env_id) from None
+    env = NonFiniteStepWrapper(env)
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     if episode_keys:
         env = FinalObsWrapper(brax_training.VmapWrapper(env))

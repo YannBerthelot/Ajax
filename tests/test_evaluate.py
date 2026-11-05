@@ -437,6 +437,24 @@ def test_the_value_bias_is_the_critic_estimate_minus_the_realised_return(c, leng
     np.testing.assert_allclose(bias, expected, rtol=1e-5)
 
 
+def test_the_value_bias_takes_the_rewards_unscaled_by_default():
+    """Catches a value estimate without a scale losing its rewards. As above,
+    terminated after 3 steps, the normalised rewards 0, 0.1 and 0.2 discounted
+    by 0.9 realise 0.252, 0.28 and 0.2 from steps 0, 1 and 2, against the
+    critic's 0, 1 and 2: the bias is (-0.252 + 0.72 + 1.8) / 3 = 0.756."""
+    env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=0.5))
+    bias = evaluate(
+        env,
+        _LinearActor(),
+        2,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        norm_info=_reward_std_2(),
+        value_estimate=ValueEstimate(_ten_times_the_action, gamma=0.9),
+    )[3]
+    np.testing.assert_allclose(bias, 0.756, rtol=1e-5)
+
+
 class _GainExpertPayingZero:
     """A gain expert (``pid_gain_policy``) whose action is 0 whatever the
     gains: the actor's action, t / 10, is the gains' log-scale only."""

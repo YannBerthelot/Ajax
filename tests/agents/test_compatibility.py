@@ -148,8 +148,11 @@ GAPS: dict[str, dict[str, str]] = {
             ("JSRLCurriculum", "MCPretrain", "BiasVorePenalty", "cnn"),
             "TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask",
         ),
-        # EDGE has no discrete form: DreamerV3's discrete row refuses it.
-        "EDGEExploration": "TDMPC2 DreamerV3 TDMPC2MultiTask",
+        # Neither has a discrete form: DreamerV3's discrete row refuses them.
+        **dict.fromkeys(
+            ("EDGEExploration", "EpsilonGreedyPresample"),
+            "TDMPC2 DreamerV3 TDMPC2MultiTask",
+        ),
         "BellmanPretrain": "TDMPC2 TDMPC2MultiTask",
         **dict.fromkeys(
             "CloningPretrain ImitationLoss".split(),

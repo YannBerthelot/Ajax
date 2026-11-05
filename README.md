@@ -27,7 +27,7 @@ Ajax has nineteen agents, each from a published paper. Compared with
 [SBX](https://github.com/araffin/sbx), it offers:
 
 - **[Fast and parallel](docs/guide/performance.md)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop, so many seeds and environment copies train at once on one device. The benchmarks run on a CPU; GPU speed is not yet measured.
-- **[Modular](docs/guide/extensions.md)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and thirty-eight extensions, combined in the agent's constructor. The [compatibility table](docs/guide/compatibility.md) shows which parts go together.
+- **[Modular](docs/guide/extensions.md)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and thirty-nine extensions, combined in the agent's constructor. The [compatibility table](docs/guide/compatibility.md) shows which parts go together.
 - **Multi-paradigm**: discounted and average-reward agents ([ASAC](docs/algorithms/asac.md), [RVI-SAC](docs/algorithms/rvisac.md), [APO](docs/algorithms/apo.md)), model-free and model-based, online and offline, all behind one interface.
 - **[Expert-guided](docs/guide/expert-guidance.md)**: cloning, imitation, prior data and offline training.
 - **[World models, ready to use](docs/guide/world-models.md)**: DreamerV3 and TD-MPC2 are among the hardest agents to get right, and their papers run them on over a hundred tasks with one set of hyperparameters. Ajax checks them against the official code, update by update.
@@ -140,7 +140,7 @@ over seeds and what to keep in mind when reading them.
 
 <table>
 <tr>
-<td width="33%" valign="top"><a href="docs/guide/extensions.md"><b>Extensions</b></a><br/>Thirty-eight research features, passed as <code>extensions=(...)</code></td>
+<td width="33%" valign="top"><a href="docs/guide/extensions.md"><b>Extensions</b></a><br/>Thirty-nine research features, passed as <code>extensions=(...)</code></td>
 <td width="33%" valign="top"><a href="docs/guide/memory.md"><b>Recurrent memory</b></a><br/>GRU, LSTM, transformer or Mamba, with sequence replay</td>
 <td width="33%" valign="top"><a href="docs/guide/differentiable-simulation.md"><b>Differentiable simulation</b></a><br/>APG back-propagates the return through gymnax dynamics</td>
 </tr>

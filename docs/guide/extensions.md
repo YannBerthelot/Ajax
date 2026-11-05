@@ -3,7 +3,7 @@
 An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships thirty-eight of them,
+or measurements logged at each evaluation. Ajax ships thirty-nine of them,
 listed in the [catalogue](#catalogue) below.
 
 Why extensions instead of agent options? An agent's constructor takes its
@@ -347,6 +347,14 @@ These put their rows in a ring of their own beside the one collection writes, so
 | --- | --- | --- | --- |
 | `RetainedDemonstrations` | Keeps `n_steps` steps of the agent's expert per copy, or a transition `dataset`, for the whole run (DDPGfD). `share` is the part of each batch they fill; `None` draws each row over all the rows held. After `CloningPretrain` in the stack, with `share=0.5`, it is Rainbow-DemoRL's BC start plus prefill. | `pretrain` | SAC, TD3, REDQ, ASAC, RVISAC, TQC, CrossQ, IQL, DQN; the expert's rows need an `expert_policy` |
 | `RLPD` | The same rows at `share=0.5`, exact in every batch, on critics with LayerNorm: pass `critic_architecture=("256", "layernorm", "relu", "256", "layernorm", "relu")`, or `critic_layer_norm=False` for the ablation. `critic_subset` makes each target bootstrap on that many target critics drawn at random. The original configuration is `REDQ` with those critics. | `pretrain`, `on_target` | as `RetainedDemonstrations`; `critic_subset` needs a Q critic with targets and next actions, and an agent without its own subset |
+
+**Fine-tuning a clone** (`ajax.extensions.porl`)
+
+`porl(cloning, presample_steps, epsilon, features)` gives the agent's keyword arguments for PORL (Xiao et al., 2025): `cloning` clones the expert, then only a fresh critic trains for `presample_steps` env steps, then the agent trains as usual. The update ratio, the critics and their architecture stay the agent's. A stateful expert needs its memory in `features`: `ExpertStateInput`, or `PIDTermsInput`, which parts from a PI whose anti-windup holds its integrator.
+
+| Extension | What it does | Phases | Works with |
+| --- | --- | --- | --- |
+| `EpsilonGreedyPresample` | For the first `presample_steps` env steps, each copy takes a uniform action with probability `epsilon` and the actor's mean otherwise; then the agent's own action. The replay stores the action taken, and the observation statistics hold where pretraining left them, so the clone's actions hold too. | `action`, `pretrain`, `post_update` | SAC, TD3, REDQ, ASAC, RVISAC, CrossQ, TQC, IQL, UDRL, DAgger, without an action transform |
 
 **Blending with the expert** (`ajax.extensions.cheq`)
 

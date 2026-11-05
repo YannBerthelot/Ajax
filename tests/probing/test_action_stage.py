@@ -75,7 +75,7 @@ def steps_on_one_observation(
 
 
 A_E = -0.5  # the expert's action (agent units: the box is [-1, 1])
-FIRST_STEP = JSRLCurriculum(episode_length=1, decay_frac=1e6)
+FIRST_STEP = JSRLCurriculum(episode_length=1, decay_frac=1e6, schedule="time")
 WARM = agents.PRESETS["probe"]["TD3"]["learning_starts"]  # the uniform rows
 
 

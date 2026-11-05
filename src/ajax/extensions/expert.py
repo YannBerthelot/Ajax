@@ -5,7 +5,7 @@
 * :class:`ResidualPolicy`        — execute ``clip(a_expert + scale·a_pi)``.
 * :class:`ExpertGains`           — the action sets the expert's gains (gain mode).
 * ExpertWarmup                  — the expert acts on a share of the warm-up steps.
-* :class:`JSRLCurriculum`        — per-episode expert→learner handoff.
+* :class:`JSRLCurriculum`        — jump-start RL: the expert rolls in, the learner takes over.
 * :class:`ExpertValueMetrics`    — the critic at the expert's actions, logged.
 
 Each extension carries only frozen config on ``self``; the maths are the
@@ -24,14 +24,23 @@ from typing import Any, Callable, ClassVar, Optional
 
 import jax
 import jax.numpy as jnp
+from flax import struct
 
 from ajax.agents.cloning import zero_output_head
-from ajax.environments.utils import critic_action_units
+from ajax.controller import call_expert, make_run_controller
+from ajax.environments.interaction import env_keys, reset, step
+from ajax.environments.utils import (
+    agent_action_to_env,
+    agent_episode_length,
+    critic_action_units,
+)
+from ajax.evaluate import setup_environment
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.observe import ExpertActionInput
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.networks.q_networks import q_network_value
-from ajax.random_keys import derive_key
+from ajax.policy import evaluation_policy
+from ajax.random_keys import derive_key, fold_index
 from ajax.schedule import progress
 
 
@@ -608,13 +617,121 @@ class StorePolicyAction(Extension):
         return policy_actions
 
 
+@struct.dataclass
+class JSRLState:
+    """JSRLCurriculum's state: the run's root of JSRL-Random's per-episode
+    draws, the curriculum's stage, the best moving average of its evaluations,
+    the latest evaluations, newest first, and how many it has run."""
+
+    key: jax.Array
+    stage: jax.Array
+    best: jax.Array
+    recent: jax.Array
+    evaluations: jax.Array
+
+
+def next_stage(
+    state: JSRLState,
+    value: jax.Array,
+    n_stages: int,
+    tolerance: float,
+    threshold: Optional[float] = None,
+) -> JSRLState:
+    """state after an evaluation of the combined policy reading value. The
+    next stage comes where the moving average of the latest evaluations clears
+    threshold or, without one, the paper's rule (Uchendu et al. 2023, A.4):
+    it is within tolerance, a share of its size, of the best previous moving
+    average. The first evaluation has no best to fall short of."""
+    recent = jnp.roll(state.recent, 1).at[0].set(value)
+    evaluations = state.evaluations + 1
+    window = jnp.minimum(evaluations, recent.shape[0])
+    average = jnp.sum(recent[:, None] * (jnp.arange(recent.shape[0]) < window)[:, None])
+    average = average / window
+    best = state.best
+    # 0 * inf is NaN: a tolerance of 0 before the first evaluation.
+    allowance = tolerance * jnp.abs(jnp.where(jnp.isfinite(best), best, 0.0))
+    target = best - allowance if threshold is None else threshold
+    stage = state.stage + (average >= target).astype(state.stage.dtype)
+    return JSRLState(
+        state.key,
+        jnp.minimum(stage, n_stages),
+        jnp.maximum(best, average),
+        recent,
+        evaluations,
+    )
+
+
+def combined_policy_return(
+    env_args: Any,
+    expert: Any,
+    agent_state: Any,
+    guide_steps: jax.Array,
+    n_episodes: int,
+    key: jax.Array,
+) -> jax.Array:
+    """The mean return in the env's units of the combined policy over
+    n_episodes: the expert acts each episode's first guide_steps steps, the
+    agent's deterministic policy the others, as evaluate acts it. The rollout
+    has envs of its own, which it steps once per episode."""
+    env, params = env_args.env, env_args.env_params
+    env, mode, _ = setup_environment(
+        env, params, n_episodes, None, 0.99, env_args.action_repeat
+    )
+    length = agent_episode_length(env, params, env_args.action_repeat)
+    parts = evaluation_policy(
+        env_args, agent_state, expert, make_run_controller(env_args)
+    )
+    reset_key, carry_key = jax.random.split(key)
+    obs, env_state = reset(env_keys(reset_key, mode, n_episodes), env, mode, params)
+    guide_state = (
+        expert.init_state(n_episodes) if hasattr(expert, "init_state") else None
+    )
+    running = jnp.ones(n_episodes, dtype=bool)
+    zeros = jnp.zeros(n_episodes)
+
+    def body(carry: tuple, index: jax.Array) -> tuple[tuple, None]:
+        obs, env_state, policy, guide_state, running, total, key = carry
+        key, act_key, step_key = jax.random.split(key, 3)
+        starts = jnp.full(n_episodes, index == 0)
+        learner, policy = parts.step(obs, policy, starts, zeros, act_key)
+        guide, guide_state = call_expert(expert, guide_state, obs.astype(jnp.float32))
+        guide = agent_action_to_env(guide, env, params).reshape(learner.shape)
+        action = jnp.where(index < guide_steps, guide, learner)
+        obs, env_state, reward, terminated, truncated, _ = step(
+            env_keys(step_key, mode, n_episodes), env_state, action, env, mode, params
+        )
+        total = total + jnp.where(running, reward, 0.0)
+        running = running & ~((terminated > 0) | (truncated > 0))
+        return (obs, env_state, policy, guide_state, running, total, key), None
+
+    carry = (obs, env_state, parts.initial(n_episodes), guide_state, running)
+    final, _ = jax.lax.scan(body, (*carry, zeros, carry_key), jnp.arange(length))
+    return final[5].mean()
+
+
 @dataclass(frozen=True)
 class JSRLCurriculum(Extension):
-    """True JSRL per-episode handoff (Uchendu et al. 2023).
+    """Jump-start RL (Uchendu et al. 2023, arXiv 2204.02372).
 
-    While step_in_episode < H_t the expert acts; otherwise the learner
-    does. H_t decays linearly from episode_length to 0 over the first
-    decay_frac fraction of training.
+    The agent's expert (the guide) acts each episode's first h steps, the
+    learner the others, and the guide's share falls as the learner takes
+    over. h runs through H, H - H / n_stages, ..., 0. schedule chooses it:
+
+    * ``"performance"``, the paper's JSRL-Curriculum (its Algorithm 1): h
+      moves on when an evaluation of the combined policy passes
+      (:func:`next_stage`, :func:`combined_policy_return`). Its defaults are
+      the paper's for D4RL: an evaluation every 10,000 steps, a moving average
+      of 5 (A.4), n_stages 10 and tolerance 5% (Table 11). Evaluations run on
+      envs of their own, eval_episodes episodes each, which no step budget
+      counts. The paper leaves open whether the average restarts at a new
+      stage; here it runs on.
+    * ``"random"``, the paper's JSRL-Random: h drawn uniformly from that
+      sequence at each episode's start, without a curriculum.
+    * ``"time"``, Ajax's own and not the paper's: h falls linearly from H to 0
+      at decay_frac (default 0.5) of training, whatever the performance.
+
+    episode_length is H, in agent steps: None reads the task's, the paper's
+    H_1 on a task whose episodes all run to the horizon.
 
     The action phase owns the per-episode substitution, in the action
     stage's pre-warm-up slot (ajax.environments.action_stage). It reads
@@ -623,20 +740,82 @@ class JSRLCurriculum(Extension):
     collect_experience counts for an extension that reads it. It writes
     expert_mask back, which flags the steps the expert took.
 
-    Evaluations log the guide horizon H_t (jsrl/horizon) and the share of
-    envs the expert drove on the last collection step (jsrl/expert_frac).
+    Evaluations log the guide horizon (jsrl/horizon) and the share of envs
+    the expert drove on the last collection step (jsrl/expert_frac), and
+    with "performance" the stage (jsrl/stage) and the best moving average
+    (jsrl/best).
     """
 
-    episode_length: int = 1000
-    decay_frac: float = 0.5
+    episode_length: Optional[int] = None
+    decay_frac: Optional[float] = None
+    schedule: str = "performance"
+    n_stages: int = 10
+    tolerance: float = 0.05
+    threshold: Optional[float] = None
+    moving_average: int = 5
+    eval_every: int = 10_000
+    eval_episodes: int = 10
+    # Agent context, bound by bind_to_agent.
+    env_args: Any = None
+    expert_policy: Any = None
     name: str = "jsrl_curriculum"
     requires: ClassVar[frozenset[str]] = frozenset({"agent_expert"})
     action_slot: ClassVar[str] = "pre_warmup"
     reads_step_in_episode: ClassVar[bool] = True
 
+    def __post_init__(self) -> None:
+        if self.schedule not in ("performance", "random", "time"):
+            raise ValueError(
+                "JSRLCurriculum's schedule is 'performance', 'random' or 'time',"
+                f" got {self.schedule!r}."
+            )
+        if self.decay_frac is not None and self.schedule != "time":
+            raise ValueError(
+                "JSRLCurriculum's decay_frac sets the 'time' schedule: pass"
+                f" schedule='time', or drop it from {self.schedule!r}."
+            )
+        if self.n_stages < 1:
+            raise ValueError(
+                f"JSRLCurriculum takes n_stages >= 1, got {self.n_stages}."
+            )
+
     def uses_expert_actions_as_policy_actions(self) -> bool:
         # It executes the expert's action where the policy's goes.
         return True
+
+    def bind_to_agent(self, **agent_context: Any) -> "JSRLCurriculum":
+        """Read H off the task and keep the expert and the env that
+        "performance" evaluates. Raises ``ValueError`` on an agent that does
+        not give them."""
+        env_args = agent_context.get("env_args")
+        length = self.episode_length
+        if env_args is not None and length is None:
+            length = agent_episode_length(
+                env_args.env, env_args.env_params, env_args.action_repeat
+            )
+        if length is None or (self.schedule == "performance" and env_args is None):
+            raise ValueError(
+                "This agent does not bind its env, which JSRLCurriculum reads"
+                " its horizon from and its 'performance' schedule evaluates on:"
+                " give it episode_length and schedule='random' or 'time'."
+            )
+        return dataclasses.replace(
+            self,
+            episode_length=length,
+            env_args=env_args,
+            expert_policy=agent_context.get("expert_policy"),
+        )
+
+    def init_state(self, agent_state: Any, rng: jax.Array) -> Any:
+        if self.schedule == "time":
+            return super().init_state(agent_state, rng)
+        return JSRLState(
+            key=rng,
+            stage=jnp.int32(0),
+            best=jnp.float32(-jnp.inf),
+            recent=jnp.zeros(self.moving_average),
+            evaluations=jnp.int32(0),
+        )
 
     def action(
         self,
@@ -646,14 +825,14 @@ class JSRLCurriculum(Extension):
         rng: jax.Array,
         context: ExtensionContext,
     ) -> jax.Array | None:
-        """Substitute the expert action while step_in_episode < H_t."""
-        del ext_state, rng
+        """Substitute the expert action while step_in_episode < h."""
+        del rng
         post_warmup_action = obs["post_warmup_action"]
         expert_action = obs["expert_action"]
 
-        H_t = self.horizon(agent_state.collector_state.timestep, context.total_steps)
+        guide_steps = self.guide_steps(agent_state, ext_state, context.total_steps)
         step_in_ep = agent_state.collector_state.step_in_episode
-        use_expert_jsrl = step_in_ep.astype(jnp.float32) < H_t
+        use_expert_jsrl = step_in_ep.astype(jnp.float32) < guide_steps
         use_expert_jsrl = use_expert_jsrl.reshape(
             (-1,) + (1,) * (post_warmup_action.ndim - 1)
         )
@@ -661,12 +840,72 @@ class JSRLCurriculum(Extension):
         obs["expert_mask"] = use_expert_jsrl
         return jnp.where(use_expert_jsrl, expert_action, post_warmup_action)
 
+    def guide_steps(
+        self, agent_state: Any, ext_state: Any, total_steps: int
+    ) -> jax.Array:
+        """h: one value, or JSRL-Random's one per env."""
+        if self.schedule == "time":
+            return self.horizon(agent_state.collector_state.timestep, total_steps)
+        if self.schedule == "performance":
+            return self.stage_horizon(ext_state.stage)
+        return self.episode_horizons(agent_state.collector_state, ext_state.key)
+
+    @property
+    def task_horizon(self) -> int:
+        """H, which bind_to_agent reads off the task."""
+        assert self.episode_length is not None
+        return self.episode_length
+
+    def stage_horizon(self, stage: jax.Array) -> jax.Array:
+        """H at stage 0, falling by H / n_stages a stage to 0 at n_stages."""
+        return self.task_horizon * (1.0 - stage / self.n_stages)
+
+    def episode_horizons(self, collector: Any, key: jax.Array) -> jax.Array:
+        """JSRL-Random's h of each env's episode, a stage's drawn uniformly,
+        on a key of its env and its episode's first tick, which holds through
+        the episode: nothing to store at the episode's start."""
+        steps = collector.step_in_episode
+        first_ticks = collector.timestep // steps.shape[0] - steps
+
+        def draw(env: jax.Array, first_tick: jax.Array) -> jax.Array:
+            episode_key = fold_index(fold_index(key, env), first_tick)
+            stage = jax.random.randint(episode_key, (), 0, self.n_stages + 1)
+            return self.stage_horizon(stage)
+
+        return jax.vmap(draw)(jnp.arange(steps.shape[0]), first_ticks)
+
     def horizon(self, timestep: Any, total_steps: int) -> jax.Array:
-        """``H_t``: ``episode_length`` at the start, falling linearly to 0 at
-        ``decay_frac`` of the run."""
-        train_frac = progress(timestep, total_steps)
-        curriculum_progress = jnp.clip(train_frac / self.decay_frac, 0.0, 1.0)
-        return self.episode_length * (1.0 - curriculum_progress)
+        """The "time" schedule's h: ``episode_length`` at the start, falling
+        linearly to 0 at ``decay_frac`` of the run."""
+        decay_frac = 0.5 if self.decay_frac is None else self.decay_frac
+        curriculum_progress = jnp.clip(
+            progress(timestep, total_steps) / decay_frac, 0.0, 1.0
+        )
+        return self.task_horizon * (1.0 - curriculum_progress)
+
+    def post_update(
+        self, agent_state: Any, ext_state: Any, context: ExtensionContext
+    ) -> tuple[Any, Any]:
+        """Every eval_every steps, evaluate the combined policy and move to
+        the next stage where it passes."""
+        if self.schedule != "performance":
+            return agent_state, ext_state
+
+        def evaluated() -> JSRLState:
+            value = combined_policy_return(
+                self.env_args,
+                self.expert_policy,
+                agent_state,
+                self.stage_horizon(ext_state.stage),
+                self.eval_episodes,
+                context.rng,
+            )
+            return next_stage(
+                ext_state, value, self.n_stages, self.tolerance, self.threshold
+            )
+
+        due = context.step % self.eval_every < self.env_args.n_envs
+        return agent_state, jax.lax.cond(due, evaluated, lambda: ext_state)
 
     def eval_metrics(
         self,
@@ -675,12 +914,16 @@ class JSRLCurriculum(Extension):
         rng: jax.Array,
         context: ExtensionContext,
     ) -> dict:
-        del ext_state, rng
+        del rng
         collector = agent_state.collector_state
-        return {
-            "jsrl/horizon": self.horizon(collector.timestep, context.total_steps),
+        guide_steps = self.guide_steps(agent_state, ext_state, context.total_steps)
+        metrics = {
+            "jsrl/horizon": jnp.mean(guide_steps),
             "jsrl/expert_frac": collector.last_expert_frac,
         }
+        if self.schedule == "performance":
+            metrics.update({"jsrl/stage": ext_state.stage, "jsrl/best": ext_state.best})
+        return metrics
 
 
 __all__ = [
@@ -688,6 +931,7 @@ __all__ = [
     "ExpertWarmup",
     "ImitationLoss",
     "JSRLCurriculum",
+    "JSRLState",
     "OnlineBC",
     "ResidualPolicy",
 ]

@@ -209,7 +209,7 @@ their policy. With `ExpertWarmup(fraction)` (`ajax.extensions.expert`), at
 each step, with probability `fraction`, every environment takes the
 expert's action; otherwise, a uniform random one. The replay flags the rows
 the expert took, where it keeps the expert flags. Under gain mode, or with
-IQL's `ResidualPolicy`, the warm-up draws the policy's actions, and the
+`ResidualPolicy`, the warm-up draws the policy's actions, and the
 expert's rows store the one that executes the expert's own action (0).
 Without it the warm-up is uniform.
 
@@ -224,7 +224,17 @@ each extension names in its `action_slot`:
 - **Before the warm-up choice** (`"pre_warmup"`): `EDGEExploration` (a
   value-based gate, comparing the expert's action with the one the step
   would execute, which the critics are trained on) and `JSRLCurriculum`
-  (the expert starts each episode, for a shrinking number of steps).
+  (the expert starts each episode, then the learner takes over). Its
+  `schedule` sets the expert's steps `h`, from the task's horizon down to 0
+  in `n_stages` stages. `"performance"` is the paper's JSRL-Curriculum: `h`
+  moves down a stage when an evaluation of the combined policy passes, every
+  `eval_every` steps, on `eval_episodes` episodes of its own. It passes when
+  the moving average of the last `moving_average` evaluations clears
+  `threshold` or, without one, comes within `tolerance` of the best previous
+  moving average. `"random"` is the paper's JSRL-Random: `h` drawn uniformly
+  from those stages each episode. `"time"` is Ajax's own and not the paper's:
+  `h` falls linearly to 0 at `decay_frac` of training, whatever the
+  performance.
 - **After it** (`"post_warmup"`): `ValueBox`, which lets the expert act
   wherever its value exceeds a threshold that rises over training. The
   step that enters this region ends the agent's episode in the stored

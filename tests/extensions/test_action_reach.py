@@ -21,7 +21,7 @@ from tests.agents.test_agent_contract import CASES
 
 #: The expert acts on every step: a horizon far beyond any episode, which
 #: shrinks over a fraction of training far beyond the run.
-ALWAYS = JSRLCurriculum(episode_length=10_000, decay_frac=1e6)
+ALWAYS = JSRLCurriculum(episode_length=10_000, decay_frac=1e6, schedule="time")
 
 
 def _one(obs: jnp.ndarray) -> jnp.ndarray:
@@ -87,7 +87,7 @@ def test_avg_learns_from_the_action_its_step_executed() -> None:
 @pytest.mark.parametrize(
     "acting",
     [
-        JSRLCurriculum(episode_length=16, decay_frac=1e6),
+        JSRLCurriculum(episode_length=16, decay_frac=1e6, schedule="time"),
         EDGEExploration(gate="fixed", fixed_prob=0.5, decay_frac=0.0),
         IBRL(expert_policy=_one),
     ],

@@ -205,7 +205,7 @@ CASES: dict[str, dict[str, Any]] = {
     # SAC counts the per-env ``step_in_episode`` the curriculum reads: the
     # golden was recorded with the retired ``jsrl_curriculum=True`` flag.
     "test_jsrl_curriculum_matches_legacy_flag": _expert(
-        JSRLCurriculum(episode_length=50, decay_frac=0.5)
+        JSRLCurriculum(episode_length=50, decay_frac=0.5, schedule="time")
     ),
     "test_ibrl_matches_legacy_flag": _expert(IBRL(expert_policy=_EXPERT)),
     # Each EDGE gate is a different action-pipeline gate function.

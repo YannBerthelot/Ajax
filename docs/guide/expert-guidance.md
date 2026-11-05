@@ -390,6 +390,9 @@ Ajax" marks a feature with no external reference.
 | Let the expert act while the agent is poor | `JSRLCurriculum` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger, DQN, PQN, UDRL), `EDGEExploration` (the same with continuous actions; on UDRL its fixed gate alone, UDRL having no Q critic), `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
 | Blend with the expert where the critics disagree | `CHEQ` (SAC, TD3, REDQ, ASAC, RVISAC, CrossQ, IQL) | CHEQ (Cramer et al., 2024) |
 | Learn a correction to the expert | `ResidualPolicy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL) | residual RL (Johannink et al., 2019; Silver et al., 2018) |
+| Move the target the expert reads | `OuterLoopReference` | outer-loop control (Arroyo and Giraldo, 2020) |
+| Schedule the expert's gains each step | `ExpertGains` on a `GainScheduledLaw` | control-informed RL (Bloor et al., 2024) |
+| Keep the expert's memory true to what ran | `BumplessTracking` | the conditioning technique (Hanus et al., 1987) |
 | Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` (SAC) | developed with Ajax |
 | Make the target account for the expert | `IBRL` (SAC, TD3, REDQ, AVG), `LCBGatedBootstrap` (SAC, TD3, REDQ) | IBRL (Hu et al., 2023); the LCB gate developed with Ajax |
 | Measure how the critic rates the expert | `ExpertValueMetrics` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, IQL, DQN) | |
@@ -472,7 +475,8 @@ and `step_with_gains` (TargetGym's `FunctionalExpertPolicy` after
 instead of acting directly: SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG and UDRL run it with the expert as their
 `expert_policy`. The
 actor outputs one number `a` in `[-1, 1]` per learnable gain; the gain
-applied is `anchor · 10^a`, between a tenth and ten times the expert's own.
+applied is `anchor · max_factor^a`, by default between a tenth and ten times
+the expert's own.
 The PID computes the action. The replay, or the rollout, holds the gains
 (the agent's actions, as many as the learnable gains), so the critics score
 them and the warm-up draws uniform gains; the expert's own action is stored
@@ -487,6 +491,51 @@ SAC with its collection extensions (their `action` phase never runs in it).
 It is different from the [PID policy](networks.md#the-pid-policy), in which
 the actor itself is a PID whose gains are learned, for any
 continuous-action agent.
+
+## Acting around a controller
+
+`ajax.extensions.structure` holds three arms that keep the expert and change what
+is around it. Each asks only for what it uses: the expert's call
+`expert(memory, obs)`, which columns of the observation hold its targets and its
+readings, and its gains. TargetGym's batched controllers have that form, and its
+envs name the columns in `obs_target_index` and `obs_value_index`. Read them from
+the env rather than writing positions, since observation layouts change between
+versions.
+
+- **Moving the target.** `OuterLoopReference(target_channels, max_change)` with the
+  expert as `expert_policy`: the policy outputs one change per target, bounded by
+  `max_change` in the target's units, and the expert acts on the moved target. No
+  change is the expert.
+- **Scheduling gains.** `GainScheduledLaw(expert, obs_width)` as `expert_policy`,
+  with `ExpertGains(max_factor=2.0)`: the policy sets a multiplier per gain, and the
+  multipliers move at most `max_log_rate` a step. The action changes as the law does
+  between two steps at the same gains, the velocity form, so a new gain alone moves
+  nothing, and unit multipliers are the law. Add
+  `ExpertStateInput.for_expert(layer)`, so that the policy reads the multipliers it
+  moves from.
+- **Tracking what ran.** Add `BumplessTracking(reading_channels)` to a switching or
+  blending arm (`JSRLCurriculum`, `CHEQ`, `IBRL`, `ResidualPolicy`): the expert's
+  memory takes the error at which it would have output the action applied, which an
+  env reports in `info["applied_action"]`, and otherwise the command. Without it, the
+  memory advances on the error whoever acts. A step the expert chose itself stays its
+  own, and a law sitting at its own limit keeps its own anti-windup. Handing back
+  still steps by the proportional term.
+
+`GainScheduledLaw` reads the expert's `step_with_gains`, `learnable_fields` and
+`anchor_gains`. TargetGym's batched form has them for the laws it registers. For the
+others, `ExpertLaw` builds them from the law:
+
+```python
+# doc: skip
+from target_gym.registry import REGISTRY
+
+from ajax.extensions.structure import ExpertLaw
+
+law = ExpertLaw.of(
+    REGISTRY["four_tank"].make_pid_controller(),
+    gain_names=("Kp_1", "Ti_1", "Kp_2", "Ti_2"),
+)
+```
 
 ## Limits and caveats
 

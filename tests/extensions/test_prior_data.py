@@ -34,12 +34,14 @@ def data() -> dict[bool, ds.TransitionDataset]:
     return out
 
 
-def train(name: str, extensions: tuple = (), **kw: Any) -> Any:
-    """``name`` on the identity task, trained 0 steps: one seed's state."""
+def train(name: str, extensions: tuple = (), n_timesteps: int = 0, **kw: Any) -> Any:
+    """``name`` on the identity task, trained n_timesteps steps: one seed's
+    state."""
     case, env = CASES[name], IdentityEnv(discrete=name == "DQN")
     kwargs = {**case.kwargs, **kw}
     agent = case.cls(env, n_envs=1, extensions=extensions, **kwargs)
-    return jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+    out = agent.train(seed=0, n_timesteps=n_timesteps)[0]
+    return jax.tree.map(lambda x: x[0], out)
 
 
 def params(state: Any) -> list:
@@ -114,3 +116,60 @@ def test_the_rows_join_the_normalisers_once_each(data) -> None:
 def test_an_agent_without_a_replay_refuses_it(name, data) -> None:
     with pytest.raises(MissingCapability, match=r"replay \(its updates sample"):
         train(name, (PriorData(data[False]),))
+
+
+def alpha(state: Any) -> float:
+    return float(np.asarray(jax.tree.leaves(state.alpha.params)[0]).ravel()[0])
+
+
+WAITING: dict[str, Any] = {"policy_update_start": 2_000, "alpha_update_start": 2_000}
+
+
+def test_offline_updates_train_sacs_actor_and_temperature(data) -> None:
+    """The offline updates run at timestep 0, below SAC's default starts of
+    2000 env steps. They are the agent's whole update (critic, actor,
+    temperature, targets), or a pretrained SAC acts from an untrained actor
+    on trained critics."""
+    untouched = train("SAC", **WAITING)
+    state = train("SAC", (PriorData(data[False], 3),), **WAITING)
+    moved = [
+        not np.array_equal(a, b)
+        for a, b in zip(
+            jax.tree.leaves(state.actor_state.params),
+            jax.tree.leaves(untouched.actor_state.params),
+            strict=True,
+        )
+    ]
+    assert all(moved), moved
+    assert alpha(state) != alpha(untouched)
+
+
+def test_offline_updates_keep_a_fixed_temperature(data) -> None:
+    untouched = train("SAC", fixed_alpha=True, **WAITING)
+    state = train("SAC", (PriorData(data[False], 3),), fixed_alpha=True, **WAITING)
+    assert alpha(state) == alpha(untouched)
+
+
+def test_offline_updates_count_no_env_step(data) -> None:
+    """The run's env steps start after them: the starts and the budget still
+    count what the agent collects."""
+    state = train("SAC", (PriorData(data[False], 3),), **WAITING)
+    assert int(state.collector_state.timestep) == 0
+
+
+@pytest.mark.parametrize("start", ["policy_update_start", "alpha_update_start"])
+def test_online_updates_still_wait_for_env_steps(data, start: str) -> None:
+    """Opening the starts for the offline updates leaves them closed online:
+    the actor and the temperature stand where the offline updates left them
+    until the env steps come, as a run without a dataset's would."""
+    waits = {**WAITING, "n_timesteps": 0}
+    offline = train("SAC", (PriorData(data[False], 3),), **waits)
+    online = train(
+        "SAC", (PriorData(data[False], 3),), **{**WAITING, "n_timesteps": 24}
+    )
+    reader = (
+        (lambda s: s.actor_state.params)
+        if start == "policy_update_start"
+        else (lambda s: s.alpha.params)
+    )
+    jax.tree.map(np.testing.assert_array_equal, reader(online), reader(offline))

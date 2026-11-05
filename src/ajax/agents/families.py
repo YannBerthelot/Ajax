@@ -29,6 +29,7 @@ unannotated, so it is no field.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import inspect
 from collections.abc import Callable, Iterable, Sequence
@@ -276,6 +277,8 @@ class EntropyTemperature:
     alpha_init: float = 1.0
     target_entropy_per_dim: Schedule = -1.0
     alpha_update_start: int = 0
+    #: Set on ReplayAgent.before_env_steps's copy alone.
+    ignores_update_starts: ClassVar[bool] = False
 
     @property
     def alpha_args(self: Any) -> AlphaConfig:
@@ -301,7 +304,7 @@ class EntropyTemperature:
     def temperature_update_due(self, timestep: Any) -> Union[bool, jax.Array]:
         """Whether the temperature's step counts at timestep: from
         alpha_update_start on (update_steps.reached)."""
-        return reached(self.alpha_update_start, timestep)
+        return self.ignores_update_starts or reached(self.alpha_update_start, timestep)
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -315,11 +318,13 @@ class PolicyUpdateStart:
     """
 
     policy_update_start: int = 0
+    #: Set on ReplayAgent.before_env_steps's copy alone.
+    ignores_update_starts: ClassVar[bool] = False
 
     def policy_update_due(self, timestep: Any) -> Union[bool, jax.Array]:
         """Whether the actor's step counts at timestep: from
         policy_update_start on (update_steps.reached)."""
-        return reached(self.policy_update_start, timestep)
+        return self.ignores_update_starts or reached(self.policy_update_start, timestep)
 
     def keeps_actor_metrics(self) -> bool:
         """An actor waiting for policy_update_start skips the updates before
@@ -792,6 +797,14 @@ class ReplayAgent(DeclaredAgent):
         del context
         return None
 
+    def before_env_steps(self) -> Any:
+        """The agent as it updates on a dataset before acting, where no env
+        step will open its starts (ignores_update_starts). A copy: the agent
+        that trains online keeps them, as its run config logs them."""
+        agent: Any = copy.copy(self)
+        agent.ignores_update_starts = True
+        return agent
+
     def _build_family(self) -> None:
         self.buffer = self.make_replay_buffer()
 
@@ -900,6 +913,7 @@ class ReplayAgent(DeclaredAgent):
             offline_data=offline_data,
         )
         recurrent = context.recurrent
+        offline = self.before_env_steps()
         return loop.off_policy(
             partial(self.init, context=context),
             lambda agent_state, _transition: self.update(agent_state, context),
@@ -913,6 +927,9 @@ class ReplayAgent(DeclaredAgent):
             },
             eval_kwargs=self.evaluation_kwargs(),
             keeps_actor_metrics=self.keeps_actor_metrics(),
+            pretrain_update=lambda agent_state, _transition: offline.update(
+                agent_state, context
+            ),
         )
 
     def extension_values(self, configs: dict[str, Any]) -> dict[str, Any]:

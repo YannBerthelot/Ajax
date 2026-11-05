@@ -704,6 +704,7 @@ class TrainLoop:
         evaluation: Optional[Evaluation] = None,
         num_ticks: Optional[int] = None,
         keeps_actor_metrics: bool = False,
+        pretrain_update: Optional[Update] = None,
     ) -> Callable:
         """Train on one environment step per env per iteration (a tick).
 
@@ -728,6 +729,8 @@ class TrainLoop:
 
         ``keeps_actor_metrics``: the update keeps its actor's last metrics on
         the state (update_steps.run_actor_if), which then gets their slot.
+        ``pretrain_update``, by default ``update``, is the update the
+        extensions' pretraining runs, before any env step.
         With :attr:`offline_data` it trains offline instead (:meth:`offline`).
         """
         collect_args = self.collect_kwargs(recurrent, **(collect_kwargs or {}))
@@ -744,6 +747,7 @@ class TrainLoop:
                 recurrent,
                 eval_kwargs,
                 keeps_actor_metrics,
+                pretrain_update,
             )
 
         def collect_step(agent_state: Any, tick: Any) -> tuple[Any, Any]:
@@ -803,7 +807,7 @@ class TrainLoop:
             num_ticks,
             last_rollout=(1, collect_args) if expose_rollout else None,
             evaluations=None if evaluation is None else evaluation.count(num_ticks),
-            update=update,
+            update=pretrain_update or update,
             buffer=collect_args.get("buffer"),
             one_update=(
                 (lambda state: update(*collect_step(state, jnp.asarray(0)))[0])
@@ -820,6 +824,7 @@ class TrainLoop:
         recurrent: bool = False,
         eval_kwargs: Optional[dict] = None,
         keeps_actor_metrics: bool = False,
+        pretrain_update: Optional[Update] = None,
     ) -> Callable:
         """Train on :attr:`offline_data` alone, with no environment step.
 
@@ -876,7 +881,7 @@ class TrainLoop:
             seeded,
             iteration,
             self.budget,
-            update=update,
+            update=pretrain_update or update,
             buffer=buffer,
             one_update=(
                 (lambda state: update(state, None)[0]) if keeps_actor_metrics else None

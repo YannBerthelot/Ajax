@@ -1131,10 +1131,12 @@ class PriorData(Extension):
     (ajax.buffers.dataset.fill_replay), and to its observation and reward
     normalisers, each row counted once as collection counts its own; then
     runs offline_updates of the agent's update on that replay: its critic,
-    actor and target steps and its extensions' loss terms, but no
-    post_update between them. offline_updates=0 is RLPD's prior data in the
-    replay (Ball et al. 2023) without its symmetric sampling. Ajax's warm-up
-    acts uniformly: pair it with learning_starts=0.
+    actor, temperature and target steps and its extensions' loss terms, but
+    no post_update between them. These updates come before any env step, so
+    they do not wait for policy_update_start or alpha_update_start, which
+    still count the env steps collected online. offline_updates=0 is RLPD's
+    prior data in the replay (Ball et al. 2023) without its symmetric
+    sampling. Ajax's warm-up acts uniformly: pair it with learning_starts=0.
 
     Needs the replay and update an off-policy loop hands the pretrain phase
     (pretrain_context): SAC, TD3, REDQ, ASAC, TQC, CrossQ, IQL and DQN take

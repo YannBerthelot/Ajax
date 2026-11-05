@@ -519,7 +519,8 @@ class MultiCritic(nn.Module):
             target=Critic,
             in_axes=in_axes,
             out_axes=0,
-            variable_axes={"params": 0, "batch_stats": 0},
+            # "intermediates": a capture reads each member's own activations.
+            variable_axes={"params": 0, "batch_stats": 0, "intermediates": 0},
             split_rngs={"params": True},
             axis_size=self.num,
             methods=("__call__", "apply_encoder", "quantiles"),

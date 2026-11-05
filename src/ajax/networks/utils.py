@@ -266,6 +266,17 @@ def parse_initialization(
     return init_fn() if number is None else init_fn(number)
 
 
+class Activation(nn.Module):
+    """An activation function as a layer with no parameters. A plain function
+    in an ``nn.Sequential`` is invisible to flax's ``capture_intermediates``,
+    which would then see each layer before its nonlinearity only."""
+
+    function: ActivationFunction
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        return self.function(x)
+
+
 def parse_layer(
     layer: Union[str, ActivationFunction],
     kernel_init: Optional[Union[str, InitializationFunction]] = None,
@@ -274,7 +285,7 @@ def parse_layer(
     """Parse one architecture token: a width such as ``"256"`` gives a Dense
     layer (:func:`dense`, kernel ``orthogonal(1.0)`` by default),
     ``"layernorm"`` a new LayerNorm with its own scale and bias, any other
-    name or a callable an activation (:func:`parse_activation`).
+    name or a callable an :class:`Activation` (:func:`parse_activation`).
 
     ``("256", "layernorm", "relu")`` per hidden layer is RLPD's critic MLP
     (Ball et al., ICML 2023; ``ikostrikov/rlpd``, ``rlpd/networks/mlp.py``).
@@ -288,7 +299,7 @@ def parse_layer(
     if layer == "batchrenorm":
         return BatchRenorm()
     try:
-        return parse_activation(activation=layer)
+        return Activation(parse_activation(activation=layer))
     except ValueError as e:
         raise ValueError(
             f"Unrecognized layer {layer!r}: a width such as '256', 'layernorm',"

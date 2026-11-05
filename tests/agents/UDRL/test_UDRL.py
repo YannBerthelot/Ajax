@@ -81,9 +81,7 @@ def test_the_actor_sees_the_command_scaled_once_when_acting_and_training(
     )
 
 
-def test_each_env_draws_its_own_exploratory_return_once_the_returns_spread(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_each_env_draws_its_own_exploratory_return_once_the_returns_spread(monkeypatch):
     """Algorithm 5 restarts an env's command at d_r ~ U(R, R + std), a draw
     per env: once the top episodes' returns differ (std > 0), the envs'
     fresh returns differ too. Catches a draw collapsed to its upper end, which

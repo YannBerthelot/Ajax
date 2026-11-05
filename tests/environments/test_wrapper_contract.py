@@ -77,14 +77,16 @@ class BraxIdentity(Env):
 
 def brax_stack():
     """``_build_brax_env``'s stack."""
-    env = brax_training.EpisodeWrapper(BraxIdentity(), LIMIT, action_repeat=1)
+    env = W.NonFiniteStepWrapper(BraxIdentity())
+    env = brax_training.EpisodeWrapper(env, LIMIT, action_repeat=1)
     env = brax_training.VmapWrapper(env, batch_size=N_ENVS)
     return W.AutoResetWrapper(W.FinalObsWrapper(env))
 
 
 def playground_stack():
     """``_build_playground_env``'s stack."""
-    env = brax_training.EpisodeWrapper(BraxIdentity(True), LIMIT, action_repeat=1)
+    env = W.NonFiniteStepWrapper(BraxIdentity(True))
+    env = brax_training.EpisodeWrapper(env, LIMIT, action_repeat=1)
     env = W.FreshAutoResetWrapper(W.FinalObsWrapper(brax_training.VmapWrapper(env)))
     return W.BatchRngWrapper(env, n_envs=N_ENVS)
 
@@ -110,6 +112,7 @@ ROWS = {
         StepReference(LIMIT, -1.0, 1.0, 1, 2),
         LinearReferenceModel.first_order(),
     ),
+    W.NonFiniteStepWrapper: brax_stack,
     W.AutoResetWrapper: brax_stack,
     W.FinalObsWrapper: brax_stack,
     W.FreshAutoResetWrapper: playground_stack,

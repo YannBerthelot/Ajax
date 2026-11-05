@@ -2866,6 +2866,33 @@
 <td>not yet</td>
 </tr>
 <tr>
+<td><code>CHEQ</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>no</td>
+<td>yes</td>
+<td>no</td>
+<td>yes</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr>
 <td><code>CalQL</code></td>
 <td>yes</td>
 <td>no</td>
@@ -3487,6 +3514,33 @@
 <td>not yet</td>
 </tr>
 <tr>
+<td><code>RLPD</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>no</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>no</td>
+<td>not yet</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>yes</td>
+<td>no</td>
+<td>not yet</td>
+</tr>
+<tr>
 <td><code>RepresentationProbe</code></td>
 <td>yes</td>
 <td>yes</td>
@@ -3566,6 +3620,33 @@
 <td>no</td>
 <td>no</td>
 <td>no</td>
+</tr>
+<tr>
+<td><code>RetainedDemonstrations</code></td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>no</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>no</td>
+<td>not yet</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>not yet</td>
+<td>yes</td>
+<td>no</td>
+<td>not yet</td>
 </tr>
 <tr>
 <td><code>StorePolicyAction</code></td>
@@ -3824,6 +3905,18 @@
 <li><code>BiasVoreDecomposition</code> needs critic, stored_steps: not on APG</li>
 <li><code>BiasVorePenalty</code> needs critic, scalar_target: not on APG, UDRL, UDRL/discrete, DAgger, DAgger/discrete</li>
 <li><code>BiasVorePenalty</code> needs scalar_target: not on TQC</li>
+<li><code>CHEQ</code> needs continuous_actions, critic, critic_ensemble, q_critic, scalar_target: not on UDRL/discrete, DAgger/discrete</li>
+<li><code>CHEQ</code> needs continuous_actions, critic_ensemble: not on DQN</li>
+<li><code>CHEQ</code> needs continuous_actions, critic_ensemble, obs_networks, q_critic: not on DreamerV3/discrete</li>
+<li><code>CHEQ</code> needs continuous_actions, critic_ensemble, off_policy, q_critic, replay: not on PPO/discrete, APO/discrete</li>
+<li><code>CHEQ</code> needs continuous_actions, critic_ensemble, replay: not on PQN</li>
+<li><code>CHEQ</code> needs critic, critic_ensemble, off_policy, q_critic, replay, scalar_target: not on APG</li>
+<li><code>CHEQ</code> needs critic, critic_ensemble, q_critic, scalar_target: not on UDRL, DAgger</li>
+<li><code>CHEQ</code> needs critic_ensemble, obs_networks, q_critic: not on DreamerV3</li>
+<li><code>CHEQ</code> needs critic_ensemble, off_policy, q_critic, replay: not on PPO, APO</li>
+<li><code>CHEQ</code> needs critic_ensemble, replay: not on AVG</li>
+<li><code>CHEQ</code> needs obs_networks: not on TDMPC2, TDMPC2MultiTask</li>
+<li><code>CHEQ</code> needs scalar_target: not on TQC</li>
 <li><code>CalQL</code> needs actor, continuous_actions, policy_density: not on DQN</li>
 <li><code>CalQL</code> needs actor, continuous_actions, policy_density, replay: not on PQN</li>
 <li><code>CalQL</code> needs continuous_actions, critic, discounted, policy_density, q_critic: not on DAgger/discrete</li>
@@ -3928,6 +4021,8 @@
 <li><code>PhiRefresh</code> needs replay: not on AVG, PQN</li>
 <li><code>PriorData</code> needs off_policy, replay: not on APG, PPO, PPO/discrete, APO, APO/discrete</li>
 <li><code>PriorData</code> needs replay: not on AVG, PQN</li>
+<li><code>RLPD</code> needs off_policy, replay: not on APG, PPO, PPO/discrete, APO, APO/discrete</li>
+<li><code>RLPD</code> needs replay: not on AVG, PQN</li>
 <li><code>RepresentationProbe</code> needs obs_networks: not on TDMPC2, DreamerV3, DreamerV3/discrete, TDMPC2MultiTask</li>
 <li><code>ResetCost</code> needs critic, discounted, next_action_target, one_step_target: not on UDRL, UDRL/discrete, DAgger, DAgger/discrete</li>
 <li><code>ResetCost</code> needs critic, discounted, next_action_target, one_step_target, replay: not on APG</li>
@@ -3944,6 +4039,8 @@
 <li><code>ResidualPolicy</code> needs continuous_actions, reward_learning: not on DAgger/discrete</li>
 <li><code>ResidualPolicy</code> needs obs_networks: not on TDMPC2, DreamerV3, TDMPC2MultiTask</li>
 <li><code>ResidualPolicy</code> needs reward_learning: not on DAgger</li>
+<li><code>RetainedDemonstrations</code> needs off_policy, replay: not on APG, PPO, PPO/discrete, APO, APO/discrete</li>
+<li><code>RetainedDemonstrations</code> needs replay: not on AVG, PQN</li>
 <li><code>StorePolicyAction</code> needs replay: not on AVG, APG, PPO, PPO/discrete, APO, APO/discrete, PQN</li>
 <li><code>StorePolicyAction</code> needs reward_learning: not on DAgger, DAgger/discrete</li>
 <li><code>TargetBC</code> needs actor, continuous_actions: not on DQN</li>
@@ -3986,7 +4083,7 @@
 <li>TD-MPC2's own collector does not run the choose_warmup_action phase in its seed phase yet, and it takes no expert_policy: <code>ExpertWarmup</code> on TDMPC2</li>
 <li>only PPO folds the reward phase (GAIL's AdversarialReward): <code>AdversarialReward</code> on SAC TD3 REDQ TQC CrossQ ASAC RVISAC AVG APG APO UDRL DAgger IQL DreamerV3 TDMPC2 TDMPC2MultiTask</li>
 <li>the agent's own collector does not run choose_replay_action yet: <code>StorePolicyAction</code> on DreamerV3 DreamerV3/discrete TDMPC2 TDMPC2MultiTask</li>
-<li>the agent's own replay is not handed to its pretraining yet: <code>PriorData</code> on UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>ExpertPrefill</code> on UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask</li>
+<li>the agent's own replay is not handed to its pretraining yet: <code>PriorData</code> on UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>ExpertPrefill</code> on UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>RLPD</code> on UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>RetainedDemonstrations</code> on UDRL UDRL/discrete DAgger DAgger/discrete TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask</li>
 </ul>
 
 

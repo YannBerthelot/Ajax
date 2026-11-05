@@ -2947,7 +2947,7 @@
 <p>An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships thirty-five of them,
+or measurements logged at each evaluation. Ajax ships thirty-eight of them,
 listed in the <a href="#catalogue">catalogue</a> below.</p>
 <p>Why extensions instead of agent options? An agent's constructor takes its
 paper's hyperparameters plus <code>extensions=()</code>. The exceptions are
@@ -3029,7 +3029,7 @@ where it may act. Every other phase keeps a default that changes nothing.</p>
 <td><code>pretrain</code></td>
 <td>once, before training, on a fresh run</td>
 <td>change the agent's state (clone the actor, pre-train a critic)</td>
-<td>in list order, the replay's seeders (<code>ExpertPrefill</code>, <code>PriorData</code>) first</td>
+<td>in list order, the replay's seeders (<code>ExpertPrefill</code>, <code>PriorData</code>, <code>RetainedDemonstrations</code>, <code>RLPD</code>) first</td>
 </tr>
 <tr>
 <td><code>reward</code></td>
@@ -3058,7 +3058,7 @@ where it may act. Every other phase keeps a default that changes nothing.</p>
 <tr>
 <td><code>action</code></td>
 <td>at each collection step</td>
-<td>replace the action the agent would take</td>
+<td>replace the action the agent would take; after the warm-up's choice it may also write <code>replay_action</code>, the action the replay stores (<code>CHEQ</code>'s RL action)</td>
 <td>the last proposal wins</td>
 </tr>
 <tr>
@@ -3656,6 +3656,51 @@ accepts it. "SAC with an expert" means <code>SAC(..., expert_policy=...)</code>.
 <td>The agent's expert acts <code>n_steps</code> steps in every copy before training, and its transitions go to the replay as collection writes its own, flagged as expert rows. They count once in the observation and reward statistics, as <code>PriorData</code>'s do, and in no timestep. It runs before the other pre-training, which may read its rows.</td>
 <td><code>pretrain</code></td>
 <td>SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL with an <code>expert_policy</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Rows kept for the whole run</strong> (<code>ajax.extensions.retained</code>)</p>
+<p>These put their rows in a ring of their own beside the one collection writes, so nothing evicts them. The update ratio, the critics and their architecture stay the agent's.</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RetainedDemonstrations</code></td>
+<td>Keeps <code>n_steps</code> steps of the agent's expert per copy, or a transition <code>dataset</code>, for the whole run (DDPGfD). <code>share</code> is the part of each batch they fill; <code>None</code> draws each row over all the rows held. After <code>CloningPretrain</code> in the stack, with <code>share=0.5</code>, it is Rainbow-DemoRL's BC start plus prefill.</td>
+<td><code>pretrain</code></td>
+<td>SAC, TD3, REDQ, ASAC, RVISAC, TQC, CrossQ, IQL, DQN; the expert's rows need an <code>expert_policy</code></td>
+</tr>
+<tr>
+<td><code>RLPD</code></td>
+<td>The same rows at <code>share=0.5</code>, exact in every batch, on critics with LayerNorm: pass <code>critic_architecture=("256", "layernorm", "relu", "256", "layernorm", "relu")</code>, or <code>critic_layer_norm=False</code> for the ablation. <code>critic_subset</code> makes each target bootstrap on that many target critics drawn at random. The original configuration is <code>REDQ</code> with those critics.</td>
+<td><code>pretrain</code>, <code>on_target</code></td>
+<td>as <code>RetainedDemonstrations</code>; <code>critic_subset</code> needs a Q critic with targets and next actions, and an agent without its own subset</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Blending with the expert</strong> (<code>ajax.extensions.cheq</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CHEQ</code></td>
+<td>Executes <code>(1 - λ) a_E + λ a_RL</code>, with <code>λ</code> falling from <code>lambda_max</code> to <code>lambda_min</code> as the critics' disagreement, a share of the spread of the values their targets bootstrap, rises from <code>u_low</code> to <code>u_high</code>. <code>λ</code> joins every observation, the replay stores <code>a_RL</code>, and a stateful expert needs <code>PIDTermsInput</code> or <code>ExpertStateInput</code> in the stack. Logs <code>cheq/weight</code>, <code>cheq/uncertainty</code> and <code>cheq/value_spread</code>.</td>
+<td><code>observe</code>, <code>action</code>, <code>eval_action</code>, <code>on_target</code>, <code>critic_loss</code>, <code>post_update</code>, <code>eval_metrics</code></td>
+<td>SAC, TD3, REDQ, ASAC, RVISAC, CrossQ, IQL with an <code>expert_policy</code> and two critics or more</td>
 </tr>
 </tbody>
 </table>

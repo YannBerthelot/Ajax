@@ -3393,6 +3393,16 @@ Ajax" marks a feature with no external reference.</p>
 <td>expert prefill; prior data in the replay as RLPD (Ball et al., 2023), without its symmetric sampling, and optional offline updates</td>
 </tr>
 <tr>
+<td>Keep good experience for the whole run</td>
+<td><code>RetainedDemonstrations(n_steps)</code>, with <code>CloningPretrain</code> for a BC start (SAC, TD3, REDQ, ASAC, RVISAC, TQC, CrossQ, IQL, DQN)</td>
+<td>DDPGfD (Vecerik et al., 2017); BC start plus prefill (Bhatt et al., 2026)</td>
+</tr>
+<tr>
+<td>Learn online with half of each batch from recorded data</td>
+<td><code>RLPD</code> on LayerNorm critics (SAC, TD3, REDQ, ASAC, RVISAC, TQC, CrossQ, IQL, DQN)</td>
+<td>RLPD (Ball et al., 2023)</td>
+</tr>
+<tr>
 <td>Train on recorded transitions alone, then fine-tune online</td>
 <td><code>agent.train_offline(dataset, n_updates)</code> (SAC, TD3, REDQ, ASAC, DQN, IQL)</td>
 <td>offline training on the agent's own update; IQL (Kostrikov et al., 2022)</td>
@@ -3441,6 +3451,11 @@ Ajax" marks a feature with no external reference.</p>
 <td>Let the expert act while the agent is poor</td>
 <td><code>JSRLCurriculum</code> (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger, DQN, PQN, UDRL), <code>EDGEExploration</code> (the same with continuous actions; on UDRL its fixed gate alone, UDRL having no Q critic), <code>ValueBox</code> (SAC)</td>
 <td>jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax</td>
+</tr>
+<tr>
+<td>Blend with the expert where the critics disagree</td>
+<td><code>CHEQ</code> (SAC, TD3, REDQ, ASAC, RVISAC, CrossQ, IQL)</td>
+<td>CHEQ (Cramer et al., 2024)</td>
 </tr>
 <tr>
 <td>Learn a correction to the expert</td>

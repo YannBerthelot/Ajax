@@ -2569,10 +2569,65 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.TwoBufferState" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TwoBufferState
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.buffers.utils.ReplayBatch" class="md-nav__link">
     <span class="md-ellipsis">
       
         ReplayBatch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.written_rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        written_rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.empty_ring_like" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        empty_ring_like
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.with_retained_rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_retained_rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.sample_two_buffers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sample_two_buffers
       
     </span>
   </a>
@@ -3092,10 +3147,65 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.TwoBufferState" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TwoBufferState
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.buffers.utils.ReplayBatch" class="md-nav__link">
     <span class="md-ellipsis">
       
         ReplayBatch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.written_rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        written_rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.empty_ring_like" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        empty_ring_like
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.with_retained_rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_retained_rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.sample_two_buffers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sample_two_buffers
       
     </span>
   </a>
@@ -3571,6 +3681,95 @@ R2D2-style. The world models keep their own replay
 
 
 
+<h3 id="ajax.buffers.utils.TwoBufferState" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">TwoBufferState</span>
+
+
+<a href="#ajax.buffers.utils.TwoBufferState" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="flashbax.buffers.trajectory_buffer.TrajectoryBufferState">TrajectoryBufferState</span></code></p>
+
+
+
+        <p>A replay's ring, which collection writes and evicts from, beside a ring
+of rows that stay for the whole run (RLPD's offline buffer, DDPGfD's
+demonstrations). The readers of a replay see the first ring; sampling
+reads both (:func:<code>sample_two_buffers</code>).</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="ajax.buffers.utils.TwoBufferState.retained">retained</span></code></td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The ring of kept rows, with the first ring's fields.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="ajax.buffers.utils.TwoBufferState.share">share</span></code></td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The share of each batch drawn from it, exact in every batch;
+None: each row of a batch is drawn over the rows of both rings
+alike, so the share falls as the first ring fills.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
 <h3 id="ajax.buffers.utils.ReplayBatch" class="doc doc-heading">
             <span class="doc doc-object-name doc-class-name">ReplayBatch</span>
 
@@ -3620,6 +3819,89 @@ the buffer does not store them (:func:<code>init_buffer</code>).</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="ajax.buffers.utils.written_rows" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">written_rows</span>
+
+
+<a href="#ajax.buffers.utils.written_rows" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">written_rows</span><span class="p">(</span><span class="n">buffer_state</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The rows per env a ring holds: those written, up to its length.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.buffers.utils.empty_ring_like" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">empty_ring_like</span>
+
+
+<a href="#ajax.buffers.utils.empty_ring_like" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">empty_ring_like</span><span class="p">(</span><span class="n">buffer_state</span><span class="p">,</span> <span class="n">rows_per_env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>An empty ring of rows_per_env rows, with buffer_state's fields.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.buffers.utils.with_retained_rows" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">with_retained_rows</span>
+
+
+<a href="#ajax.buffers.utils.with_retained_rows" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">with_retained_rows</span><span class="p">(</span><span class="n">buffer_state</span><span class="p">,</span> <span class="n">retained</span><span class="p">,</span> <span class="n">share</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>buffer_state, its next batches also drawing from the ring retained.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.buffers.utils.sample_two_buffers" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">sample_two_buffers</span>
+
+
+<a href="#ajax.buffers.utils.sample_two_buffers" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">sample_two_buffers</span><span class="p">(</span><span class="n">sample</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>sample(state, key) on a plain ring. On a TwoBufferState, one draw from
+each ring, kept row by row: the first rows of the batch from the retained
+ring where a share is fixed (RLPD's N/2 from each), else each row with the
+retained ring's share of the rows held.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="ajax.buffers.utils.get_buffer" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">get_buffer</span>
 
@@ -3642,7 +3924,9 @@ stored one: a row holds its next observation, so it needs no successor
 (flashbax's flat buffer samples a row with its successor, which leaves
 each env's newest row out). When set (recurrent agents), <code>sample</code>
 yields contiguous per-env sequences of that length, shaped
-(batch_size, sequence_length, ...).</p>
+(batch_size, sequence_length, ...). Rows alone, a TwoBufferState also
+draws from its retained ring (:func:<code>sample_two_buffers</code>); no window
+reads one, as a run with memory refuses the extensions that write it.</p>
 
 
     </div>

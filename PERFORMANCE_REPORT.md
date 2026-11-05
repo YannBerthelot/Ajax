@@ -664,6 +664,52 @@ PPO 24,230 to 23,816 (-1.7%) and APO 32,572 to 31,288 (-3.9%), the same work
 within this machine's noise. PQN's baseline rows are re-recorded from that
 run; main's PQN measured 0.4% from its 2026-10-28 rows.
 
+## What RepresentationProbe costs (2026-11-05)
+
+Listing no extension compiles the program it always did: `tests.exact_pins`
+reproduces all 191 cases bitwise, their programs' text included, with the code
+the probe needed.
+
+Listed, a probe costs its own work and nothing between probes. SAC at its
+defaults (networks of 256 units, 2,048 states, six layers, `learning_starts`
+10,000), CPU only, macOS on Apple silicon, `benchmarks/representation_overhead.py`:
+both programs compiled once, then alternated, compile time left out.
+
+| Task | Steps | Probes taken | CPU time, off | On | Overhead (each pair) |
+| --- | --- | --- | --- | --- | --- |
+| Pendulum-v1 | 50,000 | 81 | 316 s | 347 s | +5.9%, +10.2%, +18.4% |
+| Brax hopper | 30,000 | 67 | 187 s | 207 s | +9.4%, +11.9%, +9.8% |
+
+These are CPU times on a machine carrying a load of 50 to 70 on 14 cores from
+other work, under which wall-clock times disagreed by more than the effect
+(one Pendulum pair ran 18% faster with the probe on), and the on times still
+rise with the load. So take them as about 10%, on a probe every 300 to 500 steps,
+not as a precise figure. A probe costs 0.3 to 0.4 CPU seconds here; its parts,
+timed apart, add up to about 95 ms under a lighter load (six SVDs of 2,048 x 256,
+two forward passes, one file). The overhead falls in proportion to the steps
+between probes: from these runs, a probe every 5,000 steps costs about 1%, and
+100 probes over a million steps about 0.5%, extrapolated and not measured.
+`layers=` and a longer `probe_interval` cut it further.
+
+**The copy this measurement found.** A first version cost up to twice a run,
+and most of that was not probing: a probe that never fired took 107 CPU seconds
+over 8,000 steps against 59 without it, while a tiny one took 67. One cond read
+the last activations for CKA and wrote the new ones, so both had to be in
+memory, and XLA's buffer assignment then gave the cond's result a buffer of its
+own, which the skip branch filled by copying, at every step. Dumps of the
+compiled program showed the copies. Three changes removed them: reading and
+writing take one cond each; the second is gated on the first's result, which
+orders them, as XLA otherwise treats the two as concurrent and keeps the copy;
+and the activations are carried flat, because XLA gave a four-dimensional
+ensemble layer another memory layout in the branch that wrote it, which the
+skip branch then copied into. The same compiled comparison then gave 63 CPU
+seconds against 59. A loop carrying a large array through a cond that also reads
+it pays this silently, on every step; small toy programs do not show it, because
+their new value depends on the read.
+
+Disk: 13 MB per probe per seed on SAC's defaults, half with `float16=True`.
+Embedding a run offline (three seeds, 82 probes): 2.5 minutes, 4.5 GB at its peak.
+
 ## JAX 0.11 and flax 0.12 (PR #199, 2026-10-19)
 
 The lock moves from JAX 0.7.2 / flax 0.10.7 to JAX 0.11.2 / flax 0.12.10;

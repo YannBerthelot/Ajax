@@ -111,6 +111,16 @@ nodes: its default of 20,000 nodes takes some gigabytes. `ajax.representation`'s
 `run_data` reads a run back as NumPy arrays, and `embeddings` holds the embeddings
 without the figures.
 
+## What it costs
+
+A run that does not list the probe compiles what it always did. A run that lists
+it pays for each probe and for nothing between probes, most of that in the SVDs.
+So the overhead falls with the steps between probes: about 10% measured at a
+probe every 300 to 500 steps of a small task on a CPU, so about 1% at one every
+5,000 steps, and 0.5% for 100 probes over a million steps. `layers=` and a longer
+`probe_interval` reduce it. A probe takes 13 MB per seed on SAC's defaults.
+`PERFORMANCE_REPORT.md` has the measurements.
+
 ## Resuming
 
 A resumed run goes on from its last probe. The state it resumes from has each

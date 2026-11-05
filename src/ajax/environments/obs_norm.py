@@ -20,6 +20,31 @@ import jax.numpy as jnp
 from ajax.utils import online_normalize
 from ajax.wrappers import NormalizationInfo, init_norm_info
 
+#: The floor under the variance a normaliser divides by (online_normalize's
+#: eps): a constant column reads as 0, not as noise blown up.
+VARIANCE_FLOOR = 1e-8
+
+
+def normaliser_std(variance: jnp.ndarray) -> jnp.ndarray:
+    """What a normaliser of this variance divides by, at run time and in
+    cloning, whose inputs the actor must read again at run time."""
+    return jnp.sqrt(variance + VARIANCE_FLOOR)
+
+
+def seeded_obs_norm(
+    mean: jnp.ndarray, std: jnp.ndarray, n_samples: int
+) -> NormalizationInfo:
+    """Agent-side statistics of n_samples rows, which read as dividing by std
+    (:func:`normaliser_std`'s, as cloning trained on them)."""
+    var = jnp.maximum(std**2 - VARIANCE_FLOOR, 0.0).reshape(1, -1)
+    return NormalizationInfo(
+        count=jnp.full((1, 1), float(n_samples)),
+        mean=mean.reshape(1, -1),
+        mean_2=var * n_samples,
+        var=var,
+        returns=None,
+    )
+
 
 def init_agent_obs_norm(obs_dim: int) -> NormalizationInfo:
     """Initialise running stats for an obs vector of size ``obs_dim``.
@@ -128,7 +153,7 @@ def apply_obs_norm(obs: jnp.ndarray, info: Optional[NormalizationInfo]) -> jnp.n
     if info is None or info.var is None:
         return obs
     count_total = jnp.sum(info.count)
-    std = jnp.sqrt(info.var + 1e-8)
+    std = normaliser_std(info.var)
     own, appended = obs[..., : info.mean.shape[-1]], obs[..., info.mean.shape[-1] :]
     normalized = jnp.where(count_total > 0, (own - info.mean) / std, own)
     return jnp.concatenate([normalized, appended], axis=-1)

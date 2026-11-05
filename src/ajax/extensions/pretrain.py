@@ -45,13 +45,14 @@ from ajax.environments.interaction import (
     replay_row,
     reward_statistics,
 )
+from ajax.environments.obs_norm import mirror_obs_norm, seeded_obs_norm
 from ajax.environments.utils import raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionContext, ExtensionStack
 from ajax.extensions.expert import extension_expert_actions, reads_stored_expert_actions
 from ajax.networks.networks import phi_star_critic_state, predict_value
 from ajax.random_keys import EXPERT_PREFILL_KEY_TAG
 from ajax.state import EnvironmentConfig, LoadedTrainState, Transition
-from ajax.types import BufferType, NormalizationInfo
+from ajax.types import BufferType
 
 
 @struct.dataclass
@@ -508,23 +509,12 @@ class CloningPretrain(Extension):
         new_state = agent_state.replace(actor_state=actor_state)
         if self.skip_actor and agent_state.collector_state.obs_norm_info is None:
             return new_state, losses  # no actor cloned: nothing to keep consistent
-        # Agent-side statistics have a leading axis of size 1
-        # (init_agent_obs_norm).
-        n_samples = float(dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0])
-        var = (obs_std**2).reshape(1, -1)
-        seeded = NormalizationInfo(
-            count=jnp.full((1, 1), n_samples),
-            mean=obs_mean.reshape(1, -1),
-            mean_2=var * n_samples,
-            var=var,
-            returns=None,
-        )
-        seeded_state = new_state.replace(
-            collector_state=new_state.collector_state.replace(obs_norm_info=seeded),
-            actor_state=new_state.actor_state.replace(obs_norm_info=seeded),
-            critic_state=new_state.critic_state.replace(obs_norm_info=seeded),
-        )
-        return seeded_state, losses
+        n_samples = dataset.obs.reshape(-1, dataset.obs.shape[-1]).shape[0]
+        seeded = seeded_obs_norm(obs_mean, obs_std, n_samples)
+        collector = new_state.collector_state.replace(obs_norm_info=seeded)
+        return mirror_obs_norm(
+            new_state.replace(collector_state=collector), seeded
+        ), losses
 
     def eval_metrics(
         self,

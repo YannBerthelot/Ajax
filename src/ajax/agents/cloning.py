@@ -8,6 +8,7 @@ from flax.training import train_state
 from jax.tree_util import Partial as partial
 
 from ajax.controller import feature_width, observation_layout
+from ajax.environments.obs_norm import normaliser_std
 from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.observe import TrainingProgressInput
 from ajax.modules.pid_actor import GAIN_NAMES
@@ -16,13 +17,13 @@ from ajax.state import Transition, with_batch_stats
 
 
 def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:
-    """Reshape x into (num_batches, batch_size, ...) padding last batch if needed."""
+    """Reshape x into (num_batches, batch_size, ...), every row in a batch,
+    the last batch filled from the first rows: a zero row would teach the
+    clone a false example."""
     n = x.shape[0]
     n_batches = (n + batch_size - 1) // batch_size
-    pad = n_batches * batch_size - n
-    if pad > 0:
-        x = jnp.pad(x, [(0, pad)] + [(0, 0)] * (x.ndim - 1))
-    return x.reshape(n_batches, batch_size, *x.shape[1:])
+    rows = jnp.arange(n_batches * batch_size) % n
+    return x[rows].reshape(n_batches, batch_size, *x.shape[1:])
 
 
 # The actor's log-std, whatever its form: Actor's head over the features
@@ -202,10 +203,11 @@ def bc_statistics(
     obs: jnp.ndarray, raw_columns: int = 0, pinned: tuple[int, ...] = ()
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """The mean and standard deviation cloning standardises its observations
-    with: 0 and 1 on the env's ``raw_columns`` and on the ``pinned`` ones."""
+    with, the run's (normaliser_std): 0 and 1 on the env's ``raw_columns``
+    and on the ``pinned`` ones."""
     obs_flat = obs.reshape(-1, obs.shape[-1])
     mean = obs_flat.mean(axis=0).at[:raw_columns].set(0.0)
-    std = (obs_flat.std(axis=0) + 1e-6).at[:raw_columns].set(1.0)
+    std = normaliser_std(obs_flat.var(axis=0)).at[:raw_columns].set(1.0)
     for column in pinned:
         mean = mean.at[column].set(0.0)
         std = std.at[column].set(1.0)
@@ -215,7 +217,7 @@ def bc_statistics(
 def cloning_columns(env_args: Any) -> dict:
     """:func:`pre_train`'s view of the agent's observation features: how many
     raw ones end it, and the training progress's columns, whose statistics
-    are pinned (constant 0 before training, its std would be 1e-6)."""
+    are pinned (constant 0 before training, its std would be the floor's)."""
     env_width = get_state_action_shapes(env_args.env)[0][-1]
     layout = observation_layout(env_width, env_args.observers, env_args)
     pinned = tuple(

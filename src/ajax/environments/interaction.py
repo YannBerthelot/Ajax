@@ -464,6 +464,17 @@ def maybe_vmap(f, vmap_on, **kwargs):
     return f
 
 
+def holds_many_envs(env_state: EnvState, mode: str) -> bool:
+    """Whether env_state is a batch of env states, read off a field scalar
+    per env (gymnax's time, brax's reward): other leaves may hold vectors in
+    a single state, as a per-episode key does. A state without that field
+    falls back on its leaves' largest rank."""
+    field = getattr(env_state, "time" if mode == "gymnax" else "reward", None)
+    if field is not None:
+        return jnp.ndim(field) > 0
+    return max(jnp.ndim(leaf) for leaf in jax.tree.leaves(env_state)) > 0
+
+
 def get_raw_obs(
     env_state: EnvState,
     env: Environment,
@@ -474,9 +485,7 @@ def get_raw_obs(
     env_params (one system per env where they are batched): the run's, or
     the expert reads other sensors than the agent. None: the env's default
     params."""
-    vmap_on = (
-        max(jax.tree_util.tree_leaves(jax.tree.map(lambda x: x.ndim, env_state))) > 0
-    )
+    vmap_on = holds_many_envs(env_state, mode)
     if mode == "gymnax":
         # gymnax 1.0's signature is `get_obs(state, params, key=None)`, and some
         # envs (e.g. MemoryChain) make `params` required rather than optional.

@@ -164,14 +164,15 @@ def final_expert_episodes(
 ) -> EpisodeRecord:
     """The expert's record on the seed numbers' episode sets, each array
     ``(seeds, episodes)``. It runs only the sets cache lacks, keyed ``(task,
-    seed number, num_episodes)``: its record is a function of the episode
-    set, so the arms share one rollout. A cache holds one expert's records:
-    pass each expert its own. The expert speaks env units."""
+    seed number, num_episodes, env_params)``: its record is a function of the
+    episode set and the params it ran under (a noise level, say), so the arms
+    share one rollout. A cache holds one expert per params: pass an expert
+    tuned otherwise a cache of its own. The expert speaks env units."""
     cache = {} if cache is None else cache
-    entries = [(task, int(number), num_episodes) for number in seed_numbers]
+    entries = [(task, int(n), num_episodes, env_params) for n in seed_numbers]
     missing = [entry for entry in entries if entry not in cache]
     if missing:
-        keys = jnp.stack([final_evaluation_key(t, n) for t, n, _ in missing])
+        keys = jnp.stack([final_evaluation_key(e[0], e[1]) for e in missing])
         record = jax.vmap(
             lambda key: expert_episodes(env, expert, num_episodes, key, env_params)
         )(keys)

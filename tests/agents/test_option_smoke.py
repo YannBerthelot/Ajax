@@ -170,7 +170,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     "LCBGatedBootstrap": (lambda: tm.LCBGatedBootstrap(EXPERT), "SAC"),
     "EDGEExploration": (exploration.EDGEExploration, "SAC"),
     "JSRLCurriculum": (
-        lambda: expert.JSRLCurriculum(episode_length=8),
+        lambda: expert.JSRLCurriculum(episode_length=8, schedule="time"),
         "SAC DQN PQN UDRL",
     ),
     "ResidualPolicy": (expert.ResidualPolicy, "SAC"),

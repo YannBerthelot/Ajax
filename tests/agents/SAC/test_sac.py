@@ -93,7 +93,7 @@ def test_jsrl_curriculum_counts_the_episode_steps_it_reads():
     needed."""
     kw = {"expert_policy": stateless_expert, "learning_starts": 8}
     kw.update({"batch_size": 8, "buffer_size": 64})
-    jsrl = (JSRLCurriculum(episode_length=8, decay_frac=0.5),)
+    jsrl = (JSRLCurriculum(episode_length=8, decay_frac=0.5, schedule="time"),)
     agent = SAC(env_id="Pendulum-v1", extensions=jsrl, **kw)
     state, _ = agent.train(seed=0, n_timesteps=12)
     np.testing.assert_array_equal(state.collector_state.step_in_episode, [[12]])
@@ -108,7 +108,7 @@ def test_jsrl_flags_the_steps_its_expert_takes():
     """
     kw = {"expert_policy": stateless_expert, "learning_starts": 4}
     kw.update({"batch_size": 4, "buffer_size": 64, "policy_update_start": 100})
-    jsrl = (JSRLCurriculum(episode_length=1000, decay_frac=1.0),)
+    jsrl = (JSRLCurriculum(episode_length=1000, decay_frac=1.0, schedule="time"),)
     agent = SAC(env_id="Pendulum-v1", n_envs=1, extensions=jsrl, **kw)
     state, _ = agent.train(seed=0, n_timesteps=12)
     rows = state.collector_state.buffer_state.experience

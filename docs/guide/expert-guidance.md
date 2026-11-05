@@ -27,7 +27,10 @@ An expert maps observations to actions. Ajax accepts two forms:
   object with `init_state(n_envs)`, which returns the starting state for
   `n_envs` environments, and `expert(state, obs) -> (action, new_state)`.
   TargetGym's PID experts (`target_gym.experts.pid.FunctionalExpertPolicy`)
-  follow this form.
+  follow this form: build one with
+  `target_gym.registry.REGISTRY[name].make_pid_controller().batched()`.
+  `target_gym.make_expert(name)` returns TargetGym's own form, with `reset`
+  and `step`, which Ajax does not call.
 
 Four conventions matter:
 
@@ -206,7 +209,7 @@ their policy. With `ExpertWarmup(fraction)` (`ajax.extensions.expert`), at
 each step, with probability `fraction`, every environment takes the
 expert's action; otherwise, a uniform random one. The replay flags the rows
 the expert took, where it keeps the expert flags. Under gain mode, or with
-IQL's `ResidualPolicy`, the warm-up draws the policy's actions, and the
+`ResidualPolicy`, the warm-up draws the policy's actions, and the
 expert's rows store the one that executes the expert's own action (0).
 Without it the warm-up is uniform.
 
@@ -221,7 +224,17 @@ each extension names in its `action_slot`:
 - **Before the warm-up choice** (`"pre_warmup"`): `EDGEExploration` (a
   value-based gate, comparing the expert's action with the one the step
   would execute, which the critics are trained on) and `JSRLCurriculum`
-  (the expert starts each episode, for a shrinking number of steps).
+  (the expert starts each episode, then the learner takes over). Its
+  `schedule` sets the expert's steps `h`, from the task's horizon down to 0
+  in `n_stages` stages. `"performance"` is the paper's JSRL-Curriculum: `h`
+  moves down a stage when an evaluation of the combined policy passes, every
+  `eval_every` steps, on `eval_episodes` episodes of its own. It passes when
+  the moving average of the last `moving_average` evaluations clears
+  `threshold` or, without one, comes within `tolerance` of the best previous
+  moving average. `"random"` is the paper's JSRL-Random: `h` drawn uniformly
+  from those stages each episode. `"time"` is Ajax's own and not the paper's:
+  `h` falls linearly to 0 at `decay_frac` of training, whatever the
+  performance.
 - **After it** (`"post_warmup"`): `ValueBox`, which lets the expert act
   wherever its value exceeds a threshold that rises over training. The
   step that enters this region ends the agent's episode in the stored
@@ -234,14 +247,18 @@ of 0), which its actor then fits under the command the step realised:
 Ajax's composition of JSRL and EDGE with UDRL, not a published pairing.
 
 `ResidualPolicy` changes what the policy's action means: the agent executes
-`clip(a_E + scale · a_π, −1, 1)`, in agent units, in collection (before the
-warm-up's choice, so the warm-up draws executed actions), in the critics'
+`clip(a_E + scale · a_π, −1, 1)`, in agent units, in collection (the warm-up
+too, which draws uniform residuals around the expert), in the critics'
 target, in the actor's loss and in evaluation; the replay stores the
 executed action. The policy then learns a correction to the expert
-(residual RL). SAC, TD3, REDQ, TQC, CrossQ, ASAC and AVG run it, their
-critics scoring the executed action; PPO and APO too, their ratio reading
-the policy's own sample; and IQL, whose replay also keeps the residual the
-policy chose (its warm-up draws residuals), which its actor fits. Where a
+(residual RL). `zero_start=True` puts the actor's output head at 0, so that
+the policy starts as the expert (Silver et al., 2018).
+`critic_reads_residual=True` stores the residual and has the critics read it,
+as both Johannink et al. and Silver et al. do; it needs a Q critic and refuses
+what puts an expert's action where a residual goes. SAC, TD3, REDQ, TQC, CrossQ, ASAC and AVG
+run it, their critics scoring the executed action; PPO and APO too, their
+ratio reading the policy's own sample; and IQL, whose replay also keeps the
+residual the policy chose, which its actor fits. Where a
 collection extension handed the agent's expert the step, IQL's replay keeps
 the residual that executes the expert's action, 0, which is Ajax's own
 composition of JSRL, EDGE and IBRL with residual IQL. UDRL
@@ -369,7 +386,7 @@ Ajax" marks a feature with no external reference.
 | Keep the actor near the expert early on | `ImitationLoss` (SAC, TD3, REDQ, ASAC, AVG, APO, DAgger; PPO, APG, UDRL with a stateless expert), `OnlineBC` (SAC) | TD3+BC's actor term (Fujimoto and Gu, 2021), kickstarting (Schmitt et al., 2018) with `anneal_frac`; `OnlineBC` developed with Ajax |
 | Copy the expert only where the critic rates it higher | `ImitationLoss(q_filter=True)` (SAC, TD3, REDQ, ASAC, AVG) | Q-filtered behaviour cloning (Nair et al., 2018) |
 | Let the expert act while the agent is poor | `JSRLCurriculum` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, IQL, DAgger, DQN, PQN, UDRL), `EDGEExploration` (the same with continuous actions; on UDRL its fixed gate alone, UDRL having no Q critic), `ValueBox` (SAC) | jump-start RL (Uchendu et al., 2023); EDGE and the value box developed with Ajax |
-| Learn a correction to the expert | `ResidualPolicy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL) | residual RL (Johannink et al., 2019) |
+| Learn a correction to the expert | `ResidualPolicy` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, AVG, PPO, APO, IQL, APG, UDRL) | residual RL (Johannink et al., 2019; Silver et al., 2018) |
 | Give the critic a head start | `MCPretrain`, then `CriticBlend`, `MCVarianceCorrection`, `PhiRefresh` (SAC) | developed with Ajax |
 | Make the target account for the expert | `IBRL` (SAC, TD3, REDQ, AVG), `LCBGatedBootstrap` (SAC, TD3, REDQ) | IBRL (Hu et al., 2023); the LCB gate developed with Ajax |
 | Measure how the critic rates the expert | `ExpertValueMetrics` (SAC, TD3, REDQ, TQC, CrossQ, ASAC, IQL, DQN) | |

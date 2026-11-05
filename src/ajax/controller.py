@@ -280,10 +280,19 @@ def executed_actions(env_args: Any, actions: jax.Array, a_expert: Any) -> jax.Ar
     return actions
 
 
+def read_the_residual(transforms: tuple) -> bool:
+    """Whether a residual policy among transforms has the critics read the
+    residual itself, which the replay then stores as the action
+    (ResidualPolicy.critic_reads_residual)."""
+    return any(getattr(t, "critic_reads_residual", False) for t in transforms)
+
+
 def executed_fn(env_args: Any) -> Optional[Callable[[jax.Array, Any], jax.Array]]:
     """``(actions, a_expert) -> actions`` the critics score, where the run has
-    a residual policy (:func:`executed_actions`); None otherwise, so the
-    learner traces nothing extra."""
+    a residual policy they score through (:func:`executed_actions`); None
+    otherwise, so the learner traces nothing extra."""
+    if read_the_residual(env_args.transforms):
+        return None
     if any("transform_action" in t.implemented_phases() for t in env_args.transforms):
         return partial(executed_actions, env_args)
     return None
@@ -409,9 +418,11 @@ class Controller:
 
     @property
     def actuates(self) -> bool:
-        """Whether the actor's action is actuated through the expert (gain
-        mode): the critics score the actor's action, not the executed one."""
-        return any("actuate" in t.implemented_phases() for t in self.transforms)
+        """Whether the critics score the actor's action, not the executed one:
+        one actuated through the expert (gain mode), or a residual they read
+        themselves."""
+        actuated = any("actuate" in t.implemented_phases() for t in self.transforms)
+        return actuated or read_the_residual(self.transforms)
 
     def observe(self, acting: ActingState) -> jax.Array:
         """The actor's input: ``acting``'s observation, its features

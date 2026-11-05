@@ -18,10 +18,10 @@
     "alpha": 0.9818324446678162
   },
   "test_residual_policy_matches_legacy_use_residual_rl": {
-    "critic": 549.367431640625,
-    "actor": 267.03948974609375,
-    "target": 534.9320068359375,
-    "alpha": 0.9818528294563293
+    "critic": 546.7955932617188,
+    "actor": 267.00054931640625,
+    "target": 534.9125366210938,
+    "alpha": 0.9818469285964966
   },
   "test_jsrl_curriculum_matches_legacy_flag": {
     "critic": 550.3989868164062,

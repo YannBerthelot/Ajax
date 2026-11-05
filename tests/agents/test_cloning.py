@@ -11,7 +11,8 @@ import pytest
 from flax import linen as nn
 from flax.training import train_state
 
-from ajax.agents.cloning import pre_train
+from ajax.agents.cloning import batchify, bc_statistics, pre_train
+from ajax.environments.obs_norm import apply_obs_norm, seeded_obs_norm
 from ajax.extensions.observe import ExpertActionInput, TrainingProgressInput
 from ajax.extensions.pretrain import CloningPretrain
 from ajax.modules.pid_actor import PIDActor, PIDPolicy
@@ -339,3 +340,41 @@ def test_pre_train_reset_actor_head_restores_the_output_head(actor, head):
     assert _close([reset[k] for k in in_head], [before[k] for k in in_head])
     rest = [k for k in before if k not in in_head and "log_std" not in k]
     assert all(_close(reset[k], cloned[k]) for k in rest)
+
+
+# -----------------------------
+# Cloning's inputs are the run's
+# -----------------------------
+@pytest.mark.parametrize("std", [0.0, 1e-6, 1e-4, 1e-2, 1.0, 100.0])
+def test_the_seeded_statistics_read_as_cloning_read(std: float) -> None:
+    """Cloning trains on (obs - mean) / std and the run reads obs through the
+    statistics it seeds. A column of std 1e-4 used to reach the clone 1.4
+    times larger than the actor read it at run time (std + 1e-6 in cloning,
+    sqrt(var + 1e-8) at run time)."""
+    column = 7.0 + std * jnp.array([-1.0, 1.0] * 32)  # std is the column's own
+    obs = column[:, None]
+    mean, trained_std = bc_statistics(obs)
+    seeded = seeded_obs_norm(mean, trained_std, obs.shape[0])
+    probe = jnp.array([[7.0 + 2.0 * std]])
+    np.testing.assert_allclose(
+        apply_obs_norm(probe, seeded), (probe - mean) / trained_std, rtol=1e-3
+    )
+
+
+def test_cloning_divides_by_what_the_run_divides_by() -> None:
+    """std 1e-4 and the normaliser's variance floor 1e-8 give sqrt(2e-8)."""
+    obs = (1e-4 * jnp.array([-1.0, 1.0] * 32))[:, None]
+    _, std = bc_statistics(obs)
+    np.testing.assert_allclose(std, [1.4142e-4], rtol=1e-3)
+
+
+def test_an_epoch_fills_its_last_batch_with_rows_it_holds() -> None:
+    """Five rows in batches of two: the third batch ends on the first row. A
+    zero row would be a false example, the clone taught to act 0 at obs 0."""
+    x = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    np.testing.assert_array_equal(batchify(x, 2), [[1, 2], [3, 4], [5, 1]])
+
+
+def test_a_batch_wider_than_the_data_repeats_its_rows() -> None:
+    x = jnp.array([[1.0], [2.0]])
+    np.testing.assert_array_equal(batchify(x, 3), [[[1.0], [2.0], [1.0]]])

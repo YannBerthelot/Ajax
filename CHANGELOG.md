@@ -63,6 +63,31 @@ The next release is 0.6.0: the first item changes results.
   now stops at 8,192, not 9,216. *What to do:* compare with runs of this
   version. Code that took a second call's budget from the timestep reached
   can pass the run's remaining budget instead.
+- **`JSRLCurriculum` follows its paper by default.** It read a default of 1000
+  steps and fell with time. It now reads the horizon from the task and moves
+  to the next stage when a moving average of the combined policy's evaluations
+  comes within a tolerance of its best. `schedule="random"` is JSRL-Random.
+  To keep the old form, pass `schedule="time"`: `decay_frac` alone now raises.
+- **`ResidualPolicy` keeps the expert during the warm-up.** Its warm-up executed
+  uniform actions without the expert; it now draws uniform residuals around
+  it. `zero_start=True` starts the policy as the expert, and
+  `critic_reads_residual=True` has the critics read the residual, as both
+  papers do. Runs with a residual policy and a warm-up change.
+- **`PriorData`'s offline updates train SAC's actor and temperature.** They
+  ran below `policy_update_start` and `alpha_update_start`, so only the critics
+  moved. Those starts still count the env steps collected online.
+- **IQL's state value reads normalised observations**, as its actor and critics
+  do. Runs with `normalize_observations=True` change.
+- **Cloning reads its inputs as the run does.** It divided by another standard
+  deviation than the run on low-variance columns, and padded each epoch's last
+  batch with zero rows. Runs with `CloningPretrain` change, and
+  `reset_actor_head=True` now reaches TD3's output layer.
+- **An expert reads the run's params.** It read the env's default params, so a
+  sensor set through params reached the agent and not the expert. Evaluation
+  and UDRL do not pass them yet.
+- **The `plane` group takes `target-gym>=0.7,<0.9`**, from a commit until 0.8.0
+  is released. Build its experts with
+  `REGISTRY[name].make_pid_controller().batched()`.
 
 ## 0.5.0
 

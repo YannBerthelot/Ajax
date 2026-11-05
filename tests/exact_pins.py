@@ -221,7 +221,11 @@ DEFAULT_PREFILL = ExpertPrefill(n_steps=20_000)
 SMALL_MC = MCPretrain(
     push, n_mc_steps=200, n_mc_episodes=4, n_steps=20, online_light_steps=5
 )
-GATES = (SMALL_MC, JSRLCurriculum(episode_length=8, decay_frac=0.5), ValueBox())
+GATES = (
+    SMALL_MC,
+    JSRLCurriculum(episode_length=8, decay_frac=0.5, schedule="time"),
+    ValueBox(),
+)
 BELLMAN = (BellmanPretrain(n_steps=8),)
 RESIDUAL_BC = (ResidualPolicy(), ImitationLoss(push, coef=1.0))
 GAIL_DATA = episodes(3, discrete=False)  # Pendulum's observations
@@ -392,7 +396,7 @@ def long_episodes(rows: int = 32, length: int = 8) -> TransitionDataset:
 # (MCVarianceCorrection, IBRL on each agent it runs on, LCBGatedBootstrap on
 # the agent's stored expert actions) and TargetBC on the target's next
 # actions, online (every a' unknown: no penalty) and offline.
-JSRL = JSRLCurriculum(episode_length=8, decay_frac=0.5)
+JSRL = JSRLCurriculum(episode_length=8, decay_frac=0.5, schedule="time")
 IBRL_PUSH = {"extensions": (IBRL(expert_policy=push),)}
 EDGE_ARGMAX = EDGEExploration(gate="argmax", decay_frac=0.0)
 EDGE_SOFT = EDGEExploration(gate="boltzmann", decay_frac=0.0)

@@ -425,7 +425,7 @@ def test_the_normaliser_leaves_appended_columns_raw():
 
 def test_cloning_statistics_leave_the_training_progress_column_raw():
     """Cloning standardises its dataset but not the training-progress
-    column: constant 0 before training, its std would be 1e-6."""
+    column: constant 0 before training, its std would be the floor."""
     from ajax.agents.cloning import bc_statistics
 
     obs = jnp.stack([jnp.linspace(-2.0, 2.0, 64), jnp.zeros(64)], axis=-1)

@@ -89,7 +89,7 @@ from . import readouts as R
 # CHEQ's: faults/ + 4, test_framework + 2. Noise levels: faults/ + 4,
 # test_framework + 1.
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 162, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 355})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 359})
 CAPS.update({"test_average_reward.py": 186})
 CAPS.update({"test_framework.py": 309, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
@@ -275,14 +275,14 @@ def test_the_directory_keeps_to_its_budget() -> None:
     sixteen faults and its resume check's preset, 63 for the faults a fast test
     alone catches, 5 for the final evaluation's and the ledger's faults, 18 for
     the expert methods' fixes (22 lines, 4 of them spare), 6 for RLPD's and
-    CHEQ's faults, 5 for noise levels' faults."""
+    CHEQ's faults, 5 for noise levels' faults, 4 for RepresentationProbe's."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8516, total
+    assert total <= 8520, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

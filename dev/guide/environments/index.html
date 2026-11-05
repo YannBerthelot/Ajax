@@ -694,6 +694,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#diverging-simulators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diverging simulators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#episode-keys" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2826,6 +2837,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#diverging-simulators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diverging simulators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#episode-keys" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3064,6 +3086,23 @@ there, turn that pass off for these runs:</p>
 </code></pre></div>
 <p>Results are the same up to floating-point rounding; training ran 8 to 15%
 slower on a CPU. A single seed compiles without it.</p>
+<h3 id="diverging-simulators">Diverging simulators<a class="headerlink" href="#diverging-simulators" title="Permanent link">&para;</a></h3>
+<p>A simulator can diverge. Playground's humanoid tasks can, rarely, after a hard
+impact. Left alone, one such step would reach the agent as a NaN reward and a
+NaN observation, and turn every network parameter NaN in the next update.</p>
+<p>So on these envs a step whose observation or reward is not finite ends its
+episode: a termination, with reward 0, then the usual reset. The agent and the
+evaluations never see the NaN, an evaluation episode that diverges keeps the
+return it had and shows as a shorter <code>Eval/mean episodic length</code>, and the run
+logs the training steps as <code>Train/non-finite env steps</code>. This is a workaround:
+if that count grows, the task's physics needs a look.</p>
+<p>Only non-finite values are caught. The very large finite steps just before them
+still reach the agent, and would move any running observation statistics.
+Environments from a registered builder keep the stack it returns, so add
+<code>ajax.wrappers.NonFiniteStepWrapper</code> there, directly over the raw env. Gymnax
+environments go without it: reading the observation inside their compiled step
+shifts their rounding, which would break the bit-for-bit checks against some
+agents' original implementations.</p>
 <h3 id="episode-keys">Episode keys<a class="headerlink" href="#episode-keys" title="Permanent link">&para;</a></h3>
 <p>Every environment's resets are keyed by episode: copy <code>i</code>'s <code>k</code>-th episode
 starts on a key of <code>(i, k)</code> alone, and on gymnax its steps draw on keys of

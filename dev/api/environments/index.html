@@ -2804,6 +2804,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.wrappers.NonFiniteStepWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NonFiniteStepWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.wrappers.FinalObsWrapper" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3894,6 +3905,17 @@
     <span class="md-ellipsis">
       
         BatchRngWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.NonFiniteStepWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NonFiniteStepWrapper
       
     </span>
   </a>
@@ -5681,6 +5703,67 @@ which reverse mode can cross, at the cost of a reset per step.</p>
 assumes <code>rng</code> is already shape (n_envs, 2) so it can
 <code>jax.vmap(jax.random.split)(rng)</code>. Ajax callers pass a single unbatched
 key, so this adapter bridges the two conventions.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.NonFiniteStepWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">NonFiniteStepWrapper</span>
+
+
+<a href="#ajax.wrappers.NonFiniteStepWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">NonFiniteStepWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="BraxWrapper (ajax.wrappers.BraxWrapper)" href="#ajax.wrappers.BraxWrapper">BraxWrapper</a></code></p>
+
+
+
+        <p>Ends the episode of a step that left the simulator non-finite.</p>
+<p>A deliberate workaround for a physics bug, not a fix of it. On Playground's
+humanoid (5 ms steps, eulerdamp off), a hard impact can push a hip to gimbal
+lock, where explicit joint damping multiplies a speed by -1.5 per step and
+the state runs away to NaN. C MuJoCo catches this and resets; MJX does not,
+and one NaN reward or final observation then turns every parameter NaN: a
+value dropped at an episode's end is multiplied by 0, and NaN times 0 is NaN.</p>
+<p>Such a step ends as a termination: reward 0, the observation its action was
+taken from as the final one (only ever multiplied by 0), metrics 0. The
+auto-reset restarts the physics, and each env counts these steps over the
+run. Goes directly over the raw env: EpisodeWrapper then reads this <code>done</code>
+for its time limit, and its <code>*= (1 - done)</code> would keep a NaN metric for
+ever.</p>
 
 
 

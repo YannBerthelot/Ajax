@@ -18,6 +18,7 @@
   <a href="#agents">Agents</a> ·
   <a href="#learning-from-an-expert-or-from-data">Expert and data</a> ·
   <a href="#beside-reference-implementations">Reproduction</a> ·
+  <a href="#benchmark">Benchmark</a> ·
   <a href="https://yannberthelot.github.io/Ajax/">Documentation</a>
 </p>
 
@@ -114,6 +115,26 @@ same JAX environment, 96 seeds each; both comparisons find the returns similar
 within the registered margin. [Results](docs/reproduction/results.md) has two
 more comparisons (one inconclusive) and the speed of each side; the
 [protocol](docs/reproduction/protocol.md) says how they are run.
+
+## Benchmark
+
+Ten agents on nineteen DeepMind Control and MinAtar tasks, with 10 seeds each
+on a CPU, and default settings apart from the number of environments. These
+are mean returns at the end of training: about a million steps on control
+tasks, which score up to 1000, and about five million on MinAtar.
+
+| Task | SAC | TD3 | RVI-SAC | ASAC | AVG | APO | PPO |
+|---|---|---|---|---|---|---|---|
+| CheetahRun | 846 | 846 | 827 | 626 | 330 | 213 | 215 |
+| WalkerWalk | 962 | 968 | 959 | 878 | 420 | 196 | 261 |
+
+| Game | DQN | PPO | PQN | UDRL |
+|---|---|---|---|---|
+| Breakout | 84 | 27 | 24 | 4 |
+| SpaceInvaders | 143 | 150 | 138 | 9 |
+
+[Agent benchmark](docs/reproduction/benchmark.md) has every task, the spread
+over seeds and what to keep in mind when reading them.
 
 ## Also in the box
 

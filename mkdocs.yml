@@ -165,6 +165,7 @@ nav:
       - Specifications: reproduction/specs.md
       - Results: reproduction/results.md
       - Expert guidance: reproduction/expert-guidance.md
+      - Agent benchmark: reproduction/benchmark.md
   - Developer guide:
       - Architecture: developer/architecture.md
       - Contributing: developer/contributing.md

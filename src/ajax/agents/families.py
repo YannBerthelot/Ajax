@@ -772,7 +772,7 @@ class ReplayAgent(DeclaredAgent):
         }
     )
     phase_batch_keys = REPLAY_BATCH_KEYS
-    pretrain_context = frozenset({"buffer", "env_args", "update"})
+    pretrain_context = frozenset({"buffer", "env_args", "seed_index", "update"})
     extension_context = frozenset(
         {"actor_optimizer_args", "buffer", "env_args", "expert_policy"}
     )
@@ -1016,6 +1016,7 @@ class IncrementalAgent(DeclaredAgent):
     learning_starts: int
     expose_recent_rollout: bool = False
 
+    extension_context = frozenset({"env_args"})
     keeps_last_rollout = True
 
     # The default pipeline runs the warm-up's chooser (choose_warmup_action).
@@ -1029,7 +1030,7 @@ class IncrementalAgent(DeclaredAgent):
             "choose_warmup_action",
         }
     )
-    pretrain_context = frozenset({"env_args", "update"})
+    pretrain_context = frozenset({"env_args", "seed_index", "update"})
     extension_context = frozenset({"actor_optimizer_args", "env_args", "expert_policy"})
 
     def init(self, key: jax.Array, context: TrainContext) -> Any:
@@ -1132,6 +1133,7 @@ class OnPolicyAgent(DeclaredAgent):
     num_minibatches: int
     expose_recent_rollout: bool = False
 
+    extension_context = frozenset({"env_args"})
     keeps_last_rollout = True
 
     def init(self, key: jax.Array, context: TrainContext) -> Any:
@@ -1232,6 +1234,7 @@ class OwnIterationAgent(DeclaredAgent):
     supported_extension_phases = LOOP_PHASES.difference(
         {"observe", "action", "eval_action"}
     )
+    extension_context = frozenset({"env_args"})
     #: Whether train returns every iteration's output (make_iteration_output),
     #: stacked, logging or not, instead of the evaluations.
     returns_iterations = False
@@ -1370,7 +1373,7 @@ class OwnReplayAgent(DeclaredAgent):
     # The own-iteration family's phases: no shared collector or evaluation
     # meets an observation.
     supported_extension_phases = OwnIterationAgent.supported_extension_phases
-    pretrain_context = frozenset({"env_args", "update"})
+    pretrain_context = frozenset({"env_args", "seed_index", "update"})
     supports_batched_env_params = True
 
     def prepare_replay(

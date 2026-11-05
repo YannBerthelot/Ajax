@@ -34,7 +34,7 @@ from ajax.extensions.instrumentation import (
     BiasVorePenalty,
     ConditioningMetrics,
     _sample_transitions,
-    _takes_action,
+    critic_takes_action,
     evarest_coeff,
 )
 from ajax.logging.wandb_logging import LoggingConfig
@@ -273,7 +273,7 @@ def test_a_cnn_critic_reads_the_observation_alone():
     _, critic = get_initialized_actor_critic(
         key, env_config, adam, adam, network, continuous=False, num_critics=1
     )
-    assert not _takes_action(critic, jnp.zeros((2, 4)), jnp.zeros((2, 1)), key)
+    assert not critic_takes_action(critic, jnp.zeros((2, 4)), jnp.zeros((2, 1)), key)
 
 
 def test_the_q_residual_bootstraps_on_sacs_next_action_sample():

@@ -855,6 +855,15 @@ def _apply_critic_obs_norm(critic_state: LoadedTrainState, x: jax.Array) -> jax.
     return apply_obs_norm(x, getattr(critic_state, "obs_norm_info", None))
 
 
+def critic_input(critic_state: LoadedTrainState, x: jax.Array) -> jax.Array:
+    """``x`` (obs, or ``concat(obs, action)`` with the agent's action) as a
+    feedforward critic reads it: its observations normalised, its action in
+    its units."""
+    return _apply_critic_action_units(
+        critic_state, _apply_critic_obs_norm(critic_state, x)
+    )
+
+
 def predict_value_sequence(
     critic_state: LoadedTrainState,
     critic_params: FrozenDict,
@@ -909,9 +918,7 @@ def predict_value(
     agent's [-1, 1] action, which a critic with ``action_units`` reads in its
     units (TD3's, in the env's). ``quantiles``: a distributional critic's
     quantiles (last axis) in place of their mean, the value."""
-    x = _apply_critic_action_units(
-        critic_state, _apply_critic_obs_norm(critic_state, x)
-    )
+    x = critic_input(critic_state, x)
     variables = with_batch_stats(critic_state, critic_params)
     if quantiles:
         return critic_state.apply_fn(variables, x, method="quantiles")
@@ -941,10 +948,7 @@ def predict_value_updating_batch_statistics(
     normalisation's running statistics after this pass
     (LoadedTrainState.apply_train); see get_policy_updating_batch_statistics
     for what training mode changes."""
-    x = _apply_critic_action_units(
-        critic_state, _apply_critic_obs_norm(critic_state, x)
-    )
-    return critic_state.apply_train(critic_params, x)
+    return critic_state.apply_train(critic_params, critic_input(critic_state, x))
 
 
 def state_value(agent_state: Any, obs: jax.Array, action: jax.Array) -> jax.Array:

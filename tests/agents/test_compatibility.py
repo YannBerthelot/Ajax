@@ -232,6 +232,8 @@ def field_values(env: str) -> dict[str, Any]:
         "threshold": 1.0,
         "n_steps": 4,
         "fraction": 0.5,
+        "run_directory": "unused",
+        "probe_interval": 1,
         "dataset": episode,
         "demonstrations": episode,
         # A PID's error x[1] - x[0], on every row's observation.

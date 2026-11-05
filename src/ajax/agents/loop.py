@@ -627,9 +627,13 @@ class TrainLoop:
         context = {"env_args": self.env_args, "update": update, "buffer": buffer}
 
         def init_fn(key: jax.Array, index: Any) -> Any:
-            del index
             agent_state = fresh_state(
-                init, self.extensions, self.total_timesteps, key, **context
+                init,
+                self.extensions,
+                self.total_timesteps,
+                key,
+                seed_index=index,
+                **context,
             )
             if last_rollout is not None:
                 length, collect_kwargs = last_rollout

@@ -5,7 +5,9 @@
    "obs_networks",
    "reward_learning"
   ],
-  "extension_context": [],
+  "extension_context": [
+   "env_args"
+  ],
   "make_train": "ajax.agents.families:OwnIterationAgent.make_train",
   "name": "APG",
   "per_seed_update_counts": false,
@@ -20,7 +22,8 @@
    ]
   },
   "pretrain_context": [
-   "env_args"
+   "env_args",
+   "seed_index"
   ],
   "replays_transitions": false,
   "stores_expert_actions": false,
@@ -74,7 +77,8 @@
    ]
   },
   "pretrain_context": [
-   "env_args"
+   "env_args",
+   "seed_index"
   ],
   "replays_transitions": false,
   "stores_expert_actions": true,
@@ -164,6 +168,7 @@
   "pretrain_context": [
    "buffer",
    "env_args",
+   "seed_index",
    "update"
   ],
   "replays_transitions": true,
@@ -255,6 +260,7 @@
   },
   "pretrain_context": [
    "env_args",
+   "seed_index",
    "update"
   ],
   "replays_transitions": false,
@@ -348,6 +354,7 @@
   "pretrain_context": [
    "buffer",
    "env_args",
+   "seed_index",
    "update"
   ],
   "replays_transitions": true,
@@ -404,7 +411,8 @@
    ]
   },
   "pretrain_context": [
-   "env_args"
+   "env_args",
+   "seed_index"
   ],
   "replays_transitions": true,
   "stores_expert_actions": true,
@@ -465,6 +473,7 @@
   "pretrain_context": [
    "buffer",
    "env_args",
+   "seed_index",
    "update"
   ],
   "replays_transitions": true,
@@ -508,6 +517,7 @@
   "phase_batch_keys": {},
   "pretrain_context": [
    "env_args",
+   "seed_index",
    "update"
   ],
   "replays_transitions": false,
@@ -591,6 +601,7 @@
   "pretrain_context": [
    "buffer",
    "env_args",
+   "seed_index",
    "update"
   ],
   "replays_transitions": true,
@@ -628,7 +639,9 @@
    "reward_learning",
    "v_critic"
   ],
-  "extension_context": [],
+  "extension_context": [
+   "env_args"
+  ],
   "make_train": "ajax.agents.families:OnPolicyAgent.make_train",
   "name": "PPO",
   "per_seed_update_counts": false,
@@ -656,7 +669,8 @@
    ]
   },
   "pretrain_context": [
-   "env_args"
+   "env_args",
+   "seed_index"
   ],
   "replays_transitions": false,
   "stores_expert_actions": false,
@@ -688,7 +702,9 @@
    "q_critic",
    "reward_learning"
   ],
-  "extension_context": [],
+  "extension_context": [
+   "env_args"
+  ],
   "make_train": "ajax.agents.families:OnPolicyAgent.make_train",
   "name": "PQN",
   "per_seed_update_counts": false,
@@ -706,7 +722,8 @@
    ]
   },
   "pretrain_context": [
-   "env_args"
+   "env_args",
+   "seed_index"
   ],
   "replays_transitions": false,
   "stores_expert_actions": false,
@@ -800,6 +817,7 @@
   "pretrain_context": [
    "buffer",
    "env_args",
+   "seed_index",
    "update"
   ],
   "replays_transitions": true,
@@ -897,6 +915,7 @@
   "pretrain_context": [
    "buffer",
    "env_args",
+   "seed_index",
    "update"
   ],
   "replays_transitions": true,
@@ -1002,6 +1021,7 @@
   "pretrain_context": [
    "buffer",
    "env_args",
+   "seed_index",
    "update"
   ],
   "replays_transitions": true,
@@ -1103,6 +1123,7 @@
   "pretrain_context": [
    "buffer",
    "env_args",
+   "seed_index",
    "update"
   ],
   "replays_transitions": true,
@@ -1152,6 +1173,7 @@
   "phase_batch_keys": {},
   "pretrain_context": [
    "env_args",
+   "seed_index",
    "update"
   ],
   "replays_transitions": false,
@@ -1262,6 +1284,7 @@
   "pretrain_context": [
    "buffer",
    "env_args",
+   "seed_index",
    "update"
   ],
   "replays_transitions": true,
@@ -1298,7 +1321,9 @@
    "replay",
    "reward_learning"
   ],
-  "extension_context": [],
+  "extension_context": [
+   "env_args"
+  ],
   "make_train": "ajax.agents.families:OwnIterationAgent.make_train",
   "name": "UDRL",
   "per_seed_update_counts": false,
@@ -1312,7 +1337,8 @@
    ]
   },
   "pretrain_context": [
-   "env_args"
+   "env_args",
+   "seed_index"
   ],
   "replays_transitions": true,
   "stores_expert_actions": false,

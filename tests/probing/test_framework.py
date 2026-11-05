@@ -86,11 +86,12 @@ from . import readouts as R
 # ledger's: faults/ + 4, test_framework + 1. The expert methods' fixes (JSRL's
 # gate, the residual's warm-up and critic, PriorData's starts, IQL's V, cloning's
 # inputs, an expert's params): faults/ + 19, test_framework + 3. RLPD's and
-# CHEQ's: faults/ + 4, test_framework + 2.
+# CHEQ's: faults/ + 4, test_framework + 2. Noise levels: faults/ + 4,
+# test_framework + 1.
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 162, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 351})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 355})
 CAPS.update({"test_average_reward.py": 186})
-CAPS.update({"test_framework.py": 308, "test_value_chains.py": 1051})
+CAPS.update({"test_framework.py": 309, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 389, "test_world_models.py": 452})
@@ -274,14 +275,14 @@ def test_the_directory_keeps_to_its_budget() -> None:
     sixteen faults and its resume check's preset, 63 for the faults a fast test
     alone catches, 5 for the final evaluation's and the ledger's faults, 18 for
     the expert methods' fixes (22 lines, 4 of them spare), 6 for RLPD's and
-    CHEQ's faults."""
+    CHEQ's faults, 5 for noise levels' faults."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8511, total
+    assert total <= 8516, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

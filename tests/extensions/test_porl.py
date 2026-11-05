@@ -87,12 +87,17 @@ def test_the_presample_acts_on_the_clone():
     assert get_pi(actor, actor.params, obs)[0].mean() == pytest.approx(0.25, abs=0.05)
 
 
-def test_the_clones_actions_hold_through_the_presample():
+@pytest.mark.parametrize("normalised", [False, True], ids=["seeded", "normalised"])
+def test_the_clones_actions_hold_through_the_presample(normalised: bool):
     """Frozen means the policy, not the weights: the actor reads normalised
     observations, and rows of random actions would move the statistics under
-    it, so the critic would warm up on a policy drifting away from the clone."""
+    it, so the critic would warm up on a policy drifting away from the clone.
+    Cloning seeds the statistics of any agent, and normalize_observations is
+    the study's setting: both paths hold."""
     obs = jax.random.normal(jax.random.PRNGKey(0), (16, 3))
-    actors = [run(n_timesteps, 8).actor_state for n_timesteps in (2, 8)]
+    actors = [
+        run(steps, 8, normalize_observations=normalised).actor_state for steps in (2, 8)
+    ]
     means = [get_pi(actor, actor.params, obs)[0].mean() for actor in actors]
     np.testing.assert_array_equal(*means)
 

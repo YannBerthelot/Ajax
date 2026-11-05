@@ -202,17 +202,25 @@ def test_metrics_measure_the_saved_activations(sac_run):
 
 def test_cka_compares_a_probe_with_the_one_before(sac_run):
     """Catches a carried layer never updated, which compares every probe with
-    the first, or a first probe compared with zeros reading as a number."""
+    the first, or a first probe compared with zeros reading as a number. The
+    critic's last layer moves enough for the two comparisons to differ."""
     directory, _, _ = sac_run
     found = probes_of(directory)
-    name = f"Representation/{ACTOR}1/cka_previous"
+    name = f"Representation/{CRITIC}3/cka_previous"
 
-    expected = cka_in_sample_space(
-        found[3][f"layers/{ACTOR}1"], found[4][f"layers/{ACTOR}1"]
-    )
+    def mean_over_members(first: int, second: int) -> float:
+        members = zip(
+            found[first][f"layers/{CRITIC}3"],
+            found[second][f"layers/{CRITIC}3"],
+            strict=True,
+        )
+        return float(np.mean([cka_in_sample_space(a, b) for a, b in members]))
+
+    expected = mean_over_members(3, 4)
 
     assert np.isnan(found[0][f"metrics/{name}"])
-    assert found[4][f"metrics/{name}"] == pytest.approx(expected, abs=1e-3)
+    assert abs(expected - mean_over_members(0, 4)) > 1e-3
+    assert found[4][f"metrics/{name}"] == pytest.approx(expected, abs=1e-4)
 
 
 def test_the_evaluations_log_the_latest_probes_metrics(sac_run):

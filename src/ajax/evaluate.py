@@ -219,6 +219,35 @@ def _expert_obs(state, env, mode) -> jax.Array:
     return get_raw_obs(env_state=state, env=env, mode=mode).astype(jnp.float32)
 
 
+class EpisodeRecord(NamedTuple):
+    """Each episode of a rollout, one entry per episode, to its first done.
+    cost_per_step: the mean of minus the reward over the episode's steps,
+    every one of them. trips: the steps the plant tripped on, as the env
+    reports them (info["tripped"]); NaN from an env reporting none, whose
+    count is unknown, not zero."""
+
+    cost_per_step: Any
+    trips: Any
+
+
+class _EpisodeTally(NamedTuple):
+    """A per-episode rollout's counts, per env, to the env's first done."""
+
+    steps: jax.Array
+    trips: jax.Array
+
+
+def _count_step(
+    tally: Optional[_EpisodeTally], still_running: jax.Array, info: Any
+) -> Optional[_EpisodeTally]:
+    """tally after a step, an env's steps past its first done left out."""
+    if tally is None:
+        return None
+    running = still_running.astype(jnp.float32)
+    tripped = info.get("tripped", jnp.nan)
+    return _EpisodeTally(tally.steps + running, tally.trips + running * tripped)
+
+
 class _EvalCarry(NamedTuple):
     """The evaluation scan's carry; per env unless noted."""
 
@@ -238,6 +267,7 @@ class _EvalCarry(NamedTuple):
     # (1,): the steps a chooser handed the expert, meaned over running envs;
     # None without a chooser.
     expert_steps: Any = None
+    tally: Any = None  # an _EpisodeTally in a per-episode rollout; else None
 
 
 def _init_eval_carry(
@@ -250,6 +280,7 @@ def _init_eval_carry(
     command=None,
     observer_states=None,
     expert_steps=None,
+    tally=None,
 ) -> _EvalCarry:
     return _EvalCarry(
         rewards=jnp.zeros(num_episodes),
@@ -266,6 +297,7 @@ def _init_eval_carry(
         command=jnp.zeros((1,)) if command is None else command,
         observer_states=observer_states,
         expert_steps=expert_steps,
+        tally=tally,
     )
 
 
@@ -357,7 +389,7 @@ def step_environment(
                 acted.actor_actions if controller.actuates else actions,
             )
         )
-        obs, new_state, new_rewards, new_term, new_trunc, _ = step(
+        obs, new_state, new_rewards, new_term, new_trunc, info = step(
             step_keys,
             state,
             agent_action_to_env(actions, env, env_params),
@@ -411,6 +443,7 @@ def step_environment(
             command=new_command,
             observer_states=observer_states,
             expert_steps=expert_steps,
+            tally=_count_step(carry.tally, still_running, info),
         )
 
     return fn
@@ -438,7 +471,7 @@ def step_environment_expert(mode, env, env_params, expert_policy):
             expert_policy, carry.expert_state, expert_obs
         )
         actions = flatten_action_column(actions, continuous)
-        obs, new_state, new_rewards, new_term, new_trunc, _ = step(
+        obs, new_state, new_rewards, new_term, new_trunc, info = step(
             step_keys,
             carry.state,
             agent_action_to_env(actions, env, env_params),
@@ -457,6 +490,7 @@ def step_environment_expert(mode, env, env_params, expert_policy):
             step_count=carry.step_count + still_running.mean(),
             last_reward=new_rewards,
             expert_state=new_expert_state,
+            tally=_count_step(carry.tally, still_running, info),
         )
 
     return fn
@@ -511,20 +545,25 @@ def _reset_envs(env, mode, env_params, num_episodes, rng):
     return (key, *reset(reset_keys, env, mode, env_params))
 
 
-def _expert_returns(
-    mode, env, env_params, expert_policy, key, obs, state, num_episodes, length
-):
-    """The expert's return in each of ``num_episodes`` episodes from the
-    reset ``(obs, state)``, ``length`` steps, each env's after its first
-    ``done`` masked."""
+def _expert_rollout(
+    mode, env, env_params, expert_policy, key, obs, state, num_episodes, length, tally
+) -> _EvalCarry:
+    """The last carry of the expert's rollout of ``num_episodes`` episodes
+    from the reset ``(obs, state)``, ``length`` steps, each env's after its
+    first ``done`` masked."""
     carry = _init_eval_carry(
-        num_episodes, key, obs, state, _init_expert_state(expert_policy, num_episodes)
+        num_episodes,
+        key,
+        obs,
+        state,
+        _init_expert_state(expert_policy, num_episodes),
+        tally=tally,
     )
     step_fn = step_environment_expert(mode, env, env_params, expert_policy)
     final, _ = jax.lax.scan(
         lambda carry, _: (step_fn(carry), None), carry, None, length=length
     )
-    return final.rewards
+    return final
 
 
 class _PolicyRollout(NamedTuple):
@@ -739,7 +778,7 @@ def evaluate(
     expert_reward: jax.Array | float = jnp.nan
     if expert_policy is not None or eval_expert_policy is not None:
         expert_reward = jnp.nanmean(
-            _expert_returns(
+            _expert_rollout(
                 mode,
                 env,
                 env_params,
@@ -749,7 +788,8 @@ def evaluate(
                 state,
                 num_episodes,
                 steps_bound,
-            )
+                None,
+            ).rewards
         )
 
     avg_reward = jnp.nan
@@ -778,6 +818,108 @@ def evaluate(
         return outputs
     handed = final_carry.expert_steps / jnp.maximum(step_count, 1.0)
     return (*outputs, handed.mean())
+
+
+def _fresh_tally(num_episodes: int) -> _EpisodeTally:
+    return _EpisodeTally(jnp.zeros(num_episodes), jnp.zeros(num_episodes))
+
+
+def _episode_record(final: _EvalCarry) -> EpisodeRecord:
+    return EpisodeRecord(-final.rewards / final.tally.steps, final.tally.trips)
+
+
+@partial(
+    jax.jit,
+    static_argnames=[
+        "recurrent",
+        "env_params",
+        "num_episodes",
+        "env",
+        "expert_policy",
+        "controller",
+    ],
+)
+def policy_episodes(
+    env,
+    actor_state,
+    num_episodes: int,
+    rng: jax.Array,
+    env_params: Optional[EnvParams],
+    recurrent: bool = False,
+    norm_info: Optional[NormalizationInfo] = None,
+    expert_policy: Optional[Callable] = None,
+    agent_state: Any = None,
+    controller: Optional[Controller] = None,
+) -> EpisodeRecord:
+    """The record of each of ``num_episodes`` episodes, one per env, of the
+    policy :func:`evaluate` runs on ``rng``. A diverged episode, whose
+    rewards went NaN, costs inf: what the policy did, where a NaN cost means
+    a broken measurement.
+
+    The env's draws come from ``rng`` alone: the rollout splits its own key
+    before it acts, and an action's draws derive from that key by name
+    (:func:`ajax.policy.make_act`), so a policy sampling its action moves
+    none of them."""
+    expert_policy = ExpertInAgentUnits.wrap(expert_policy, env, env_params)
+    rollout = _start_rollout(
+        env,
+        actor_state,
+        num_episodes,
+        rng,
+        env_params,
+        recurrent,
+        0.99,  # unused: evaluation never normalises rewards
+        norm_info,
+        expert_policy,
+        None,
+        agent_state,
+        Controller() if controller is None else controller,
+        None,
+        None,
+    )
+    final, _ = jax.lax.scan(
+        lambda carry, _: (rollout.step_fn(carry), None),
+        rollout.carry._replace(tally=_fresh_tally(num_episodes)),
+        None,
+        length=rollout.steps,
+    )
+    record = _episode_record(final)
+    cost = record.cost_per_step
+    return record._replace(cost_per_step=jnp.where(jnp.isnan(cost), jnp.inf, cost))
+
+
+@partial(
+    jax.jit, static_argnames=["env", "expert_policy", "num_episodes", "env_params"]
+)
+def expert_episodes(
+    env,
+    expert_policy: Callable,
+    num_episodes: int,
+    rng: jax.Array,
+    env_params: Optional[EnvParams],
+) -> EpisodeRecord:
+    """:func:`policy_episodes` of the expert alone, on the same reset and the
+    same steps for the same ``rng``; it speaks env units
+    (:class:`ExpertInAgentUnits`). Its NaN costs stay NaN: a reference that
+    diverged is a broken baseline, which the score refuses."""
+    expert_policy = ExpertInAgentUnits.wrap(expert_policy, env, env_params)
+    env, mode, _, key, obs, state = _reset_eval_env(
+        env, env_params, num_episodes, None, rng
+    )
+    return _episode_record(
+        _expert_rollout(
+            mode,
+            env,
+            env_params,
+            expert_policy,
+            key,
+            obs,
+            state,
+            num_episodes,
+            _infer_max_eval_steps(env, env_params),
+            _fresh_tally(num_episodes),
+        )
+    )
 
 
 def evaluate_policy(

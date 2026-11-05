@@ -1,16 +1,24 @@
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+import dataclasses
+from collections.abc import MutableMapping, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Dict, NamedTuple, Optional
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from flax import struct
 from flax.serialization import to_state_dict
 from jax.tree_util import Partial as partial
 
-from ajax.controller import Controller
+from ajax.controller import Controller, make_run_controller
 from ajax.environments.interaction import non_finite_env_steps
-from ajax.evaluate import ValueEstimate, evaluate
-from ajax.random_keys import derive_key
+from ajax.evaluate import (
+    EpisodeRecord,
+    ValueEstimate,
+    evaluate,
+    expert_episodes,
+    policy_episodes,
+)
+from ajax.random_keys import derive_key, fold_index, make_tag
 from ajax.state import BaseAgentState, EnvironmentConfig
 from ajax.types import Replaceable
 from ajax.wrappers import NON_FINITE_STEPS_KEY
@@ -102,6 +110,138 @@ def evaluation_keys(
     phase_key = derive_key(agent_state.eval_rng, f"{phase}_evaluation")
     eval_key, extra_key = jax.random.split(jax.random.fold_in(phase_key, progress))
     return eval_key, extra_key
+
+
+#: The episodes of one seed number's set in the final evaluation.
+FINAL_EPISODES = 50
+
+
+def final_evaluation_key(task: str, seed_number: int) -> jax.Array:
+    """The key of seed number's episode set on task, from those two alone:
+    no method, progress, phase or trained state reaches it, so every arm and
+    the expert meet the same episodes, and each seed number has its own set.
+    Hashed from a root of its own, it is no PRNGKey(s) of the small seeds the
+    experts were tuned on."""
+    root = jax.random.PRNGKey(make_tag("final_evaluation"))
+    return fold_index(jax.random.fold_in(root, make_tag(task)), seed_number)
+
+
+class FinalEvaluation(NamedTuple):
+    """Three tables of :class:`ajax.evaluate.EpisodeRecord`, each array
+    ``(seeds, episodes)``, rows in the order of the seed numbers, matched
+    episode by episode: the entries TargetGym's seed_scores reads.
+
+    policy: the arm as it deploys, the expert in the loop where it keeps it
+    (hybrid arms); a diverged episode costs inf. expert: the expert's alone.
+    actor_only: a hybrid arm's actor alone; None where policy already is the
+    actor's alone, or the actor cannot act alone (gain mode's actions are the
+    expert's gains)."""
+
+    policy: EpisodeRecord
+    expert: EpisodeRecord
+    actor_only: Optional[EpisodeRecord]
+
+
+def actor_only(controller: Controller) -> Optional[Controller]:
+    """controller with the expert taken off the executed action: no chooser
+    hands it a step, no transform adds it. The observation features stay,
+    since the actor's input has their columns; those reading the expert keep
+    reading it. None where nothing comes off, or the actor's action means
+    nothing without the expert (gain mode)."""
+    if controller.actuates or not (controller.choosers or controller.transforms):
+        return None
+    return dataclasses.replace(controller, choosers=(), transforms=())
+
+
+def final_expert_episodes(
+    env: Any,
+    env_params: Any,
+    expert: Callable,
+    task: str,
+    seed_numbers: Sequence[int],
+    cache: Optional[MutableMapping] = None,
+    num_episodes: int = FINAL_EPISODES,
+) -> EpisodeRecord:
+    """The expert's record on the seed numbers' episode sets, each array
+    ``(seeds, episodes)``. It runs only the sets cache lacks, keyed ``(task,
+    seed number, num_episodes)``: its record is a function of the episode
+    set, so the arms share one rollout. A cache holds one expert's records:
+    pass each expert its own. The expert speaks env units."""
+    cache = {} if cache is None else cache
+    entries = [(task, int(number), num_episodes) for number in seed_numbers]
+    missing = [entry for entry in entries if entry not in cache]
+    if missing:
+        keys = jnp.stack([final_evaluation_key(t, n) for t, n, _ in missing])
+        record = jax.vmap(
+            lambda key: expert_episodes(env, expert, num_episodes, key, env_params)
+        )(keys)
+        rows = zip(
+            np.asarray(record.cost_per_step), np.asarray(record.trips), strict=False
+        )
+        cache.update(
+            {
+                entry: EpisodeRecord(*row)
+                for entry, row in zip(missing, rows, strict=False)
+            }
+        )
+    return jax.tree.map(lambda *rows: np.stack(rows), *[cache[e] for e in entries])
+
+
+def final_evaluation(
+    agent: Any,
+    agent_state: Any,
+    task: str,
+    seed_numbers: Sequence[int],
+    expert: Callable,
+    expert_cache: Optional[MutableMapping] = None,
+    num_episodes: int = FINAL_EPISODES,
+) -> FinalEvaluation:
+    """The study's final evaluation, apart from the in-training one: the
+    seeds of agent_state (train's state, or its (state, out); leading seed
+    axis) on the episode sets of seed_numbers, one per seed in that order,
+    with their expert's on the same keys (final_expert_episodes; shared among
+    arms through expert_cache). The policy is the deterministic one the
+    agent's evaluation runs (ajax.evaluate.evaluate), of agents without a
+    command (UDRL)."""
+    if isinstance(agent_state, tuple) and len(agent_state) == 2:
+        agent_state = agent_state[0]
+    env_args = agent.env_args
+    run_controller = make_run_controller(
+        env_args, None, agent.make_context(1)[0].extensions
+    )
+    keys = jnp.stack([final_evaluation_key(task, int(i)) for i in seed_numbers])
+
+    def episodes_with(controller: Controller) -> EpisodeRecord:
+        def one_seed(state: Any, key: jax.Array) -> EpisodeRecord:
+            return policy_episodes(
+                env_args.env,
+                state.actor_state,
+                num_episodes,
+                key,
+                env_args.env_params,
+                recurrent=agent.network_args.memory is not None,
+                norm_info=eval_norm_info(state, env_args.mode),
+                expert_policy=agent.expert,
+                agent_state=state,
+                controller=controller,
+            )
+
+        return jax.tree.map(np.asarray, jax.vmap(one_seed)(agent_state, keys))
+
+    alone = actor_only(run_controller)
+    return FinalEvaluation(
+        episodes_with(run_controller),
+        final_expert_episodes(
+            env_args.env,
+            env_args.env_params,
+            expert,
+            task,
+            seed_numbers,
+            expert_cache,
+            num_episodes,
+        ),
+        None if alone is None else episodes_with(alone),
+    )
 
 
 def maybe_eval_and_log(

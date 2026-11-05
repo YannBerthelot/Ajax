@@ -13,6 +13,7 @@ from jax.tree_util import Partial as partial
 
 from ajax.controller import feature_width
 from ajax.environments.utils import get_state_action_shapes
+from ajax.random_keys import derive_key
 from ajax.state import EnvironmentConfig
 from ajax.types import BufferType, NormalizationInfo
 from ajax.utils import online_normalize
@@ -75,17 +76,18 @@ def sample_two_buffers(
     sample: Callable, state: Any, key: jax.Array
 ) -> TrajectoryBufferSample:
     """sample(state, key) on a plain ring. On a TwoBufferState, one draw from
-    each ring, on a key of its own, kept row by row: the first rows of the
-    batch from the retained ring where a share is fixed (RLPD's N/2 from
-    each), else each row with the retained ring's share of the rows held."""
+    each ring, kept row by row: the first rows of the batch from the retained
+    ring where a share is fixed (RLPD's N/2 from each), else each row with the
+    retained ring's share of the rows held."""
+    online = sample(state, key).experience
     if not isinstance(state, TwoBufferState):
-        return sample(state, key)
-    online_key, retained_key, share_key = jax.random.split(key, 3)
-    online = sample(state, online_key).experience
+        return TrajectoryBufferSample(experience=online)
+    retained_key = derive_key(key, "retained_rows")
     retained = sample(state.retained, retained_key).experience
     size = jax.tree.leaves(online)[0].shape[0]
     if state.share is None:
         kept, written = written_rows(state.retained), written_rows(state)
+        share_key = derive_key(key, "retained_share")
         from_retained = jax.random.uniform(share_key, (size,)) < kept / (kept + written)
     else:
         from_retained = jnp.arange(size) < jnp.round(state.share * size)

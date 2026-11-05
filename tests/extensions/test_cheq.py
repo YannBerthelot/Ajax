@@ -402,7 +402,7 @@ def test_it_refuses_what_it_cannot_run_on() -> None:
 @pytest.mark.parametrize(
     "stack",
     [
-        (JSRLCurriculum(episode_length=LENGTH, decay_frac=0.5),),
+        (JSRLCurriculum(episode_length=LENGTH, decay_frac=0.5, schedule="time"),),
         (EDGEExploration(gate="fixed", fixed_prob=0.5, decay_frac=1.0),),
         (MCPretrain(expert, 200, 4, 20, online_light_steps=5), ValueBox()),
     ],

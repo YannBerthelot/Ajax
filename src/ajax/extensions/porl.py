@@ -32,6 +32,8 @@ Departures from the paper:
   draws one per critic step, and steps its actor on the last.
 * The paper does not say how its target reads ten critics. SAC takes the minimum
   of all of them; REDQ takes it over a random subset_size of them.
+* The paper gives no starting temperature: the stage holds the agent's alpha_init,
+  and fine-tuning starts from it.
 * The exploiting action is the clone's mean, a reading rather than the paper's
   words ("actions from the pre-trained policy"): it calls the stage greedy, and
   its figure 9 compares it with deterministic sampling.

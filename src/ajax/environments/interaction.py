@@ -30,6 +30,7 @@ from ajax.environments.action_stage import apply_action_extensions
 from ajax.environments.obs_norm import (
     apply_obs_norm,
     init_agent_obs_norm,
+    mirror_obs_norm,
     normalized_obs,
     update_obs_norm,
 )
@@ -1063,12 +1064,13 @@ def collect_experience(
             agent_state.collector_state.obs_norm_info,
             raw_obs_columns(env_args.env),
         )
-        agent_state = agent_state.replace(
-            collector_state=agent_state.collector_state.replace(
-                obs_norm_info=_new_obs_norm
+        agent_state = mirror_obs_norm(
+            agent_state.replace(
+                collector_state=agent_state.collector_state.replace(
+                    obs_norm_info=_new_obs_norm
+                )
             ),
-            actor_state=agent_state.actor_state.replace(obs_norm_info=_new_obs_norm),
-            critic_state=agent_state.critic_state.replace(obs_norm_info=_new_obs_norm),
+            _new_obs_norm,
         )
 
     # Raw obs (needed by action_pipeline for expert policy). It is written

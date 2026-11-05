@@ -70,7 +70,7 @@ from ajax.environments.interaction import (
     should_use_uniform_sampling,
     with_reward_statistics,
 )
-from ajax.environments.obs_norm import update_obs_norm
+from ajax.environments.obs_norm import mirror_obs_norm, update_obs_norm
 from ajax.environments.utils import raw_obs_columns
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.log import (
@@ -209,10 +209,7 @@ def with_obs_norm(agent_state: Any, env_args: Any = None) -> Any:
     stats = None if collector is None else collector.obs_norm_info
     if stats is None or getattr(env_args, "store_normalized_obs", False):
         return agent_state
-    return agent_state.replace(
-        actor_state=agent_state.actor_state.replace(obs_norm_info=stats),
-        critic_state=agent_state.critic_state.replace(obs_norm_info=stats),
-    )
+    return mirror_obs_norm(agent_state, stats)
 
 
 def seed_replay(

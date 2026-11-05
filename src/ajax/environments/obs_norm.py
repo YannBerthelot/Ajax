@@ -13,7 +13,7 @@ sees: the env's columns and the normalised features; the raw features (an
 expert's action) come last and stay raw.
 """
 
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import jax.numpy as jnp
 
@@ -99,6 +99,18 @@ def normalized_obs(
         raw_columns=raw_columns,
     )[0]
     return _joined(normalised, raw)
+
+
+def mirror_obs_norm(agent_state: Any, stats: Optional[NormalizationInfo]) -> Any:
+    """agent_state with stats mirrored on every network reading observations,
+    which apply them: its actor, its critics and, where it has one apart from
+    them, its state value (IQL's)."""
+    names = ["actor_state", "critic_state"]
+    if getattr(agent_state, "value_state", None) is not None:
+        names.append("value_state")
+    networks = (getattr(agent_state, name) for name in names)
+    mirrored = (network.replace(obs_norm_info=stats) for network in networks)
+    return agent_state.replace(**dict(zip(names, mirrored, strict=True)))
 
 
 def apply_obs_norm(obs: jnp.ndarray, info: Optional[NormalizationInfo]) -> jnp.ndarray:

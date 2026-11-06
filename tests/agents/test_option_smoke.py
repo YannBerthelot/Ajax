@@ -314,7 +314,9 @@ EXCLUSIVE = [
     # activation layers, which a CNN encoder has not.
     (
         {"RepresentationProbe"},
-        set(FEATURES_ON_OBSERVATIONS).union({"CHEQ", "ExpertGains", "cnn_image_shape"}),
+        set(FEATURES_ON_OBSERVATIONS).union(
+            {"CHEQ", "ExpertGains", "OuterLoopReference", "cnn_image_shape"}
+        ),
     ),
 ]
 TABLE = {**CASES, "APG": Case(APG, {"horizon": 1, "pid": None}, ())}

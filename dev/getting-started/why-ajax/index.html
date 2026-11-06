@@ -3144,7 +3144,9 @@ end-to-end JAX libraries, not beside these two.</p>
 <li><strong>You want to read or change one algorithm in one file.</strong> PureJaxRL's
   implementations are single files, not a library meant to be imported
   (<a href="https://github.com/luchris429/purejaxrl">README</a>). Its README reports its own speed comparisons with PyTorch
-  implementations, including on a GPU; Ajax has not measured a GPU speed-up.</li>
+  implementations, including on a GPU; Ajax has
+  <a href="../../guide/performance/#cpu-or-gpu">its own GPU speeds</a> but no comparison
+  with PureJaxRL there.</li>
 <li><strong>You need an algorithm Ajax does not have,</strong> such as A2C, TRPO or
   invalid-action masking: SB3, sb3-contrib or SBX have them
   (<a href="https://stable-baselines3.readthedocs.io/en/master/guide/algos.html">algorithms</a>, <a href="https://github.com/Stable-Baselines-Team/stable-baselines3-contrib">contrib</a>, <a href="https://github.com/araffin/sbx">README</a>).</li>

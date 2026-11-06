@@ -2932,12 +2932,111 @@ off-policy agent makes one update per iteration, so more copies at a fixed
 budget mean fewer updates (<a href="../training/">Training</a>). Pick <code>n_envs</code> for the
 learning you want, then use seeds to fill the device.</p>
 <h2 id="cpu-or-gpu">CPU or GPU<a class="headerlink" href="#cpu-or-gpu" title="Permanent link">&para;</a></h2>
-<p>Small networks on gymnax tasks train well on a CPU: every agent-speed
-number below is a CPU number, and Ajax makes no claim about its speed on a
-GPU. A GPU has more room for parallel work: many seeds, many environment
-copies, wide networks, or a physics simulator such as Brax or Playground.
-The logging worker always runs on the CPU, so it never takes GPU memory. On
-a CPU, Playground uses MJX's pure-JAX implementation.</p>
+<p>A GPU gains most where updates take the time: many critics, wide networks,
+world models. It gains little on one simulator step per seed. With 10 seeds,
+steps per second per seed, on CheetahRun (top) and Breakout-MinAtar (below):</p>
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>Four CPU cores</th>
+<th>One NVIDIA L40S</th>
+<th>Gain</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CrossQ</td>
+<td>1.15</td>
+<td>88</td>
+<td>77 times</td>
+</tr>
+<tr>
+<td>REDQ</td>
+<td>0.80</td>
+<td>43</td>
+<td>54 times</td>
+</tr>
+<tr>
+<td>TQC</td>
+<td>3.68</td>
+<td>132</td>
+<td>36 times</td>
+</tr>
+<tr>
+<td>SAC</td>
+<td>32.4</td>
+<td>238</td>
+<td>7 times</td>
+</tr>
+<tr>
+<td>TD3</td>
+<td>45.8</td>
+<td>245</td>
+<td>5 times</td>
+</tr>
+<tr>
+<td>APO</td>
+<td>451*</td>
+<td>1,214</td>
+<td>3 times</td>
+</tr>
+<tr>
+<td>AVG</td>
+<td>179</td>
+<td>193</td>
+<td>1.1 times</td>
+</tr>
+<tr>
+<td>PPO</td>
+<td>831*</td>
+<td>215</td>
+<td>0.3 times</td>
+</tr>
+<tr>
+<td>DQN</td>
+<td>408</td>
+<td>4,492</td>
+<td>11 times</td>
+</tr>
+<tr>
+<td>PQN</td>
+<td>8,480*</td>
+<td>44,947</td>
+<td>5 times</td>
+</tr>
+<tr>
+<td>UDRL</td>
+<td>415</td>
+<td>1,808</td>
+<td>4 times</td>
+</tr>
+<tr>
+<td>PPO</td>
+<td>3,316*</td>
+<td>13,799</td>
+<td>4 times</td>
+</tr>
+</tbody>
+</table>
+<p>The GPU column and the plain CPU figures are short timing runs without
+evaluations (<code>benchmarks/suite/results/timing-gpu</code> and <code>PHASE0.md</code>). Starred
+figures are full runs with evaluations. At one seed, DreamerV3 went from 0.78
+to 60 steps per second and TD-MPC2 from 2.98 to 143. DreamerV3 gained nothing
+from sharing seeds: 3 seeds gave 73 steps per second in all and 5 gave 60.</p>
+<p>More seeds help until the card is full. SAC's total levelled off near 8,000
+steps per second from 64 seeds, while PPO reached 42,000 at 256. Three SAC jobs
+at once on one card gave 1.9 times the throughput of one.
+<code>benchmarks/gpu_check.sh</code> compares four agents on CartPole and Pendulum with
+the same machine's CPU, in <code>benchmarks/gpu/report.md</code>.</p>
+<p>The logging worker always runs on the CPU, so it never takes GPU memory.
+Playground runs MJX's pure-JAX physics on every device. In a raw stepping loop
+Warp, its other implementation, ran 3 to 10 times faster on an L40S, but Ajax's
+training loop does not run on it yet (<code>physics="warp"</code>, needs a GPU).</p>
+<p>A GPU doesn't promise the same result twice by default: two identical PPO runs
+on HumanoidWalk differed. <code>XLA_FLAGS=--xla_gpu_deterministic_ops=true</code> made
+repeated and resumed runs match exactly on CheetahRun and HumanoidWalk, at
+about 6 to 20% of speed. gymnax tasks matched without it.</p>
 <p>To keep a run on the CPU of a machine with a GPU, set <code>JAX_PLATFORMS=cpu</code>
 (and <code>CUDA_VISIBLE_DEVICES=""</code> to hide the GPU entirely). The repository's
 tests and benchmarks run this way, so they never compete with an experiment

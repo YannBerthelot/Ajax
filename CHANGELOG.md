@@ -105,6 +105,11 @@ The next release is 0.6.0: the first item changes results.
   moved. Those starts still count the env steps collected online.
 - **IQL's state value reads normalised observations**, as its actor and critics
   do. Runs with `normalize_observations=True` change.
+- **A replay row keeps the action executed.** IQL's unsquashed samples left the
+  action box, the env clipped them, and the replay kept the raw sample beside
+  the reward of the clipped one. Rows now hold the clipped action, as IQL's
+  reference does. Runs training IQL online change. On other replay agents only
+  a row where an expert's action left the box changes.
 - **Cloning reads its inputs as the run does.** It divided by another standard
   deviation than the run on low-variance columns, and padded each epoch's last
   batch with zero rows. Runs with `CloningPretrain` change, and

@@ -1174,7 +1174,12 @@ def collect_experience(
             )
         )
     raw_action = action if result.raw_action is None else result.raw_action
-    buffer_action = env_action if result.buffer_action is None else result.buffer_action
+    # A replay row keeps the action executed: the env steps on it clipped to the
+    # box (agent_action_to_env), and an unsquashed sample (IQL's) can leave it.
+    executed = env_action
+    if buffer is not None and env_args.continuous:
+        executed = jnp.clip(env_action, -1.0, 1.0)
+    buffer_action = executed if result.buffer_action is None else result.buffer_action
     kept_choice = (
         action if result.stored_policy_action is None else result.stored_policy_action
     )

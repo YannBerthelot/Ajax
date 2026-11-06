@@ -2635,6 +2635,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.n_step_rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_step_rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.buffers.utils.get_buffer" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3206,6 +3217,17 @@
     <span class="md-ellipsis">
       
         sample_two_buffers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.n_step_rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_step_rows
       
     </span>
   </a>
@@ -3902,14 +3924,44 @@ retained ring's share of the rows held.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="ajax.buffers.utils.n_step_rows" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">n_step_rows</span>
+
+
+<a href="#ajax.buffers.utils.n_step_rows" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">n_step_rows</span><span class="p">(</span><span class="n">window</span><span class="p">,</span> <span class="n">gamma</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>One row per window of consecutive steps (batch, n, ...): the first step's
+state and action, the discounted sum of the rewards from there, and the
+state n steps ahead or at the episode's end, whichever comes first, as the
+row's next state and flags. A seam ends a window as an episode's end does.
+<code>bootstrap_discount</code> is gamma to the power of the steps summed, which the
+target's bootstrap takes in place of gamma.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="ajax.buffers.utils.get_buffer" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">get_buffer</span>
 
 
 <a href="#ajax.buffers.utils.get_buffer" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">get_buffer</span><span class="p">(</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">buffer_size</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">sequence_length</span><span class="o">=</span><span class="kc">None</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">buffer_size</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">batch_size</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">sequence_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">n_step</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3927,6 +3979,9 @@ yields contiguous per-env sequences of that length, shaped
 (batch_size, sequence_length, ...). Rows alone, a TwoBufferState also
 draws from its retained ring (:func:<code>sample_two_buffers</code>); no window
 reads one, as a run with memory refuses the extensions that write it.</p>
+<p>n_step above 1 samples rows as well, each one n_step steps long
+(:func:<code>n_step_rows</code>, at gamma), both rings' alike: a window never crosses
+a ring's write position, so a ring needs n_step rows per env first.</p>
 
 
     </div>
@@ -4019,8 +4074,9 @@ row past its old end. Host-side, before a resumed run.</p>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">include_return_to_go</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">include_next_action</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">include_policy_action</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">rows_per_env</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="p">)</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">include_seam</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">rows_per_env</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -4040,6 +4096,10 @@ include_next_action: also keep a dataset row's next action, its
 include_policy_action: also keep the action the policy chose,
   <code>policy_action</code>, where it differs from the executed one (a residual
   policy's, for an actor fitting its own actions: IQL's).
+include_seam: also keep <code>seam</code>, set on a row the next one written does
+  not follow in time: the last row a prefill or a dataset writes, which
+  the first step collected comes after. For a replay reading a row's
+  successors (:func:<code>n_step_rows</code>).
 rows_per_env: the ring's length, the rows a run writes to it
   (ajax.buffers.ring); None: the buffer's capacity.</p>
 <p>A field is stored only for a reader: a row is about 40% raw
@@ -4384,8 +4444,9 @@ last row (a terminal one needs none; a time limit's is unknown).</p>
 
         <p><code>buffer_state</code> with <code>data</code>'s rows added, one row per env per
 add as collection adds its own: each env's replay row gets a contiguous
-run of <code>data</code>, so a sequence replay reads its episodes whole. A replay
-already holding rows drops its oldest when full, as collection does.</p>
+run of <code>data</code>, so a sequence replay reads its episodes whole, and its
+last row is a seam (init_buffer's include_seam). A replay already holding
+rows drops its oldest when full, as collection does.</p>
 <p>Raises <code>ValueError</code> when the replay keeps fields <code>data</code> does not
 hold or of another width, when <code>data</code>'s rows do not divide among its
 envs (flashbax advances every env's row together), or when they

@@ -3552,7 +3552,6 @@
 <td>not yet</td>
 <td>not yet</td>
 <td>no</td>
-<td>not yet</td>
 <td>no</td>
 <td>no</td>
 <td>no</td>
@@ -3563,9 +3562,10 @@
 <td>no</td>
 <td>no</td>
 <td>no</td>
-<td>not yet</td>
 <td>no</td>
 <td>not yet</td>
+<td>no</td>
+<td>no</td>
 </tr>
 <tr>
 <td><code>PriorData</code></td>
@@ -4105,13 +4105,15 @@
 <li><code>OuterLoopReference</code> needs continuous_actions, reward_learning: not on DAgger/discrete</li>
 <li><code>OuterLoopReference</code> needs obs_networks: not on TDMPC2, DreamerV3, TDMPC2MultiTask</li>
 <li><code>OuterLoopReference</code> needs reward_learning: not on DAgger</li>
-<li><code>PhiRefresh</code> needs critic, discounted, q_critic: not on UDRL, UDRL/discrete, DAgger, DAgger/discrete</li>
-<li><code>PhiRefresh</code> needs critic, discounted, q_critic, replay: not on APG</li>
+<li><code>PhiRefresh</code> needs critic, discounted, one_step_target, q_critic: not on UDRL, UDRL/discrete, DAgger, DAgger/discrete</li>
+<li><code>PhiRefresh</code> needs critic, discounted, one_step_target, q_critic, replay: not on APG</li>
 <li><code>PhiRefresh</code> needs discounted: not on ASAC, RVISAC</li>
-<li><code>PhiRefresh</code> needs discounted, q_critic, replay: not on APO, APO/discrete</li>
-<li><code>PhiRefresh</code> needs q_critic: not on DreamerV3, DreamerV3/discrete</li>
-<li><code>PhiRefresh</code> needs q_critic, replay: not on PPO, PPO/discrete</li>
-<li><code>PhiRefresh</code> needs replay: not on AVG, PQN</li>
+<li><code>PhiRefresh</code> needs discounted, one_step_target, q_critic, replay: not on APO, APO/discrete</li>
+<li><code>PhiRefresh</code> needs one_step_target: not on TDMPC2, TDMPC2MultiTask</li>
+<li><code>PhiRefresh</code> needs one_step_target, q_critic: not on DreamerV3, DreamerV3/discrete</li>
+<li><code>PhiRefresh</code> needs one_step_target, q_critic, replay: not on PPO, PPO/discrete</li>
+<li><code>PhiRefresh</code> needs one_step_target, replay: not on PQN</li>
+<li><code>PhiRefresh</code> needs replay: not on AVG</li>
 <li><code>PriorData</code> needs off_policy, replay: not on APG, PPO, PPO/discrete, APO, APO/discrete</li>
 <li><code>PriorData</code> needs replay: not on AVG, PQN</li>
 <li><code>RLPD</code> needs off_policy, replay: not on APG, PPO, PPO/discrete, APO, APO/discrete</li>
@@ -4168,7 +4170,7 @@
 <li>the agent binds no context for it yet: <code>BellmanPretrain</code> on ASAC RVISAC DQN IQL; <code>CloningPretrain</code> on APG PPO UDRL; <code>RepresentationProbe</code> on APG UDRL UDRL/discrete</li>
 <li>its collector steps the env itself, with no track_memory phase yet: <code>BumplessTracking</code> on APG UDRL UDRL/discrete</li>
 <li>no form for this agent yet (cross-entropy for discrete actors; a policy's encoder): <code>CloningPretrain</code> on PPO/discrete APO/discrete UDRL/discrete DAgger/discrete DreamerV3/discrete; <code>ImitationLoss</code> on PPO/discrete APO/discrete UDRL/discrete DAgger/discrete DreamerV3/discrete; <code>ConditioningMetrics</code> on UDRL UDRL/discrete DAgger DAgger/discrete</li>
-<li>world models fold no loss phase for extensions and build their own encoders: <code>CriticBlend</code> on TDMPC2 TDMPC2MultiTask; <code>IBRL</code> on TDMPC2 TDMPC2MultiTask; <code>KernelRepulsion</code> on TDMPC2 TDMPC2MultiTask; <code>LCBGatedBootstrap</code> on TDMPC2 TDMPC2MultiTask; <code>MCVarianceCorrection</code> on TDMPC2 TDMPC2MultiTask; <code>OnlineBC</code> on TDMPC2 TDMPC2MultiTask; <code>PhiRefresh</code> on TDMPC2 TDMPC2MultiTask; <code>ValueBox</code> on TDMPC2 TDMPC2MultiTask; <code>ExpertValueMetrics</code> on TDMPC2 TDMPC2MultiTask; <code>ImitationLoss(q_filter=True)</code> on TDMPC2 TDMPC2MultiTask; <code>ImitationLoss(target='replay', alpha=2.5)</code> on TDMPC2 TDMPC2MultiTask; <code>ConservativeQ</code> on TDMPC2 TDMPC2MultiTask; <code>CalQL</code> on TDMPC2 TDMPC2MultiTask; <code>TargetBC</code> on TDMPC2 TDMPC2MultiTask; <code>JSRLCurriculum</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>MCPretrain</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>BiasVorePenalty</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>cnn</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>EDGEExploration</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>EpsilonGreedyPresample</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>BellmanPretrain</code> on TDMPC2 TDMPC2MultiTask; <code>CloningPretrain</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>ImitationLoss</code> on TDMPC2 DreamerV3 TDMPC2MultiTask</li>
+<li>world models fold no loss phase for extensions and build their own encoders: <code>CriticBlend</code> on TDMPC2 TDMPC2MultiTask; <code>IBRL</code> on TDMPC2 TDMPC2MultiTask; <code>KernelRepulsion</code> on TDMPC2 TDMPC2MultiTask; <code>LCBGatedBootstrap</code> on TDMPC2 TDMPC2MultiTask; <code>MCVarianceCorrection</code> on TDMPC2 TDMPC2MultiTask; <code>OnlineBC</code> on TDMPC2 TDMPC2MultiTask; <code>ValueBox</code> on TDMPC2 TDMPC2MultiTask; <code>ExpertValueMetrics</code> on TDMPC2 TDMPC2MultiTask; <code>ImitationLoss(q_filter=True)</code> on TDMPC2 TDMPC2MultiTask; <code>ImitationLoss(target='replay', alpha=2.5)</code> on TDMPC2 TDMPC2MultiTask; <code>ConservativeQ</code> on TDMPC2 TDMPC2MultiTask; <code>CalQL</code> on TDMPC2 TDMPC2MultiTask; <code>TargetBC</code> on TDMPC2 TDMPC2MultiTask; <code>JSRLCurriculum</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>MCPretrain</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>BiasVorePenalty</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>cnn</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>EDGEExploration</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>EpsilonGreedyPresample</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>BellmanPretrain</code> on TDMPC2 TDMPC2MultiTask; <code>CloningPretrain</code> on TDMPC2 DreamerV3 TDMPC2MultiTask; <code>ImitationLoss</code> on TDMPC2 DreamerV3 TDMPC2MultiTask</li>
 <li>imagination has no observation for the expert to read: inherent, refused as unwired: <code>ExpertActionInput</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask; <code>ExpertStateInput</code> on TDMPC2 DreamerV3 DreamerV3/discrete TDMPC2MultiTask</li>
 <li>it trains offline on logged observations, which hold no feature columns: inherent, refused as unwired: <code>TrainingProgressInput</code> on TDMPC2MultiTask; <code>PIDTermsInput</code> on TDMPC2MultiTask</li>
 <li>the cnn options are not on this agent yet (batch network-reach): <code>cnn</code> on SAC TD3 REDQ TQC CrossQ ASAC RVISAC AVG APG APO APO/discrete DAgger DAgger/discrete IQL</li>

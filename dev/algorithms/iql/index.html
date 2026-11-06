@@ -3069,7 +3069,9 @@ and the critics (<code>value/value_loss</code>, <code>value/actor_loss</code>,
 <li><strong>Actor.</strong> It maximises <code>E[w log π(a|s)]</code> with <code>w = min(exp(temperature
    (q − V(s))), 100)</code>, with V the value just updated. The policy is a
    Gaussian on a tanh mean, with one learned log-std per action dimension,
-   clipped to [−5, 2]. The evaluations act with its mean.</li>
+   clipped to [−5, 2]. Online, its samples act clipped to [−1, 1] and the
+   replay keeps them clipped, as the reference does. The evaluations act with
+   its mean.</li>
 <li><strong>Critics.</strong> Two Q critics regress on <code>reward_scale · r + γ (1 −
    terminated) V(s')</code>, their squared errors summed.</li>
 <li><strong>Targets.</strong> The target critics move by Polyak averaging at rate <code>tau</code>.</li>
@@ -3124,20 +3126,22 @@ the advantage-weighted mean of their actions, with the weights clipped.</p>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">learning_starts</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">eval_expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">max_grad_norm</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">policy_update_start</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">actor_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">critic_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">value_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">actor_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">critic_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">expectile</span><span class="o">=</span><span class="mf">0.7</span><span class="p">,</span>
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">temperature</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span>
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
-<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">tau</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
-<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">reward_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="p">)</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">normalize_rewards</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">reward_normalization_gamma</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">max_grad_norm</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">policy_update_start</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">actor_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">critic_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">value_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">actor_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">critic_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">expectile</span><span class="o">=</span><span class="mf">0.7</span><span class="p">,</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">temperature</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">tau</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">reward_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">
@@ -3157,7 +3161,12 @@ the advantage-weighted mean of their actions, with the weights clipped.</p>
 
   
       dataclass
-   (ajax.agents.families.ObservationNormalization)" href="../../api/agents/#ajax.agents.families.ObservationNormalization">ObservationNormalization</a></code>, <code><a class="autorefs autorefs-internal" title="ExpertGuided
+   (ajax.agents.families.ObservationNormalization)" href="../../api/agents/#ajax.agents.families.ObservationNormalization">ObservationNormalization</a></code>, <code><a class="autorefs autorefs-internal" title="RewardNormalization
+
+
+  
+      dataclass
+   (ajax.agents.families.RewardNormalization)" href="../../api/agents/#ajax.agents.families.RewardNormalization">RewardNormalization</a></code>, <code><a class="autorefs autorefs-internal" title="ExpertGuided
 
 
   
@@ -3183,11 +3192,16 @@ learner.py, policy.py): expectile 0.7 and temperature 3
 orthogonal(sqrt 2) initialisation; Adam at 3e-4 with optax's eps 1e-8
 for the actor, the critics and the value; the actor a Gaussian on a
 tanh mean with one learned log-std per action dimension, clipped to
-[-5, 2]; batch 256, gamma 0.99, tau 0.005. The reference decays the
+[-5, 2], whose samples act clipped to [-1, 1] and are stored clipped
+(learner.py sample_actions, train_finetune.py); batch 256, gamma 0.99, tau
+0.005. The reference decays the
 actor's offline learning rate to 0 by a cosine over its updates: pass
 actor_learning_rate=optax.cosine_decay_schedule(3e-4, n_updates)
 for that. Its locomotion rewards are scaled by 1000 over the dataset's
-range of returns: reward_scale.</p>
+range of returns: reward_scale. normalize_rewards, off by default, is
+Ajax's, not the reference's: it divides them by a running standard
+deviation that counts a dataset's rows and each step collected, as on the
+other agents.</p>
 
 
 

@@ -3665,9 +3665,9 @@ accepts it. "SAC with an expert" means <code>SAC(..., expert_policy=...)</code>.
 </tr>
 <tr>
 <td><code>ExpertPrefill</code></td>
-<td>The agent's expert acts <code>n_steps</code> steps in every copy before training, and its transitions go to the replay as collection writes its own, flagged as expert rows. They count once in the observation and reward statistics, as <code>PriorData</code>'s do, and in no timestep. It runs before the other pre-training, which may read its rows.</td>
+<td>An expert acts <code>n_steps</code> steps in every copy before training, and its transitions go to the replay as collection writes its own, flagged as expert rows. They count once in the observation and reward statistics, as <code>PriorData</code>'s do, and in no timestep. <code>offline_updates</code> of the agent's own update then run on them. It runs before the other pre-training, which may read its rows.</td>
 <td><code>pretrain</code></td>
-<td>SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL with an <code>expert_policy</code></td>
+<td>SAC, REDQ, ASAC, TQC, TD3, CrossQ, IQL with an <code>expert_policy</code>, or an <code>expert</code> of its own</td>
 </tr>
 </tbody>
 </table>

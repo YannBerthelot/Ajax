@@ -3228,7 +3228,10 @@ thousands of steps for a real run (its defaults collect about a million).</p>
    replay buffer, flagged as expert rows. Every row also stores the expert's
    action at <code>s</code> and <code>s′</code>, which several extensions read later. Under gain
    mode a row stores the anchor gains (action 0) as the action, as
-   collection does when the expert acts as itself.</li>
+   collection does when the expert acts as itself. <code>offline_updates</code> runs the
+   agent's own update on them before it acts. By default the expert is the
+   agent's, which collection also calls on every step; <code>expert=</code> gives the
+   prefill one of its own, and an arm with no expert online queries none.</li>
 <li><strong>Cloning</strong>, by extension. <code>CloningPretrain(expert, n_steps=...)</code> rolls
    the expert out for <code>n_steps</code> steps per environment, in the observation
    layout the agent sees, and trains the actor to reproduce its actions for
@@ -3273,7 +3276,8 @@ each extension names in its <code>action_slot</code>:</p>
   <code>schedule</code> sets the expert's steps <code>h</code>, from the task's horizon down to 0
   in <code>n_stages</code> stages. <code>"performance"</code> is the paper's JSRL-Curriculum: <code>h</code>
   moves down a stage when an evaluation of the combined policy passes, every
-  <code>eval_every</code> steps, on <code>eval_episodes</code> episodes of its own. It passes when
+  <code>eval_every</code> steps, on <code>eval_episodes</code> episodes of its own (1 by default, as
+  they are plant steps, which <code>ajax.ledger</code> charges). It passes when
   the moving average of the last <code>moving_average</code> evaluations clears
   <code>threshold</code> or, without one, comes within <code>tolerance</code> of the best previous
   moving average. <code>"random"</code> is the paper's JSRL-Random: <code>h</code> drawn uniformly

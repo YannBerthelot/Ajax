@@ -19,6 +19,8 @@ it uses. The [user guide](../guide/extensions.md) shows how to use them and
 
 ::: ajax.extensions.cheq
 
+::: ajax.extensions.porl
+
 ::: ajax.extensions.exploration
 
 ::: ajax.extensions.ensemble

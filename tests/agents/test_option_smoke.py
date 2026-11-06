@@ -39,6 +39,7 @@ from ajax.extensions import (
     instrumentation,
     observe,
     offline,
+    porl,
     representation,
     reset_cost,
     retained,
@@ -187,6 +188,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     # Critics without LayerNorm: the rows' options leave the architecture.
     "RLPD": (lambda: retained.RLPD(8, critic_layer_norm=False), "SAC REDQ"),
     "CHEQ": (lambda: cheq.CHEQ(adaptation_start=0), "SAC"),
+    "EpsilonGreedyPresample": (lambda: porl.EpsilonGreedyPresample(8), "SAC TD3"),
     "ExpertPrefill": (
         lambda: pre.ExpertPrefill(n_steps=8),
         "SAC TD3 REDQ ASAC TQC CrossQ IQL DQN",
@@ -223,6 +225,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     ),
 }
 ACTING = {"ValueBox", "EDGEExploration", "JSRLCurriculum", "ResidualPolicy"}
+ACTING.add("EpsilonGreedyPresample")
 PHI_STAR = (
     "OnlineBC ValueBox CriticBlend MCVarianceCorrection PhiRefresh EDGEExploration"
 )
@@ -302,6 +305,8 @@ EXCLUSIVE = [
     ),
     # A replay keeps one ring of retained rows.
     ({"RLPD"}, {"RetainedDemonstrations"}),
+    # The actor's mean is not what a residual executes (check_stack).
+    ({"EpsilonGreedyPresample"}, {"ResidualPolicy"}),
     # Cal-QL is CQL's term with a floor: a stack holds one of them.
     ({"ConservativeQ"}, {"CalQL"}),
     ({"AdversarialReward"}, {"fast", "CartPole-v1"}),

@@ -149,11 +149,8 @@ CONTROL_TASKS = (
     "FishSwim",
     "HumanoidWalk",
 )
-#: The agents fast enough on a CPU to run every control task in a day; the
-#: slower ones take two classic tasks, one body each.
-BENCHMARKS.update(on_more_tasks(("PPO", "APO", "AVG"), CONTROL_TASKS))
 BENCHMARKS.update(
-    on_more_tasks(("SAC", "TD3", "ASAC", "RVISAC"), ("WalkerWalk", "HopperHop"))
+    on_more_tasks(("PPO", "APO", "AVG", "SAC", "TD3", "ASAC", "RVISAC"), CONTROL_TASKS)
 )
 #: The other MinAtar games gymnax runs.
 BENCHMARKS.update(

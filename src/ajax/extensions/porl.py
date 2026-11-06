@@ -53,6 +53,7 @@ from ajax.environments.interaction import get_pi
 from ajax.environments.obs_norm import mirror_obs_norm
 from ajax.extensions.base import Extension, ExtensionContext
 from ajax.extensions.pretrain import CloningPretrain
+from ajax.random_keys import derive_key
 
 
 @dataclass(frozen=True)
@@ -95,9 +96,10 @@ class EpsilonGreedyPresample(Extension):
         del ext_state
         actor = agent_state.actor_state
         greedy = get_pi(actor, actor.params, obs["observations"])[0].mean()
-        explore_key, uniform_key = jax.random.split(rng)
-        explores = jax.random.uniform(explore_key, (*greedy.shape[:-1], 1))
-        uniform = jax.random.uniform(uniform_key, greedy.shape, minval=-1.0, maxval=1.0)
+        choice_key = derive_key(rng, "presample_choice")
+        action_key = derive_key(rng, "presample_action")
+        explores = jax.random.uniform(choice_key, (*greedy.shape[:-1], 1))
+        uniform = jax.random.uniform(action_key, greedy.shape, minval=-1.0, maxval=1.0)
         chosen = jnp.where(explores < self.epsilon, uniform, greedy)
         presampling = context.step < self.presample_steps
         return jnp.where(presampling, chosen, obs["post_warmup_action"])

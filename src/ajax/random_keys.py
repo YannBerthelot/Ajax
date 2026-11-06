@@ -63,6 +63,10 @@ NAMES: tuple[str, ...] = (
     "minibatch_entropy",
     # ExpertWarmup's decision, off the uniform actions' key.
     "warmup_decision",
+    # EpsilonGreedyPresample's draws off its own key: whether each env explores,
+    # and the uniform action it would take (ajax.extensions.porl).
+    "presample_choice",
+    "presample_action",
     # A recurrent network's initial carry, off its initialisation key
     # (ajax.networks.networks.init_network_state).
     "memory_carry",

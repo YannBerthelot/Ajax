@@ -314,6 +314,17 @@ def test_each_record_carries_its_manifest(tmp_path):
     assert manifest["jax"] == jax.__version__
 
 
+def test_a_manifest_says_which_device_and_xla_flags_a_run_used(monkeypatch):
+    """Catches a record that can't say it ran with the XLA workaround, or on
+    which GPU: those lived only in pull request descriptions."""
+    monkeypatch.setenv("XLA_FLAGS", "--xla_disable_hlo_passes=algsimp")
+
+    manifest = agent_suite.manifest()
+
+    assert manifest["xla_flags"] == "--xla_disable_hlo_passes=algsimp"
+    assert manifest["device"] == jax.devices()[0].device_kind
+
+
 def test_a_chunk_reports_each_seeds_non_finite_steps(monkeypatch, tmp_path):
     """The stand-in's episodes diverge at step 3. Each seed's 2 envs, 8 steps
     each, diverge at steps 3 and 6: 4. An evaluation episode lasts those 3."""
@@ -402,3 +413,4 @@ def test_time_resumes_past_the_warm_up_and_counts_every_seeds_steps():
     )
     assert record["compile_s"] > 0 and record["exec_s"] > 0
     assert record["peak_memory_gb"] > 0
+    assert record["device_peak_memory_gb"] is None  # a CPU has no device memory

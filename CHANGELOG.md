@@ -62,6 +62,12 @@ The next release is 0.6.0: the first item changes results.
   `Train/non-finite env steps`, and the benchmark's records keep it per seed.
   Runs without such a step are unchanged, and checkpoints saved before this
   restore, their count at 0.
+- **Playground tasks run on a GPU.** They crashed there, because Ajax chose
+  pure-JAX physics on a CPU only and a GPU fell through to Playground's Warp
+  default. Pure JAX is now the default on every device, so a run's physics no
+  longer depends on the device; `build_env_from_id(..., physics="warp")`
+  selects Warp, which needs a GPU and which Ajax's training loop does not run
+  on yet.
 - **Reproduction protocol, version 2.** A comparison whose score range says
   nothing about learning registers its own margin, with the reason. SAC and
   TD3 against Stable-Baselines3 on Pendulum (specs version 2) register ±14

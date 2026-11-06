@@ -5,7 +5,6 @@ from types import ModuleType
 from typing import Callable, Optional, Tuple, Union
 
 import gymnax
-import jax
 from gymnax import EnvParams
 
 from ajax.environments.utils import (
@@ -45,6 +44,8 @@ GYMNASIUM_PREFIX = "gymnasium:"
 # two-argument builders registered so far keep working unchanged.
 _PLAYGROUND_BUILDERS: dict = {}
 _BRAX_BUILDERS: dict = {}
+#: The MJX implementations a Playground task can run on.
+PLAYGROUND_PHYSICS = ("jax", "warp")
 # The optional environment packages: their extra and their name.
 _EXTRAS = {
     "brax": ("brax", "Brax"),
@@ -166,6 +167,7 @@ def _build_playground_env(
     fresh_reset: bool = True,
     differentiable_reset: bool = False,
     episode_keys: bool = True,
+    physics: str = "jax",
 ):
     """Compose a mujoco_playground env with the same wrapper stack as
     `wrap_for_brax_training`, but inject FinalObsWrapper between the
@@ -211,8 +213,7 @@ def _build_playground_env(
     from mujoco_playground import registry
     from mujoco_playground._src.wrapper import BraxAutoResetWrapper
 
-    _overrides = {"impl": "jax"} if jax.default_backend() == "cpu" else None
-    env = registry.load(env_id, config_overrides=_overrides)
+    env = registry.load(env_id, config_overrides={"impl": physics})
     env = NonFiniteStepWrapper(env)
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env)
@@ -229,6 +230,7 @@ def _build_playground_env(
     # auto-reset semantics as training.
     env._ajax_fresh_reset = fresh_reset
     env._ajax_episode_keys = episode_keys
+    env._ajax_physics = physics
     return env
 
 
@@ -302,6 +304,7 @@ def build_env_from_id(
     action_repeat: int = 1,
     differentiable_reset: bool = False,
     episode_keys: bool = True,
+    physics: str = "jax",
 ) -> tuple[EnvType, Optional[EnvParams]]:
     """Build a wrapped env from its id (gymnax, mujoco_playground or brax).
 
@@ -344,8 +347,16 @@ def build_env_from_id(
     before it (:func:`with_episode_keys`). False keeps each backend's own
     auto-reset, which reproduces runs from before episode keys.
     playground's cached auto-reset (``fresh_reset=False``) ignores it.
+
+    ``physics`` only concerns mujoco_playground envs: ``"jax"`` (the default,
+    on a CPU or a GPU) is MJX's pure-JAX implementation, so that a run's
+    physics does not depend on the device; ``"warp"`` is Playground's own
+    default, which needs a GPU and which Ajax's training loop does not run on
+    yet.
     """
     check_action_repeat(action_repeat)
+    if physics not in PLAYGROUND_PHYSICS:
+        raise ValueError(f"physics={physics!r}: expected one of {PLAYGROUND_PHYSICS}.")
     if env_id.startswith(GYMNASIUM_PREFIX):
         # Opt-in only: an id without the prefix never falls back to Gymnasium.
         if action_repeat > 1:
@@ -394,6 +405,7 @@ def build_env_from_id(
             fresh_reset=fresh_reset,
             differentiable_reset=differentiable_reset,
             episode_keys=episode_keys,
+            physics=physics,
         ), None
 
     if env_id not in _BRAX_BUILDERS and _installed("brax.envs") is None:

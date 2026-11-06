@@ -166,6 +166,7 @@ def setup_environment(
                 action_repeat=action_repeat,
                 fresh_reset=getattr(env, "_ajax_fresh_reset", True),
                 episode_keys=episode_keys,
+                physics=getattr(env, "_ajax_physics", "jax"),
             )
         else:
             env = _build_brax_env(

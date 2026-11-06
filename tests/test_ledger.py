@@ -30,6 +30,8 @@ from ajax import PQN, SAC
 from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions.base import Extension
 from ajax.extensions.expert import JSRLCurriculum, ResidualPolicy
+from ajax.extensions.observe import ExpertStateInput
+from ajax.extensions.porl import porl
 from ajax.extensions.pretrain import (
     CloningPretrain,
     ExpertPrefill,
@@ -112,6 +114,42 @@ def test_pretraining_is_charged_to_the_budget(extension, outside, queries):
     ledger.assert_budget()
     online_queries = n_timesteps if agent.expert is not None else 0
     assert ledger.expert_queries == queries + online_queries
+
+
+def counting_expert_state(n_envs: int) -> jax.Array:
+    return jnp.zeros((n_envs, 2))
+
+
+class StatefulExpert:
+    """An expert with a memory of two columns."""
+
+    init_state = staticmethod(counting_expert_state)
+
+    def __call__(self, state: jax.Array, obs: jax.Array) -> tuple:
+        return expert(obs), state
+
+
+@pytest.mark.parametrize(
+    "keeps_the_experts_state", [False, True], ids=["no-expert-online", "expert-state"]
+)
+def test_porl_charges_its_clone_and_its_warm_up_once(keeps_the_experts_state):
+    """PORL's clone rollouts sit outside n_timesteps, its pre-sample steps
+    inside: 2 x 50_000 clone steps leave 900_000 to collect, T of them
+    pre-sampled, which a second charge would count twice. The expert acts only
+    in the rollouts, unless the observations hold its state, which needs a call
+    on each step: 100_000 queries, or 1_000_000."""
+    pid = StatefulExpert() if keeps_the_experts_state else expert
+    features = (ExpertStateInput.for_expert(pid),) if keeps_the_experts_state else ()
+    arm = porl(CloningPretrain(pid, n_steps=50_000), features=features)
+    kwargs = {"expert_policy": pid} if keeps_the_experts_state else {}
+    agent = SAC("Pendulum-v1", n_envs=2, **arm, **kwargs)
+
+    n_timesteps = online_steps(agent)
+    ledger = run_ledger(agent, n_timesteps)
+
+    assert n_timesteps == BUDGET - 100_000
+    ledger.assert_budget()
+    assert ledger.expert_queries == (BUDGET if keeps_the_experts_state else 100_000)
 
 
 def test_live_expert_is_queried_on_every_collected_step():

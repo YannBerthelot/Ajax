@@ -18,7 +18,9 @@ import pytest
 from ajax import SAC
 from ajax.buffers import dataset as ds
 from ajax.extensions.expert import JSRLCurriculum, ResidualPolicy
-from ajax.extensions.pretrain import PriorData
+from ajax.extensions.observe import ExpertStateInput, PIDTermsInput
+from ajax.extensions.porl import porl
+from ajax.extensions.pretrain import CloningPretrain, PriorData
 
 target_gym = pytest.importorskip("target_gym")
 registry = pytest.importorskip("target_gym.registry")
@@ -81,6 +83,33 @@ def test_each_expert_arm_runs_on_a_real_task_with_its_pid(extension) -> None:
     """The arms' expert paths meet a stateful PID, a task's params and its own
     episode length here, as no stand-in env shows."""
     state, _ = _agent((extension,)).train(seed=0, n_timesteps=16)
+    leaves = jax.tree.leaves(state.actor_state.params)
+    assert all(np.isfinite(np.asarray(leaf)).all() for leaf in leaves)
+
+
+@pytest.mark.parametrize(
+    "features, memory_columns",
+    [(ExpertStateInput.for_expert(_pid()), 2), (PIDTermsInput((0, 1), (4, 5)), 6)],
+    ids=["expert-state", "pid-terms"],
+)
+def test_porl_clones_the_pi_with_its_memory_in_the_observations(
+    features, memory_columns
+) -> None:
+    """A PI's action depends on its integrators, so a clone reading the plant
+    alone cannot match it: the rollout and the replay must hold them, for both
+    forms the arm takes, on a real task with its params and episode length.
+    ExpertStateInput reads the agent's expert; PIDTermsInput needs none."""
+    pid = _pid()
+    cloning = CloningPretrain(pid, n_steps=16, epochs=2, batch_size=8)
+    arm = porl(cloning, presample_steps=4, features=(features,))
+    if isinstance(features, ExpertStateInput):
+        arm["expert_policy"] = pid
+    agent = _agent(arm.pop("extensions"), expert=False, **arm)
+
+    state = agent.train(seed=0, n_timesteps=6)[0]
+
+    rows = state.collector_state.buffer_state.experience["obs"]
+    assert rows.shape[-1] == 6 + memory_columns
     leaves = jax.tree.leaves(state.actor_state.params)
     assert all(np.isfinite(np.asarray(leaf)).all() for leaf in leaves)
 

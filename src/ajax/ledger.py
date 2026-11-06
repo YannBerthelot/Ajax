@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 
 from ajax.extensions.expert import JSRLCurriculum, ResidualPolicy
+from ajax.extensions.porl import EpsilonGreedyPresample
 from ajax.extensions.pretrain import (
     BellmanPretrain,
     CloningPretrain,
@@ -96,8 +97,8 @@ def _pretraining_charge(extension: Any, n_envs: int) -> Charge:
     elif isinstance(extension, MCPretrain):
         total = extension.n_mc_steps * extension.n_mc_episodes
         steps = max(1, total // n_envs) * n_envs  # as pretrain_critic_mc rolls out
-    elif isinstance(extension, BellmanPretrain):
-        steps = 0  # it updates on the replay alone
+    elif isinstance(extension, (BellmanPretrain, EpsilonGreedyPresample)):
+        steps = 0  # it updates on the replay, or keeps the statistics, alone
     else:
         raise ValueError(
             f"{type(extension).__name__} pretrains, but the ledger does not"

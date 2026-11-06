@@ -8,6 +8,11 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **PORL.** `porl(CloningPretrain(expert))` gives SAC's keyword arguments for
+  Xiao et al. (2025): the expert's clone stays frozen and acts epsilon-greedily
+  (`EpsilonGreedyPresample`) while a fresh critic trains, then the agent
+  fine-tunes it. The update ratio and the critics stay the agent's own settings.
+  The module's docstring lists where it departs from the paper.
 - **Three more ways to use an expert or recorded data.** `RLPD` and
   `RetainedDemonstrations` keep their rows in a ring of their own, which no
   later step evicts, and `RLPD` fills half of each batch from it. `CHEQ` blends

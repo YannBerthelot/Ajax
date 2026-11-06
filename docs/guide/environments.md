@@ -40,8 +40,10 @@ rebuild the image from it.
 Every agent takes `episode_length` and `action_repeat` for an environment
 built from a Brax or Playground id. `episode_length` counts simulator steps,
 1,000 by default; gymnax environments keep their own time limit, set in
-their parameters (below). On a CPU, Playground environments run MJX's
-pure-JAX implementation.
+their parameters (below). Playground environments run MJX's pure-JAX
+implementation, on a CPU or a GPU. `build_env_from_id(..., physics="warp")`
+selects Warp, Playground's own default, which needs a GPU and which Ajax's
+training loop does not run on yet.
 
 Playground draws a new initial state for every episode (`fresh_reset=True`),
 as dm_control does. Runs made before this became the default restarted every

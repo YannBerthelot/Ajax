@@ -68,6 +68,7 @@ class BraxWrapper:
     _ajax_env_id: str
     _ajax_fresh_reset: bool
     _ajax_episode_keys: bool
+    _ajax_physics: str
 
     def __init__(self, env):
         self.env = env

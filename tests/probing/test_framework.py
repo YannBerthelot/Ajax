@@ -89,11 +89,12 @@ from . import readouts as R
 # CHEQ's: faults/ + 4, test_framework + 2. Noise levels: faults/ + 4,
 # test_framework + 1. Tests for 32 random edits the fast tier missed: faults/ +
 # 32, test_framework + 2. The structure arms: faults/ + 3, test_framework + 3.
-# PORL's: faults/ + 4, test_framework + 1.
+# PORL's: faults/ + 4, test_framework + 1. The study harness's gaps: faults/ + 14,
+# test_framework + 1.
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 162, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 398})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 412})
 CAPS.update({"test_average_reward.py": 186})
-CAPS.update({"test_framework.py": 313, "test_value_chains.py": 1051})
+CAPS.update({"test_framework.py": 314, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 389, "test_world_models.py": 452})
@@ -279,14 +280,14 @@ def test_the_directory_keeps_to_its_budget() -> None:
     the expert methods' fixes (22 lines, 4 of them spare), 6 for RLPD's and
     CHEQ's faults, 5 for noise levels' faults, 4 for RepresentationProbe's, 34
     for the faults of 32 random edits the fast tier missed, 133 for the structure
-    arms' two cells and three faults, 5 for PORL's."""
+    arms' two cells and three faults, 5 for PORL's, 15 for the study harness's gaps."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8692, total
+    assert total <= 8707, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

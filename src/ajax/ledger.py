@@ -5,19 +5,21 @@ cloning rollout and a recorded dataset all cost the plant steps, but sit
 outside n_timesteps, which counts only the steps of collection. The ledger
 charges each once, against one budget, with the expert's queries beside them.
 
-Evaluation steps are not charged: no arm learns from them. An expert query is
-a call on a state the plant visited; a stored action read again on a replayed
-row is none (an extension's own expert, re-called on replayed rows, is not
-counted).
+Evaluation steps are not charged: no arm learns from them. A gate's are: its
+evaluations steer the run, so they are steps the method spends on the plant
+(JSRLCurriculum's). An expert query is a call on a state the plant visited; a
+stored action read again on a replayed row is none (an extension's own expert,
+re-called on replayed rows, is not counted).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
 
+from ajax.extensions.expert import JSRLCurriculum, ResidualPolicy
 from ajax.extensions.porl import EpsilonGreedyPresample
 from ajax.extensions.pretrain import (
     BellmanPretrain,
@@ -44,6 +46,9 @@ class StepLedger:
     """A run's charges (run_ledger), each source once."""
 
     charges: tuple[Charge, ...] = ()
+    #: The steps of one evaluation of the run's gate, spent whole or not at
+    #: all: a budget can fall between two run lengths, this far apart at most.
+    indivisible: int = 0
 
     def charge(
         self, source: str, env_steps: int, expert_queries: int = 0
@@ -51,7 +56,7 @@ class StepLedger:
         """This ledger and one charge more: data a harness brings itself,
         as a dataset train_offline trains on."""
         new = Charge(source, env_steps, expert_queries)
-        return StepLedger((*self.charges, new))
+        return replace(self, charges=(*self.charges, new))
 
     @property
     def env_steps(self) -> int:
@@ -63,8 +68,11 @@ class StepLedger:
 
     def assert_budget(self, budget: int = BUDGET) -> None:
         """Raise unless the run spent exactly budget: an arm under it had
-        less experience, as one over it had more."""
-        if self.env_steps != budget:
+        less experience, as one over it had more. A run with a gate may stop
+        short of it by less than one evaluation, which no run length spends
+        exactly (online_steps)."""
+        short = budget - self.env_steps
+        if not 0 <= short < max(self.indivisible, 1):
             raise ValueError(
                 f"The run spent {self.env_steps} environment steps, not the"
                 f" shared budget of {budget}: {self.charges}."
@@ -75,6 +83,8 @@ def _pretraining_charge(extension: Any, n_envs: int) -> Charge:
     """The steps an extension's pretrain phase costs: every one of them the
     expert's, but a dataset's, whose is_expert rows it says. A pretraining
     the ledger does not know is refused, not left uncounted."""
+    if isinstance(extension, ResidualPolicy):
+        return Charge(extension.name, 0)  # it zeroes the actor's head
     logged = isinstance(extension, (PriorData, RetainedDemonstrations))
     if logged and extension.dataset is not None:
         dataset = extension.dataset
@@ -104,28 +114,72 @@ def pretraining_charges(agent: Any) -> tuple[Charge, ...]:
     return tuple(_pretraining_charge(e, agent.env_args.n_envs) for e in pretraining)
 
 
+def _gates(agent: Any) -> tuple[JSRLCurriculum, ...]:
+    """The extensions evaluating on the plant during the run, each evaluation
+    charged. One the ledger cannot place on the run's ticks is refused."""
+    stack = agent.extension_stack.extensions
+    gates = [e for e in stack if isinstance(e, JSRLCurriculum) and e.evaluates]
+    if gates and not agent.replays_transitions:
+        raise ValueError(
+            f"{agent.name} does not update once per tick, so the ledger does not"
+            " know when JSRLCurriculum's gate evaluates: use schedule='random' or"
+            " 'time', or an off-policy agent."
+        )
+    return tuple(gates)
+
+
+def _evaluations_by_tick(gate: JSRLCurriculum, agent: Any, ticks: int) -> np.ndarray:
+    """The gate's evaluations up to each of ticks ticks: its own due rule at
+    each step collected from the first update on, as maybe_update runs it."""
+    n_envs = agent.env_args.n_envs
+    steps = n_envs * np.arange(1, ticks + 1)
+    updating = steps >= agent.update_start()
+    return np.cumsum(updating & gate.evaluation_due(steps, n_envs))
+
+
 def online_steps(agent: Any, budget: int = BUDGET) -> int:
     """The n_timesteps that spends what the agent's pretraining leaves of
-    budget, for a run to spend exactly budget."""
+    budget, for a run to spend exactly budget. Under a gate the most that
+    budget pays for: one step more can start an evaluation it cannot, and then
+    the run stops short by less than that evaluation (StepLedger.indivisible)."""
     left = budget - StepLedger(pretraining_charges(agent)).env_steps
     if left < 0:
         raise ValueError(f"The agent's pretraining alone spends over {budget} steps.")
-    return left
+    gates = _gates(agent)
+    if not gates:
+        return left
+    n_envs = agent.env_args.n_envs
+    ticks = left // n_envs
+    spent = n_envs * np.arange(1, ticks + 1)
+    for gate in gates:
+        size = gate.evaluation_steps(agent.env_args)
+        spent = spent + size * _evaluations_by_tick(gate, agent, ticks)
+    return n_envs * int(np.sum(spent <= left))
 
 
 def run_ledger(agent: Any, n_timesteps: int) -> StepLedger:
     """The ledger of agent's run of n_timesteps collected steps (a state's
     collector_state.timestep): its pretraining's charges, then the warm-up
     before the first update and the steps after it, on all of which an
-    expert in the loop is called, once per step, whoever then acts."""
+    expert in the loop is called, once per step, whoever then acts, then its
+    gate's evaluations."""
     stack = agent.extension_stack.extensions
     acting = [e for e in stack if "action" in e.implemented_phases() and e.experts()]
     calls = 1 if agent.expert is not None or acting else 0
     uniform = agent.uniform_steps()
     warmup = getattr(agent, "learning_starts", 0) if uniform is None else uniform
     warmup = min(warmup, n_timesteps)
-    return (
+    ledger = (
         StepLedger(pretraining_charges(agent))
         .charge("warm-up", warmup, warmup * calls)
         .charge("online", n_timesteps - warmup, (n_timesteps - warmup) * calls)
     )
+    for gate in _gates(agent):
+        size = gate.evaluation_steps(agent.env_args)
+        ticks = n_timesteps // agent.env_args.n_envs
+        evaluations = _evaluations_by_tick(gate, agent, ticks)
+        steps = size * (int(evaluations[-1]) if ticks else 0)
+        # Its rollout calls the expert on every step, whoever then acts.
+        ledger = ledger.charge(gate.name, steps, steps)
+        ledger = replace(ledger, indivisible=max(ledger.indivisible, size))
+    return ledger

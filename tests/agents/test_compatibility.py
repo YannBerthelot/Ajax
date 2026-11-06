@@ -135,7 +135,7 @@ GAPS: dict[str, dict[str, str]] = {
     WORLD: {
         **dict.fromkeys(
             "CriticBlend IBRL KernelRepulsion LCBGatedBootstrap MCVarianceCorrection"
-            " OnlineBC PhiRefresh ValueBox ExpertValueMetrics"
+            " OnlineBC ValueBox ExpertValueMetrics"
             " ImitationLoss(q_filter=True)".split(),
             "TDMPC2 TDMPC2MultiTask",
         ),

@@ -13,15 +13,17 @@ from flax import struct
 
 from ajax import IQL, PPO, SAC, TD3
 from ajax.buffers.utils import get_buffer, init_buffer
-from ajax.environments.interaction import replay_row, reward_statistics
+from ajax.environments.interaction import get_pi, replay_row, reward_statistics
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.extensions.capabilities import MissingCapability
 from ajax.extensions.expert import ExpertGains, ResidualPolicy
+from ajax.extensions.observe import PIDTermsInput
 from ajax.extensions.pretrain import (
     EXPERT_PREFILL_KEY_TAG,
     ExpertPrefill,
     collect_and_store_expert_transitions,
 )
+from ajax.extensions.retained import RetainedDemonstrations
 from tests.agents.test_agent_contract import CASES
 from tests.agents.test_gain_mode import OneGainTwoActions, TwoGains
 from tests.agents.test_offline import episodes
@@ -241,3 +243,106 @@ def test_offline_training_refuses_a_prefill_overwriting_the_dataset():
     )
     with pytest.raises(ValueError, match="overwrite dataset rows"):
         agent.train_offline(episodes(3, discrete=False), 2)
+
+
+def actor_mean(state: Any, obs: jax.Array) -> np.ndarray:
+    return np.asarray(
+        get_pi(state.actor_state, state.actor_state.params, obs)[0].mean()
+    )
+
+
+def trained_on_a_prefill(offline_updates: int, **options: Any) -> Any:
+    """IQL after a prefill of push and offline_updates, before any env step."""
+    agent = IQL(
+        "Pendulum-v1",
+        n_envs=1,
+        batch_size=32,
+        actor_architecture=("16", "relu"),
+        critic_architecture=("16", "relu"),
+        actor_learning_rate=3e-2,
+        expert_policy=push,
+        extensions=(ExpertPrefill(n_steps=64, offline_updates=offline_updates),),
+        **options,
+    )
+    state = agent.train(seed=0, n_timesteps=0)[0]
+    return jax.tree.map(lambda x: x[0], state)
+
+
+def test_offline_updates_fit_iqls_actor_to_the_prefill_before_any_env_step() -> None:
+    """IQL's fine-tuning arm starts from an offline phase on the recorded rows.
+    Advantage-weighted regression on one action fits that action: 0.5 in agent
+    units, 0.25 of Pendulum's torque range. Without the updates the arm goes
+    online on an untrained actor, as it did, the data unlearned. 120 updates
+    cover most of the way, not all: the fast tier's limit sets the bound."""
+    obs = jnp.zeros((1, 3))
+    untrained = trained_on_a_prefill(0)
+    trained = trained_on_a_prefill(120)
+
+    assert int(trained.collector_state.timestep) == 0
+    left = abs(actor_mean(trained, obs).item() - 0.25)
+    assert left < abs(actor_mean(untrained, obs).item() - 0.25) / 2
+
+
+def test_offline_updates_read_the_observation_features() -> None:
+    """PriorData's dataset holds no feature columns, so an arm whose input holds
+    PID terms had no offline phase. The prefill's rows hold them."""
+    terms = PIDTermsInput(current_idx=(0,), target_idx=(1,))
+    agent = IQL(
+        "Pendulum-v1",
+        batch_size=4,
+        actor_architecture=("8", "relu"),
+        critic_architecture=("8", "relu"),
+        expert_policy=push,
+        extensions=(terms, ExpertPrefill(n_steps=8, offline_updates=2)),
+    )
+    state = jax.tree.map(lambda x: x[0], agent.train(seed=0, n_timesteps=0)[0])
+
+    replay = state.collector_state.buffer_state.experience
+    assert replay["obs"].shape[-1] == 3 + 3  # Pendulum's and (e, I, D)
+    assert int(state.n_updates) == 2
+
+
+def test_a_prefill_needs_an_expert_from_somewhere() -> None:
+    """No agent expert and none of its own: nothing could roll out."""
+    with pytest.raises(MissingCapability, match="agent_expert"):
+        SAC("Pendulum-v1", extensions=(ExpertPrefill(n_steps=4),))
+
+
+def test_an_expert_of_the_prefills_own_is_read_in_the_env_units() -> None:
+    """An expert given to the prefill speaks the env's units, as one given to
+    the agent does. Pendulum's torque of 1 is 0.5 of its range of 2: a replay
+    holding 1 would store actions the agent's output cannot reach."""
+    torque = lambda obs: jnp.ones((*obs.shape[:-1], 1))  # noqa: E731
+    agent = SAC(
+        "Pendulum-v1",
+        learning_starts=0,
+        batch_size=4,
+        actor_architecture=("8", "relu"),
+        critic_architecture=("8", "relu"),
+        extensions=(ExpertPrefill(n_steps=4, expert=torque),),
+    )
+    state = agent.train(seed=0, n_timesteps=0)[0]
+
+    replay: Any = state.collector_state.buffer_state
+    np.testing.assert_allclose(np.asarray(replay.experience["action"])[0, 0, :4], 0.5)
+
+
+def test_kept_rows_are_the_expert_the_module_holds() -> None:
+    """The arm's own recording, not the expert the agent tracks: the module's
+    torque of 1 is 0.5 in agent units, the agent's of 0 is 0."""
+    torque = lambda obs: jnp.ones((*obs.shape[:-1], 1))  # noqa: E731
+    still = lambda obs: jnp.zeros((*obs.shape[:-1], 1))  # noqa: E731
+    agent = SAC(
+        "Pendulum-v1",
+        learning_starts=0,
+        batch_size=4,
+        actor_architecture=("8", "relu"),
+        critic_architecture=("8", "relu"),
+        expert_policy=still,
+        extensions=(RetainedDemonstrations(n_steps=4, expert=torque),),
+    )
+    state = agent.train(seed=0, n_timesteps=0)[0]
+
+    replay: Any = state.collector_state.buffer_state
+    kept = np.asarray(replay.retained.experience["action"])
+    np.testing.assert_allclose(kept[0, 0, :4], 0.5)

@@ -103,8 +103,7 @@ def test_an_on_policy_agent_stores_observations_normalised_when_collected() -> N
 
 # UDRL's segments still keep the rewards the env normalised: its commands and
 # their targets are sums of them (docs/guide/environments.md). DAgger learns
-# from no reward, and IQL scales its rewards (reward_scale, as its reference):
-# neither takes a reward normaliser.
+# from no reward, so it takes no reward normaliser.
 REWARD_NORMALISING = [
     n
     for n in REPLAYING

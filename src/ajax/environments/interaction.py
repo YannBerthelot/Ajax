@@ -1017,6 +1017,7 @@ def replay_row(
     raw_next_obs: jax.Array,
     policy_action: jax.Array,
     actor_carry: Optional[jax.Array] = None,
+    seam: Optional[jax.Array] = None,
 ) -> dict:
     """One replay row per env, as the live collector and the expert prefill
     store it, holding the fields the replay's schema keeps (init_buffer): the
@@ -1039,6 +1040,8 @@ def replay_row(
         # The next step's action, unknown yet: no TargetBC penalty.
         "next_action": jnp.full(action.shape, jnp.nan, jnp.float32),
         "policy_action": policy_action,
+        # Live rows follow each other.
+        "seam": jnp.zeros_like(reward) if seam is None else seam,
     }
     if actor_carry is not None:
         row["actor_carry"] = actor_carry
@@ -1171,7 +1174,12 @@ def collect_experience(
             )
         )
     raw_action = action if result.raw_action is None else result.raw_action
-    buffer_action = env_action if result.buffer_action is None else result.buffer_action
+    # A replay row keeps the action executed: the env steps on it clipped to the
+    # box (agent_action_to_env), and an unsquashed sample (IQL's) can leave it.
+    executed = env_action
+    if buffer is not None and env_args.continuous:
+        executed = jnp.clip(env_action, -1.0, 1.0)
+    buffer_action = executed if result.buffer_action is None else result.buffer_action
     kept_choice = (
         action if result.stored_policy_action is None else result.stored_policy_action
     )
@@ -1570,6 +1578,7 @@ def init_collector_state(
     include_return_to_go: bool = False,
     include_next_action: bool = False,
     include_policy_action: bool = False,
+    include_seam: bool = False,
     count_episode_steps: bool = False,
     replay_rows: Optional[int] = None,
 ):
@@ -1634,6 +1643,7 @@ def init_collector_state(
             include_return_to_go=include_return_to_go,
             include_next_action=include_next_action,
             include_policy_action=include_policy_action,
+            include_seam=include_seam,
             rows_per_env=replay_rows,
         )
         if buffer is not None

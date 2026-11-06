@@ -756,9 +756,13 @@ class JSRLCurriculum(Extension):
       (:func:`next_stage`, :func:`combined_policy_return`). Its defaults are
       the paper's for D4RL: an evaluation every 10,000 steps, a moving average
       of 5 (A.4), n_stages 10 and tolerance 5% (Table 11). Evaluations run on
-      envs of their own, eval_episodes episodes each, which no step budget
-      counts. The paper leaves open whether the average restarts at a new
-      stage; here it runs on.
+      envs of their own, eval_episodes episodes each, and they are steps on
+      the plant: ajax.ledger charges them to the run's budget. So
+      eval_episodes defaults to 1, Ajax's own value and not the paper's, which
+      leaves the moving average to steady the gate: at the defaults a run of
+      1M steps spends 2% of them on evaluations on 200-step episodes and 14%
+      on 1,600-step ones. The paper leaves open whether the average restarts
+      at a new stage; here it runs on.
     * ``"random"``, the paper's JSRL-Random: h drawn uniformly from that
       sequence at each episode's start, without a curriculum.
     * ``"time"``, Ajax's own and not the paper's: h falls linearly from H to 0
@@ -788,7 +792,7 @@ class JSRLCurriculum(Extension):
     threshold: Optional[float] = None
     moving_average: int = 5
     eval_every: int = 10_000
-    eval_episodes: int = 10
+    eval_episodes: int = 1
     # Agent context, bound by bind_to_agent.
     env_args: Any = None
     expert_policy: Any = None
@@ -816,6 +820,25 @@ class JSRLCurriculum(Extension):
     def uses_expert_actions_as_policy_actions(self) -> bool:
         # It executes the expert's action where the policy's goes.
         return True
+
+    @property
+    def evaluates(self) -> bool:
+        """Whether the schedule evaluates on the plant during the run."""
+        return self.schedule == "performance"
+
+    def evaluation_due(self, step: Any, n_envs: int) -> Any:
+        """Whether an update at step evaluates: the first of each eval_every
+        steps, steps moving n_envs at a time."""
+        return step % self.eval_every < n_envs
+
+    def evaluation_steps(self, env_args: Any) -> int:
+        """The env steps of one evaluation (combined_policy_return): each
+        episode runs to the task's length, in the steps n_timesteps counts,
+        whether or not it ends early."""
+        length = agent_episode_length(
+            env_args.env, env_args.env_params, env_args.action_repeat
+        )
+        return self.eval_episodes * length
 
     def bind_to_agent(self, **agent_context: Any) -> "JSRLCurriculum":
         """Read H off the task and keep the expert and the env that
@@ -922,7 +945,7 @@ class JSRLCurriculum(Extension):
     ) -> tuple[Any, Any]:
         """Every eval_every steps, evaluate the combined policy and move to
         the next stage where it passes."""
-        if self.schedule != "performance":
+        if not self.evaluates:
             return agent_state, ext_state
 
         def evaluated() -> JSRLState:
@@ -938,7 +961,7 @@ class JSRLCurriculum(Extension):
                 ext_state, value, self.n_stages, self.tolerance, self.threshold
             )
 
-        due = context.step % self.eval_every < self.env_args.n_envs
+        due = self.evaluation_due(context.step, self.env_args.n_envs)
         return agent_state, jax.lax.cond(due, evaluated, lambda: ext_state)
 
     def eval_metrics(

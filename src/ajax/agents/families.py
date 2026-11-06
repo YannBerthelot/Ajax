@@ -790,6 +790,10 @@ class ReplayAgent(DeclaredAgent):
         """One update: (agent_state, logged metrics)."""
         raise NotImplementedError
 
+    def update_start(self) -> int:
+        """The env steps collected before the first update."""
+        return self.learning_starts
+
     def choose_behaviour(self, context: TrainContext) -> Optional[Callable]:
         """The action pipeline collection runs; None: the policy's, uniform
         during the warm-up or its chooser's. An agent's own runs the
@@ -917,7 +921,7 @@ class ReplayAgent(DeclaredAgent):
         return loop.off_policy(
             partial(self.init, context=context),
             lambda agent_state, _transition: self.update(agent_state, context),
-            self.learning_starts,
+            self.update_start(),
             uniform_steps=self.uniform_steps(),
             recurrent=recurrent,
             collect_kwargs={

@@ -99,11 +99,53 @@ def sample_two_buffers(
     return TrajectoryBufferSample(experience=jax.tree.map(choose, online, retained))
 
 
+#: A row's fields about the state its target looks ahead to, which an n-step
+#: row takes from the step that state follows.
+_FIELDS_AHEAD = (
+    "terminated",
+    "truncated",
+    "next_obs",
+    "next_a_expert",
+    "raw_next_obs",
+    "next_action",
+)
+
+
+def n_step_rows(window: Any, gamma: float) -> dict:
+    """One row per window of consecutive steps (batch, n, ...): the first step's
+    state and action, the discounted sum of the rewards from there, and the
+    state n steps ahead or at the episode's end, whichever comes first, as the
+    row's next state and flags. A seam ends a window as an episode's end does.
+    ``bootstrap_discount`` is gamma to the power of the steps summed, which the
+    target's bootstrap takes in place of gamma."""
+    ended = (window["terminated"] > 0) | (window["truncated"] > 0)
+    if "seam" in window:
+        ended = ended | (window["seam"] > 0)
+    # The rows the sum reaches: up to the first end, included.
+    before_end = jnp.logical_not(ended).astype(jnp.float32)
+    reached = jnp.cumprod(
+        jnp.concatenate([jnp.ones_like(before_end[:, :1]), before_end[:, :-1]], axis=1),
+        axis=1,
+    )
+    powers = gamma ** jnp.arange(reached.shape[1], dtype=jnp.float32)
+    steps = jnp.sum(reached, axis=1)
+    last = steps[:, 0].astype(jnp.int32) - 1
+    rows = jax.tree.map(lambda field: field[:, 0], window)
+    for name in _FIELDS_AHEAD:
+        if name in window:
+            rows[name] = window[name][jnp.arange(last.shape[0]), last]
+    rows["reward"] = jnp.sum(reached * powers[None, :, None] * window["reward"], axis=1)
+    rows["bootstrap_discount"] = gamma**steps
+    return rows
+
+
 def get_buffer(
     buffer_size: int,
     batch_size: int,
     n_envs: int = 1,
     sequence_length: Optional[int] = None,
+    n_step: int = 1,
+    gamma: float = 1.0,
 ):
     """Replay buffer factory: a trajectory buffer of ``buffer_size // n_envs``
     rows per env, whose ``add`` takes the single-step (n_envs, ...)
@@ -119,15 +161,21 @@ def get_buffer(
     (batch_size, sequence_length, ...). Rows alone, a TwoBufferState also
     draws from its retained ring (:func:`sample_two_buffers`); no window
     reads one, as a run with memory refuses the extensions that write it.
+
+    n_step above 1 samples rows as well, each one n_step steps long
+    (:func:`n_step_rows`, at gamma), both rings' alike: a window never crosses
+    a ring's write position, so a ring needs n_step rows per env first.
     """
     from flashbax.utils import add_dim_to_args
 
     buffer = fbx.make_trajectory_buffer(
         add_batch_size=n_envs,
         sample_batch_size=batch_size,
-        sample_sequence_length=sequence_length or 1,
+        sample_sequence_length=sequence_length or n_step,
         period=1,
-        min_length_time_axis=min_replay_rows(batch_size, n_envs, sequence_length),
+        min_length_time_axis=max(
+            min_replay_rows(batch_size, n_envs, sequence_length), n_step
+        ),
         max_length_time_axis=buffer_size // n_envs,
     )
     # The collector adds one transition of shape (n_envs, ...) per call;
@@ -139,8 +187,10 @@ def get_buffer(
         return buffer.replace(add=add_fn)  # type: ignore[attr-defined]
 
     def sample_rows(state: Any, key: jax.Array) -> TrajectoryBufferSample:
-        # (B, 1, ...)
+        # (B, n_step, ...)
         experience = sample_two_buffers(buffer.sample, state, key).experience
+        if n_step > 1:
+            return TrajectoryBufferSample(experience=n_step_rows(experience, gamma))
         rows = jax.tree.map(lambda x: x[:, 0], experience)
         return TrajectoryBufferSample(experience=rows)
 
@@ -199,6 +249,7 @@ def init_buffer(
     include_return_to_go: bool = False,
     include_next_action: bool = False,
     include_policy_action: bool = False,
+    include_seam: bool = False,
     rows_per_env: Optional[int] = None,
 ) -> fbx.flat_buffer.TrajectoryBufferState:
     """
@@ -219,6 +270,10 @@ def init_buffer(
     include_policy_action: also keep the action the policy chose,
       ``policy_action``, where it differs from the executed one (a residual
       policy's, for an actor fitting its own actions: IQL's).
+    include_seam: also keep ``seam``, set on a row the next one written does
+      not follow in time: the last row a prefill or a dataset writes, which
+      the first step collected comes after. For a replay reading a row's
+      successors (:func:`n_step_rows`).
     rows_per_env: the ring's length, the rows a run writes to it
       (ajax.buffers.ring); None: the buffer's capacity.
 
@@ -266,6 +321,8 @@ def init_buffer(
         schema["next_action"] = jnp.zeros(action.shape, dtype=jnp.float32)
     if include_policy_action:
         schema["policy_action"] = action
+    if include_seam:
+        schema["seam"] = jnp.zeros((1,), dtype=jnp.float32)
     if actor_carry_dim > 0:
         # R2D2-style stored-state replay: the actor's flattened carry at
         # each step (see ajax.networks.memory.flatten_carry).
@@ -298,6 +355,8 @@ class ReplayBatch(NamedTuple):
     next_action: Optional[jax.Array] = None
     # The action the policy chose (include_policy_action).
     policy_action: Optional[jax.Array] = None
+    # An n-step row's gamma to the power of its steps (n_step_rows).
+    bootstrap_discount: Optional[jax.Array] = None
 
 
 def mean_of_written_rows(buffer_state: Any, field: str) -> jax.Array:
@@ -357,6 +416,7 @@ def get_batch_from_buffer(
         return_to_go=first.get("return_to_go"),
         next_action=first.get("next_action"),
         policy_action=first.get("policy_action"),
+        bootstrap_discount=first.get("bootstrap_discount"),
     )
 
 

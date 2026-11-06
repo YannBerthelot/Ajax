@@ -83,7 +83,9 @@ Each update samples one replay batch and runs, in the reference's order:
 2. **Actor.** It maximises `E[w log π(a|s)]` with `w = min(exp(temperature
    (q − V(s))), 100)`, with V the value just updated. The policy is a
    Gaussian on a tanh mean, with one learned log-std per action dimension,
-   clipped to [−5, 2]. The evaluations act with its mean.
+   clipped to [−5, 2]. Online, its samples act clipped to [−1, 1] and the
+   replay keeps them clipped, as the reference does. The evaluations act with
+   its mean.
 3. **Critics.** Two Q critics regress on `reward_scale · r + γ (1 −
    terminated) V(s')`, their squared errors summed.
 4. **Targets.** The target critics move by Polyak averaging at rate `tau`.

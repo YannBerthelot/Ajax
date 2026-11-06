@@ -74,6 +74,9 @@ class Transition(Replaceable):
     # it the step, gain mode's gains. For an agent learning from the step
     # itself (AVG), whose critic scores it; action holds the policy's.
     executed_action: Optional[jnp.ndarray] = None
+    # gamma to the power of the steps an n-step row sums, which its target's
+    # bootstrap takes in place of gamma (ajax.buffers.utils.n_step_rows).
+    bootstrap_discount: Optional[jnp.ndarray] = None
 
     def __len__(self):
         return self.obs.shape[0] if self.obs.ndim > 0 else 1

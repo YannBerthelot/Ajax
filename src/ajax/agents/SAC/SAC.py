@@ -25,7 +25,7 @@ makes the critics score the executed actions, from the expert's stored ones.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -54,12 +54,13 @@ from ajax.agents.temperature import (
     get_alpha,
     update_temperature,
 )
+from ajax.buffers.utils import get_buffer
 from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
 from ajax.networks.distributions import latent
 from ajax.random_keys import split_by_index
 from ajax.state import LoadedTrainState, Transition
-from ajax.types import Architecture
+from ajax.types import Architecture, BufferType
 
 #: SAC's reference initialisation, Glorot-uniform kernels and zero biases in
 #: both networks (see SAC.actor_critic_args).
@@ -86,6 +87,13 @@ class SAC(
     (policy_update_start, alpha_update_start), inert at that warm-up; updates
     on a dataset before any env step (PriorData) do not wait.
 
+    n_step above 1 is Ajax's and not SAC's: the critics' target sums n_step
+    rewards before it bootstraps, gamma^n in place of gamma, stopping at an
+    episode's end. The return is uncorrected, as Rainbow's is (Hessel et al.
+    2018): no importance weights for steps the current policy would not have
+    taken, and no entropy bonus for the steps between. The first update waits
+    for each env's replay to hold n_step rows, whatever learning_starts.
+
     Args:
         tau: The target critics' Polyak rate.
         fixed_alpha: Keep the temperature at alpha_init (SAC v1's fixed
@@ -94,6 +102,8 @@ class SAC(
             read.
         num_critic_updates: The critic steps of each update, all on the
             same replay batch (REDQ's steps each sample a fresh one).
+        n_step: The steps of the return each target sums (1: SAC's own). A
+            run with memory refuses more than 1.
     """
 
     actor_learning_rate: float = 3e-4
@@ -106,11 +116,49 @@ class SAC(
     fixed_alpha: bool = False
     num_critics: int = 2
     num_critic_updates: int = 1
+    n_step: int = 1
     policy_update_start: int = 2_000
     alpha_update_start: int = 2_000
     buffer_size: int = int(1e6)
     batch_size: int = 256
     learning_starts: int = int(1e4)
+
+    def check(self) -> None:
+        if self.n_step < 1:
+            raise ValueError(f"SAC's n_step is at least 1, got {self.n_step}.")
+        if self.n_step > 1 and self.memory is not None:
+            raise ValueError(
+                "SAC's n_step folds windows of feedforward rows: a run with"
+                " memory replays windows of its own, so it takes n_step=1."
+            )
+
+    def run_capabilities(self) -> frozenset[str]:
+        capabilities = super().run_capabilities()
+        if self.n_step == 1:
+            return capabilities
+        return capabilities.difference({"one_step_target"})
+
+    def make_replay_buffer(self) -> BufferType:
+        if self.n_step == 1:
+            return super().make_replay_buffer()
+        return get_buffer(
+            self.buffer_size,
+            self.batch_size,
+            self.n_envs,
+            n_step=self.n_step,
+            gamma=self.gamma,
+        )
+
+    def replay_window(self) -> Optional[int]:
+        return self.n_step if self.n_step > 1 else super().replay_window()
+
+    def update_start(self) -> int:
+        """learning_starts, or later: a window needs n_step rows per env."""
+        return max(self.learning_starts, self.n_step * self.n_envs)
+
+    def uniform_steps(self) -> Optional[int]:
+        """As the family's, whatever update_start waits for."""
+        return self.learning_starts
 
     def actor_critic_args(self) -> dict[str, Any]:
         # The initialisation of SAC's reference code, Glorot-uniform
@@ -164,7 +212,9 @@ class SAC(
             squash=True,
             num_critics=self.num_critics,
         )
-        collector_state = context.make_collector(collector_key)
+        collector_state = context.make_collector(
+            collector_key, include_seam=self.n_step > 1
+        )
         return SACState(
             rng=training_key,
             eval_rng=evaluation_key,
@@ -253,13 +303,16 @@ class SAC(
         # A truncated row bootstraps on its final observation (bootstrap_obs).
         dones = update_steps.bootstrap_cuts(batch.terminated, context.extensions)
         scored = context.make_scored_actions(batch)
+        # An n-step row bootstraps as many steps ahead as it sums.
+        discount = batch.bootstrap_discount
+        gamma = self.gamma if discount is None else discount
         target_q, next_actions, next_values = compute_td_target(
             actor_state=agent_state.actor_state,
             critic_state=agent_state.critic_state,
             next_observations=batch.next_obs,
             dones=dones,
             rewards=batch.reward,
-            gamma=self.gamma,
+            gamma=gamma,
             alpha=get_alpha(agent_state),
             rng=critic_key,
             recurrent=context.recurrent,
@@ -291,7 +344,7 @@ class SAC(
             context.total_timesteps,
             rewards=batch.reward,
             dones=dones,
-            gamma=self.gamma,
+            gamma=gamma,
             reward_scale=self.reward_scale,
             next_actions=next_actions,
             next_values=next_values,
@@ -417,7 +470,7 @@ def compute_td_target(
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
-    gamma: float,
+    gamma: Union[float, jax.Array],
     alpha: jax.Array,
     rng: jax.Array,
     recurrent: bool,
@@ -465,7 +518,7 @@ def compute_soft_bellman_target(
     next_log_probs: jax.Array,
     rewards: jax.Array,
     dones: jax.Array,
-    gamma: float,
+    gamma: Union[float, jax.Array],
     alpha: jax.Array,
     reward_scale: float = 1.0,
 ) -> jax.Array:

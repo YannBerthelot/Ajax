@@ -10,6 +10,11 @@ pretraining and datasets", a 1M-step budget, expert queries logged):
 - assert_budget raises unless the run spent exactly the budget; online_steps
   gives the n_timesteps that does. What it cannot count, it refuses.
 
+- JSRLCurriculum's gate evaluates on the plant, so its episodes are charged,
+  each at the task's length, with one expert query per step. A run's length is
+  whole evaluations: where budget falls inside one, the run stops short of it
+  by less than that evaluation, and no further.
+
 Oracles: hand arithmetic from the extensions' documented n_steps ("per env"),
 and on one real run the plant's own count of its step_env calls.
 """
@@ -21,9 +26,10 @@ import numpy as np
 import pytest
 from gymnax.environments.classic_control.pendulum import Pendulum
 
-from ajax import SAC
+from ajax import PQN, SAC
 from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions.base import Extension
+from ajax.extensions.expert import JSRLCurriculum, ResidualPolicy
 from ajax.extensions.observe import ExpertStateInput
 from ajax.extensions.porl import porl
 from ajax.extensions.pretrain import (
@@ -247,3 +253,209 @@ def test_rows_kept_beside_the_replay_are_charged(module) -> None:
     (charge,) = pretraining_charges(logged)
     assert (charge.source, charge.env_steps) == ("recorded dataset", 300)
     assert charge.expert_queries == 120
+
+
+def test_a_residual_policys_zero_start_costs_no_step():
+    """It only zeroes the actor's head. A refusal here sends harnesses around
+    the ledger, which then counts nothing of that arm."""
+    agent = agent_with(ResidualPolicy(zero_start=True), expert_policy=expert)
+
+    n_timesteps = online_steps(agent)
+    ledger = run_ledger(agent, n_timesteps)
+
+    assert n_timesteps == BUDGET
+    ledger.assert_budget()
+    assert ledger.expert_queries == BUDGET
+
+
+def jsrl(length: int, gate: JSRLCurriculum, **kwargs) -> SAC:
+    """SAC on Pendulum with episodes of length steps, the guide's horizon read
+    off them, and gate."""
+    params = gymnax.make("Pendulum-v1")[1].replace(max_steps_in_episode=length)
+    kwargs.setdefault("learning_starts", 1_000)
+    return SAC(
+        Pendulum(),
+        env_params=params,
+        expert_policy=expert,
+        extensions=(gate,),
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize(
+    "length, online, gate_steps",
+    # n + length * n // 10_000 = 1M: one evaluation each 10,000 steps collected.
+    [(200, 980_400, 19_600), (1_600, 862_400, 137_600)],
+)
+def test_the_gates_default_evaluations_fit_the_budget(length, online, gate_steps):
+    """The owner's decision: charge the gate, and shrink it so JSRL fits 1M on
+    both task lengths. At 10 episodes the same gate costs 200,000 and 1.6M
+    steps, more than the whole budget on the long task. n + g length = 1M with
+    g the evaluations by step n: 98 at 200 steps, 86 at 1,600."""
+    agent = jsrl(length, JSRLCurriculum())
+
+    n_timesteps = online_steps(agent)
+    ledger = run_ledger(agent, n_timesteps)
+
+    assert n_timesteps == online
+    ledger.assert_budget()
+    charged = {charge.source: charge for charge in ledger.charges}
+    assert charged["jsrl_curriculum"].env_steps == gate_steps
+    assert charged["jsrl_curriculum"].expert_queries == gate_steps
+    assert ledger.expert_queries == BUDGET
+
+
+def test_a_gate_evaluation_is_charged_every_episode_it_runs():
+    """Three episodes of 200 steps per evaluation, at steps 10,000 to 30,000."""
+    agent = jsrl(200, JSRLCurriculum(eval_episodes=3))
+
+    ledger = run_ledger(agent, 30_000)
+
+    assert ledger.env_steps == 30_000 + 3 * 3 * 200
+
+
+def test_the_gate_waits_for_the_first_update():
+    """post_update runs after an update, so an evaluation due before
+    learning_starts never happens: of 10,000 to 40,000 only 30,000 and 40,000
+    come after 25,000. Charging all four spends steps no run took."""
+    agent = jsrl(200, JSRLCurriculum(), learning_starts=25_000)
+
+    assert run_ledger(agent, 40_000).env_steps == 40_000 + 2 * 200
+
+
+def test_the_gate_counts_the_steps_it_sees_on_many_envs():
+    """On 2 envs the run reads steps 2, 4, ...; the first of each 5, by its rule
+    step % 5 < 2: 6, 10, 16 and 20."""
+    agent = jsrl(10, JSRLCurriculum(eval_every=5), n_envs=2, learning_starts=0)
+
+    assert run_ledger(agent, 20).env_steps == 20 + 4 * 10
+
+
+def test_a_budget_inside_an_evaluation_stops_short_of_it():
+    """One evaluation of 1,600 comes at step 10,000. With 11,000 to spend, step
+    10,000 would spend 11,600, so the run stops at 9,999, short by 1,001, which
+    no run length can spend. The ledger takes that, not a whole evaluation."""
+    agent = jsrl(1_600, JSRLCurriculum())
+
+    n_timesteps = online_steps(agent, 11_000)
+
+    assert n_timesteps == 9_999
+    run_ledger(agent, n_timesteps).assert_budget(11_000)
+    with pytest.raises(ValueError, match="shared budget"):
+        run_ledger(agent, 9_400).assert_budget(11_000)
+    with pytest.raises(ValueError, match="shared budget"):
+        run_ledger(agent, 10_000).assert_budget(11_000)
+
+
+@pytest.mark.parametrize("schedule", ["random", "time"])
+def test_a_schedule_with_no_gate_spends_no_evaluation(schedule):
+    agent = jsrl(200, JSRLCurriculum(schedule=schedule))
+
+    assert online_steps(agent) == BUDGET
+    run_ledger(agent, BUDGET).assert_budget()
+
+
+def test_a_gate_on_a_run_with_no_ticks_of_steps_is_refused():
+    """PQN updates once per rollout: the ledger cannot say when the gate fires,
+    and refuses rather than leaving it uncounted."""
+    agent = PQN(
+        "CartPole-v1",
+        n_envs=2,
+        n_steps=8,
+        n_epochs=1,
+        expert_policy=lambda obs: jnp.zeros((*obs.shape[:-1], 1), jnp.int32),
+        extensions=(JSRLCurriculum(),),
+    )
+
+    with pytest.raises(ValueError, match="does not update once per tick"):
+        online_steps(agent)
+
+
+def test_the_gate_is_the_plants_own_count():
+    """The oracle is the plant again. 2 envs, 24 steps: evaluations at 8, 16 and
+    24, of 2 episodes of 6 steps, on envs of their own."""
+    calls: list = []
+
+    class CountingPendulum(Pendulum):
+        def step_env(self, key, state, action, params):
+            jax.debug.callback(calls.append, state.time)
+            return super().step_env(key, state, action, params)
+
+    params = gymnax.make("Pendulum-v1")[1].replace(max_steps_in_episode=6)
+    agent = SAC(
+        CountingPendulum(),
+        env_params=params,
+        n_envs=2,
+        actor_architecture=("8", "relu"),
+        critic_architecture=("8", "relu"),
+        learning_starts=4,
+        batch_size=4,
+        expert_policy=expert,
+        extensions=(JSRLCurriculum(eval_every=8, eval_episodes=2),),
+    )
+    state, _ = agent.train(seed=0, n_timesteps=24)
+    jax.effects_barrier()
+
+    assert len(calls) == 24 + 3 * 2 * 6
+    timestep = int(state.collector_state.timestep[0])
+    assert run_ledger(agent, timestep).env_steps == len(calls)
+
+
+@pytest.mark.parametrize(
+    "extension",
+    [
+        ExpertPrefill(n_steps=1_000, expert=expert),
+        RetainedDemonstrations(n_steps=1_000, expert=expert),
+        RLPD(n_steps=1_000, expert=expert, critic_layer_norm=False),
+    ],
+    ids=["prefill", "retained", "rlpd"],
+)
+def test_a_recorded_arm_queries_its_expert_before_training_alone(extension):
+    """No expert acts online in these arms. Given their own expert, the agent
+    tracks none, and the 1,000 steps of recording are all the queries it logs:
+    999,000 more would class them with the live-query arms."""
+    agent = SAC("Pendulum-v1", extensions=(extension,))
+
+    ledger = run_ledger(agent, online_steps(agent))
+
+    ledger.assert_budget()
+    assert ledger.expert_queries == 1_000
+
+
+def test_an_expert_only_the_prefill_holds_is_called_on_no_online_step():
+    """The oracle is the expert: the ledger's zero is true only if collection
+    does not call it. The agent's own expert_policy, in contrast, is called on
+    each step, so its calls grow with the run."""
+    calls: list = []
+
+    def counted(obs: jax.Array) -> jax.Array:
+        jax.debug.callback(lambda: calls.append(1))
+        return expert(obs)
+
+    def expert_calls(n_timesteps: int, **options) -> int:
+        calls.clear()
+        agent = SAC(
+            "Pendulum-v1",
+            learning_starts=4,
+            batch_size=4,
+            actor_architecture=("8", "relu"),
+            critic_architecture=("8", "relu"),
+            **options,
+        )
+        agent.train(seed=0, n_timesteps=n_timesteps)
+        jax.effects_barrier()
+        return len(calls)
+
+    own = {"extensions": (ExpertPrefill(n_steps=4, expert=counted),)}
+    assert expert_calls(16, **own) == expert_calls(8, **own) > 0
+    agents = {"extensions": (ExpertPrefill(n_steps=4),), "expert_policy": counted}
+    assert expert_calls(16, **agents) > expert_calls(8, **agents)
+
+
+def test_offline_updates_cost_no_step():
+    """They read the replay: a charge here would shorten IQL's online phase."""
+    agent = agent_with(
+        ExpertPrefill(n_steps=1_000, offline_updates=500), expert_policy=expert
+    )
+
+    assert online_steps(agent) == BUDGET - 1_000

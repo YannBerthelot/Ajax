@@ -2171,3 +2171,20 @@ _GOLDEN.update(
         },
     }
 )
+
+# Re-recorded on macOS ARM CPU once a replay row kept the action executed, as
+# IQL's reference does (learner.py sample_actions, train_finetune.py): IQL's
+# unsquashed samples past [-1, 1] were stored raw beside the clipped action's
+# reward. The other agents act inside the box, and their pins stay.
+_GOLDEN.update(
+    {
+        "IQL-nudge": {
+            "actor": 7.999928951263428,
+            "critic": 19.837133407592773,
+            "value": 7.922294616699219,
+            "target": 8.0,
+            "n_updates": 91.0,
+            "nudge": 1.0078387260437012,
+        },
+    }
+)

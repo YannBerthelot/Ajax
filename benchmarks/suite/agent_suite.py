@@ -206,6 +206,16 @@ def peak_memory_gb() -> float:
     return round(peak * (1 if sys.platform == "darwin" else 1024) / 2**30, 2)
 
 
+def device_peak_memory_gb() -> Optional[float]:
+    """The first device's peak memory in JAX's allocator; None on a CPU, whose
+    memory is the process's own."""
+    import jax
+
+    stats = jax.devices()[0].memory_stats() or {}
+    peak = stats.get("peak_bytes_in_use")
+    return None if peak is None else round(peak / 2**30, 2)
+
+
 def git(*arguments: str) -> str:
     return subprocess.run(
         ["git", *arguments], cwd=ROOT, capture_output=True, text=True
@@ -233,7 +243,8 @@ def machine() -> dict:
 
 def manifest() -> dict:
     """The commit, whether the tree was clean (the records aside), the
-    machine and JAX."""
+    machine, JAX, the device it ran on and the XLA flags in force, which
+    change what compiles and how fast."""
     import jax
 
     records = f":!{RESULTS.relative_to(ROOT)}"
@@ -244,6 +255,8 @@ def manifest() -> dict:
         "machine": machine(),
         "jax": jax.__version__,
         "backend": jax.default_backend(),
+        "device": jax.devices()[0].device_kind,
+        "xla_flags": os.environ.get("XLA_FLAGS", ""),
     }
 
 
@@ -299,6 +312,7 @@ def time_agent(label: str, n_seeds: int, steps: int) -> dict:
         "run_steps_per_s": round(measured / exec_s, 1),
         "env_steps_per_s": round(n_seeds * measured / exec_s, 1),
         "peak_memory_gb": peak_memory_gb(),
+        "device_peak_memory_gb": device_peak_memory_gb(),
         "manifest": manifest(),
     }
 
@@ -464,6 +478,7 @@ def run_seeds(
                 steps / max(wall_s - result["compile_s"], 1e-3), 3
             ),
             "peak_memory_gb": peak_memory_gb(),
+            "device_peak_memory_gb": device_peak_memory_gb(),
             "manifest": context,
         }
         append(path, record)

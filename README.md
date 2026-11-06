@@ -26,7 +26,7 @@ Ajax has nineteen agents, each from a published paper. Compared with
 [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) and
 [SBX](https://github.com/araffin/sbx), it offers:
 
-- **[Fast and parallel](docs/guide/performance.md)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop, so many seeds and environment copies train at once on one device. The benchmarks run on a CPU; GPU speed is not yet measured.
+- **[Fast and parallel](docs/guide/performance.md)**: the environment steps beside the agent on a CPU or a GPU, with no Python in the loop, so many seeds and environment copies train at once on one device. With 10 seeds, one NVIDIA L40S ran SAC about 7 times as fast as four CPU cores, and CrossQ and REDQ over 50 times ([speeds](docs/guide/performance.md#cpu-or-gpu)).
 - **[Modular](docs/guide/extensions.md)**: GRU, LSTM, transformer and Mamba memories, CNN encoders, sequence replay with burn-in, a PID policy and forty-one extensions, combined in the agent's constructor. The [compatibility table](docs/guide/compatibility.md) shows which parts go together.
 - **Multi-paradigm**: discounted and average-reward agents ([ASAC](docs/algorithms/asac.md), [RVI-SAC](docs/algorithms/rvisac.md), [APO](docs/algorithms/apo.md)), model-free and model-based, online and offline, all behind one interface.
 - **[Expert-guided](docs/guide/expert-guidance.md)**: cloning, imitation, prior data and offline training.

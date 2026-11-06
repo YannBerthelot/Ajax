@@ -3425,6 +3425,11 @@ Ajax" marks a feature with no external reference.</p>
 <td>RLPD (Ball et al., 2023)</td>
 </tr>
 <tr>
+<td>Clone the expert, warm up a fresh critic, then fine-tune</td>
+<td><code>porl(CloningPretrain(expert))</code>, the keyword arguments of SAC or REDQ</td>
+<td>PORL (Xiao et al., 2025)</td>
+</tr>
+<tr>
 <td>Train on recorded transitions alone, then fine-tune online</td>
 <td><code>agent.train_offline(dataset, n_updates)</code> (SAC, TD3, REDQ, ASAC, DQN, IQL)</td>
 <td>offline training on the agent's own update; IQL (Kostrikov et al., 2022)</td>

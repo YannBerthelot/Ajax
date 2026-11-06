@@ -2947,7 +2947,7 @@
 <p>An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships forty of them,
+or measurements logged at each evaluation. Ajax ships forty-one of them,
 listed in the <a href="#catalogue">catalogue</a> below.</p>
 <p>Why extensions instead of agent options? An agent's constructor takes its
 paper's hyperparameters plus <code>extensions=()</code>. The exceptions are
@@ -3694,6 +3694,26 @@ accepts it. "SAC with an expert" means <code>SAC(..., expert_policy=...)</code>.
 <td>The same rows at <code>share=0.5</code>, exact in every batch, on critics with LayerNorm: pass <code>critic_architecture=("256", "layernorm", "relu", "256", "layernorm", "relu")</code>, or <code>critic_layer_norm=False</code> for the ablation. <code>critic_subset</code> makes each target bootstrap on that many target critics drawn at random. The original configuration is <code>REDQ</code> with those critics.</td>
 <td><code>pretrain</code>, <code>on_target</code></td>
 <td>as <code>RetainedDemonstrations</code>; <code>critic_subset</code> needs a Q critic with targets and next actions, and an agent without its own subset</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Fine-tuning a clone</strong> (<code>ajax.extensions.porl</code>)</p>
+<p><code>porl(cloning, presample_steps, epsilon, features)</code> gives the agent's keyword arguments for PORL (Xiao et al., 2025): <code>cloning</code> clones the expert, then only a fresh critic trains for <code>presample_steps</code> env steps, then the agent trains as usual. The update ratio, the critics and their architecture stay the agent's. A stateful expert needs its memory in <code>features</code>: <code>ExpertStateInput</code>, or <code>PIDTermsInput</code>, which parts from a PI whose anti-windup holds its integrator.</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>EpsilonGreedyPresample</code></td>
+<td>For the first <code>presample_steps</code> env steps, each copy takes a uniform action with probability <code>epsilon</code> and the actor's mean otherwise; then the agent's own action. The replay stores the action taken, and the observation statistics hold where pretraining left them, so the clone's actions hold too.</td>
+<td><code>action</code>, <code>pretrain</code>, <code>post_update</code></td>
+<td>SAC, TD3, REDQ, ASAC, RVISAC, CrossQ, TQC, IQL, UDRL, DAgger, without an action transform</td>
 </tr>
 </tbody>
 </table>

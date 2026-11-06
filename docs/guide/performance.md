@@ -81,12 +81,46 @@ learning you want, then use seeds to fill the device.
 
 ## CPU or GPU
 
-Small networks on gymnax tasks train well on a CPU: every agent-speed
-number below is a CPU number, and Ajax makes no claim about its speed on a
-GPU. A GPU has more room for parallel work: many seeds, many environment
-copies, wide networks, or a physics simulator such as Brax or Playground.
-The logging worker always runs on the CPU, so it never takes GPU memory. On
-a CPU, Playground uses MJX's pure-JAX implementation.
+A GPU gains most where updates take the time: many critics, wide networks,
+world models. It gains little on one simulator step per seed. With 10 seeds,
+steps per second per seed, on CheetahRun (top) and Breakout-MinAtar (below):
+
+| Agent | Four CPU cores | One NVIDIA L40S | Gain |
+| --- | --- | --- | --- |
+| CrossQ | 1.15 | 88 | 77 times |
+| REDQ | 0.80 | 43 | 54 times |
+| TQC | 3.68 | 132 | 36 times |
+| SAC | 32.4 | 238 | 7 times |
+| TD3 | 45.8 | 245 | 5 times |
+| APO | 451* | 1,214 | 3 times |
+| AVG | 179 | 193 | 1.1 times |
+| PPO | 831* | 215 | 0.3 times |
+| DQN | 408 | 4,492 | 11 times |
+| PQN | 8,480* | 44,947 | 5 times |
+| UDRL | 415 | 1,808 | 4 times |
+| PPO | 3,316* | 13,799 | 4 times |
+
+The GPU column and the plain CPU figures are short timing runs without
+evaluations (`benchmarks/suite/results/timing-gpu` and `PHASE0.md`). Starred
+figures are full runs with evaluations. At one seed, DreamerV3 went from 0.78
+to 60 steps per second and TD-MPC2 from 2.98 to 143. DreamerV3 gained nothing
+from sharing seeds: 3 seeds gave 73 steps per second in all and 5 gave 60.
+
+More seeds help until the card is full. SAC's total levelled off near 8,000
+steps per second from 64 seeds, while PPO reached 42,000 at 256. Three SAC jobs
+at once on one card gave 1.9 times the throughput of one.
+`benchmarks/gpu_check.sh` compares four agents on CartPole and Pendulum with
+the same machine's CPU, in `benchmarks/gpu/report.md`.
+
+The logging worker always runs on the CPU, so it never takes GPU memory.
+Playground runs MJX's pure-JAX physics on every device. In a raw stepping loop
+Warp, its other implementation, ran 3 to 10 times faster on an L40S, but Ajax's
+training loop does not run on it yet (`physics="warp"`, needs a GPU).
+
+A GPU doesn't promise the same result twice by default: two identical PPO runs
+on HumanoidWalk differed. `XLA_FLAGS=--xla_gpu_deterministic_ops=true` made
+repeated and resumed runs match exactly on CheetahRun and HumanoidWalk, at
+about 6 to 20% of speed. gymnax tasks matched without it.
 
 To keep a run on the CPU of a machine with a GPU, set `JAX_PLATFORMS=cpu`
 (and `CUDA_VISIBLE_DEVICES=""` to hide the GPU entirely). The repository's

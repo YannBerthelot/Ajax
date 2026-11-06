@@ -2,8 +2,8 @@
 
 A run can stop and continue: in the same process by passing its state back
 to `train`, or in another process through a checkpoint file. Either way the
-continued run is the run that never stopped. The tests check it state by
-state for every agent ([below](#what-the-tests-guarantee)).
+continued run is the run that never stopped, up to rounding. The tests check
+it state by state for every agent ([below](#what-the-tests-guarantee)).
 
 ## In the same process
 
@@ -106,7 +106,11 @@ agent; then they compare the two end states:
 | DreamerV3, TDMPC2, TDMPC2MultiTask | the same, in their own test files |
 
 The tolerance is there because two programs compiled apart may round
-differently. A test fails if an agent is added without a row, or one that
+differently. On physics tasks that rounding can grow: PPO on HumanoidWalk,
+paused once on a CPU, ended with different weights from the unbroken run, and
+so did PPO on CheetahRun on a GPU. Each is still a valid run, but not the same
+run. On a GPU, `XLA_FLAGS=--xla_gpu_deterministic_ops=true` removed the gap on
+both tasks. A test fails if an agent is added without a row, or one that
 takes normalisation or memory without the rows for them. Logging is checked
 too: for SAC, DQN, PPO and PQN, the two halves log and evaluate at exactly
 the steps the whole run does.

@@ -3026,7 +3026,7 @@ to 60 steps per second and TD-MPC2 from 2.98 to 143. DreamerV3 gained nothing
 from sharing seeds: 3 seeds gave 73 steps per second in all and 5 gave 60.</p>
 <p>More seeds help until the card is full. SAC's total levelled off near 8,000
 steps per second from 64 seeds, while PPO reached 42,000 at 256. Three SAC jobs
-at once on one card gave 1.9 times the throughput of one.
+at once on an otherwise idle card gave 1.9 times the throughput of one.
 <code>benchmarks/gpu_check.sh</code> compares four agents on CartPole and Pendulum with
 the same machine's CPU, in <code>benchmarks/gpu/report.md</code>.</p>
 <p>The logging worker always runs on the CPU, so it never takes GPU memory.
@@ -3035,8 +3035,9 @@ Warp, its other implementation, ran 3 to 10 times faster on an L40S, but Ajax's
 training loop does not run on it yet (<code>physics="warp"</code>, needs a GPU).</p>
 <p>A GPU doesn't promise the same result twice by default: two identical PPO runs
 on HumanoidWalk differed. <code>XLA_FLAGS=--xla_gpu_deterministic_ops=true</code> made
-repeated and resumed runs match exactly on CheetahRun and HumanoidWalk, at
-about 6 to 20% of speed. gymnax tasks matched without it.</p>
+repeated and resumed runs match exactly on CheetahRun and HumanoidWalk. At 10
+seeds it cost 11% of speed on TQC and 33% on APO on HumanoidWalk. gymnax tasks
+matched without it.</p>
 <p>To keep a run on the CPU of a machine with a GPU, set <code>JAX_PLATFORMS=cpu</code>
 (and <code>CUDA_VISIBLE_DEVICES=""</code> to hide the GPU entirely). The repository's
 tests and benchmarks run this way, so they never compete with an experiment

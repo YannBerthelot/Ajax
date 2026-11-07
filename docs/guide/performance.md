@@ -108,7 +108,7 @@ from sharing seeds: 3 seeds gave 73 steps per second in all and 5 gave 60.
 
 More seeds help until the card is full. SAC's total levelled off near 8,000
 steps per second from 64 seeds, while PPO reached 42,000 at 256. Three SAC jobs
-at once on one card gave 1.9 times the throughput of one.
+at once on an otherwise idle card gave 1.9 times the throughput of one.
 `benchmarks/gpu_check.sh` compares four agents on CartPole and Pendulum with
 the same machine's CPU, in `benchmarks/gpu/report.md`.
 
@@ -119,8 +119,9 @@ training loop does not run on it yet (`physics="warp"`, needs a GPU).
 
 A GPU doesn't promise the same result twice by default: two identical PPO runs
 on HumanoidWalk differed. `XLA_FLAGS=--xla_gpu_deterministic_ops=true` made
-repeated and resumed runs match exactly on CheetahRun and HumanoidWalk, at
-about 6 to 20% of speed. gymnax tasks matched without it.
+repeated and resumed runs match exactly on CheetahRun and HumanoidWalk. At 10
+seeds it cost 11% of speed on TQC and 33% on APO on HumanoidWalk. gymnax tasks
+matched without it.
 
 To keep a run on the CPU of a machine with a GPU, set `JAX_PLATFORMS=cpu`
 (and `CUDA_VISIBLE_DEVICES=""` to hide the GPU entirely). The repository's

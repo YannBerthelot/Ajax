@@ -582,7 +582,8 @@ def test_an_own_replay_agent_runs_its_ticks_on_a_replay_sized_per_call() -> None
     logging = LoggingConfig(log_frequency=8, backends=())
     state, rows = agent.train(0, 12, logging_config=logging)
     assert agent.prepared == (0, 6) and agent.checked == 6
-    assert np.asarray(rows["timestep"]).tolist() == [[8, -1]]  # ticks 3, (7)
+    # One row per multiple of 8 the call's 12 steps reach: tick 3.
+    assert np.asarray(rows["timestep"]).tolist() == [[8]]
     assert np.asarray(rows["Eval/replay"])[0, 0] == 6.0
     counts = [state.stored, state.n_updates, state.restarts]
     assert [int(count[0]) for count in counts] == [12, 3, 1]  # odd ticks 1, 3, 5

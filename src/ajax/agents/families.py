@@ -1450,6 +1450,11 @@ class OwnReplayAgent(DeclaredAgent):
         del start_tick
         return n_timesteps // self.env_args.n_envs
 
+    def steps_before(self, tick: Any) -> Any:
+        """The timesteps the absolute ticks before tick take: one row per
+        env each."""
+        return tick * self.env_args.n_envs
+
     def make_after_log(self) -> Optional[Callable[[Any, jax.Array], Any]]:
         """What runs on every tick after the logging gate (Evaluation's
         after_log). None by default: an identity would still trace the gate."""
@@ -1552,11 +1557,12 @@ class OwnReplayAgent(DeclaredAgent):
         log_frequency = loop.log_frequency
         evaluation = Evaluation(
             metrics=self.report,
-            every=log_frequency and max(self.count_ticks(log_frequency, 0), 1),
+            every=log_frequency,
             evaluate=partial(
                 self.evaluate, context=context, num_episode_test=num_episode_test
             ),
             after_log=self.make_after_log(),
+            steps_before=self.steps_before,
         )
 
         def count_updates(tick: jax.Array, agent_state: Any) -> jax.Array:

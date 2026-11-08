@@ -131,7 +131,13 @@ Iteration = Callable[[Any, Any, Any], tuple[Any, Optional[dict]]]
 
 @dataclasses.dataclass(frozen=True)
 class Evaluation:
-    """An agent's own evaluation, every ``every`` ticks (``None``: never).
+    """An agent's own evaluation, every ``every`` ticks (``None``: never),
+    or, given ``steps_before(tick)`` (the env steps, summed over envs, of the
+    absolute ticks before ``tick``), on each tick whose steps reach a
+    multiple of ``every`` env steps: an agent whose ticks are not all env
+    steps (TD-MPC2's held ticks) cannot keep a step cadence in ticks. The
+    gate reads the unbatched tick, not the per-seed timestep, so that its
+    ``lax.cond`` stays a real cond under the seed vmap.
 
     ``metrics(agent_state, aux)`` are its training metrics (``timestep``
     included), updated with its policy's ``evaluate(agent_state, key)``
@@ -143,6 +149,16 @@ class Evaluation:
     every: Optional[int]
     evaluate: Optional[Callable[[Any, jax.Array], dict]] = None
     after_log: Optional[Callable[[Any, jax.Array], Any]] = None
+    steps_before: Optional[Callable[[Any], Any]] = None
+
+    def due(self, tick: Any) -> Optional[jax.Array]:
+        """Whether tick ``tick`` evaluates; ``None`` when none does."""
+        if not self.every:
+            return None
+        if self.steps_before is None:
+            return (tick + 1) % self.every == 0
+        reached = self.steps_before(tick + 1) // self.every
+        return self.steps_before(tick) // self.every < reached
 
     def count(self, n_ticks: int) -> int:
         """The most evaluations ``n_ticks`` consecutive ticks make."""
@@ -567,8 +583,8 @@ class TrainLoop:
     def evaluate_every(
         self, agent_state: Any, aux: Any, index: Any, tick: Any, evaluation: Evaluation
     ) -> tuple[Any, Optional[dict]]:
-        """An agent's own evaluation and logs on the ticks ``t`` with ``(t +
-        1) % evaluation.every == 0`` (:func:`ajax.log.maybe_eval_and_log`,
+        """An agent's own evaluation and logs on the ticks
+        :meth:`Evaluation.due` picks (:func:`ajax.log.maybe_eval_and_log`,
         the extensions' eval metrics included); returns the state and the
         metrics (``None`` without logging)."""
         logs = agent_state.n_logs
@@ -576,7 +592,7 @@ class TrainLoop:
             agent_state,
             aux,
             index,
-            tick,
+            evaluation.due(tick),
             metrics_fn=evaluation.metrics,
             evaluate_fn=evaluation.evaluate or (lambda *_: {}),
             extra_eval_metrics=compose_eval_metrics(
@@ -586,7 +602,6 @@ class TrainLoop:
             ),
             log=self.log,
             log_fn=self.log_fn,
-            every=evaluation.every,
         )
         if evaluation.after_log is not None:
             agent_state = evaluation.after_log(agent_state, agent_state.n_logs != logs)
@@ -810,12 +825,17 @@ class TrainLoop:
         if num_ticks is None:
             self.warn_if_partial(self.env_args.n_envs, "n_envs")
             num_ticks = self.budget // self.env_args.n_envs
+        evaluations = None
+        if evaluation is not None and evaluation.steps_before is not None:
+            evaluations = self.n_evaluations
+        elif evaluation is not None:
+            evaluations = evaluation.count(num_ticks)
         return self.train(
             init,
             iteration,
             num_ticks,
             last_rollout=(1, collect_args) if expose_rollout else None,
-            evaluations=None if evaluation is None else evaluation.count(num_ticks),
+            evaluations=evaluations,
             update=pretrain_update or update,
             buffer=collect_args.get("buffer"),
             one_update=(

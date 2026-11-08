@@ -1,11 +1,13 @@
-"""maybe_eval_and_log: the scan-index-gated eval + log step of the agents
-with their own evaluation (TrainLoop.evaluate_every)."""
+"""maybe_eval_and_log: the gated eval + log step of the agents with their own
+evaluation (TrainLoop.evaluate_every), gated here by Evaluation.due on the
+scan index."""
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import struct
 
+from ajax.agents.loop import Evaluation
 from ajax.log import MetricsAccumulator, maybe_eval_and_log
 from ajax.random_keys import derive_key
 
@@ -45,18 +47,19 @@ def make_step(log_fn=lambda metrics, index: None, log=True, every=3):
     """The agents' step: ``(state, seed index, iteration) -> (state,
     metrics)``, ``PER_ITERATION`` env steps per iteration."""
 
+    gate = Evaluation(metrics=metrics_fn, every=every)
+
     def step(state, index, iteration):
         return maybe_eval_and_log(
             state,
             (iteration + 1) * PER_ITERATION,
             index,
-            iteration,
+            gate.due(iteration),
             metrics_fn=metrics_fn,
             evaluate_fn=evaluate_fn,
             extra_eval_metrics=extra_eval_metrics,
             log=log,
             log_fn=log_fn,
-            every=every,
         )
 
     return step
@@ -118,13 +121,12 @@ def test_disabled_logging_does_not_even_trace_the_evaluation():
             state,
             None,
             0,
-            iteration,
+            iteration >= 0,
             metrics_fn=traced,
             evaluate_fn=traced,
             extra_eval_metrics=traced,
             log=False,
             log_fn=traced,
-            every=1,
         )
     )
     state, metrics = step(state, jnp.int32(0))
@@ -145,7 +147,7 @@ def test_each_evaluation_draws_the_keys_of_its_timestep():
             state,
             jnp.int32(timestep),
             0,
-            jnp.int32(iteration),
+            jnp.asarray(True),
             metrics_fn=metrics_fn,
             evaluate_fn=lambda state, key: {"Eval/key": jax.random.uniform(key)},
             extra_eval_metrics=lambda state, key: {
@@ -153,7 +155,6 @@ def test_each_evaluation_draws_the_keys_of_its_timestep():
             },
             log=True,
             log_fn=lambda metrics, index: None,
-            every=1,
         )
         online = derive_key(jax.random.PRNGKey(5), "online_evaluation")
         keys = jax.random.split(jax.random.fold_in(online, timestep))

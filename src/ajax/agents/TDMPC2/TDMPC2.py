@@ -478,6 +478,10 @@ class TDMPC2(OwnReplayAgent):
         )
         return metrics
 
+    def steps_before(self, tick: Any) -> Any:
+        """The env steps, summed over envs, of the ticks before tick."""
+        return self.schedule.steps_before(tick) * self.env_args.n_envs
+
     def count_ticks(self, n_timesteps: int, start_tick: int) -> int:
         # The run ends on the tick of its last env step (the schedule's).
         return self.schedule.num_ticks(n_timesteps, start_tick)
@@ -630,11 +634,10 @@ class FixedLengthSchedule:
         length = self.episode_length
         return (step // length) * self.period + step % length
 
-    def steps_before(self, tick: int) -> int:
-        """Per-env env steps taken by ticks 0 .. tick - 1."""
-        return (tick // self.period) * self.episode_length + min(
-            tick % self.period, self.episode_length
-        )
+    def steps_before(self, tick: Any) -> Any:
+        """Per-env env steps taken by ticks 0 .. tick - 1: all but the held
+        ones, one in each period (a Python int or a traced tick)."""
+        return tick - tick // self.period
 
     def num_ticks(self, n_timesteps: int, start_tick: int = 0) -> int:
         """Ticks of a run of n_timesteps env steps (n_timesteps div n per
@@ -706,6 +709,10 @@ class EpisodicSchedule:
     def num_ticks(self, n_timesteps: int, start_tick: int = 0) -> int:
         del start_tick  # every tick is a row per env
         return n_timesteps // self.n_envs
+
+    def steps_before(self, tick: Any) -> Any:
+        """Rows per env of ticks 0 .. tick - 1: one each."""
+        return tick
 
     def random_phase(self, tick: Any) -> Any:
         return tick <= self.seed_tick

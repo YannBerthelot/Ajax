@@ -249,25 +249,22 @@ def maybe_eval_and_log(
     agent_state: Any,
     aux: Any,
     index: Any,
-    iteration: Any,
+    due: Optional[jax.Array],
     *,
     metrics_fn: Callable[[Any, Any], dict],
     evaluate_fn: Callable[[Any, jax.Array], dict],
     extra_eval_metrics: Optional[Callable],
     log: bool,
     log_fn: Callable,
-    every: Optional[int],
 ) -> tuple[Any, Optional[dict]]:
-    """Evaluate + log every ``every`` scan iterations, gated on the scan index.
+    """Evaluate + log when ``due``, the caller's gate (``None``: never).
 
     For agents with their own evaluation
-    (:meth:`ajax.agents.loop.TrainLoop.evaluate_every`). The gate is
-    ``(iteration + 1) % every == 0``. ``iteration`` is the scan
-    input -- unbatched even when the agent state is batched across seeds
-    (resume, curriculum) -- so the ``lax.cond`` stays a real cond and the
-    evaluation only runs on the iterations that log. With an iteration
-    offset (``build_resumable_train``) the cadence is absolute; without one
-    it is relative to the start of this ``train`` call.
+    (:meth:`ajax.agents.loop.TrainLoop.evaluate_every`, whose
+    :class:`~ajax.agents.loop.Evaluation` computes ``due`` from the scan
+    index). ``due`` is unbatched even when the agent state is batched across
+    seeds (resume, curriculum), so the ``lax.cond`` stays a real cond and
+    the evaluation only runs on the iterations that log.
 
     On a logging iteration the metrics are ``metrics_fn(agent_state, aux)``
     (the agent's training metrics, e.g. ``timestep`` and losses) updated
@@ -276,8 +273,8 @@ def maybe_eval_and_log(
     those of the timestep the metrics log); they are sent to ``log_fn``
     through :func:`gated_log_callback` and ``agent_state.n_logs`` is
     incremented. Otherwise the same structure is returned filled with NaN
-    (``-1`` for integer leaves) and ``n_logs`` is unchanged; never so
-    without ``every``. Without logging (``log`` false) the evaluation is not
+    (``-1`` for integer leaves) and ``n_logs`` is unchanged; always so
+    without ``due``. Without logging (``log`` false) the evaluation is not
     even traced (tracing alone rebuilds the evaluation env) and the metrics
     are ``None``.
 
@@ -285,8 +282,8 @@ def maybe_eval_and_log(
     """
     if not log:
         return agent_state, None
-    enabled = bool(every)
-    flag = jnp.logical_and(enabled, (iteration + 1) % (every or 1) == 0)
+    enabled = due is not None
+    flag = jnp.logical_and(enabled, False if due is None else due)
 
     def run(agent_state, aux, index):
         metrics = dict(metrics_fn(agent_state, aux))

@@ -702,7 +702,7 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
                 assert not np.array_equal(eps, other_eps)
 
     # log_frequency 80 env steps = 40 per env = 2 episodes: one log per seed,
-    # on the held tick after the second episode.
+    # on the tick of the second episode's last step.
     assert len(logged) == len(SEEDS)
     np.testing.assert_array_equal(state.n_logs, 1)
     for entry in logged:
@@ -715,11 +715,39 @@ def test_playground_cartpole_trains_and_logs(monkeypatch):
         assert int(entry["Train/n_updates"]) == 40 + N_ENVS * (40 - 21)
         assert int(entry["Train/terminations"]) == 0
         assert float(entry["ext_smoke/x"]) == 1.0  # the extension's metric
-    # The returned evaluations: the one log, then the sentinel up to the most
-    # the call's 63 ticks can make (every 42 ticks: 2).
-    np.testing.assert_array_equal(metrics["timestep"], [[80, -1]] * len(SEEDS))
+    # The returned evaluations: one row per multiple of 80 the call's 120
+    # env steps reach.
+    np.testing.assert_array_equal(metrics["timestep"], [[80]] * len(SEEDS))
     assert set(metrics) == set(logged[0])
     np.testing.assert_array_equal(metrics["Train/n_updates"][:, 0], 40 + N_ENVS * 19)
+
+
+def test_a_run_and_its_resume_evaluate_once_per_log_frequency_env_steps():
+    """Contract (LoggingConfig.log_frequency, the module docstring): an
+    evaluation each time the run's env steps reach a multiple of
+    log_frequency, and one returned row per evaluation, also when the
+    multiples fall inside an episode and when the call resumes a run. With
+    log_frequency 30 (15 steps per env, inside the 20-step episodes): the
+    first 52 steps reach 30; the next 70 (to 122) reach 60, 90 and 120."""
+    agent = _pendulum_agent()
+    logging_config = LoggingConfig(log_frequency=30, backends=())
+    first, first_rows = agent.train(
+        seed=SEEDS, n_timesteps=FIRST, num_episode_test=2, logging_config=logging_config
+    )
+    _, resumed_rows = agent.train(
+        seed=SEEDS,
+        n_timesteps=RESUMED,
+        num_episode_test=2,
+        logging_config=logging_config,
+        initial_state=first,
+    )
+    jax.effects_barrier()
+    np.testing.assert_array_equal(first_rows["timestep"], [[30]] * len(SEEDS))
+    np.testing.assert_array_equal(
+        resumed_rows["timestep"], [[60, 90, 120]] * len(SEEDS)
+    )
+    for rows in (first_rows, resumed_rows):
+        assert np.all(np.isfinite(rows["Eval/episodic mean reward"]))
 
 
 # ---------------------------------------------------------------------------

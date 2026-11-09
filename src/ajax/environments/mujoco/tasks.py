@@ -23,6 +23,8 @@ from ml_collections import config_dict
 from mujoco import mjx
 from mujoco_playground._src import mjx_env
 
+from ajax.random_keys import derive_key
+
 ASSETS = Path(__file__).parent / "assets"
 
 
@@ -122,7 +124,8 @@ class InvertedPendulum(GymnasiumTask):
         super().__init__(physics)
 
     def initial_state(self, key):
-        qpos_key, qvel_key = jax.random.split(key)
+        qpos_key = derive_key(key, "reset_qpos")
+        qvel_key = derive_key(key, "reset_qvel")
         scale = self.reset_noise_scale
         qpos = self.init_qpos + self.uniform(qpos_key, scale, self.mj_model.nq)
         qvel = self.init_qvel + self.uniform(qvel_key, scale, self.mj_model.nv)
@@ -159,7 +162,8 @@ class InvertedDoublePendulum(GymnasiumTask):
         super().__init__(physics)
 
     def initial_state(self, key):
-        qpos_key, qvel_key = jax.random.split(key)
+        qpos_key = derive_key(key, "reset_qpos")
+        qvel_key = derive_key(key, "reset_qvel")
         scale = self.reset_noise_scale
         qpos = self.init_qpos + self.uniform(qpos_key, scale, self.mj_model.nq)
         noise = jax.random.normal(qvel_key, (self.mj_model.nv,))
@@ -212,15 +216,19 @@ class Reacher(GymnasiumTask):
         self.target = self.mj_model.body("target").id
 
     def initial_state(self, key):
-        qpos_key, radius_key, angle_key, qvel_key = jax.random.split(key, 4)
+        qpos_key = derive_key(key, "reset_qpos")
         qpos = self.init_qpos + self.uniform(qpos_key, 0.1, self.mj_model.nq)
         # Gymnasium redraws the goal uniformly in [-0.2, 0.2]^2 until it
         # lies inside the disc of radius 0.2: uniform in that disc, drawn
         # here by its radius and angle.
-        radius = 0.2 * jnp.sqrt(jax.random.uniform(radius_key))
-        angle = jax.random.uniform(angle_key, maxval=2 * jnp.pi)
+        radius_draw, angle_draw = jax.random.uniform(
+            derive_key(key, "reset_goal"), (2,)
+        )
+        radius = 0.2 * jnp.sqrt(radius_draw)
+        angle = 2 * jnp.pi * angle_draw
         goal = radius * jnp.array([jnp.cos(angle), jnp.sin(angle)])
         qpos = qpos.at[-2:].set(goal)
+        qvel_key = derive_key(key, "reset_qvel")
         qvel = self.init_qvel + self.uniform(qvel_key, 0.005, self.mj_model.nv)
         return qpos, qvel.at[-2:].set(0.0)
 
@@ -270,7 +278,8 @@ class Swimmer(GymnasiumTask):
         super().__init__(physics)
 
     def initial_state(self, key):
-        qpos_key, qvel_key = jax.random.split(key)
+        qpos_key = derive_key(key, "reset_qpos")
+        qvel_key = derive_key(key, "reset_qvel")
         scale = self.reset_noise_scale
         qpos = self.init_qpos + self.uniform(qpos_key, scale, self.mj_model.nq)
         qvel = self.init_qvel + self.uniform(qvel_key, scale, self.mj_model.nv)

@@ -112,6 +112,13 @@ NAMES: tuple[str, ...] = (
     "evaluation",
     # A target's next actions, off its step's key (ajax.agents.RVISAC).
     "next_actions",
+    # A MuJoCo task's reset draws, off its reset key: the noise on the
+    # positions and on the velocities, Reacher's goal, Pusher's object
+    # (ajax.environments.mujoco.tasks).
+    "reset_qpos",
+    "reset_qvel",
+    "reset_goal",
+    "reset_object",
 )
 
 TAGS: dict[str, int] = {name: make_tag(name) for name in NAMES}

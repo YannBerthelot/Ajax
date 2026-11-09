@@ -19,6 +19,10 @@ uses the first match:
 2. MuJoCo Playground: `"CheetahRun"`, `"CartpoleBalance"`, ...
 3. Brax: `"ant"`, `"halfcheetah"`, ...
 
+Two prefixes choose a source outright: `"mujoco:<id>"` for
+[Gymnasium's MuJoCo tasks in JAX](#gymnasiums-mujoco-tasks-in-jax), and
+`"gymnasium:<id>"` for [Gymnasium environments](#gymnasium-environments).
+
 Brax and Playground ids need Ajax's `brax` or `playground` extra
 ([Installation](../getting-started/installation.md#extras)). An unknown id
 raises `ValueError`, naming the extras that are not installed. The agent
@@ -74,6 +78,29 @@ XLA_FLAGS=--xla_disable_hlo_passes=algsimp python train.py
 
 Results are the same up to floating-point rounding; training ran 8 to 15%
 slower on a CPU. A single seed compiles without it.
+
+### Gymnasium's MuJoCo tasks in JAX
+
+`"mujoco:<id>"` builds one of Gymnasium's v5 MuJoCo tasks on MJX, so it runs
+in the compiled program like any Playground task: `"mujoco:InvertedPendulum-v5"`,
+`"mujoco:InvertedDoublePendulum-v5"`, `"mujoco:Reacher-v5"` and
+`"mujoco:Swimmer-v5"`. Each loads Gymnasium's own model file and follows its
+`<task>_v5.py`: the same observations, rewards, terminations, reset
+distribution and time limit (50 steps for Reacher, 1,000 for the others,
+unless you pass `episode_length`). From the same state and actions, a task
+gives Gymnasium's values to about 1e-11 in float64. Resets draw from
+Gymnasium's distributions, but not its random stream. They need the
+`playground` extra.
+
+```python
+# doc: skip (needs the playground extra: pip install "ajax-rl[playground]")
+from ajax import SAC
+
+agent = SAC("mujoco:Reacher-v5")
+```
+
+For a task's own keywords (`reset_noise_scale`, `ctrl_cost_weight`, ...),
+build it with `ajax.environments.mujoco.tasks.make("Swimmer-v5", ...)`.
 
 ### Diverging simulators
 
@@ -297,10 +324,14 @@ comparable across them:
 | `Ant-v5` | Brax `"ant"` | No contact cost; 27 observations instead of 105 |
 | `Humanoid-v5` | Brax `"humanoid"` | No contact cost; other observations |
 | `HumanoidStandup-v5` | Brax `"humanoidstandup"` | A height reward 5 times smaller, other costs and observations |
+| `InvertedPendulum-v5` | Ajax `"mujoco:InvertedPendulum-v5"` | Nothing: the same task on MJX |
 | `InvertedPendulum-v5` | Brax `"inverted_pendulum"` | The reward is also paid on the step that ends the episode |
+| `InvertedDoublePendulum-v5` | Ajax `"mujoco:InvertedDoublePendulum-v5"` | Nothing: the same task on MJX |
 | `InvertedDoublePendulum-v5` | Brax `"inverted_double_pendulum"` | A 0.02 s control step instead of 0.05 s; smaller reset noise; 8 observations instead of 9 |
+| `Reacher-v5` | Ajax `"mujoco:Reacher-v5"` | Nothing: the same task on MJX |
 | `Reacher-v5` | Brax `"reacher"` | 1,000-step episodes by default instead of 50; other targets and observations |
 | `Pusher-v5` | Brax `"pusher"` | The reward is read before the step; other placements |
+| `Swimmer-v5` | Ajax `"mujoco:Swimmer-v5"` | Nothing: the same task on MJX |
 | `Swimmer-v5` | Brax `"swimmer"` | Brax's physics only |
 | `CartPole-v1`, `Pendulum-v1`, `Acrobot-v1`, `MountainCar-v0` | gymnax, same id | The same task, in float32 |
 | `MountainCarContinuous-v0` | gymnax, same id | The car is not stopped at the left wall, and the goal also counts when reached moving left |

@@ -2,7 +2,7 @@ import copy
 import importlib
 import inspect
 from types import ModuleType
-from typing import Callable, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Tuple, Union
 
 import gymnax
 from gymnax import EnvParams
@@ -34,6 +34,8 @@ from ajax.wrappers import (
 
 # The opt-in for a Gymnasium environment, which steps in Python.
 GYMNASIUM_PREFIX = "gymnasium:"
+#: Gymnasium's MuJoCo tasks stepped by MJX (ajax.environments.mujoco).
+MUJOCO_PREFIX = "mujoco:"
 # External callers (e.g. SafetyExperiments) can register a custom builder for
 # a playground env id here, overriding the default wrapper stack below. The
 # builder signature is (n_envs, episode_length) -> env with `_ajax_env_id`
@@ -213,7 +215,13 @@ def _build_playground_env(
     from mujoco_playground import registry
     from mujoco_playground._src.wrapper import BraxAutoResetWrapper
 
-    env = registry.load(env_id, config_overrides={"impl": physics})
+    env: Any
+    if env_id.startswith(MUJOCO_PREFIX):
+        from ajax.environments.mujoco.tasks import make
+
+        env = make(env_id.removeprefix(MUJOCO_PREFIX), physics=physics)
+    else:
+        env = registry.load(env_id, config_overrides={"impl": physics})
     env = NonFiniteStepWrapper(env)
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env)
@@ -300,13 +308,18 @@ def build_env_from_id(
     n_envs: int = 1,
     fresh_reset: bool = True,
     *,
-    episode_length: int = 1000,
+    episode_length: Optional[int] = None,
     action_repeat: int = 1,
     differentiable_reset: bool = False,
     episode_keys: bool = True,
     physics: str = "jax",
 ) -> tuple[EnvType, Optional[EnvParams]]:
     """Build a wrapped env from its id (gymnax, mujoco_playground or brax).
+
+    ``"mujoco:<id>"`` builds Gymnasium's MuJoCo task ``<id>`` (such as
+    ``"mujoco:Reacher-v5"``) on MJX, :mod:`ajax.environments.mujoco`, with
+    the playground stack; ``episode_length`` defaults to the task's time
+    limit in Gymnasium's registry, and to 1000 for every other id.
 
     ``"gymnasium:<id>"`` builds the Gymnasium environment ``<id>``, which
     steps in Python (:class:`ajax.environments.gymnasium.GymnasiumEnv`); the
@@ -357,6 +370,23 @@ def build_env_from_id(
     check_action_repeat(action_repeat)
     if physics not in PLAYGROUND_PHYSICS:
         raise ValueError(f"physics={physics!r}: expected one of {PLAYGROUND_PHYSICS}.")
+    if env_id.startswith(MUJOCO_PREFIX):
+        from ajax.environments.mujoco.tasks import TASKS
+
+        task_id = env_id.removeprefix(MUJOCO_PREFIX)
+        if task_id not in TASKS:
+            raise ValueError(f"No MuJoCo task {task_id!r}; known: {sorted(TASKS)}.")
+        return _build_playground_env(
+            env_id,
+            n_envs=n_envs,
+            episode_length=episode_length or TASKS[task_id].episode_length,
+            action_repeat=action_repeat,
+            fresh_reset=fresh_reset,
+            differentiable_reset=differentiable_reset,
+            episode_keys=episode_keys,
+            physics=physics,
+        ), None
+    episode_length = episode_length or 1000
     if env_id.startswith(GYMNASIUM_PREFIX):
         # Opt-in only: an id without the prefix never falls back to Gymnasium.
         if action_repeat > 1:
@@ -523,7 +553,7 @@ def prepare_env(
     if isinstance(env_id, str):
         env, default_params = build_env_from_id(
             env_id,
-            episode_length=episode_length or 1000,
+            episode_length=episode_length,
             n_envs=n_envs,
             action_repeat=action_repeat,
         )

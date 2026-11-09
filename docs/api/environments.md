@@ -12,6 +12,8 @@ expert speaks the environment's units, and the agent reads it through
 
 ::: ajax.environments.gymnasium
 
+::: ajax.environments.mujoco.tasks
+
 ::: ajax.wrappers
 
 ::: ajax.environments.obs_norm

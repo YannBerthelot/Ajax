@@ -41,6 +41,7 @@ from ajax.environments.gymnasium import (
     PythonEnvironmentWarning,
 )
 from ajax.environments.interaction import reset, step
+from ajax.environments.mujoco.tasks import TASKS as MUJOCO_TASKS
 from ajax.evaluate import setup_environment
 from ajax.logging.wandb_logging import LoggingConfig
 
@@ -212,6 +213,7 @@ def test_every_suggested_task_is_registered(name, backend, env_id):
         # brax lists its environments only in this private registry.
         "Brax": brax.envs._envs,
         "MuJoCo Playground": playground_registry.ALL_ENVS,
+        "Ajax": [f"mujoco:{task_id}" for task_id in MUJOCO_TASKS],
     }
     assert env_id in registered[backend], f"{name}: {backend} {env_id}"
 

@@ -50,6 +50,7 @@ class JaxCounterpart:
 
 
 _BRAX_PHYSICS = "Brax's own physics (Euler steps, fewer colliding bodies)"
+_SAME_ON_MJX = "the same task, model and rules, stepped by MJX in JAX"
 _DM_CONTROL = (
     "a DeepMind Control task: another model, a reward between 0 and 1, no early"
     " termination"
@@ -83,13 +84,16 @@ COUNTERPARTS: dict[str, tuple[str, tuple[JaxCounterpart, ...]]] = {
         JaxCounterpart("MuJoCo Playground", ("HumanoidStand",), _DM_CONTROL),
     )),
     "InvertedPendulum": ("InvertedPendulum-v5", (
+        JaxCounterpart("Ajax", ("mujoco:InvertedPendulum-v5",), _SAME_ON_MJX),
         JaxCounterpart("Brax", ("inverted_pendulum",), f"the reward is also paid on the step that ends the episode; {_BRAX_PHYSICS}"),
         JaxCounterpart("MuJoCo Playground", ("CartpoleBalance",), _DM_CONTROL),
     )),
     "InvertedDoublePendulum": ("InvertedDoublePendulum-v5", (
+        JaxCounterpart("Ajax", ("mujoco:InvertedDoublePendulum-v5",), _SAME_ON_MJX),
         JaxCounterpart("Brax", ("inverted_double_pendulum",), "a control step of 0.02 s instead of 0.05 s; reset noise 10 times smaller; 8 observations instead of 9"),
     )),
     "Reacher": ("Reacher-v5", (
+        JaxCounterpart("Ajax", ("mujoco:Reacher-v5",), _SAME_ON_MJX),
         JaxCounterpart("Brax", ("reacher",), "1,000-step episodes by default instead of 50 (episode_length=50 matches); other target placement and observations"),
         JaxCounterpart("MuJoCo Playground", ("ReacherEasy", "ReacherHard"), f"{_DM_CONTROL}; the reward is 0 or 1"),
     )),
@@ -97,6 +101,7 @@ COUNTERPARTS: dict[str, tuple[str, tuple[JaxCounterpart, ...]]] = {
         JaxCounterpart("Brax", ("pusher",), "the reward is computed from the state before the step; another fingertip point and object placement"),
     )),
     "Swimmer": ("Swimmer-v5", (
+        JaxCounterpart("Ajax", ("mujoco:Swimmer-v5",), _SAME_ON_MJX),
         JaxCounterpart("Brax", ("swimmer",), f"same reward, observation and termination; {_BRAX_PHYSICS}"),
         JaxCounterpart("MuJoCo Playground", ("SwimmerSwimmer6",), f"{_DM_CONTROL}; reach a target with 6 links"),
     )),
@@ -109,7 +114,11 @@ COUNTERPARTS: dict[str, tuple[str, tuple[JaxCounterpart, ...]]] = {
     )),
 }
 # fmt: on
-_EXTRAS = {"Brax": " (ajax-rl[brax])", "MuJoCo Playground": " (ajax-rl[playground])"}
+_EXTRAS = {
+    "Ajax": " (ajax-rl[playground])",
+    "Brax": " (ajax-rl[brax])",
+    "MuJoCo Playground": " (ajax-rl[playground])",
+}
 
 
 def warning_text(env_id: str) -> str:

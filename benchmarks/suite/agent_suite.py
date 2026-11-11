@@ -154,14 +154,18 @@ BENCHMARKS.update(
     on_more_tasks(("PPO", "APO", "AVG", "SAC", "TD3", "ASAC", "RVISAC"), CONTROL_TASKS)
 )
 #: Gymnasium's v5 MuJoCo tasks on MJX: every continuous agent, the slow ones
-#: included (owner, 2026-11-11).
-GYMNASIUM_MUJOCO_TASKS = (
+#: included (owner, 2026-11-11). Their episodes always run to the time limit.
+GYMNASIUM_MUJOCO_FIXED_LENGTH = (
     "mujoco:HalfCheetah-v5",
-    "mujoco:Hopper-v5",
-    "mujoco:Walker2d-v5",
     "mujoco:Swimmer-v5",
     "mujoco:Reacher-v5",
     "mujoco:Pusher-v5",
+)
+#: The ones whose episodes end when the body falls. Paper-era TD-MPC2 refuses
+#: them (it supports no terminations), so it runs on the tasks above only.
+GYMNASIUM_MUJOCO_TERMINATING = (
+    "mujoco:Hopper-v5",
+    "mujoco:Walker2d-v5",
     "mujoco:InvertedPendulum-v5",
     "mujoco:InvertedDoublePendulum-v5",
 )
@@ -178,12 +182,12 @@ BENCHMARKS.update(
             "REDQ",
             "TQC",
             "CrossQ",
-            "TDMPC2",
             "DreamerV3",
         ),
-        GYMNASIUM_MUJOCO_TASKS,
+        GYMNASIUM_MUJOCO_FIXED_LENGTH + GYMNASIUM_MUJOCO_TERMINATING,
     )
 )
+BENCHMARKS.update(on_more_tasks(("TDMPC2",), GYMNASIUM_MUJOCO_FIXED_LENGTH))
 #: The other MinAtar games gymnax runs.
 BENCHMARKS.update(
     on_more_tasks(

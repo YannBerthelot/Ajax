@@ -77,7 +77,9 @@ XLA_FLAGS=--xla_disable_hlo_passes=algsimp python train.py
 ```
 
 Results are the same up to floating-point rounding; training ran 8 to 15%
-slower on a CPU. A single seed compiles without it.
+slower on a CPU. A single seed compiles without it. The same happens on a GPU, where
+the workaround does not combine with `--xla_gpu_deterministic_ops=true`:
+such runs compile only without deterministic operations.
 
 ### Gymnasium's MuJoCo tasks in JAX
 

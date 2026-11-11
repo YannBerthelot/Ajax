@@ -8,6 +8,10 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **Agent benchmark filled in.** SAC, TD3, RVI-SAC and ASAC now have scores
+  on all fifteen DeepMind Control tasks, APO's HumanoidWalk run finished, and
+  REDQ, TQC, CrossQ, TD-MPC2 and DreamerV3 have CheetahRun scores, from runs
+  on a GPU ([Agent benchmark](docs/reproduction/benchmark.md)).
 - **Gymnasium's MuJoCo tasks in JAX.** `"mujoco:InvertedPendulum-v5"`,
   `"mujoco:InvertedDoublePendulum-v5"`, `"mujoco:Reacher-v5"` and
   `"mujoco:Swimmer-v5"` run Gymnasium's own models and rules on MJX, inside

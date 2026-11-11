@@ -226,7 +226,9 @@ class TQC(
             compute_temperature_loss,
         )
         agent_state = update_steps.run_if(
-            self.temperature_update_due(timestep), lambda _: tempered, agent_state
+            self.temperature_update_due(timestep, context.extensions),
+            lambda _: tempered,
+            agent_state,
         )
         return agent_state, AuxiliaryLogs(
             temperature=temperature_aux,
@@ -356,6 +358,7 @@ class TQC(
             "actor",
             "critic_ensemble",
             "discounted",
+            "entropy_temperature",
             "next_action_target",
             "distributional_critic",
             "obs_networks",

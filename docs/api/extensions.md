@@ -25,6 +25,8 @@ it uses. The [user guide](../guide/extensions.md) shows how to use them and
 
 ::: ajax.extensions.ensemble
 
+::: ajax.extensions.annealing
+
 ::: ajax.extensions.instrumentation
 
 ::: ajax.extensions.observe

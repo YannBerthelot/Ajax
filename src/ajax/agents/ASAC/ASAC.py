@@ -237,7 +237,9 @@ class ASAC(
         )
         if not self.fixed_alpha:
             agent_state = update_steps.run_if(
-                self.temperature_update_due(timestep), lambda _: tempered, agent_state
+                self.temperature_update_due(timestep, context.extensions),
+                lambda _: tempered,
+                agent_state,
             )
         # In the target's units: the reward rate theta is subtracted from the
         # scaled rewards there. It averages the rewards without the penalty,
@@ -373,6 +375,7 @@ class ASAC(
         {
             "actor",
             "critic_ensemble",
+            "entropy_temperature",
             "next_action_target",
             "obs_networks",
             "off_policy",

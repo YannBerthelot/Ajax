@@ -298,6 +298,9 @@ class Extension:
     #: (``agent_state.last_rollout``), which an on-policy or incremental
     #: agent then keeps.
     reads_last_rollout: ClassVar[bool] = False
+    #: Whether the extension sets a maximum-entropy agent's temperature
+    #: itself (MEW), so the agent's own temperature step stands aside.
+    sets_temperature: ClassVar[bool] = False
     #: Whether the agent's target goes on through a termination, bootstrapping
     #: on the reset observation the replay stores there (ResetCost), instead of
     #: cutting (update_steps.bootstrap_cuts).
@@ -649,6 +652,12 @@ class ExtensionStack:
     def buffer_fields(self) -> frozenset[str]:
         """The replay-buffer fields the stack's extensions declare they read."""
         return frozenset().union(*(e.buffer_fields for e in self.extensions))
+
+    @property
+    def sets_temperature(self) -> bool:
+        """Whether an extension of the stack sets the temperature
+        (Extension.sets_temperature)."""
+        return any(e.sets_temperature for e in self.extensions)
 
     @property
     def continues_through_terminations(self) -> bool:

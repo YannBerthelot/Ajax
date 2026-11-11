@@ -275,7 +275,8 @@ class SAC(
             compute_temperature_loss,
         )
         temperature_due = jnp.logical_and(
-            not self.fixed_alpha, self.temperature_update_due(timestep)
+            not self.fixed_alpha,
+            self.temperature_update_due(timestep, context.extensions),
         )
         agent_state = update_steps.run_if(
             temperature_due, lambda _: tempered, agent_state
@@ -422,6 +423,7 @@ class SAC(
             "actor",
             "critic_ensemble",
             "discounted",
+            "entropy_temperature",
             "next_action_target",
             "obs_networks",
             "off_policy",

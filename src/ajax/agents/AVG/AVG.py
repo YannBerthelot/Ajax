@@ -344,6 +344,7 @@ class AVG(PolicyUpdateStart, GradientClipping, ExpertGuided, IncrementalAgent):
             "actor",
             "critic_ensemble",
             "discounted",
+            "entropy_temperature",
             "next_action_target",
             "obs_networks",
             "off_policy",

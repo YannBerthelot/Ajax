@@ -1,14 +1,18 @@
 """Gymnasium's v5 MuJoCo tasks on MJX ("mujoco:<id>").
 
-Contract (from the owner's request: Gymnasium's tasks, exactly, in JAX; the
-oracle is Gymnasium itself, run on MuJoCo's C library):
+Contract (from the owner's request: Gymnasium's tasks, exactly, in JAX, the
+same results up to an epsilon; the oracle is Gymnasium itself, run on
+MuJoCo's C library):
 
-- from the same state and under the same actions, a task gives Gymnasium's
-  observations, rewards and terminations, step after step;
+- one step from any state Gymnasium reaches gives Gymnasium's observation,
+  reward and termination, in float64 and in float32 (what training runs);
+- without contacts, the same holds over many steps from the same start
+  under the same actions (with contacts, tiny differences grow along a
+  trajectory, so only the single step is a contract there);
 - a reset draws Gymnasium's initial-state distribution;
 - "mujoco:<id>" builds the task with Gymnasium's time limit (50 steps for
-  Reacher, 1000 for the others) unless the caller gives one, keeps it in
-  the evaluation rebuild, and an unknown id is refused.
+  Reacher, 100 for Pusher, 1000 for the others) unless the caller gives one,
+  keeps it in the evaluation rebuild, and an unknown id is refused.
 """
 
 import jax
@@ -32,7 +36,99 @@ STEPS = 40
 TOLERANCE = 1e-9
 
 
+def gymnasium_steps(task_id, n_steps):
+    """(qpos, qvel, action, observation, reward, terminated) of each of
+    n_steps random steps in Gymnasium, restarting after a termination."""
+    reference = gymnasium.make(task_id).unwrapped
+    reference.reset(seed=0)
+    random = np.random.default_rng(0)
+    rows = []
+    for episode in range(1, n_steps + 1):
+        qpos, qvel = reference.data.qpos.copy(), reference.data.qvel.copy()
+        action = random.uniform(reference.action_space.low, reference.action_space.high)
+        observation, reward, terminated, _, _ = reference.step(action)
+        rows.append((qpos, qvel, action, observation, reward, terminated))
+        if terminated:
+            reference.reset(seed=episode)
+    return rows
+
+
+ONE_STEP_TOLERANCE = {
+    # A single step from the same state differs only by the order of
+    # floating-point operations, and by the contact solver stopping on its
+    # tolerance: at most 1.5e-10 measured (HalfCheetah, values up to ~10).
+    "float64": 1e-8,
+    # float32 (what training runs) carries 7 digits: 1e-6 on values of
+    # ~10 for smooth steps, and the contact solver stops earlier, so
+    # HalfCheetah and Walker2d reach 1.4e-4 (measured over 100 steps).
+    "float32": 1e-3,
+}
+
+
+@pytest.mark.parametrize("dtype", ["float64", "float32"])
 @pytest.mark.parametrize("task_id", sorted(TASKS))
+def test_one_step_from_gymnasiums_states_gives_gymnasiums_values(task_id, dtype):
+    rows = gymnasium_steps(task_id, n_steps=100)
+    tolerance = ONE_STEP_TOLERANCE[dtype]
+
+    with jax.enable_x64(dtype == "float64"):
+        task = make(task_id)
+        template = task.reset(jax.random.key(0))
+
+        @jax.jit
+        def one_step(qpos, qvel, action):
+            state = template.replace(data=task.set_state(qpos, qvel))
+            return task.step(state, action)
+
+        for qpos, qvel, action, observation, reward, terminated in rows:
+            state = one_step(*(jnp.asarray(value) for value in (qpos, qvel, action)))
+            np.testing.assert_allclose(state.obs, observation, rtol=0, atol=tolerance)
+            np.testing.assert_allclose(state.reward, reward, rtol=0, atol=tolerance)
+            assert bool(state.done) == terminated
+
+
+HEALTH_CASES = [
+    # hopper_v5: z > 0.7, |angle| < 0.2, every state entry but x and z
+    # within 100 (here the thigh's velocity).
+    ("Hopper-v5", {"z": 0.71}, True),
+    ("Hopper-v5", {"z": 0.69}, False),
+    ("Hopper-v5", {"angle": 0.19}, True),
+    ("Hopper-v5", {"angle": -0.21}, False),
+    ("Hopper-v5", {"qvel3": 99.0}, True),
+    ("Hopper-v5", {"qvel3": 101.0}, False),
+    # walker2d_v5: 0.8 < z < 2, |angle| < 1, no state range.
+    ("Walker2d-v5", {"z": 0.81}, True),
+    ("Walker2d-v5", {"z": 0.79}, False),
+    ("Walker2d-v5", {"z": 2.01}, False),
+    ("Walker2d-v5", {"angle": 0.99}, True),
+    ("Walker2d-v5", {"angle": 1.01}, False),
+    ("Walker2d-v5", {"qvel3": 1000.0}, True),
+]
+
+
+@pytest.mark.parametrize("task_id, change, healthy", HEALTH_CASES)
+def test_health_follows_gymnasiums_ranges(task_id, change, healthy):
+    task = make(task_id)
+    qpos = (
+        task.init_qpos.at[1]
+        .set(change.get("z", 1.25))
+        .at[2]
+        .set(change.get("angle", 0.0))
+    )
+    qvel = task.init_qvel.at[3].set(change.get("qvel3", 0.0))
+
+    assert bool(task.is_healthy(task.set_state(qpos, qvel))) == healthy
+
+
+CONTACT_FREE = [
+    "InvertedDoublePendulum-v5",
+    "InvertedPendulum-v5",
+    "Reacher-v5",
+    "Swimmer-v5",
+]
+
+
+@pytest.mark.parametrize("task_id", CONTACT_FREE)
 def test_a_task_steps_as_gymnasium_does(task_id):
     reference = gymnasium.make(task_id).unwrapped
     first_observation, _ = reference.reset(seed=0)
@@ -116,6 +212,25 @@ def test_reacher_draws_its_goal_uniformly_in_the_disc_of_radius_0_2():
     )
 
 
+def test_pusher_places_its_object_away_from_the_goal():
+    """pusher_v5: the object uniform in [-0.3, 0] x [-0.2, 0.2], redrawn
+    until more than 0.17 from the goal at the origin; the arm unperturbed,
+    the object and goal still."""
+    task, qpos, qvel = resets("Pusher-v5")
+    place = qpos[:, -4:-2]
+
+    assert np.all(np.linalg.norm(place, axis=1) > 0.17)
+    assert np.all((place[:, 0] >= -0.3) & (place[:, 0] <= 0))
+    assert np.all(np.abs(place[:, 1]) <= 0.2)
+    np.testing.assert_array_equal(qpos[:, -2:], 0)
+    np.testing.assert_array_equal(
+        qpos[:, :7], np.broadcast_to(task.init_qpos[:7], (SAMPLES, 7))
+    )
+    np.testing.assert_array_equal(qvel[:, -4:], 0)
+    # The rectangle less the disc is symmetric in y: the mean of y is 0.
+    np.testing.assert_allclose(place[:, 1].mean(), 0, atol=4 * 0.2 / np.sqrt(SAMPLES))
+
+
 def test_inverted_double_pendulum_draws_normal_velocities_of_scale_0_1():
     """inverted_double_pendulum_v5: positions uniform within 0.1 of the
     initial ones, velocities normal with standard deviation 0.1."""
@@ -128,7 +243,9 @@ def test_inverted_double_pendulum_draws_normal_velocities_of_scale_0_1():
     )
 
 
-@pytest.mark.parametrize("task_id, steps", [("Reacher-v5", 50), ("Swimmer-v5", 1000)])
+@pytest.mark.parametrize(
+    "task_id, steps", [("Reacher-v5", 50), ("Pusher-v5", 100), ("Swimmer-v5", 1000)]
+)
 def test_an_id_builds_with_gymnasiums_time_limit(task_id, steps):
     env, env_params = build_env_from_id(f"mujoco:{task_id}")
 

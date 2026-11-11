@@ -84,15 +84,19 @@ such runs compile only without deterministic operations.
 ### Gymnasium's MuJoCo tasks in JAX
 
 `"mujoco:<id>"` builds one of Gymnasium's v5 MuJoCo tasks on MJX, so it runs
-in the compiled program like any Playground task: `"mujoco:InvertedPendulum-v5"`,
-`"mujoco:InvertedDoublePendulum-v5"`, `"mujoco:Reacher-v5"` and
-`"mujoco:Swimmer-v5"`. Each loads Gymnasium's own model file and follows its
+in the compiled program like any Playground task: `HalfCheetah-v5`,
+`Hopper-v5`, `Walker2d-v5`, `Swimmer-v5`, `Reacher-v5`, `Pusher-v5`,
+`InvertedPendulum-v5` and `InvertedDoublePendulum-v5`, each behind the
+`"mujoco:"` prefix. Each loads Gymnasium's own model file and follows its
 `<task>_v5.py`: the same observations, rewards, terminations, reset
-distribution and time limit (50 steps for Reacher, 1,000 for the others,
-unless you pass `episode_length`). From the same state and actions, a task
-gives Gymnasium's values to about 1e-11 in float64. Resets draw from
-Gymnasium's distributions, but not its random stream. They need the
-`playground` extra.
+distribution and time limit (50 steps for Reacher, 100 for Pusher, 1,000 for
+the others, unless you pass `episode_length`). Resets draw from Gymnasium's
+distributions, but not its random stream. They need the `playground` extra.
+
+One step from the same state gives Gymnasium's values to about 1e-10 in
+float64 and 1e-4 in float32, the precision training runs in. Over a whole
+episode the two drift apart where bodies touch the ground, as two builds of
+MuJoCo do: `benchmarks/mujoco_drift.py` reports how far.
 
 ```python
 # doc: skip (needs the playground extra: pip install "ajax-rl[playground]")
@@ -321,7 +325,9 @@ comparable across them:
 
 | Gymnasium | Closest JAX task | What differs |
 | --- | --- | --- |
+| `HalfCheetah-v5` | Ajax `"mujoco:HalfCheetah-v5"` | Nothing: the same task on MJX |
 | `HalfCheetah-v5` | Brax `"halfcheetah"` | Brax's physics only |
+| `Hopper-v5`, `Walker2d-v5` | Ajax `"mujoco:Hopper-v5"`, `"mujoco:Walker2d-v5"` | Nothing: the same tasks on MJX |
 | `Hopper-v5`, `Walker2d-v5` | Brax `"hopper"`, `"walker2d"` | Brax's physics; the healthy reward is also paid on the step that ends the episode |
 | `Ant-v5` | Brax `"ant"` | No contact cost; 27 observations instead of 105 |
 | `Humanoid-v5` | Brax `"humanoid"` | No contact cost; other observations |
@@ -332,6 +338,7 @@ comparable across them:
 | `InvertedDoublePendulum-v5` | Brax `"inverted_double_pendulum"` | A 0.02 s control step instead of 0.05 s; smaller reset noise; 8 observations instead of 9 |
 | `Reacher-v5` | Ajax `"mujoco:Reacher-v5"` | Nothing: the same task on MJX |
 | `Reacher-v5` | Brax `"reacher"` | 1,000-step episodes by default instead of 50; other targets and observations |
+| `Pusher-v5` | Ajax `"mujoco:Pusher-v5"` | Nothing: the same task on MJX |
 | `Pusher-v5` | Brax `"pusher"` | The reward is read before the step; other placements |
 | `Swimmer-v5` | Ajax `"mujoco:Swimmer-v5"` | Nothing: the same task on MJX |
 | `Swimmer-v5` | Brax `"swimmer"` | Brax's physics only |

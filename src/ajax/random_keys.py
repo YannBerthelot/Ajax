@@ -114,7 +114,7 @@ NAMES: tuple[str, ...] = (
     "next_actions",
     # A MuJoCo task's reset draws, off its reset key: the noise on the
     # positions and on the velocities, Reacher's goal, Pusher's object
-    # (ajax.environments.mujoco.tasks).
+    # (the gymnasium-mjx package's tasks, behind "mujoco:<id>").
     "reset_qpos",
     "reset_qvel",
     "reset_goal",

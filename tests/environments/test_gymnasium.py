@@ -31,6 +31,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from gymnasium_mjx import TASKS as MUJOCO_TASKS
 from mujoco_playground import registry as playground_registry
 
 from ajax import APG, PPO, SAC
@@ -41,7 +42,6 @@ from ajax.environments.gymnasium import (
     PythonEnvironmentWarning,
 )
 from ajax.environments.interaction import reset, step
-from ajax.environments.mujoco.tasks import TASKS as MUJOCO_TASKS
 from ajax.evaluate import setup_environment
 from ajax.logging.wandb_logging import LoggingConfig
 

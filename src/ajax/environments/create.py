@@ -34,8 +34,25 @@ from ajax.wrappers import (
 
 # The opt-in for a Gymnasium environment, which steps in Python.
 GYMNASIUM_PREFIX = "gymnasium:"
-#: Gymnasium's MuJoCo tasks stepped by MJX (ajax.environments.mujoco).
+#: Gymnasium's MuJoCo tasks stepped by MJX (the gymnasium-mjx package).
 MUJOCO_PREFIX = "mujoco:"
+
+
+def _gymnasium_mjx() -> Any:
+    """The gymnasium-mjx package, which holds the "mujoco:" tasks; an
+    ImportError naming the extra to install when it is missing."""
+    try:
+        import gymnasium_mjx
+        import gymnasium_mjx.playground
+    except ImportError as error:
+        raise ImportError(
+            'The "mujoco:" tasks (Gymnasium\'s MuJoCo tasks on MJX) come from the'
+            " gymnasium-mjx package. Install it with: pip install"
+            ' "ajax-rl[gymnasium-mjx]"'
+        ) from error
+    return gymnasium_mjx
+
+
 # External callers (e.g. SafetyExperiments) can register a custom builder for
 # a playground env id here, overriding the default wrapper stack below. The
 # builder signature is (n_envs, episode_length) -> env with `_ajax_env_id`
@@ -217,9 +234,9 @@ def _build_playground_env(
 
     env: Any
     if env_id.startswith(MUJOCO_PREFIX):
-        from ajax.environments.mujoco.tasks import make
-
-        env = make(env_id.removeprefix(MUJOCO_PREFIX), physics=physics)
+        gymnasium_mjx = _gymnasium_mjx()
+        task = gymnasium_mjx.make(env_id.removeprefix(MUJOCO_PREFIX), physics=physics)
+        env = gymnasium_mjx.playground.PlaygroundTask(task)
     else:
         env = registry.load(env_id, config_overrides={"impl": physics})
     env = NonFiniteStepWrapper(env)
@@ -317,8 +334,8 @@ def build_env_from_id(
     """Build a wrapped env from its id (gymnax, mujoco_playground or brax).
 
     ``"mujoco:<id>"`` builds Gymnasium's MuJoCo task ``<id>`` (such as
-    ``"mujoco:Reacher-v5"``) on MJX, :mod:`ajax.environments.mujoco`, with
-    the playground stack; ``episode_length`` defaults to the task's time
+    ``"mujoco:Reacher-v5"``) on MJX, from the gymnasium-mjx package (the
+    ``gymnasium-mjx`` extra), with the playground stack; ``episode_length`` defaults to the task's time
     limit in Gymnasium's registry, and to 1000 for every other id.
 
     ``"gymnasium:<id>"`` builds the Gymnasium environment ``<id>``, which
@@ -371,15 +388,14 @@ def build_env_from_id(
     if physics not in PLAYGROUND_PHYSICS:
         raise ValueError(f"physics={physics!r}: expected one of {PLAYGROUND_PHYSICS}.")
     if env_id.startswith(MUJOCO_PREFIX):
-        from ajax.environments.mujoco.tasks import TASKS
-
+        tasks = _gymnasium_mjx().TASKS
         task_id = env_id.removeprefix(MUJOCO_PREFIX)
-        if task_id not in TASKS:
-            raise ValueError(f"No MuJoCo task {task_id!r}; known: {sorted(TASKS)}.")
+        if task_id not in tasks:
+            raise ValueError(f"No MuJoCo task {task_id!r}; known: {sorted(tasks)}.")
         return _build_playground_env(
             env_id,
             n_envs=n_envs,
-            episode_length=episode_length or TASKS[task_id].episode_length,
+            episode_length=episode_length or tasks[task_id].episode_length,
             action_repeat=action_repeat,
             fresh_reset=fresh_reset,
             differentiable_reset=differentiable_reset,

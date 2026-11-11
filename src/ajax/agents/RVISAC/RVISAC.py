@@ -236,7 +236,9 @@ class RVISAC(
         )
         if not self.fixed_alpha:
             agent_state = update_steps.run_if(
-                self.temperature_update_due(timestep), lambda _: tempered, agent_state
+                self.temperature_update_due(timestep, context.extensions),
+                lambda _: tempered,
+                agent_state,
             )
         reset, settings = agent_state.reset_cost, self.reset_cost
         if reset is not None and settings is not None:
@@ -393,6 +395,7 @@ class RVISAC(
             "actor",
             "continuing_target",
             "critic_ensemble",
+            "entropy_temperature",
             "next_action_target",
             "obs_networks",
             "off_policy",

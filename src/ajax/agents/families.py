@@ -301,9 +301,14 @@ class EntropyTemperature:
         """The target entropy at timestep."""
         return jnp.asarray(at(self.target_entropy, timestep))
 
-    def temperature_update_due(self, timestep: Any) -> Union[bool, jax.Array]:
+    def temperature_update_due(
+        self, timestep: Any, extensions: Any
+    ) -> Union[bool, jax.Array]:
         """Whether the temperature's step counts at timestep: from
-        alpha_update_start on (update_steps.reached)."""
+        alpha_update_start on (update_steps.reached), never while an
+        extension sets the temperature itself (MEW)."""
+        if extensions.sets_temperature:
+            return False
         return self.ignores_update_starts or reached(self.alpha_update_start, timestep)
 
 

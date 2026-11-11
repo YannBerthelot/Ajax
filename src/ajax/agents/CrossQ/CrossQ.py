@@ -327,7 +327,9 @@ class CrossQ(
             compute_alpha_temperature_loss,
         )
         agent_state = update_steps.run_if(
-            self.temperature_update_due(timestep), lambda _: tempered, agent_state
+            self.temperature_update_due(timestep, context.extensions),
+            lambda _: tempered,
+            agent_state,
         )
         return agent_state, (aux, temperature, metrics)
 
@@ -338,6 +340,7 @@ class CrossQ(
             "actor",
             "critic_ensemble",
             "discounted",
+            "entropy_temperature",
             "next_action_target",
             "obs_networks",
             "off_policy",

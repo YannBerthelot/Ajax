@@ -8,6 +8,12 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **MEW temperature annealing.** `MEW()` (Adamczyk et al., 2026) lowers the
+  temperature of a maximum-entropy agent (SAC, ASAC, AVG, CrossQ, REDQ,
+  RVI-SAC, TQC) at a pace set by how much its recent rewards vary, in place
+  of the agent's own temperature rule. It is opt-in: no agent's default
+  changes. Other agents refuse it, naming the `entropy_temperature`
+  capability they lack.
 - **Gymnasium's MuJoCo tasks in JAX.** `"mujoco:HalfCheetah-v5"`,
   `"mujoco:Hopper-v5"`, `"mujoco:Walker2d-v5"`, `"mujoco:Swimmer-v5"`,
   `"mujoco:Reacher-v5"`, `"mujoco:Pusher-v5"`,

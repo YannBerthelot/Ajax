@@ -150,6 +150,14 @@ def test_a_gymnasium_mujoco_task_is_labelled_without_its_prefix():
     assert further["SAC-Hopper-v5"].env_id == "mujoco:Hopper-v5"
 
 
+def test_tdmpc2_runs_only_the_gymnasium_mujoco_tasks_without_terminations():
+    # Paper-era TD-MPC2 refuses episodes that end before the time limit, and
+    # Hopper's end when it falls; HalfCheetah's always run to the limit.
+    assert "TDMPC2-HalfCheetah-v5" in agent_suite.BENCHMARKS
+    assert "TDMPC2-Hopper-v5" not in agent_suite.BENCHMARKS
+    assert "SAC-Hopper-v5" in agent_suite.BENCHMARKS
+
+
 # --- run, on the fake trainer ------------------------------------------------
 def test_a_run_trains_its_budget_in_chunks_sized_to_the_measured_pace(tmp_path):
     clock, path = Clock(), tmp_path / "seeds-0-1.jsonl"

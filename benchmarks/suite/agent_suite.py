@@ -119,11 +119,12 @@ BENCHMARKS = {
 
 def on_more_tasks(labels: tuple[str, ...], env_ids: tuple[str, ...]) -> dict:
     """Each label's benchmark on further envs, as LABEL-TASK (the env id
-    without its "-MinAtar"): the same budget, evaluations and options."""
+    without its "mujoco:" prefix or "-MinAtar" suffix): the same budget,
+    evaluations and options."""
     benchmarks = {}
     for label in labels:
         for env_id in env_ids:
-            task = env_id.removesuffix("-MinAtar")
+            task = env_id.removeprefix("mujoco:").removesuffix("-MinAtar")
             benchmarks[f"{label}-{task}"] = dataclasses.replace(
                 BENCHMARKS[label], env_id=env_id
             )
@@ -151,6 +152,37 @@ CONTROL_TASKS = (
 )
 BENCHMARKS.update(
     on_more_tasks(("PPO", "APO", "AVG", "SAC", "TD3", "ASAC", "RVISAC"), CONTROL_TASKS)
+)
+#: Gymnasium's v5 MuJoCo tasks on MJX: every continuous agent, the slow ones
+#: included (owner, 2026-11-11).
+GYMNASIUM_MUJOCO_TASKS = (
+    "mujoco:HalfCheetah-v5",
+    "mujoco:Hopper-v5",
+    "mujoco:Walker2d-v5",
+    "mujoco:Swimmer-v5",
+    "mujoco:Reacher-v5",
+    "mujoco:Pusher-v5",
+    "mujoco:InvertedPendulum-v5",
+    "mujoco:InvertedDoublePendulum-v5",
+)
+BENCHMARKS.update(
+    on_more_tasks(
+        (
+            "PPO",
+            "APO",
+            "AVG",
+            "SAC",
+            "TD3",
+            "ASAC",
+            "RVISAC",
+            "REDQ",
+            "TQC",
+            "CrossQ",
+            "TDMPC2",
+            "DreamerV3",
+        ),
+        GYMNASIUM_MUJOCO_TASKS,
+    )
 )
 #: The other MinAtar games gymnax runs.
 BENCHMARKS.update(

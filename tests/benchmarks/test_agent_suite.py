@@ -144,6 +144,12 @@ def test_a_label_on_a_further_task_runs_its_benchmark_on_that_env():
     assert agent_suite.BENCHMARKS["APO-WalkerWalk"].options == {"n_envs": 10}
 
 
+def test_a_gymnasium_mujoco_task_is_labelled_without_its_prefix():
+    further = agent_suite.on_more_tasks(("SAC",), ("mujoco:Hopper-v5",))
+    assert list(further) == ["SAC-Hopper-v5"]
+    assert further["SAC-Hopper-v5"].env_id == "mujoco:Hopper-v5"
+
+
 # --- run, on the fake trainer ------------------------------------------------
 def test_a_run_trains_its_budget_in_chunks_sized_to_the_measured_pace(tmp_path):
     clock, path = Clock(), tmp_path / "seeds-0-1.jsonl"

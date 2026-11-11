@@ -10,9 +10,11 @@ from gymnax import EnvParams
 from ajax.environments.utils import (
     EnvType,
     check_action_repeat,
+    check_env_is_playground,
     check_if_environment_has_continuous_actions,
     env_action_repeat,
     get_env_type,
+    get_raw_env,
     wrapper_chain,
 )
 from ajax.types import EnvNormalizationInfo
@@ -228,17 +230,43 @@ def _build_playground_env(
             action_repeat,
         )
 
-    from brax.envs.wrappers import training as brax_training
     from mujoco_playground import registry
-    from mujoco_playground._src.wrapper import BraxAutoResetWrapper
 
-    env: Any
+    raw: Any
     if env_id.startswith(MUJOCO_PREFIX):
         gymnasium_mjx = _gymnasium_mjx()
         task = gymnasium_mjx.make(env_id.removeprefix(MUJOCO_PREFIX), physics=physics)
-        env = gymnasium_mjx.playground.PlaygroundTask(task)
+        raw = gymnasium_mjx.playground.PlaygroundTask(task)
     else:
-        env = registry.load(env_id, config_overrides={"impl": physics})
+        raw = registry.load(env_id, config_overrides={"impl": physics})
+    env = wrap_playground_env(
+        raw,
+        n_envs,
+        episode_length,
+        action_repeat=action_repeat,
+        fresh_reset=fresh_reset,
+        differentiable_reset=differentiable_reset,
+        episode_keys=episode_keys,
+    )
+    env._ajax_env_id = env_id
+    env._ajax_physics = physics
+    return env
+
+
+def wrap_playground_env(
+    env: Any,
+    n_envs: int,
+    episode_length: int,
+    action_repeat: int = 1,
+    fresh_reset: bool = True,
+    differentiable_reset: bool = False,
+    episode_keys: bool = True,
+):
+    """Ajax's wrapper stack (see :func:`_build_playground_env`) over a bare
+    mujoco_playground env object."""
+    from brax.envs.wrappers import training as brax_training
+    from mujoco_playground._src.wrapper import BraxAutoResetWrapper
+
     env = NonFiniteStepWrapper(env)
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env)
@@ -250,12 +278,26 @@ def _build_playground_env(
     else:
         env = BraxAutoResetWrapper(env)
     env = BatchRngWrapper(env, n_envs=n_envs)
-    env._ajax_env_id = env_id
     # Read by evaluate.setup_environment so the eval rebuild keeps the same
     # auto-reset semantics as training.
     env._ajax_fresh_reset = fresh_reset
     env._ajax_episode_keys = episode_keys
-    env._ajax_physics = physics
+    return env
+
+
+def wrap_prebuilt_playground_env(
+    raw: Any, n_envs: int, episode_length: Optional[int], action_repeat: int = 1
+):
+    """A bare mujoco_playground env object, such as gymnasium-mjx's
+    ``PlaygroundTask``, wrapped as one built from an id. It has no id to be
+    rebuilt from, so the stack keeps the object, and evaluation wraps it
+    again (``evaluate.setup_environment``). The episode length defaults to
+    the env's own (``_config.episode_length``), else 1000."""
+    if episode_length is None:
+        episode_length = getattr(getattr(raw, "_config", None), "episode_length", 1000)
+    env = wrap_playground_env(raw, n_envs, int(episode_length), action_repeat)
+    env._ajax_env_id = type(raw).__name__
+    env._ajax_prebuilt = raw
     return env
 
 
@@ -584,6 +626,10 @@ def prepare_env(
                 " mujoco_playground env, configured by its builder: pass"
                 " env_params=None"
             )
+    elif check_env_is_playground(env_id) and get_raw_env(env_id) is env_id:
+        env = wrap_prebuilt_playground_env(
+            env_id, n_envs, episode_length, action_repeat
+        )
     else:
         env = env_id  # Assume prebuilt env
         # Action repeat lives in the EpisodeWrapper Ajax composes when it

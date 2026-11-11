@@ -17,6 +17,9 @@ The next release is 0.6.0: the first item changes results.
   `"mujoco:HumanoidStandup-v5"`. The tasks come from the gymnasium-mjx
   package, installed by the new `gymnasium-mjx` extra; without it, a
   `"mujoco:"` id raises an ImportError naming the extra.
+  A mujoco_playground env object, such as gymnasium-mjx's
+  `PlaygroundTask(gymnasium_mjx.make("Hopper-v5"))`, can be given to an
+  agent in place of an id; it trains and evaluates the same way.
 - **Agent benchmark filled in.** SAC, TD3, RVI-SAC and ASAC now have scores
   on all fifteen DeepMind Control tasks, APO's HumanoidWalk run finished, and
   REDQ, TQC, CrossQ, TD-MPC2 and DreamerV3 have CheetahRun scores, from runs

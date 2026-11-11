@@ -110,7 +110,20 @@ agent = SAC("mujoco:Reacher-v5")
 ```
 
 For a task's own keywords (`reset_noise_scale`, `ctrl_cost_weight`, ...),
-build it with `gymnasium_mjx.make("Swimmer-v5", ...)`.
+build it with `gymnasium_mjx.make("Swimmer-v5", ...)` and give the agent the
+task object in place of an id. Any mujoco_playground env object works this
+way: Ajax adds its usual wrappers, keeps the env's own time limit unless you
+pass `episode_length`, and evaluates on the same object.
+
+```python
+# doc: skip (needs the gymnasium-mjx extra: pip install "ajax-rl[gymnasium-mjx]")
+import gymnasium_mjx
+from gymnasium_mjx.playground import PlaygroundTask
+
+from ajax import SAC
+
+agent = SAC(PlaygroundTask(gymnasium_mjx.make("Swimmer-v5", ctrl_cost_weight=1e-3)))
+```
 
 ### Diverging simulators
 

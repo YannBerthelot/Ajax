@@ -61,14 +61,17 @@ _DM_CONTROL = (
 # fmt: off
 COUNTERPARTS: dict[str, tuple[str, tuple[JaxCounterpart, ...]]] = {
     "HalfCheetah": ("HalfCheetah-v5", (
+        JaxCounterpart("Ajax", ("mujoco:HalfCheetah-v5",), _SAME_ON_MJX),
         JaxCounterpart("Brax", ("halfcheetah",), f"same reward, observation and reset; {_BRAX_PHYSICS}"),
         JaxCounterpart("MuJoCo Playground", ("CheetahRun",), _DM_CONTROL),
     )),
     "Hopper": ("Hopper-v5", (
+        JaxCounterpart("Ajax", ("mujoco:Hopper-v5",), _SAME_ON_MJX),
         JaxCounterpart("Brax", ("hopper",), f"same reward weights and health ranges; {_BRAX_PHYSICS}; the healthy reward is also paid on the step that ends the episode"),
         JaxCounterpart("MuJoCo Playground", ("HopperHop", "HopperStand"), _DM_CONTROL),
     )),
     "Walker2d": ("Walker2d-v5", (
+        JaxCounterpart("Ajax", ("mujoco:Walker2d-v5",), _SAME_ON_MJX),
         JaxCounterpart("Brax", ("walker2d",), f"same reward weights and health ranges; {_BRAX_PHYSICS}; the healthy reward is also paid on the step that ends the episode"),
         JaxCounterpart("MuJoCo Playground", ("WalkerWalk", "WalkerRun"), _DM_CONTROL),
     )),
@@ -98,6 +101,7 @@ COUNTERPARTS: dict[str, tuple[str, tuple[JaxCounterpart, ...]]] = {
         JaxCounterpart("MuJoCo Playground", ("ReacherEasy", "ReacherHard"), f"{_DM_CONTROL}; the reward is 0 or 1"),
     )),
     "Pusher": ("Pusher-v5", (
+        JaxCounterpart("Ajax", ("mujoco:Pusher-v5",), _SAME_ON_MJX),
         JaxCounterpart("Brax", ("pusher",), "the reward is computed from the state before the step; another fingertip point and object placement"),
     )),
     "Swimmer": ("Swimmer-v5", (

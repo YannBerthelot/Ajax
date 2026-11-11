@@ -8,11 +8,13 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
-- **Gymnasium's MuJoCo tasks in JAX.** `"mujoco:InvertedPendulum-v5"`,
-  `"mujoco:InvertedDoublePendulum-v5"`, `"mujoco:Reacher-v5"` and
-  `"mujoco:Swimmer-v5"` run Gymnasium's own models and rules on MJX, inside
-  the compiled program. They need the `playground` extra. The other
-  MuJoCo tasks follow.
+- **Gymnasium's MuJoCo tasks in JAX.** `"mujoco:HalfCheetah-v5"`,
+  `"mujoco:Hopper-v5"`, `"mujoco:Walker2d-v5"`, `"mujoco:Swimmer-v5"`,
+  `"mujoco:Reacher-v5"`, `"mujoco:Pusher-v5"`,
+  `"mujoco:InvertedPendulum-v5"` and `"mujoco:InvertedDoublePendulum-v5"`
+  run Gymnasium's own models and rules on MJX, inside the compiled program.
+  They need the `playground` extra. Ant, Humanoid and HumanoidStandup
+  follow.
 - **PORL.** `porl(CloningPretrain(expert))` gives SAC's keyword arguments for
   Xiao et al. (2025): the expert's clone stays frozen and acts epsilon-greedily
   (`EpsilonGreedyPresample`) while a fresh critic trains, then the agent

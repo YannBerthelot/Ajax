@@ -118,23 +118,33 @@ more comparisons (one inconclusive) and the speed of each side; the
 
 ## Benchmark
 
-Ten agents on nineteen DeepMind Control and MinAtar tasks, with 10 seeds each
-on a CPU, and default settings apart from the number of environments. These
-are mean returns at the end of training: about a million steps on control
-tasks, which score up to 1000, and about five million on MinAtar.
+<!-- benchmark-summary:start -->
+15 agents on 19 DeepMind Control and MinAtar tasks, with 10 seeds each and default settings apart from the number of environments. These are mean returns at the end of training: about a million steps on control tasks, and about five million on MinAtar. DeepMind Control tasks score up to 1000.
 
-| Task | SAC | TD3 | RVI-SAC | ASAC | AVG | APO | PPO |
-|---|---|---|---|---|---|---|---|
-| CheetahRun | 846 | 846 | 827 | 626 | 330 | 213 | 215 |
-| WalkerWalk | 962 | 968 | 959 | 878 | 420 | 196 | 261 |
+| Agent | CheetahRun | WalkerWalk |
+|---|---|---|
+| SAC | 846 | 962 |
+| TD3 | 846 | 968 |
+| REDQ | 913 | – |
+| TQC | 906 | – |
+| CrossQ | 905 | – |
+| ASAC | 626 | 878 |
+| RVI-SAC | 827 | 959 |
+| AVG | 330 | 420 |
+| APO | 213 | 196 |
+| PPO | 215 | 261 |
+| DreamerV3 | 762 | – |
+| TD-MPC2 | 827 | – |
 
-| Game | DQN | PPO | PQN | UDRL |
-|---|---|---|---|---|
-| Breakout | 84 | 27 | 24 | 4 |
-| SpaceInvaders | 143 | 150 | 138 | 9 |
+| Agent | Breakout | SpaceInvaders |
+|---|---|---|
+| DQN | 84 | 143 |
+| PQN | 24 | 138 |
+| PPO | 27 | 150 |
+| UDRL | 4 | 9 |
 
-[Agent benchmark](docs/reproduction/benchmark.md) has every task, the spread
-over seeds and what to keep in mind when reading them.
+[Agent benchmark](docs/reproduction/benchmark.md) has every task, the spread over seeds, learning curves and what to keep in mind when reading them.
+<!-- benchmark-summary:end -->
 
 ## Also in the box
 

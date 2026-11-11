@@ -19,6 +19,10 @@ The next release is 0.6.0: the first item changes results.
   on all fifteen DeepMind Control tasks, APO's HumanoidWalk run finished, and
   REDQ, TQC, CrossQ, TD-MPC2 and DreamerV3 have CheetahRun scores, from runs
   on a GPU ([Agent benchmark](docs/reproduction/benchmark.md)).
+- **Agent benchmark page in tabs.** One tab per suite, each with its table, a
+  heatmap and learning curves. `benchmarks/suite/publish.py` writes the
+  tables, figures and the README summary from the records, and a test checks
+  they still match.
 - **PORL.** `porl(CloningPretrain(expert))` gives SAC's keyword arguments for
   Xiao et al. (2025): the expert's clone stays frozen and acts epsilon-greedily
   (`EpsilonGreedyPresample`) while a fresh critic trains, then the agent

@@ -2751,10 +2751,76 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.ForwardTask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ForwardTask
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.environments.mujoco.tasks.Swimmer" class="md-nav__link">
     <span class="md-ellipsis">
       
         Swimmer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.HalfCheetah" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HalfCheetah
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.HealthyForwardTask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HealthyForwardTask
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.Hopper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hopper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.Walker2d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walker2d
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.Pusher" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pusher
       
     </span>
   </a>
@@ -4025,10 +4091,76 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.ForwardTask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ForwardTask
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.environments.mujoco.tasks.Swimmer" class="md-nav__link">
     <span class="md-ellipsis">
       
         Swimmer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.HalfCheetah" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HalfCheetah
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.HealthyForwardTask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HealthyForwardTask
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.Hopper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hopper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.Walker2d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walker2d
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.environments.mujoco.tasks.Pusher" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pusher
       
     </span>
   </a>
@@ -5727,6 +5859,63 @@ control's square; 50-step episodes, no termination.</p>
 
 
 
+<h3 id="ajax.environments.mujoco.tasks.ForwardTask" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">ForwardTask</span>
+
+
+<a href="#ajax.environments.mujoco.tasks.ForwardTask" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">ForwardTask</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">forward_reward_weight</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">ctrl_cost_weight</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">reset_noise_scale</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">exclude_current_positions_from_observation</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">physics</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="GymnasiumTask (ajax.environments.mujoco.tasks.GymnasiumTask)" href="#ajax.environments.mujoco.tasks.GymnasiumTask">GymnasiumTask</a></code></p>
+
+
+
+        <p>What Swimmer, HalfCheetah, Hopper and Walker2d share: the speed of
+qpos[0] over the step, less a control cost, and an observation of the
+positions after the first excluded ones, then the velocities.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
 <h3 id="ajax.environments.mujoco.tasks.Swimmer" class="doc doc-heading">
             <span class="doc doc-object-name doc-class-name">Swimmer</span>
 
@@ -5743,12 +5932,299 @@ control's square; 50-step episodes, no termination.</p>
 
     <div class="doc doc-contents ">
             <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="ForwardTask (ajax.environments.mujoco.tasks.ForwardTask)" href="#ajax.environments.mujoco.tasks.ForwardTask">ForwardTask</a></code></p>
+
+
+
+        <p>swimmer_v5.py: no termination; the observation leaves out x and y.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.mujoco.tasks.HalfCheetah" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">HalfCheetah</span>
+
+
+<a href="#ajax.environments.mujoco.tasks.HalfCheetah" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">HalfCheetah</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">forward_reward_weight</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">ctrl_cost_weight</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">reset_noise_scale</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">exclude_current_positions_from_observation</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">physics</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="ForwardTask (ajax.environments.mujoco.tasks.ForwardTask)" href="#ajax.environments.mujoco.tasks.ForwardTask">ForwardTask</a></code></p>
+
+
+
+        <p>half_cheetah_v5.py: no termination; normal velocity noise at reset.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.mujoco.tasks.HealthyForwardTask" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">HealthyForwardTask</span>
+
+
+<a href="#ajax.environments.mujoco.tasks.HealthyForwardTask" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">HealthyForwardTask</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">healthy_reward</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">terminate_when_unhealthy</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">healthy_z_range</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">healthy_angle_range</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="o">**</span><span class="n">forward</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="ForwardTask (ajax.environments.mujoco.tasks.ForwardTask)" href="#ajax.environments.mujoco.tasks.ForwardTask">ForwardTask</a></code></p>
+
+
+
+        <p>Hopper and Walker2d: a reward for staying healthy, and the episode
+ends when the body is not (unless terminate_when_unhealthy is False).
+Velocities are clipped to 10 in the observation.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.mujoco.tasks.Hopper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">Hopper</span>
+
+
+<a href="#ajax.environments.mujoco.tasks.Hopper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">Hopper</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">forward_reward_weight</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">ctrl_cost_weight</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">healthy_reward</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">terminate_when_unhealthy</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">healthy_state_range</span><span class="o">=</span><span class="p">(</span><span class="o">-</span><span class="mf">100.0</span><span class="p">,</span> <span class="mf">100.0</span><span class="p">),</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">healthy_z_range</span><span class="o">=</span><span class="p">(</span><span class="mf">0.7</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;inf&quot;</span><span class="p">)),</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">healthy_angle_range</span><span class="o">=</span><span class="p">(</span><span class="o">-</span><span class="mf">0.2</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">),</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">reset_noise_scale</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">exclude_current_positions_from_observation</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">physics</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="HealthyForwardTask (ajax.environments.mujoco.tasks.HealthyForwardTask)" href="#ajax.environments.mujoco.tasks.HealthyForwardTask">HealthyForwardTask</a></code></p>
+
+
+
+        <p>hopper_v5.py: healthy while z &gt; 0.7, the torso's angle within 0.2,
+and every other state entry within 100.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.mujoco.tasks.Walker2d" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">Walker2d</span>
+
+
+<a href="#ajax.environments.mujoco.tasks.Walker2d" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">Walker2d</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">forward_reward_weight</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">ctrl_cost_weight</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">healthy_reward</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">terminate_when_unhealthy</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">healthy_z_range</span><span class="o">=</span><span class="p">(</span><span class="mf">0.8</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">),</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">healthy_angle_range</span><span class="o">=</span><span class="p">(</span><span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">reset_noise_scale</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">exclude_current_positions_from_observation</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">physics</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="HealthyForwardTask (ajax.environments.mujoco.tasks.HealthyForwardTask)" href="#ajax.environments.mujoco.tasks.HealthyForwardTask">HealthyForwardTask</a></code></p>
+
+
+
+        <p>walker2d_v5.py (its v5 model: both feet with friction 1.9): healthy
+while 0.8 &lt; z &lt; 2 and the torso's angle is within 1.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.environments.mujoco.tasks.Pusher" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">Pusher</span>
+
+
+<a href="#ajax.environments.mujoco.tasks.Pusher" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">Pusher</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">reward_near_weight</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">reward_dist_weight</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">reward_control_weight</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">physics</span><span class="o">=</span><span class="s2">&quot;jax&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
               Bases: <code><a class="autorefs autorefs-internal" title="GymnasiumTask (ajax.environments.mujoco.tasks.GymnasiumTask)" href="#ajax.environments.mujoco.tasks.GymnasiumTask">GymnasiumTask</a></code></p>
 
 
 
-        <p>swimmer_v5.py: the speed along x, less a small control cost; no
-termination.</p>
+        <p>pusher_v5.py (its v5 model): bring the object to the goal at the
+origin with the arm's tip; 100-step episodes, no termination.</p>
 
 
 

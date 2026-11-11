@@ -3145,15 +3145,18 @@ there, turn that pass off for these runs:</p>
 slower on a CPU. A single seed compiles without it.</p>
 <h3 id="gymnasiums-mujoco-tasks-in-jax">Gymnasium's MuJoCo tasks in JAX<a class="headerlink" href="#gymnasiums-mujoco-tasks-in-jax" title="Permanent link">&para;</a></h3>
 <p><code>"mujoco:&lt;id&gt;"</code> builds one of Gymnasium's v5 MuJoCo tasks on MJX, so it runs
-in the compiled program like any Playground task: <code>"mujoco:InvertedPendulum-v5"</code>,
-<code>"mujoco:InvertedDoublePendulum-v5"</code>, <code>"mujoco:Reacher-v5"</code> and
-<code>"mujoco:Swimmer-v5"</code>. Each loads Gymnasium's own model file and follows its
+in the compiled program like any Playground task: <code>HalfCheetah-v5</code>,
+<code>Hopper-v5</code>, <code>Walker2d-v5</code>, <code>Swimmer-v5</code>, <code>Reacher-v5</code>, <code>Pusher-v5</code>,
+<code>InvertedPendulum-v5</code> and <code>InvertedDoublePendulum-v5</code>, each behind the
+<code>"mujoco:"</code> prefix. Each loads Gymnasium's own model file and follows its
 <code>&lt;task&gt;_v5.py</code>: the same observations, rewards, terminations, reset
-distribution and time limit (50 steps for Reacher, 1,000 for the others,
-unless you pass <code>episode_length</code>). From the same state and actions, a task
-gives Gymnasium's values to about 1e-11 in float64. Resets draw from
-Gymnasium's distributions, but not its random stream. They need the
-<code>playground</code> extra.</p>
+distribution and time limit (50 steps for Reacher, 100 for Pusher, 1,000 for
+the others, unless you pass <code>episode_length</code>). Resets draw from Gymnasium's
+distributions, but not its random stream. They need the <code>playground</code> extra.</p>
+<p>One step from the same state gives Gymnasium's values to about 1e-10 in
+float64 and 1e-4 in float32, the precision training runs in. Over a whole
+episode the two drift apart where bodies touch the ground, as two builds of
+MuJoCo do: <code>benchmarks/mujoco_drift.py</code> reports how far.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># doc: skip (needs the playground extra: pip install &quot;ajax-rl[playground]&quot;)</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
@@ -3359,8 +3362,18 @@ comparable across them:</p>
 <tbody>
 <tr>
 <td><code>HalfCheetah-v5</code></td>
+<td>Ajax <code>"mujoco:HalfCheetah-v5"</code></td>
+<td>Nothing: the same task on MJX</td>
+</tr>
+<tr>
+<td><code>HalfCheetah-v5</code></td>
 <td>Brax <code>"halfcheetah"</code></td>
 <td>Brax's physics only</td>
+</tr>
+<tr>
+<td><code>Hopper-v5</code>, <code>Walker2d-v5</code></td>
+<td>Ajax <code>"mujoco:Hopper-v5"</code>, <code>"mujoco:Walker2d-v5"</code></td>
+<td>Nothing: the same tasks on MJX</td>
 </tr>
 <tr>
 <td><code>Hopper-v5</code>, <code>Walker2d-v5</code></td>
@@ -3411,6 +3424,11 @@ comparable across them:</p>
 <td><code>Reacher-v5</code></td>
 <td>Brax <code>"reacher"</code></td>
 <td>1,000-step episodes by default instead of 50; other targets and observations</td>
+</tr>
+<tr>
+<td><code>Pusher-v5</code></td>
+<td>Ajax <code>"mujoco:Pusher-v5"</code></td>
+<td>Nothing: the same task on MJX</td>
 </tr>
 <tr>
 <td><code>Pusher-v5</code></td>

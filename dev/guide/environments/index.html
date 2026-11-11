@@ -3142,7 +3142,9 @@ there, turn that pass off for these runs:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nv">XLA_FLAGS</span><span class="o">=</span>--xla_disable_hlo_passes<span class="o">=</span>algsimp<span class="w"> </span>python<span class="w"> </span>train.py
 </code></pre></div>
 <p>Results are the same up to floating-point rounding; training ran 8 to 15%
-slower on a CPU. A single seed compiles without it.</p>
+slower on a CPU. A single seed compiles without it. The same happens on a GPU, where
+the workaround does not combine with <code>--xla_gpu_deterministic_ops=true</code>:
+such runs compile only without deterministic operations.</p>
 <h3 id="gymnasiums-mujoco-tasks-in-jax">Gymnasium's MuJoCo tasks in JAX<a class="headerlink" href="#gymnasiums-mujoco-tasks-in-jax" title="Permanent link">&para;</a></h3>
 <p><code>"mujoco:&lt;id&gt;"</code> builds one of Gymnasium's v5 MuJoCo tasks on MJX, so it runs
 in the compiled program like any Playground task: <code>HalfCheetah-v5</code>,

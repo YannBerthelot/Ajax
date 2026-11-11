@@ -31,6 +31,7 @@ from ajax.agents.TD3.TD3 import make_default_action_pipeline
 from ajax.buffers.dataset import TransitionDataset
 from ajax.extensions import (
     adversarial,
+    annealing,
     centering,
     cheq,
     ensemble,
@@ -188,6 +189,7 @@ EXTENSIONS: dict[str, tuple[Callable[[], Extension], str]] = {
     # Critics without LayerNorm: the rows' options leave the architecture.
     "RLPD": (lambda: retained.RLPD(8, critic_layer_norm=False), "SAC REDQ"),
     "CHEQ": (lambda: cheq.CHEQ(adaptation_start=0), "SAC"),
+    "MEW": (lambda: annealing.MEW(history=101), "SAC AVG"),
     "EpsilonGreedyPresample": (lambda: porl.EpsilonGreedyPresample(8), "SAC TD3"),
     "ExpertPrefill": (
         lambda: pre.ExpertPrefill(n_steps=8),

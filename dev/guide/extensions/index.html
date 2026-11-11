@@ -2947,7 +2947,7 @@
 <p>An extension adds a research feature to an agent's training without changing
 the agent: an extra term in a loss, a change to the TD target, another way to
 pick actions while collecting, an expert to learn from, a pre-training step,
-or measurements logged at each evaluation. Ajax ships forty-one of them,
+or measurements logged at each evaluation. Ajax ships forty-two of them,
 listed in the <a href="#catalogue">catalogue</a> below.</p>
 <p>Why extensions instead of agent options? An agent's constructor takes its
 paper's hyperparameters plus <code>extensions=()</code>. The exceptions are
@@ -3827,6 +3827,25 @@ accepts it. "SAC with an expert" means <code>SAC(..., expert_policy=...)</code>.
 <td>Treats a termination as a step into the reset state: the target bootstraps on the reset observation the replay stores there, and a terminated row is charged <code>c</code>. <code>c</code> is a Lagrange multiplier: a reset critic learns the policy's termination rate, and <code>c</code> rises while that rate exceeds <code>target_rate</code> (1e-3) and falls while it is below, never below 0. Its settings are RVI-SAC's (<code>ajax.agents.reset_cost.ResetCostSettings</code>). Refuses a stack reading the episode a termination ended (IBRL, CriticBlend, LCBGatedBootstrap, Cal-QL). Logs <code>reset_cost/cost</code>, <code>reset_cost/rate</code> and <code>reset_cost/critic_loss</code>.</td>
 <td><code>on_target</code></td>
 <td>discounted replay agents scoring a next action: SAC, TD3, REDQ, TQC, CrossQ, DQN; refused on IQL (no next action), on AVG and the on-policy agents (their rollouts keep the final observation), and on ASAC and RVI-SAC, which price terminations themselves</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Temperature annealing</strong> (<code>ajax.extensions.annealing</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it does</th>
+<th>Phases</th>
+<th>Works with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MEW</code></td>
+<td>Minimum Excess Work (Adamczyk et al., 2026): sets the temperature in place of the agent's own rule, lowering it at each update by <code>beta &lt;- beta + speed / sqrt(beta * sum_k Cov(r_t, r_t+k))</code>, <code>alpha = 1 / beta</code>, the covariance that of the last <code>history</code> rewards per env (from the replay; MEW keeps them itself on AVG). It waits for more than <code>history</code> steps per env. <code>speed</code> 1e-6 and <code>history</code> 50,000 are the authors' code's. Logs <code>mew/friction</code>.</td>
+<td><code>post_update</code>, <code>eval_metrics</code></td>
+<td>the maximum-entropy agents: SAC, ASAC, AVG, CrossQ, REDQ, RVISAC, TQC</td>
 </tr>
 </tbody>
 </table>

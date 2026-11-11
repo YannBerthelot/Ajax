@@ -6902,13 +6902,14 @@ mode's gains), at each timestep for a schedule.</p>
 
 
 <a href="#ajax.agents.families.EntropyTemperature.temperature_update_due" class="headerlink" title="Permanent link">&para;</a></h4>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">temperature_update_due</span><span class="p">(</span><span class="n">timestep</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">temperature_update_due</span><span class="p">(</span><span class="n">timestep</span><span class="p">,</span> <span class="n">extensions</span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p>Whether the temperature's step counts at timestep: from
-alpha_update_start on (update_steps.reached).</p>
+alpha_update_start on (update_steps.reached), never while an
+extension sets the temperature itself (MEW).</p>
 
 
     </div>

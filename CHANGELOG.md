@@ -16,7 +16,7 @@ The next release is 0.6.0: the first item changes results.
   capability they lack.
 - **Training on MuJoCo Warp.** On an NVIDIA GPU, agents now train on
   Playground tasks and the `"mujoco:"` tasks built with
-  `build_env_from_id(..., physics="warp")`, about six times faster than on
+  `build_env_from_id(..., physics="warp")`, about five times faster than on
   pure JAX for SAC and PPO on an L40S. Every online continuous-action agent
   was checked. Before, every agent failed on its first step: the auto-reset
   merged each physics array env by env, and Warp keeps its contact buffer

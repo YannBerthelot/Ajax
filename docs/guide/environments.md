@@ -84,7 +84,7 @@ such runs compile only without deterministic operations.
 
 On an NVIDIA GPU, Playground tasks and the `"mujoco:"` tasks (below) can run
 on MuJoCo Warp, Playground's own default, instead of MJX's pure-JAX physics.
-On an L40S, SAC and PPO trained about six times faster on it
+On an L40S, SAC and PPO trained about five times faster on it
 ([Performance](performance.md)). Build the environment with
 `physics="warp"` and pass it to the agent with the same `n_envs`; evaluation
 runs on the same physics:

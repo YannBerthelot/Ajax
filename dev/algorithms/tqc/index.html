@@ -3385,14 +3385,17 @@ update, then the actor's and the temperature's steps, each kept from
 its start.</p>
 <p>The actor step reads the critics from before their step, as the
 authors' code builds its actor loss (trainer.py:59-61) before the
-critics' optimizer steps (:64-66). It differentiates that loss after
-them; the torch it pins (1.3.0) steps parameters in place through
-.data, which autograd does not track, so that backward pass would
-read the stepped critics' weights (from memory, unverified). Ajax
-differentiates the loss it computed, at the critics before their
-step: the order is logged as an upstream bug, which Ajax does not
-follow (owner, 2026-10-23), and the conformance check runs their
-update with the actor's backward before the critics' step.</p>
+critics' optimizer steps (:64-66). Their code differentiates that
+loss after the step (:71-73): the torch their environment pins
+(1.3.0, environment.yml:36) steps parameters in place through .data,
+which autograd does not track, so that backward pass reads the
+stepped critics' weights. Their Trainer, run unchanged on torch 1.4,
+which steps the same way, shows it: its actor's step differs from
+Ajax's, which differentiates at the critics before their step
+(benchmarks/reference/conformance_tqc.py records theirs,
+tests/conformance/test_tqc_original.py compares). The order is logged
+as an upstream bug; matching it is the owner's decision of 2026-10-24,
+not yet carried out here.</p>
 
 
     </div>

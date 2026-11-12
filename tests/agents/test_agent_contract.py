@@ -470,8 +470,8 @@ def test_the_evaluation_key_is_apart_from_the_training_key(
 def test_each_evaluation_draws_fresh_keys(name: str, extended_run: Any) -> None:
     """The policy's evaluation (the shared evaluate(), wherever it is
     called from) and the extensions' ``eval_metrics`` draw new keys at each
-    evaluation of a run (``eval_rng`` folded with the count of evaluations
-    so far): fresh initial states and noise every time."""
+    evaluation of a run (``eval_rng`` folded with the evaluation's
+    timestep): fresh initial states and noise every time."""
     run = extended_run(name)
     evaluations = int((np.asarray(run.out["timestep"]) >= 0).sum())
     assert evaluations >= 2
@@ -479,6 +479,19 @@ def test_each_evaluation_draws_fresh_keys(name: str, extended_run: Any) -> None:
         keys = run.keys[kind]
         assert len(keys) == evaluations, (kind, len(keys))
         assert len(set(keys)) == evaluations, kind
+
+
+@AGENTS
+def test_a_run_counts_the_evaluations_it_made(name: str, extended_run: Any) -> None:
+    """Every seed's ``n_logs`` is the number of evaluations its run made:
+    the count a resumed run carries on from (shared_counters) and an
+    agent's own Evaluation reads to know a tick logged. Catches an
+    evaluation that does not advance the count, which no evaluation shows
+    since the steps that evaluate are planned before the run."""
+    run = extended_run(name)
+    made = (np.asarray(run.out["timestep"]) >= 0).sum(axis=-1)
+    assert made.min() >= 2
+    np.testing.assert_array_equal(run.state.n_logs, made)
 
 
 # --------------------------------------------------------------------------

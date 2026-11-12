@@ -59,7 +59,7 @@ from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
     get_alpha,
-    update_temperature,
+    keep_actor_then_update_temperature,
 )
 from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
@@ -201,7 +201,6 @@ class TQC(
         )
         agent_state = update_steps.update_target_networks(agent_state, self.tau)
         critic_state = agent_state.critic_state
-        timestep = agent_state.collector_state.timestep
         stepped, policy_aux, log_probs, policy_metrics = self.update_actor(
             agent_state.replace(
                 critic_state=critic_state.replace(params=critics_before)
@@ -211,24 +210,16 @@ class TQC(
             context,
         )
         stepped = stepped.replace(critic_state=critic_state)
-        # The actor step runs from the first update, since its log-probs feed
-        # the temperature's, and is kept from policy_update_start.
-        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
-            self.policy_update_due(timestep),
-            lambda _: (stepped, (policy_aux, policy_metrics)),
-            agent_state,
-            keep=self.keeps_actor_metrics(),
-        )
-        tempered, temperature_aux = update_temperature(
-            agent_state,
-            log_probs,
-            self.target_entropy_at(timestep),
-            compute_temperature_loss,
-        )
-        agent_state = update_steps.run_if(
-            self.temperature_update_due(timestep, context.extensions),
-            lambda _: tempered,
-            agent_state,
+        agent_state, (policy_aux, policy_metrics), temperature_aux = (
+            keep_actor_then_update_temperature(
+                self,
+                agent_state,
+                stepped,
+                (policy_aux, policy_metrics),
+                log_probs,
+                context.extensions,
+                compute_temperature_loss,
+            )
         )
         return agent_state, AuxiliaryLogs(
             temperature=temperature_aux,

@@ -13,6 +13,7 @@ from flax import struct
 from flax.core import FrozenDict
 from flax.training.train_state import TrainState
 
+from ajax.agents import update_steps
 from ajax.agents.update_steps import compute_gradients
 from ajax.state import BaseAgentState
 
@@ -86,3 +87,57 @@ def update_temperature(
     grads, aux = compute_gradients(temperature_loss, agent_state.alpha.params)
     new_alpha_state = agent_state.alpha.apply_gradients(grads=grads)
     return agent_state.replace(alpha=new_alpha_state), jax.lax.stop_gradient(aux)
+
+
+def update_temperature_when_due(
+    agent: Any,
+    agent_state: AgentState,
+    log_probs: jax.Array,
+    extensions: Any,
+    loss: TemperatureLoss,
+    fixed_alpha: bool = False,
+) -> tuple[AgentState, TemperatureAuxiliaries]:
+    """update_temperature towards the agent's target entropy at the
+    timestep, kept from its alpha_update_start (temperature_update_due);
+    agent is the soft actor-critic (EntropyTemperature). With fixed_alpha
+    the loss is computed for its logs and the step dropped, so alpha stays at
+    alpha_init; the flag is static, so that run compiles no gate."""
+    timestep = agent_state.collector_state.timestep
+    tempered, logs = update_temperature(
+        agent_state, log_probs, agent.target_entropy_at(timestep), loss
+    )
+    if fixed_alpha:
+        return agent_state, logs
+    due = agent.temperature_update_due(timestep, extensions)
+    return update_steps.run_if(due, lambda _: tempered, agent_state), logs
+
+
+def keep_actor_then_update_temperature(
+    agent: Any,
+    agent_state: AgentState,
+    stepped: AgentState,
+    actor_logs: Any,
+    log_probs: jax.Array,
+    extensions: Any,
+    loss: TemperatureLoss,
+    fixed_alpha: bool = False,
+) -> tuple[AgentState, Any, TemperatureAuxiliaries]:
+    """A soft actor-critic's actor step, then its temperature's.
+
+    stepped and actor_logs are the actor's step from agent_state. It is
+    computed from the first update, since its sample's log_probs feed the
+    temperature's step, and kept from the agent's policy_update_start
+    (update_steps.run_actor_if); the temperature's step follows
+    (update_temperature_when_due). Returns the state, the actor's logs and
+    the temperature's."""
+    timestep = agent_state.collector_state.timestep
+    agent_state, kept_actor_logs = update_steps.run_actor_if(
+        agent.policy_update_due(timestep),
+        lambda _: (stepped, actor_logs),
+        agent_state,
+        keep=agent.keeps_actor_metrics(),
+    )
+    agent_state, temperature_logs = update_temperature_when_due(
+        agent, agent_state, log_probs, extensions, loss, fixed_alpha
+    )
+    return agent_state, kept_actor_logs, temperature_logs

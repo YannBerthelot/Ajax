@@ -80,7 +80,7 @@ from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
     get_alpha,
-    update_temperature,
+    keep_actor_then_update_temperature,
 )
 from ajax.controller import feature_width, policy_action_dim
 from ajax.environments.utils import get_state_action_shapes
@@ -219,28 +219,21 @@ class RVISAC(
         )
         # The temperature reads the actor's own sample, drawn before its step
         # (rvi_sac.py:216-241).
-        timestep = agent_state.collector_state.timestep
         stepped, policy_aux, log_probs, policy_metrics = self.update_actor(
             agent_state, batch, carries, context
         )
-        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
-            self.policy_update_due(timestep),
-            lambda _: (stepped, (policy_aux, policy_metrics)),
-            agent_state,
-            keep=self.keeps_actor_metrics(),
-        )
-        tempered, temperature_aux = update_temperature(
-            agent_state,
-            log_probs,
-            self.target_entropy_at(timestep),
-            compute_alpha_temperature_loss,
-        )
-        if not self.fixed_alpha:
-            agent_state = update_steps.run_if(
-                self.temperature_update_due(timestep, context.extensions),
-                lambda _: tempered,
+        agent_state, (policy_aux, policy_metrics), temperature_aux = (
+            keep_actor_then_update_temperature(
+                self,
                 agent_state,
+                stepped,
+                (policy_aux, policy_metrics),
+                log_probs,
+                context.extensions,
+                compute_alpha_temperature_loss,
+                self.fixed_alpha,
             )
+        )
         reset, settings = agent_state.reset_cost, self.reset_cost
         if reset is not None and settings is not None:
             reset = step_reset_cost(reset, settings.target_rate)

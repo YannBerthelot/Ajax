@@ -106,7 +106,7 @@ class RetainedDemonstrations(Extension):
             prefill = ExpertPrefill(self.n_steps, self.expert)
             seeded, _ = prefill.pretrain(seeding, (), context)
         else:
-            seeded = seed_replay(seeding, context.buffer, self.dataset, env_args)
+            seeded = seed_replay(seeding, self.dataset, env_args)
         collector = seeded.collector_state
         replay = with_retained_rows(online, collector.buffer_state, self.share)
         collector = collector.replace(buffer_state=replay)

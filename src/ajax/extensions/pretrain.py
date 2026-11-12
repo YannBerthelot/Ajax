@@ -1204,9 +1204,7 @@ class PriorData(Extension):
                 " agent replaying transitions (SAC, TD3, REDQ, ASAC, TQC,"
                 " CrossQ, IQL, DQN)."
             )
-        agent_state = seed_replay(
-            agent_state, context.buffer, self.dataset, context.env_args
-        )
+        agent_state = seed_replay(agent_state, self.dataset, context.env_args)
         return (
             run_offline_updates(agent_state, agent_update, self.offline_updates),
             ext_state,

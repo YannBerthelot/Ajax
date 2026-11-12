@@ -146,13 +146,13 @@ class AsyncEvaluator:
         if self.thread is not None:
             self.jobs.put(None)
             self.thread.join()
-        scored, error = self.scored, self.error
-        self.thread, self.scored, self.error = None, [], None
+        scored, error, waiting = self.scored, self.error, self.waiting
+        self.thread, self.scored, self.error, self.waiting = None, [], None, {}
         if error is not None:
             raise RuntimeError("The asynchronous evaluation failed.") from error
-        if self.waiting:
+        if waiting:
             raise RuntimeError(
-                f"Evaluations at timesteps {sorted(self.waiting)} came from"
+                f"Evaluations at timesteps {sorted(waiting)} came from"
                 f" fewer than the {self.n_seeds} seeds."
             )
         if not scored:

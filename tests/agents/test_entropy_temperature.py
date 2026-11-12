@@ -65,8 +65,14 @@ def test_the_temperature_moves_towards_its_target_entropy(
     and REDQ's once used -action_dim, the default -1 per dimension's value)
     or is never kept: log alpha's gradient is the policy's entropy less the
     target, so a target far below the entropy lowers alpha and one far above
-    raises it."""
-    agent = cls(**TINY, **SOFT[cls], target_entropy_per_dim=target_entropy_per_dim)
+    raises it. The temperature steps from the first update (SAC's waits
+    for 2,000 steps by default)."""
+    agent = cls(
+        **TINY,
+        **SOFT[cls],
+        target_entropy_per_dim=target_entropy_per_dim,
+        alpha_update_start=0,
+    )
     state = agent.train(seed=0, n_timesteps=16)[0]
     log_alpha = float(np.ravel(state.alpha.params["log_alpha"])[0])
     assert np.sign(log_alpha - np.log(agent.alpha_init)) == direction

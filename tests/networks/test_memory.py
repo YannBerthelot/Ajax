@@ -11,6 +11,7 @@ The load-bearing invariants:
 
 import jax
 import jax.numpy as jnp
+import optax
 import pytest
 
 from ajax.networks.memory import (
@@ -232,6 +233,75 @@ def test_transformer_sliding_window_bounds_memory():
     _, y2 = cell.apply(params, carry, x2, resets)
     assert jnp.allclose(y1[3:], y2[3:], atol=1e-5)
     assert not jnp.allclose(y1[0], y2[0], atol=1e-5)
+
+
+# ------------------------------------------------- key/value cache (APG)
+# The default cell, caching inputs, is the reference: a carry built under the
+# parameters that read it must give the same outputs and gradients either way.
+
+
+def _with_key_value_twin(num_layers):
+    """A transformer cell, its twin caching keys and values on the same
+    parameters with its own fresh carry, a (T, B, F) input, and resets at
+    the start and in the middle of one env's sequence."""
+    cell, params, carry, x, _ = make_cell("transformer", num_layers=num_layers)
+    twin = MemoryCell(cell.config, cache_keys_values=True)
+    twin_carry = init_carry(cell.config, jax.random.PRNGKey(0), B, True)
+    resets = jnp.zeros((T, B), dtype=bool).at[0].set(True).at[3, 1].set(True)
+    return cell, twin, params, carry, twin_carry, x, resets
+
+
+@pytest.mark.parametrize("num_layers", [1, 2])
+def test_caching_keys_and_values_gives_the_outputs_of_caching_inputs(num_layers):
+    """Catches a key/value cache that slides its window by the wrong amount,
+    keeps a row across a reset or attends to a stale one: stepped one row at
+    a time, the twin must give the default cell's outputs over the whole
+    sequence (window 5 < T = 7, so rows also leave the window)."""
+    cell, twin, params, carry, twin_carry, x, resets = _with_key_value_twin(num_layers)
+    _, expected = cell.apply(params, carry, x, resets)
+    outputs = []
+    for t in range(T):
+        twin_carry, y = twin.apply(params, twin_carry, x[t : t + 1], resets[t : t + 1])
+        outputs.append(y[0])
+    assert jnp.allclose(jnp.stack(outputs), expected, atol=1e-5)
+
+
+def test_caching_keys_and_values_keeps_the_gradient_through_the_carry():
+    """Catches cached keys and values cut from the gradient, or computed
+    from other parameters than the step's: APG differentiates its return
+    through the carry, so a stepped rollout's gradient with respect to the
+    parameters must be the default cell's."""
+    cell, twin, params, carry, twin_carry, x, resets = _with_key_value_twin(2)
+
+    def stepped_loss(network, initial_carry):
+        def loss(params):
+            state, total = initial_carry, 0.0
+            for t in range(T):
+                state, y = network.apply(params, state, x[t : t + 1], resets[t : t + 1])
+                total = total + jnp.sum(jnp.sin(y + t))
+            return total
+
+        return loss
+
+    expected = jax.grad(stepped_loss(cell, carry))(params)
+    gradient = jax.grad(stepped_loss(twin, twin_carry))(params)
+    gap = optax.global_norm(jax.tree.map(jnp.subtract, gradient, expected))
+    assert gap <= 1e-5 * optax.global_norm(expected)
+
+
+@pytest.mark.parametrize("kind", ["gru", "lstm", "mamba"])
+def test_only_a_transformer_caches_keys_and_values(kind):
+    """Catches the option ignored on a memory that has no keys: asked of
+    another kind, the carry and the cell refuse it."""
+    config = MemoryConfig(kind=kind, hidden_size=8)
+    with pytest.raises(ValueError, match="transformer"):
+        init_carry(config, jax.random.PRNGKey(0), B, cache_keys_values=True)
+    carry = init_carry(config, jax.random.PRNGKey(0), B)
+    x, resets = jnp.zeros((T, B, F)), jnp.zeros((T, B), dtype=bool)
+    with pytest.raises(ValueError, match="transformer"):
+        MemoryCell(config, cache_keys_values=True).init(
+            jax.random.PRNGKey(0), carry, x, resets
+        )
 
 
 # ------------------------------------------------------------ final norm

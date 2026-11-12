@@ -27,7 +27,9 @@ Kinds and their compute/memory profile:
   FULL PARALLEL attention over the chunk (no scan) with an episode-segment
   mask; acting keeps a rolling cache of the last ``window - 1`` embeddings
   per layer, so per-step memory is O(window * hidden) and constant in
-  episode length.
+  episode length. With ``cache_keys_values`` the cache holds each layer's
+  keys and values instead, for a carry that never outlives its parameters
+  (see :class:`MemoryCell`).
 - ``"mamba"``: selective state-space (S6-style) block. Training runs a
   parallel ``associative_scan`` over T; the carry is the SSM state plus a
   small causal-conv tail — RNN-sized memory with transformer-like training
@@ -158,10 +160,31 @@ def with_default_init(
     return dataclasses.replace(memory, init=inits[memory.kind])
 
 
-def init_carry(config: MemoryConfig, rng: jax.Array, batch_size: int) -> Carry:
+def init_carry(
+    config: MemoryConfig,
+    rng: jax.Array,
+    batch_size: int,
+    cache_keys_values: bool = False,
+) -> Carry:
     """Fresh (all-zero) carry for ``config``: a tuple with one entry per
-    layer. Shapes are derived from the config alone — no params needed."""
+    layer. Shapes are derived from the config alone — no params needed.
+    ``cache_keys_values``: a transformer's carry for a MemoryCell caching
+    keys and values (see MemoryCell)."""
     B, H = batch_size, config.hidden_size
+    if cache_keys_values and config.kind != "transformer":
+        raise ValueError(
+            f"Only a transformer memory caches keys and values, not {config.kind!r}."
+        )
+    if cache_keys_values:
+        cache_len = config.window - 1
+        return tuple(
+            (
+                jnp.zeros((B, cache_len, H)),  # cached keys
+                jnp.zeros((B, cache_len, H)),  # cached values
+                jnp.zeros((B, cache_len), dtype=bool),  # validity flags
+            )
+            for _ in range(config.num_layers)
+        )
     if config.kind in _RNN_CELL_CLASSES:
         cell = _RNN_CELL_CLASSES[config.kind](features=H, parent=None)
         return tuple(
@@ -375,7 +398,8 @@ class _TransformerCore(nn.Module):
     ``train_onestep_lin_CL.py:103`` defaults ``--bias`` to False.
 
     Per layer the carry holds the last ``window - 1`` layer INPUTS and
-    their validity flags; a step attends to itself plus up to window-1
+    their validity flags (with ``cache_keys_values``, their keys and values
+    instead; see MemoryCell); a step attends to itself plus up to window-1
     predecessors from the same episode. Sequence mode concatenates the
     cache in front of the chunk and runs one parallel attention with a
     (causal ∧ windowed ∧ same-episode) mask — no scan — so step-by-step
@@ -385,6 +409,7 @@ class _TransformerCore(nn.Module):
     """
 
     config: MemoryConfig
+    cache_keys_values: bool = False
 
     @nn.compact
     def __call__(self, carry, x, resets):
@@ -416,14 +441,28 @@ class _TransformerCore(nn.Module):
 
         new_carry = []
         for layer in range(cfg.num_layers):
-            cache, valid = carry[layer]  # (B, C, H), (B, C)
             h_bt = jnp.swapaxes(hidden, 0, 1)  # (B, T, H) — layer input
-            stream = jnp.concatenate([cache, h_bt], axis=1)  # (B, C+T, H)
-
-            normed = nn.LayerNorm(name=f"ln_attn_{layer}")(stream)
-            q = dense(H, name=f"q_{layer}")(normed[:, cache_len:])
-            k = dense(H, name=f"k_{layer}")(normed)
-            v = dense(H, name=f"v_{layer}")(normed)
+            norm = nn.LayerNorm(name=f"ln_attn_{layer}")
+            query_layer = dense(H, name=f"q_{layer}")
+            key_layer = dense(H, name=f"k_{layer}")
+            value_layer = dense(H, name=f"v_{layer}")
+            if self.cache_keys_values:
+                # Only the chunk's rows are normalised and projected; the
+                # cached rows' keys and values were computed when they came.
+                cached_keys, cached_values, valid = carry[layer]
+                normed = norm(h_bt)
+                q = query_layer(normed)
+                k = jnp.concatenate([cached_keys, key_layer(normed)], axis=1)
+                v = jnp.concatenate([cached_values, value_layer(normed)], axis=1)
+                cached_rows = (k, v)
+            else:
+                cache, valid = carry[layer]  # (B, C, H), (B, C)
+                stream = jnp.concatenate([cache, h_bt], axis=1)  # (B, C+T, H)
+                normed = norm(stream)
+                q = query_layer(normed[:, cache_len:])
+                k = key_layer(normed)
+                v = value_layer(normed)
+                cached_rows = (stream,)
             q = q.reshape(B, T, n_heads, head_dim)
             k = k.reshape(B, cache_len + T, n_heads, head_dim)
             v = v.reshape(B, cache_len + T, n_heads, head_dim)
@@ -468,11 +507,9 @@ class _TransformerCore(nn.Module):
             stream_valid = jnp.concatenate(
                 [valid_cache_part, valid_seq_part], axis=1
             )  # (B, C+T)
+            kept = [rows[:, rows.shape[1] - cache_len :] for rows in cached_rows]
             new_carry.append(
-                (
-                    stream[:, stream.shape[1] - cache_len :],
-                    stream_valid[:, stream_valid.shape[1] - cache_len :],
-                )
+                (*kept, stream_valid[:, stream_valid.shape[1] - cache_len :])
             )
             hidden = jnp.swapaxes(h_bt, 0, 1)  # (T, B, H) for the next layer
 
@@ -619,16 +656,37 @@ _CORE_CLASSES = {
 class MemoryCell(nn.Module):
     """Reset-aware memory block; dispatches to the core selected by
     ``config.kind``. See the module docstring for the interface contract.
+
+    ``cache_keys_values`` (transformer only, off by default): the carry
+    holds each layer's keys and values instead of its inputs, so a step
+    normalises and projects its own rows rather than the whole window again
+    (build its carry with ``init_carry(..., cache_keys_values=True)``). The
+    outputs and gradients are the same, to rounding, when the carry was
+    built under the parameters that read it: a closed-loop rollout
+    differentiated end to end from a fresh carry (APG), or acting with fixed
+    parameters. A carry stored and read back after an update would keep the
+    old parameters' keys and values, where the default re-projects the
+    stored inputs with the new ones, so agents that replay or chunk
+    sequences from a stored carry keep the default.
     """
 
     config: MemoryConfig
+    cache_keys_values: bool = False
 
     def setup(self):
         core_cls = _CORE_CLASSES[self.config.kind]
         if self.config.gradient_checkpoint and core_cls is not _RecurrentCore:
             # RNN cores remat per-step inside their scan instead.
             core_cls = nn.remat(core_cls)
-        self.core = core_cls(self.config, name="core")
+        if not self.cache_keys_values:
+            self.core = core_cls(self.config, name="core")
+        elif self.config.kind == "transformer":
+            self.core = core_cls(self.config, cache_keys_values=True, name="core")
+        else:
+            raise ValueError(
+                "Only a transformer memory caches keys and values, not"
+                f" {self.config.kind!r}."
+            )
 
     def __call__(self, carry, x, resets):
         return self.core(carry, x, resets)

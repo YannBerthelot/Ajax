@@ -339,6 +339,19 @@ def test_a_manifest_says_which_device_and_xla_flags_a_run_used(monkeypatch):
     assert manifest["device"] == jax.devices()[0].device_kind
 
 
+def test_a_manifest_says_which_physics_engine_a_run_used():
+    """Warp and pure-JAX runs give different runs, so a record must say which."""
+    assert agent_suite.manifest()["physics"] == "jax"
+    assert agent_suite.manifest("warp")["physics"] == "warp"
+
+
+@pytest.mark.skipif(jax.default_backend() != "cpu", reason="Warp runs on a GPU")
+def test_a_warp_benchmark_builds_its_env_with_warp_physics():
+    """The physics choice reaches the env builder: on a CPU, Warp's refusal."""
+    with pytest.raises(ValueError, match="warp"):
+        agent_suite.build("SAC-Hopper-v5", physics="warp")
+
+
 def test_a_chunk_reports_each_seeds_non_finite_steps(monkeypatch, tmp_path):
     """The stand-in's episodes diverge at step 3. Each seed's 2 envs, 8 steps
     each, diverge at steps 3 and 6: 4. An evaluation episode lasts those 3."""

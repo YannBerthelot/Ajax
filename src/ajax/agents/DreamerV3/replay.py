@@ -324,28 +324,39 @@ class StreamReplay:
         ``entries.deter [B, T, D]`` and ``entries.stoch [B, T, S]`` (class
         indices) were computed on the windows of ``index``; batch row ``b``
         writes its ``T`` latents at slots ``(start_b + 1 + k) mod C`` of env
-        ``env_b``, never its context row. The rows are written one after the
-        other in batch order (a ``fori_loop``), so where windows overlap the
-        later batch row wins, deterministically: the reference's sequential
-        ``for i, stepid in enumerate(stepid)`` (``replay.py:158-167``).
+        ``env_b``, never its context row. Where windows overlap the later
+        batch row wins, deterministically, as in the reference's sequential
+        ``for i, stepid in enumerate(stepid)`` (``replay.py:158-167``): an
+        entry that a later batch row overwrites is dropped, and the others,
+        all at distinct slots, are written by one scatter. A loop writing
+        the rows one after the other stores the same values, but costs
+        dozens of small GPU operations per batch row.
         """
+        batch, length = self.batch_size, self.batch_length
         offsets = jnp.arange(1, self.length, dtype=jnp.int32)
         slots = self.physical(index.start, offsets)
-        stoch = entries.stoch.astype(state.stoch.dtype)
-        deter = entries.deter.astype(state.deter.dtype)
+        envs = jnp.broadcast_to(index.env[:, None], slots.shape)
+        rows = envs * self.capacity + slots
+        same_row = rows[:, :, None, None] == rows[None, None, :, :]
+        batch_row = jnp.arange(batch)
+        later_row = batch_row[None, :] > batch_row[:, None]
+        overwritten = jnp.any(same_row & later_row[:, None, :, None], axis=(2, 3))
+        # A dropped entry gets a slot of its own past the ring's end, so that
+        # every index is distinct and the scatter drops it.
+        past_end = self.capacity + jnp.arange(batch * length, dtype=jnp.int32)
+        slots = jnp.where(overwritten, past_end.reshape(batch, length), slots)
 
-        def write_row(b, rings):
-            ring_deter, ring_stoch = rings
-            env, where = index.env[b], slots[b]
-            return (
-                ring_deter.at[env, where].set(deter[b]),
-                ring_stoch.at[env, where].set(stoch[b]),
+        def write(ring: jax.Array, values: jax.Array) -> jax.Array:
+            return ring.at[envs.reshape(-1), slots.reshape(-1)].set(
+                values.reshape(batch * length, -1).astype(ring.dtype),
+                mode="drop",
+                unique_indices=True,
             )
 
-        ring_deter, ring_stoch = jax.lax.fori_loop(
-            0, self.batch_size, write_row, (state.deter, state.stoch)
+        return state.replace(
+            deter=write(state.deter, entries.deter),
+            stoch=write(state.stoch, entries.stoch),
         )
-        return state.replace(deter=ring_deter, stoch=ring_stoch)
 
 
 #: The per-row fields of :class:`ReplayState`, ``[..., n_envs, C, ...]``.

@@ -84,7 +84,7 @@ such runs compile only without deterministic operations.
 
 On an NVIDIA GPU, Playground tasks and the `"mujoco:"` tasks (below) can run
 on MuJoCo Warp, Playground's own default, instead of MJX's pure-JAX physics.
-On an L40S, SAC and PPO trained six to seven times faster on it
+On an L40S, SAC and PPO trained about five times faster on it
 ([Performance](performance.md)). Build the environment with
 `physics="warp"` and pass it to the agent with the same `n_envs`; evaluation
 runs on the same physics:
@@ -102,6 +102,12 @@ The two physics do not give the same runs. After 15 steps from the same
 state, on `mujoco:Hopper-v5` both stayed within 2e-6 of C MuJoCo's joint
 positions; on `mujoco:Walker2d-v5`, Warp stayed within 2e-6 and pure JAX
 moved 1.3e-3 away.
+
+Warp keeps one contact buffer for all the worlds a run steps at once,
+seeds times envs. The `"mujoco:"` tasks give it room for 49,152 contacts,
+1,024 worlds of 48; Playground's tasks set their own. A step that runs out
+of contact or constraint room stops the run with an error, rather than going
+on with dropped contacts.
 
 Warp runs only on an NVIDIA GPU, and nothing can be differentiated through
 it: it refuses a CPU, `differentiable_reset=True` and APG.

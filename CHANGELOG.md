@@ -16,13 +16,19 @@ The next release is 0.6.0: the first item changes results.
   capability they lack.
 - **Training on MuJoCo Warp.** On an NVIDIA GPU, agents now train on
   Playground tasks and the `"mujoco:"` tasks built with
-  `build_env_from_id(..., physics="warp")`, six to seven times faster than
-  on pure JAX for SAC and PPO on an L40S. Every online continuous-action agent
+  `build_env_from_id(..., physics="warp")`, about five times faster than on
+  pure JAX for SAC and PPO on an L40S. Every online continuous-action agent
   was checked. Before, every agent failed on its first step: the auto-reset
   merged each physics array env by env, and Warp keeps its contact buffer
   for the whole batch of environments. That buffer now passes through the
   reset. Warp refuses a CPU, `differentiable_reset=True` and APG, saying
   why. Pure-JAX runs are unchanged.
+- **Warp's contact room.** MuJoCo Warp keeps one contact buffer for all the
+  worlds a run steps at once (seeds times envs). The `"mujoco:"` tasks left
+  it at MuJoCo Warp's default, 48 contacts in all, which 47 Hopper worlds
+  overflowed, and Warp then drops contacts with only a printed warning. They
+  now give it 49,152 (1,024 worlds of 48), and a Warp step that runs out of
+  contact or constraint room stops the run with an error.
 - **Gymnasium's MuJoCo tasks in JAX.** `"mujoco:HalfCheetah-v5"`,
   `"mujoco:Hopper-v5"`, `"mujoco:Walker2d-v5"`, `"mujoco:Swimmer-v5"`,
   `"mujoco:Reacher-v5"`, `"mujoco:Pusher-v5"`,

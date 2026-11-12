@@ -30,6 +30,7 @@ from ajax.wrappers import (
     NonFiniteStepWrapper,
     NormalizeVecObservationBrax,
     NormalizeVecObservationGymnax,
+    WarpCapacityWrapper,
     get_wrappers,
 )
 
@@ -223,6 +224,8 @@ def _build_playground_env(
         env = make(env_id.removeprefix(MUJOCO_PREFIX), physics=physics)
     else:
         env = registry.load(env_id, config_overrides={"impl": physics})
+    if physics == "warp":
+        env = WarpCapacityWrapper(env)
     env = NonFiniteStepWrapper(env)
     env = brax_training.EpisodeWrapper(env, episode_length, action_repeat=action_repeat)
     env = brax_training.VmapWrapper(env)

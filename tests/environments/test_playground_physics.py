@@ -9,11 +9,15 @@ numbers all come from MJX's pure-JAX physics):
 - an unknown name is refused rather than passed on to Playground;
 - Warp is refused, with its reason, where it cannot run: without a GPU (its
   kernels are CUDA only), and wherever gradients must cross the physics
-  (``differentiable_reset``, APG), as MJX gives Warp no gradient rule.
+  (``differentiable_reset``, APG), as MJX gives Warp no gradient rule;
+- a Warp step that ran out of contact or constraint room stops the run
+  rather than going on with dropped contacts.
 """
 
 import jax
+import jax.numpy as jnp
 import pytest
+from flax import struct
 
 from ajax.environments.create import build_env_from_id
 from ajax.evaluate import setup_environment
@@ -107,3 +111,76 @@ def test_apg_refuses_warp_physics_with_the_reason(physics_requested):
 
     with pytest.raises(ValueError, match="cannot be differentiated through"):
         APG(env, n_envs=2)
+
+
+@struct.dataclass
+class _WarpCounters:
+    """MuJoCo Warp's counters and capacities, as MJX keeps them in Data._impl."""
+
+    nacon: jax.Array
+    ncollision: jax.Array
+    naconmax: jax.Array
+    nefc: jax.Array
+    njmax: jax.Array
+
+
+@struct.dataclass
+class _WarpData:
+    _impl: _WarpCounters
+
+
+@struct.dataclass
+class _CountingState:
+    data: _WarpData
+
+
+class _CountingEnv:
+    """A stand-in Warp env whose step reports the counts it is given: the
+    batch's contacts and broadphase pairs, and each world's constraint rows."""
+
+    def reset(self, rng):
+        return self.step(None, (0, 0, 0))
+
+    def step(self, state, counts):
+        contacts, pairs, rows = counts
+        warp = _WarpCounters(
+            nacon=jnp.array([contacts]),
+            ncollision=jnp.array([pairs]),
+            naconmax=jnp.array(48),
+            nefc=jnp.full(3, rows),
+            njmax=jnp.array(64),
+        )
+        return _CountingState(_WarpData(warp))
+
+
+@pytest.mark.parametrize(
+    "counts, dropped",
+    [((49, 0, 0), "contacts"), ((0, 49, 0), "contacts"), ((0, 0, 65), "constraints")],
+)
+def test_a_warp_step_that_ran_out_of_room_stops_the_run(counts, dropped):
+    """Catches Warp dropping contacts or constraints with only a printed
+    warning: with too many worlds for its contact buffer the physics went
+    on wrong (47 Hopper worlds overflowed the default 48 contacts)."""
+    from ajax.wrappers import WarpCapacityWrapper
+
+    env = WarpCapacityWrapper(_CountingEnv())
+    step = jax.jit(env.step, static_argnums=1)
+    jax.block_until_ready(step(None, (48, 48, 64)))  # full, not over
+
+    with pytest.raises(jax.errors.JaxRuntimeError, match=f"Warp dropped {dropped}"):
+        jax.block_until_ready(step(None, counts))
+
+
+def test_only_a_warp_stack_checks_its_room(physics_requested):
+    """Catches the check missing from the Warp stack, or costing pure JAX a
+    host callback on every step."""
+    from ajax.environments.utils import wrapper_chain
+    from ajax.wrappers import WarpCapacityWrapper
+
+    def checks(env) -> bool:
+        return any(
+            isinstance(layer, WarpCapacityWrapper) for layer in wrapper_chain(env)
+        )
+
+    assert checks(build_env_from_id(TASK, physics="warp")[0])
+    assert not checks(build_env_from_id(TASK, physics="jax")[0])

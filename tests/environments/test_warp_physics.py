@@ -7,7 +7,9 @@ of MuJoCo, so C MuJoCo is its reference):
   is C MuJoCo's from the state before it, within float32 rounding;
 - each family of agents trains on Warp, its run ending with finite
   evaluations: SAC (off-policy), PPO and APO (on-policy), TD-MPC2 and
-  DreamerV3 (model-based).
+  DreamerV3 (model-based);
+- the contact buffer, which every world of a batch shares, holds a
+  benchmark's batch, and a batch too big for it stops the run.
 
 Large tests: they need a GPU, which CI's runners lack, and are skipped
 without one. On a GPU machine: ``uv run pytest
@@ -24,6 +26,7 @@ from ajax import APO, PPO, SAC
 from ajax.agents.DreamerV3.DreamerV3 import DreamerV3
 from ajax.agents.TDMPC2.TDMPC2 import TDMPC2
 from ajax.environments.create import build_env_from_id
+from ajax.environments.mujoco import tasks
 from ajax.logging import LoggingConfig
 from tests.agents.DreamerV3.test_dreamerv3_agent import TINY as DREAMER_TINY
 from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
@@ -110,6 +113,42 @@ def test_every_transition_on_warp_is_c_mujocos(task: str):
     assert done.sum() == 2 * N_ENVS * (N_STEPS // EPISODE_LENGTH)
     assert len(expected) == 2 * N_ENVS * N_STEPS - done.sum()
     np.testing.assert_allclose(reported, expected, rtol=0, atol=TOLERANCE)
+
+
+def hopper_rollout(n_seeds: int, n_envs: int, steps: int) -> jax.Array:
+    """Random actions on mujoco:Hopper-v5 through Ajax's stack on Warp, vmapped
+    over seeds; the most contact slots the batch used at each step."""
+    env, _ = build_env_from_id("mujoco:Hopper-v5", n_envs=n_envs, physics="warp")
+    shape = (steps, n_envs, env.action_size)
+
+    def run(seed: jax.Array) -> jax.Array:
+        def body(state, action):
+            state = env.step(state, action)
+            warp = state.data._impl
+            return state, jnp.maximum(warp.nacon, warp.ncollision)
+
+        reset_key, action_key = jax.random.split(jax.random.PRNGKey(seed))
+        actions = jax.random.uniform(action_key, shape, minval=-1)
+        return jax.lax.scan(body, env.reset(reset_key), actions)[1]
+
+    return jax.block_until_ready(jax.jit(jax.vmap(run))(jnp.arange(n_seeds)))
+
+
+def test_the_contact_buffer_holds_a_thousand_worlds():
+    """Catches a buffer sized for one world: MuJoCo Warp's default, 48
+    contacts for the whole batch, overflowed at 47 Hopper worlds."""
+    used = hopper_rollout(n_seeds=10, n_envs=100, steps=200)
+
+    assert int(used.max()) <= tasks.WARP_CONTACTS
+
+
+def test_a_batch_too_big_for_the_contact_buffer_stops_the_run(monkeypatch):
+    """Catches dropped contacts going on unnoticed: at MuJoCo Warp's default
+    of 48 contacts, 60 Hopper worlds overflow on their first steps."""
+    monkeypatch.setattr(tasks, "WARP_CONTACTS", 48)
+
+    with pytest.raises(jax.errors.JaxRuntimeError, match="Warp dropped contacts"):
+        hopper_rollout(n_seeds=1, n_envs=60, steps=20)
 
 
 N_TIMESTEPS = 1024

@@ -99,6 +99,13 @@ The next release is 0.6.0: the first item changes results.
   in every `train` call. They now train the whole rollouts the budget
   holds, at least one, as their original implementations do, and a run
   split into calls of whole rollouts ends where one call does.
+- **APO evaluates at PPO's cost, as its official code does.** Its reward
+  rate (`Eval/mean average reward`) took 10,000 more steps per test episode,
+  so each of APO's evaluations lasted up to ten times as long as PPO's. It
+  now follows the official evaluation: 10 environments of 1,000 steps,
+  stopped once 10 trajectories have ended, and the mean of their return /
+  length. With the default `num_episode_test=10` it shares the test
+  episodes' run.
 - **A simulator that diverges no longer ends a run.** On a Brax or Playground
   env, a step whose observation or reward is not finite now ends its episode
   as a termination, with reward 0, and the run goes on. Before, one such step
@@ -180,6 +187,11 @@ The next release is 0.6.0: the first item changes results.
   `ReacherEasy` and `ReacherHard` failed on `mujoco` 3.10 and later with
   `'MjSpec' object has no attribute 'find_body'`. The cap goes once a Playground
   release holds the fix.
+- **APO's `Eval/mean average reward` changes.** It was the mean reward over
+  10,000 steps per test episode, the episodes restarting. It is now the
+  official code's measure: the mean return / length of the first 10
+  trajectories to end on 10 environments of up to 1,000 steps, whatever
+  `num_episode_test` is. *What to do:* compare with runs of this version.
 - **Fresh `playground` installs import MuJoCo again.** The extra now holds
   `mujoco-mjx` to `mujoco`'s range, `>=3.6,<3.10`. `mujoco-mjx` 4.0 requires
   `mujoco-core`, which MuJoCo 4 split out of `mujoco`, so installers paired it

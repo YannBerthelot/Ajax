@@ -362,9 +362,10 @@ def _pays_one(obs):
 def test_every_output_of_evaluate_takes_its_closed_form(c, length, paid):
     """On the identity task with c fixed, the actor's mean t / 10 is paid
     2 t / 10 on Box(-2, 2) for ``length`` steps: its return is their sum,
-    its entropy N(., STD)'s, its average reward the mean of the first 10^4
-    steps of their repetition (the episodes restart), the expert's return
-    one per step. Without a critic there is no value bias (NaN)."""
+    its entropy N(., STD)'s, its average reward (the mean of each
+    trajectory's return over its length, every one alike) their sum over
+    ``length``, the expert's return one per step. Without a critic there is
+    no value bias (NaN)."""
     env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=c))
     out = evaluate(
         env,
@@ -376,16 +377,54 @@ def test_every_output_of_evaluate_takes_its_closed_form(c, length, paid):
         expert_policy=_pays_one,
     )
     entropy = 0.5 * np.log(2 * np.pi * np.e * STD**2)
-    average = np.mean(np.resize(paid, 10_000))
+    average = sum(paid) / length
     expected = (sum(paid), entropy, average, np.nan, length, length)
     names = ("return", "entropy", "average reward", "bias", "length", "expert")
-    # The average reward reduces 10^4 float32 rewards in an order XLA picks
-    # per platform. Summed one by one, the least precise order, it is off by
-    # 4e-6 (relative; measured).
-    loose = {"average reward": (1e-4, 0.0)}
     for name, got, want in zip(names, out, expected, strict=True):
-        rtol, atol = loose.get(name, (1e-5, 0.0))
-        np.testing.assert_allclose(got, want, rtol=rtol, atol=atol, err_msg=name)
+        np.testing.assert_allclose(got, want, rtol=1e-5, err_msg=name)
+
+
+def test_the_average_reward_is_the_mean_rate_of_the_first_ten_trajectories():
+    """xtma/apo's rate (rlpyt's evaluation): 10 envs stepped together, each
+    restarting, until 10 trajectories have ended, then the mean of their
+    return / length. With c drawn per episode, the k envs with c > 0 end at
+    step 3 paid 0.6 (rate 0.2), the others at step 5 paid 2.0 (rate 0.4);
+    the 10th ends at step 5, before any restarted episode can (step 6). A
+    total return over total length weights the 5-step trajectories more;
+    counting the restarts, or the steps past the 10th, moves it too."""
+    env = IdentityEnv()
+    out = evaluate(
+        env,
+        _LinearActor(),
+        10,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        avg_reward_mode=True,
+    )
+    # The first episodes' mean length is (3 k + 5 (10 - k)) / 10.
+    k = round((50 - 10 * float(out[4])) / 2)
+    assert 0 < k < 10, "both lengths are needed to tell the means apart"
+    np.testing.assert_allclose(out[2], (0.2 * k + 0.4 * (10 - k)) / 10, rtol=1e-5)
+
+
+@pytest.mark.parametrize("num_episodes", [2, 3])
+def test_the_average_reward_does_not_depend_on_the_episodes_evaluated(num_episodes):
+    """The rate always runs the reference's 10 envs from the evaluation's
+    key: evaluating fewer episodes leaves it as with 10 (whose rollout it
+    shares), where reading num_episodes envs or trajectories would not."""
+    env = IdentityEnv()
+
+    def rate(n):
+        return evaluate(
+            env,
+            _LinearActor(),
+            n,
+            jax.random.PRNGKey(0),
+            env.default_params,
+            avg_reward_mode=True,
+        )[2]
+
+    np.testing.assert_allclose(rate(num_episodes), rate(10), rtol=1e-6)
 
 
 def _reward_std_2() -> EnvNormalizationInfo:

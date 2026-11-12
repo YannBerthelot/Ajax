@@ -97,6 +97,20 @@ def repeat_first_entry(tree: T, num_repeats: int) -> T:
     )
 
 
+def evaluation_physics(env: Any) -> str:
+    """The physics engine the evaluation of env's task steps: the training
+    env's, but MJX's pure-JAX physics in place of MuJoCo Warp on a device
+    that is not a GPU (an asynchronous evaluator on the CPU,
+    ``LoggingConfig.evaluation_device``), where Warp cannot run. Both step
+    the same model; tasks with contacts drift apart over an episode."""
+    physics = getattr(env, "_ajax_physics", "jax")
+    device = jax.config.jax_default_device  # set by the evaluator's thread
+    platform = getattr(device, "platform", device)
+    if physics == "warp" and platform not in (None, "gpu", "cuda"):
+        return "jax"
+    return physics
+
+
 def setup_environment(
     env,
     env_params,
@@ -172,7 +186,7 @@ def setup_environment(
                 action_repeat=action_repeat,
                 fresh_reset=getattr(env, "_ajax_fresh_reset", True),
                 episode_keys=episode_keys,
-                physics=getattr(env, "_ajax_physics", "jax"),
+                physics=evaluation_physics(env),
             )
         else:
             env = _build_brax_env(

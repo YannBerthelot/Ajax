@@ -14,6 +14,14 @@ The next release is 0.6.0: the first item changes results.
   of the agent's own temperature rule. It is opt-in: no agent's default
   changes. Other agents refuse it, naming the `entropy_temperature`
   capability they lack.
+- **Logged runs evaluate between training chunks.** With a `LoggingConfig`,
+  training runs up to each evaluation as one compiled chunk, and the
+  evaluation runs between chunks as a program of its own, as Brax does.
+  Before, the evaluation sat inside every training step, which slowed the
+  steps between evaluations too. Evaluations come at the same steps as
+  before, with the same results up to floating-point rounding. On MuJoCo
+  Warp (L40S, 10 seeds), a million-step run evaluated every 10,000 steps
+  took 4% less time with SAC and 1% less with PPO.
 - **Training on MuJoCo Warp.** On an NVIDIA GPU, agents now train on
   Playground tasks and the `"mujoco:"` tasks built with
   `build_env_from_id(..., physics="warp")`, about five times faster than on

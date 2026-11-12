@@ -24,6 +24,7 @@ logging = LoggingConfig(
 | `log_frequency` | 10,000 | environment steps between evaluations |
 | `run_name` | `None` | each run's name prefix: a run is named `<run_name>_<run id>` |
 | `sweep` | `False` | for hyperparameter sweeps: SAC evaluates only in the last 20% of training |
+| `evaluation_device` | `None` | a JAX device to evaluate on while training goes on ([below](#evaluating-on-another-device)); `None`: training waits for each evaluation |
 | `use_wandb`, `use_tensorboard` | not set | deprecated: the earlier way to name backends. Set, they warn and name W&B (on unless set `False`) and TensorBoard (off unless set `True`), as before |
 | `folder` | `None` | where the default TensorBoard backend writes, `<folder>/tensorboard/<run id>/` (the working directory when `None`) |
 | `project_name`, `group_name` | `None` | with the deprecated flags: the W&B project and group |
@@ -193,6 +194,37 @@ is a whole number of the agent's iterations (`n_envs` steps for the replay
 agents, `n_envs × n_steps` for PPO, APO, PQN and UDRL, `n_envs × horizon`
 for APG): the iterations stop at a multiple of one, so otherwise an
 evaluation due at the end of the run does not happen, and `train` warns.
+
+## Evaluating on another device
+
+Training waits for each evaluation. With `evaluation_device` it does not: at
+each evaluation, the training program hands the policy over and goes on, and
+a thread scores it on that device.
+
+```python
+import jax
+
+logging = LoggingConfig(evaluation_device=jax.devices("cpu")[0])
+```
+
+- The scores are those of the evaluation in place: the policy at that
+  timestep, on the same keys, up to floating-point rounding. The training
+  metrics are taken at the evaluation's step, as before.
+- Each evaluation reaches the backends once scored, under its own timestep.
+  `train` waits for the last one and returns every evaluation, as without
+  the option.
+- Use the CPU, or a second GPU (`jax.devices("gpu")[1]`), not the training
+  GPU: one process's programs run there one after the other, so training
+  would still wait.
+- On the CPU, a MuJoCo Warp task is evaluated on MJX's pure-JAX physics,
+  as Warp runs on NVIDIA GPUs only. Both step the same model, but tasks with
+  contacts drift apart over an episode, so the scores differ a little from
+  a Warp evaluation's.
+- The device must keep up: an evaluation that takes longer than the training
+  between two waits for the one before it, and `train` waits for all of
+  them at the end.
+- Gymnasium environments, which step in Python, and APG, which evaluates
+  inside its iterations, refuse it.
 
 ## Backends
 

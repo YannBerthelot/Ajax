@@ -92,10 +92,11 @@ from . import readouts as R
 # PORL's: faults/ + 4, test_framework + 1. The study harness's gaps: faults/ + 14,
 # test_framework + 1. The dataset fill's seam: faults/ + 1, test_framework + 1.
 # The update starts' offline fault: faults/ + 1, test_framework + 1.
+# The asynchronous evaluator's: faults/ + 1, test_framework + 1.
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 162, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 416})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 417})
 CAPS.update({"test_average_reward.py": 186})
-CAPS.update({"test_framework.py": 316, "test_value_chains.py": 1051})
+CAPS.update({"test_framework.py": 317, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 389, "test_world_models.py": 452})
@@ -282,14 +283,15 @@ def test_the_directory_keeps_to_its_budget() -> None:
     CHEQ's faults, 5 for noise levels' faults, 4 for RepresentationProbe's, 34
     for the faults of 32 random edits the fast tier missed, 133 for the structure
     arms' cells and faults, 5 for PORL's, 15 for the harness's gaps, 1 for Warp's,
-    2 for the dataset fill's seam, 2 for the update starts' offline fault."""
+    2 for the dataset fill's seam, 2 for the update starts' offline fault,
+    2 for the asynchronous evaluator's."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8712, total
+    assert total <= 8714, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

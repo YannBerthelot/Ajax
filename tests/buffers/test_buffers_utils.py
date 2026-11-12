@@ -145,3 +145,94 @@ def test_init_buffer_schema_follows_its_options(env_id, action_dtype):
     assert full["is_expert"] == ((1,), jnp.float32)
     assert full["a_expert"] == full["next_a_expert"] == plain["action"]
     assert full["actor_carry"] == ((5,), jnp.float32)
+
+
+# -- Observations kept in a byte ----------------------------------------------
+# Contract (stored_observation_dtype, as_read): a replay keeps the observations
+# of a boolean space (MinAtar's 0/1 channels) in one byte each, and hands them
+# back as the float32 0.0 and 1.0 the collector wrote; any other observations
+# (continuous ones, or MinAtar's with feature columns appended) are kept and
+# returned exactly as written.
+
+
+def _env_args(env_id: str, observers: tuple = ()) -> EnvironmentConfig:
+    env, env_params = build_env_from_id(env_id)
+    return EnvironmentConfig(
+        env=env,
+        env_params=env_params,
+        continuous=env_id == "Pendulum-v1",
+        n_envs=2,
+        observers=observers,
+    )
+
+
+def _round_trip(env_args: EnvironmentConfig, written: jax.Array) -> tuple:
+    """Rows of written[t] (obs) and written[t] + 1 / 2 or 1 - written[t]
+    (next_obs, keeping MinAtar's 0/1) added step by step, then 64 batches:
+    the replay's state and the sampled (obs, next_obs)."""
+    buffer = get_buffer(8, 6, n_envs=2)
+    state = init_buffer(buffer, env_args)
+    for t in range(written.shape[0]):
+        row = {
+            k: jnp.zeros(v[:, 0].shape, v.dtype) for k, v in state.experience.items()
+        }
+        row["obs"], row["next_obs"] = written[t], 1.0 - written[t]
+        state = buffer.add(state, row)
+    keys = jax.random.split(jax.random.PRNGKey(0), 64)
+    batches = jax.vmap(lambda k: get_batch_from_buffer(buffer, state, k))(keys)
+    return state, batches.obs, batches.next_obs
+
+
+def _rows_written(written: jax.Array) -> set:
+    flat = np.asarray(written).reshape(-1, written.shape[-1])
+    return {tuple(row) for row in flat.tolist()}
+
+
+def test_a_minatar_replay_keeps_each_observation_value_in_one_byte():
+    """MinAtar's observations are 0/1 channels: a byte holds each value (the
+    bug it catches: DQN's 1e5-row MinAtar replay taking four times the
+    memory, 3.2 GB at 10 seeds on Breakout instead of 0.8)."""
+    buffer = get_buffer(8, 2, n_envs=2)
+    experience = init_buffer(buffer, _env_args("Breakout-MinAtar")).experience
+    for field in ("obs", "next_obs"):
+        assert experience[field].nbytes == experience[field].size, field
+
+
+def test_minatar_rows_come_back_as_the_float32_observations_written():
+    """Sampled rows are float32 and each is one written row, its next
+    observation the one written with it (the bug it catches: a lossy or
+    missing conversion back, the networks reading something else than the
+    collector saw)."""
+    key = jax.random.PRNGKey(1)
+    written = (jax.random.uniform(key, (3, 2, 400)) < 0.3).astype(jnp.float32)
+    _, obs, next_obs = _round_trip(_env_args("Breakout-MinAtar"), written)
+    assert obs.dtype == next_obs.dtype == jnp.float32
+    pairs = {
+        (tuple(o), tuple(n))
+        for o, n in zip(
+            np.asarray(obs).reshape(-1, 400).tolist(),
+            np.asarray(next_obs).reshape(-1, 400).tolist(),
+            strict=True,
+        )
+    }
+    expected = {(o, tuple(1.0 - np.asarray(o))) for o in _rows_written(written)}
+    assert pairs <= expected and len(pairs) > 1
+
+
+@pytest.mark.parametrize(
+    "env_id, observers",
+    [("Pendulum-v1", ()), ("Breakout-MinAtar", (TrainingProgressInput(),))],
+)
+def test_observations_that_are_not_zero_or_one_are_kept_exactly(env_id, observers):
+    """Pendulum's observations, and MinAtar's with a feature column appended,
+    hold fractions: the replay keeps them in float32 and returns them as
+    written (the bug it catches: fractions cast to a byte, read back 0/1)."""
+    env_args = _env_args(env_id, observers)
+    width = (
+        init_buffer(get_buffer(8, 2, n_envs=2), env_args).experience["obs"].shape[-1]
+    )
+    written = jax.random.uniform(jax.random.PRNGKey(2), (3, 2, width)) + 0.25
+    state, obs, _ = _round_trip(env_args, written)
+    assert state.experience["obs"].dtype == jnp.float32
+    sampled = {tuple(row) for row in np.asarray(obs).reshape(-1, width).tolist()}
+    assert sampled <= _rows_written(written) and len(sampled) > 1

@@ -118,6 +118,18 @@ RAW_REWARD_KEY = "raw_reward"
 NON_FINITE_STEPS_KEY = "non_finite_steps"
 
 
+class BinaryObservations(GymnaxWrapper):
+    """An env whose observations are 0/1 channels though its space is
+    declared float32 (gymnax's MinAtar games: Young and Tian, 2019, binary
+    channels; gymnax builds a bool grid and casts it). The space says bool, so
+    a replay keeps them in a byte (ajax.buffers.utils.stored_observation_dtype);
+    the observations themselves are unchanged."""
+
+    def observation_space(self, params) -> spaces.Box:
+        space = self._env.observation_space(params)
+        return spaces.Box(space.low, space.high, space.shape, jnp.bool_)
+
+
 class FlattenObservationWrapper(GymnaxWrapper):
     """Flatten the observations of the environment."""
 

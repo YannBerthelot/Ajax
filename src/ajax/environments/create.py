@@ -20,6 +20,7 @@ from ajax.types import EnvNormalizationInfo
 from ajax.wrappers import (
     AutoResetWrapper,
     BatchRngWrapper,
+    BinaryObservations,
     ClipAction,
     ClipActionBrax,
     EpisodeKeyedAutoResetWrapper,
@@ -472,6 +473,8 @@ def build_env_from_id(
                 " envs only (no gymnax task in the reproduced papers uses it)."
             )
         env, env_params = gymnax.make(env_id)
+        if env_id.endswith("-MinAtar"):
+            env = BinaryObservations(env)
         # Ajax's actor/critic heads consume a flat observation vector: a Dense
         # layer applied to an unflattened (H, W, C) observation produces one
         # action distribution *per spatial cell* instead of one per env. That

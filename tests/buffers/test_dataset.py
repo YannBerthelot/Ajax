@@ -13,7 +13,7 @@ import jax
 import numpy as np
 import pytest
 
-from ajax import TD3
+from ajax import DQN, TD3
 from ajax.buffers import dataset as ds
 from ajax.buffers.utils import get_buffer, init_buffer
 from ajax.extensions.observe import TrainingProgressInput
@@ -100,6 +100,35 @@ def test_fill_then_export_gives_the_dataset_back(recorded, raw) -> None:
     after = np.roll(recorded.obs, -1, 0)
     reset = np.where(recorded.terminated[:, None], after, recorded.next_obs)
     np.testing.assert_array_equal(back.next_obs, recorded.next_obs if raw else reset)
+
+
+def test_a_minatar_dataset_filled_into_its_byte_replay_exports_back() -> None:
+    """MinAtar's 0/1 observations go into a replay that keeps them in a
+    byte (buffers.utils.stored_observation_dtype) and come back as the
+    dataset's float32 values (the bug it catches: a fill or an export that
+    loses or mangles them across the dtype change, as offline training or
+    PriorData on MinAtar would see)."""
+    rows = jax.random.uniform(jax.random.PRNGKey(3), (7, 400)) < 0.3
+    obs = np.asarray(rows[:6], np.float32)
+    next_obs = np.asarray(rows[1:], np.float32)
+    ends = np.array([0, 0, 1, 0, 0, 1], bool)
+    data = ds.TransitionDataset(
+        obs, np.zeros((6, 1)), np.ones(6), ends, np.zeros(6, bool), next_obs
+    )
+    env_args = DQN(env_id="Breakout-MinAtar").env_args
+    empty = init_buffer(get_buffer(8, 2), env_args)
+
+    filled = ds.fill_replay(empty, data)
+
+    assert filled.experience["obs"].dtype == np.bool_
+    state = SimpleNamespace(collector_state=SimpleNamespace(buffer_state=filled))
+    back = ds.export(state, gamma=0.5)
+    assert back.obs.dtype == np.float32
+    np.testing.assert_array_equal(back.obs, obs)
+    # After a termination the replay keeps the reset observation, as
+    # collection does: here the next episode's first.
+    reset = np.where(ends[:, None], np.roll(obs, -1, 0), next_obs)
+    np.testing.assert_array_equal(back.next_obs, reset)
 
 
 def test_fill_appends_each_envs_run_after_the_rows_its_ring_holds() -> None:

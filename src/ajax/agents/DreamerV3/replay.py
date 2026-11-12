@@ -52,6 +52,15 @@ and Algorithm J):
 
 The ring's length ``C`` and every count derived from the tick are static or
 unbatched; only the stored rows and the popped-item counter are per seed.
+
+**Latents on the host.** The ``deter`` ring is almost all of the replay's
+bytes (``2048`` float32 per row in the 12m model, 8 GB per seed at ``2**20``
+rows). With ``latents_on_host`` it lives in pinned host memory, inside the
+state like every other ring, and the training program reads and writes it
+in place: XLA runs the host ring's row writes, gathers and scatters on the
+CPU (its host offloading), the same operations on the same values, so the
+stored rows are bitwise those of a device ring. Every op picks its side from
+the ring's own memory space, so a state restored onto the device still runs.
 """
 
 from __future__ import annotations
@@ -62,6 +71,7 @@ from typing import NamedTuple, Optional
 import jax
 import jax.numpy as jnp
 from flax import struct
+from jax import lax
 
 from ajax.agents.DreamerV3.networks import encode_action
 from ajax.agents.DreamerV3.state import DreamerV3Config
@@ -76,6 +86,59 @@ _UINT8_CLASSES = 256
 def stoch_dtype(classes: int) -> jnp.dtype:
     """Storage dtype of the stochastic latent's class indices."""
     return jnp.dtype(jnp.uint8) if classes <= _UINT8_CLASSES else jnp.dtype(jnp.int32)
+
+
+_HOST = jax.memory.Space.Host
+
+
+def is_on_host(ring: jax.Array) -> bool:
+    """Whether ring lives in host memory (its type says so, also when traced)."""
+    return jax.typeof(ring).memory_space == _HOST
+
+
+def _host_zeros(shape: tuple[int, ...], dtype: jnp.dtype) -> jax.Array:
+    # A host scalar broadcast in host memory: zeros made on the device and
+    # then moved would hold the whole ring on the device for a moment.
+    zero = jax.device_put(jnp.zeros((), dtype), _HOST)
+    return lax.broadcast_in_dim(zero, shape, ())
+
+
+def _host_gather(ring: jax.Array, rows: jax.Array) -> jax.Array:
+    """Rows ``rows`` of a host ring flattened to ``[n_envs * C, ...]``, on the
+    device. jnp.take would build its index checks on the device, and a
+    gather's operands must share one memory space."""
+    flat = ring.reshape(-1, *ring.shape[2:])
+    dims = lax.GatherDimensionNumbers(
+        offset_dims=tuple(range(1, flat.ndim)),
+        collapsed_slice_dims=(0,),
+        start_index_map=(0,),
+    )
+    index = jax.device_put(rows.reshape(-1, 1), _HOST)
+    out = lax.gather(flat, index, dims, (1, *flat.shape[1:]), mode="promise_in_bounds")
+    return jax.device_put(out, jax.memory.Space.Device).reshape(
+        *rows.shape, *flat.shape[1:]
+    )
+
+
+def _host_scatter(
+    ring: jax.Array, envs: jax.Array, slots: jax.Array, values: jax.Array
+) -> jax.Array:
+    """ring.at[envs, slots].set(values, mode="drop", unique_indices=True) on a
+    host ring, its indices and values moved beside it."""
+    dims = lax.ScatterDimensionNumbers(
+        update_window_dims=tuple(range(1, ring.ndim - 1)),
+        inserted_window_dims=(0, 1),
+        scatter_dims_to_operand_dims=(0, 1),
+    )
+    index = jax.device_put(jnp.stack([envs, slots], axis=-1), _HOST)
+    return lax.scatter(
+        ring,
+        index,
+        jax.device_put(values, _HOST),
+        dims,
+        mode="drop",
+        unique_indices=True,
+    )
 
 
 @struct.dataclass
@@ -129,12 +192,15 @@ class StreamReplay:
         batch_length: ``T``, trained rows per window; a window has ``L = T +
             1`` rows, the first being context (2411f7d ``batch_length: 65``
             with ``replay_context: 1``).
+        latents_on_host: :meth:`init` puts the ``deter`` ring in pinned
+            host memory.
     """
 
     n_envs: int
     capacity: int
     batch_size: int
     batch_length: int
+    latents_on_host: bool = False
 
     def __post_init__(self) -> None:
         for name in ("n_envs", "capacity", "batch_size", "batch_length"):
@@ -178,7 +244,11 @@ class StreamReplay:
             is_first=jnp.zeros((n, c), bool),
             is_last=jnp.zeros((n, c), bool),
             is_terminal=jnp.zeros((n, c), bool),
-            deter=jnp.zeros((n, c, deter), jnp.float32),
+            deter=(
+                _host_zeros((n, c, deter), jnp.dtype(jnp.float32))
+                if self.latents_on_host
+                else jnp.zeros((n, c, deter), jnp.float32)
+            ),
             stoch=jnp.zeros((n, c, stoch), stoch_dtype(classes)),
             popped=jnp.zeros((), jnp.int32),
         )
@@ -195,7 +265,10 @@ class StreamReplay:
         deter, stoch = row.extras
 
         def write(ring: jax.Array, value: jax.Array) -> jax.Array:
-            return ring.at[:, slot].set(jnp.asarray(value, ring.dtype))
+            value = jnp.asarray(value, ring.dtype)
+            if is_on_host(ring):
+                value = jax.device_put(value, _HOST)
+            return ring.at[:, slot].set(value)
 
         return state.replace(
             obs=write(state.obs, row.obs.reshape(self.n_envs, -1)),
@@ -298,6 +371,8 @@ class StreamReplay:
         flat = index.env[:, None] * c + slots
 
         def take(ring: jax.Array, where: jax.Array) -> jax.Array:
+            if is_on_host(ring):
+                return _host_gather(ring, where)
             return jnp.take(ring.reshape(-1, *ring.shape[2:]), where, axis=0)
 
         is_first = take(state.is_first, flat).at[:, 0].set(True)
@@ -347,10 +422,11 @@ class StreamReplay:
         slots = jnp.where(overwritten, past_end.reshape(batch, length), slots)
 
         def write(ring: jax.Array, values: jax.Array) -> jax.Array:
+            values = values.reshape(batch * length, -1).astype(ring.dtype)
+            if is_on_host(ring):
+                return _host_scatter(ring, envs.reshape(-1), slots.reshape(-1), values)
             return ring.at[envs.reshape(-1), slots.reshape(-1)].set(
-                values.reshape(batch * length, -1).astype(ring.dtype),
-                mode="drop",
-                unique_indices=True,
+                values, mode="drop", unique_indices=True
             )
 
         return state.replace(
@@ -399,6 +475,15 @@ def grow_rings(state: ReplayState, rows: int, capacity: int) -> ReplayState:
     return state.replace(**{name: pad(getattr(state, name)) for name in RING_FIELDS})
 
 
+def place_latents(state: ReplayState, on_host: bool) -> ReplayState:
+    """state with its deter ring in host memory (on_host) or on the device,
+    for a resumed run whose state may come from either. Host-side."""
+    if is_on_host(state.deter) == on_host:
+        return state
+    space = _HOST if on_host else jax.memory.Space.Device
+    return state.replace(deter=jax.device_put(state.deter, space))
+
+
 def count_row_bytes(
     obs_dim: int, action_dim: int, discrete: bool, deter: int, stoch: int, classes: int
 ) -> int:
@@ -433,5 +518,7 @@ __all__ = [
     "count_replay_bytes",
     "count_row_bytes",
     "grow_rings",
+    "is_on_host",
+    "place_latents",
     "stoch_dtype",
 ]

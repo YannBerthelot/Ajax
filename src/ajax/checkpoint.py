@@ -100,9 +100,16 @@ def restore_into(skeleton: Any, path: str) -> Any:
     _check_leaf_shapes(skeleton, restored)
     if saved_format < 2:
         restored = _with_collection_stream(restored)
+    # Each array goes where the skeleton keeps it: a ring the agent holds in
+    # host memory is restored there, never staged on the device.
     return jax.tree.map(
-        lambda x: jax.device_put(x) if isinstance(x, np.ndarray) else x,
+        lambda x, like: (
+            jax.device_put(x, like.sharding if isinstance(like, jax.Array) else None)
+            if isinstance(x, np.ndarray)
+            else x
+        ),
         restored,
+        skeleton,
     )
 
 

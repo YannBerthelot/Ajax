@@ -57,6 +57,7 @@ from ajax.agents.DreamerV3.replay import (
     count_held_rows,
     count_replay_bytes,
     grow_rings,
+    place_latents,
 )
 from ajax.agents.DreamerV3.state import DreamerV3Config, LearningRate
 from ajax.agents.DreamerV3.world_model import make_initial_carry, observe_and_act
@@ -152,6 +153,10 @@ class DreamerV3(OwnReplayAgent):
     batch_size: int = 16
     batch_length: int = 64
     replay_capacity: int = 5_000_000
+    #: Keep the replay's stored latents (deter, ~99% of its bytes) in pinned
+    #: host memory instead of the accelerator's: the same numbers, a little
+    #: slower, and seeds then share the device for their working sets only.
+    replay_on_host: bool = False
     #: Not a keyword: 1 - 1 / return_horizon (setup), the discount of the
     #: continue target and of the replay critic.
     gamma: float = dataclasses.field(init=False)
@@ -217,11 +222,18 @@ class DreamerV3(OwnReplayAgent):
             self._record_replay_rows(rows)
         elif self.replay_rows_per_env is not None:
             rows = self.replay_rows_per_env
+        if agent_state is not None:
+            agent_state = agent_state.replace(
+                replay_state=place_latents(
+                    agent_state.replay_state, self.replay_on_host
+                )
+            )
         replay = StreamReplay(
             n_envs=self.n_envs,
             capacity=rows,
             batch_size=self.batch_size,
             batch_length=self.batch_length,
+            latents_on_host=self.replay_on_host,
         )
         return replay, agent_state
 

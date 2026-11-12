@@ -5,6 +5,7 @@ written once so a fix lands in one place instead of in every agent's
 ``train_*.py``.
 """
 
+import warnings
 from functools import partial
 from typing import Any, Callable, Tuple
 
@@ -188,7 +189,7 @@ def build_chunked_train(
             lambda state, tick: tick_fn(state, index, tick), agent_state, length, ticks
         )
 
-    log = jax.jit(log_fn, donate_argnums=(0, 2))
+    log = jax.jit(log_fn)
 
     def train(
         key: Any,
@@ -204,7 +205,14 @@ def build_chunked_train(
         ends = evaluates.union(ticks[-1:].tolist())
         begin = first
         for end in sorted(ends):
-            agent_state, aux = chunk(agent_state, index, begin, end - begin + 1)
+            with warnings.catch_warnings():
+                # A leaf a chunk leaves as it was (the parameters before the
+                # first update) is passed through, not copied, so its donated
+                # buffer has no use: nothing is lost.
+                warnings.filterwarnings(
+                    "ignore", message="Some donated buffers were not usable"
+                )
+                agent_state, aux = chunk(agent_state, index, begin, end - begin + 1)
             if end in evaluates:
                 agent_state, out = log(agent_state, aux, out, index, end)
             begin = end + 1

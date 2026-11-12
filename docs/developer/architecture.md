@@ -57,7 +57,8 @@ src/ajax/
 ├── logging/             LoggingConfig; the W&B and TensorBoard worker
 ├── log.py, evaluate.py  when to evaluate and log; the evaluation episodes
 ├── controller.py      what a step acts on (ActingState) and how the agent acts beyond its actor (Controller)
-├── perf_utils.py        build_resumable_train: init or resume, then one jitted scan
+├── perf_utils.py        build_resumable_train: init or resume, then one jitted scan;
+│                        build_chunked_train: the same in chunks, evaluating between them
 ├── state.py             BaseAgentState, CollectorState and the configuration dataclasses
 ├── checkpoint.py        save_checkpoint, restore_into
 ├── wrappers.py          env wrappers: normalisation, action clip, auto-reset, observation noise
@@ -143,6 +144,7 @@ agent.train(seed=[0, 1], n_timesteps=..., logging_config=..., initial_state=...)
   │         ├─ TrainLoop.create(...)              budget, extensions, logging
   │         └─ loop.off_policy(init, update, ...) or loop.on_policy(...)
   │              └─ build_resumable_train(...)    jitted train(key, index, initial_state, ...)
+  │                 or build_chunked_train(...)   with logging: chunks of ticks, evaluations between
   ├─ jax.vmap over seeds                          one program, every seed
   └─ block_until_ready, stop the logging worker
 returns (state, evaluations)                      every leaf has a leading seed axis
@@ -413,9 +415,21 @@ What `train` returns follows from the logging config:
   APG returns its per-update metrics in place of `None`.
 - **A `LoggingConfig`:** the run evaluates whether or not a backend records
   it, and returns `(state, evaluations)`: every logged key's values per seed
-  and evaluation. The values are written into rows the scan carries, not
+  and evaluation. The values are written into rows the loop carries, not
   stacked per iteration, which would cost `seeds x iterations` memory. Rows
   a call does not fill hold -1 (the timestep) or NaN.
+
+With a `LoggingConfig` the run trains in chunks
+([`perf_utils.build_chunked_train`](../../src/ajax/perf_utils.py)), as Brax
+does: the ticks up to the next evaluation are one jitted scan, and the
+evaluation, with its gate and logging, is a program of its own that runs on
+the state the chunk ends with. Inside the training program, the evaluation
+slowed every tick, by about 4% for SAC on MuJoCo Warp. The ticks after which
+the gate can open are known before the run (`TrainLoop.logging_ticks` from
+the steps a tick takes, or the agent's `Evaluation.ticks`), so evaluations
+come on the same ticks and states as in one scan. Each chunk length compiles
+once: one or two lengths, two when `log_frequency` is not a multiple of an
+iteration's steps.
 
 Two details keep the gates correct under the seed `vmap`. The counters a gate
 reads (the timestep, `n_logs`, the scan index) stay unbatched, so

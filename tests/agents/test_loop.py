@@ -596,6 +596,22 @@ def test_train_returns_the_evaluations_the_logger_receives() -> None:
             np.testing.assert_array_equal(value[seed, len(logged) :], empty, key)
 
 
+def test_an_uneven_log_frequency_evaluates_at_the_first_step_past_each_multiple() -> (
+    None
+):
+    """16-step iterations evaluated every 24 steps evaluate at 32 (the
+    first step at or past 24) and 48, in chunks of two ticks then one.
+    Catches chunks of a fixed ceil(24 / 16) = 2 ticks, which miss the tick
+    the gate opens on and evaluate at 32 and 64."""
+    _, rows = _apo().train(
+        seed=SEEDS,
+        n_timesteps=BUDGET,
+        num_episode_test=1,
+        logging_config=_config(log_frequency=24),
+    )
+    np.testing.assert_array_equal(rows["timestep"], [[32, 48]] * len(SEEDS))
+
+
 def test_a_logged_run_resumes_from_its_checkpoint(tmp_path: Any) -> None:
     """A checkpoint of ``train``'s whole result restores into an unlogged
     run's skeleton, and the resumed run returns its own evaluations."""

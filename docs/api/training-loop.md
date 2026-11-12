@@ -21,10 +21,6 @@ The steps an agent's update is written in:
     options:
       heading_level: 3
 
-::: ajax.state.BaseAgentConfig
-    options:
-      heading_level: 3
-
 ::: ajax.state.NetworkConfig
     options:
       heading_level: 3

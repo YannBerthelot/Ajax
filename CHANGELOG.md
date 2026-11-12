@@ -249,6 +249,10 @@ The next release is 0.6.0: the first item changes results.
   1,000: 100 evaluations over a million steps. At 1,000, evaluation took
   about half the time of a 10-seed SAC run on MuJoCo Warp. *What to do:* pass
   `log_frequency=1_000` to keep the old rate.
+- **`ajax.state.BaseAgentConfig` and `ajax.agents.recurrent.RecurrentReplayConfig`
+  are removed.** Nothing has read them since 0.4.0: `expose_recent_rollout`,
+  `burn_in`, `sequence_length` and `stored_state` are each agent's own fields.
+  *What to do:* drop any import of them.
 
 ## 0.5.0
 

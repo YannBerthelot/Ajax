@@ -28,6 +28,7 @@ from typing import Any
 import pytest
 
 import ajax
+from ajax.logging.wandb_logging import LoggingConfig
 from tests.agents.test_agent_contract import CASES
 from tests.agents.test_agent_pins import _multitask
 
@@ -145,6 +146,32 @@ def test_an_agent_keeps_its_recorded_configs(name: str) -> None:
 @pytest.mark.parametrize("name", ajax.__all__)
 def test_an_agent_keeps_its_recorded_contract(name: str) -> None:
     assert contract(name) == json.loads(CONTRACTS.read_text())[name]
+
+
+#: LoggingConfig's defaults as its docstring and the changelog state them
+#: (an evaluation every 10,000 steps since #406): a changed default changes
+#: every logged run, which RELEASING.md counts as a breaking change.
+LOGGING_DEFAULTS: dict[str, Any] = {
+    "config": {},
+    "project_name": None,
+    "run_name": None,
+    "log_frequency": 10_000,
+    "group_name": None,
+    "folder": None,
+    "use_tensorboard": None,
+    "use_wandb": None,
+    "sweep": False,
+    "backends": None,
+    "evaluation_device": None,
+}
+
+
+def test_logging_keeps_its_defaults() -> None:
+    """Catches a default changed in passing, such as log_frequency back to
+    1,000, which would move every logged run's evaluations."""
+    config = LoggingConfig()
+    defaults = {f.name: getattr(config, f.name) for f in dataclasses.fields(config)}
+    assert defaults == LOGGING_DEFAULTS
 
 
 if __name__ == "__main__":

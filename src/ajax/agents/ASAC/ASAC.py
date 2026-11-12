@@ -390,7 +390,7 @@ def uniform_log_prob(action_dim: int) -> float:
 def compute_asac_td_target(
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
-    rng: jax.Array,
+    key: jax.Array,
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
@@ -411,7 +411,7 @@ def compute_asac_td_target(
     bootstrapped before the cut.
     """
     rewards = rewards * reward_scale
-    sample_key, _ = jax.random.split(rng)
+    sample_key, _ = jax.random.split(key)
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, map_next_actions
     )

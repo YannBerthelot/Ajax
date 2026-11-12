@@ -348,7 +348,7 @@ class TQC(
 def compute_tqc_td_target(
     actor_state: LoadedTrainState,
     critic_state: LoadedTrainState,
-    rng: jax.Array,
+    key: jax.Array,
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
@@ -365,7 +365,7 @@ def compute_tqc_td_target(
     held target atoms, the next actions' log-probs, the next actions and
     the value bootstrapped, the kept atoms' mean less alpha log pi(a'|s')."""
     next_actions, log_probs = sample_next_actions(
-        actor_state, next_observations, rng, carries, map_next_actions
+        actor_state, next_observations, key, carries, map_next_actions
     )
     next_quantiles = q_values(
         critic_state,

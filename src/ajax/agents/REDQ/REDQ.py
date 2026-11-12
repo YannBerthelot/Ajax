@@ -439,7 +439,7 @@ def read_temperature(agent_state: REDQState) -> REDQState:
 def compute_redq_td_target(
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
-    rng: jax.Array,
+    key: jax.Array,
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
@@ -456,7 +456,7 @@ def compute_redq_td_target(
     flowing back through it, the next actions' log-probs, the next actions,
     the subset's indices and the value bootstrapped before gamma and the
     cut."""
-    sample_key, subset_key = jax.random.split(rng)
+    sample_key, subset_key = jax.random.split(key)
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, map_next_actions
     )

@@ -172,9 +172,9 @@ def pre_train(
         )
         return state.apply_gradients(grads=grads), loss
 
-    def actor_epoch_step(carry, rng_epoch):
+    def actor_epoch_step(carry, epoch_key):
         state = carry
-        perm = jax.random.permutation(rng_epoch, obs.shape[0])
+        perm = jax.random.permutation(epoch_key, obs.shape[0])
         obs_shuffled = obs[perm]
         actions_shuffled = actions[perm]
 
@@ -192,15 +192,15 @@ def pre_train(
         )
         return state, jnp.mean(batch_losses)
 
-    _, rng_actor = jax.random.split(rng)
+    _, actor_key = jax.random.split(rng)
     if skip_actor:
         # Actor pretraining bypassed (e.g., to keep policy free to deviate
         # from a suboptimal expert). Leave actor_state untouched.
         bc_actor_state = actor_state
     else:
-        rng_epochs = jax.random.split(rng_actor, actor_epochs)
+        epoch_keys = jax.random.split(actor_key, actor_epochs)
         bc_actor_state, actor_losses = jax.lax.scan(
-            actor_epoch_step, bc_actor_state, rng_epochs
+            actor_epoch_step, bc_actor_state, epoch_keys
         )
         metrics["actor_loss"] = actor_losses
         if reset_log_std or reset_actor_head:

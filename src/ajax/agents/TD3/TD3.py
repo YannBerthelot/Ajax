@@ -309,7 +309,7 @@ class TD3(
 def compute_td3_td_target(
     actor_state: LoadedTrainState,
     critic_state: LoadedTrainState,
-    rng: jax.Array,
+    key: jax.Array,
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
@@ -335,7 +335,7 @@ def compute_td3_td_target(
         bootstrap=True,
         target_actor=True,
     ).mean()
-    noise = jax.random.normal(rng, next_action.shape) * target_policy_noise
+    noise = jax.random.normal(key, next_action.shape) * target_policy_noise
     clip_fraction = (jnp.abs(noise) > target_noise_clip).mean()
     noise = jnp.clip(noise, -target_noise_clip, target_noise_clip)
     next_action = jnp.clip(next_action + noise, -1.0, 1.0)

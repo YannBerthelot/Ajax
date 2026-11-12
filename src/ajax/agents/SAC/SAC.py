@@ -303,7 +303,7 @@ class SAC(
             rewards=batch.reward,
             gamma=gamma,
             alpha=get_alpha(agent_state),
-            rng=critic_key,
+            key=critic_key,
             reward_scale=self.reward_scale,
             map_next_actions=scored.map_next_actions,
             carries=carries,
@@ -505,7 +505,7 @@ def compute_td_target(
     rewards: jax.Array,
     gamma: Union[float, jax.Array],
     alpha: jax.Array,
-    rng: jax.Array,
+    key: jax.Array,
     reward_scale: float = 1.0,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
     carries: Optional[RecurrentCarries] = None,
@@ -524,7 +524,7 @@ def compute_td_target(
     Without it the target Q is out of distribution and training diverges.
     The carries are set for sequence replay alone.
     """
-    sample_key, rng = jax.random.split(rng)
+    sample_key, _ = jax.random.split(key)
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, map_next_actions
     )
@@ -567,7 +567,7 @@ def compute_soft_policy_loss(
     critic_state: LoadedTrainState,
     observations: jax.Array,
     alpha: jax.Array,
-    rng: jax.Array,
+    key: jax.Array,
     carries: Optional[RecurrentCarries] = None,
     q_reduce: Callable[..., jax.Array] = jnp.min,
     map_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
@@ -586,7 +586,7 @@ def compute_soft_policy_loss(
         critic_state,
         observations,
         alpha,
-        rng,
+        key,
         carries,
         q_reduce,
         map_actions,
@@ -598,14 +598,14 @@ def compute_soft_policy_objective(
     critic_state: LoadedTrainState,
     observations: jax.Array,
     alpha: jax.Array,
-    rng: jax.Array,
+    key: jax.Array,
     carries: Optional[RecurrentCarries] = None,
     q_reduce: Callable[..., jax.Array] = jnp.min,
     map_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, tuple[jax.Array, jax.Array, Any]]:
     """compute_soft_policy_loss on the policy at observations, however
     the agent computed it (CrossQ's actor in training)."""
-    sample_key, rng = jax.random.split(rng)
+    sample_key, _ = jax.random.split(key)
     actions, log_probs = policy.sample_and_log_prob(seed=sample_key)
     actions = map_actions(actions)
     reduced_q_values = q_reduce(

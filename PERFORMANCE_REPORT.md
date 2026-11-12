@@ -735,8 +735,11 @@ one process, milliseconds per update (all seeds):
 | 2 | 164.8, 163.4, 165.0 | 154.0, 153.3 | -7%, -6% |
 | 4 | 217.1, 161.2, 129.5 | 164.6, 114.4, 114.7 | -24%, -29%, -11% |
 
-The other jobs' load changed between rounds, so compare within a round. Peak
-GPU memory grew by about 0.2 GB per seed (the batched step's activations).
+The card ran another job throughout, so compare within a round. The 2-seed
+run was stopped before its last sample (bob's jobs were stopped for a clean
+start). The 4-seed run overlapped other jobs starting on the card, hence its
+spread: indicative only. Peak GPU memory grew by about 0.2 GB per seed (the
+batched step's activations).
 
 CPU, the bench's DreamerV3 preset (1m model, batch 8 x 16), the two
 alternated in one process: 15.1 s against 14.2 s of execution per trial

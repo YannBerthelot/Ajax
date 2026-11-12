@@ -13,8 +13,8 @@ The next release is 0.6.0: the first item changes results.
   per update, as one product over all steps, instead of adding 64 small
   per-step products. Results are the same up to floating-point rounding. On
   a shared L40S (MuJoCo Warp Hopper), an update took 6-10% less time at 1
-  and 2 seeds and 11-29% less at 4. It uses about 0.2 GB more GPU memory per
-  seed, and the CPU bench's DreamerV3 run is about 6% slower.
+  and 2 seeds. It uses about 0.2 GB more GPU memory per seed, and the CPU
+  bench's DreamerV3 run is about 6% slower.
 - **The `playground` extra allows MuJoCo up to 3.15.** It held `mujoco`
   and `mujoco-mjx` below 3.10 for one bug: Playground 0.2 compares MuJoCo
   versions as strings, so its `ReacherEasy` and `ReacherHard` failed on 3.10

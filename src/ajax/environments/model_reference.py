@@ -65,24 +65,41 @@ class StepReference:
             )
 
     def sample(self, rng: jax.Array) -> jax.Array:
-        """One reference sequence, shape ``(horizon, n_outputs)``."""
+        """One reference sequence, shape ``(horizon, n_outputs)``.
 
-        def body(carry, key):
+        Step t draws a candidate value and duration from its own key; a new
+        segment starts on the steps where the previous one has run out.
+        """
+        # Every step's candidates are drawn at once, outside the loop: the
+        # tracking wrapper draws a fresh reference on every env step (its
+        # auto-reset), and drawing inside the loop cost about 99% of an
+        # APG rollout's env time. The keys and draws are the ones the loop
+        # took, so the sequence is the same.
+        step_keys = jax.random.split(rng, self.horizon)
+        value_keys, duration_keys = jnp.moveaxis(
+            jax.vmap(jax.random.split)(step_keys), 1, 0
+        )
+        candidate_values = jax.vmap(
+            lambda key: jax.random.uniform(
+                key, (self.n_outputs,), minval=self.min_value, maxval=self.max_value
+            )
+        )(value_keys)
+        candidate_durations = jax.vmap(
+            lambda key: jax.random.randint(
+                key, (self.n_outputs,), self.min_duration, self.max_duration + 1
+            )
+        )(duration_keys)
+
+        def body(carry, candidates):
             remaining, value = carry
-            k_val, k_dur = jax.random.split(key)
-            new_value = jax.random.uniform(
-                k_val, (self.n_outputs,), minval=self.min_value, maxval=self.max_value
-            )
-            new_duration = jax.random.randint(
-                k_dur, (self.n_outputs,), self.min_duration, self.max_duration + 1
-            )
+            new_value, new_duration = candidates
             start_new = remaining <= 0
             value = jnp.where(start_new, new_value, value)
             remaining = jnp.where(start_new, new_duration, remaining) - 1
             return (remaining, value), value
 
         init = (jnp.zeros((self.n_outputs,), jnp.int32), jnp.zeros((self.n_outputs,)))
-        _, sequence = jax.lax.scan(body, init, jax.random.split(rng, self.horizon))
+        _, sequence = jax.lax.scan(body, init, (candidate_values, candidate_durations))
         return sequence
 
 

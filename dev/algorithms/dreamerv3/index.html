@@ -3225,6 +3225,11 @@ train ratio of 512, action repeat 2, and 500K environment frames, which is
 <td>rows kept, over all environments</td>
 </tr>
 <tr>
+<td><code>replay_on_host</code></td>
+<td>False</td>
+<td>keep the stored latents in pinned host memory instead of the accelerator's</td>
+</tr>
+<tr>
 <td><code>action_repeat</code>, <code>episode_length</code></td>
 <td>1, 1000</td>
 <td>simulator steps per agent step, and per episode (Brax, Playground)</td>
@@ -3255,7 +3260,13 @@ below.</p>
   seeds multiplies it. The replay keeps <code>min(ceil(replay_capacity / n_envs),
   rows per env of the run)</code> rows per env (a capacity in rows, deviation D27),
   sized again by every <code>train</code> call, so that a run split into resumed calls
-  keeps the replay of the uninterrupted run.</li>
+  keeps the replay of the uninterrupted run.
+  The posterior latents are almost all of a row; with <code>replay_on_host=True</code>
+  they stay in pinned host memory, inside the state, and the device holds
+  little more than the working set. The results are the same, bit for bit;
+  each update is a little slower, as XLA reads and writes those rows on the
+  CPU. XLA caps pinned host memory at 64 GB by default: set
+  <code>XLA_PJRT_GPU_HOST_MEMORY_LIMIT_GB</code> higher for more.</li>
 <li><strong>Recompilation.</strong> Widths, depths, counts, <code>bins</code>, <code>imag_horizon</code>,
   <code>batch_size</code>, <code>batch_length</code>, <code>train_ratio</code> and <code>replay_capacity</code> fix the
   compiled program; changing one recompiles.</li>
@@ -3360,7 +3371,8 @@ second of execution (275 with compilation) at main <code>a8a13c2</code>.</p>
 <a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
 <a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a>    <span class="n">batch_length</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
 <a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a>    <span class="n">replay_capacity</span><span class="o">=</span><span class="mi">5000000</span><span class="p">,</span>
-<a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a><span class="p">)</span>
+<a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a>    <span class="n">replay_on_host</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-58" name="__codelineno-0-58" href="#__codelineno-0-58"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">

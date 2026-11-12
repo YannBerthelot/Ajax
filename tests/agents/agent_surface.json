@@ -442,7 +442,6 @@
 "ajax.agents.minibatch:run_epochs",
 "ajax.agents.minibatch:split_fragments",
 "ajax.agents.recurrent:RecurrentCarries",
-"ajax.agents.recurrent:RecurrentReplayConfig",
 "ajax.agents.recurrent:actor_dist",
 "ajax.agents.recurrent:compute_rollout_values",
 "ajax.agents.recurrent:compute_values_from_rollout_sequence",

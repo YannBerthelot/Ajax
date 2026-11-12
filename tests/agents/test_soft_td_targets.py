@@ -51,7 +51,6 @@ def _target(
             critic_state=state.critic_state,
             gamma=0.9,
             rng=KEY,
-            recurrent=False,
             **common,
         )[0]
     if name == "REDQ":

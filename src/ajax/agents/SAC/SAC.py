@@ -304,7 +304,6 @@ class SAC(
             gamma=gamma,
             alpha=get_alpha(agent_state),
             rng=critic_key,
-            recurrent=context.recurrent,
             reward_scale=self.reward_scale,
             map_next_actions=scored.map_next_actions,
             carries=carries,
@@ -507,7 +506,6 @@ def compute_td_target(
     gamma: Union[float, jax.Array],
     alpha: jax.Array,
     rng: jax.Array,
-    recurrent: bool,
     reward_scale: float = 1.0,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
     carries: Optional[RecurrentCarries] = None,
@@ -524,9 +522,8 @@ def compute_td_target(
     (ajax.controller.make_scored_actions): the bootstrap is queried where
     the critic was trained, clip(a_expert(s') + scale * pi(s'), -1, 1).
     Without it the target Q is out of distribution and training diverges.
-    The carries (sequence replay) are set exactly when recurrent.
+    The carries are set for sequence replay alone.
     """
-    del recurrent
     sample_key, rng = jax.random.split(rng)
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, map_next_actions

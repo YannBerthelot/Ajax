@@ -87,6 +87,33 @@ def critic_value_readers(
     return predictions, target_value_at
 
 
+def ensemble_members(
+    critic_state: LoadedTrainState, members: jax.Array
+) -> LoadedTrainState:
+    """critic_state reduced to the ensemble's members at the indices members,
+    in that order: their parameters, target parameters and running
+    statistics, read by an ensemble network of that many members. A pass
+    then computes their values alone, each member's the one the whole
+    ensemble gives it (to rounding): REDQ's target over a random subset of
+    its critics, which its official code evaluates alone."""
+    # The ensemble network, its size a field: its apply is a bound method.
+    network: Any = getattr(critic_state.apply_fn, "__self__", None)
+    if network is None:
+        raise ValueError("ensemble_members needs a critic built by its network.")
+
+    def take(variables: Optional[FrozenDict]) -> Optional[FrozenDict]:
+        if variables is None:
+            return None
+        return jax.tree.map(lambda leaf: leaf[members], variables)
+
+    return critic_state.replace(
+        apply_fn=network.clone(num=members.shape[0]).apply,
+        params=take(critic_state.params),
+        target_params=take(critic_state.target_params),
+        batch_stats=take(critic_state.batch_stats),
+    )
+
+
 def q_network_value_readers(
     q_state: LoadedTrainState, observations: jax.Array, actions: jax.Array
 ) -> tuple[Callable, Callable]:

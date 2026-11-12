@@ -725,6 +725,10 @@ maths, summation order only: one training step of the 12m model on CPU gives
 the same parameters bitwise and gradients within 7.2e-7 of each tensor's
 largest entry.
 
+The timings below are provisional: every GPU run shared its card with other
+jobs, and a timing on a quiet machine is pending. The equality of the maths
+(above) does not depend on them.
+
 GPU, `mujoco:Hopper-v5` on MuJoCo Warp, 16 envs, the benchmark's settings,
 one L40S shared with other jobs, main (d40a8069) and the change alternated in
 one process, milliseconds per update (all seeds):

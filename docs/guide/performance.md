@@ -115,15 +115,18 @@ the same machine's CPU, in `benchmarks/gpu/report.md`.
 The logging worker always runs on the CPU, so it never takes GPU memory.
 Playground runs MJX's pure-JAX physics on every device by default. On a GPU,
 MuJoCo Warp (`physics="warp"`, see [Environments](environments.md)) trained
-about seven times faster on an L40S, with 10 seeds of one environment each:
+six to seven times faster on an L40S, with 10 seeds of one environment each:
 
-| Agent, task | Pure JAX | Warp |
-|---|---:|---:|
-| SAC, `mujoco:Hopper-v5` | 28 | 189 |
-| PPO, `mujoco:HalfCheetah-v5` | 84 | 578 |
+| Agent, task | Pure JAX | Pure JAX, command buffers | Warp |
+|---|---:|---:|---:|
+| SAC, `mujoco:Hopper-v5` | 28 | 32 | 189 |
+| PPO, `mujoco:HalfCheetah-v5` | 84 | 85 | 578 |
 
 These are steps per second per seed, from timing runs without evaluations.
 With 100 seeds, SAC on Warp ran 82 steps per second per seed, 8,200 in all.
+The command buffers are `XLA_FLAGS="--xla_gpu_enable_command_buffer=FUSION,CUBLAS,CUBLASLT,CUSTOM_CALL,CUDNN,WHILE,CONDITIONAL --xla_gpu_graph_min_graph_size=1"`.
+Leave them off with Warp: they slowed its PPO run to 173 steps per second
+per seed, with or without `CUSTOM_CALL`.
 
 A GPU doesn't promise the same result twice by default: two identical PPO runs
 on HumanoidWalk differed. `XLA_FLAGS=--xla_gpu_deterministic_ops=true` made

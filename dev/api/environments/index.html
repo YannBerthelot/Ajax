@@ -2878,6 +2878,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.wrappers.BinaryObservations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BinaryObservations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.wrappers.FlattenObservationWrapper" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4222,6 +4233,17 @@
     <span class="md-ellipsis">
       
         BraxWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.BinaryObservations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BinaryObservations
       
     </span>
   </a>
@@ -6408,6 +6430,59 @@ Gymnasium task's own (<code>reset_noise_scale</code>, ...).</p>
 <p>A copy of <code>brax.envs.base.Wrapper</code> (brax 0.14.2, Apache-2.0) without
 its <code>Env</code> base class, so that Ajax imports brax only to build a brax
 env (brax comes with the <code>brax</code> extra).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.BinaryObservations" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">BinaryObservations</span>
+
+
+<a href="#ajax.wrappers.BinaryObservations" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">BinaryObservations</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="GymnaxWrapper (ajax.wrappers.GymnaxWrapper)" href="#ajax.wrappers.GymnaxWrapper">GymnaxWrapper</a></code></p>
+
+
+
+        <p>An env whose observations are 0/1 channels though its space is
+declared float32 (gymnax's MinAtar games: Young and Tian, 2019, binary
+channels; gymnax builds a bool grid and casts it). The space says bool, so
+a replay keeps them in a byte (ajax.buffers.utils.stored_observation_dtype);
+the observations themselves are unchanged.</p>
 
 
 

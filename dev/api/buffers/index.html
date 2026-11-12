@@ -2657,6 +2657,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.stored_observation_dtype" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stored_observation_dtype
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.as_read" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        as_read
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.buffers.utils.min_replay_rows" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3239,6 +3261,28 @@
     <span class="md-ellipsis">
       
         get_buffer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.stored_observation_dtype" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stored_observation_dtype
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.as_read" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        as_read
       
     </span>
   </a>
@@ -3991,6 +4035,52 @@ a ring's write position, so a ring needs n_step rows per env first.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="ajax.buffers.utils.stored_observation_dtype" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">stored_observation_dtype</span>
+
+
+<a href="#ajax.buffers.utils.stored_observation_dtype" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">stored_observation_dtype</span><span class="p">(</span><span class="n">env_args</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The dtype a replay keeps its observations in: bool where the env's
+observation space is boolean (MinAtar's images) and the replay keeps the
+env's own observations, a quarter of float32's memory for the same
+values, 0.0 and 1.0 (as_read reads them back); float32 otherwise, for
+observations normalised or extended with feature columns and every other
+space.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.buffers.utils.as_read" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">as_read</span>
+
+
+<a href="#ajax.buffers.utils.as_read" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">as_read</span><span class="p">(</span><span class="n">experience</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Replayed fields as the agent reads them: observations kept as bool
+(stored_observation_dtype) in float32, 0.0 and 1.0.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="ajax.buffers.utils.min_replay_rows" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">min_replay_rows</span>
 
@@ -4084,7 +4174,8 @@ row past its old end. Host-side, before a resumed run.</p>
         <p>Initialize the flashbax buffer state with correctly shaped dummy transitions.</p>
 <p>Observations are flat (<code>build_env_from_id</code> flattens gymnax ones).</p>
 <p>The observations are as wide as the agent's, their features
-(<code>env_args.observers</code>) included.
+(<code>env_args.observers</code>) included, in stored_observation_dtype: bool for
+a boolean space, which sampling reads back as float32.
 include_raw_obs, include_raw_next_obs: also keep the environment's own
   observation, <code>raw_obs</code>, and next observation (the final one where
   an episode ended), <code>raw_next_obs</code>, for an expert to read.

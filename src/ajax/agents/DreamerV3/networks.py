@@ -491,11 +491,22 @@ def observe(
     ``carry`` is the state before the first step. Returns the final carry and
     the per-step features ``[B, T, ...]`` (``nets.py:59-62``: a scan over the
     time axis, BPTT through all ``T`` steps).
+
+    For the backward pass the scan keeps each step's matrix products and
+    recomputes the cheap elementwise operations between them. Keeping every
+    intermediate, as a plain scan does, writes about sixty small arrays per
+    step, each one GPU operation; the gradients are the same up to float
+    rounding.
     """
 
     def step(state, inputs):
         return rssm.apply({"params": params}, state, *inputs, method=RSSM.observe_step)
 
+    # prevent_cse=False: the scan already keeps XLA from merging the
+    # recomputation with the forward pass (jax.checkpoint's documentation).
+    step = jax.checkpoint(
+        step, policy=jax.checkpoint_policies.dots_saveable, prevent_cse=False
+    )
     inputs = jax.tree.map(
         lambda x: jnp.swapaxes(x, 0, 1), (tokens, actions, is_first, noise)
     )

@@ -50,20 +50,19 @@ def _target(
         return compute_td_target(
             critic_state=state.critic_state,
             gamma=0.9,
-            rng=KEY,
-            recurrent=False,
+            key=KEY,
             **common,
         )[0]
     if name == "REDQ":
         return compute_redq_td_target(
             critic_states=state.critic_state,
-            rng=KEY,
+            key=KEY,
             gamma=0.9,
             subset_size=2,
             **common,
         )[0]
     return compute_asac_td_target(
-        critic_states=state.critic_state, rng=KEY, theta=theta, **common
+        critic_states=state.critic_state, key=KEY, theta=theta, **common
     )[0]
 
 

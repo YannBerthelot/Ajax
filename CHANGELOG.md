@@ -180,6 +180,13 @@ The next release is 0.6.0: the first item changes results.
   that resume where the last one stopped and commits a record after each.
   [Its results](docs/reproduction/benchmark.md) cover ten agents on nineteen
   tasks.
+- **The SAC family shares its update steps.** REDQ, TQC, ASAC and RVI-SAC
+  share one actor step (`update_soft_actor`), and the soft actor-critics
+  keep their actor's and temperature's steps through one helper
+  (`keep_actor_then_update_temperature`), both in `ajax.agents.temperature`,
+  so `fixed_alpha` works one way in SAC, ASAC and RVI-SAC. REDQ and AVG use SAC's soft Bellman target, and
+  IQL's update reads as its value, actor and critic steps. Results do not
+  change.
 - **Known issue: the hopper and finger tasks with several seeds.** An XLA
   bug stops Playground's `HopperHop`, `HopperStand`, `FingerSpin`,
   `FingerTurnEasy` and `FingerTurnHard` from compiling when they are batched
@@ -253,6 +260,14 @@ The next release is 0.6.0: the first item changes results.
   are removed.** Nothing has read them since 0.4.0: `expose_recent_rollout`,
   `burn_in`, `sequence_length` and `stored_state` are each agent's own fields.
   *What to do:* drop any import of them.
+- **The SAC family's update functions.** `critic_value_readers` moved from
+  `ajax.agents.critics` to `ajax.agents.update_steps`, and `critic_step`
+  builds it unless an agent passes its own. The SAC family's TD targets and
+  SAC's soft policy loss take their key as `key`, not `rng`.
+  `SAC.compute_td_target` no longer takes `recurrent`, nor `pre_train`
+  `bc_min_log_std` and `bc_action_clip_eps`, which no caller set (they are
+  constants now). *What to do:* code calling these by keyword renames or
+  drops the argument; no result changes.
 
 ## 0.5.0
 

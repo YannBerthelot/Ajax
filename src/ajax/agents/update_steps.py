@@ -1,10 +1,11 @@
 """The steps an agent's update is written in: a loss's gradients
 (compute_gradients), gradient steps with the extensions' loss terms added
-(critic_step, actor_step, apply_gradients_clipped_together for two networks
-clipped together), the extensions' target and post-update phases, the gates
-(run_if, run_actor_if) and keys (derive_extensions_key) around them, which
-ajax.agents.loop re-exports, and the target critics' Polyak update SAC,
-ASAC, REDQ and TQC share (update_target_networks).
+(critic_step, which hands the extensions the Q critics' value readers,
+critic_value_readers; actor_step; apply_gradients_clipped_together for two
+networks clipped together), the extensions' target and post-update phases,
+the gates (run_if, run_actor_if) and keys (derive_extensions_key) around
+them, which ajax.agents.loop re-exports, and the target critics' Polyak
+update (update_target_networks).
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
+from ajax.agents.recurrent import q_values
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.log import unevaluated
 from ajax.random_keys import EXTENSIONS_KEY_TAG, derive_key, fold_index
@@ -68,7 +70,7 @@ REPLAY_ACTOR_KEYS = ACTOR_STEP_KEYS.union(
 )
 
 
-#: A replay actor-critic's on the three steps (REDQ, ASAC, CrossQ, TQC).
+#: The batch keys a replay actor-critic declares on its three steps.
 REPLAY_BATCH_KEYS: dict[str, frozenset[str]] = {
     "on_target": TARGET_KEYS,
     "critic_loss": CRITIC_LOSS_KEYS,
@@ -346,6 +348,32 @@ def compute_extensions_critic_loss(
     )
 
 
+def critic_value_readers(
+    critic_state: Any, observations: jax.Array, actions: jax.Array
+) -> tuple[Callable, Callable]:
+    """apply_on_target's predictions and target_value_at for an ensemble of Q
+    critics: their mean prediction at the batch's rows (observations,
+    actions) at the step's parameters, which the loss regresses, and their
+    mean value at given observations and actions at the target's (the
+    step's where there are no target critics). No gradient flows back, and
+    each reads the critics only where an extension calls it."""
+
+    def mean_value(params: Any, obs: jax.Array, taken: jax.Array) -> jax.Array:
+        values = q_values(critic_state, params, obs, taken)
+        return jax.lax.stop_gradient(jnp.mean(values, axis=0))
+
+    def predictions() -> jax.Array:
+        return mean_value(critic_state.params, observations, actions)
+
+    def target_value_at(obs: jax.Array, taken: jax.Array) -> jax.Array:
+        target_params = critic_state.target_params
+        if target_params is None:
+            target_params = critic_state.params
+        return mean_value(target_params, obs, taken)
+
+    return predictions, target_value_at
+
+
 def critic_step(
     agent_state: Any,
     batch: Any,
@@ -362,11 +390,19 @@ def critic_step(
     back through it (apply_on_target, which target_args reach: what the target
     used), then steps the critic down value_loss(params, target_q) ->
     (loss, aux) plus their critic_loss terms
-    (compute_extensions_critic_loss). The phases draw on keys derived from key,
-    the step's, on which the agent may draw too. Returns agent_state with the
-    stepped critic and the extensions' states as on_target left them, aux,
-    the gradients' norm (gradient_step) and the two phases' metrics.
+    (compute_extensions_critic_loss). The value readers on_target may call,
+    predictions and target_value_at, are the Q critics' at the batch's rows
+    (critic_value_readers) unless target_args holds the agent's. The phases
+    draw on keys derived from key, the step's, on which the agent may draw
+    too. Returns agent_state with the stepped critic and the extensions'
+    states as on_target left them, aux, the gradients' norm (gradient_step)
+    and the two phases' metrics.
     """
+    if "predictions" not in target_args:
+        predictions, target_value_at = critic_value_readers(
+            agent_state.critic_state, batch.obs, batch.action
+        )
+        target_args.update(predictions=predictions, target_value_at=target_value_at)
     target_q, target_metrics, agent_state = apply_on_target(
         extensions,
         agent_state,

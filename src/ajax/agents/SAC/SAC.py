@@ -34,7 +34,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import compute_mean_critic_loss, critic_value_readers
+from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
     EntropyTemperature,
@@ -52,7 +52,7 @@ from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
     get_alpha,
-    update_temperature,
+    keep_actor_then_update_temperature,
 )
 from ajax.buffers.utils import get_buffer
 from ajax.controller import leave_unchanged
@@ -257,30 +257,17 @@ class SAC(
         stepped, policy_aux, log_probs, policy_metrics = self.update_actor(
             agent_state, batch, carries, context
         )
-        # The actor step runs from the first update, since its log-probs feed
-        # the temperature's, and is kept from policy_update_start.
-        timestep = agent_state.collector_state.timestep
-        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
-            self.policy_update_due(timestep),
-            lambda _: (stepped, (policy_aux, policy_metrics)),
-            agent_state,
-            keep=self.keeps_actor_metrics(),
-        )
-        # The temperature's loss is computed for its logs; its step is kept
-        # from alpha_update_start, never with fixed_alpha (alpha stays at
-        # alpha_init).
-        tempered, temperature_aux = update_temperature(
-            agent_state,
-            log_probs,
-            self.target_entropy_at(timestep),
-            compute_temperature_loss,
-        )
-        temperature_due = jnp.logical_and(
-            not self.fixed_alpha,
-            self.temperature_update_due(timestep, context.extensions),
-        )
-        agent_state = update_steps.run_if(
-            temperature_due, lambda _: tempered, agent_state
+        agent_state, (policy_aux, policy_metrics), temperature_aux = (
+            keep_actor_then_update_temperature(
+                self,
+                agent_state,
+                stepped,
+                (policy_aux, policy_metrics),
+                log_probs,
+                context.extensions,
+                compute_temperature_loss,
+                self.fixed_alpha,
+            )
         )
         agent_state = update_steps.update_target_networks(agent_state, tau=self.tau)
         return agent_state, AuxiliaryLogs(
@@ -316,8 +303,7 @@ class SAC(
             rewards=batch.reward,
             gamma=gamma,
             alpha=get_alpha(agent_state),
-            rng=critic_key,
-            recurrent=context.recurrent,
+            key=critic_key,
             reward_scale=self.reward_scale,
             map_next_actions=scored.map_next_actions,
             carries=carries,
@@ -333,9 +319,6 @@ class SAC(
                 carries=carries,
             )
 
-        predictions, target_value_at = critic_value_readers(
-            agent_state.critic_state, batch.obs, batch.action
-        )
         agent_state, aux, grad_norm, metrics = update_steps.critic_step(
             agent_state,
             batch,
@@ -350,8 +333,6 @@ class SAC(
             reward_scale=self.reward_scale,
             next_actions=next_actions,
             next_values=next_values,
-            predictions=predictions,
-            target_value_at=target_value_at,
         )
         value_aux = ValueAuxiliaries(
             critic_loss=aux.critic_loss,
@@ -373,7 +354,8 @@ class SAC(
         which the actor-loss extensions (OnlineBC, ImitationLoss) read as
         their clone target. Also returns the log-probs of a fresh
         sample of the stepped actor, which the temperature's step reads
-        (CleanRL's SAC order; cited from memory, unverified)."""
+        (CleanRL's order: vwxyzjn/cleanrl@fe8d8a0,
+        cleanrl/sac_continuous_action.py:279-292)."""
         actor_key, sample_key = split_by_index(
             update_steps.derive_actor_key(agent_state), 2
         )
@@ -475,8 +457,7 @@ def compute_td_target(
     rewards: jax.Array,
     gamma: Union[float, jax.Array],
     alpha: jax.Array,
-    rng: jax.Array,
-    recurrent: bool,
+    key: jax.Array,
     reward_scale: float = 1.0,
     map_next_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
     carries: Optional[RecurrentCarries] = None,
@@ -493,10 +474,9 @@ def compute_td_target(
     (ajax.controller.make_scored_actions): the bootstrap is queried where
     the critic was trained, clip(a_expert(s') + scale * pi(s'), -1, 1).
     Without it the target Q is out of distribution and training diverges.
-    The carries (sequence replay) are set exactly when recurrent.
+    The carries are set for sequence replay alone.
     """
-    del recurrent
-    sample_key, rng = jax.random.split(rng)
+    sample_key, _ = jax.random.split(key)
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, map_next_actions
     )
@@ -539,7 +519,7 @@ def compute_soft_policy_loss(
     critic_state: LoadedTrainState,
     observations: jax.Array,
     alpha: jax.Array,
-    rng: jax.Array,
+    key: jax.Array,
     carries: Optional[RecurrentCarries] = None,
     q_reduce: Callable[..., jax.Array] = jnp.min,
     map_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
@@ -558,7 +538,7 @@ def compute_soft_policy_loss(
         critic_state,
         observations,
         alpha,
-        rng,
+        key,
         carries,
         q_reduce,
         map_actions,
@@ -570,14 +550,14 @@ def compute_soft_policy_objective(
     critic_state: LoadedTrainState,
     observations: jax.Array,
     alpha: jax.Array,
-    rng: jax.Array,
+    key: jax.Array,
     carries: Optional[RecurrentCarries] = None,
     q_reduce: Callable[..., jax.Array] = jnp.min,
     map_actions: Callable[[jax.Array], jax.Array] = leave_unchanged,
 ) -> tuple[jax.Array, tuple[jax.Array, jax.Array, Any]]:
     """compute_soft_policy_loss on the policy at observations, however
     the agent computed it (CrossQ's actor in training)."""
-    sample_key, rng = jax.random.split(rng)
+    sample_key, _ = jax.random.split(key)
     actions, log_probs = policy.sample_and_log_prob(seed=sample_key)
     actions = map_actions(actions)
     reduced_q_values = q_reduce(
@@ -630,7 +610,7 @@ def compute_alpha_temperature_loss(
     )
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class SACState(SoftActorCriticState):
     """SAC's state, with the frozen expert critic phi* its extensions fill."""

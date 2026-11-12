@@ -36,7 +36,6 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import critic_value_readers
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
     EntropyTemperature,
@@ -60,7 +59,8 @@ from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
     get_alpha,
-    update_temperature,
+    keep_actor_then_update_temperature,
+    update_soft_actor,
 )
 from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
@@ -178,14 +178,17 @@ class TQC(
 
         The actor step reads the critics from before their step, as the
         authors' code builds its actor loss (trainer.py:59-61) before the
-        critics' optimizer steps (:64-66). It differentiates that loss after
-        them; the torch it pins (1.3.0) steps parameters in place through
-        .data, which autograd does not track, so that backward pass would
-        read the stepped critics' weights (from memory, unverified). Ajax
-        differentiates the loss it computed, at the critics before their
-        step: the order is logged as an upstream bug, which Ajax does not
-        follow (owner, 2026-10-23), and the conformance check runs their
-        update with the actor's backward before the critics' step.
+        critics' optimizer steps (:64-66). Their code differentiates that
+        loss after the step (:71-73): the torch their environment pins
+        (1.3.0, environment.yml:36) steps parameters in place through .data,
+        which autograd does not track, so that backward pass reads the
+        stepped critics' weights. Their Trainer, run unchanged on torch 1.4,
+        which steps the same way, shows it: its actor's step differs from
+        Ajax's, which differentiates at the critics before their step
+        (benchmarks/reference/conformance_tqc.py records theirs,
+        tests/conformance/test_tqc_original.py compares). The order is logged
+        as an upstream bug; matching it is the owner's decision of 2026-10-24,
+        not yet carried out here.
         """
         sample_key, agent_state = agent_state.get_keys_and_new_state()
         batch, carries = sample_replay(
@@ -202,7 +205,6 @@ class TQC(
         )
         agent_state = update_steps.update_target_networks(agent_state, self.tau)
         critic_state = agent_state.critic_state
-        timestep = agent_state.collector_state.timestep
         stepped, policy_aux, log_probs, policy_metrics = self.update_actor(
             agent_state.replace(
                 critic_state=critic_state.replace(params=critics_before)
@@ -212,24 +214,16 @@ class TQC(
             context,
         )
         stepped = stepped.replace(critic_state=critic_state)
-        # The actor step runs from the first update, since its log-probs feed
-        # the temperature's, and is kept from policy_update_start.
-        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
-            self.policy_update_due(timestep),
-            lambda _: (stepped, (policy_aux, policy_metrics)),
-            agent_state,
-            keep=self.keeps_actor_metrics(),
-        )
-        tempered, temperature_aux = update_temperature(
-            agent_state,
-            log_probs,
-            self.target_entropy_at(timestep),
-            compute_temperature_loss,
-        )
-        agent_state = update_steps.run_if(
-            self.temperature_update_due(timestep, context.extensions),
-            lambda _: tempered,
-            agent_state,
+        agent_state, (policy_aux, policy_metrics), temperature_aux = (
+            keep_actor_then_update_temperature(
+                self,
+                agent_state,
+                stepped,
+                (policy_aux, policy_metrics),
+                log_probs,
+                context.extensions,
+                compute_temperature_loss,
+            )
         )
         return agent_state, AuxiliaryLogs(
             temperature=temperature_aux,
@@ -284,9 +278,6 @@ class TQC(
                 target_spread=spread.mean().flatten(),
             )
 
-        predictions, target_value_at = critic_value_readers(
-            agent_state.critic_state, batch.obs, batch.action
-        )
         agent_state, aux, _, metrics = update_steps.critic_step(
             agent_state,
             batch,
@@ -301,8 +292,6 @@ class TQC(
             reward_scale=self.reward_scale,
             next_actions=next_actions,
             next_values=next_values,
-            predictions=predictions,
-            target_value_at=target_value_at,
         )
         return agent_state, aux, metrics
 
@@ -317,38 +306,13 @@ class TQC(
         every critic's quantiles (trainer.py:61), the critics scoring a
         residual policy's executed actions; also returns its sample's
         log-probs, which the temperature step reads."""
-        actor_key = update_steps.derive_actor_key(agent_state)
-        alpha = get_alpha(agent_state)
-        critic_state = agent_state.critic_state
-        scored = context.make_scored_actions(batch)
-
-        def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
-            loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
-                params,
-                agent_state.actor_state,
-                critic_state,
-                batch.obs,
-                alpha,
-                actor_key,
-                carries,
-                jnp.mean,
-                scored.map_actions,
-            )
-            return loss, (loss, log_probs, q_values), policy.mean()
-
-        actor_state, (loss, log_probs, q_mean), _, metrics = update_steps.actor_step(
-            agent_state,
-            policy_loss,
-            context.extensions,
-            actor_key,
-            context.total_timesteps,
-            batch,
-            critic_state,
+        agent_state, loss, log_probs, q_mean, metrics = update_soft_actor(
+            agent_state, batch, carries, context, compute_soft_policy_loss, jnp.mean
         )
         aux = PolicyAuxiliaries(
             policy_loss=loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()
         )
-        return agent_state.replace(actor_state=actor_state), aux, log_probs, metrics
+        return agent_state, aux, log_probs, metrics
 
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "TQC"
@@ -388,7 +352,7 @@ class TQC(
 def compute_tqc_td_target(
     actor_state: LoadedTrainState,
     critic_state: LoadedTrainState,
-    rng: jax.Array,
+    key: jax.Array,
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
@@ -405,7 +369,7 @@ def compute_tqc_td_target(
     held target atoms, the next actions' log-probs, the next actions and
     the value bootstrapped, the kept atoms' mean less alpha log pi(a'|s')."""
     next_actions, log_probs = sample_next_actions(
-        actor_state, next_observations, rng, carries, map_next_actions
+        actor_state, next_observations, key, carries, map_next_actions
     )
     next_quantiles = q_values(
         critic_state,
@@ -454,7 +418,7 @@ def quantile_huber_loss(quantiles: jax.Array, targets: jax.Array) -> jax.Array:
     return jnp.mean(jnp.abs(tau[:, None] - (delta < 0)) * huber)
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class TQCState(SoftActorCriticState):
     """TQC's state: a soft actor-critic's, nothing more."""

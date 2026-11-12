@@ -39,7 +39,6 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import critic_value_readers
 from ajax.agents.families import (
     EntropyTemperature,
     ExpertGuided,
@@ -61,7 +60,8 @@ from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
     get_alpha,
-    update_temperature,
+    keep_actor_then_update_temperature,
+    update_soft_actor,
 )
 from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
@@ -218,30 +218,21 @@ class ASAC(
         )
         # The temperature and theta read the actor's own sample, drawn before
         # its step, as the authors' code does (darer/ASAC.py:146-213).
-        timestep = agent_state.collector_state.timestep
         stepped, policy_aux, log_probs, policy_metrics = self.update_actor(
             agent_state, batch, carries, context
         )
-        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
-            self.policy_update_due(timestep),
-            lambda _: (stepped, (policy_aux, policy_metrics)),
-            agent_state,
-            keep=self.keeps_actor_metrics(),
-        )
-        # fixed_alpha drops the temperature's step but keeps its logs, as
-        # SAC's does.
-        tempered, temperature_aux = update_temperature(
-            agent_state,
-            log_probs,
-            self.target_entropy_at(timestep),
-            compute_temperature_loss,
-        )
-        if not self.fixed_alpha:
-            agent_state = update_steps.run_if(
-                self.temperature_update_due(timestep, context.extensions),
-                lambda _: tempered,
+        agent_state, (policy_aux, policy_metrics), temperature_aux = (
+            keep_actor_then_update_temperature(
+                self,
                 agent_state,
+                stepped,
+                (policy_aux, policy_metrics),
+                log_probs,
+                context.extensions,
+                compute_temperature_loss,
+                self.fixed_alpha,
             )
+        )
         # In the target's units: the reward rate theta is subtracted from the
         # scaled rewards there. It averages the rewards without the penalty,
         # as the authors' code (darer/ASAC.py:191).
@@ -305,9 +296,6 @@ class ASAC(
             )
 
         # ASAC is average-reward: no gamma, None tells the extensions so.
-        predictions, target_value_at = critic_value_readers(
-            agent_state.critic_state, batch.obs, batch.action
-        )
         agent_state, aux, _, metrics = update_steps.critic_step(
             agent_state,
             batch,
@@ -322,8 +310,6 @@ class ASAC(
             reward_scale=self.reward_scale,
             next_actions=next_actions,
             next_values=next_values,
-            predictions=predictions,
-            target_value_at=target_value_at,
         )
         return agent_state, aux, metrics
 
@@ -337,38 +323,13 @@ class ASAC(
         """The actor step on alpha log pi(a|s) - min_i Q_i(s, a), the
         critics scoring a residual policy's executed actions; also returns
         its sample's log-probs (the temperature and theta read them)."""
-        actor_key = update_steps.derive_actor_key(agent_state)
-        alpha = get_alpha(agent_state)
-        critic_state = agent_state.critic_state
-        scored = context.make_scored_actions(batch)
-
-        def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
-            loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
-                params,
-                agent_state.actor_state,
-                critic_state,
-                batch.obs,
-                alpha,
-                actor_key,
-                carries,
-                jnp.min,
-                scored.map_actions,
-            )
-            return loss, (loss, log_probs, q_values), policy.mean()
-
-        actor_state, (loss, log_probs, q_min), _, metrics = update_steps.actor_step(
-            agent_state,
-            policy_loss,
-            context.extensions,
-            actor_key,
-            context.total_timesteps,
-            batch,
-            critic_state,
+        agent_state, loss, log_probs, q_min, metrics = update_soft_actor(
+            agent_state, batch, carries, context, compute_soft_policy_loss, jnp.min
         )
         aux = PolicyAuxiliaries(
             policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()
         )
-        return agent_state.replace(actor_state=actor_state), aux, log_probs, metrics
+        return agent_state, aux, log_probs, metrics
 
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "ASAC"
@@ -430,7 +391,7 @@ def uniform_log_prob(action_dim: int) -> float:
 def compute_asac_td_target(
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
-    rng: jax.Array,
+    key: jax.Array,
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
@@ -451,7 +412,7 @@ def compute_asac_td_target(
     bootstrapped before the cut.
     """
     rewards = rewards * reward_scale
-    sample_key, _ = jax.random.split(rng)
+    sample_key, _ = jax.random.split(key)
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, map_next_actions
     )
@@ -535,7 +496,7 @@ def update_theta(
     return agent_state.replace(theta=theta)
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class ASACState(SoftActorCriticState):
     """ASAC's state: a soft actor-critic's plus the reward rate and the

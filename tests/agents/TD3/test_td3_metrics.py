@@ -148,7 +148,6 @@ def test_sac_steps_report_each_networks_gradient_norm() -> None:
         0.99,
         alpha,
         state.get_keys_and_new_state()[0],  # the step's target key
-        False,
     )
     v_grads = jax.grad(
         lambda p: compute_mean_critic_loss(p, critic, batch.obs, batch.action, target)[

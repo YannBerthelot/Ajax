@@ -5479,9 +5479,9 @@ or ran and was dropped, and a dropped step's keys are never drawn again.</p>
 
     <div class="doc doc-contents ">
 
-        <p>final_aux_scan of step(agent_state, None) -&gt; (agent_state, aux) over
-length steps, the i-th on the updates' stream restarted from one of its
-keys folded with i; then the stream goes on after that one key. It
+        <p>length steps of step(agent_state, None) -&gt; (agent_state, aux) and the
+last one's aux, the i-th step on the updates' stream restarted from one
+of its keys folded with i; then the stream goes on after that one key. It
 advances once whatever the length, so a count of steps (SAC's and REDQ's
 critic updates, DQN's gradient steps) moves no later draw.</p>
 
@@ -5573,7 +5573,7 @@ add nothing to the program, and with nothing else left it is True.</p>
 
 
 <a href="#ajax.agents.update_steps.run_actor_if" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run_actor_if</span><span class="p">(</span><span class="n">condition</span><span class="p">,</span> <span class="n">update</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run_actor_if</span><span class="p">(</span><span class="n">condition</span><span class="p">,</span> <span class="n">update</span><span class="p">,</span> <span class="n">agent_state</span><span class="p">,</span> <span class="n">keep</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -5585,7 +5585,10 @@ step that ran, which the state keeps (last_actor_metrics, whose slot
 the training loop gives it): a skipped update logs the last real step,
 not NaN or zeros (owner, 2026-10-24), and NaN, which the logger drops,
 before the first. Without a gate (condition the Python True) update
-runs as it is and nothing is kept.</p>
+runs as it is, its metrics kept only with keep: an agent that keeps
+them (keeps_actor_metrics) and whose gate is open at every update
+(ReplayAgent.from_update_start) keeps the state's slot, so its state,
+and a checkpoint of it, has the gated run's structure.</p>
 
 
     </div>

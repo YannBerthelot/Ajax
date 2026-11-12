@@ -2988,6 +2988,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.families.ReplayAgent.from_update_start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        from_update_start
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.families.ReplayAgent.evaluation_kwargs" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4579,6 +4590,17 @@
     <span class="md-ellipsis">
       
         before_env_steps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.families.ReplayAgent.from_update_start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        from_update_start
       
     </span>
   </a>
@@ -7014,7 +7036,8 @@ steps are kept (0: from the first update).</p>
     <div class="doc doc-contents ">
 
         <p>Whether the actor's step counts at timestep: from
-policy_update_start on (update_steps.reached).</p>
+policy_update_start on (update_steps.reached); the Python True, with
+no gate, where every update comes after it.</p>
 
 
     </div>
@@ -7905,6 +7928,30 @@ chooser too (context.env_args.warmups).</p>
         <p>The agent as it updates on a dataset before acting, where no env
 step will open its starts (ignores_update_starts). A copy: the agent
 that trains online keeps them, as its run config logs them.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.agents.families.ReplayAgent.from_update_start" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">from_update_start</span>
+
+
+<a href="#ajax.agents.families.ReplayAgent.from_update_start" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">from_update_start</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The agent as the online loop updates it, from update_start() on:
+a wait for a timestep at or before it (policy_update_start,
+alpha_update_start; SAC's 2,000 under its 10,000 learning_starts) is
+over at every update, so its gate, a lax.cond in every update, goes.
+A copy, as before_env_steps's.</p>
 
 
     </div>

@@ -3385,7 +3385,7 @@ gains a leading axis), and makes a checkpoint a matter of saving that pytree.</p
 </tr>
 <tr>
 <td><code>eval_rng</code></td>
-<td>the evaluations' key, split apart from <code>rng</code> and never advanced: evaluation <code>n</code> draws from <code>fold_in(eval_rng, n)</code></td>
+<td>the evaluations' key, split apart from <code>rng</code> and never advanced: the evaluation at timestep <code>t</code> draws from <code>t</code> folded into it</td>
 </tr>
 <tr>
 <td><code>n_updates</code>, <code>n_logs</code></td>
@@ -3488,9 +3488,12 @@ own draws.</p>
   <code>n_logs</code>, and never past the run's horizon. Agents with their own
   <code>Evaluation</code> (the world models, APG, UDRL) use <code>maybe_eval_and_log</code>, gated
   on the scan index. Every evaluation draws fresh keys
-  (<code>evaluation_keys</code>: <code>split(fold_in(eval_rng, n_logs))</code>, one key for the
-  episodes, one for the extensions' metrics), the same per seed from one run
-  to the next and apart from training.</li>
+  (<code>evaluation_keys</code>: the evaluation's timestep folded into <code>eval_rng</code>'s key
+  for the training phase, then split: one key for the episodes, one for the
+  extensions' metrics), the same per seed from one run to the next and apart
+  from training. <code>n_logs</code> counts the evaluations made: a resumed run carries
+  it on (<code>shared_counters</code>), and an agent's own <code>Evaluation</code> reads it to know
+  a tick logged.</li>
 <li><a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/evaluate.py"><code>evaluate.py</code></a> runs <strong>the episodes</strong>:
   <code>num_episode_test</code> episodes with the deterministic action, acting as the
   agent's <code>Controller</code> says (SAC's expert in the actor's input, residual RL,

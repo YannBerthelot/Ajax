@@ -59,7 +59,7 @@ from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
     get_alpha,
-    update_temperature,
+    update_temperature_when_due,
 )
 from ajax.extensions.base import merge_metrics
 from ajax.networks.networks import (
@@ -317,17 +317,12 @@ class CrossQ(
         actor_state = actor_state.replace(batch_stats=batch_stats)
         # The authors' temperature loss: alpha, not log alpha, times the gap.
         agent_state = agent_state.replace(actor_state=actor_state)
-        timestep = agent_state.collector_state.timestep
-        tempered, temperature = update_temperature(
+        agent_state, temperature = update_temperature_when_due(
+            self,
             agent_state,
             jax.lax.stop_gradient(log_probs),
-            self.target_entropy_at(timestep),
+            context.extensions,
             compute_alpha_temperature_loss,
-        )
-        agent_state = update_steps.run_if(
-            self.temperature_update_due(timestep, context.extensions),
-            lambda _: tempered,
-            agent_state,
         )
         return agent_state, (aux, temperature, metrics)
 

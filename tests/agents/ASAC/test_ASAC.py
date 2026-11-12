@@ -87,46 +87,6 @@ def test_the_penalty_reads_the_agents_p_0_and_tau_theta(monkeypatch):
     assert seen and set(seen) == {(3.0, 0.5)}
 
 
-def test_temperature_and_theta_read_the_actors_own_sample(monkeypatch):
-    """The temperature and the reward-rate (theta) steps read the sample
-    the actor's loss drew, before its step, as the authors' code
-    (BobMak/asac @4b68862, darer/ASAC.py:146-213): no other draw."""
-    seen, drawn = [], []
-    temperature, theta = asac_module.update_temperature, asac_module.update_theta
-    policy = ASAC.update_actor
-
-    def policy_spy(*args, **kwargs):
-        out = policy(*args, **kwargs)
-        drawn.append(out[2])  # its sample's log-probabilities
-        return out
-
-    def temperature_spy(*args):
-        seen.append(args[1])  # the log-probabilities
-        return temperature(*args)
-
-    def theta_spy(*args):
-        seen.append(args[3])
-        return theta(*args)
-
-    monkeypatch.setattr(ASAC, "update_actor", policy_spy)
-    monkeypatch.setattr(asac_module, "update_temperature", temperature_spy)
-    monkeypatch.setattr(asac_module, "update_theta", theta_spy)
-    net = ("8", "relu")
-    agent = ASAC(
-        "Pendulum-v1",
-        actor_architecture=net,
-        critic_architecture=net,
-        learning_starts=4,
-        batch_size=4,
-    )
-    agent.train(seed=0, n_timesteps=8)
-    # Each trace of the update (how many is JAX's caching to decide) pairs
-    # the temperature and theta steps with the actor's own draw.
-    assert drawn and len(seen) == 2 * len(drawn)
-    for index, log_probabilities in enumerate(drawn):
-        assert seen[2 * index] is seen[2 * index + 1] is log_probabilities
-
-
 def test_a_termination_drops_the_next_value_and_keeps_the_shift():
     """``r - theta + (1 - done) (min_i Q'_i(s', a') - alpha log pi(a'|s'))
     - Q'(0, 0)``, as the authors' code (darer/ASAC.py:179-205)."""

@@ -60,7 +60,7 @@ from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
     get_alpha,
-    update_temperature,
+    keep_actor_then_update_temperature,
 )
 from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
@@ -217,30 +217,21 @@ class ASAC(
         )
         # The temperature and theta read the actor's own sample, drawn before
         # its step, as the authors' code does (darer/ASAC.py:146-213).
-        timestep = agent_state.collector_state.timestep
         stepped, policy_aux, log_probs, policy_metrics = self.update_actor(
             agent_state, batch, carries, context
         )
-        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
-            self.policy_update_due(timestep),
-            lambda _: (stepped, (policy_aux, policy_metrics)),
-            agent_state,
-            keep=self.keeps_actor_metrics(),
-        )
-        # fixed_alpha drops the temperature's step but keeps its logs, as
-        # SAC's does.
-        tempered, temperature_aux = update_temperature(
-            agent_state,
-            log_probs,
-            self.target_entropy_at(timestep),
-            compute_temperature_loss,
-        )
-        if not self.fixed_alpha:
-            agent_state = update_steps.run_if(
-                self.temperature_update_due(timestep, context.extensions),
-                lambda _: tempered,
+        agent_state, (policy_aux, policy_metrics), temperature_aux = (
+            keep_actor_then_update_temperature(
+                self,
                 agent_state,
+                stepped,
+                (policy_aux, policy_metrics),
+                log_probs,
+                context.extensions,
+                compute_temperature_loss,
+                self.fixed_alpha,
             )
+        )
         # In the target's units: the reward rate theta is subtracted from the
         # scaled rewards there. It averages the rewards without the penalty,
         # as the authors' code (darer/ASAC.py:191).

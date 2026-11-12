@@ -8,6 +8,8 @@ the loop returns the last step's aux and the state whose stream has
 advanced by that one key, whatever the length; a length below 1 raises.
 """
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -18,6 +20,8 @@ from ajax.state import BaseAgentState
 
 KEY = jax.random.PRNGKey(0)
 ROWS = 5
+#: The networks and the collector, which the loop never reads.
+UNREAD: Any = None
 
 
 def _state() -> BaseAgentState:
@@ -26,9 +30,9 @@ def _state() -> BaseAgentState:
     at its index."""
     return BaseAgentState(
         rng=KEY,
-        actor_state=None,
-        critic_state=None,
-        collector_state=None,
+        actor_state=UNREAD,
+        critic_state=UNREAD,
+        collector_state=UNREAD,
         eval_rng=KEY,
         n_updates=jnp.asarray(0),
         ext_state=(jnp.zeros((ROWS, *KEY.shape), KEY.dtype),),

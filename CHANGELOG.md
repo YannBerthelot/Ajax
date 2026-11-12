@@ -31,6 +31,14 @@ The next release is 0.6.0: the first item changes results.
   before, with the same results up to floating-point rounding. On MuJoCo
   Warp (L40S, 10 seeds), a million-step run evaluated every 10,000 steps
   took 4% less time with SAC and 1% less with PPO.
+- **Faster REDQ, and SAC without its unneeded gates.** REDQ evaluates only
+  the 2 target critics its target draws, as its official code does (Ajax
+  evaluated all 10), and its 20 critic steps no longer copy every critic at
+  each step. SAC no longer checks its 2,000-step actor and temperature
+  starts at every update when, as by default, its updates start later.
+  Results are the same up to floating-point rounding. At 10 seeds on a
+  GTX 1080 Ti, REDQ took 20% less time and SAC 5% less; REDQ took 10%
+  less on a CPU.
 - **Datasets load into the replay in one step.** `train_offline`,
   `PriorData` and retained data used to write a dataset into the replay
   one row per env at a time, which took about 20 s per million rows on a

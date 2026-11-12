@@ -279,6 +279,10 @@ class EntropyTemperature:
     alpha_update_start: int = 0
     #: Set on ReplayAgent.before_env_steps's copy alone.
     ignores_update_starts: ClassVar[bool] = False
+    #: The timestep before which the loop calling this copy's update runs
+    #: none (ReplayAgent.from_update_start): a start at or before it is
+    #: reached at every update.
+    first_update_timestep: ClassVar[int] = 0
 
     @property
     def alpha_args(self: Any) -> AlphaConfig:
@@ -309,7 +313,11 @@ class EntropyTemperature:
         extension sets the temperature itself (MEW)."""
         if extensions.sets_temperature:
             return False
-        return self.ignores_update_starts or reached(self.alpha_update_start, timestep)
+        if self.ignores_update_starts:
+            return True
+        if self.alpha_update_start <= self.first_update_timestep:
+            return True
+        return reached(self.alpha_update_start, timestep)
 
 
 @dataclass(kw_only=True, eq=False, repr=False)
@@ -325,11 +333,18 @@ class PolicyUpdateStart:
     policy_update_start: int = 0
     #: Set on ReplayAgent.before_env_steps's copy alone.
     ignores_update_starts: ClassVar[bool] = False
+    #: As EntropyTemperature's (ReplayAgent.from_update_start).
+    first_update_timestep: ClassVar[int] = 0
 
     def policy_update_due(self, timestep: Any) -> Union[bool, jax.Array]:
         """Whether the actor's step counts at timestep: from
-        policy_update_start on (update_steps.reached)."""
-        return self.ignores_update_starts or reached(self.policy_update_start, timestep)
+        policy_update_start on (update_steps.reached); the Python True, with
+        no gate, where every update comes after it."""
+        if self.ignores_update_starts:
+            return True
+        if self.policy_update_start <= self.first_update_timestep:
+            return True
+        return reached(self.policy_update_start, timestep)
 
     def keeps_actor_metrics(self) -> bool:
         """An actor waiting for policy_update_start skips the updates before
@@ -814,6 +829,16 @@ class ReplayAgent(DeclaredAgent):
         agent.ignores_update_starts = True
         return agent
 
+    def from_update_start(self) -> Any:
+        """The agent as the online loop updates it, from update_start() on:
+        a wait for a timestep at or before it (policy_update_start,
+        alpha_update_start; SAC's 2,000 under its 10,000 learning_starts) is
+        over at every update, so its gate, a lax.cond in every update, goes.
+        A copy, as before_env_steps's."""
+        online: Any = copy.copy(self)
+        online.first_update_timestep = self.update_start()
+        return online
+
     def _build_family(self) -> None:
         self.buffer = self.make_replay_buffer()
 
@@ -923,9 +948,11 @@ class ReplayAgent(DeclaredAgent):
         )
         recurrent = context.recurrent
         offline = self.before_env_steps()
+        # Offline, every tick updates and the timestep counts the updates.
+        online = self.from_update_start() if loop.offline_data is None else self
         return loop.off_policy(
             partial(self.init, context=context),
-            lambda agent_state, _transition: self.update(agent_state, context),
+            lambda agent_state, _transition: online.update(agent_state, context),
             self.update_start(),
             uniform_steps=self.uniform_steps(),
             recurrent=recurrent,

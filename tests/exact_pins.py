@@ -733,6 +733,14 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "SAC-norm": (SAC, {**SAC40, **NORM}, 160),
     "SAC-fixed": (SAC, {**SAC40, "fixed_alpha": True, "policy_update_start": 60}, 160),
+    # Starts under learning_starts, as SAC's defaults (2,000 under 10,000):
+    # every update is past them, and their gates go (from_update_start).
+    "SAC-starts-reached": (SAC, {**SAC40, "learning_starts": 40}, 160),
+    "REDQ-starts-reached": (
+        REDQ,
+        {**S, **R, "policy_update_start": 10, "alpha_update_start": 10},
+        120,
+    ),
     "SAC-pid-norm": (
         SAC,
         {**PID, **R, **NORM, "policy_update_start": 40, "alpha_update_start": 40},

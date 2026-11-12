@@ -264,6 +264,7 @@ class SAC(
             self.policy_update_due(timestep),
             lambda _: (stepped, (policy_aux, policy_metrics)),
             agent_state,
+            keep=self.keeps_actor_metrics(),
         )
         # The temperature's loss is computed for its logs; its step is kept
         # from alpha_update_start, never with fixed_alpha (alpha stays at

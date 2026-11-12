@@ -25,6 +25,7 @@ between the critics is the KernelRepulsion extension.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, Optional, Union
 
@@ -35,7 +36,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import critic_value_readers
+from ajax.agents.critics import critic_value_readers, ensemble_members
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
     EntropyTemperature,
@@ -280,6 +281,7 @@ class REDQ(
             self.policy_update_due(timestep),
             lambda _: (stepped, (policy_aux, policy_metrics)),
             agent_state.replace(alpha=learned),
+            keep=self.keeps_actor_metrics(),
         )
         tempered, temperature_aux = update_temperature(
             agent_state,
@@ -496,20 +498,30 @@ def compute_redq_td_target(
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, map_next_actions
     )
-    # The ensemble axis stays leading in sequence mode too, so the subset
-    # sampling is the same.
+    num_critics = jax.tree.leaves(critic_states.target_params)[0].shape[0]
+    sampled_indexes = jax.random.choice(
+        subset_key, num_critics, shape=(subset_size,), replace=False
+    )
+    # Only the subset's target critics are evaluated, as REDQ's official
+    # code does (redq_sac.py:158-160). A critic with memory replays from
+    # its members' warmed-up memories, the ensemble axis leading.
+    subset = ensemble_members(critic_states, sampled_indexes)
+    if carries is not None:
+        carries = dataclasses.replace(
+            carries,
+            target_critic_hidden=jax.tree.map(
+                lambda hidden: hidden[sampled_indexes], carries.target_critic_hidden
+            ),
+        )
     q_targets = q_values(
-        critic_states,
-        critic_states.target_params,
+        subset,
+        subset.target_params,
         next_observations,
         next_actions,
         carries,
         bootstrap=True,
     )
-    sampled_indexes = jax.random.choice(
-        subset_key, q_targets.shape[0], shape=(subset_size,), replace=False
-    )
-    min_q_target = jnp.min(q_targets[sampled_indexes], axis=0)
+    min_q_target = jnp.min(q_targets, axis=0)
 
     target = rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs)
     next_values = jax.lax.stop_gradient(min_q_target - alpha * log_probs)

@@ -14,6 +14,25 @@ import jax.numpy as jnp
 import numpy as np
 
 
+def start_state(
+    init_fn: Callable[[Any, Any], Any],
+    resume_transform: Callable[[Any, Any], Any] | None,
+    key: Any,
+    index: Any,
+    initial_state: Any,
+    resume_from_state: bool,
+) -> Any:
+    """A train call's first state: ``init_fn(key, index)`` on a fresh run;
+    on a resumed one, the state passed in, through ``resume_transform`` when
+    given."""
+    if not resume_from_state:
+        return init_fn(key, index)
+    agent_state = initial_state
+    if resume_transform is not None:
+        agent_state = resume_transform(agent_state, key)
+    return agent_state
+
+
 def build_resumable_train(
     *,
     init_fn: Callable[[Any, Any], Any],
@@ -102,12 +121,9 @@ def build_resumable_train(
         iteration_offset: Any = 0,
         shared: Any = None,
     ) -> Tuple[Any, Any]:
-        if resume_from_state:
-            agent_state = initial_state
-            if resume_transform is not None:
-                agent_state = resume_transform(agent_state, key)
-        else:
-            agent_state = init_fn(key, index)
+        agent_state = start_state(
+            init_fn, resume_transform, key, index, initial_state, resume_from_state
+        )
 
         if shared is None:
             body = make_scan_fn(agent_state, resume_from_state, key, index)
@@ -172,12 +188,9 @@ def build_chunked_train(
         donate_argnames=("initial_state",),
     )
     def start(key: Any, index: Any, initial_state: Any, resume_from_state: bool) -> Any:
-        if resume_from_state:
-            agent_state = initial_state
-            if resume_transform is not None:
-                agent_state = resume_transform(agent_state, key)
-        else:
-            agent_state = init_fn(key, index)
+        agent_state = start_state(
+            init_fn, resume_transform, key, index, initial_state, resume_from_state
+        )
         return agent_state, carry_out(agent_state, index)
 
     # The state is donated: a chunk updates the replay in place instead of

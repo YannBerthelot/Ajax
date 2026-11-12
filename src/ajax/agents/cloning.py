@@ -15,6 +15,13 @@ from ajax.modules.pid_actor import GAIN_NAMES
 from ajax.networks.distributions import Deterministic, Squash, latent
 from ajax.state import Transition, with_batch_stats
 
+#: The floor of the cloned Gaussian's log-std: a saturated sample's scale
+#: cannot collapse to 0, where it would dominate the loss.
+CLONING_MIN_LOG_STD = -1.0
+#: How far inside (-1, 1) a squashed actor's cloned actions are clipped, so
+#: that tanh^-1 in its log-probability stays finite.
+CLONING_ACTION_CLIP = 1e-3
+
 
 def batchify(x: jnp.ndarray, batch_size: int) -> jnp.ndarray:
     """Reshape x into (num_batches, batch_size, ...), every row in a batch,
@@ -101,8 +108,6 @@ def pre_train(
     # informative features without any sharp policy break (since the
     # actor outputs are random-init scale, no entropy compression).
     reset_actor_head: bool = False,
-    bc_min_log_std: float = -1.0,
-    bc_action_clip_eps: float = 1e-3,
     raw_columns: int = 0,
     raw_features: int = 0,
     pinned: tuple[int, ...] = (),
@@ -146,18 +151,17 @@ def pre_train(
             # a pre-tanh mean: either loss regresses its action on the
             # expert's (its log_prob is minus the squared error).
             return -pi.log_prob(batch_actions).sum(-1, keepdims=True).mean()
-        # NLL with log_std lower-clipped at bc_min_log_std (prevents entropy
-        # collapse on saturated samples, where scale → 0 would otherwise
-        # dominate the loss).
-        eps = bc_action_clip_eps
+        # The negative log-likelihood, the log-std floored.
         base = latent(pi)
         floored = distrax.Normal(
-            base.loc, jnp.maximum(base.scale, jnp.exp(bc_min_log_std))
+            base.loc, jnp.maximum(base.scale, jnp.exp(CLONING_MIN_LOG_STD))
         )
         if isinstance(pi, Squash):
             # Clip the action into the squash domain so tanh^{-1} inside
             # log_prob stays finite.
-            target = jnp.clip(batch_actions, -1.0 + eps, 1.0 - eps)
+            target = jnp.clip(
+                batch_actions, -1.0 + CLONING_ACTION_CLIP, 1.0 - CLONING_ACTION_CLIP
+            )
             return -Squash(floored).log_prob(target).sum(-1, keepdims=True).mean()
         # Plain Normal (no squashing): no action clipping needed.
         return -floored.log_prob(batch_actions).sum(-1, keepdims=True).mean()

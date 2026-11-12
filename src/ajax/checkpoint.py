@@ -95,6 +95,7 @@ def restore_into(skeleton: Any, path: str) -> Any:
     if _took_a_joint_clip(skeleton):
         state_dict = _without_own_gradient_clip(skeleton_dict, state_dict)
     state_dict = _with_agent_obs_stats(skeleton, state_dict)
+    state_dict = _with_carry_template(skeleton, state_dict)
     restored = serialization.from_state_dict(skeleton, state_dict)
     _check_leaf_shapes(skeleton, restored)
     if saved_format < 2:
@@ -434,6 +435,31 @@ def _check_memory_final_norm(skeleton: Any, saved: Any) -> None:
     for key, value in skeleton.items():
         if key in saved:
             _check_memory_final_norm(value, saved[key])
+
+
+def _with_carry_template(skeleton: Any, saved: Any) -> Any:
+    """Give a checkpoint whose actor carry template has another layout the
+    skeleton's: an APG checkpoint saved before its transformer memory cached
+    keys and values held each layer's inputs and validity flags, where the
+    skeleton holds keys, values and flags. A state class whose actor carry
+    is only the zero carry its rollouts start from (``actor_carry_is_template``,
+    a ``ClassVar[bool]``: APG) has nothing in it to restore, so the
+    skeleton's template is the right one; any other actor carry is live
+    state and still has to match.
+
+    Expand-then-contract shim (CLAUDE.md, refactoring rule 10): delete it
+    once no APG checkpoint with a transformer memory saved before
+    2026-11-12 remains.
+    """
+    if not getattr(skeleton, "actor_carry_is_template", False):
+        return saved
+    actor = saved.get("actor_state") if isinstance(saved, dict) else None
+    if not isinstance(actor, dict) or "hidden_state" not in actor:
+        return saved
+    template = serialization.to_state_dict(skeleton.actor_state.hidden_state)
+    if _same_keys(template, actor["hidden_state"]):
+        return saved
+    return {**saved, "actor_state": {**actor, "hidden_state": template}}
 
 
 def _check_log_std_head(skeleton: Any, saved: Any) -> None:

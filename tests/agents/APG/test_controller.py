@@ -77,6 +77,26 @@ def test_stateful_controller_step_matches_sequence(kwargs):
     assert jnp.allclose(jnp.stack(outs), u_seq, atol=1e-5)
 
 
+def test_a_controller_caching_keys_and_values_acts_as_the_default_one():
+    """Catches APG's controller (cache_keys_values) wiring its transformer
+    memory to a carry of the other layout, or its PID head to the wrong
+    part of the carry: stepped from its own fresh carry on the default
+    controller's parameters, it must act as the default one does on the
+    whole sequence."""
+    memory = MemoryConfig(kind="transformer", hidden_size=8, num_heads=2, window=4)
+    net, params, carry, obs, done = build(memory=memory, pid=PIDHeadConfig())
+    expected = net.apply(params, obs, hidden_state=carry, done=done)[0].mean()
+    cached = dataclasses.replace(net, cache_keys_values=True)
+    state = cached.initialize_carry(jax.random.PRNGKey(1), B)
+    actions = []
+    for t in range(T):
+        pi, state = cached.apply(
+            params, obs[t : t + 1], hidden_state=state, done=done[t : t + 1]
+        )
+        actions.append(pi.mean()[0])
+    assert jnp.allclose(jnp.stack(actions), expected, atol=1e-5)
+
+
 TRANSFORMER = MemoryConfig(kind="transformer", hidden_size=8, num_heads=2, window=4)
 
 

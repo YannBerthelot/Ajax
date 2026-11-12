@@ -9,7 +9,8 @@ below or one of the equations under it::
     num_critic_updates times, each on a fresh replay batch:
         a' ~ pi(. | s'), log pi(a' | s')              sample_next_actions (SAC's)
         y = scale r + gamma (1 - d) (min over subset_size random target
-            critics of Q_i(s', a') - alpha log pi(a' | s'))  compute_redq_td_target
+            critics of Q_i(s', a') - alpha log pi(a' | s'))  compute_redq_td_target,
+                                            compute_soft_bellman_target (SAC's)
         Q_i <- argmin sum_i E[(Q_i(s, a) - y)^2]   update_critic, compute_critic_loss
         Q_target <- tau Q + (1 - tau) Q_target
     actor <- argmin E[alpha log pi(a | s) - mean_i Q_i(s, a)] on the last batch
@@ -50,6 +51,7 @@ from ajax.agents.families import (
 )
 from ajax.agents.recurrent import RecurrentCarries, q_values, sample_replay
 from ajax.agents.SAC.SAC import (
+    compute_soft_bellman_target,
     compute_soft_policy_loss,
     compute_temperature_loss,
     sample_next_actions,
@@ -493,7 +495,6 @@ def compute_redq_td_target(
     flowing back through it, the next actions' log-probs, the next actions,
     the subset's indices and the value bootstrapped before gamma and the
     cut."""
-    rewards = rewards * reward_scale
     sample_key, subset_key = jax.random.split(rng)
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, map_next_actions
@@ -522,8 +523,9 @@ def compute_redq_td_target(
         bootstrap=True,
     )
     min_q_target = jnp.min(q_targets, axis=0)
-
-    target = rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs)
+    target = compute_soft_bellman_target(
+        min_q_target, log_probs, rewards, dones, gamma, alpha, reward_scale
+    )
     next_values = jax.lax.stop_gradient(min_q_target - alpha * log_probs)
     return (
         jax.lax.stop_gradient(target),

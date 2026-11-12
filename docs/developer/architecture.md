@@ -434,6 +434,16 @@ come on the same ticks and states as in one scan. Each chunk length compiles
 once: one or two lengths, two when `log_frequency` is not a multiple of an
 iteration's steps.
 
+With `LoggingConfig(evaluation_device=...)` the evaluation program keeps its
+gate and training metrics but leaves the policy's scores to an
+[`AsyncEvaluator`](../../src/ajax/async_evaluation.py): a callback hands it
+the state without its replay and the evaluation key, and a thread scores
+every seed's policy together on that device and logs the rows. The policy's
+evaluation is one function of the state and the key in both log paths
+(`ajax.log.evaluate_and_log` and `maybe_eval_and_log`), run inline or handed
+over. The loop's train function waits for the evaluator after the last chunk
+and writes the scores into the rows.
+
 Two details keep the gates correct under the seed `vmap`. The counters a gate
 reads (the timestep, `n_logs`, the scan index) stay unbatched, so
 `jax.lax.cond` stays a real branch and evaluates only on logging iterations;

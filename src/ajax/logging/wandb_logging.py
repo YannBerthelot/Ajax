@@ -49,6 +49,12 @@ class LoggingConfig:
     sweep: for hyperparameter sweeps, evaluate only in the last fifth of
         training; with use_wandb, the W&B run gets no steps
         (WandbBackend(steps=False)).
+    evaluation_device: a JAX device, such as jax.devices("cpu")[0] or a
+        second GPU, to evaluate on in a thread while training goes on
+        (ajax.async_evaluation); None: training waits for each evaluation.
+        Not the training GPU: one process's programs on a GPU run one after
+        the other. On the CPU, a MuJoCo Warp run is evaluated on pure-JAX
+        physics.
     """
 
     config: dict = struct.field(default_factory=dict)
@@ -63,6 +69,7 @@ class LoggingConfig:
     sweep: bool = False
     # None: not given, so the flags decide; () names no backend at all.
     backends: Optional[tuple] = struct.field(pytree_node=False, default=None)
+    evaluation_device: Any = struct.field(pytree_node=False, default=None)
 
     def __post_init__(self) -> None:
         flag_set = self.use_wandb is not None or self.use_tensorboard is not None

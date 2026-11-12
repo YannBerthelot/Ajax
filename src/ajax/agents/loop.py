@@ -63,6 +63,7 @@ import numpy as np
 from jax.tree_util import Partial as partial
 
 from ajax.agents.update_steps import apply_post_update, reached, run_if
+from ajax.async_evaluation import AsyncEvaluator
 from ajax.buffers.dataset import TransitionDataset, fill_replay
 from ajax.controller import Controller, make_run_controller, reads_progress
 from ajax.environments.create import strip_ajax_wrappers
@@ -76,7 +77,7 @@ from ajax.environments.interaction import (
     with_reward_statistics,
 )
 from ajax.environments.obs_norm import mirror_obs_norm, update_obs_norm
-from ajax.environments.utils import raw_obs_columns
+from ajax.environments.utils import raw_obs_columns, steps_in_python
 from ajax.extensions.base import Extension, ExtensionStack
 from ajax.log import (
     compose_eval_metrics,
@@ -354,6 +355,10 @@ class TrainLoop:
     #: Evaluate only in the last fifth of training (LoggingConfig.sweep, for
     #: hyperparameter sweeps).
     sweep: bool = False
+    #: Scores the evaluations on a device of its own while training goes on
+    #: (LoggingConfig.evaluation_device); None: each evaluation runs between
+    #: chunks of training.
+    evaluator: Optional[AsyncEvaluator] = None
 
     @classmethod
     def create(
@@ -371,24 +376,34 @@ class TrainLoop:
     ) -> TrainLoop:
         """The loop of one ``make_train`` call; starts the logging worker
         when ``logging_config`` names a backend."""
-        log_frequency = None
+        log_frequency, evaluator = None, None
+        log_fn = partial(vmap_log, run_ids=run_ids)
         if logging_config is not None:
             if logging_config.backend:
                 start_async_logging()
             log_frequency = logging_config.log_frequency
+            device = logging_config.evaluation_device
+            if device is not None and steps_in_python(env_args.env):
+                raise ValueError(
+                    "An environment stepped in Python (Gymnasium) is evaluated"
+                    " in the training process: it takes no evaluation_device."
+                )
+            if device is not None:
+                evaluator = AsyncEvaluator(device, len(run_ids or ()), log_fn)
         return cls(
             env_args=env_args,
             total_timesteps=total_timesteps,
             num_episode_test=num_episode_test,
             extensions=ExtensionStack(extensions),
             log=logging_config is not None,
-            log_fn=partial(vmap_log, run_ids=run_ids),
+            log_fn=log_fn,
             log_frequency=log_frequency,
             start_timestep=start_timestep,
             end_timestep=end_timestep,
             expert_policy=expert_policy,
             offline_data=offline_data,
             sweep=logging_config is not None and logging_config.sweep,
+            evaluator=evaluator,
         )
 
     @property
@@ -608,6 +623,7 @@ class TrainLoop:
                 agent_metrics,
                 agent_state.collector_state.env_state,
             ),
+            evaluator=self.evaluator,
             **kwargs,
         )
 
@@ -633,6 +649,7 @@ class TrainLoop:
             ),
             log=self.log,
             log_fn=self.log_fn,
+            evaluator=self.evaluator,
         )
         if evaluation.after_log is not None:
             agent_state = evaluation.after_log(agent_state, agent_state.n_logs != logs)
@@ -681,6 +698,11 @@ class TrainLoop:
         """
         rows = self.n_evaluations if evaluations is None else evaluations
         records = self.log and not returns_iterations
+        if self.evaluator is not None and returns_iterations:
+            raise ValueError(
+                "An agent returning every iteration's output evaluates inside"
+                " its training program: it takes no evaluation_device."
+            )
 
         def with_slot(agent_state: Any) -> Any:
             if one_update is None:
@@ -756,8 +778,19 @@ class TrainLoop:
             resume_transform=resume_transform,
         )
 
-        def train_with_evaluations(*args: Any, **kwargs: Any) -> tuple[Any, dict]:
-            agent_state, (rows, _) = train(*args, **kwargs)
+        def train_with_evaluations(
+            key: Any, index: Any = None, *args: Any, **kwargs: Any
+        ) -> tuple[Any, dict]:
+            agent_state, (rows, _) = train(key, index, *args, **kwargs)
+            if self.evaluator is None:
+                return agent_state, rows
+            # The rows hold NaN where the evaluator's scores go, its k
+            # evaluations the first k rows, in order; each seed gets its own.
+            jax.effects_barrier()  # every evaluation handed over
+            rows = dict(rows)
+            for name, scores in self.evaluator.wait().items():
+                done = scores.shape[1]
+                rows[name] = rows[name].at[:done].set(jnp.asarray(scores)[index])
             return agent_state, rows
 
         return train_with_evaluations

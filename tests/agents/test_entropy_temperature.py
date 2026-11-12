@@ -50,3 +50,23 @@ def test_the_temperature_steps_towards_the_scheduled_target_entropy(cls: Any) ->
         logged[trained], [2 * float(ramp(t)) for t in timesteps[trained]], rtol=1e-6
     )
     assert agent.target_entropy(16) == pytest.approx(2 * float(ramp(16)))
+
+
+@pytest.mark.parametrize(
+    "target_entropy_per_dim, direction",
+    [(-10.0, -1.0), (10.0, 1.0)],
+    ids=["target-far-below", "target-far-above"],
+)
+@pytest.mark.parametrize("cls", list(SOFT), ids=lambda c: c.__name__)
+def test_the_temperature_moves_towards_its_target_entropy(
+    cls: Any, target_entropy_per_dim: float, direction: float
+) -> None:
+    """Catches a temperature step that ignores target_entropy_per_dim (ASAC's
+    and REDQ's once used -action_dim, the default -1 per dimension's value)
+    or is never kept: log alpha's gradient is the policy's entropy less the
+    target, so a target far below the entropy lowers alpha and one far above
+    raises it."""
+    agent = cls(**TINY, **SOFT[cls], target_entropy_per_dim=target_entropy_per_dim)
+    state = agent.train(seed=0, n_timesteps=16)[0]
+    log_alpha = float(np.ravel(state.alpha.params["log_alpha"])[0])
+    assert np.sign(log_alpha - np.log(agent.alpha_init)) == direction

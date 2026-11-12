@@ -14,7 +14,7 @@ pre-Phase-5 tests compared ``SAC(**legacy_flags)`` against
 ``SAC(extensions=[...])``. After Phase 5 the legacy-flag SAC is
 unconstructible, so each configuration in ``CASES`` is now checked
 against the fingerprint captured into ``_sac_equivalence_goldens.json``,
-keyed by the name of the test that captured it.
+keyed by the wiring it pins (once the name of the test that captured it).
 
 The tests deliberately use a tiny config so they run in a few seconds on
 CPU; the checksum is a strong-enough fingerprint to catch any silent
@@ -194,56 +194,50 @@ def _expert(*extensions: Any, **kwargs: Any) -> dict[str, Any]:
 # order. The comments say why a configuration is pinned.
 CASES: dict[str, dict[str, Any]] = {
     # The empty stack equals pre-Phase-5 plain SAC.
-    "test_empty_stack_matches_legacy_plain_sac": {"extensions": ()},
+    "empty_stack": {"extensions": ()},
     # SAC's expert policy alone equals pre-Phase-5 ``expert_policy=``.
-    "test_expert_policy_matches_legacy_expert_policy": _expert(),
+    "expert_policy": _expert(),
     # OnlineBC reads the expert critic MC pretraining fits (the BC math:
     # tests/extensions/test_expert_math.py).
-    "test_online_bc_matches_legacy_flag": _expert(
+    "online_bc_on_mc_pretrain": _expert(
         _MC, OnlineBC(bc_coef=0.5, critic_warmup_frac=0.5)
     ),
-    "test_residual_policy_matches_legacy_use_residual_rl": {
+    "residual_policy": {
         "expert_policy": _EXPERT,
         "extensions": (ResidualPolicy(scale=0.5),),
     },
     # SAC counts the per-env ``step_in_episode`` the curriculum reads: the
     # golden was recorded with the retired ``jsrl_curriculum=True`` flag.
-    "test_jsrl_curriculum_matches_legacy_flag": _expert(
+    "jsrl_curriculum": _expert(
         JSRLCurriculum(episode_length=50, decay_frac=0.5, schedule="time")
     ),
-    "test_ibrl_matches_legacy_flag": _expert(IBRL(expert_policy=_EXPERT)),
+    "ibrl": _expert(IBRL(expert_policy=_EXPERT)),
     # Each EDGE gate is a different action-pipeline gate function.
     **{
-        f"test_edge_exploration_matches_legacy_flags[{gate}]": _expert(
-            EDGEExploration(gate=gate)
-        )
+        f"edge_exploration[{gate}]": _expert(EDGEExploration(gate=gate))
         for gate in _GATES
     },
     # Soft-blends the policy's and the expert's next actions by an LCB score.
-    "test_lcb_gated_bootstrap_matches_legacy_flag": _expert(
-        LCBGatedBootstrap(expert_policy=_EXPERT)
-    ),
-    "test_mc_pretrain_matches_legacy_flag": _expert(_MC),
+    "lcb_gated_bootstrap": _expert(LCBGatedBootstrap(expert_policy=_EXPERT)),
+    "mc_pretrain": _expert(_MC),
     # On the expert's prefill: recorded first on an empty replay, which
     # BellmanPretrain now refuses.
-    "test_bellman_pretrain_matches_legacy_flag": _expert(
+    "bellman_pretrain_on_prefill": _expert(
         ExpertPrefill(n_steps=40), BellmanPretrain(n_steps=20)
     ),
     # CriticBlend reads the expert critic MC pretraining fits. The legacy
     # default ``use_online_bc=True`` appended an OnlineBC whenever MC
     # pretraining ran; the golden was captured under it.
-    "test_critic_blend_matches_legacy_flag": _expert(
+    "critic_blend_with_online_bc": _expert(
         _MC,
         CriticBlend(expert_policy=_EXPERT, critic_warmup_frac=0.5),
         OnlineBC(bc_coef=1.0, critic_warmup_frac=0.5),
     ),
-    "test_mc_variance_correction_matches_legacy_flag": _expert(
-        _MC, MCVarianceCorrection(threshold=0.0)
-    ),
+    "mc_variance_correction": _expert(_MC, MCVarianceCorrection(threshold=0.0)),
     # ValueBox's v_min / v_max come from MC pretraining.
-    "test_value_box_matches_legacy_flag": _expert(_MC, ValueBox()),
+    "value_box": _expert(_MC, ValueBox()),
     # An interval short enough for the refresh to fire within 80 steps.
-    "test_phi_refresh_matches_legacy_flag": _expert(
+    "phi_refresh": _expert(
         _MC, PhiRefresh(expert_policy=_EXPERT, interval=30, steps=2)
     ),
 }
@@ -253,7 +247,7 @@ def test_every_golden_has_a_configuration():
     assert set(CASES) == set(_GOLDENS)
 
 
-@pytest.mark.parametrize("name", list(CASES), ids=lambda n: n.removeprefix("test_"))
+@pytest.mark.parametrize("name", list(CASES))
 def test_configuration_matches_its_golden(name: str):
     state, _ = SAC(**_TINY, **CASES[name]).train(seed=_SEED, n_timesteps=_TIMESTEPS)
     new = _agent_fingerprint(state)

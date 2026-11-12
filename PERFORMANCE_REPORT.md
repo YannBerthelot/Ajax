@@ -710,6 +710,41 @@ their new value depends on the read.
 Disk: 13 MB per probe per seed on SAC's defaults, half with `float16=True`.
 Embedding a run offline (three seeds, 82 probes): 2.5 minutes, 4.5 GB at its peak.
 
+## DreamerV3: the RSSM's weight gradients once per update (2026-11-12)
+
+The world-model loss backpropagates through 64 filtering steps of the RSSM.
+Differentiated directly, the reverse scan added each step's weight gradient,
+a product over the batch's 16 rows that reads and writes the whole weight, to
+a running sum: 64 small matrix products per weight per update, and as many
+per seed when seeds are trained together. `observe` now carries the gradient
+back through the steps with the parameters held fixed, then takes the
+parameters' gradient once, as the gradient of the observe step applied to all
+1,024 steps together (from each step's starting state). The batched step is
+computed again for that, which costs arithmetic but few operations. Same
+maths, summation order only: one training step of the 12m model on CPU gives
+the same parameters bitwise and gradients within 7.2e-7 of each tensor's
+largest entry.
+
+GPU, `mujoco:Hopper-v5` on MuJoCo Warp, 16 envs, the benchmark's settings,
+one L40S shared with other jobs, main (d40a8069) and the change alternated in
+one process, milliseconds per update (all seeds):
+
+| Seeds | Main | Change | Change vs main, each round |
+| --- | --- | --- | --- |
+| 1 | 105.0, 102.4, 104.9 | 94.7, 94.5, 93.9 | -10%, -8%, -10% |
+| 2 | 164.8, 163.4, 165.0 | 154.0, 153.3 | -7%, -6% |
+| 4 | 217.1, 161.2, 129.5 | 164.6, 114.4, 114.7 | -24%, -29%, -11% |
+
+The other jobs' load changed between rounds, so compare within a round. Peak
+GPU memory grew by about 0.2 GB per seed (the batched step's activations).
+
+CPU, the bench's DreamerV3 preset (1m model, batch 8 x 16), the two
+alternated in one process: 15.1 s against 14.2 s of execution per trial
+(+6%). Timed alone, the gradient of the loss takes the same time either way
+(25 ms at that preset, 167 ms at batch 16 x 64), so the difference comes from
+the training loop around it; it is within the 10% tolerance and was not
+traced further.
+
 ## JAX 0.11 and flax 0.12 (PR #199, 2026-10-19)
 
 The lock moves from JAX 0.7.2 / flax 0.10.7 to JAX 0.11.2 / flax 0.12.10;

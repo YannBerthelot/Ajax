@@ -54,7 +54,7 @@ class LoggingConfig:
     config: dict = struct.field(default_factory=dict)
     project_name: Optional[str] = None
     run_name: Optional[str] = None
-    log_frequency: int = 1000
+    log_frequency: int = 10_000
     group_name: Optional[str] = None
     folder: Optional[str] = None
     # None: not set, which tells the flags apart from backends.

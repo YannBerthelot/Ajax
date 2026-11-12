@@ -21,7 +21,7 @@ logging = LoggingConfig(
 | --- | --- | --- |
 | `backends` | `TensorBoardBackend(folder)` | where each run logs ([below](#backends)); `()` logs nowhere |
 | `config` | `{}` | a dictionary stored with each run, with the agent's run configuration added (below) |
-| `log_frequency` | 1000 | environment steps between evaluations |
+| `log_frequency` | 10,000 | environment steps between evaluations |
 | `run_name` | `None` | each run's name prefix: a run is named `<run_name>_<run id>` |
 | `sweep` | `False` | for hyperparameter sweeps: SAC evaluates only in the last 20% of training |
 | `use_wandb`, `use_tensorboard` | not set | deprecated: the earlier way to name backends. Set, they warn and name W&B (on unless set `False`) and TensorBoard (off unless set `True`), as before |

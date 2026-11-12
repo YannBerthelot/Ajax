@@ -2863,6 +2863,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.evaluate.evaluation_physics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evaluation_physics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.evaluate.setup_environment" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3336,6 +3347,17 @@
     <span class="md-ellipsis">
       
         EpisodeRecord
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.evaluate.evaluation_physics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evaluation_physics
       
     </span>
   </a>
@@ -3921,7 +3943,13 @@ folder: where use_tensorboard writes, folder/tensorboard/<run_id>/ (the
     working directory when None).
 sweep: for hyperparameter sweeps, evaluate only in the last fifth of
     training; with use_wandb, the W&amp;B run gets no steps
-    (WandbBackend(steps=False)).</p>
+    (WandbBackend(steps=False)).
+evaluation_device: a JAX device, such as jax.devices("cpu")[0] or a
+    second GPU, to evaluate on in a thread while training goes on
+    (ajax.async_evaluation); None: training waits for each evaluation.
+    Not the training GPU: one process's programs on a GPU run one after
+    the other. On the CPU, a MuJoCo Warp run is evaluated on pure-JAX
+    physics.</p>
 
 
 
@@ -4320,6 +4348,30 @@ count is unknown, not zero.</p>
 
 </div>
 
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.evaluate.evaluation_physics" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">evaluation_physics</span>
+
+
+<a href="#ajax.evaluate.evaluation_physics" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">evaluation_physics</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The physics engine the evaluation of env's task steps: the training
+env's, but MJX's pure-JAX physics in place of MuJoCo Warp on a device
+that is not a GPU (an asynchronous evaluator on the CPU,
+<code>LoggingConfig.evaluation_device</code>), where Warp cannot run. Both step
+the same model; tasks with contacts drift apart over an episode.</p>
+
+
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-function">
 

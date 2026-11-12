@@ -3533,6 +3533,15 @@ the steps a tick takes, or the agent's <code>Evaluation.ticks</code>), so evalua
 come on the same ticks and states as in one scan. Each chunk length compiles
 once: one or two lengths, two when <code>log_frequency</code> is not a multiple of an
 iteration's steps.</p>
+<p>With <code>LoggingConfig(evaluation_device=...)</code> the evaluation program keeps its
+gate and training metrics but leaves the policy's scores to an
+<a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/async_evaluation.py"><code>AsyncEvaluator</code></a>: a callback hands it
+the state without its replay and the evaluation key, and a thread scores
+every seed's policy together on that device and logs the rows. The policy's
+evaluation is one function of the state and the key in both log paths
+(<code>ajax.log.evaluate_and_log</code> and <code>maybe_eval_and_log</code>), run inline or handed
+over. The loop's train function waits for the evaluator after the last chunk
+and writes the scores into the rows.</p>
 <p>Two details keep the gates correct under the seed <code>vmap</code>. The counters a gate
 reads (the timestep, <code>n_logs</code>, the scan index) stay unbatched, so
 <code>jax.lax.cond</code> stays a real branch and evaluates only on logging iterations;

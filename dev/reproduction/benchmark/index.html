@@ -2769,7 +2769,9 @@
 
 <h1 id="agent-benchmark">Agent benchmark<a class="headerlink" href="#agent-benchmark" title="Permanent link">&para;</a></h1>
 <p>Every agent at its default settings, with 10 seeds each, apart from <code>n_envs</code>,
-which follows each agent's paper. How Ajax's agents
+which follows each agent's paper. DreamerV3 also keeps its replay in host
+memory (<code>replay_on_host=True</code>), which gives the same numbers with less GPU
+memory. How Ajax's agents
 compare with other implementations is in the <a href="../results/">results</a>.</p>
 <h2 id="setup">Setup<a class="headerlink" href="#setup" title="Permanent link">&para;</a></h2>
 <ul>

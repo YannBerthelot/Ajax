@@ -139,6 +139,19 @@ def test_model_init_state_reproduces_initial_output():
     assert jnp.allclose(m.output(x0, r0), y0, atol=1e-6)
 
 
+def test_model_init_state_differentiates_with_respect_to_a_traced_model():
+    """Catches the pseudo-inverse of C taken as a constant whatever C is:
+    a model whose matrices are traced (differentiated, vmapped) must still
+    invert C in the program. One output: x0 = (y0 - d r0) / c, so
+    dx0/dc = -(y0 - d r0) / c^2 = -(0.9 - 0.25 * 2) / 0.5^2 = -1.6."""
+
+    def initial_state(c):
+        model = LinearReferenceModel.first_order(c=c, d=0.25)
+        return model.init_state(jnp.array([0.9]), jnp.array([2.0]))[0]
+
+    assert jnp.allclose(jax.grad(initial_state)(0.5), -1.6, rtol=1e-5)
+
+
 # ------------------------------------------------------ ModelReferenceWrapper
 
 

@@ -50,9 +50,6 @@ from ajax.wrappers import NormalizationInfo
 
 T = TypeVar("T")  # generic type for pytrees
 
-#: The steps the average-reward mode rolls out (the episodes restart).
-_AVERAGE_REWARD_STEPS = 10_000
-
 
 @dataclasses.dataclass(frozen=True)
 class ValueEstimate:
@@ -262,7 +259,7 @@ class _EvalCarry(NamedTuple):
     state: Any  # the env's
     entropy_sum: jax.Array  # (1,): summed over steps, meaned over running envs
     step_count: jax.Array  # (1,): the mean episode length so far
-    last_reward: jax.Array  # this step's reward (the average-reward mode's)
+    last_reward: jax.Array  # this step's reward (the value bias's)
     value: jax.Array  # this step's value estimate (the value bias's); else 0
     expert_state: Any  # a stateful expert's; a dummy otherwise
     actor_hidden: Any  # the actor's memory; a dummy when feedforward
@@ -739,7 +736,9 @@ def evaluate(
 
     Returns the mean return, entropy, average reward (``avg_reward_mode``),
     value bias (``value_estimate``), episode length and expert's return,
-    each NaN without what it needs. The value bias is the mean over the
+    each NaN without what it needs. The average reward is the policy's
+    long-run reward per step, its episodes restarting: the episodes' total
+    return over their total length. The value bias is the mean over the
     evaluated steps of the critic's estimate (:class:`ValueEstimate`) minus
     the discounted return realised from the step, in the critic's units:
     the rewards normalised as in training (:func:`normalised_reward`) and
@@ -804,24 +803,22 @@ def evaluate(
             ).rewards
         )
 
-    avg_reward = jnp.nan
+    # The policy run with restarts earns E[return] / E[length] per step in
+    # the long run (renewal-reward theorem): the evaluated episodes' total
+    # return over their total length. xtma/apo measures its rate on its
+    # evaluation episodes too (rlpyt's eval_max_steps=1e4 is a total over
+    # its 10 envs), as their mean of return / length (AverageTrajInfo),
+    # which weights a short episode as a long one.
+    avg_reward: jax.Array | float = jnp.nan
     if avg_reward_mode:
-
-        def scan_step(carry, _):
-            carry = step_fn(carry)
-            return carry, carry.last_reward
-
-        _, rewards_over_time = jax.lax.scan(
-            scan_step, init_carry_agent, None, length=_AVERAGE_REWARD_STEPS
-        )
-        avg_reward = rewards_over_time.mean(axis=0)
+        avg_reward = rewards.mean() / jnp.maximum(step_count[0], 1.0)
 
     avg_entropy = final_carry.entropy_sum / jnp.maximum(step_count, 1.0)
 
     outputs = (
         rewards.mean(axis=-1),
         avg_entropy.mean(axis=-1),
-        jnp.nanmean(avg_reward),
+        jnp.asarray(avg_reward, jnp.float32),
         jnp.asarray(bias, jnp.float32),
         step_count.mean(),
         expert_reward,

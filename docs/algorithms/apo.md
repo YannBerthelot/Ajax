@@ -98,6 +98,17 @@ PPO's clipped surrogate, the value loss and the entropy bonus.
   config turns it off (the differences below).
 - **Shuffling.** Every epoch draws a new split of the rollout into
   minibatches, as APO's official code does.
+- **The evaluation's reward rate** (`Eval/mean average reward`) comes from
+  the evaluation's own episodes, as the official code's does: its
+  `eval_max_steps=1e4` is a total over 10 evaluation envs, so at most 1,000
+  steps each, and it stops after 10 episodes (`mujoco_appo.py:30-32`;
+  `rlpyt/samplers/parallel/base.py:73`). Ajax divides the episodes' total
+  return by their total length, the long-run reward per step with restarts.
+  The official code averages each episode's return over its length
+  (`apo/envs/traj_info.py:10`), which counts a short episode as much as a
+  long one. Until November 2026 Ajax ran 10,000 more steps per evaluation
+  episode to measure it, ten times the official budget at the default 10
+  episodes.
 - **Hidden layers.** The actor and the critic each have two hidden layers
   of 64 `tanh` units, as the official code's mean and value networks:
   `xtma/apo`'s config sets only `normalize_observation`

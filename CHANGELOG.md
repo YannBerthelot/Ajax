@@ -75,6 +75,11 @@ The next release is 0.6.0: the first item changes results.
   in every `train` call. They now train the whole rollouts the budget
   holds, at least one, as their original implementations do, and a run
   split into calls of whole rollouts ends where one call does.
+- **APO evaluates at PPO's cost.** Its reward rate (`Eval/mean average
+  reward`) is now the evaluation episodes' total return over their total
+  length. It used to need 10,000 more steps per episode, which made each of
+  APO's evaluations up to ten times as long as PPO's. The official code also
+  measures the rate on its evaluation episodes.
 - **A simulator that diverges no longer ends a run.** On a Brax or Playground
   env, a step whose observation or reward is not finite now ends its episode
   as a termination, with reward 0, and the run goes on. Before, one such step
@@ -157,6 +162,13 @@ The next release is 0.6.0: the first item changes results.
   `ReacherEasy` and `ReacherHard` failed on `mujoco` 3.10 and later with
   `'MjSpec' object has no attribute 'find_body'`. The cap goes once a Playground
   release holds the fix.
+- **APO's `Eval/mean average reward` changes.** It was the mean reward over
+  10,000 steps per evaluation episode, the episodes restarting. It is now the
+  evaluation episodes' total return over their total length. The quantity is
+  the same, the long-run reward per step, but each episode now gives its own
+  steps (at most its time limit) instead of 10,000, so the rate varies more
+  from one evaluation to the next. *What to do:* compare with runs of this
+  version, or raise `num_episode_test` for a steadier estimate.
 - **`log_frequency=1` evaluates from the first step.** With one env it skipped
   the evaluation at step 1, so the run came out one evaluation short and its
   last row stayed empty. Other settings evaluate as before.

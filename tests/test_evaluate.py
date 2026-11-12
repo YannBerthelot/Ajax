@@ -362,9 +362,9 @@ def _pays_one(obs):
 def test_every_output_of_evaluate_takes_its_closed_form(c, length, paid):
     """On the identity task with c fixed, the actor's mean t / 10 is paid
     2 t / 10 on Box(-2, 2) for ``length`` steps: its return is their sum,
-    its entropy N(., STD)'s, its average reward the mean of the first 10^4
-    steps of their repetition (the episodes restart), the expert's return
-    one per step. Without a critic there is no value bias (NaN)."""
+    its entropy N(., STD)'s, its average reward (the reward per step of the
+    episode repeated) their sum over ``length``, the expert's return one per
+    step. Without a critic there is no value bias (NaN)."""
     env = InitialStateWrapper(IdentityEnv(), partial(_fix_c, c=c))
     out = evaluate(
         env,
@@ -376,16 +376,36 @@ def test_every_output_of_evaluate_takes_its_closed_form(c, length, paid):
         expert_policy=_pays_one,
     )
     entropy = 0.5 * np.log(2 * np.pi * np.e * STD**2)
-    average = np.mean(np.resize(paid, 10_000))
+    average = sum(paid) / length
     expected = (sum(paid), entropy, average, np.nan, length, length)
     names = ("return", "entropy", "average reward", "bias", "length", "expert")
-    # The average reward reduces 10^4 float32 rewards in an order XLA picks
-    # per platform. Summed one by one, the least precise order, it is off by
-    # 4e-6 (relative; measured).
-    loose = {"average reward": (1e-4, 0.0)}
     for name, got, want in zip(names, out, expected, strict=True):
-        rtol, atol = loose.get(name, (1e-5, 0.0))
-        np.testing.assert_allclose(got, want, rtol=rtol, atol=atol, err_msg=name)
+        np.testing.assert_allclose(got, want, rtol=1e-5, err_msg=name)
+
+
+def test_the_average_reward_weights_each_episode_by_its_length():
+    """With c drawn per env, an episode either ends at 3 steps paid 0.6
+    (0 + 0.2 + 0.4) or runs 5 paid 2.0. The policy run with restarts earns
+    the episodes' total return over their total length per step (renewal-
+    reward): the mean of each episode's rate (0.2 and 0.4) would weight a
+    3-step episode like a 5-step one, and steps past an episode's end would
+    count other episodes than the evaluated ones."""
+    num_episodes = 8
+    env = IdentityEnv()
+    out = evaluate(
+        env,
+        _LinearActor(),
+        num_episodes,
+        jax.random.PRNGKey(0),
+        env.default_params,
+        avg_reward_mode=True,
+    )
+    # The mean length is 5 - 2 * short / num_episodes.
+    short = round(num_episodes * (5 - float(out[4])) / 2)
+    assert 0 < short < num_episodes, "both lengths are needed to tell the means apart"
+    long = num_episodes - short
+    expected = (0.6 * short + 2.0 * long) / (3 * short + 5 * long)
+    np.testing.assert_allclose(out[2], expected, rtol=1e-5)
 
 
 def _reward_std_2() -> EnvNormalizationInfo:

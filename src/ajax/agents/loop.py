@@ -62,7 +62,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.tree_util import Partial as partial
 
-from ajax.agents.update_steps import apply_post_update, run_if
+from ajax.agents.update_steps import apply_post_update, reached, run_if
 from ajax.buffers.dataset import TransitionDataset, fill_replay
 from ajax.controller import Controller, make_run_controller, reads_progress
 from ajax.environments.create import strip_ajax_wrappers
@@ -547,7 +547,10 @@ class TrainLoop:
 
         if timestep is None:
             timestep = agent_state.collector_state.timestep
-        return run_if(timestep >= learning_starts, do_update, agent_state)
+        # No gate at learning_starts <= 0 (reached's Python True): a traced
+        # one, always true there, still made every seed of a vmapped run
+        # compute the update and select each leaf of its state, each step.
+        return run_if(reached(learning_starts, timestep), do_update, agent_state)
 
     def repeat_update(
         self, agent_state: Any, n: Any, update: Callable[[Any], tuple[Any, Any]]

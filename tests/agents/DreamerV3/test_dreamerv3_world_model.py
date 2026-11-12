@@ -99,6 +99,77 @@ def test_observe_scan_equals_step_by_step():
     np.testing.assert_array_equal(carry.stoch, final.stoch)
 
 
+def test_observe_gradient_is_backpropagation_through_time():
+    """The gradient through observe, for the parameters, the initial state,
+    the tokens and the actions, is that of the steps applied one by one.
+
+    observe computes its parameter gradient apart from the reverse scan.
+    Catches a backward pass that pairs a step with another step's starting
+    state, or loses the gradient that arrives through the final state or
+    leaves through the initial one (the world-model loss uses neither, so the
+    parity fixtures cannot see it). Tolerance: float32 sums of at most B T
+    terms, far below the size of any of those faults.
+    """
+    model, params, _ = tiny_model()
+    batch, noise = replay_batch(0), _noise(1)
+    tokens = _apply(model, params, batch.obs[:, 1:], method=WorldModel.encode)
+    actions, is_first = batch.action[:, :-1], batch.is_first[:, 1:]
+    keys = jax.random.split(jax.random.PRNGKey(2), 6)
+    stoch_index = jax.random.randint(keys[0], (B, S), 0, C)
+    carry = initial_state(TINY, (B,))._replace(
+        deter=jax.random.normal(keys[1], (B, TINY.deter)),
+        stoch=jax.nn.one_hot(stoch_index, C),
+    )
+    feature_weights = (
+        jax.random.normal(keys[2], (B, T, TINY.deter)),
+        jax.random.normal(keys[3], (B, T, S, C)),
+        jax.random.normal(keys[4], (B, T, S, C)),
+    )
+    final_weights = jax.random.normal(keys[5], (B, TINY.deter))
+
+    def readout(final, deter, stoch, logits):
+        per_step = (deter, stoch, jnp.tanh(logits))
+        total = sum(
+            jnp.sum(w * x) for w, x in zip(feature_weights, per_step, strict=True)
+        )
+        return total + jnp.sum(final_weights * final.deter) + jnp.sum(final.stoch**2)
+
+    def through_observe(rssm_params, carry, tokens, actions):
+        final, feats = observe(
+            RSSM(TINY), rssm_params, carry, tokens, actions, is_first, noise
+        )
+        return readout(final, feats.deter, feats.stoch, feats.logits)
+
+    def step_by_step(rssm_params, carry, tokens, actions):
+        steps = []
+        for t in range(T):
+            carry, feat = RSSM(TINY).apply(
+                {"params": rssm_params},
+                carry,
+                tokens[:, t],
+                actions[:, t],
+                is_first[:, t],
+                noise[:, t],
+                method=RSSM.observe_step,
+            )
+            steps.append(feat)
+        stacked = [jnp.stack(values, 1) for values in zip(*steps, strict=True)]
+        return readout(carry, *stacked)
+
+    arguments = (params["rssm"], carry, tokens, actions)
+    ours = jax.jit(jax.grad(through_observe, argnums=(0, 1, 2, 3)))(*arguments)
+    theirs = jax.jit(jax.grad(step_by_step, argnums=(0, 1, 2, 3)))(*arguments)
+
+    def check(path, got, expected):
+        # Relative to each tensor's largest entry; the prior's parameters,
+        # unused by observe, must get exactly zero.
+        tolerance = 1e-5 * float(np.max(np.abs(expected)))
+        name = jax.tree_util.keystr(path)
+        np.testing.assert_allclose(got, expected, rtol=0, atol=tolerance, err_msg=name)
+
+    jax.tree_util.tree_map_with_path(check, ours, theirs)
+
+
 @pytest.mark.parametrize("discrete", [False, True])
 def test_is_first_resets_state_stoch_and_previous_action(discrete):
     """At ``is_first`` the core runs on zeros: ``h = core(0, 0, 0)``, whatever

@@ -1,8 +1,9 @@
 """The entropy temperature alpha of a soft actor-critic (Haarnoja et al.,
-2018b): its state, its learning step towards a target entropy and its logs,
-shared by every soft actor-critic (SAC, ASAC, AVG, CrossQ, REDQ, TQC). The
-temperature's loss is each agent's equation (SAC's, CrossQ's), which the
-step takes as an argument."""
+2018b), shared by every soft actor-critic: its state, its learning step
+towards a target entropy, the step kept after the actor's from their starts
+(keep_actor_then_update_temperature), and its logs. The temperature's loss
+is each agent's equation (SAC's, CrossQ's), which the step takes as an
+argument."""
 
 from typing import Any, Callable, TypeVar
 

@@ -1,10 +1,11 @@
 """The steps an agent's update is written in: a loss's gradients
 (compute_gradients), gradient steps with the extensions' loss terms added
-(critic_step, actor_step, apply_gradients_clipped_together for two networks
-clipped together), the extensions' target and post-update phases, the gates
-(run_if, run_actor_if) and keys (derive_extensions_key) around them, which
-ajax.agents.loop re-exports, and the target critics' Polyak update SAC,
-ASAC, REDQ and TQC share (update_target_networks).
+(critic_step, which hands the extensions the Q critics' value readers,
+critic_value_readers; actor_step; apply_gradients_clipped_together for two
+networks clipped together), the extensions' target and post-update phases,
+the gates (run_if, run_actor_if) and keys (derive_extensions_key) around
+them, which ajax.agents.loop re-exports, and the target critics' Polyak
+update (update_target_networks).
 """
 
 from __future__ import annotations
@@ -69,7 +70,7 @@ REPLAY_ACTOR_KEYS = ACTOR_STEP_KEYS.union(
 )
 
 
-#: A replay actor-critic's on the three steps (REDQ, ASAC, CrossQ, TQC).
+#: The batch keys a replay actor-critic declares on its three steps.
 REPLAY_BATCH_KEYS: dict[str, frozenset[str]] = {
     "on_target": TARGET_KEYS,
     "critic_loss": CRITIC_LOSS_KEYS,

@@ -506,7 +506,7 @@ def compute_policy_loss(
     )
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass
 class RunningMoments(Replaceable):
     """The latest value of one scalar stream (AVG's reward, discount or

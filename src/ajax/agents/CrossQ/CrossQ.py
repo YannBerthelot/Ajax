@@ -315,8 +315,8 @@ class CrossQ(
             )
         )
         actor_state = actor_state.replace(batch_stats=batch_stats)
-        # The authors' temperature loss: alpha, not log alpha, times the gap.
         agent_state = agent_state.replace(actor_state=actor_state)
+        # The authors' temperature loss: alpha, not log alpha, times the gap.
         agent_state, temperature = update_temperature_when_due(
             self,
             agent_state,
@@ -360,7 +360,7 @@ def make_batch_renorm_mlp(width: int) -> tuple[str, ...]:
     return ("batchrenorm", *layer, *layer)
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class CrossQState(SoftActorCriticState):
     """CrossQ's state: a soft actor-critic's, its critics without targets."""

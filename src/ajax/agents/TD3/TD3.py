@@ -439,7 +439,7 @@ def make_default_action_pipeline(
     )
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class TD3State(BaseAgentState):
     """TD3 carries only actor + critic + collector (no temperature, no expert state)."""

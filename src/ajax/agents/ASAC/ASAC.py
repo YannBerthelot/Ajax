@@ -495,7 +495,7 @@ def update_theta(
     return agent_state.replace(theta=theta)
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class ASACState(SoftActorCriticState):
     """ASAC's state: a soft actor-critic's plus the reward rate and the

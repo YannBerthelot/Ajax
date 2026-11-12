@@ -354,7 +354,8 @@ class SAC(
         which the actor-loss extensions (OnlineBC, ImitationLoss) read as
         their clone target. Also returns the log-probs of a fresh
         sample of the stepped actor, which the temperature's step reads
-        (CleanRL's SAC order; cited from memory, unverified)."""
+        (CleanRL's order: vwxyzjn/cleanrl@fe8d8a0,
+        cleanrl/sac_continuous_action.py:279-292)."""
         actor_key, sample_key = split_by_index(
             update_steps.derive_actor_key(agent_state), 2
         )
@@ -658,7 +659,7 @@ def compute_alpha_temperature_loss(
     )
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class SACState(SoftActorCriticState):
     """SAC's state, with the frozen expert critic phi* its extensions fill."""

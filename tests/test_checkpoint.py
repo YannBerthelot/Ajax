@@ -11,6 +11,7 @@ import numpy as np
 import optax
 import pytest
 from flax import struct
+from jax.flatten_util import ravel_pytree
 
 from ajax.checkpoint import (
     checkpoint_exists,
@@ -18,6 +19,21 @@ from ajax.checkpoint import (
     restore_into,
     save_checkpoint,
 )
+
+
+def _moments_per_array(train_state):
+    """``train_state`` with its optimiser's moments as get_adam_tx held them
+    before its rule ran on one vector: one array per parameter array, in the
+    order optax.flatten joins them (jax's). Its states are vmapped over
+    seeds, so is each moment."""
+    one_seed = jax.tree.map(lambda leaf: leaf[0], train_state.params)
+    flat, unravel = ravel_pytree(one_seed)
+
+    def per_array(leaf):
+        is_moment = np.ndim(leaf) == 2 and np.shape(leaf)[1] == flat.size
+        return jax.vmap(unravel)(leaf) if is_moment else leaf
+
+    return train_state.replace(opt_state=jax.tree.map(per_array, train_state.opt_state))
 
 
 def test_save_and_load_simple_pytree(tmp_path):
@@ -452,9 +468,9 @@ def test_a_ppo_checkpoint_restores_only_into_its_own_log_std_head(tmp_path):
 def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path, agent_name):
     """PPO's and APO's networks each clipped their own gradient
     (get_adam_tx's chain, whose clip holds an empty state) until each took
-    its reference code's one clip over both. A checkpoint saved then
-    restores into today's unclipped Adams, every moment and step count
-    kept."""
+    its reference code's one clip over both. A checkpoint saved then, its
+    moments one array per parameter array, restores into today's unclipped
+    Adams, every moment and step count kept."""
     import optax
 
     import ajax
@@ -468,7 +484,14 @@ def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path, agent_n
     }
     old = skeleton.replace(
         **{
-            name: getattr(skeleton, name).replace(opt_state=(optax.EmptyState(), s))
+            name: getattr(skeleton, name).replace(
+                opt_state=(
+                    optax.EmptyState(),
+                    _moments_per_array(
+                        getattr(skeleton, name).replace(opt_state=s)
+                    ).opt_state,
+                )
+            )
             for name, s in moved.items()
         }
     )
@@ -492,8 +515,9 @@ def test_an_optimiser_state_of_another_network_behind_a_clip_is_refused(tmp_path
     agent = PPO(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
     skeleton = agent.train(seed=0, n_timesteps=0)[0]
     actor = skeleton.actor_state
+    per_array = _moments_per_array(actor).opt_state
     old = skeleton.replace(
-        actor_state=actor.replace(opt_state=(optax.EmptyState(), actor.opt_state))
+        actor_state=actor.replace(opt_state=(optax.EmptyState(), per_array))
     )
     path = str(tmp_path / "clipped.pkl")
     save_checkpoint(old, path)
@@ -521,6 +545,47 @@ def test_another_agents_optimiser_saved_behind_a_clip_is_refused(sac_run, tmp_pa
     path = str(tmp_path / "clipped.pkl")
     save_checkpoint(old, path)
     with pytest.raises(ValueError):
+        restore_into(state, path)
+
+
+def test_moments_saved_one_array_per_parameter_restore_as_one_vector(sac_run, tmp_path):
+    """get_adam_tx's rule runs on the parameters raveled into one vector, so
+    its moments are one vector each. A checkpoint saved before, one moment
+    array per parameter array, restores into that layout with every moment
+    and step count kept."""
+    state = sac_run.out[0]
+    old = state.replace(
+        actor_state=_moments_per_array(state.actor_state),
+        critic_state=_moments_per_array(state.critic_state),
+    )
+    path = str(tmp_path / "per_array.pkl")
+    save_checkpoint(old, path)
+    restored = restore_into(state, path)
+    for name in ("actor_state", "critic_state"):
+        same = jax.tree.map(
+            np.array_equal,
+            getattr(restored, name).opt_state,
+            getattr(state, name).opt_state,
+        )
+        assert all(jax.tree.leaves(same)), name
+
+
+def test_moments_saved_per_array_without_a_parameter_are_refused(sac_run, tmp_path):
+    """A checkpoint whose per-array moments miss one of the network's
+    parameters (another architecture's) is refused, not joined short."""
+    state = sac_run.out[0]
+    old = state.replace(critic_state=_moments_per_array(state.critic_state))
+    path = str(tmp_path / "per_array.pkl")
+    save_checkpoint(old, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    layers = saved["critic_state"]["opt_state"]["0"]["mu"]
+    while len(layers) == 1:  # down to the first level naming two or more
+        layers = next(iter(layers.values()))
+    layers.pop(sorted(layers)[0])
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+    with pytest.raises(ValueError, match="no moment for the parameter"):
         restore_into(state, path)
 
 

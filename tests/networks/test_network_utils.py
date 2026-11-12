@@ -1,3 +1,5 @@
+from functools import partial
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -6,6 +8,7 @@ import optax
 import pytest
 from flax.linen.initializers import orthogonal, variance_scaling
 from flax.serialization import to_state_dict
+from jax.flatten_util import ravel_pytree
 
 from ajax.networks.utils import (
     clip_by_member_norm,
@@ -181,15 +184,29 @@ def _steps(tx, n=3):
     ],
 )
 def test_each_update_rule_is_optaxs(ours, reference):
-    """Built from optax's parts, each rule steps as optax's alias does; Adam
-    and AdamW keep the alias's state tree too, so saved states restore."""
+    """Built from optax's parts, each rule steps as optax's alias does. Adam
+    and AdamW hold the alias's state with each moment raveled into one
+    vector, as optax.flatten joins the parameters (jax's order); a state
+    saved with a moment per array restores into it (test_checkpoint).
+
+    The rule runs on the gradients raveled into one vector: XLA computes
+    that vector with other instructions than the small arrays (vector lanes,
+    fused multiply-adds), which can move a float32 result by an ulp or two.
+    rtol 1e-6 is about eight float32 ulps."""
     (got, got_state), (want, want_state) = (
         _steps(get_adam_tx(1e-2, **ours)),
         _steps(reference),
     )
-    jax.tree.map(np.testing.assert_array_equal, got, want)
+    close = partial(np.testing.assert_allclose, rtol=1e-6)
+    jax.tree.map(close, got, want)
     if ours.get("optimizer", "adam") == "adam":
-        assert jax.tree.structure(got_state) == jax.tree.structure(want_state)
+        adam = want_state[0]
+        raveled = adam._replace(
+            mu=ravel_pytree(adam.mu)[0], nu=ravel_pytree(adam.nu)[0]
+        )
+        want_flat = (raveled, *want_state[1:])
+        assert jax.tree.structure(got_state) == jax.tree.structure(want_flat)
+        jax.tree.map(close, got_state, want_flat)
 
 
 def test_centered_rmsprop_is_mnih_et_als_update():

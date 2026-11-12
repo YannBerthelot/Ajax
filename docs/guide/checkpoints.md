@@ -163,6 +163,11 @@ the steps the whole run does.
       before APO took its official code's, into an optimiser without the
       clip: the clip holds no data, so the moments and step counts are
       kept. Another agent's is refused;
+    - an optimiser state saved with one Adam moment array per parameter
+      array, from before Ajax's optimisers held each moment as one vector
+      over every parameter (2026-11-12): the arrays are joined into that
+      vector, every moment and step count kept. A state missing a
+      parameter's moment is refused;
     - a state saved before collection drew on its own stream of keys
       (checkpoint format 2, 2026-10-27): its collector's key restarts from
       one derived from the updates' key, since the one it held was an

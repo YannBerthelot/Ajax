@@ -75,6 +75,10 @@ def get_adam_tx(
         vector_learning_rate: A fixed rate for the parameters of fewer than
             two dimensions (OptimizerConfig.vector_learning_rate); None steps
             them at learning_rate.
+
+    The state holds each of the rule's moments as one vector over every
+    parameter (``optax.flatten``); a checkpoint saved with a moment per
+    array restores into it (:func:`ajax.checkpoint.restore_into`).
     """
     if weight_decay < 0:
         raise ValueError(f"weight_decay must be non-negative, got {weight_decay}")
@@ -90,8 +94,15 @@ def get_adam_tx(
         scale = optax.scale_by_learning_rate(learning_rate)
     else:
         scale = scale_by_learning_rate_per_rank(learning_rate, vector_learning_rate)
-    tx = optax.chain(rules[optimizer](), *decay, scale)
+    # The rule acts on each coordinate alone, so it runs on the gradients
+    # raveled into one vector: the same numbers in a few GPU kernels instead
+    # of a few per array. The decay and the rate stay on the arrays, where
+    # they join each array's update of its parameters; a rate may depend on
+    # the array's rank.
+    tx = optax.chain(optax.flatten(rules[optimizer]()), *decay, scale)
     if max_grad_norm is not None:
+        # On the arrays: the member clip needs them, and the global norm
+        # keeps its order of summation.
         clip = clip_by_member_norm if per_member else optax.clip_by_global_norm
         return optax.chain(clip(max_grad_norm), tx)
     return tx

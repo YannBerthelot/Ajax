@@ -34,7 +34,12 @@ from flax import struct
 from gymnax.environments import spaces
 
 from ajax.random_keys import derive_key
-from ajax.wrappers import _FINAL_OBS_KEYS, GymnaxWrapper, episode_draws_key
+from ajax.wrappers import (
+    _FINAL_OBS_KEYS,
+    GymnaxWrapper,
+    _call_if_any,
+    episode_draws_key,
+)
 
 
 @struct.dataclass
@@ -182,6 +187,12 @@ class ModelReferenceWrapper(GymnaxWrapper):
     final, pre-reset output, and ``info``'s final observation is the
     controller's view of it. Past the reference horizon the last sample is
     held; size ``reference.horizon`` to the episode length.
+
+    The new reference is drawn only on the steps where some env's episode
+    ends (inside a ``lax.while_loop``, see ``ajax.wrappers._call_if_any``),
+    so reverse mode cannot differentiate with respect to the reference's
+    own fields (its value bounds); the plant, the policy and the actions
+    differentiate as before.
     """
 
     def __init__(
@@ -234,11 +245,11 @@ class ModelReferenceWrapper(GymnaxWrapper):
         # the plant's own draws as they were.
         raw_obs, env_state = self._env.reset(key, params)
         reference_key = derive_key(episode_draws_key(env_state, key), "reference")
-        state = self._fresh_task(reference_key, raw_obs, env_state)
+        reference = self.reference.sample(reference_key)
+        state = self._fresh_task(reference, raw_obs, env_state)
         return self._controller_obs(state, raw_obs), state
 
-    def _fresh_task(self, key, raw_obs, env_state) -> ModelReferenceState:
-        reference = self.reference.sample(key)
+    def _fresh_task(self, reference, raw_obs, env_state) -> ModelReferenceState:
         y0 = self.output(raw_obs)
         return ModelReferenceState(
             env_state=env_state,
@@ -272,9 +283,16 @@ class ModelReferenceWrapper(GymnaxWrapper):
             u_prev=jnp.reshape(jnp.asarray(action, jnp.float32), (self.action_dim,)),
             t=t_next,
         )
-        # Start a fresh task on the plant's new episode.
+        # Start a fresh task on the plant's new episode. Its reference is
+        # drawn only when an episode ended: drawn on every step, it took
+        # about 99% of an APG rollout's env time, to be discarded on all but
+        # the last step of each episode. On the other steps it is zeros,
+        # which the select below discards.
         reference_key = derive_key(episode_draws_key(env_state, key), "reference")
-        fresh = self._fresh_task(reference_key, raw_obs, env_state)
+        reference = _call_if_any(
+            done, self.reference.sample, reference_key, advance=_draw_from_itself
+        )
+        fresh = self._fresh_task(reference, raw_obs, env_state)
         state = jax.tree.map(lambda a, b: jax.lax.select(done, a, b), fresh, continued)
         # The final observation in the controller's view, as wide as obs: a
         # collector bootstraps a time limit on it.
@@ -309,6 +327,13 @@ class ModelReferenceWrapper(GymnaxWrapper):
         return self._controller_obs(
             state, self._env.get_obs(state.env_state, params, key)
         )
+
+
+def _draw_from_itself(key: jax.Array) -> tuple[jax.Array, jax.Array]:
+    """_call_if_any's key advance: the reference is drawn from the key
+    itself, as reset draws it, and the loop moves its copy on so that the
+    draw is not loop-invariant (see _call_if_any)."""
+    return jax.random.split(key)[0], key
 
 
 __all__ = [

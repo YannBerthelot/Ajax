@@ -776,6 +776,56 @@ class BatchRngWrapper(BraxWrapper):
         return self.env.reset(rng)
 
 
+class WarpCapacityWrapper(BraxWrapper):
+    """Stops a run whose MuJoCo Warp physics ran out of room.
+
+    MuJoCo Warp keeps one contact buffer for every world of a batch (all the
+    seeds and envs stepped at once), sized when the task makes its data
+    (``naconmax``), and room for ``njmax`` constraint rows in each world. A
+    step needing more drops the rest, prints a warning and goes on with
+    wrong physics: a body sinks through the floor. This raises instead,
+    after each reset and step, from Warp's own counters, which describe the
+    step's last physics substep. Goes directly over a raw Warp env.
+    """
+
+    def reset(self, rng: jax.Array) -> "State":
+        state = self.env.reset(rng)
+        _check_warp_capacity(state.data)
+        return state
+
+    def step(self, state: "State", action: jax.Array) -> "State":
+        next_state = self.env.step(state, action)
+        _check_warp_capacity(next_state.data)
+        return next_state
+
+
+def _check_warp_capacity(data: Any) -> None:
+    warp = data._impl  # MJX's MuJoCo Warp fields: its counters and capacities
+    jax.debug.callback(
+        _raise_on_overflow,
+        jnp.maximum(warp.nacon, warp.ncollision),
+        warp.naconmax,
+        warp.nefc,
+        warp.njmax,
+    )
+
+
+def _raise_on_overflow(contacts, contact_room, rows, row_room) -> None:
+    if np.max(contacts) > np.min(contact_room):
+        raise ValueError(
+            f"MuJoCo Warp dropped contacts: a step needed {np.max(contacts)}"
+            f" contact slots, and the buffer every world of the batch shares"
+            f" holds {np.min(contact_room)}. Step fewer seeds and envs at"
+            " once, or use physics='jax'."
+        )
+    if np.max(rows) > np.min(row_room):
+        raise ValueError(
+            f"MuJoCo Warp dropped constraints: a world needed {np.max(rows)}"
+            f" constraint rows and has room for {np.min(row_room)}. Use"
+            " physics='jax'."
+        )
+
+
 class NonFiniteStepWrapper(BraxWrapper):
     """Ends the episode of a step that left the simulator non-finite.
 

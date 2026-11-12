@@ -26,6 +26,13 @@ from mujoco_playground._src import mjx_env
 from ajax.random_keys import derive_key, fold_index
 
 ASSETS = Path(__file__).parent / "assets"
+#: MuJoCo Warp's contact buffer, one for every world of a batch: the seeds and
+#: envs a run steps at once share it (without it, MuJoCo Warp's default for
+#: these models is 48 contacts in all, which 47 Hopper worlds overflowed).
+#: Room for 1,024 worlds of 48 contacts each, MuJoCo Warp's own default for
+#: one world, near the 50,000 Playground gives its hopper and walker.
+#: Pure JAX ignores it.
+WARP_CONTACTS = 48 * 1024
 
 
 class GymnasiumTask(mjx_env.MjxEnv):
@@ -74,7 +81,11 @@ class GymnasiumTask(mjx_env.MjxEnv):
     def set_state(self, qpos: jax.Array, qvel: jax.Array) -> mjx.Data:
         """Gymnasium's set_state: the state, then mj_forward."""
         data = mjx_env.make_data(
-            self._mj_model, qpos=qpos, qvel=qvel, impl=self._mjx_model.impl.value
+            self._mj_model,
+            qpos=qpos,
+            qvel=qvel,
+            impl=self._mjx_model.impl.value,
+            naconmax=WARP_CONTACTS,
         )
         return mjx.forward(self._mjx_model, data)
 

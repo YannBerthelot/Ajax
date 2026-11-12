@@ -29,7 +29,7 @@ from flax import struct
 
 from ajax import DreamerV3
 from ajax.agents import loop
-from ajax.agents.DreamerV3.replay import ReplayState, StreamReplay
+from ajax.agents.DreamerV3.replay import ReplayState, StreamReplay, is_on_host
 from ajax.agents.DreamerV3.state import MODEL_SIZES, WIDTHS
 from ajax.checkpoint import restore_into, save_checkpoint
 from ajax.extensions.observe import PIDTermsInput, TrainingProgressInput
@@ -478,6 +478,63 @@ def test_each_call_resolves_its_ring():
     assert rows == 1000 and state is long
     with pytest.raises(ValueError, match="replay_capacity"):
         resolve(agent, N_ENVS * 10, _resumable(50, 40))
+
+
+def test_a_resumed_ring_goes_where_the_option_keeps_the_latents():
+    """Host-side, no training: under replay_on_host, prepare_replay grows a
+    host-memory deter ring in place and moves a device one to the host;
+    without it, a host ring comes back to the device; the stored rows keep
+    their values. A resume that left the ring where the last run had it
+    would ignore the option: a host run's 8 GB per seed on the device, or
+    no saving at all."""
+    on_host = DreamerV3(
+        "CartPole-v1",
+        n_envs=N_ENVS,
+        replay_capacity=N_ENVS * 1000,
+        replay_on_host=True,
+        **TINY,
+    )
+    on_device = DreamerV3(
+        "CartPole-v1", n_envs=N_ENVS, replay_capacity=N_ENVS * 1000, **TINY
+    )
+    state = _resumable(20, 20)
+    replay = state.replay_state
+    state = state.replace(replay_state=replay.replace(deter=replay.deter + 1.0))
+
+    rows, grown = resolve(on_host, N_ENVS * 280, state)
+    assert rows == 300 and is_on_host(grown.replay_state.deter)
+    _, moved = resolve(on_host, N_ENVS * 280, state)  # from the device
+    _, back = resolve(on_device, N_ENVS * 280, grown)
+    assert is_on_host(moved.replay_state.deter)
+    assert not is_on_host(back.replay_state.deter)
+    for deter in (grown, moved, back):
+        stored = np.asarray(deter.replay_state.deter)
+        assert stored.shape == (2, N_ENVS, 300, 32)
+        np.testing.assert_array_equal(stored[..., :20, :], 1.0)
+        np.testing.assert_array_equal(stored[..., 20:, :], 0.0)
+
+
+def test_latents_kept_on_the_host_train_as_on_the_device(cartpole):
+    """replay_on_host keeps the deter ring in pinned host memory and changes
+    no number: the fixture's run (its spies call the originals and its
+    logging leaves the state alone) with the option on gives every leaf
+    bitwise. A host-side gather or scatter on other rows than the device's
+    -- a flat index off by an env, a dropped write landing in the next env's
+    ring, the row add at the wrong slot -- moves the latents the replay
+    context reads, and with them the parameters."""
+    config = LoggingConfig(log_frequency=LOG_EVERY, backends=())
+    agent = cartpole_agent(extensions=[CounterExt(), MetricExt()], replay_on_host=True)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(loop, "vmap_log", lambda *args, **kwargs: None)
+        state, _ = agent.train(
+            seed=SEEDS, n_timesteps=ROWS, num_episode_test=3, logging_config=config
+        )
+        jax.effects_barrier()
+    assert state.replay_state.deter.sharding.memory_kind == "pinned_host"
+    for ours, theirs in zip(
+        jax.tree.leaves(state), jax.tree.leaves(cartpole.state), strict=True
+    ):
+        np.testing.assert_array_equal(ours, theirs)
 
 
 @pytest.fixture(scope="module")

@@ -8,6 +8,14 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **DreamerV3 can keep its replay latents in host memory.** With
+  `replay_on_host=True`, the posterior latents stored with each replay row
+  (about 99% of the replay's bytes: 8 GB per seed for 2^20 rows at 12M) stay
+  in pinned host memory, inside the training state, so that more seeds fit
+  on one accelerator, or a run fits on a busy one. Results are bitwise those
+  of the default; each update is a little slower. A checkpoint restores
+  each array into the memory its skeleton keeps it in, so a resumed run
+  keeps the latents on the host.
 - **DreamerV3 trains faster on the GPU.** The world model's gradient
   through its 64 filtering steps now takes each RSSM weight's gradient once
   per update, as one product over all steps, instead of adding 64 small

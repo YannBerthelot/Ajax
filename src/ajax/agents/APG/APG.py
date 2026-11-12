@@ -40,7 +40,7 @@ import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, ClassVar, Optional, Union
 
 import flax.linen as nn
 import jax
@@ -569,7 +569,11 @@ def make_controller(
     factory: Optional[ControllerFactory] = None,
 ) -> nn.Module:
     """The controller: factory's module, or a Controller of the network's
-    hidden layers and memory."""
+    hidden layers and memory. A transformer memory caches its keys and
+    values: every rollout starts from a fresh carry under one set of
+    parameters, where that gives the same returns and gradients as caching
+    the inputs, at a fraction of the cost (it re-projected the whole window
+    at every step)."""
     action_dim = policy_action_dim(env_args)  # gain mode's gains
     if factory is not None:
         return factory(
@@ -591,6 +595,7 @@ def make_controller(
         memory=network_args.memory,
         pid=pid,
         squash=squash,
+        cache_keys_values=True,
     )
 
 
@@ -899,6 +904,10 @@ class APGState(BaseAgentState):
     the narrowed default can sit before the base class's required fields."""
 
     critic_state: Optional[LoadedTrainState] = None  # type: ignore[assignment]
+    # Its actor's hidden_state is the zero carry each rollout starts from,
+    # never a live one: a checkpoint restores it from the agent's skeleton
+    # (ajax.checkpoint._with_carry_template).
+    actor_carry_is_template: ClassVar[bool] = True
 
 
 @struct.dataclass

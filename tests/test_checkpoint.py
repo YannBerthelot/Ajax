@@ -262,6 +262,43 @@ def _without_key(state_dict, key):
     return {k: _without_key(v, key) for k, v in state_dict.items() if k != key}
 
 
+def test_an_apg_transformer_checkpoint_saved_before_key_value_caching_restores(
+    tmp_path,
+):
+    """Catches APG transformer checkpoints saved before its memory cached
+    keys and values failing to restore: their carry template held each
+    layer's inputs and validity flags, two arrays where the agent now holds
+    keys, values and flags. The template carries nothing to restore, so the
+    parameters come back and the agent's own template is kept."""
+    from ajax.agents.APG.APG import APG
+    from ajax.networks.memory import MemoryConfig
+
+    memory = MemoryConfig("transformer", 8, num_heads=2, window=3)
+    agent = APG("Pendulum-v1", n_envs=2, horizon=4, memory=memory)
+    state, _ = agent.train(seed=0, n_timesteps=16)
+    path = str(tmp_path / "old.pkl")
+    save_checkpoint(state, path)
+    with open(path, "rb") as fh:
+        saved = pickle.load(fh)
+    memory_carry = saved["actor_state"]["hidden_state"]["0"]
+    for layer, cached in memory_carry.items():  # keys, values, flags
+        memory_carry[layer] = {"0": np.zeros_like(cached["0"]), "1": cached["2"]}
+    with open(path, "wb") as fh:
+        pickle.dump(saved, fh)
+
+    restored = restore_into(state, path)
+
+    for got, want in zip(
+        jax.tree.leaves(restored.actor_state.params),
+        jax.tree.leaves(state.actor_state.params),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(got, want)
+    assert jax.tree.structure(restored.actor_state.hidden_state) == jax.tree.structure(
+        state.actor_state.hidden_state
+    )
+
+
 def test_a_checkpoint_saved_before_the_non_finite_count_restores(tmp_path):
     """The envs' info gained the count: a run saved before it never counted,
     and starts at 0. Any other key missing from it still fails."""

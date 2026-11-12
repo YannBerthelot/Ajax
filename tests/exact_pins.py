@@ -587,6 +587,40 @@ RESUMED: dict[str, tuple[dict[str, Any], int]] = {
     "DreamerV3-resume": ({}, 80),
     "TDMPC2-resume": ({}, 40),
 }
+# The transformer memory's users: recurrent PPO (sequences replayed in
+# chunks from a stored carry), SAC (stored-state replay) and APG's
+# contextual controller (a closed-loop rollout from a fresh carry).
+TRANSFORMER = MemoryConfig("transformer", 8, num_layers=2, num_heads=2, window=4)
+TRANSFORMER_CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
+    "PPO-transformer": (
+        PPO,
+        {
+            **ON,
+            "n_steps": 16,
+            "num_minibatches": 2,
+            "bptt_length": 4,
+            "memory": TRANSFORMER,
+        },
+        128,
+    ),
+    "SAC-transformer": (
+        SAC,
+        {
+            **SAC40,
+            "learning_starts": 60,
+            "policy_update_start": 80,
+            "alpha_update_start": 80,
+            "memory": TRANSFORMER,
+        },
+        160,
+    ),
+    "APG-transformer": (
+        APG,
+        {**APG_KW, "pid": PIDHeadConfig(), "memory": TRANSFORMER},
+        80,
+    ),
+}
+
 CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     "TD3": (TD3, {**S, **R}, 200),
     "TD3-keyed": (TD3, {**S, **R, "extensions": (Keyed(),)}, 200),
@@ -796,6 +830,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     **WORLD_MODEL_CASES,
     **TDMPC2_CASES,
     **WORLD_FEATURE_CASES,
+    **TRANSFORMER_CASES,
 }
 
 

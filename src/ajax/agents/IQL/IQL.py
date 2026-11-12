@@ -171,13 +171,49 @@ class IQL(
     def update(
         self, agent_state: IQLState, context: TrainContext
     ) -> tuple[IQLState, AuxiliaryLogs]:
-        """One IQL update (the module docstring)."""
+        """One IQL update (the module docstring): V's step, then the actor's
+        and the critics' steps, both from the state before either and both
+        reading V after its step."""
         sample_key, critic_key, actor_key, agent_state = (
             agent_state.get_keys_and_new_state(3)
         )
         batch, _ = sample_replay(agent_state, context.buffer, sample_key)
-        critic = agent_state.critic_state
-        min_q_values = compute_min_target_q(critic, batch)
+        min_q_values = compute_min_target_q(agent_state.critic_state, batch)
+        value_state, value_loss = self.update_value(agent_state, batch, min_q_values)
+        state_values = predict_value(value_state, value_state.params, batch.obs)[0]
+        advantage_weights = compute_advantage_weights(
+            min_q_values, state_values, self.temperature
+        )
+        stepped, (actor_loss, actor_metrics) = self.update_actor(
+            agent_state, batch, advantage_weights, actor_key, context
+        )
+        critic_stepped, critic_loss, critic_metrics = self.update_critic(
+            agent_state, batch, value_state, critic_key, context
+        )
+        # The critic's step read the state from before the actor's.
+        agent_state = stepped.replace(
+            critic_state=critic_stepped.critic_state.soft_update(tau=self.tau),
+            ext_state=critic_stepped.ext_state,
+            value_state=value_state,
+            n_updates=agent_state.n_updates + 1,
+        )
+        return agent_state, AuxiliaryLogs(
+            value=Auxiliaries(
+                value_loss=value_loss,
+                actor_loss=actor_loss,
+                critic_loss=critic_loss,
+                advantage=jnp.mean(min_q_values - state_values),
+                weight=jnp.mean(advantage_weights),
+            ),
+            extensions=merge_metrics(critic_metrics, actor_metrics),
+        )
+
+    def update_value(
+        self, agent_state: IQLState, batch: Transition, min_q_values: jax.Array
+    ) -> tuple[LoadedTrainState, jax.Array]:
+        """V's expectile step towards the target critics' minimum at the rows'
+        actions; returns V and its loss after the step, which the reference
+        logs."""
         compute_value_loss_on_batch = partial(
             compute_value_loss,
             agent_state.value_state,
@@ -188,11 +224,19 @@ class IQL(
         value_state, _, _ = update_steps.gradient_step(
             agent_state.value_state, compute_value_loss_on_batch
         )
-        value_loss_after_step = compute_value_loss_on_batch(value_state.params)[0]
-        state_values = predict_value(value_state, value_state.params, batch.obs)[0]
-        advantage_weights = compute_advantage_weights(
-            min_q_values, state_values, self.temperature
-        )
+        return value_state, compute_value_loss_on_batch(value_state.params)[0]
+
+    def update_actor(
+        self,
+        agent_state: IQLState,
+        batch: Transition,
+        advantage_weights: jax.Array,
+        key: jax.Array,
+        context: TrainContext,
+    ) -> tuple[IQLState, tuple]:
+        """The actor's advantage-weighted regression, kept from
+        policy_update_start; returns the state and the step's loss and
+        metrics."""
         # The actor fits the actions it chose: a residual policy's residuals,
         # which the replay keeps apart from the executed actions.
         chosen = batch.action if batch.policy_action is None else batch.policy_action
@@ -208,29 +252,42 @@ class IQL(
                     advantage_weights,
                 ),
                 context.extensions,
-                actor_key,
+                key,
                 context.total_timesteps,
                 batch,
-                critic,
+                agent_state.critic_state,
             )
             return state.replace(actor_state=actor_state), (actor_loss, actor_metrics)
 
-        stepped, (actor_loss, actor_metrics) = update_steps.run_actor_if(
+        return update_steps.run_actor_if(
             self.policy_update_due(agent_state.collector_state.timestep),
             step_actor,
             agent_state,
             keep=self.keeps_actor_metrics(),
         )
+
+    def update_critic(
+        self,
+        agent_state: IQLState,
+        batch: Transition,
+        value_state: LoadedTrainState,
+        key: jax.Array,
+        context: TrainContext,
+    ) -> tuple[IQLState, jax.Array, dict]:
+        """The critics' step on scale r + gamma (1 - d) V(s'), V after its
+        step; returns the state with the stepped critics and the extensions'
+        states, the loss and the extensions' metrics."""
         target, next_values = compute_bellman_target(
             value_state, batch, self.gamma, self.reward_scale
         )
-        critic_stepped, critic_loss, _, critic_metrics = update_steps.critic_step(
+        critic = agent_state.critic_state
+        stepped, critic_loss, _, metrics = update_steps.critic_step(
             agent_state,
             batch,
             target,
             partial(compute_summed_critic_loss, critic, batch),
             context.extensions,
-            critic_key,
+            key,
             context.total_timesteps,
             rewards=batch.reward,
             dones=batch.terminated,
@@ -238,23 +295,7 @@ class IQL(
             reward_scale=self.reward_scale,
             next_values=next_values,
         )
-        # The critic's step read the state from before the actor's.
-        agent_state = stepped.replace(
-            critic_state=critic_stepped.critic_state.soft_update(tau=self.tau),
-            ext_state=critic_stepped.ext_state,
-            value_state=value_state,
-            n_updates=agent_state.n_updates + 1,
-        )
-        return agent_state, AuxiliaryLogs(
-            value=Auxiliaries(
-                value_loss=value_loss_after_step,
-                actor_loss=actor_loss,
-                critic_loss=critic_loss,
-                advantage=jnp.mean(min_q_values - state_values),
-                weight=jnp.mean(advantage_weights),
-            ),
-            extensions=merge_metrics(critic_metrics, actor_metrics),
-        )
+        return stepped, critic_loss, metrics
 
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "IQL"

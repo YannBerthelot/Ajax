@@ -3164,7 +3164,37 @@ PPO's clipped surrogate, the value loss and the entropy bonus.</p>
   config turns it off (the differences below).</li>
 <li><strong>Shuffling.</strong> Every epoch draws a new split of the rollout into
   minibatches, as APO's official code does.</li>
-<li><strong>Hidden layers.</strong> The actor and the critic each have two hidden layers
+<li><strong>Evaluation: the return and the reward rate count episodes
+  differently.</strong> Each evaluation runs the deterministic policy and logs
+  both:</li>
+<li><code>Eval/episodic mean reward</code> (and the length and entropy) is the mean
+    over <code>num_episode_test</code> episodes, one per environment, as for every
+    agent. <code>num_episode_test</code> defaults to 10.</li>
+<li><code>Eval/mean average reward</code>, the reward rate, follows the official
+    evaluation exactly, whatever <code>num_episode_test</code> is. It runs 10
+    environments of 1,000 steps each: <code>eval_n_envs=10</code> and
+    <code>eval_max_steps=int(1e4)</code>, which rlpyt splits over the environments
+    (<code>mujoco_appo.py:30-31</code>; <code>rlpyt/samplers/parallel/base.py:73</code>). Each
+    environment restarts when its episode ends, a time limit included. The
+    run stops after the step at which 10 trajectories have ended
+    (<code>eval_max_trajectories=10</code>, <code>mujoco_appo.py:32</code>), and every trajectory
+    that has ended by then counts. The rate is the mean over those
+    trajectories of return / length (<code>apo/envs/traj_info.py:10</code>); one still
+    running is left out.</li>
+</ul>
+<p>The official sampler checks the trajectory count every 0.1 s of wall
+  clock (<code>rlpyt/samplers/parallel/base.py:14, :127-135</code>), so where it stops
+  depends on timing. Ajax steps the 10 environments together and uses
+  rlpyt's serial rule, which checks after every step
+  (<code>rlpyt/samplers/serial/collectors.py:58-62</code>). With the default
+  <code>num_episode_test=10</code>, both measures read one run of the same 10
+  environments, so the rate adds steps only on a task whose time limit is
+  under 1,000. With any other <code>num_episode_test</code>, the rate runs 10
+  environments of its own.</p>
+<p>Until November 2026 Ajax measured the rate on 10,000 further steps per
+  test episode, with the rewards averaged over all of them, ten times the
+  official budget at the default 10 episodes.
+- <strong>Hidden layers.</strong> The actor and the critic each have two hidden layers
   of 64 <code>tanh</code> units, as the official code's mean and value networks:
   <code>xtma/apo</code>'s config sets only <code>normalize_observation</code>
   (<code>apo/experiments/configs/mujoco/apg/mujoco_appo.py:20</code>), so rlpyt's
@@ -3180,8 +3210,8 @@ PPO's clipped surrogate, the value loss and the entropy bonus.</p>
   layers were two of 128 units, starting orthogonal with zero biases; a
   checkpoint saved then restores into an APO whose <code>actor_architecture</code>
   and <code>critic_architecture</code> are both <code>("128", "tanh", "128", "tanh")</code>, and
-  the default network refuses it with that advice.</li>
-<li><strong>Actor head.</strong> A continuous APO's actor is the official code's:
+  the default network refuses it with that advice.
+- <strong>Actor head.</strong> A continuous APO's actor is the official code's:
   <code>xtma/apo</code> at <code>bfcd997</code> runs rlpyt's <code>MujocoFfAgent</code> (<code>exp.py:17, :38</code>)
   from the authors' fork, <code>xtma/rlpyt</code> at <code>e28bb20</code>. It is a Gaussian whose
   mean is <code>tanh</code> of the mean layer
@@ -3200,15 +3230,15 @@ PPO's clipped surrogate, the value loss and the entropy bonus.</p>
   samples with <code>tanh</code> and clipped the log-std to <code>[-20, 2]</code>; the parameters
   are the same, so a checkpoint saved then restores, with the same
   deterministic action, <code>tanh</code> of the mean layer, and samples as the new
-  head does.</li>
-<li><strong>Actions in the environment.</strong> As for every agent, Ajax clips the
+  head does.
+- <strong>Actions in the environment.</strong> As for every agent, Ajax clips the
   sample to <code>[-1, 1]</code> and maps it onto the environment's bounds
   (<a href="../../guide/environments/#actions">Environments</a>). The official code
   hands the raw sample to the environment (<code>rlpyt/envs/gym.py:66-67</code>);
   its MuJoCo tasks clamp it to their control range in the simulation, and
   Gymnasium's charge the control cost on the unclamped action
-  (<code>gymnasium/envs/mujoco/hopper_v4.py:97, :138</code> in Gymnasium 1.2.0).</li>
-<li><strong>Optimiser.</strong> As in the official code, one Adam steps the whole model
+  (<code>gymnasium/envs/mujoco/hopper_v4.py:97, :138</code> in Gymnasium 1.2.0).
+- <strong>Optimiser.</strong> As in the official code, one Adam steps the whole model
   (<code>apo/algos/apg/base.py:28</code>) at 3e-4, without a schedule
   (<code>apo/experiments/configs/mujoco/apg/mujoco_appo.py:5, :16</code>), down the
   clipped surrogate plus <code>vf_coef</code> (1, <code>appo.py:27</code>) times the value loss
@@ -3221,8 +3251,8 @@ PPO's clipped surrogate, the value loss and the entropy bonus.</p>
   that one gradient: the same optimiser, with a learning rate per network
   as torch's parameter groups allow. Until October 2026 each network took
   its own step, clipped to norm 0.5 on its own; a checkpoint saved then
-  restores, its moments and step counts kept.</li>
-<li><strong>Entropy bonus.</strong> As in the official code, the loss subtracts 0.01
+  restores, its moments and step counts kept.
+- <strong>Entropy bonus.</strong> As in the official code, the loss subtracts 0.01
   (<code>entropy_loss_coeff</code>, <code>mujoco_appo.py:9</code>) times the batch mean of the
   policy's entropy (<code>appo.py:155-158</code>). A continuous APO's is its
   Gaussian's, <code>log_std + log sqrt(2 pi e)</code> summed over the action
@@ -3230,41 +3260,40 @@ PPO's clipped surrogate, the value loss and the entropy bonus.</p>
   log-std does not depend on the state, so the bonus pushes it up and
   leaves the mean alone. Until October 2026 the weight was 0; <code>ent_coef=0</code>
   reproduces runs from then (the parameters are unchanged, so their
-  checkpoints restore).</li>
-<li><strong>Remaining differences from the official code</strong> (<code>xtma/apo</code> at
+  checkpoints restore).
+- <strong>Remaining differences from the official code</strong> (<code>xtma/apo</code> at
   <code>bfcd997</code>, its config <code>apo/experiments/configs/mujoco/apg/mujoco_appo.py</code>,
-  on <code>xtma/rlpyt</code> at <code>e28bb20</code>), each a default the constructor can set:</li>
-<li>Advantage normalisation: off there (<code>normalize_advantage=False</code>,
+  on <code>xtma/rlpyt</code> at <code>e28bb20</code>), each a default the constructor can set:
+  - Advantage normalisation: off there (<code>normalize_advantage=False</code>,
     <code>mujoco_appo.py:15</code>; <code>apo/algos/apg/base.py:90-98</code> would standardise
-    them), on here (<code>normalize_advantage=True</code>).</li>
-<li>Rollout shape: 10 environments of 200 steps there (<code>batch_B=10</code>,
+    them), on here (<code>normalize_advantage=True</code>).
+  - Rollout shape: 10 environments of 200 steps there (<code>batch_B=10</code>,
     <code>batch_T=200</code>, <code>mujoco_appo.py:27-28</code>), 2,000 samples in 20 minibatches
     of 100 (<code>minibatches=20</code>, <code>:12</code>); 4 environments of 2,048 steps here,
-    8,192 samples in minibatches of 64. Both take 10 epochs (<code>:13</code>).</li>
-<li>Value-bias coefficient: <code>rm_vbias_coeff=1.0</code> in the config <code>exp.py</code>
+    8,192 samples in minibatches of 64. Both take 10 epochs (<code>:13</code>).
+  - Value-bias coefficient: <code>rm_vbias_coeff=1.0</code> in the config <code>exp.py</code>
     runs (<code>mujoco_appo.py:7</code>), while the repository's sweep, <code>run_exp.py</code>,
     tries 0, 0.03, 0.1, 0.3 and 1.0 (<code>run_exp.py:55</code>) and <code>APPO</code>'s own
     default is 0.1 (<code>apo/algos/apg/appo.py:27</code>); <code>nu=0.1</code> here. The sweep
     also sets the discount to 1.0 (<code>run_exp.py:52</code>, the other values
     commented out), as Ajax's APO has none, where the config alone has
-    0.99 (<code>mujoco_appo.py:10</code>).</li>
-<li>Output layers: the mean layer starts <code>lecun_uniform</code> and the value
+    0.99 (<code>mujoco_appo.py:10</code>).
+  - Output layers: the mean layer starts <code>lecun_uniform</code> and the value
     layer <code>orthogonal(1.0)</code>, with zero biases, where the official code
-    leaves both at torch's <code>nn.Linear</code> default (see Hidden layers).</li>
-<li>Episode ends and actions: time-limited steps are trained on, and the
+    leaves both at torch's <code>nn.Linear</code> default (see Hidden layers).
+  - Episode ends and actions: time-limited steps are trained on, and the
     sample is clipped to <code>[-1, 1]</code> before the environment (the notes
-    above).</li>
-<li><code>n_steps</code> and <code>batch_size</code> must divide one another unless
-  <code>num_minibatches</code> is set; the constructor refuses them otherwise.</li>
-<li><strong>Expert.</strong> Cloning an expert into the actor before training is the
+    above).
+- <code>n_steps</code> and <code>batch_size</code> must divide one another unless
+  <code>num_minibatches</code> is set; the constructor refuses them otherwise.
+- <strong>Expert.</strong> Cloning an expert into the actor before training is the
   <code>CloningPretrain</code> extension, and a cloning term during training the
   <code>ImitationLoss</code> extension; APO supports both
   (<a href="../../guide/expert-guidance/">Expert guidance</a>). With <code>expert_policy</code> set,
   the rollout stores the expert's actions, from its state when it has one,
-  and the evaluation also reports the expert's return.</li>
-<li>APO is the on-policy counterpart of <a href="../asac/">ASAC</a>, the average-reward
-  off-policy agent.</li>
-</ul>
+  and the evaluation also reports the expert's return.
+- APO is the on-policy counterpart of <a href="../asac/">ASAC</a>, the average-reward
+  off-policy agent.</p>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
 <p>No learning curves are published for APO yet. A conformance check
 (<code>tests/conformance/test_apo_original.py</code>) makes one update of Ajax's APO

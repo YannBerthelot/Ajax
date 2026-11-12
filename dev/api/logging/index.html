@@ -4480,7 +4480,10 @@ reward in the agent's units, normalised as in training: the units of
 its targets.</p>
 <p>Returns the mean return, entropy, average reward (<code>avg_reward_mode</code>),
 value bias (<code>value_estimate</code>), episode length and expert's return,
-each NaN without what it needs. The value bias is the mean over the
+each NaN without what it needs. The average reward is APO's reference's
+(:func:<code>_reward_rate</code>), on 10 envs of 1,000 steps whatever
+<code>num_episodes</code> is: these envs when there are 10, at no step more past
+their time limit, 10 more otherwise. The value bias is the mean over the
 evaluated steps of the critic's estimate (:class:<code>ValueEstimate</code>) minus
 the discounted return realised from the step, in the critic's units:
 the rewards normalised as in training (:func:<code>normalised_reward</code>) and

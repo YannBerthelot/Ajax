@@ -14,6 +14,15 @@ The next release is 0.6.0: the first item changes results.
   of the agent's own temperature rule. It is opt-in: no agent's default
   changes. Other agents refuse it, naming the `entropy_temperature`
   capability they lack.
+- **Training on MuJoCo Warp.** On an NVIDIA GPU, agents now train on
+  Playground tasks and the `"mujoco:"` tasks built with
+  `build_env_from_id(..., physics="warp")`, about seven times faster than on
+  pure JAX for SAC and PPO on an L40S. Every online continuous-action agent
+  was checked. Before, every agent failed on its first step: the auto-reset
+  merged each physics array env by env, and Warp keeps its contact buffer
+  for the whole batch of environments. That buffer now passes through the
+  reset. Warp refuses a CPU, `differentiable_reset=True` and APG, saying
+  why. Pure-JAX runs are unchanged.
 - **Gymnasium's MuJoCo tasks in JAX.** `"mujoco:HalfCheetah-v5"`,
   `"mujoco:Hopper-v5"`, `"mujoco:Walker2d-v5"`, `"mujoco:Swimmer-v5"`,
   `"mujoco:Reacher-v5"`, `"mujoco:Pusher-v5"`,
@@ -87,8 +96,7 @@ The next release is 0.6.0: the first item changes results.
   pure-JAX physics on a CPU only and a GPU fell through to Playground's Warp
   default. Pure JAX is now the default on every device, so a run's physics no
   longer depends on the device; `build_env_from_id(..., physics="warp")`
-  selects Warp, which needs a GPU and which Ajax's training loop does not run
-  on yet.
+  selects Warp, which needs a GPU.
 - **Reproduction protocol, version 2.** A comparison whose score range says
   nothing about learning registers its own margin, with the reason. SAC and
   TD3 against Stable-Baselines3 on Pendulum (specs version 2) register ±14

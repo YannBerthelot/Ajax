@@ -92,7 +92,7 @@ from . import readouts as R
 # PORL's: faults/ + 4, test_framework + 1. The study harness's gaps: faults/ + 14,
 # test_framework + 1.
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 162, "runs.py": 250}
-CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 412})
+CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 413})
 CAPS.update({"test_average_reward.py": 186})
 CAPS.update({"test_framework.py": 314, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})

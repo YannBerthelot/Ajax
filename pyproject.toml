@@ -206,6 +206,7 @@ pythonpath = [
 addopts = "--strict-markers"
 markers = [
     "slow: long trainings; CI runs them in their own job, without coverage (select with -m slow, deselect with -m \"not slow\")",
+    "large: needs a GPU, which CI's runners lack (MuJoCo Warp); skipped without one, run by hand on a GPU machine",
 ]
 
 [tool.coverage.run]

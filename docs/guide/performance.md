@@ -113,9 +113,17 @@ at once on an otherwise idle card gave 1.9 times the throughput of one.
 the same machine's CPU, in `benchmarks/gpu/report.md`.
 
 The logging worker always runs on the CPU, so it never takes GPU memory.
-Playground runs MJX's pure-JAX physics on every device. In a raw stepping loop
-Warp, its other implementation, ran 3 to 10 times faster on an L40S, but Ajax's
-training loop does not run on it yet (`physics="warp"`, needs a GPU).
+Playground runs MJX's pure-JAX physics on every device by default. On a GPU,
+MuJoCo Warp (`physics="warp"`, see [Environments](environments.md)) trained
+about seven times faster on an L40S, with 10 seeds of one environment each:
+
+| Agent, task | Pure JAX | Warp |
+|---|---:|---:|
+| SAC, `mujoco:Hopper-v5` | 28 | 189 |
+| PPO, `mujoco:HalfCheetah-v5` | 84 | 578 |
+
+These are steps per second per seed, from timing runs without evaluations.
+With 100 seeds, SAC on Warp ran 82 steps per second per seed, 8,200 in all.
 
 A GPU doesn't promise the same result twice by default: two identical PPO runs
 on HumanoidWalk differed. `XLA_FLAGS=--xla_gpu_deterministic_ops=true` made

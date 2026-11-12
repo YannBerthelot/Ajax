@@ -60,10 +60,15 @@ brax = ["brax>=0.14.2"]
 # 3.10 until a release of playground holds its commit 33f1b284: 0.2.0 compares
 # versions as strings, so its Reacher tasks take "3.10.0" for older than "3.3.0"
 # and call a method MuJoCo has removed. Its wheels for Python 3.14 start at 3.8.
+# mujoco-mjx (the "mujoco:" tasks import mujoco.mjx) keeps mujoco's range: from
+# 4.0 it requires mujoco-core, which MuJoCo 4 split out of mujoco, instead of
+# mujoco, so nothing stopped a resolver pairing it with mujoco 3, whose files
+# then clash with mujoco-core's and `import mujoco` fails.
 playground = [
     "ajax-rl[brax]",
     "mujoco>=3.6,<3.10",
     "mujoco>=3.8; python_version >= '3.14'",
+    "mujoco-mjx>=3.6,<3.10",
     "playground>=0.2.0,<0.3",
 ]
 # Gymnasium environments, stepped in Python ("gymnasium:HalfCheetah-v5", ...,

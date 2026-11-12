@@ -165,6 +165,12 @@ The next release is 0.6.0: the first item changes results.
   `ReacherEasy` and `ReacherHard` failed on `mujoco` 3.10 and later with
   `'MjSpec' object has no attribute 'find_body'`. The cap goes once a Playground
   release holds the fix.
+- **Fresh `playground` installs import MuJoCo again.** The extra now holds
+  `mujoco-mjx` to `mujoco`'s range, `>=3.6,<3.10`. `mujoco-mjx` 4.0 requires
+  `mujoco-core`, which MuJoCo 4 split out of `mujoco`, so installers paired it
+  with `mujoco` 3.9 and `import mujoco` failed with
+  `OSError: libmujoco.so.3.9.0: cannot open shared object file`. The two
+  ranges move together.
 - **`log_frequency=1` evaluates from the first step.** With one env it skipped
   the evaluation at step 1, so the run came out one evaluation short and its
   last row stayed empty. Other settings evaluate as before.

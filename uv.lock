@@ -83,6 +83,7 @@ playground = [
     { name = "brax" },
     { name = "mujoco", version = "3.7.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
     { name = "mujoco", version = "3.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
+    { name = "mujoco-mjx" },
     { name = "playground" },
 ]
 reproduction = [
@@ -144,6 +145,7 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'manifolds'", specifier = ">=3.8.0,<4" },
     { name = "mujoco", marker = "python_full_version >= '3.14' and extra == 'playground'", specifier = ">=3.8" },
     { name = "mujoco", marker = "extra == 'playground'", specifier = ">=3.6,<3.10" },
+    { name = "mujoco-mjx", marker = "extra == 'playground'", specifier = ">=3.6,<3.10" },
     { name = "numpy", specifier = ">=2.1,<3" },
     { name = "optax", specifier = ">=0.2.6,<0.3" },
     { name = "pandas", marker = "extra == 'reproduction'", specifier = ">=2.2,<3" },

@@ -80,6 +80,7 @@ Every default is the paper-era value.
 | `free_nats` | 1.0 | free bits of the KL losses |
 | `dyn_scale`, `rep_scale` | 1.0, 0.1 | dynamics and representation loss scales |
 | `replay_capacity` | 5,000,000 | rows kept, over all environments |
+| `replay_on_host` | False | keep the stored latents in pinned host memory instead of the accelerator's |
 | `action_repeat`, `episode_length` | 1, 1000 | simulator steps per agent step, and per episode (Brax, Playground) |
 
 The other arguments (network depths, `bins`, `unimix`, the remaining loss
@@ -108,6 +109,12 @@ below.
   rows per env of the run)` rows per env (a capacity in rows, deviation D27),
   sized again by every `train` call, so that a run split into resumed calls
   keeps the replay of the uninterrupted run.
+  The posterior latents are almost all of a row; with `replay_on_host=True`
+  they stay in pinned host memory, inside the state, and the device holds
+  little more than the working set. The results are the same, bit for bit;
+  each update is a little slower, as XLA reads and writes those rows on the
+  CPU. XLA caps pinned host memory at 64 GB by default: set
+  `XLA_PJRT_GPU_HOST_MEMORY_LIMIT_GB` higher for more.
 - **Recompilation.** Widths, depths, counts, `bins`, `imag_horizon`,
   `batch_size`, `batch_length`, `train_ratio` and `replay_capacity` fix the
   compiled program; changing one recompiles.

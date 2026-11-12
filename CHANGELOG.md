@@ -8,6 +8,14 @@ PyPI as `ajax-rl`.
 
 The next release is 0.6.0: the first item changes results.
 
+- **DreamerV3 can keep its replay latents in host memory.** With
+  `replay_on_host=True`, the posterior latents stored with each replay row
+  (about 99% of the replay's bytes: 8 GB per seed for 2^20 rows at 12M) stay
+  in pinned host memory, inside the training state, so that more seeds fit
+  on one accelerator, or a run fits on a busy one. Results are bitwise those
+  of the default; each update is a little slower. A checkpoint restores
+  each array into the memory its skeleton keeps it in, so a resumed run
+  keeps the latents on the host.
 - **The `playground` extra allows MuJoCo up to 3.15.** It held `mujoco`
   and `mujoco-mjx` below 3.10 for one bug: Playground 0.2 compares MuJoCo
   versions as strings, so its `ReacherEasy` and `ReacherHard` failed on 3.10

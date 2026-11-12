@@ -313,6 +313,7 @@
    "rec_scale": 1.0,
    "rep_scale": 0.1,
    "replay_capacity": 5000000,
+   "replay_on_host": false,
    "repval_lam": 0.95,
    "repval_scale": 0.3,
    "resolved_classes": 16,

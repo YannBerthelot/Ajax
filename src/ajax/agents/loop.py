@@ -472,16 +472,19 @@ class TrainLoop:
         return min(self.total_timesteps, timestep) // f - self.start_timestep // f
 
     def logging_ticks(self, steps_per_tick: int) -> Callable[[np.ndarray], np.ndarray]:
-        """Which absolute ticks (a NumPy array) :meth:`evaluate_and_log`'s
-        gate opens after, each tick taking ``steps_per_tick`` steps from
-        timestep 0: those whose steps reach a multiple of ``log_frequency``.
-        The gate itself still decides (the horizon, a sweep's last fifth)."""
+        """Which ticks of this call (a NumPy array) evaluate_and_log's gate
+        opens after, each tick taking steps_per_tick steps from the call's
+        start_timestep: those whose steps reach a multiple of log_frequency.
+        The gate itself still decides (the horizon, a sweep's last fifth).
+        The ticks count from the call's first, as the families planning with
+        it number them (their resume_iteration_offset is 0)."""
         f = self.log_frequency
 
         def due(ticks: np.ndarray) -> np.ndarray:
             if not f:
                 return np.zeros(ticks.shape, dtype=bool)
-            return (ticks + 1) * steps_per_tick // f > ticks * steps_per_tick // f
+            before = self.start_timestep + ticks * steps_per_tick
+            return (before + steps_per_tick) // f > before // f
 
         return due
 

@@ -853,10 +853,12 @@ def _offline_sac(log_frequency: int) -> Any:
 
 
 def _planned_and_opened(
-    run: Any, steps_per_tick: int, first_tick: int = 0
+    run: Any, steps_per_tick: int, start: int = 0
 ) -> tuple[list, list, dict, Any]:
-    """The ticks the host planned an evaluation after, those whose rows
-    show an evaluation, the rows, and the final state."""
+    """The ticks of a call starting at timestep start that the host planned
+    an evaluation after, those whose rows show an evaluation, the rows, and
+    the final state. Its ticks count from the call's first, as these
+    families' do."""
     plans: list = []
     chunked = loop_module.build_chunked_train
 
@@ -867,10 +869,10 @@ def _planned_and_opened(
     with mock.patch.object(loop_module, "build_chunked_train", spy):
         state, rows = run()
     (due, n_ticks), *_ = plans
-    ticks = np.arange(first_tick, first_tick + n_ticks)
+    ticks = np.arange(n_ticks)
     planned = ticks[np.asarray(due(ticks), dtype=bool)].tolist()
     timesteps = np.asarray(rows["timestep"])[0]
-    opened = [int(t) // steps_per_tick - 1 for t in timesteps if t >= 0]
+    opened = [(int(t) - start) // steps_per_tick - 1 for t in timesteps if t >= 0]
     return planned, opened, rows, state
 
 
@@ -902,6 +904,19 @@ def test_the_host_plans_the_ticks_the_gate_opens_on(
     planned, opened, rows, _ = _planned_and_opened(run(), steps_per_tick)
     evaluated = np.asarray(rows["timestep"])[0]
     assert evaluated[evaluated >= 0].tolist() == timesteps
+    assert opened == planned
+
+
+def test_a_resumed_run_plans_the_ticks_its_gate_opens_on() -> None:
+    """A run resumed at 24 steps, after its evaluations at 6, 10, 16 and 20,
+    goes on at 26 (past 25), 30, 36, 40 and 46. The bug: a resumed call
+    planning its ticks from timestep 0, which evaluated at 30, 34, 40 and 44
+    and lost the evaluation at 46 (its row stayed empty)."""
+    agent = _sac()
+    _, _, _, first = _planned_and_opened(_train(agent, 24, 5), 2)
+    resumed = _train(agent, 24, 5, initial_state=first)
+    planned, opened, rows, _ = _planned_and_opened(resumed, 2, start=24)
+    assert np.asarray(rows["timestep"])[0].tolist() == [26, 30, 36, 40, 46]
     assert opened == planned
 
 

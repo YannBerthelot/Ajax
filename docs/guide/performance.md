@@ -11,8 +11,9 @@ CPU measurements unless a line says otherwise.
 
 ## The compile cache
 
-`train` compiles the whole run, environment included, into one program.
-That takes seconds to tens of seconds, and a fresh Python process would pay
+`train` compiles the whole run, environment included. With logging, the
+training between evaluations and the evaluation are separate programs. That
+takes seconds to tens of seconds, and a fresh Python process would pay
 it every time. So `import ajax` points JAX's persistent compile cache at
 `~/.cache/ajax/jax_compile_cache`: a later process that compiles the same
 program loads it from disk instead.

@@ -37,8 +37,8 @@ What happened:
 
 - `PPO("CartPole-v1", ...)` looked the id up in gymnax and built 8 copies of
   the environment, which step in parallel inside each seed.
-- `train` compiled the whole run, environment included, into one program and
-  ran the three seeds side by side with `jax.vmap`.
+- `train` compiled the training, environment included, and ran the three
+  seeds side by side with `jax.vmap`.
 - Every 4,096 steps it evaluated the policy on 10 test episodes
   (`num_episode_test`) and stored the mean return.
 

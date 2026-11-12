@@ -29,7 +29,8 @@ src/ajax/
 ├── agents/cloning.py    the behaviour-cloning loss and fit (CloningPretrain's)
 ├── extensions/base.py   Extension, ExtensionStack, ExtensionContext, the phases
 ├── environments/interaction.py  collect_experience: act, step and store
-├── perf_utils.py        build_resumable_train: initialise or resume, then one jitted scan
+├── perf_utils.py        build_resumable_train: initialise or resume, then one jitted scan;
+│                        build_chunked_train: the same in chunks, evaluating between them
 ├── log.py, evaluate.py  when to evaluate and log; the evaluation episodes
 ├── state.py             BaseAgentState, BaseAgentConfig, the configuration dataclasses
 └── checkpoint.py        save_checkpoint, restore_into
@@ -82,8 +83,9 @@ and picks one of two iterations:
 
 The loop does the rest: `init` and the extensions' initial state and
 pre-training (`ExtensionStack.apply_init`) on a fresh run, the given state on a
-resumed one, then the iterations in `build_resumable_train`'s jitted scan,
-evaluating and logging every `log_frequency` steps (with `eval_metrics`).
+resumed one, then the iterations in `build_resumable_train`'s jitted scan.
+With logging, `build_chunked_train` runs them in chunks and evaluates and
+logs between chunks, every `log_frequency` steps (with `eval_metrics`).
 
 Continuous agents act in `[-1, 1]`; never scale to the env's bounds yourself.
 Every Ajax env step maps the action onto them (`agent_action_to_env`), and

@@ -3594,9 +3594,9 @@ environment steps" are 500,000 agent steps:</p>
   steps, <code>num_episode_test</code> episodes of the planner in evaluation mode, on a
   rebuilt environment, each evaluation from fresh initial states (the same
   ones when a seed is rerun; T9). The paper uses
-  <code>log_frequency=50_000</code> with 10 episodes. <code>LoggingConfig</code>'s default of 1,000
-  makes a 500-step-episode run spend about twice as long evaluating as
-  training.</li>
+  <code>log_frequency=50_000</code> with 10 episodes; <code>LoggingConfig</code> evaluates every
+  10,000 steps by default. Evaluating every 1,000 steps makes a
+  500-step-episode run spend about twice as long evaluating as training.</li>
 <li><strong>Replay memory</strong> is sized at each <code>train</code> call for the steps the run will
   have taken: <code>min(buffer_size, total)</code> (T26), in the episodic mode as well
   (T29). The ring holds <code>R = ceil(capacity / (T * n_envs)) + 1</code> rounds of one

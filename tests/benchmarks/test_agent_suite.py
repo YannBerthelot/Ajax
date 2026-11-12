@@ -122,7 +122,9 @@ def test_every_agent_is_benchmarked_or_excluded_with_a_reason():
 def test_every_benchmark_builds_and_chunks_on_whole_iterations(label):
     benchmark = agent_suite.BENCHMARKS[label]
     agent = agent_suite.build(label)  # refuses an env the agent cannot run
-    assert set(benchmark.options).issubset({"n_envs"})
+    # Default settings apart from n_envs, and options that change no number:
+    # DreamerV3's replay latents in host memory (bit-identical, PR #426).
+    assert set(benchmark.options).issubset({"n_envs", "replay_on_host"})
     assert benchmark.reason.strip()
     assert benchmark.budget % benchmark.eval_every == 0
     assert benchmark.eval_every % agent_suite.iteration_steps(agent) == 0
@@ -337,6 +339,12 @@ def test_a_manifest_says_which_device_and_xla_flags_a_run_used(monkeypatch):
 
     assert manifest["xla_flags"] == "--xla_disable_hlo_passes=algsimp"
     assert manifest["device"] == jax.devices()[0].device_kind
+
+
+def test_dreamerv3_benchmarks_keep_their_replay_latents_in_host_memory():
+    """10 seeds of DreamerV3 fit one GPU job only with the latents on the host."""
+    assert agent_suite.BENCHMARKS["DreamerV3"].options["replay_on_host"] is True
+    assert agent_suite.BENCHMARKS["DreamerV3-Hopper-v5"].options["replay_on_host"]
 
 
 def test_a_manifest_says_which_physics_engine_a_run_used():

@@ -108,7 +108,12 @@ BENCHMARKS = {
         n_envs=10,
     ),
     "PPO": cheetah("one env, as the PPO paper's MuJoCo runs", n_envs=1),
-    "DreamerV3": cheetah("16 envs, its reference's run.num_envs"),
+    # Replay latents in host memory give the same numbers and cut GPU memory
+    # from about 8.7 to 0.7 GB per seed, so 10 seeds fit one job (PR #426).
+    "DreamerV3": cheetah(
+        "16 envs, its reference's run.num_envs; replay latents in host memory",
+        replay_on_host=True,
+    ),
     "TDMPC2": cheetah("one env, as in its paper"),
     "DQN": minatar("one env, as MinAtar's DQN baseline"),
     "PQN": minatar("128 envs, its reference's MinAtar config", n_envs=128),

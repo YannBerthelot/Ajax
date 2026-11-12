@@ -88,8 +88,8 @@ def test_fill_then_export_gives_the_dataset_back(recorded, raw) -> None:
         "include_is_expert": raw,
         "include_raw_next_obs": raw,
     }
-    buffer, empty = replay(**keep)
-    filled = ds.fill_replay(buffer, empty, recorded)
+    _, empty = replay(**keep)
+    filled = ds.fill_replay(empty, recorded)
     state = SimpleNamespace(collector_state=SimpleNamespace(buffer_state=filled))
     back = ds.export(state, gamma=0.5)
     for f in ("obs", "action", "reward", "terminated", "truncated", "return_to_go"):
@@ -123,7 +123,7 @@ def test_fill_appends_each_envs_run_after_the_rows_its_ring_holds() -> None:
         obs, np.zeros((8, 1)), np.zeros(8), np.zeros(8, bool), limits, obs
     )
 
-    filled = ds.fill_replay(buffer, state, data)
+    filled = ds.fill_replay(state, data)
 
     # Env 0 reads rows 0..3 at ring places 3, 4, 5, 0; env 1 rows 4..7.
     expected_t = [[3, -1, -1, 0, 1, 2], [7, -1, -1, 4, 5, 6]]
@@ -159,6 +159,6 @@ def test_fill_refuses_a_replay_it_cannot_fill(recorded) -> None:
         ),
     )
     for args, fields, match in cases:
-        buffer, empty = replay(**args, **fields)
+        _, empty = replay(**args, **fields)
         with pytest.raises(ValueError, match=match):
-            ds.fill_replay(buffer, empty, recorded)
+            ds.fill_replay(empty, recorded)

@@ -36,6 +36,8 @@ The next release is 0.6.0: the first item changes results.
   one row per env at a time, which took about 20 s per million rows on a
   GPU. They now write it at once, with the same result. IQL's offline run
   on a million rows (1080 Ti, 2,000 updates) went from 17 s to 3 s.
+  `fill_replay(buffer_state, data)` and `seed_replay(agent_state, data,
+  env_args)` no longer take the replay's buffer: drop that argument.
 - **Training on MuJoCo Warp.** On an NVIDIA GPU, agents now train on
   Playground tasks and the `"mujoco:"` tasks built with
   `build_env_from_id(..., physics="warp")`, about five times faster than on

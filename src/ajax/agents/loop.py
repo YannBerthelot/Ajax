@@ -252,14 +252,14 @@ def with_obs_norm(agent_state: Any, env_args: Any = None) -> Any:
 
 
 def seed_replay(
-    agent_state: Any, buffer: Any, data: TransitionDataset, env_args: EnvironmentConfig
+    agent_state: Any, data: TransitionDataset, env_args: EnvironmentConfig
 ) -> Any:
     """``agent_state`` with ``data``'s rows in its replay, where they stay
     (:func:`ajax.buffers.dataset.fill_replay`), and in the normalisers it
     has (count_in_normalisers)."""
     collector = agent_state.collector_state
     collector = collector.replace(
-        buffer_state=fill_replay(buffer, collector.buffer_state, data)
+        buffer_state=fill_replay(collector.buffer_state, data)
     )
     agent_state = agent_state.replace(collector_state=collector)
     return count_in_normalisers(
@@ -941,7 +941,7 @@ class TrainLoop:
                     f" {capacity}, which would overwrite dataset rows: raise"
                     " buffer_size or write fewer."
                 )
-            return seed_replay(agent_state, buffer, data, self.env_args)
+            return seed_replay(agent_state, data, self.env_args)
 
         def iteration(agent_state: Any, index: Any, tick: Any) -> tuple[Any, Any]:
             del index, tick

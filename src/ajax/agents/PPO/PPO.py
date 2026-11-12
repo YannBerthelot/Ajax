@@ -525,12 +525,17 @@ def _compute_gae(
 
         return gae, gae
 
+    # Unrolled: the same operations in fewer loop iterations. On a GPU each
+    # iteration of this small body costs a few kernel launches: a rollout of
+    # 2048 steps took about 22 ms rolled and 2 ms unrolled (GTX 1080 Ti, 10
+    # seeds); on a CPU either takes under 0.5 ms, with the same advantages to
+    # the bit.
     _, advantages = jax.lax.scan(
         f=_get_advantages,
         init=jnp.zeros_like(values[-1]),
         xs=(rewards, values, next_values, terminateds, truncateds),
         reverse=True,
-        unroll=1,
+        unroll=16,
     )
     returns = advantages + values
     return advantages, returns

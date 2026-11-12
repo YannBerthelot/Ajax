@@ -98,17 +98,37 @@ PPO's clipped surrogate, the value loss and the entropy bonus.
   config turns it off (the differences below).
 - **Shuffling.** Every epoch draws a new split of the rollout into
   minibatches, as APO's official code does.
-- **The evaluation's reward rate** (`Eval/mean average reward`) comes from
-  the evaluation's own episodes, as the official code's does: its
-  `eval_max_steps=1e4` is a total over 10 evaluation envs, so at most 1,000
-  steps each, and it stops after 10 episodes (`mujoco_appo.py:30-32`;
-  `rlpyt/samplers/parallel/base.py:73`). Ajax divides the episodes' total
-  return by their total length, the long-run reward per step with restarts.
-  The official code averages each episode's return over its length
-  (`apo/envs/traj_info.py:10`), which counts a short episode as much as a
-  long one. Until November 2026 Ajax ran 10,000 more steps per evaluation
-  episode to measure it, ten times the official budget at the default 10
-  episodes.
+- **Evaluation: the return and the reward rate count episodes
+  differently.** Each evaluation runs the deterministic policy and logs
+  both:
+  - `Eval/episodic mean reward` (and the length and entropy) is the mean
+    over `num_episode_test` episodes, one per environment, as for every
+    agent. `num_episode_test` defaults to 10.
+  - `Eval/mean average reward`, the reward rate, follows the official
+    evaluation exactly, whatever `num_episode_test` is. It runs 10
+    environments of 1,000 steps each: `eval_n_envs=10` and
+    `eval_max_steps=int(1e4)`, which rlpyt splits over the environments
+    (`mujoco_appo.py:30-31`; `rlpyt/samplers/parallel/base.py:73`). Each
+    environment restarts when its episode ends, a time limit included. The
+    run stops after the step at which 10 trajectories have ended
+    (`eval_max_trajectories=10`, `mujoco_appo.py:32`), and every trajectory
+    that has ended by then counts. The rate is the mean over those
+    trajectories of return / length (`apo/envs/traj_info.py:10`); one still
+    running is left out.
+
+  The official sampler checks the trajectory count every 0.1 s of wall
+  clock (`rlpyt/samplers/parallel/base.py:14, :127-135`), so where it stops
+  depends on timing. Ajax steps the 10 environments together and uses
+  rlpyt's serial rule, which checks after every step
+  (`rlpyt/samplers/serial/collectors.py:58-62`). With the default
+  `num_episode_test=10`, both measures read one run of the same 10
+  environments, so the rate adds steps only on a task whose time limit is
+  under 1,000. With any other `num_episode_test`, the rate runs 10
+  environments of its own.
+
+  Until November 2026 Ajax measured the rate on 10,000 further steps per
+  test episode, with the rewards averaged over all of them, ten times the
+  official budget at the default 10 episodes.
 - **Hidden layers.** The actor and the critic each have two hidden layers
   of 64 `tanh` units, as the official code's mean and value networks:
   `xtma/apo`'s config sets only `normalize_observation`

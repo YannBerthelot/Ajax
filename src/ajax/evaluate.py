@@ -50,6 +50,15 @@ from ajax.wrappers import NormalizationInfo
 
 T = TypeVar("T")  # generic type for pytrees
 
+#: The reward rate's evaluation (avg_reward_mode) is APO's reference's,
+#: whatever num_episodes is: xtma/apo's rlpyt sampler runs 10 envs sharing
+#: 10,000 steps, 1,000 each, and stops once 10 trajectories have ended
+#: (apo/experiments/configs/mujoco/apg/mujoco_appo.py:30-32;
+#: rlpyt/samplers/parallel/base.py:73).
+_RATE_ENVS = 10
+_RATE_STEPS = 10_000 // _RATE_ENVS
+_RATE_TRAJECTORIES = 10
+
 
 @dataclasses.dataclass(frozen=True)
 class ValueEstimate:
@@ -249,6 +258,46 @@ def _count_step(
     return _EpisodeTally(tally.steps + running, tally.trips + running * tripped)
 
 
+def _reward_rate(rewards: jax.Array, ends: jax.Array) -> jax.Array:
+    """The reward rate xtma/apo's evaluation reports, from each step's
+    ``(steps, envs)`` rewards and episode ends (a time limit's included:
+    rlpyt keeps gym's done there, rlpyt/envs/gym.py:70-73). The envs step
+    together, each restarting when its trajectory ends, until the step
+    after which ``_RATE_TRAJECTORIES`` have ended (rlpyt's serial rule,
+    rlpyt/samplers/serial/collectors.py:41-62); the rate is the mean over
+    those of return / length (apo/envs/traj_info.py:10). A trajectory
+    still running at the last step is left out; none ended: NaN."""
+
+    def step(carry, reward_end):
+        returns, lengths, ended, total = carry
+        reward, end = reward_end
+        returns, lengths = returns + reward, lengths + 1.0
+        # Every trajectory ending at a step counts while fewer than
+        # _RATE_TRAJECTORIES had ended before it.
+        counted = end & (ended < _RATE_TRAJECTORIES)
+        total = total + jnp.where(counted, returns / lengths, 0.0).sum()
+        ended = ended + counted.sum()
+        returns, lengths = jnp.where(end, 0.0, returns), jnp.where(end, 0.0, lengths)
+        return (returns, lengths, ended, total), None
+
+    envs = rewards.shape[1]
+    start = (jnp.zeros(envs), jnp.zeros(envs), jnp.zeros((), jnp.int32), jnp.zeros(()))
+    (_, _, ended, total), _ = jax.lax.scan(step, start, (rewards, ends))
+    return jnp.where(ended > 0, total / jnp.maximum(ended, 1), jnp.nan)
+
+
+def _steps_taken(step_fn, carry, steps: int) -> tuple[jax.Array, jax.Array]:
+    """Each step's ``(rewards, episode ends)``, ``steps`` steps from
+    ``carry``."""
+
+    def body(carry, _):
+        carry = step_fn(carry)
+        return carry, (carry.last_reward, carry.last_done)
+
+    _, (rewards, ends) = jax.lax.scan(body, carry, None, length=steps)
+    return rewards, ends
+
+
 class _EvalCarry(NamedTuple):
     """The evaluation scan's carry; per env unless noted."""
 
@@ -259,7 +308,8 @@ class _EvalCarry(NamedTuple):
     state: Any  # the env's
     entropy_sum: jax.Array  # (1,): summed over steps, meaned over running envs
     step_count: jax.Array  # (1,): the mean episode length so far
-    last_reward: jax.Array  # this step's reward (the value bias's)
+    last_reward: jax.Array  # this step's reward (the value bias's, the rate's)
+    last_done: jax.Array  # bool: this step ended the env's episode (the rate's)
     value: jax.Array  # this step's value estimate (the value bias's); else 0
     expert_state: Any  # a stateful expert's; a dummy otherwise
     actor_hidden: Any  # the actor's memory; a dummy when feedforward
@@ -292,6 +342,7 @@ def _init_eval_carry(
         entropy_sum=jnp.zeros(1),
         step_count=jnp.zeros(1),
         last_reward=jnp.zeros(num_episodes),
+        last_done=jnp.zeros(num_episodes, dtype=bool),
         value=jnp.zeros(num_episodes),
         expert_state=expert_state,
         actor_hidden=jnp.zeros((1,)) if actor_hidden is None else actor_hidden,
@@ -446,6 +497,7 @@ def step_environment(
             entropy_sum=carry.entropy_sum + (entropy.mean() * still_running).mean(),
             step_count=carry.step_count + still_running.mean(),
             last_reward=new_rewards,
+            last_done=new_done,
             value=value,
             expert_state=new_expert_state,
             actor_hidden=acted.actor_hidden,
@@ -498,6 +550,7 @@ def step_environment_expert(mode, env, env_params, expert_policy):
             state=new_state,
             step_count=carry.step_count + still_running.mean(),
             last_reward=new_rewards,
+            last_done=new_done,
             expert_state=new_expert_state,
             tally=_count_step(carry.tally, still_running, info),
         )
@@ -736,9 +789,10 @@ def evaluate(
 
     Returns the mean return, entropy, average reward (``avg_reward_mode``),
     value bias (``value_estimate``), episode length and expert's return,
-    each NaN without what it needs. The average reward is the policy's
-    long-run reward per step, its episodes restarting: the episodes' total
-    return over their total length. The value bias is the mean over the
+    each NaN without what it needs. The average reward is APO's reference's
+    (:func:`_reward_rate`), on 10 envs of 1,000 steps whatever
+    ``num_episodes`` is: these envs when there are 10, at no step more past
+    their time limit, 10 more otherwise. The value bias is the mean over the
     evaluated steps of the critic's estimate (:class:`ValueEstimate`) minus
     the discounted return realised from the step, in the critic's units:
     the rewards normalised as in training (:func:`normalised_reward`) and
@@ -749,30 +803,34 @@ def evaluate(
     expert_policy = ExpertInAgentUnits.wrap(expert_policy, env, env_params)
     eval_expert_policy = ExpertInAgentUnits.wrap(eval_expert_policy, env, env_params)
     controller = Controller() if controller is None else controller
-    env, mode, key, obs, state, init_carry_agent, step_fn, steps_bound = _start_rollout(
-        env,
-        actor_state,
-        num_episodes,
-        rng,
-        env_params,
-        recurrent,
-        gamma,
-        norm_info,
-        expert_policy,
-        max_eval_steps,
-        agent_state,
-        controller,
-        value_estimate,
-        command,
-    )
+    rollout_args = {
+        "actor_state": actor_state,
+        "rng": rng,
+        "env_params": env_params,
+        "recurrent": recurrent,
+        "gamma": gamma,
+        "norm_info": norm_info,
+        "expert_policy": expert_policy,
+        "max_eval_steps": max_eval_steps,
+        "agent_state": agent_state,
+        "controller": controller,
+        "value_estimate": value_estimate,
+        "command": command,
+    }
+    rollout = _start_rollout(env, num_episodes=num_episodes, **rollout_args)
 
     def _scan_body(carry, _):
-        stepped = step_fn(carry)
+        stepped = rollout.step_fn(carry)
         evaluated = (1 - carry.done).astype(jnp.float32)
-        return stepped, (stepped.value, stepped.last_reward, evaluated)
+        return stepped, (
+            stepped.value,
+            stepped.last_reward,
+            stepped.last_done,
+            evaluated,
+        )
 
-    final_carry, (values, step_rewards, evaluated) = jax.lax.scan(
-        _scan_body, init_carry_agent, None, length=steps_bound
+    final_carry, (values, step_rewards, step_ends, evaluated) = jax.lax.scan(
+        _scan_body, rollout.carry, None, length=rollout.steps
     )
     rewards, step_count = final_carry.rewards, final_carry.step_count
 
@@ -790,28 +848,37 @@ def evaluate(
     if expert_policy is not None or eval_expert_policy is not None:
         expert_reward = jnp.nanmean(
             _expert_rollout(
-                mode,
-                env,
+                rollout.mode,
+                rollout.env,
                 env_params,
                 eval_expert_policy or expert_policy,
-                key,
-                obs,
-                state,
+                rollout.key,
+                rollout.obs,
+                rollout.state,
                 num_episodes,
-                steps_bound,
+                rollout.steps,
                 None,
             ).rewards
         )
 
-    # The policy run with restarts earns E[return] / E[length] per step in
-    # the long run (renewal-reward theorem): the evaluated episodes' total
-    # return over their total length. xtma/apo measures its rate on its
-    # evaluation episodes too (rlpyt's eval_max_steps=1e4 is a total over
-    # its 10 envs), as their mean of return / length (AverageTrajInfo),
-    # which weights a short episode as a long one.
     avg_reward: jax.Array | float = jnp.nan
     if avg_reward_mode:
-        avg_reward = rewards.mean() / jnp.maximum(step_count[0], 1.0)
+        if num_episodes == _RATE_ENVS:
+            # The rate's envs are these, reset alike: their steps, and more
+            # past a time limit shorter than the rate's.
+            more = _RATE_STEPS - rollout.steps
+            rate_rewards, rate_ends = step_rewards, step_ends
+            if more > 0:
+                extra = _steps_taken(rollout.step_fn, final_carry, more)
+                extra_rewards, extra_ends = extra
+                rate_rewards = jnp.concatenate([rate_rewards, extra_rewards])
+                rate_ends = jnp.concatenate([rate_ends, extra_ends])
+        else:
+            rate = _start_rollout(env, num_episodes=_RATE_ENVS, **rollout_args)
+            rate_rewards, rate_ends = _steps_taken(
+                rate.step_fn, rate.carry, _RATE_STEPS
+            )
+        avg_reward = _reward_rate(rate_rewards[:_RATE_STEPS], rate_ends[:_RATE_STEPS])
 
     avg_entropy = final_carry.entropy_sum / jnp.maximum(step_count, 1.0)
 

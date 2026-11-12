@@ -11,11 +11,12 @@ The next release is 0.6.0: the first item changes results.
 - **The `playground` extra allows MuJoCo up to 3.15.** It held `mujoco`
   and `mujoco-mjx` below 3.10 for one bug: Playground 0.2 compares MuJoCo
   versions as strings, so its `ReacherEasy` and `ReacherHard` failed on 3.10
-  and later with `'MjSpec' object has no attribute 'find_body'`. Those two
-  tasks are now refused at creation on MuJoCo 3.10 and later, naming the
-  cause, and every other task takes MuJoCo 3.10 to 3.15 (MuJoCo Warp
-  computes contact forces from 3.14). To keep the Reacher tasks, install
-  `mujoco` and `mujoco-mjx` below 3.10.
+  and later with `'MjSpec' object has no attribute 'find_body'`. As a
+  deliberate workaround, Ajax now gives Playground's Reacher builder
+  upstream's fix (Playground commit 33f1b284), only while the installed
+  Playground still compares strings; it goes once a Playground 0.x release
+  holds that commit. Every Playground task, Reacher included, takes MuJoCo
+  3.6 to 3.15 (MuJoCo Warp computes contact forces from 3.14).
 - **MEW temperature annealing.** `MEW()` (Adamczyk et al., 2026) lowers the
   temperature of a maximum-entropy agent (SAC, ASAC, AVG, CrossQ, REDQ,
   RVI-SAC, TQC) at a pace set by how much its recent rewards vary, in place

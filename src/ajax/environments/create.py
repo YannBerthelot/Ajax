@@ -163,24 +163,39 @@ def register_playground_builder(env_id: str, builder) -> None:
     _PLAYGROUND_BUILDERS[env_id] = builder
 
 
-#: Playground 0.2's DeepMind Control Reacher tasks pick an MjSpec method by
-#: comparing MuJoCo versions as strings ("3.10.0" sorts before "3.3.0"), so
-#: from MuJoCo 3.10 they call find_body, which MuJoCo removed. Fixed in
-#: Playground's commit 33f1b284, which only Playground 1.0, another library,
-#: holds. The playground extra allows MuJoCo 3.10 and later for the rest.
-_PLAYGROUND_STRING_VERSION_TASKS = ("ReacherEasy", "ReacherHard")
+#: Deliberate workaround. Playground 0.2's DeepMind Control Reacher model
+#: builder (dm_control_suite/reacher.py, _make_model) compares MuJoCo versions
+#: as strings: "3.10.0" sorts before "3.3.0", so from MuJoCo 3.10 it calls
+#: MjSpec.find_body, which MuJoCo removed, and ReacherEasy and ReacherHard
+#: fail to build. Playground fixed it in commit 33f1b284 (compare
+#: mj_version() as a number), which no 0.x release holds. Until one does,
+#: the builder is replaced by a copy with that fix, only while the installed
+#: Playground still compares strings; remove this once it does not.
+_PLAYGROUND_STRING_VERSION_CHECK = 'mujoco.__version__ >= "3.3.0"'
 
 
-def _refuse_broken_playground_task(env_id: str) -> None:
+def _make_reacher_model(xml_path: Any, target_size: float, assets: dict) -> Any:
+    """Playground's reacher._make_model with upstream's fix (33f1b284)."""
     import mujoco
 
-    if env_id in _PLAYGROUND_STRING_VERSION_TASKS and mujoco.mj_version() >= 3_010_000:
-        raise ValueError(
-            f"MuJoCo Playground 0.2 cannot build {env_id} on MuJoCo"
-            f" {mujoco.__version__}: it compares MuJoCo versions as strings"
-            " (fixed upstream in commit 33f1b284, in no 0.x release). Install"
-            " mujoco and mujoco-mjx below 3.10 to use it."
-        )
+    spec = mujoco.MjSpec.from_string(xml_path.read_text(), assets)
+    if mujoco.mj_version() >= 3_003_000:
+        target_body = spec.body("target")
+    else:
+        target_body = spec.find_body("target")
+    target_body.first_geom().size[0] = target_size
+    return spec.compile()
+
+
+def _patch_playground_reacher(reacher: Any) -> bool:
+    """Gives Playground's Reacher module the fixed model builder if its own
+    still compares versions as strings. Returns whether it patched."""
+    import inspect
+
+    if _PLAYGROUND_STRING_VERSION_CHECK not in inspect.getsource(reacher._make_model):
+        return False
+    reacher._make_model = _make_reacher_model
+    return True
 
 
 def _build_playground_env(
@@ -243,7 +258,9 @@ def _build_playground_env(
 
         env = make(env_id.removeprefix(MUJOCO_PREFIX), physics=physics)
     else:
-        _refuse_broken_playground_task(env_id)
+        from mujoco_playground._src.dm_control_suite import reacher
+
+        _patch_playground_reacher(reacher)
         env = registry.load(env_id, config_overrides={"impl": physics})
     if physics == "warp":
         env = WarpCapacityWrapper(env)

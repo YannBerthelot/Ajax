@@ -57,10 +57,11 @@ manifolds = ["m-phate>=0.1.6", "matplotlib>=3.8.0,<4", "phate>=2.0", "umap-learn
 brax = ["brax>=0.14.2"]
 # MuJoCo Playground environments, which run in brax's wrappers: `uv sync
 # --extra playground`, or depend on `ajax-rl[playground]`. From MuJoCo 3.10,
-# Playground 0.2's Reacher tasks are refused (they compare versions as strings,
-# fixed in its commit 33f1b284, which no 0.x release holds; see
-# ajax.environments.create). MuJoCo stays below 3.16, where gymnasium-mjx's
-# C-matching contacts hold. Its wheels for Python 3.14 start at 3.8.
+# Playground 0.2's Reacher tasks need a deliberate workaround (they compare
+# versions as strings, fixed in its commit 33f1b284, which no 0.x release
+# holds; see ajax.environments.create). MuJoCo stays below 3.16, where
+# gymnasium-mjx's C-matching contacts hold. Its wheels for Python 3.14 start
+# at 3.8.
 # mujoco-mjx (the "mujoco:" tasks import mujoco.mjx) keeps mujoco's range: from
 # 4.0 it requires mujoco-core, which MuJoCo 4 split out of mujoco, instead of
 # mujoco, so nothing stopped a resolver pairing it with mujoco 3, whose files

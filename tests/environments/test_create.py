@@ -202,14 +202,28 @@ def test_a_registered_builder_builds_its_env_id(register, monkeypatch):
     assert calls == [(3, 7)]
 
 
-@pytest.mark.skipif(
-    mujoco.mj_version() < 3_010_000,
-    reason="Playground 0.2 builds its Reacher tasks below MuJoCo 3.10",
-)
 @pytest.mark.parametrize("env_id", ["ReacherEasy", "ReacherHard"])
-def test_playground_reacher_is_refused_with_its_cause_from_mujoco_3_10(env_id):
-    """Catches Playground 0.2's Reacher failing deep in its model builder with
-    AttributeError: 'MjSpec' object has no attribute 'find_body' (it compares
-    MuJoCo versions as strings) instead of a clear refusal at creation."""
-    with pytest.raises(ValueError, match="33f1b284"):
-        build_env_from_id(env_id)
+def test_playground_reacher_builds_and_steps_on_the_locked_mujoco(env_id):
+    """Catches Playground 0.2's Reacher failing to build from MuJoCo 3.10
+    (AttributeError: 'MjSpec' object has no attribute 'find_body', from its
+    string version compare) once the extra allows MuJoCo 3.10 and later."""
+    env, _ = build_env_from_id(env_id, n_envs=2)
+    state = env.reset(jax.random.split(jax.random.PRNGKey(0), 2))
+    state = env.step(state, jnp.zeros((2, env.action_size)))
+    assert state.obs.shape[0] == 2
+    assert bool(jnp.all(jnp.isfinite(state.obs)))
+
+
+def test_playground_reacher_patch_stays_off_when_the_builder_is_fixed():
+    """Catches the workaround replacing a Playground release that already
+    compares versions as numbers (upstream 33f1b284), which would then carry
+    Ajax's copy instead of its own."""
+    import types
+
+    def _make_model(xml_path, target_size, assets):
+        if mujoco.mj_version() >= 3_003_000:
+            return "upstream"
+
+    fixed = types.SimpleNamespace(_make_model=_make_model)
+    assert create._patch_playground_reacher(fixed) is False
+    assert fixed._make_model is _make_model

@@ -10,7 +10,7 @@ each line one method below or one of the equations under it::
                                 update_step_statistics, compute_td_error_scaling
     a' ~ pi(. | s'), log pi(a' | s')                  sample_next_actions (SAC's)
     y = scale r + gamma (1 - d) (min_i Q_i(s', a') - alpha log pi(a' | s'))
-                                                         compute_avg_td_target
+                     compute_avg_td_target, compute_soft_bellman_target (SAC's)
     Q <- argmin ((Q(s, a) - y) / scale of the TD error)^2
                                                   update_critic, compute_critic_loss
     actor <- argmin alpha log pi(a | s) - Q(s, a) at the action taken
@@ -43,7 +43,7 @@ from ajax.agents.families import (
     TrainContext,
 )
 from ajax.agents.recurrent import q_values
-from ajax.agents.SAC.SAC import sample_next_actions
+from ajax.agents.SAC.SAC import compute_soft_bellman_target, sample_next_actions
 from ajax.agents.temperature import (
     SoftActorCriticState,
     TemperatureAuxiliaries,
@@ -435,7 +435,6 @@ def compute_avg_td_target(
     at the next action the critic scores (map_next_actions: a residual
     policy's executed one), its log-probs, that next action and the value
     bootstrapped, min_i Q_i(s', a') - alpha log pi(a'|s')."""
-    rewards = rewards * reward_scale
     sample_key, _ = jax.random.split(rng)
     next_actions, next_log_probs = sample_next_actions(
         actor_state,
@@ -447,11 +446,11 @@ def compute_avg_td_target(
         q_values(critic_states, critic_params, next_observations, next_actions),
         axis=0,
     )
-    target = jax.lax.stop_gradient(
-        rewards + (1.0 - dones) * gamma * (q_target - alpha * next_log_probs),
+    target = compute_soft_bellman_target(
+        q_target, next_log_probs, rewards, dones, gamma, alpha, reward_scale
     )
     next_values = jax.lax.stop_gradient(q_target - alpha * next_log_probs)
-    return target, next_log_probs, next_actions, next_values
+    return jax.lax.stop_gradient(target), next_log_probs, next_actions, next_values
 
 
 def compute_critic_loss(

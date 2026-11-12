@@ -1360,12 +1360,17 @@ class OwnIterationAgent(DeclaredAgent):
             ),
         )
 
-        def iteration(agent_state: Any, index: Any, tick: Any) -> tuple[Any, Any]:
-            agent_state, aux = self.iterate(agent_state, context)
+        def log(agent_state: Any, aux: Any, index: Any, tick: Any) -> tuple[Any, Any]:
             agent_state, evaluations = loop.evaluate_every(
                 agent_state, aux, index, tick, evaluation
             )
             return agent_state, self.make_iteration_output(aux, evaluations)
+
+        def iteration(agent_state: Any, index: Any, tick: Any) -> tuple[Any, Any]:
+            agent_state, aux = self.iterate(agent_state, context)
+            if self.returns_iterations:  # every iteration's output, evaluated
+                return log(agent_state, aux, index, tick)
+            return agent_state, aux
 
         return loop.train(
             partial(self.init, context=context),
@@ -1374,6 +1379,8 @@ class OwnIterationAgent(DeclaredAgent):
             evaluations=evaluation.count(n_iterations),
             resume=resume,
             returns_iterations=self.returns_iterations,
+            log=log,
+            due=evaluation.ticks,
         )
 
 

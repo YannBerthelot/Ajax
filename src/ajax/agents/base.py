@@ -60,9 +60,8 @@ def _seed_by_seed(train: Callable, keys: jax.Array, index: jax.Array) -> Any:
     """``jax.vmap(train)(keys, index)``, one seed after another, for an env
     that steps in Python: JAX cannot batch its callback inside the ``cond``
     that gates evaluations ("IO effect not supported in vmap-of-cond").
-    The seeds share one compilation."""
-    compiled = jax.jit(train)
-    runs = [compiled(keys[i], index[i]) for i in range(len(index))]
+    The seeds share the compilations of train's jitted programs."""
+    runs = [train(keys[i], index[i]) for i in range(len(index))]
     return jax.tree.map(lambda *leaves: jnp.stack(leaves), *runs)
 
 

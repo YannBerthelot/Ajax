@@ -10,6 +10,7 @@ from typing import Any, Callable, Tuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 
 def build_resumable_train(
@@ -130,6 +131,88 @@ def build_resumable_train(
     return train
 
 
+def build_chunked_train(
+    *,
+    init_fn: Callable[[Any, Any], Any],
+    tick_fn: Callable[[Any, Any, Any], Tuple[Any, Any]],
+    log_fn: Callable[[Any, Any, Any, Any, Any], Tuple[Any, Any]],
+    due: Callable[[np.ndarray], np.ndarray],
+    num_updates: int,
+    carry_out: Callable[[Any, Any], Any],
+    resume_transform: Callable[[Any, Any], Any] | None = None,
+) -> Callable:
+    """:func:`build_resumable_train`'s train with the evaluations between
+    chunks of ticks, as Brax trains: the ticks up to the next one that
+    evaluates are one jitted scan of ``tick_fn``, and ``log_fn`` runs on the
+    state the chunk ends with, as a program of its own. The training program
+    then holds no evaluation, which slowed every tick of it (about 4% for SAC
+    on MuJoCo Warp, evaluations aside); the states, and so the evaluations,
+    are those of one scan.
+
+    ``tick_fn(agent_state, index, tick) -> (agent_state, aux)`` is one tick,
+    ``tick`` its absolute, unbatched index. ``log_fn(agent_state, aux, out,
+    index, tick) -> (agent_state, out)`` evaluates after tick ``tick``,
+    reading the tick's ``aux``, and writes into ``out``, which starts as
+    ``carry_out(agent_state, index)``. ``due(ticks)``, of a NumPy array of
+    absolute ticks, marks those after which ``log_fn`` runs: it must be known
+    before the run, so the chunks are. Each chunk length compiles once; they
+    are one or two when the evaluations come every so many ticks or steps.
+
+    The train function has build_resumable_train's signature but ``shared``,
+    and returns ``(agent_state, out)``. It is a Python loop over jitted
+    programs: vmap it over the seeds or call it per seed, as
+    ``ActorCritic.train`` does. Jitting it whole would put every chunk into
+    one program, and it reads ``iteration_offset`` as a number.
+    """
+
+    @partial(
+        jax.jit,
+        static_argnames=("resume_from_state",),
+        donate_argnames=("initial_state",),
+    )
+    def start(key: Any, index: Any, initial_state: Any, resume_from_state: bool) -> Any:
+        if resume_from_state:
+            agent_state = initial_state
+            if resume_transform is not None:
+                agent_state = resume_transform(agent_state, key)
+        else:
+            agent_state = init_fn(key, index)
+        return agent_state, carry_out(agent_state, index)
+
+    # The state is donated: a chunk updates the replay in place instead of
+    # holding two copies of it.
+    @partial(jax.jit, static_argnames=("length",), donate_argnums=(0,))
+    def chunk(agent_state: Any, index: Any, first_tick: Any, length: int) -> Any:
+        ticks = first_tick + jnp.arange(length)
+        return final_aux_scan(
+            lambda state, tick: tick_fn(state, index, tick), agent_state, length, ticks
+        )
+
+    log = jax.jit(log_fn, donate_argnums=(0, 2))
+
+    def train(
+        key: Any,
+        index: Any = None,
+        initial_state: Any = None,
+        resume_from_state: bool = False,
+        iteration_offset: Any = 0,
+    ) -> Tuple[Any, Any]:
+        first = int(iteration_offset)
+        ticks = np.arange(first, first + num_updates)
+        evaluates = set(ticks[np.asarray(due(ticks), dtype=bool)].tolist())
+        agent_state, out = start(key, index, initial_state, resume_from_state)
+        ends = evaluates.union(ticks[-1:].tolist())
+        begin = first
+        for end in sorted(ends):
+            agent_state, aux = chunk(agent_state, index, begin, end - begin + 1)
+            if end in evaluates:
+                agent_state, out = log(agent_state, aux, out, index, end)
+            begin = end + 1
+        return agent_state, out
+
+    return train
+
+
 def final_aux_scan(
     body: Callable[[Any, Any], Tuple[Any, Any]],
     init_carry: Any,
@@ -174,4 +257,4 @@ def final_aux_scan(
     return final_carry, last_aux
 
 
-__all__ = ["build_resumable_train", "final_aux_scan"]
+__all__ = ["build_chunked_train", "build_resumable_train", "final_aux_scan"]

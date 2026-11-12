@@ -382,8 +382,6 @@ def critic_step(
     extensions: ExtensionStack,
     key: jax.Array,
     total_timesteps: int,
-    predictions: Optional[Callable] = None,
-    target_value_at: Optional[Callable] = None,
     **target_args: Any,
 ) -> tuple[Any, Any, jax.Array, dict]:
     """A replay agent's critic step on batch (a Transition).
@@ -394,16 +392,17 @@ def critic_step(
     (loss, aux) plus their critic_loss terms
     (compute_extensions_critic_loss). The value readers on_target may call,
     predictions and target_value_at, are the Q critics' at the batch's rows
-    (critic_value_readers) unless the agent passes both. The phases draw on
-    keys derived from key, the step's, on which the agent may draw too.
-    Returns agent_state with the stepped critic and the extensions' states as
-    on_target left them, aux, the gradients' norm (gradient_step) and the
-    two phases' metrics.
+    (critic_value_readers) unless target_args holds the agent's. The phases
+    draw on keys derived from key, the step's, on which the agent may draw
+    too. Returns agent_state with the stepped critic and the extensions'
+    states as on_target left them, aux, the gradients' norm (gradient_step)
+    and the two phases' metrics.
     """
-    if predictions is None:
+    if "predictions" not in target_args:
         predictions, target_value_at = critic_value_readers(
             agent_state.critic_state, batch.obs, batch.action
         )
+        target_args.update(predictions=predictions, target_value_at=target_value_at)
     target_q, target_metrics, agent_state = apply_on_target(
         extensions,
         agent_state,
@@ -411,8 +410,6 @@ def critic_step(
         target_q,
         key,
         total_timesteps,
-        predictions=predictions,
-        target_value_at=target_value_at,
         **target_args,
     )
 

@@ -47,8 +47,8 @@ The next release is 0.6.0: the first item changes results.
   `fill_replay(buffer_state, data)` and `seed_replay(agent_state, data,
   env_args)` no longer take the replay's buffer: drop that argument.
 - **Evaluation on another device.** `LoggingConfig(evaluation_device=...)`
-  scores each evaluation in a thread on that device, the CPU or a second
-  GPU, while training goes on. The scores are those of the evaluation in
+  scores each evaluation in a thread on that device, a second GPU or the
+  CPU, while training goes on. The scores are those of the evaluation in
   place, and they reach the backends under their own timestep. It is
   opt-in: by default training still waits for each evaluation.
 - **Training on MuJoCo Warp.** On an NVIDIA GPU, agents now train on

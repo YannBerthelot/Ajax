@@ -204,7 +204,10 @@ a thread scores it on that device.
 ```python
 import jax
 
-logging = LoggingConfig(evaluation_device=jax.devices("cpu")[0])
+# A second GPU when there is one, the CPU otherwise.
+devices = jax.devices()
+device = devices[1] if len(devices) > 1 else jax.devices("cpu")[0]
+logging = LoggingConfig(evaluation_device=device)
 ```
 
 - The scores are those of the evaluation in place: the policy at that
@@ -213,9 +216,11 @@ logging = LoggingConfig(evaluation_device=jax.devices("cpu")[0])
 - Each evaluation reaches the backends once scored, under its own timestep.
   `train` waits for the last one and returns every evaluation, as without
   the option.
-- Use the CPU, or a second GPU (`jax.devices("gpu")[1]`), not the training
-  GPU: one process's programs run there one after the other, so training
-  would still wait.
+- Use a second GPU, not the training GPU: one process's programs run there
+  one after the other, so training would still wait.
+- The CPU also works, but an evaluation of a GPU run is much slower there,
+  and it shares the host's cores with training. On a busy machine, a CPU
+  evaluator saved a MuJoCo Warp run no time.
 - On the CPU, a MuJoCo Warp task is evaluated on MJX's pure-JAX physics,
   as Warp runs on NVIDIA GPUs only. Both step the same model, but tasks with
   contacts drift apart over an episode, so the scores differ a little from

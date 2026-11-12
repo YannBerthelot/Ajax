@@ -3030,9 +3030,32 @@ at once on an otherwise idle card gave 1.9 times the throughput of one.
 <code>benchmarks/gpu_check.sh</code> compares four agents on CartPole and Pendulum with
 the same machine's CPU, in <code>benchmarks/gpu/report.md</code>.</p>
 <p>The logging worker always runs on the CPU, so it never takes GPU memory.
-Playground runs MJX's pure-JAX physics on every device. In a raw stepping loop
-Warp, its other implementation, ran 3 to 10 times faster on an L40S, but Ajax's
-training loop does not run on it yet (<code>physics="warp"</code>, needs a GPU).</p>
+Playground runs MJX's pure-JAX physics on every device by default. On a GPU,
+MuJoCo Warp (<code>physics="warp"</code>, see <a href="../environments/">Environments</a>) trained
+about seven times faster on an L40S, with 10 seeds of one environment each:</p>
+<table>
+<thead>
+<tr>
+<th>Agent, task</th>
+<th style="text-align: right;">Pure JAX</th>
+<th style="text-align: right;">Warp</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SAC, <code>mujoco:Hopper-v5</code></td>
+<td style="text-align: right;">28</td>
+<td style="text-align: right;">189</td>
+</tr>
+<tr>
+<td>PPO, <code>mujoco:HalfCheetah-v5</code></td>
+<td style="text-align: right;">84</td>
+<td style="text-align: right;">578</td>
+</tr>
+</tbody>
+</table>
+<p>These are steps per second per seed, from timing runs without evaluations.
+With 100 seeds, SAC on Warp ran 82 steps per second per seed, 8,200 in all.</p>
 <p>A GPU doesn't promise the same result twice by default: two identical PPO runs
 on HumanoidWalk differed. <code>XLA_FLAGS=--xla_gpu_deterministic_ops=true</code> made
 repeated and resumed runs match exactly on CheetahRun and HumanoidWalk. At 10

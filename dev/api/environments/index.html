@@ -5209,11 +5209,12 @@ i's k-th episode starts, and on gymnax draws its dynamics, on keys of
 before it (:func:<code>with_episode_keys</code>). False keeps each backend's own
 auto-reset, which reproduces runs from before episode keys.
 playground's cached auto-reset (<code>fresh_reset=False</code>) ignores it.</p>
-<p><code>physics</code> only concerns mujoco_playground envs: <code>"jax"</code> (the default,
-on a CPU or a GPU) is MJX's pure-JAX implementation, so that a run's
-physics does not depend on the device; <code>"warp"</code> is Playground's own
-default, which needs a GPU and which Ajax's training loop does not run on
-yet.</p>
+<p><code>physics</code> only concerns mujoco_playground envs, <code>"mujoco:"</code> ones
+included: <code>"jax"</code> (the default, on a CPU or a GPU) is MJX's pure-JAX
+implementation, so that a run's physics does not depend on the device;
+<code>"warp"</code> is MuJoCo Warp, Playground's own default, which needs an
+NVIDIA GPU and cannot be differentiated through, so it refuses
+<code>differentiable_reset=True</code>.</p>
 
 
     </div>
@@ -7137,7 +7138,9 @@ observation, breaking the V(s_T) bootstrap at truncation.</p>
 reset (computed only on such steps, see :func:<code>_call_if_any</code>) and gives
 each done env, from it:</p>
 <ul>
-<li><code>data</code> (a brax state's <code>pipeline_state</code>) and <code>obs</code>;</li>
+<li><code>data</code> (a brax state's <code>pipeline_state</code>) and <code>obs</code>, but for the
+  arrays the physics keeps for the whole batch of envs (MuJoCo Warp's
+  contact buffer and counters), which belong to no env and pass through;</li>
 <li>the <code>info</code> entries produced by the base environment's own <code>reset</code>,
   i.e. its per-episode state (its rng, task targets, ...).</li>
 </ul>

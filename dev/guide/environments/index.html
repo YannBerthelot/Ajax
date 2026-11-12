@@ -696,6 +696,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#mujoco-warp-on-a-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MuJoCo Warp on a GPU
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#gymnasiums-mujoco-tasks-in-jax" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2878,6 +2889,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#mujoco-warp-on-a-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MuJoCo Warp on a GPU
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#gymnasiums-mujoco-tasks-in-jax" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3117,9 +3139,8 @@ rebuild the image from it.</p>
 built from a Brax or Playground id. <code>episode_length</code> counts simulator steps,
 1,000 by default; gymnax environments keep their own time limit, set in
 their parameters (below). Playground environments run MJX's pure-JAX
-implementation, on a CPU or a GPU. <code>build_env_from_id(..., physics="warp")</code>
-selects Warp, Playground's own default, which needs a GPU and which Ajax's
-training loop does not run on yet.</p>
+implementation, on a CPU or a GPU. On an NVIDIA GPU they can run on MuJoCo
+Warp instead (below).</p>
 <p>Playground draws a new initial state for every episode (<code>fresh_reset=True</code>),
 as dm_control does. Runs made before this became the default restarted every
 episode of copy <code>i</code> from one cached state. To reproduce them, or to change
@@ -3145,6 +3166,26 @@ there, turn that pass off for these runs:</p>
 slower on a CPU. A single seed compiles without it. The same happens on a GPU, where
 the workaround does not combine with <code>--xla_gpu_deterministic_ops=true</code>:
 such runs compile only without deterministic operations.</p>
+<h3 id="mujoco-warp-on-a-gpu">MuJoCo Warp on a GPU<a class="headerlink" href="#mujoco-warp-on-a-gpu" title="Permanent link">&para;</a></h3>
+<p>On an NVIDIA GPU, Playground tasks and the <code>"mujoco:"</code> tasks (below) can run
+on MuJoCo Warp, Playground's own default, instead of MJX's pure-JAX physics.
+On an L40S, SAC and PPO trained about seven times faster on it
+(<a href="../performance/">Performance</a>). Build the environment with
+<code>physics="warp"</code> and pass it to the agent with the same <code>n_envs</code>; evaluation
+runs on the same physics:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># doc: skip (needs an NVIDIA GPU and the playground extra)</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.environments.create</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_env_from_id</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">env</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">build_env_from_id</span><span class="p">(</span><span class="s2">&quot;mujoco:Hopper-v5&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">physics</span><span class="o">=</span><span class="s2">&quot;warp&quot;</span><span class="p">)</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+</code></pre></div>
+<p>The two physics do not give the same runs. After 15 steps from the same
+state, on <code>mujoco:Hopper-v5</code> both stayed within 2e-6 of C MuJoCo's joint
+positions; on <code>mujoco:Walker2d-v5</code>, Warp stayed within 2e-6 and pure JAX
+moved 1.3e-3 away.</p>
+<p>Warp runs only on an NVIDIA GPU, and nothing can be differentiated through
+it: it refuses a CPU, <code>differentiable_reset=True</code> and APG.</p>
 <h3 id="gymnasiums-mujoco-tasks-in-jax">Gymnasium's MuJoCo tasks in JAX<a class="headerlink" href="#gymnasiums-mujoco-tasks-in-jax" title="Permanent link">&para;</a></h3>
 <p><code>"mujoco:&lt;id&gt;"</code> builds one of Gymnasium's v5 MuJoCo tasks on MJX, so it runs
 in the compiled program like any Playground task: <code>HalfCheetah-v5</code>,
@@ -3159,10 +3200,10 @@ distributions, but not its random stream. They need the <code>playground</code> 
 float64 and 1e-4 in float32, the precision training runs in. Over a whole
 episode the two drift apart where bodies touch the ground, as two builds of
 MuJoCo do: <code>benchmarks/mujoco_drift.py</code> reports how far.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># doc: skip (needs the playground extra: pip install &quot;ajax-rl[playground]&quot;)</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="s2">&quot;mujoco:Reacher-v5&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># doc: skip (needs the playground extra: pip install &quot;ajax-rl[playground]&quot;)</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="s2">&quot;mujoco:Reacher-v5&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>For a task's own keywords (<code>reset_noise_scale</code>, <code>ctrl_cost_weight</code>, ...),
 build it with <code>ajax.environments.mujoco.tasks.make("Swimmer-v5", ...)</code>.</p>
@@ -3190,14 +3231,14 @@ starts on a key of <code>(i, k)</code> alone, and on gymnax its steps draw on ke
 updates then start each copy's <code>k</code>-th episode from the same state, even where
 their actions end the episodes at other steps. <code>episode_keys=False</code> keeps
 each backend's own auto-reset, as runs made before episode keys did:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gymnax</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.environments.create</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_env_from_id</span><span class="p">,</span> <span class="n">with_episode_keys</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">env</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">build_env_from_id</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">episode_keys</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="c1"># An environment you built yourself:</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="n">my_gymnax_env</span><span class="p">,</span> <span class="n">my_params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">)</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="n">env</span> <span class="o">=</span> <span class="n">with_episode_keys</span><span class="p">(</span><span class="n">my_gymnax_env</span><span class="p">,</span> <span class="n">on</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gymnax</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.environments.create</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_env_from_id</span><span class="p">,</span> <span class="n">with_episode_keys</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">env</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">build_env_from_id</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">episode_keys</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="c1"># An environment you built yourself:</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">my_gymnax_env</span><span class="p">,</span> <span class="n">my_params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">)</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">env</span> <span class="o">=</span> <span class="n">with_episode_keys</span><span class="p">(</span><span class="n">my_gymnax_env</span><span class="p">,</span> <span class="n">on</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </code></pre></div>
 <p>A gymnax environment that overrides gymnax's own <code>step</code> or <code>reset</code> (bsuite's
 DeepSea) is refused with episode keys on, since they would bypass it.</p>
@@ -3209,7 +3250,7 @@ the actions, the policy and the environment state. See
 <p>Evaluation rebuilds a Brax or Playground environment from its id. A
 prebuilt Brax environment with wrappers of your own would lose them there.
 Register a builder instead, and every rebuild uses it:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.environments.create</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_brax_builder</span><span class="p">,</span> <span class="n">register_playground_builder</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.environments.create</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_brax_builder</span><span class="p">,</span> <span class="n">register_playground_builder</span>
 </code></pre></div>
 <p>A builder takes <code>(n_envs, episode_length)</code>, returns the fully wrapped
 environment and sets its <code>_ajax_env_id</code> attribute to the id. To support
@@ -3217,27 +3258,27 @@ action repeat it also accepts an <code>action_repeat</code> keyword.</p>
 <h2 id="your-own-environment">Your own environment<a class="headerlink" href="#your-own-environment" title="Permanent link">&para;</a></h2>
 <p>Any gymnax environment works: pass the instance, and its parameters as
 <code>env_params</code>. Wrappers you add stay on during training and evaluation.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gymnax</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">env</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">)</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">params</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">max_steps_in_episode</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>  <span class="c1"># shorter episodes</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">env_params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">500</span><span class="p">)</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gymnax</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="n">env</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="n">params</span> <span class="o">=</span> <span class="n">params</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">max_steps_in_episode</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>  <span class="c1"># shorter episodes</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">env_params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">500</span><span class="p">)</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
 </code></pre></div>
 <p><code>SAC("Pendulum-v1", env_params=params)</code> does the same with an id. Brax and
 Playground ids take no <code>env_params</code>: passing some raises.</p>
 <h3 id="targetgym">TargetGym<a class="headerlink" href="#targetgym" title="Permanent link">&para;</a></h3>
 <p>TargetGym's set-point tasks (aircraft, process control, industrial plants)
 use gymnax's interface, so an instance goes straight in:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># doc: skip (needs the optional plane group: uv sync --group plane)</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">target_gym</span><span class="w"> </span><span class="kn">import</span> <span class="n">Plane3DCircle</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="n">Plane3DCircle</span><span class="p">(),</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">20_000</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># doc: skip (needs the optional plane group: uv sync --group plane)</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">target_gym</span><span class="w"> </span><span class="kn">import</span> <span class="n">Plane3DCircle</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="n">Plane3DCircle</span><span class="p">(),</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">20_000</span><span class="p">)</span>
 </code></pre></div>
 <p>The Plane3DCircle scenario of <code>benchmarks/perf_bench.py</code> trains on it
 (<a href="../performance/">Performance</a>); the per-agent benchmark does not. The
@@ -3266,47 +3307,47 @@ use gymnax's interface, so an instance goes straight in:</p>
 </tr>
 </tbody>
 </table>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gymnax</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.wrappers</span><span class="w"> </span><span class="kn">import</span> <span class="n">InitialStateWrapper</span><span class="p">,</span> <span class="n">ObservationNoiseWrapper</span>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="n">env</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">)</span>
-<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>
-<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>
-<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="k">def</span><span class="w"> </span><span class="nf">hanging_down</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
-<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Start every episode at rest, hanging down.&quot;&quot;&quot;</span>
-<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>    <span class="k">return</span> <span class="n">state</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">theta</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">pi</span><span class="p">),</span> <span class="n">theta_dot</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="mf">0.0</span><span class="p">))</span>
-<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>
-<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>
-<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="n">env</span> <span class="o">=</span> <span class="n">InitialStateWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">hanging_down</span><span class="p">)</span>
-<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="n">env</span> <span class="o">=</span> <span class="n">ObservationNoiseWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">sigma</span><span class="o">=</span><span class="mf">0.05</span><span class="p">)</span>
-<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">env_params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">500</span><span class="p">)</span>
-<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gymnax</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.wrappers</span><span class="w"> </span><span class="kn">import</span> <span class="n">InitialStateWrapper</span><span class="p">,</span> <span class="n">ObservationNoiseWrapper</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="n">env</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="k">def</span><span class="w"> </span><span class="nf">hanging_down</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Start every episode at rest, hanging down.&quot;&quot;&quot;</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>    <span class="k">return</span> <span class="n">state</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">theta</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">pi</span><span class="p">),</span> <span class="n">theta_dot</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="mf">0.0</span><span class="p">))</span>
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="n">env</span> <span class="o">=</span> <span class="n">InitialStateWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">hanging_down</span><span class="p">)</span>
+<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="n">env</span> <span class="o">=</span> <span class="n">ObservationNoiseWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">sigma</span><span class="o">=</span><span class="mf">0.05</span><span class="p">)</span>
+<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="n">env</span><span class="p">,</span> <span class="n">env_params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">500</span><span class="p">)</span>
+<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
 </code></pre></div>
 <p>For anything else, subclass <code>ajax.wrappers.GymnaxWrapper</code>: it forwards
 every method to the wrapped environment (<code>self._env</code>), so you override only
 what you change.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gymnax</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.wrappers</span><span class="w"> </span><span class="kn">import</span> <span class="n">GymnaxWrapper</span>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
-<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="k">class</span><span class="w"> </span><span class="nc">ScaleReward</span><span class="p">(</span><span class="n">GymnaxWrapper</span><span class="p">):</span>
-<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Divide every reward by 10.&quot;&quot;&quot;</span>
-<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>
-<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">action</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>        <span class="n">obs</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">reward</span><span class="p">,</span> <span class="n">terminated</span><span class="p">,</span> <span class="n">truncated</span><span class="p">,</span> <span class="n">info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_env</span><span class="o">.</span><span class="n">step</span><span class="p">(</span>
-<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>            <span class="n">key</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">action</span><span class="p">,</span> <span class="n">params</span>
-<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>        <span class="p">)</span>
-<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>        <span class="k">return</span> <span class="n">obs</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">reward</span> <span class="o">/</span> <span class="mf">10.0</span><span class="p">,</span> <span class="n">terminated</span><span class="p">,</span> <span class="n">truncated</span><span class="p">,</span> <span class="n">info</span>
-<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>
-<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>
-<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="n">env</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">)</span>
-<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="n">ScaleReward</span><span class="p">(</span><span class="n">env</span><span class="p">),</span> <span class="n">env_params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">500</span><span class="p">)</span>
-<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gymnax</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.wrappers</span><span class="w"> </span><span class="kn">import</span> <span class="n">GymnaxWrapper</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="k">class</span><span class="w"> </span><span class="nc">ScaleReward</span><span class="p">(</span><span class="n">GymnaxWrapper</span><span class="p">):</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Divide every reward by 10.&quot;&quot;&quot;</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">action</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>        <span class="n">obs</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">reward</span><span class="p">,</span> <span class="n">terminated</span><span class="p">,</span> <span class="n">truncated</span><span class="p">,</span> <span class="n">info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_env</span><span class="o">.</span><span class="n">step</span><span class="p">(</span>
+<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a>            <span class="n">key</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">action</span><span class="p">,</span> <span class="n">params</span>
+<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a>        <span class="p">)</span>
+<a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>        <span class="k">return</span> <span class="n">obs</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">reward</span> <span class="o">/</span> <span class="mf">10.0</span><span class="p">,</span> <span class="n">terminated</span><span class="p">,</span> <span class="n">truncated</span><span class="p">,</span> <span class="n">info</span>
+<a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>
+<a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a>
+<a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a><span class="n">env</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">gymnax</span><span class="o">.</span><span class="n">make</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">)</span>
+<a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="n">ScaleReward</span><span class="p">(</span><span class="n">env</span><span class="p">),</span> <span class="n">env_params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">500</span><span class="p">)</span>
+<a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
 </code></pre></div>
 <p>Two more modules turn one environment into a family of tasks:
 <code>ajax.environments.model_reference</code> (follow a reference model's response)
@@ -3329,19 +3370,19 @@ those from their id, add it inside a registered builder.</p>
 <p>A <a href="https://gymnasium.farama.org">Gymnasium</a> environment steps in Python, so
 Ajax cannot compile it with the agent. You can still train on one, MuJoCo's
 tasks included, by asking for it with the <code>gymnasium:</code> prefix:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="s2">&quot;gymnasium:Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">500</span><span class="p">)</span>
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="s2">&quot;gymnasium:Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">500</span><span class="p">)</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
 </code></pre></div>
 <p>The rest of the id goes to <code>gymnasium.make</code>, so <code>"gymnasium:my_pkg:MyEnv-v0"</code>
 imports <code>my_pkg</code> first. For an environment that needs arguments, build it
 with <code>GymnasiumEnv</code>, which passes them to <code>gymnasium.make</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># doc: skip (needs the gymnasium extra: pip install &quot;ajax-rl[gymnasium]&quot;)</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.environments.gymnasium</span><span class="w"> </span><span class="kn">import</span> <span class="n">GymnasiumEnv</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="n">GymnasiumEnv</span><span class="p">(</span><span class="s2">&quot;HalfCheetah-v5&quot;</span><span class="p">,</span> <span class="n">ctrl_cost_weight</span><span class="o">=</span><span class="mf">0.05</span><span class="p">))</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># doc: skip (needs the gymnasium extra: pip install &quot;ajax-rl[gymnasium]&quot;)</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.environments.gymnasium</span><span class="w"> </span><span class="kn">import</span> <span class="n">GymnasiumEnv</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span><span class="n">GymnasiumEnv</span><span class="p">(</span><span class="s2">&quot;HalfCheetah-v5&quot;</span><span class="p">,</span> <span class="n">ctrl_cost_weight</span><span class="o">=</span><span class="mf">0.05</span><span class="p">))</span>
 </code></pre></div>
 <p>An id without the prefix never reaches Gymnasium: <code>"CartPole-v1"</code> is
 gymnax's. MuJoCo's tasks need the <code>gymnasium</code> extra
@@ -3530,24 +3571,24 @@ raw by declaring it (<code>observes_normalised = False</code>) instead.</p>
 integral <code>I</code> and its difference <code>D</code>. The observation feature <code>PIDTermsInput</code>
 appends <code>(e, I, D)</code> to the observation, so any agent that takes features can
 read them:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># doc: skip (needs the optional plane group: uv sync --group plane)</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">target_gym</span><span class="w"> </span><span class="kn">import</span> <span class="n">FirstOrderSystem</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.extensions.observe</span><span class="w"> </span><span class="kn">import</span> <span class="n">PIDTermsInput</span>
-<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>
-<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="c1"># FirstOrderSystem observes [x, target]: index 0 is controlled, index 1 its set-point.</span>
-<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="n">terms</span> <span class="o">=</span> <span class="n">PIDTermsInput</span><span class="p">(</span><span class="n">current_idx</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,),</span> <span class="n">target_idx</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,),</span> <span class="n">dt</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
-<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span>
-<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>    <span class="n">FirstOrderSystem</span><span class="p">(),</span>
-<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a>    <span class="n">learning_starts</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
-<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a>    <span class="n">extensions</span><span class="o">=</span><span class="p">(</span><span class="n">terms</span><span class="p">,),</span>
-<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="p">)</span>
-<a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
-<a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a><span class="n">stats</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">obs_norm_info</span>  <span class="c1"># SAC normalises observations itself</span>
-<a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a><span class="nb">print</span><span class="p">(</span><span class="n">stats</span><span class="o">.</span><span class="n">mean</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># (1, 2): the plant&#39;s columns; the terms after them stay raw</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># doc: skip (needs the optional plane group: uv sync --group plane)</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">target_gym</span><span class="w"> </span><span class="kn">import</span> <span class="n">FirstOrderSystem</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.extensions.observe</span><span class="w"> </span><span class="kn">import</span> <span class="n">PIDTermsInput</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="c1"># FirstOrderSystem observes [x, target]: index 0 is controlled, index 1 its set-point.</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="n">terms</span> <span class="o">=</span> <span class="n">PIDTermsInput</span><span class="p">(</span><span class="n">current_idx</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,),</span> <span class="n">target_idx</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,),</span> <span class="n">dt</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>    <span class="n">FirstOrderSystem</span><span class="p">(),</span>
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>    <span class="n">learning_starts</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+<a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>    <span class="n">extensions</span><span class="o">=</span><span class="p">(</span><span class="n">terms</span><span class="p">,),</span>
+<a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a><span class="p">)</span>
+<a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
+<a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a><span class="n">stats</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">collector_state</span><span class="o">.</span><span class="n">obs_norm_info</span>  <span class="c1"># SAC normalises observations itself</span>
+<a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a><span class="nb">print</span><span class="p">(</span><span class="n">stats</span><span class="o">.</span><span class="n">mean</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># (1, 2): the plant&#39;s columns; the terms after them stay raw</span>
 </code></pre></div>
 <p>The observation becomes <code>[raw observation, e, I, D]</code>, <code>3 * n_errors</code>
 columns longer. <code>dt</code> is the sampling period: the integral sums <code>dt * e</code> and

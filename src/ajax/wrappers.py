@@ -801,13 +801,19 @@ class WarpCapacityWrapper(BraxWrapper):
 
 def _check_warp_capacity(data: Any) -> None:
     warp = data._impl  # MJX's MuJoCo Warp fields: its counters and capacities
-    jax.debug.callback(
-        _raise_on_overflow,
-        jnp.maximum(warp.nacon, warp.ncollision),
-        warp.naconmax,
-        warp.nefc,
-        warp.njmax,
-    )
+    contacts = jnp.maximum(warp.nacon, warp.ncollision)
+    over = (jnp.max(contacts) > warp.naconmax) | (jnp.max(warp.nefc) > warp.njmax)
+
+    def report(pending: jax.Array) -> jax.Array:
+        jax.debug.callback(
+            _raise_on_overflow, contacts, warp.naconmax, warp.nefc, warp.njmax
+        )
+        return jnp.zeros_like(pending)
+
+    # A host callback on every step cost SAC 38% of its speed and PPO 63%.
+    # Its while_loop runs it only on a step that overflowed: batched, a
+    # while_loop iterates while any element's predicate holds (_call_if_any).
+    jax.lax.while_loop(lambda pending: pending, report, over)
 
 
 def _raise_on_overflow(contacts, contact_room, rows, row_room) -> None:

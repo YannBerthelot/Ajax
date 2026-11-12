@@ -181,10 +181,10 @@ The next release is 0.6.0: the first item changes results.
   [Its results](docs/reproduction/benchmark.md) cover ten agents on nineteen
   tasks.
 - **The SAC family shares its update steps.** REDQ, TQC, ASAC and RVI-SAC
-  take SAC's actor step (`update_soft_actor`), and the soft actor-critics
+  share one actor step (`update_soft_actor`), and the soft actor-critics
   keep their actor's and temperature's steps through one helper
-  (`keep_actor_then_update_temperature`), so `fixed_alpha` works one way in
-  SAC, ASAC and RVI-SAC. REDQ and AVG use SAC's soft Bellman target, and
+  (`keep_actor_then_update_temperature`), both in `ajax.agents.temperature`,
+  so `fixed_alpha` works one way in SAC, ASAC and RVI-SAC. REDQ and AVG use SAC's soft Bellman target, and
   IQL's update reads as its value, actor and critic steps. Results do not
   change.
 - **Known issue: the hopper and finger tasks with several seeds.** An XLA

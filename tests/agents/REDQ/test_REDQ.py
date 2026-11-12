@@ -3,7 +3,6 @@ import jax.numpy as jnp
 import numpy as np
 
 import ajax.agents.REDQ.REDQ as redq_module
-import ajax.agents.SAC.SAC as sac_module
 from ajax.agents.REDQ.REDQ import REDQ
 from ajax.networks.networks import get_initialized_actor_critic
 
@@ -18,7 +17,7 @@ def test_the_first_update_reads_redqs_first_temperature(monkeypatch):
     log-probability subtracts log(1 - tanh^2 + 1e-6) (core.py:232)."""
     targets, actor = [], []
     target_fn = redq_module.compute_redq_td_target
-    loss_fn = sac_module.compute_soft_policy_loss
+    loss_fn = redq_module.compute_soft_policy_loss
 
     def target_spy(*args):
         jax.debug.callback(lambda a: targets.append(float(a)), args[7])
@@ -29,8 +28,7 @@ def test_the_first_update_reads_redqs_first_temperature(monkeypatch):
         return loss_fn(params, actor_state, critic_state, obs, alpha, *rest, **kw)
 
     monkeypatch.setattr(redq_module, "compute_redq_td_target", target_spy)
-    # REDQ's actor step is SAC's update_soft_actor, on SAC's loss.
-    monkeypatch.setattr(sac_module, "compute_soft_policy_loss", loss_spy)
+    monkeypatch.setattr(redq_module, "compute_soft_policy_loss", loss_spy)
     kw = {"actor_architecture": NET, "critic_architecture": NET, "num_critics": 2}
     agent = REDQ("Pendulum-v1", num_critic_updates=2, learning_starts=4, **kw)
     assert agent.network_args.squash_log_det_eps == 1e-6

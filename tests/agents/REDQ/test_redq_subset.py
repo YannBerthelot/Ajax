@@ -33,7 +33,7 @@ def REDQ_state(gymnax_env_config):
 
 def _call_target(REDQ_state, env_config, subset_size, seed=1):
     obs_shape, _ = get_state_action_shapes(env_config.env)
-    rng = jax.random.PRNGKey(seed)
+    key = jax.random.PRNGKey(seed)
     next_obs = jnp.zeros((env_config.n_envs, *obs_shape))
     dones = jnp.zeros((env_config.n_envs, 1))
     rewards = jnp.ones((env_config.n_envs, 1))
@@ -41,7 +41,7 @@ def _call_target(REDQ_state, env_config, subset_size, seed=1):
     target, _, _, _, _ = compute_redq_td_target(
         actor_state=REDQ_state.actor_state,
         critic_states=REDQ_state.critic_state,
-        rng=rng,
+        key=key,
         next_observations=next_obs,
         dones=dones,
         rewards=rewards,

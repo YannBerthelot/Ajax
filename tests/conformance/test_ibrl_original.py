@@ -113,7 +113,7 @@ def compute_target(
 
     inputs = {
         "actor_state": state.actor_state,
-        "rng": jax.random.PRNGKey(1),
+        "key": jax.random.PRNGKey(1),
         "next_observations": next_observations,
         "dones": dones,
         "rewards": rewards,

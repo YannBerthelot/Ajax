@@ -416,7 +416,7 @@ def compute_avg_td_target(
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
     critic_params: FrozenDict,
-    rng: jax.Array,
+    key: jax.Array,
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
@@ -429,7 +429,7 @@ def compute_avg_td_target(
     at the next action the critic scores (map_next_actions: a residual
     policy's executed one), its log-probs, that next action and the value
     bootstrapped, min_i Q_i(s', a') - alpha log pi(a'|s')."""
-    sample_key, _ = jax.random.split(rng)
+    sample_key, _ = jax.random.split(key)
     next_actions, next_log_probs = sample_next_actions(
         actor_state,
         next_observations,

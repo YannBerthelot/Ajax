@@ -1,6 +1,6 @@
 """perf_utils: the resume iteration offset and the shared input of
-build_resumable_train / ActorCritic.train, and build_chunked_train's
-evaluations between chunks."""
+build_resumable_train / ActorCritic.train, build_chunked_train's evaluations
+between chunks, and final_aux_scan's last aux."""
 
 from types import SimpleNamespace
 
@@ -11,7 +11,7 @@ import pytest
 from flax import struct
 
 from ajax.agents.base import ActorCritic, shared_counters
-from ajax.perf_utils import build_chunked_train, build_resumable_train
+from ajax.perf_utils import build_chunked_train, build_resumable_train, final_aux_scan
 
 # ---------------------------------------------------------------------------
 # Resume offset
@@ -351,3 +351,43 @@ def test_a_resumed_chunked_run_evaluates_on_absolute_ticks():
     np.testing.assert_array_equal(rows[:2], [[5, 15, 50], [8, 36, 80]])
     assert int(count) == 2
     assert int(state["sum"]) == 36
+
+
+# ---------------------------------------------------------------------------
+# final_aux_scan
+# ---------------------------------------------------------------------------
+
+
+def running_sum(total: jax.Array, x: jax.Array) -> tuple[jax.Array, dict]:
+    """The carry adds x; the aux is the new total times 10 and the x read."""
+    total = total + x
+    return total, {"scaled": total * 10.0, "x": x}
+
+
+@pytest.mark.parametrize(
+    "length, total, scaled, x",
+    # xs = 1, 2, ..., length: the total is length (length + 1) / 2 and the
+    # last step reads x = length.
+    [(1, 1.0, 10.0, 1.0), (2, 3.0, 30.0, 2.0), (5, 15.0, 150.0, 5.0)],
+)
+def test_final_aux_scan_returns_the_carry_and_the_last_steps_aux(
+    length: int, total: float, scaled: float, x: float
+) -> None:
+    """The bugs: the second-to-last step's aux, or the last step skipped or
+    run twice (the steps before it run apart from it)."""
+    xs = jnp.arange(1.0, length + 1.0)
+    carry, aux = jax.jit(final_aux_scan, static_argnums=(0, 2))(
+        running_sum, jnp.asarray(0.0), length, xs
+    )
+    assert float(carry) == total
+    assert (float(aux["scaled"]), float(aux["x"])) == (scaled, x)
+
+
+def test_final_aux_scan_without_inputs_counts_its_steps() -> None:
+    def count(steps: jax.Array, x: None) -> tuple[jax.Array, jax.Array]:
+        assert x is None
+        return steps + 1, steps * 100
+
+    carry, aux = final_aux_scan(count, jnp.asarray(0), 4)
+    # Four steps; the last starts from 3.
+    assert (int(carry), int(aux)) == (4, 300)

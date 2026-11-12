@@ -36,10 +36,18 @@ STEPS = 40
 TOLERANCE = 1e-9
 
 
-def gymnasium_steps(task_id, n_steps):
+def gymnasium_steps(task_id, n_steps, solve_to_convergence=False):
     """(qpos, qvel, action, observation, reward, terminated) of each of
     n_steps random steps in Gymnasium, restarting after a termination."""
     reference = gymnasium.make(task_id).unwrapped
+    if solve_to_convergence:
+        # From MuJoCo 3.11, C's Newton solver stops once its Newton decrement
+        # or duality gap is below opt.tolerance (commits 1e66efd11,
+        # c69ef0308), within 1e-8 of the solution but not on it; MJX solves
+        # on. At tolerance 0, C reaches MJX's values (Reacher: 4e-15 apart,
+        # against 1.9e-8 at the default), so the float64 check stays a check
+        # of the translation.
+        reference.model.opt.tolerance = 0.0
     reference.reset(seed=0)
     random = np.random.default_rng(0)
     rows = []
@@ -68,7 +76,9 @@ ONE_STEP_TOLERANCE = {
 @pytest.mark.parametrize("dtype", ["float64", "float32"])
 @pytest.mark.parametrize("task_id", sorted(TASKS))
 def test_one_step_from_gymnasiums_states_gives_gymnasiums_values(task_id, dtype):
-    rows = gymnasium_steps(task_id, n_steps=100)
+    rows = gymnasium_steps(
+        task_id, n_steps=100, solve_to_convergence=dtype == "float64"
+    )
     tolerance = ONE_STEP_TOLERANCE[dtype]
 
     with jax.enable_x64(dtype == "float64"):

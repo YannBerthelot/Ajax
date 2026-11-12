@@ -2,7 +2,7 @@
 transformer or Mamba; a network's memory is also called its carry).
 
 Two kinds of agent use it:
-- The off-policy agents with a Q-critic (SAC, ASAC, REDQ, TQC, TD3) train
+- The off-policy agents with a Q-critic (families.RecurrentReplayAgent) train
   on windows of consecutive steps from one environment, as R2D2 does
   (Kapturowski et al. 2019): sample_and_burnin_sequences draws the windows,
   and actor_dist and q_values run the networks over them.
@@ -29,10 +29,12 @@ needs the time-limit section below.
 
 A critic's memory reads each row's observation together with the action
 taken before it. The action a loss asks about (the taken one, or one the
-policy samples) enters after the memory, at the critic's output layer, so
-asking about another action never changes the memory (Critic.query_dim;
-the recurrent off-policy critic of Ni et al. 2022, cited from memory,
-unverified).
+policy samples) enters after the memory, at a head between the memory and
+the output layer, so asking about another action never changes the memory
+(Critic.query_dim). Ni et al. (2022)'s recurrent critic does the same: its
+RNN reads the previous action, reward and observation, and the current
+action joins the RNN's output before the Q-heads (twni2016/pomdp-baselines
+at e7c19c3, policies/models/recurrent_critic.py:129-139 and 165-186).
 """
 
 from typing import Any, Optional, Tuple
@@ -60,26 +62,13 @@ from ajax.networks.networks import (
     predict_value,
     predict_value_sequence,
 )
-from ajax.state import BaseAgentConfig, BaseAgentState, LoadedTrainState, Transition
+from ajax.state import BaseAgentState, LoadedTrainState, Transition
 from ajax.types import BufferType
 
 # ----------------------------------------------------------------------------
-# Replayed windows for the off-policy agents: sampling them and warming
-#
-# up each network's memory (steps 1 and 2 of the module docstring).
+# Replayed windows for the off-policy agents: sampling them and warming up
+# each network's memory (steps 1 and 2 of the module docstring).
 # ----------------------------------------------------------------------------
-
-
-@struct.dataclass(kw_only=True)
-class RecurrentReplayConfig(BaseAgentConfig):
-    """An off-policy agent's sequence-replay settings, read only when it has
-    memory: replayed windows of burn_in + sequence_length + 1 steps."""
-
-    burn_in: int = 8
-    sequence_length: int = 16
-    # R2D2 stored-state replay: read actor carries back from the buffer
-    # instead of burning them in from zero (Kapturowski et al. 2019).
-    stored_state: bool = False
 
 
 @struct.dataclass
@@ -318,10 +307,8 @@ def make_replay_buffer(
     batch_size: int,
 ) -> BufferType:
     """The replay buffer of an off-policy agent: transitions, or per-env
-    trajectories sampled as windows when memory is set. agent holds
-    burn_in, sequence_length, stored_state and
-    learning_starts: a declared agent (its fields), or an older agent's
-    RecurrentReplayConfig."""
+    trajectories sampled as windows when memory is set. The agent's fields
+    burn_in, sequence_length, stored_state and learning_starts set it."""
     burn_in, sequence_length = agent.burn_in, agent.sequence_length
     if agent.stored_state and memory is None:
         raise ValueError(

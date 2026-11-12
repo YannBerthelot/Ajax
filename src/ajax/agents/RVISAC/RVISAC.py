@@ -46,7 +46,7 @@ from ajax.agents.centering import (
     RVIBatchMean,
     TDErrorCentering,
 )
-from ajax.agents.critics import compute_mean_critic_loss, critic_value_readers
+from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
     EntropyTemperature,
     ExpertGuided,
@@ -282,7 +282,7 @@ class RVISAC(
             bootstrap=True,
         )
         next_values = jnp.min(next_q, axis=0) - get_alpha(agent_state) * next_log_probs
-        predictions, target_value_at = critic_value_readers(
+        predictions, target_value_at = update_steps.critic_value_readers(
             critic_state, batch.obs, batch.action
         )
         inputs = CenteringInputs(next_values, target_value_at=target_value_at)

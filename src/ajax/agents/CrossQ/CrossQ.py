@@ -36,11 +36,7 @@ from flax import struct
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import (
-    CoreCriticAux,
-    compute_q_regression_loss,
-    critic_value_readers,
-)
+from ajax.agents.critics import CoreCriticAux, compute_q_regression_loss
 from ajax.agents.families import (
     EntropyTemperature,
     ExpertGuided,
@@ -217,7 +213,9 @@ class CrossQ(
         dones = update_steps.bootstrap_cuts(batch.terminated, context.extensions)
         # The critic's value at given rows, at its running statistics (the
         # reference point's); its predictions are the loss's own pass, below.
-        _, target_value_at = critic_value_readers(critic_state, batch.obs, batch.action)
+        _, target_value_at = update_steps.critic_value_readers(
+            critic_state, batch.obs, batch.action
+        )
 
         def critic_loss(params: Any) -> tuple[jax.Array, Any]:
             q_values, batch_stats = predict_value_updating_batch_statistics(

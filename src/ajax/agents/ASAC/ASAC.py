@@ -39,7 +39,6 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import critic_value_readers
 from ajax.agents.families import (
     EntropyTemperature,
     ExpertGuided,
@@ -305,9 +304,6 @@ class ASAC(
             )
 
         # ASAC is average-reward: no gamma, None tells the extensions so.
-        predictions, target_value_at = critic_value_readers(
-            agent_state.critic_state, batch.obs, batch.action
-        )
         agent_state, aux, _, metrics = update_steps.critic_step(
             agent_state,
             batch,
@@ -322,8 +318,6 @@ class ASAC(
             reward_scale=self.reward_scale,
             next_actions=next_actions,
             next_values=next_values,
-            predictions=predictions,
-            target_value_at=target_value_at,
         )
         return agent_state, aux, metrics
 

@@ -102,6 +102,37 @@ def test_fill_then_export_gives_the_dataset_back(recorded, raw) -> None:
     np.testing.assert_array_equal(back.next_obs, recorded.next_obs if raw else reset)
 
 
+def test_fill_appends_each_envs_run_after_the_rows_its_ring_holds() -> None:
+    """Each env's ring gets its contiguous run of the dataset after the rows
+    it holds, wrapping onto its oldest when full, as adding one row per env
+    at a time does; the run's last row is a seam, and the ring's index and
+    fullness move past it. A fill that mixed the envs up, wrote from the
+    ring's start instead of its index, or left the index or fullness stale
+    would differ here."""
+    # 2 envs, rings of 6 rows holding 3 each; 4 new rows per env wrap by one.
+    buffer, state = replay(n_envs=2, size=12, include_seam=True)
+    held = {
+        k: np.full((2, *x.shape[2:]), -1, x.dtype) for k, x in state.experience.items()
+    }
+    for _ in range(3):
+        state = buffer.add(state, held)
+    # Two-row episodes cut by the time limit; obs counts the rows 0..7.
+    obs = np.stack([np.arange(8), np.zeros(8)], -1)
+    limits = np.arange(8) % 2 == 1
+    data = ds.TransitionDataset(
+        obs, np.zeros((8, 1)), np.zeros(8), np.zeros(8, bool), limits, obs
+    )
+
+    filled = ds.fill_replay(buffer, state, data)
+
+    # Env 0 reads rows 0..3 at ring places 3, 4, 5, 0; env 1 rows 4..7.
+    expected_t = [[3, -1, -1, 0, 1, 2], [7, -1, -1, 4, 5, 6]]
+    np.testing.assert_array_equal(filled.experience["obs"][..., 0], expected_t)
+    expected_seam = [[1, -1, -1, 0, 0, 0]] * 2
+    np.testing.assert_array_equal(filled.experience["seam"][..., 0], expected_seam)
+    assert int(filled.current_index) == 1 and bool(filled.is_full)
+
+
 def test_export_reads_a_wrapped_replay_oldest_first() -> None:
     agent = TD3(
         IdentityEnv(), n_envs=2, buffer_size=20, batch_size=4, learning_starts=10**6

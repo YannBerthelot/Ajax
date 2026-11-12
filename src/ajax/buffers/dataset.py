@@ -40,6 +40,7 @@ from typing import Any, Optional
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flashbax.buffers import trajectory_buffer
 
 from ajax.environments.interaction import collect_experience_from_expert_policy
 from ajax.state import EnvironmentConfig
@@ -236,11 +237,18 @@ def next_actions(data: TransitionDataset) -> np.ndarray:
 
 
 def fill_replay(buffer: Any, buffer_state: Any, data: TransitionDataset) -> Any:
-    """``buffer_state`` with ``data``'s rows added, one row per env per
-    add as collection adds its own: each env's replay row gets a contiguous
-    run of ``data``, so a sequence replay reads its episodes whole, and its
-    last row is a seam (init_buffer's include_seam). A replay already holding
-    rows drops its oldest when full, as collection does.
+    """``buffer_state`` with ``data``'s rows added where adding them one row
+    per env at a time, as collection adds its own, would put them: each
+    env's replay row gets a contiguous run of ``data``, so a sequence replay
+    reads its episodes whole, and its last row is a seam (init_buffer's
+    include_seam). A replay already holding rows drops its oldest when full,
+    as collection does.
+
+    The rows go in with one call of flashbax's trajectory add, the add
+    ``buffer.add`` makes one row at a time, given each env's whole run: a
+    loop of one add per row cost about 20 us per row on a GPU (20 s for a
+    million rows). ``buffer`` is no longer read; it stays in the signature
+    until its callers drop it.
 
     Raises ``ValueError`` when the replay keeps fields ``data`` does not
     hold or of another width, when ``data``'s rows do not divide among its
@@ -262,17 +270,15 @@ def fill_replay(buffer: Any, buffer_state: Any, data: TransitionDataset) -> Any:
     if n > n_envs * capacity:
         raise ValueError(f"{n} dataset rows, a replay of {n_envs * capacity}")
 
-    def stream(k: str) -> jax.Array:  # [n // n_envs, n_envs, ...]
+    def stream(k: str) -> jax.Array:  # [n_envs, n // n_envs, ...]
         x = rows[k].reshape(n_envs, n // n_envs, *rows[k].shape[1:])
-        return jnp.asarray(x.swapaxes(0, 1), schema[k].dtype)
+        return jnp.asarray(x, schema[k].dtype)
 
-    def add(state: Any, row: dict) -> tuple[Any, None]:
-        return buffer.add(state, row), None
-
+    del buffer  # not read (the docstring)
     streams = {k: stream(k) for k in schema}
     if "seam" in streams:
-        streams["seam"] = streams["seam"].at[-1].set(1.0)
-    return jax.lax.scan(add, buffer_state, streams)[0]
+        streams["seam"] = streams["seam"].at[:, -1].set(1.0)
+    return trajectory_buffer.add(buffer_state, streams)
 
 
 def save(data: TransitionDataset, path: str) -> None:

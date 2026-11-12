@@ -273,51 +273,10 @@ class ActorCritic:
                 envs support only 1.
         """
 
-        if reward_normalization_gamma is not None and not normalize_rewards:
-            raise ValueError(
-                "reward_normalization_gamma sets how normalize_rewards normalises"
-                " the rewards: pass normalize_rewards=True with it."
-            )
-        memory = parse_memory_config(memory)
-        if memory is not None and not self.supports_memory:
-            raise NotImplementedError(
-                f"{type(self).__name__} does not support recurrent networks"
-                " (memory) yet; supported agents: PPO, SAC, ASAC, REDQ, TD3, APG."
-            )
-
-        env, env_params, env_id, continuous = prepare_env(
-            env_id,
-            env_params=env_params,
-            normalize_obs=False,
-            normalize_reward=normalize_rewards,
-            gamma=reward_normalization_gamma,
-            n_envs=n_envs,
-            episode_length=episode_length,
-            action_repeat=action_repeat,
-        )
-
-        if env_params_is_batched(env_params) and not self.supports_batched_env_params:
-            raise ValueError(
-                f"{type(self).__name__} takes one env_params for every copy of"
-                " the environment; these carry one system per copy (a"
-                " SystemClass sample). APG, DreamerV3 and TDMPC2 take"
-                " per-copy systems; APG also samples them, with system_class."
-            )
-        self.env_args = EnvironmentConfig(
-            env=env,
-            env_params=env_params,
-            n_envs=n_envs,
-            continuous=continuous,
-            action_repeat=action_repeat,
-            normalize_obs_in_agent=normalize_observations,
-            store_normalized_obs=normalize_observations
-            and not self.replays_transitions,
-        )
-
         self.network_args = NetworkConfig(
             actor_architecture=actor_architecture,
             critic_architecture=critic_architecture,
-            memory=memory,
+            memory=parse_memory_config(memory),
             actor_bias_init=actor_bias_init,
             critic_bias_init=critic_bias_init,
             encoder_kernel_init=encoder_kernel_init,
@@ -335,18 +294,17 @@ class ActorCritic:
             encoder_layer_norm=encoder_layer_norm,
             squash=squash,
         )
-
-        batch_norm = any(
-            isinstance(arch, (tuple, list)) and "batchrenorm" in arch
-            for arch in (actor_architecture, critic_architecture)
+        self._refuse_untrainable_networks(self.network_args)
+        self.env_args = self._make_environment(
+            env_id,
+            env_params,
+            n_envs,
+            normalize_observations,
+            normalize_rewards,
+            reward_normalization_gamma,
+            episode_length,
+            action_repeat,
         )
-        if batch_norm and not self.trains_batch_norm:
-            raise ValueError(
-                f"{type(self).__name__} runs its networks with their running"
-                " statistics fixed, so a 'batchrenorm' layer would never learn"
-                " them. CrossQ trains them; remove 'batchrenorm' here."
-            )
-
         self.actor_optimizer_args = OptimizerConfig(
             learning_rate=actor_learning_rate,
             max_grad_norm=max_grad_norm,
@@ -361,12 +319,79 @@ class ActorCritic:
         #: ``make_train``'s keyword arguments proper to the agent, beyond the
         #: ones every agent's takes (:meth:`train`); each agent fills it.
         self.train_kwargs: dict[str, Any] = {}
+        self._set_up_extensions(extensions)
 
-        # Composable research features (expert guidance, instrumentation,
-        # …). The stack is static — agents thread it into make_train as a
-        # static argument and fold it at the phase points of their
-        # training step. An empty stack is a true no-op. See
-        # `ajax.extensions.base`.
+    def _refuse_untrainable_networks(self, networks: NetworkConfig) -> None:
+        """Refuse the networks this agent cannot train."""
+        if networks.memory is not None and not self.supports_memory:
+            raise NotImplementedError(
+                f"{type(self).__name__} does not support recurrent networks"
+                " (memory) yet."
+            )
+        batch_norm = any(
+            isinstance(arch, (tuple, list)) and "batchrenorm" in arch
+            for arch in (networks.actor_architecture, networks.critic_architecture)
+        )
+        if batch_norm and not self.trains_batch_norm:
+            raise ValueError(
+                f"{type(self).__name__} runs its networks with their running"
+                " statistics fixed, so a 'batchrenorm' layer would never learn"
+                " them. CrossQ trains them; remove 'batchrenorm' here."
+            )
+
+    def _make_environment(
+        self,
+        env_id: str | EnvType,
+        env_params: Optional[EnvParams],
+        n_envs: int,
+        normalize_observations: bool,
+        normalize_rewards: bool,
+        reward_normalization_gamma: Optional[float],
+        episode_length: Optional[int],
+        action_repeat: int,
+    ) -> EnvironmentConfig:
+        """The environment the agent trains on, its rewards normalised by
+        the env wrapper and its observations by the agent."""
+        if reward_normalization_gamma is not None and not normalize_rewards:
+            raise ValueError(
+                "reward_normalization_gamma sets how normalize_rewards normalises"
+                " the rewards: pass normalize_rewards=True with it."
+            )
+        env, env_params, env_id, continuous = prepare_env(
+            env_id,
+            env_params=env_params,
+            normalize_obs=False,
+            normalize_reward=normalize_rewards,
+            gamma=reward_normalization_gamma,
+            n_envs=n_envs,
+            episode_length=episode_length,
+            action_repeat=action_repeat,
+        )
+        if env_params_is_batched(env_params) and not self.supports_batched_env_params:
+            raise ValueError(
+                f"{type(self).__name__} takes one env_params for every copy of"
+                " the environment; these carry one system per copy (a"
+                " SystemClass sample). APG, DreamerV3 and TDMPC2 take"
+                " per-copy systems; APG also samples them, with system_class."
+            )
+        return EnvironmentConfig(
+            env=env,
+            env_params=env_params,
+            n_envs=n_envs,
+            continuous=continuous,
+            action_repeat=action_repeat,
+            normalize_obs_in_agent=normalize_observations,
+            store_normalized_obs=normalize_observations
+            and not self.replays_transitions,
+        )
+
+    def _set_up_extensions(self, extensions: Sequence[Extension]) -> None:
+        """Build the agent's extension stack (composable research features:
+        expert guidance, instrumentation...), which agents thread into
+        make_train as a static argument and fold at the phase points of
+        their training step; an empty stack is a true no-op
+        (ajax.extensions.base). The extensions acting only in the controller
+        move onto env_args."""
         self.extension_stack = ExtensionStack(extensions)
         self._check_extension_phases()
         # The expert door: an expert speaks env units, the agent reads it in
@@ -376,9 +401,30 @@ class ActorCritic:
         if expert is not None:
             self.expert_policy = self._in_agent_units(expert)
         self.extension_stack = self.extension_stack.with_experts(self._in_agent_units)
-        # The observation features its stack appends and its action transform
-        # (residual RL, gain mode): the controller's (ajax.controller), which
-        # collection and evaluation run.
+        self.env_args = self._env_args_with_controller_parts()
+        # The action stage runs an action extension in one of its two slots.
+        check_action_slots(self.extension_stack)
+        self._refuse_expert_actions_as_gains()
+
+        # An extension acting only in the controller (a feature, gain mode, a
+        # warm-up, the action a replay stores) takes no part in the learner's
+        # folds: no state, no key of its own. A residual policy stays: the
+        # learner scores its executed actions.
+        def controller_only(extension: Any) -> bool:
+            phases = extension.implemented_phases()
+            return bool(phases) and phases.issubset(CONTROLLER_PHASES)
+
+        if any(controller_only(e) for e in self.extension_stack):
+            self.extension_stack = ExtensionStack(
+                [e for e in self.extension_stack if not controller_only(e)]
+            )
+
+    def _env_args_with_controller_parts(self) -> EnvironmentConfig:
+        """env_args with the stack's parts that the controller
+        (ajax.controller), which collection and evaluation run, acts with:
+        the observation features, the action transform (residual RL, gain
+        mode), the warm-up (ExpertWarmup) and the action a replay stores
+        (StorePolicyAction)."""
         observers = observers_of(self.extension_stack)
         transforms = transforms_of(self.extension_stack)
         if len(transforms) > 1:
@@ -391,56 +437,41 @@ class ActorCritic:
             expert = getattr(self, "expert_policy", None)
             with_features = self.env_args.replace(observers=observers)
             dim = transforms[0].policy_action_dim(with_features, expert)
-        # What the warm-up acts with (ExpertWarmup), also the controller's.
         warmups = warmups_of(self.extension_stack)
         if len(warmups) > 1:
             raise ValueError(
                 f"An agent takes one warm-up, got {[warmup.name for warmup in warmups]}."
             )
-        # What the replay stores (StorePolicyAction), also the controller's.
         choosers = replay_action_choosers_of(self.extension_stack)
         if len(choosers) > 1:
             raise ValueError(
                 "An agent stores one action per replay row, got"
                 f" {[chooser.name for chooser in choosers]}."
             )
-        self.env_args = self.env_args.replace(
+        return self.env_args.replace(
             observers=observers,
             transforms=transforms,
             warmups=warmups,
             replay_action_choosers=choosers,
             policy_action_dim=dim,
         )
-        # The action stage runs an action extension in one of its two slots.
-        check_action_slots(self.extension_stack)
-        # Under gain mode the policy chooses gains, and an expert's actions,
-        # stored (a_expert) or called again, are env actions: an extension
-        # using them as the policy's would mix the two spaces.
+
+    def _refuse_expert_actions_as_gains(self) -> None:
+        """Under gain mode the policy chooses gains, and an expert's actions,
+        stored (a_expert) or called again, are env actions: an extension
+        using them as the policy's would mix the two spaces."""
         mixers = [
             extension
             for extension in self.extension_stack
             if extension.uses_expert_actions_as_policy_actions()
         ]
-        if dim is not None and mixers:
+        if self.env_args.policy_action_dim is not None and mixers:
             reason = "uses the expert's env actions where the policy's gains go"
             unwired = {type(mixer).__name__: reason for mixer in mixers}
             raise NotWired(
                 f"{type(self).__name__} cannot run {sorted(unwired)} under gain"
                 f" mode yet: each {reason}.",
                 unwired,
-            )
-
-        # An extension acting only in the controller (a feature, gain mode, a
-        # warm-up, the action a replay stores) takes no part in the learner's
-        # folds: no state, no key of its own. A residual policy stays: the learner scores its executed
-        # actions.
-        def controller_only(extension: Any) -> bool:
-            phases = extension.implemented_phases()
-            return bool(phases) and phases.issubset(CONTROLLER_PHASES)
-
-        if any(controller_only(e) for e in self.extension_stack):
-            self.extension_stack = ExtensionStack(
-                [e for e in self.extension_stack if not controller_only(e)]
             )
 
     def _in_agent_units(self, expert: Any) -> Any:

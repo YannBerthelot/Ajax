@@ -8222,6 +8222,8 @@ durations in <code>[20, 50]</code> s at 1 s sampling over <code>N = 100</code>.<
     <div class="doc doc-contents ">
 
         <p>One reference sequence, shape <code>(horizon, n_outputs)</code>.</p>
+<p>Step t draws a candidate value and duration from its own key; a new
+segment starts on the steps where the previous one has run out.</p>
 
 
     </div>
@@ -8497,6 +8499,11 @@ recovered from <code>(cos, sin)</code>).</p>
 final, pre-reset output, and <code>info</code>'s final observation is the
 controller's view of it. Past the reference horizon the last sample is
 held; size <code>reference.horizon</code> to the episode length.</p>
+<p>The new reference is drawn only on the steps where some env's episode
+ends (inside a <code>lax.while_loop</code>, see <code>ajax.wrappers._call_if_any</code>),
+so reverse mode cannot differentiate with respect to the reference's
+own fields (its value bounds); the plant, the policy and the actions
+differentiate as before.</p>
 
 
 

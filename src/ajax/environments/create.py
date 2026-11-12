@@ -163,6 +163,26 @@ def register_playground_builder(env_id: str, builder) -> None:
     _PLAYGROUND_BUILDERS[env_id] = builder
 
 
+#: Playground 0.2's DeepMind Control Reacher tasks pick an MjSpec method by
+#: comparing MuJoCo versions as strings ("3.10.0" sorts before "3.3.0"), so
+#: from MuJoCo 3.10 they call find_body, which MuJoCo removed. Fixed in
+#: Playground's commit 33f1b284, which only Playground 1.0, another library,
+#: holds. The playground extra allows MuJoCo 3.10 and later for the rest.
+_PLAYGROUND_STRING_VERSION_TASKS = ("ReacherEasy", "ReacherHard")
+
+
+def _refuse_broken_playground_task(env_id: str) -> None:
+    import mujoco
+
+    if env_id in _PLAYGROUND_STRING_VERSION_TASKS and mujoco.mj_version() >= 3_010_000:
+        raise ValueError(
+            f"MuJoCo Playground 0.2 cannot build {env_id} on MuJoCo"
+            f" {mujoco.__version__}: it compares MuJoCo versions as strings"
+            " (fixed upstream in commit 33f1b284, in no 0.x release). Install"
+            " mujoco and mujoco-mjx below 3.10 to use it."
+        )
+
+
 def _build_playground_env(
     env_id: str,
     n_envs: int,
@@ -223,6 +243,7 @@ def _build_playground_env(
 
         env = make(env_id.removeprefix(MUJOCO_PREFIX), physics=physics)
     else:
+        _refuse_broken_playground_task(env_id)
         env = registry.load(env_id, config_overrides={"impl": physics})
     if physics == "warp":
         env = WarpCapacityWrapper(env)

@@ -1,6 +1,7 @@
 import brax.envs
 import jax
 import jax.numpy as jnp
+import mujoco
 import pytest
 from gymnax import make as make_gymnax_env
 
@@ -199,3 +200,16 @@ def test_a_registered_builder_builds_its_env_id(register, monkeypatch):
     register("my-task", builder)
     assert build_env_from_id("my-task", n_envs=3, episode_length=7) == (built, None)
     assert calls == [(3, 7)]
+
+
+@pytest.mark.skipif(
+    mujoco.mj_version() < 3_010_000,
+    reason="Playground 0.2 builds its Reacher tasks below MuJoCo 3.10",
+)
+@pytest.mark.parametrize("env_id", ["ReacherEasy", "ReacherHard"])
+def test_playground_reacher_is_refused_with_its_cause_from_mujoco_3_10(env_id):
+    """Catches Playground 0.2's Reacher failing deep in its model builder with
+    AttributeError: 'MjSpec' object has no attribute 'find_body' (it compares
+    MuJoCo versions as strings) instead of a clear refusal at creation."""
+    with pytest.raises(ValueError, match="33f1b284"):
+        build_env_from_id(env_id)

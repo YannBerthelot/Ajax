@@ -7288,7 +7288,9 @@ time or for replayed sequences).</p>
   FULL PARALLEL attention over the chunk (no scan) with an episode-segment
   mask; acting keeps a rolling cache of the last <code>window - 1</code> embeddings
   per layer, so per-step memory is O(window * hidden) and constant in
-  episode length.</li>
+  episode length. With <code>cache_keys_values</code> the cache holds each layer's
+  keys and values instead, for a carry that never outlives its parameters
+  (see :class:<code>MemoryCell</code>).</li>
 <li><code>"mamba"</code>: selective state-space (S6-style) block. Training runs a
   parallel <code>associative_scan</code> over T; the carry is the SSM state plus a
   small causal-conv tail — RNN-sized memory with transformer-like training
@@ -7425,6 +7427,17 @@ sane default. Kind-specific knobs are ignored by the other kinds.</p>
 
         <p>Reset-aware memory block; dispatches to the core selected by
 <code>config.kind</code>. See the module docstring for the interface contract.</p>
+<p><code>cache_keys_values</code> (transformer only, off by default): the carry
+holds each layer's keys and values instead of its inputs, so a step
+normalises and projects its own rows rather than the whole window again
+(build its carry with <code>init_carry(..., cache_keys_values=True)</code>). The
+outputs and gradients are the same, to rounding, when the carry was
+built under the parameters that read it: a closed-loop rollout
+differentiated end to end from a fresh carry (APG), or acting with fixed
+parameters. A carry stored and read back after an update would keep the
+old parameters' keys and values, where the default re-projects the
+stored inputs with the new ones, so agents that replay or chunk
+sequences from a stored carry keep the default.</p>
 
 
 
@@ -7506,13 +7519,17 @@ A kind <code>inits</code> does not name keeps flax's.</p>
 
 
 <a href="#ajax.networks.memory.init_carry" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">init_carry</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">rng</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">init_carry</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">config</span><span class="p">,</span> <span class="n">rng</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">,</span> <span class="n">cache_keys_values</span><span class="o">=</span><span class="kc">False</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p>Fresh (all-zero) carry for <code>config</code>: a tuple with one entry per
-layer. Shapes are derived from the config alone — no params needed.</p>
+layer. Shapes are derived from the config alone — no params needed.
+<code>cache_keys_values</code>: a transformer's carry for a MemoryCell caching
+keys and values (see MemoryCell).</p>
 
 
     </div>

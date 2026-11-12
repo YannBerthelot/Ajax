@@ -4067,6 +4067,12 @@ learning-rate schedule at every stage boundary.</p>
 
 
 
+        <p>The controller of the module docstring. With <code>cache_keys_values</code>, a
+transformer memory caches each layer's keys and values instead of its
+inputs (<code>MemoryCell</code>): the same outputs and gradients, to rounding,
+for a carry that starts fresh under the parameters that read it, as
+APG's rollouts and acting do; other memory kinds ignore it.</p>
+
 
 
 

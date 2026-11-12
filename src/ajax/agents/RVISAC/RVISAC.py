@@ -72,8 +72,8 @@ from ajax.agents.reset_cost import (
 )
 from ajax.agents.SAC.SAC import (
     compute_alpha_temperature_loss,
-    compute_soft_policy_loss,
     sample_next_actions,
+    update_soft_actor,
 )
 from ajax.agents.temperature import (
     SoftActorCriticState,
@@ -356,38 +356,13 @@ class RVISAC(
         """The actor step on alpha log pi(a|s) - min_i Q_i(s, a), the
         critics scoring a residual policy's executed actions; also returns
         its sample's log-probs (the temperature reads them)."""
-        actor_key = update_steps.derive_actor_key(agent_state)
-        alpha = get_alpha(agent_state)
-        critic_state = agent_state.critic_state
-        scored = context.make_scored_actions(batch)
-
-        def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
-            loss, (log_probs, q_min, policy) = compute_soft_policy_loss(
-                params,
-                agent_state.actor_state,
-                critic_state,
-                batch.obs,
-                alpha,
-                actor_key,
-                carries,
-                jnp.min,
-                scored.map_actions,
-            )
-            return loss, (loss, log_probs, q_min), policy.mean()
-
-        actor_state, (loss, log_probs, q_min), _, metrics = update_steps.actor_step(
-            agent_state,
-            policy_loss,
-            context.extensions,
-            actor_key,
-            context.total_timesteps,
-            batch,
-            critic_state,
+        agent_state, loss, log_probs, q_min, metrics = update_soft_actor(
+            agent_state, batch, carries, context, jnp.min
         )
         aux = PolicyAuxiliaries(
             policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()
         )
-        return agent_state.replace(actor_state=actor_state), aux, log_probs, metrics
+        return agent_state, aux, log_probs, metrics
 
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "RVISAC"

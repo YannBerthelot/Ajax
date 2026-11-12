@@ -52,9 +52,9 @@ from ajax.agents.families import (
 from ajax.agents.recurrent import RecurrentCarries, q_values, sample_replay
 from ajax.agents.SAC.SAC import (
     compute_soft_bellman_target,
-    compute_soft_policy_loss,
     compute_temperature_loss,
     sample_next_actions,
+    update_soft_actor,
 )
 from ajax.agents.temperature import (
     SoftActorCriticState,
@@ -377,38 +377,13 @@ class REDQ(
         """The actor step on alpha log pi(a|s) - mean_i Q_i(s, a), the
         critics scoring a residual policy's executed actions; also returns
         its sample's log-probs, which the temperature step reads."""
-        actor_key = update_steps.derive_actor_key(agent_state)
-        alpha = get_alpha(agent_state)
-        critic_state = agent_state.critic_state
-        scored = context.make_scored_actions(batch)
-
-        def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
-            loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
-                params,
-                agent_state.actor_state,
-                critic_state,
-                batch.obs,
-                alpha,
-                actor_key,
-                carries,
-                jnp.mean,
-                scored.map_actions,
-            )
-            return loss, (loss, log_probs, q_values), policy.mean()
-
-        actor_state, (loss, log_probs, q_mean), _, metrics = update_steps.actor_step(
-            agent_state,
-            policy_loss,
-            context.extensions,
-            actor_key,
-            context.total_timesteps,
-            batch,
-            critic_state,
+        agent_state, loss, log_probs, q_mean, metrics = update_soft_actor(
+            agent_state, batch, carries, context, jnp.mean
         )
         aux = PolicyAuxiliaries(
             policy_loss=loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()
         )
-        return agent_state.replace(actor_state=actor_state), aux, log_probs, metrics
+        return agent_state, aux, log_probs, metrics
 
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "REDQ"

@@ -1,7 +1,7 @@
 import math
 import re
 from collections.abc import Sequence
-from typing import Callable, Optional, Union, cast
+from typing import Any, Callable, Optional, Union, cast
 
 import flax.linen as nn
 import jax
@@ -106,6 +106,48 @@ def get_adam_tx(
         clip = clip_by_member_norm if per_member else optax.clip_by_global_norm
         return optax.chain(clip(max_grad_norm), tx)
     return tx
+
+
+def map_optimizer_moments(
+    opt_state: optax.OptState, params: optax.Params, edit: Callable[[Any], Any]
+) -> optax.OptState:
+    """The optimiser state with edit applied to each of its moments (Adam's
+    mu and nu, RMSProp's averages), edit taking and returning a tree shaped
+    as params: a per-unit change, such as resetting a recycled neuron's
+    moments, then needs no knowledge of how the state lays them out.
+
+    get_adam_tx holds each moment as one vector over every parameter, in
+    the order optax.flatten ravels them (jax's leaf order, each array in C
+    order); another optimiser may hold a tree shaped as params. Both are
+    found. The state and params are one seed's (vmap over several).
+    """
+    leaves = jax.tree.leaves(params)
+    structure: Any = jax.tree.structure(params)
+    sizes = [np.size(leaf) for leaf in leaves]
+
+    def is_joined(node: Any) -> bool:
+        return isinstance(node, jax.Array) and node.shape == (sum(sizes),)
+
+    def is_shaped_as_params(node: Any) -> bool:
+        return bool(structure == jax.tree.structure(node))
+
+    def is_moment(node: Any) -> bool:
+        return is_joined(node) or is_shaped_as_params(node)
+
+    def edited(node: Any) -> Any:
+        if is_shaped_as_params(node):
+            return edit(node)
+        if not is_joined(node):
+            return node
+        pieces = jnp.split(node, np.cumsum(sizes)[:-1])
+        shaped = [
+            piece.reshape(np.shape(leaf))
+            for piece, leaf in zip(pieces, leaves, strict=True)
+        ]
+        moment = edit(jax.tree.unflatten(structure, shaped))
+        return jnp.concatenate([jnp.ravel(leaf) for leaf in jax.tree.leaves(moment)])
+
+    return jax.tree.map(edited, opt_state, is_leaf=is_moment)
 
 
 def scale_by_learning_rate_per_rank(

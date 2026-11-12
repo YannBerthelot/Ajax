@@ -50,9 +50,9 @@ from ajax.agents.families import (
 from ajax.agents.recurrent import RecurrentCarries, q_values, sample_replay
 from ajax.agents.SAC.SAC import (
     compute_soft_bellman_target,
+    compute_soft_policy_loss,
     compute_temperature_loss,
     sample_next_actions,
-    update_soft_actor,
 )
 from ajax.agents.temperature import (
     SoftActorCriticState,
@@ -60,6 +60,7 @@ from ajax.agents.temperature import (
     create_alpha_train_state,
     get_alpha,
     keep_actor_then_update_temperature,
+    update_soft_actor,
 )
 from ajax.controller import leave_unchanged
 from ajax.extensions.base import merge_metrics
@@ -306,7 +307,7 @@ class TQC(
         residual policy's executed actions; also returns its sample's
         log-probs, which the temperature step reads."""
         agent_state, loss, log_probs, q_mean, metrics = update_soft_actor(
-            agent_state, batch, carries, context, jnp.mean
+            agent_state, batch, carries, context, compute_soft_policy_loss, jnp.mean
         )
         aux = PolicyAuxiliaries(
             policy_loss=loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()

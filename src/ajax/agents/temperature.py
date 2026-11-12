@@ -1,9 +1,10 @@
 """The entropy temperature alpha of a soft actor-critic (Haarnoja et al.,
 2018b), shared by every soft actor-critic: its state, its learning step
-towards a target entropy, the step kept after the actor's from their starts
-(keep_actor_then_update_temperature), and its logs. The temperature's loss
-is each agent's equation (SAC's, CrossQ's), which the step takes as an
-argument."""
+towards a target entropy, the actor's step whose log-probabilities it reads
+(update_soft_actor), the two steps kept from their starts
+(keep_actor_then_update_temperature), and its logs. The temperature's and
+the actor's losses are each agent's equations (SAC's, CrossQ's), which the
+steps take as arguments."""
 
 from typing import Any, Callable, TypeVar
 
@@ -40,6 +41,10 @@ class TemperatureAuxiliaries:
 #: temperature's loss, the log-probabilities summed over the action
 #: dimensions (SAC's compute_temperature_loss).
 TemperatureLoss = Callable[..., tuple[jax.Array, TemperatureAuxiliaries]]
+#: loss(actor_params, actor_state, critic_state, observations, alpha, key,
+#: carries, reduce_critics, map_actions) -> (loss, (log_probs, critic_values,
+#: policy)): a soft actor's loss (SAC's compute_soft_policy_loss).
+SoftPolicyLoss = Callable[..., tuple[jax.Array, tuple[jax.Array, jax.Array, Any]]]
 
 
 def create_alpha_train_state(
@@ -88,6 +93,58 @@ def update_temperature(
     grads, aux = compute_gradients(temperature_loss, agent_state.alpha.params)
     new_alpha_state = agent_state.alpha.apply_gradients(grads=grads)
     return agent_state.replace(alpha=new_alpha_state), jax.lax.stop_gradient(aux)
+
+
+def update_soft_actor(
+    agent_state: AgentState,
+    batch: Any,
+    carries: Any,
+    context: Any,
+    loss: SoftPolicyLoss,
+    reduce_critics: Callable[..., jax.Array],
+) -> tuple[AgentState, jax.Array, jax.Array, jax.Array, dict]:
+    """The actor's step down the agent's soft policy loss on the batch (a
+    Transition; carries, sequence replay's or None), the critics reduced over
+    the ensemble by reduce_critics (jnp.min or jnp.mean) and scoring the
+    actions they score (a residual policy's executed ones), plus the
+    extensions' actor-loss terms; context is the run's TrainContext.
+
+    Returns the state with the stepped actor, the loss before those terms,
+    the sample's log-probabilities, which the temperature's step reads, the
+    reduced critic values and the extensions' metrics. SAC's own step
+    differs: its temperature reads a fresh sample of the stepped actor."""
+    actor_key = update_steps.derive_actor_key(agent_state)
+    alpha = get_alpha(agent_state)
+    critic_state = agent_state.critic_state
+    scored = context.make_scored_actions(batch)
+
+    def actor_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
+        value, (log_probs, critic_values, policy) = loss(
+            params,
+            agent_state.actor_state,
+            critic_state,
+            batch.obs,
+            alpha,
+            actor_key,
+            carries,
+            reduce_critics,
+            scored.map_actions,
+        )
+        return value, (value, log_probs, critic_values), policy.mean()
+
+    actor_state, (value, log_probs, critic_values), _, metrics = (
+        update_steps.actor_step(
+            agent_state,
+            actor_loss,
+            context.extensions,
+            actor_key,
+            context.total_timesteps,
+            batch,
+            critic_state,
+        )
+    )
+    stepped = agent_state.replace(actor_state=actor_state)
+    return stepped, value, log_probs, critic_values, metrics
 
 
 def update_temperature_when_due(

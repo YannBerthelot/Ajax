@@ -72,8 +72,8 @@ from ajax.agents.reset_cost import (
 )
 from ajax.agents.SAC.SAC import (
     compute_alpha_temperature_loss,
+    compute_soft_policy_loss,
     sample_next_actions,
-    update_soft_actor,
 )
 from ajax.agents.temperature import (
     SoftActorCriticState,
@@ -81,6 +81,7 @@ from ajax.agents.temperature import (
     create_alpha_train_state,
     get_alpha,
     keep_actor_then_update_temperature,
+    update_soft_actor,
 )
 from ajax.controller import feature_width, policy_action_dim
 from ajax.environments.utils import get_state_action_shapes
@@ -350,7 +351,7 @@ class RVISAC(
         critics scoring a residual policy's executed actions; also returns
         its sample's log-probs (the temperature reads them)."""
         agent_state, loss, log_probs, q_min, metrics = update_soft_actor(
-            agent_state, batch, carries, context, jnp.min
+            agent_state, batch, carries, context, compute_soft_policy_loss, jnp.min
         )
         aux = PolicyAuxiliaries(
             policy_loss=loss, log_pi=log_probs.mean(), q_min=q_min.mean()

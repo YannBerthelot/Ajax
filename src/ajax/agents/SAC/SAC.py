@@ -430,55 +430,6 @@ class SAC(
     )
 
 
-# -- The soft actor step SAC's descendants take --------------------------------
-def update_soft_actor(
-    agent_state: Any,
-    batch: Transition,
-    carries: Optional[RecurrentCarries],
-    context: TrainContext,
-    reduce_critics: Callable[..., jax.Array],
-) -> tuple[Any, jax.Array, jax.Array, jax.Array, dict]:
-    """The actor's step down compute_soft_policy_loss, the critics reduced
-    over the ensemble by reduce_critics (jnp.min or jnp.mean) and scoring the
-    actions they score (a residual policy's executed ones), plus the
-    extensions' actor-loss terms.
-
-    Returns the state with the stepped actor, the loss before those terms,
-    the sample's log-probabilities, which the temperature's step reads, the
-    reduced critic values and the extensions' metrics. SAC's own step
-    differs: its temperature reads a fresh sample of the stepped actor."""
-    actor_key = update_steps.derive_actor_key(agent_state)
-    alpha = get_alpha(agent_state)
-    critic_state = agent_state.critic_state
-    scored = context.make_scored_actions(batch)
-
-    def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
-        loss, (log_probs, critic_values, policy) = compute_soft_policy_loss(
-            params,
-            agent_state.actor_state,
-            critic_state,
-            batch.obs,
-            alpha,
-            actor_key,
-            carries,
-            reduce_critics,
-            scored.map_actions,
-        )
-        return loss, (loss, log_probs, critic_values), policy.mean()
-
-    actor_state, (loss, log_probs, critic_values), _, metrics = update_steps.actor_step(
-        agent_state,
-        policy_loss,
-        context.extensions,
-        actor_key,
-        context.total_timesteps,
-        batch,
-        critic_state,
-    )
-    stepped = agent_state.replace(actor_state=actor_state)
-    return stepped, loss, log_probs, critic_values, metrics
-
-
 # -- SAC's equations, in the order update calls them --------------------------
 def sample_next_actions(
     actor_state: Any,

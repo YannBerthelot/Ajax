@@ -3022,6 +3022,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.wrappers.WarpCapacityWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        WarpCapacityWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.wrappers.NonFiniteStepWrapper" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4355,6 +4366,17 @@
     <span class="md-ellipsis">
       
         BatchRngWrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.wrappers.WarpCapacityWrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        WarpCapacityWrapper
       
     </span>
   </a>
@@ -6951,6 +6973,62 @@ which reverse mode can cross, at the cost of a reset per step.</p>
 assumes <code>rng</code> is already shape (n_envs, 2) so it can
 <code>jax.vmap(jax.random.split)(rng)</code>. Ajax callers pass a single unbatched
 key, so this adapter bridges the two conventions.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.wrappers.WarpCapacityWrapper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">WarpCapacityWrapper</span>
+
+
+<a href="#ajax.wrappers.WarpCapacityWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">WarpCapacityWrapper</span><span class="p">(</span><span class="n">env</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="BraxWrapper (ajax.wrappers.BraxWrapper)" href="#ajax.wrappers.BraxWrapper">BraxWrapper</a></code></p>
+
+
+
+        <p>Stops a run whose MuJoCo Warp physics ran out of room.</p>
+<p>MuJoCo Warp keeps one contact buffer for every world of a batch (all the
+seeds and envs stepped at once), sized when the task makes its data
+(<code>naconmax</code>), and room for <code>njmax</code> constraint rows in each world. A
+step needing more drops the rest, prints a warning and goes on with
+wrong physics: a body sinks through the floor. This raises instead,
+after each reset and step, from Warp's own counters, which describe the
+step's last physics substep. Goes directly over a raw Warp env.</p>
 
 
 

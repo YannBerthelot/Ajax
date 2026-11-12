@@ -3032,7 +3032,7 @@ the same machine's CPU, in <code>benchmarks/gpu/report.md</code>.</p>
 <p>The logging worker always runs on the CPU, so it never takes GPU memory.
 Playground runs MJX's pure-JAX physics on every device by default. On a GPU,
 MuJoCo Warp (<code>physics="warp"</code>, see <a href="../environments/">Environments</a>) trained
-six to seven times faster on an L40S, with 10 seeds of one environment each:</p>
+about five times faster on an L40S, with 10 seeds of one environment each:</p>
 <table>
 <thead>
 <tr>
@@ -3046,22 +3046,23 @@ six to seven times faster on an L40S, with 10 seeds of one environment each:</p>
 <tr>
 <td>SAC, <code>mujoco:Hopper-v5</code></td>
 <td style="text-align: right;">28</td>
-<td style="text-align: right;">32</td>
-<td style="text-align: right;">189</td>
+<td style="text-align: right;">38</td>
+<td style="text-align: right;">181</td>
 </tr>
 <tr>
 <td>PPO, <code>mujoco:HalfCheetah-v5</code></td>
 <td style="text-align: right;">84</td>
-<td style="text-align: right;">85</td>
-<td style="text-align: right;">578</td>
+<td style="text-align: right;">102</td>
+<td style="text-align: right;">569</td>
 </tr>
 </tbody>
 </table>
 <p>These are steps per second per seed, from timing runs without evaluations.
-With 100 seeds, SAC on Warp ran 82 steps per second per seed, 8,200 in all.
-The command buffers are <code>XLA_FLAGS="--xla_gpu_enable_command_buffer=FUSION,CUBLAS,CUBLASLT,CUSTOM_CALL,CUDNN,WHILE,CONDITIONAL --xla_gpu_graph_min_graph_size=1"</code>.
-Leave them off with Warp: they slowed its PPO run to 173 steps per second
-per seed, with or without <code>CUSTOM_CALL</code>.</p>
+With 100 seeds, SAC on Warp ran 80 steps per second per seed, 8,000 in all.
+The command buffers are <code>XLA_FLAGS="--xla_gpu_enable_command_buffer=FUSION,CUBLAS,CUBLASLT,CUSTOM_CALL,CUDNN,WHILE,CONDITIONAL --xla_gpu_graph_min_graph_size=1 --xla_gpu_command_buffer_unroll_loops=true"</code>;
+without the last flag they gave pure JAX 32 and 85.
+Leave command buffers off with Warp: without the last flag they slowed its
+PPO run to 173 steps per second per seed, with or without <code>CUSTOM_CALL</code>.</p>
 <p>A GPU doesn't promise the same result twice by default: two identical PPO runs
 on HumanoidWalk differed. <code>XLA_FLAGS=--xla_gpu_deterministic_ops=true</code> made
 repeated and resumed runs match exactly on CheetahRun and HumanoidWalk. At 10

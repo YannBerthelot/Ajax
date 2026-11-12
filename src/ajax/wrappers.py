@@ -911,7 +911,9 @@ class FreshAutoResetWrapper(BraxWrapper):
     reset (computed only on such steps, see :func:`_call_if_any`) and gives
     each done env, from it:
 
-    * ``data`` (a brax state's ``pipeline_state``) and ``obs``;
+    * ``data`` (a brax state's ``pipeline_state``) and ``obs``, but for the
+      arrays the physics keeps for the whole batch of envs (MuJoCo Warp's
+      contact buffer and counters), which belong to no env and pass through;
     * the ``info`` entries produced by the base environment's own ``reset``,
       i.e. its per-episode state (its rng, task targets, ...).
 
@@ -939,10 +941,14 @@ class FreshAutoResetWrapper(BraxWrapper):
         self.episode_keys = episode_keys
 
     @cached_property
+    def _base_reset(self) -> Any:
+        """The base environment's own reset of one env (shape-only)."""
+        return jax.eval_shape(self.unwrapped.reset, jax.random.PRNGKey(0))
+
+    @cached_property
     def _episode_info_keys(self) -> Tuple[str, ...]:
-        """``info`` keys of the base environment's own reset (shape-only)."""
-        base_reset = jax.eval_shape(self.unwrapped.reset, jax.random.PRNGKey(0))
-        return tuple(base_reset.info)
+        """``info`` keys of the base environment's own reset."""
+        return tuple(self._base_reset.info)
 
     def reset(self, rng: jax.Array):
         """``rng``: one key per env, shape ``(n_envs, 2)``."""
@@ -994,8 +1000,23 @@ class FreshAutoResetWrapper(BraxWrapper):
 
         for name in self._episode_info_keys:
             info[name] = jax.tree.map(where_done, fresh.info[name], info[name])
+
+        def where_done_per_env(new, old, one_env):
+            # MuJoCo Warp keeps its contact buffer and counters for the whole
+            # batch of envs, not one per env: such an array has the rank it
+            # has for one env. The next step recomputes them before reading
+            # them, so the stepped state's pass through.
+            if old.ndim == one_env.ndim:
+                return old
+            return where_done(new, old)
+
         field = "data" if hasattr(state, "data") else "pipeline_state"  # brax's
-        physics = jax.tree.map(where_done, getattr(fresh, field), getattr(state, field))
+        physics = jax.tree.map(
+            where_done_per_env,
+            getattr(fresh, field),
+            getattr(state, field),
+            getattr(self._base_reset, field),
+        )
         return state.replace(
             obs=jax.tree.map(where_done, fresh.obs, state.obs),
             info=info,

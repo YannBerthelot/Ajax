@@ -5,6 +5,7 @@ from types import ModuleType
 from typing import Any, Callable, Optional, Tuple, Union
 
 import gymnax
+import jax
 from gymnax import EnvParams
 
 from ajax.environments.utils import (
@@ -303,6 +304,26 @@ def _build_brax_env(
     return env
 
 
+def _check_warp_physics(differentiable_reset: bool = False) -> None:
+    """Refuse MuJoCo Warp physics where it cannot run: without a GPU (its
+    kernels are CUDA only; on a CPU MJX fails with "Unknown backend cuda"),
+    and with gradients through the physics, for which MJX gives its Warp
+    kernels no rule."""
+    backend = jax.default_backend()
+    if backend != "gpu":
+        raise ValueError(
+            "physics='warp' runs MuJoCo Warp, which needs an NVIDIA GPU, and"
+            f" JAX runs on {backend!r} here. physics='jax' runs the same"
+            " tasks on any device."
+        )
+    if differentiable_reset:
+        raise ValueError(
+            "differentiable_reset=True is for gradients through the reset,"
+            " and MuJoCo Warp cannot be differentiated through. Use"
+            " physics='jax'."
+        )
+
+
 def build_env_from_id(
     env_id: str,
     n_envs: int = 1,
@@ -361,15 +382,18 @@ def build_env_from_id(
     auto-reset, which reproduces runs from before episode keys.
     playground's cached auto-reset (``fresh_reset=False``) ignores it.
 
-    ``physics`` only concerns mujoco_playground envs: ``"jax"`` (the default,
-    on a CPU or a GPU) is MJX's pure-JAX implementation, so that a run's
-    physics does not depend on the device; ``"warp"`` is Playground's own
-    default, which needs a GPU and which Ajax's training loop does not run on
-    yet.
+    ``physics`` only concerns mujoco_playground envs, ``"mujoco:"`` ones
+    included: ``"jax"`` (the default, on a CPU or a GPU) is MJX's pure-JAX
+    implementation, so that a run's physics does not depend on the device;
+    ``"warp"`` is MuJoCo Warp, Playground's own default, which needs an
+    NVIDIA GPU and cannot be differentiated through, so it refuses
+    ``differentiable_reset=True``.
     """
     check_action_repeat(action_repeat)
     if physics not in PLAYGROUND_PHYSICS:
         raise ValueError(f"physics={physics!r}: expected one of {PLAYGROUND_PHYSICS}.")
+    if physics == "warp":
+        _check_warp_physics(differentiable_reset)
     if env_id.startswith(MUJOCO_PREFIX):
         from ajax.environments.mujoco.tasks import TASKS
 

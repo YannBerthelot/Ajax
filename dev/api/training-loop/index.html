@@ -3203,17 +3203,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#ajax.state.BaseAgentConfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        BaseAgentConfig
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#ajax.state.NetworkConfig" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4237,17 +4226,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#ajax.state.BaseAgentConfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        BaseAgentConfig
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#ajax.state.NetworkConfig" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4793,10 +4771,12 @@ comes past the horizon.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Which absolute ticks (a NumPy array) :meth:<code>evaluate_and_log</code>'s
-gate opens after, each tick taking <code>steps_per_tick</code> steps from
-timestep 0: those whose steps reach a multiple of <code>log_frequency</code>.
-The gate itself still decides (the horizon, a sweep's last fifth).</p>
+        <p>Which ticks of this call (a NumPy array) evaluate_and_log's gate
+opens after, each tick taking steps_per_tick steps from the call's
+start_timestep: those whose steps reach a multiple of log_frequency.
+The gate itself still decides (the horizon, a sweep's last fifth).
+The ticks count from the call's first, as the families planning with
+it number them (their resume_iteration_offset is 0).</p>
 
 
     </div>
@@ -6525,52 +6505,6 @@ the state returned.</p>
     </div>
 
 </div>
-
-
-
-  </div>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-class">
-
-
-
-<h3 id="ajax.state.BaseAgentConfig" class="doc doc-heading">
-            <span class="doc doc-object-name doc-class-name">ajax.state.BaseAgentConfig</span>
-
-
-<a href="#ajax.state.BaseAgentConfig" class="headerlink" title="Permanent link">&para;</a></h3>
-
-
-    <div class="doc doc-contents first">
-            <p class="doc doc-class-bases">
-              Bases: <code><span title="ajax.types.Replaceable">Replaceable</span></code></p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
 
 
 

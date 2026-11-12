@@ -149,7 +149,14 @@ class LinearReferenceModel:
         so the desired trajectory starts where the plant starts. Solves
         ``C x = y0 - D r0`` in the least-squares sense.
         """
-        return jnp.linalg.pinv(self.C) @ (y0 - self.D @ r0)
+        # A model built from concrete matrices has a constant pseudo-inverse:
+        # computed once while tracing, not as an SVD on every env step (the
+        # tracking wrapper prepares a fresh task on each step), which took
+        # about two thirds of an APG rollout's env time on a GPU. A traced C
+        # (a vmap or a gradient over models) is inverted in the program.
+        with jax.ensure_compile_time_eval():
+            c_pseudo_inverse = jnp.linalg.pinv(self.C)
+        return c_pseudo_inverse @ (y0 - self.D @ r0)
 
     def step(self, x: jax.Array, r: jax.Array) -> jax.Array:
         return self.A @ x + self.B @ r

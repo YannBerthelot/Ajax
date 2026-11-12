@@ -835,9 +835,9 @@ class ReplayAgent(DeclaredAgent):
         alpha_update_start; SAC's 2,000 under its 10,000 learning_starts) is
         over at every update, so its gate, a lax.cond in every update, goes.
         A copy, as before_env_steps's."""
-        agent: Any = copy.copy(self)
-        agent.first_update_timestep = self.update_start()
-        return agent
+        online: Any = copy.copy(self)
+        online.first_update_timestep = self.update_start()
+        return online
 
     def _build_family(self) -> None:
         self.buffer = self.make_replay_buffer()

@@ -358,7 +358,7 @@ def compute_summed_critic_loss(
     return loss, loss
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class IQLState(BaseAgentState):
     """IQL's actor, twin Q critic (with its target), and state-value network."""

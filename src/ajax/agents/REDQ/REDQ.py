@@ -543,7 +543,7 @@ def q_ensemble_divergence(q_preds: jax.Array) -> tuple[jax.Array, jax.Array]:
     return ensemble_std, mean_pairwise
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class REDQState(SoftActorCriticState):
     """REDQ's state: a soft actor-critic's, nothing more."""

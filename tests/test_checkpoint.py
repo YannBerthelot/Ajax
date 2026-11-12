@@ -45,6 +45,30 @@ def test_save_and_load_simple_pytree(tmp_path):
     assert jnp.allclose(loaded["b"]["d"], state["b"]["d"])
 
 
+def test_an_array_restores_into_the_memory_its_skeleton_keeps_it_in(tmp_path):
+    """A leaf the skeleton holds in pinned host memory (DreamerV3's replay
+    latents under replay_on_host) is restored there, with its values; a
+    device leaf stays on the device. Restoring to the default device would
+    stage the 8 GB-per-seed ring on an accelerator the option keeps it off."""
+    host = jax.sharding.SingleDeviceSharding(
+        jax.devices()[0], memory_kind="pinned_host"
+    )
+    state = {"ring": jnp.arange(6.0).reshape(2, 3), "count": jnp.array(3)}
+    path = str(tmp_path / "ckpt.pkl")
+    save_checkpoint(state, path)
+    skeleton = {
+        "ring": jax.device_put(np.zeros((2, 3), np.float32), host),
+        "count": jnp.array(0),
+    }
+    loaded = restore_into(skeleton, path)
+    assert loaded["ring"].sharding.memory_kind == "pinned_host"
+    assert (
+        loaded["count"].sharding.memory_kind == skeleton["count"].sharding.memory_kind
+    )
+    np.testing.assert_array_equal(loaded["ring"], np.arange(6.0).reshape(2, 3))
+    np.testing.assert_array_equal(loaded["count"], 3)
+
+
 def test_save_overwrites_existing(tmp_path):
     path = str(tmp_path / "ckpt.pkl")
     save_checkpoint({"x": jnp.array(1.0)}, path)

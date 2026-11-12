@@ -223,11 +223,9 @@ class DreamerV3(OwnReplayAgent):
         elif self.replay_rows_per_env is not None:
             rows = self.replay_rows_per_env
         if agent_state is not None:
-            agent_state = agent_state.replace(
-                replay_state=place_latents(
-                    agent_state.replay_state, self.replay_on_host
-                )
-            )
+            placed = place_latents(agent_state.replay_state, self.replay_on_host)
+            if placed is not agent_state.replay_state:
+                agent_state = agent_state.replace(replay_state=placed)
         replay = StreamReplay(
             n_envs=self.n_envs,
             capacity=rows,

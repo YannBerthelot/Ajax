@@ -150,6 +150,7 @@ def redraw_c(key, state, params):
 
 
 ROWS = {
+    W.BinaryObservations: lambda: W.BinaryObservations(IdentityEnv()),
     W.FlattenObservationWrapper: lambda: W.FlattenObservationWrapper(IdentityEnv()),
     W.ClipAction: lambda: W.ClipAction(IdentityEnv()),
     W.InitialStateWrapper: lambda: W.InitialStateWrapper(IdentityEnv(), redraw_c),

@@ -228,9 +228,11 @@ def stored_observation_dtype(env_args: EnvironmentConfig) -> Any:
     if not check_env_is_gymnax(env):
         return jnp.float32
     # Read at trace time: a space's bounds may be arrays (Pendulum's), whose
-    # operations would otherwise join the training program, unused.
+    # operations would otherwise join the training program, unused. Its
+    # dtype does not depend on the params: the env's defaults, as
+    # get_state_action_shapes reads its shape (env_args may hold none).
     with jax.ensure_compile_time_eval():
-        space = env.observation_space(env_args.env_params)
+        space = env.observation_space(env.default_params)
     if jnp.dtype(space.dtype) == jnp.bool_:
         return jnp.bool_
     return jnp.float32

@@ -422,11 +422,13 @@ class StreamReplay:
         slots = jnp.where(overwritten, past_end.reshape(batch, length), slots)
 
         def write(ring: jax.Array, values: jax.Array) -> jax.Array:
-            values = values.reshape(batch * length, -1).astype(ring.dtype)
             if is_on_host(ring):
+                values = values.reshape(batch * length, -1).astype(ring.dtype)
                 return _host_scatter(ring, envs.reshape(-1), slots.reshape(-1), values)
             return ring.at[envs.reshape(-1), slots.reshape(-1)].set(
-                values, mode="drop", unique_indices=True
+                values.reshape(batch * length, -1).astype(ring.dtype),
+                mode="drop",
+                unique_indices=True,
             )
 
         return state.replace(

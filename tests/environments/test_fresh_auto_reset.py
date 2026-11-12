@@ -196,6 +196,52 @@ def test_a_step_where_no_episode_ends_runs_no_reset_by_default():
     assert len(env.resets) == 1
 
 
+#: Rows of _BatchBufferEnv's buffer, not N_ENVS, so that merging it env by env
+#: cannot line up.
+BUFFER_ROWS = 5
+
+
+class _BatchBufferEnv:
+    """A batched env laid out as MuJoCo Warp lays out its physics: a position
+    per env, and a contact buffer for the whole batch of envs, with the same
+    shape for one env as for many. A reset puts the positions at 0 and the
+    buffer at -1; a step moves every position by 1, writes the step's own
+    value (7) into the buffer, and ends the episodes whose action is
+    positive."""
+
+    def __init__(self) -> None:
+        self.unwrapped = self
+
+    def reset(self, keys):
+        positions = jnp.zeros(keys.shape[:-1])
+        data = {"position": positions, "contacts": jnp.full(BUFFER_ROWS, -1.0)}
+        return _EndlessState(positions, positions, data, {})
+
+    def step(self, state, action):
+        position = state.data["position"] + 1
+        data = {"position": position, "contacts": jnp.full(BUFFER_ROWS, 7.0)}
+        return state.replace(obs=position, done=action > 0, data=data)
+
+
+def test_an_array_kept_for_the_whole_batch_passes_through_the_reset():
+    """Catches merging MuJoCo Warp's contact buffer env by env, which made
+    every agent fail on Warp physics: the buffer belongs to no env, so the
+    step's passes through, while the env whose episode ended restarts at the
+    reset's position and the other keeps its own. Vmapped over seeds, as
+    agents run."""
+    wrapper = FreshAutoResetWrapper(_BatchBufferEnv())
+    keys = jax.random.split(jax.random.PRNGKey(0), (2, N_ENVS))
+    ends_first_episode = jnp.array([1.0, 0.0])
+
+    def first_step(keys):
+        return wrapper.step(wrapper.reset(keys), ends_first_episode)
+
+    state = jax.jit(jax.vmap(first_step))(keys)
+
+    np.testing.assert_array_equal(state.data["position"], [[0.0, 1.0]] * 2)
+    np.testing.assert_array_equal(state.data["contacts"], np.full((2, 5), 7.0))
+
+
 def _fn(keys):
     """Deterministic in ``keys``; returns a pytree to exercise the zeros."""
     return {"a": keys.astype(jnp.float32).sum(-1), "b": jnp.ones(keys.shape[0])}

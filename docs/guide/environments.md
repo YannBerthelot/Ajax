@@ -45,9 +45,8 @@ Every agent takes `episode_length` and `action_repeat` for an environment
 built from a Brax or Playground id. `episode_length` counts simulator steps,
 1,000 by default; gymnax environments keep their own time limit, set in
 their parameters (below). Playground environments run MJX's pure-JAX
-implementation, on a CPU or a GPU. `build_env_from_id(..., physics="warp")`
-selects Warp, Playground's own default, which needs a GPU and which Ajax's
-training loop does not run on yet.
+implementation, on a CPU or a GPU. On an NVIDIA GPU they can run on MuJoCo
+Warp instead (below).
 
 Playground draws a new initial state for every episode (`fresh_reset=True`),
 as dm_control does. Runs made before this became the default restarted every
@@ -80,6 +79,32 @@ Results are the same up to floating-point rounding; training ran 8 to 15%
 slower on a CPU. A single seed compiles without it. The same happens on a GPU, where
 the workaround does not combine with `--xla_gpu_deterministic_ops=true`:
 such runs compile only without deterministic operations.
+
+### MuJoCo Warp on a GPU
+
+On an NVIDIA GPU, Playground tasks and the `"mujoco:"` tasks (below) can run
+on MuJoCo Warp, Playground's own default, instead of MJX's pure-JAX physics.
+On an L40S, SAC and PPO trained six to seven times faster on it
+([Performance](performance.md)). Build the environment with
+`physics="warp"` and pass it to the agent with the same `n_envs`; evaluation
+runs on the same physics:
+
+```python
+# doc: skip (needs an NVIDIA GPU and the playground extra)
+from ajax import SAC
+from ajax.environments.create import build_env_from_id
+
+env, _ = build_env_from_id("mujoco:Hopper-v5", n_envs=4, physics="warp")
+agent = SAC(env, n_envs=4)
+```
+
+The two physics do not give the same runs. After 15 steps from the same
+state, on `mujoco:Hopper-v5` both stayed within 2e-6 of C MuJoCo's joint
+positions; on `mujoco:Walker2d-v5`, Warp stayed within 2e-6 and pure JAX
+moved 1.3e-3 away.
+
+Warp runs only on an NVIDIA GPU, and nothing can be differentiated through
+it: it refuses a CPU, `differentiable_reset=True` and APG.
 
 ### Gymnasium's MuJoCo tasks in JAX
 

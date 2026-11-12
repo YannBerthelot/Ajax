@@ -17,7 +17,6 @@ import optax
 
 from ajax.extensions.base import ExtensionStack, merge_metrics
 from ajax.log import unevaluated
-from ajax.perf_utils import final_aux_scan
 from ajax.random_keys import EXTENSIONS_KEY_TAG, derive_key, fold_index
 
 #: The keys of the extensions' batches the shared steps below build, which
@@ -100,19 +99,30 @@ def derive_actor_key(agent_state: Any) -> jax.Array:
 def scan_on_indexed_keys(
     step: Callable[[Any, Any], tuple[Any, Any]], agent_state: Any, length: int
 ) -> tuple[Any, Any]:
-    """final_aux_scan of step(agent_state, None) -> (agent_state, aux) over
-    length steps, the i-th on the updates' stream restarted from one of its
-    keys folded with i; then the stream goes on after that one key. It
+    """length steps of step(agent_state, None) -> (agent_state, aux) and the
+    last one's aux, the i-th step on the updates' stream restarted from one
+    of its keys folded with i; then the stream goes on after that one key. It
     advances once whatever the length, so a count of steps (SAC's and REDQ's
     critic updates, DQN's gradient steps) moves no later draw."""
+    if length < 1:
+        raise ValueError(f"A count of steps is at least 1, got {length}.")
     steps_key, agent_state = agent_state.get_keys_and_new_state()
+    indices = jnp.arange(length)
 
     def step_on_its_key(state: Any, index: jax.Array) -> tuple[Any, Any]:
         return step(state.replace(rng=fold_index(steps_key, index)), None)
 
-    stepped, aux = final_aux_scan(
-        step_on_its_key, agent_state, length=length, xs=jnp.arange(length)
-    )
+    def step_keeping_no_aux(state: Any, index: jax.Array) -> tuple[Any, None]:
+        return step_on_its_key(state, index)[0], None
+
+    # The steps before the last keep no aux, so XLA computes none of it in
+    # the loop: their logs, and what REDQ keeps of each step (its critics
+    # before it, a copy of every parameter per step). The last step runs
+    # alone, once more in the program.
+    state = agent_state
+    if length > 1:
+        state, _ = jax.lax.scan(step_keeping_no_aux, state, indices[:-1])
+    stepped, aux = step_on_its_key(state, indices[-1])
     return stepped.replace(rng=agent_state.rng), aux
 
 

@@ -87,3 +87,33 @@ def test_the_temperature_is_kept_from_alpha_update_start(cls: type) -> None:
     assert _same(waiting.alpha.params, untrained.alpha.params)
     assert not _same(waiting.actor_state.params, untrained.actor_state.params)
     assert not _same(_train(cls).alpha.params, untrained.alpha.params)
+
+
+def test_offline_the_actor_waits_its_start_whatever_learning_starts() -> None:
+    """Offline (train_offline) every tick updates and the timestep counts
+    the updates, so a policy_update_start waits that many updates, even one
+    under learning_starts: online, such a start is over at every update and
+    its gate goes (ReplayAgent.from_update_start). The bug: that folding
+    reaching train_offline, whose actor would then step from its first
+    update."""
+    from ajax.buffers import dataset as ds
+    from tests.environments.identity_env import IdentityEnv
+
+    def offline_actor(policy_update_start: int) -> list:
+        agent = SAC(
+            IdentityEnv(discrete=False),
+            n_envs=1,
+            buffer_size=64,
+            batch_size=8,
+            learning_starts=100,
+            policy_update_start=policy_update_start,
+            alpha_update_start=0,
+            **NETS[SAC],
+        )
+        rows = ds.record(lambda o: o[1:], agent.env_args, jax.random.PRNGKey(0), 24)
+        state = agent.train_offline(rows, n_updates=8, seed=0)[0]
+        return jax.tree.leaves(state.actor_state.params)
+
+    never = offline_actor(10**6)
+    assert _same(offline_actor(50), never)
+    assert not _same(offline_actor(0), never)

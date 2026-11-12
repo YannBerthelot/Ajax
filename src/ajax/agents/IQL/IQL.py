@@ -219,6 +219,7 @@ class IQL(
             self.policy_update_due(agent_state.collector_state.timestep),
             step_actor,
             agent_state,
+            keep=self.keeps_actor_metrics(),
         )
         target, next_values = compute_bellman_target(
             value_state, batch, self.gamma, self.reward_scale

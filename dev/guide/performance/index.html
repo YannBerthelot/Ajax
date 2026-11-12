@@ -2843,8 +2843,9 @@ measurement is described in full. They belong to the machine they were
 measured on: use them for orders of magnitude, not as promises. They are
 CPU measurements unless a line says otherwise.</p>
 <h2 id="the-compile-cache">The compile cache<a class="headerlink" href="#the-compile-cache" title="Permanent link">&para;</a></h2>
-<p><code>train</code> compiles the whole run, environment included, into one program.
-That takes seconds to tens of seconds, and a fresh Python process would pay
+<p><code>train</code> compiles the whole run, environment included. With logging, the
+training between evaluations and the evaluation are separate programs. That
+takes seconds to tens of seconds, and a fresh Python process would pay
 it every time. So <code>import ajax</code> points JAX's persistent compile cache at
 <code>~/.cache/ajax/jax_compile_cache</code>: a later process that compiles the same
 program loads it from disk instead.</p>

@@ -2480,6 +2480,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.loop.Evaluation.ticks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ticks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.loop.Evaluation.count" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2578,6 +2589,17 @@
     <span class="md-ellipsis">
       
         evaluations_until
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.loop.TrainLoop.logging_ticks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        logging_ticks
       
     </span>
   </a>
@@ -3031,10 +3053,32 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#ajax.perf_utils.start_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        start_state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.perf_utils.build_resumable_train" class="md-nav__link">
     <span class="md-ellipsis">
       
         build_resumable_train
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.perf_utils.build_chunked_train" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_chunked_train
       
     </span>
   </a>
@@ -3470,6 +3514,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.loop.Evaluation.ticks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ticks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.loop.Evaluation.count" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3568,6 +3623,17 @@
     <span class="md-ellipsis">
       
         evaluations_until
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.loop.TrainLoop.logging_ticks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        logging_ticks
       
     </span>
   </a>
@@ -4021,10 +4087,32 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#ajax.perf_utils.start_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        start_state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.perf_utils.build_resumable_train" class="md-nav__link">
     <span class="md-ellipsis">
       
         build_resumable_train
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.perf_utils.build_chunked_train" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_chunked_train
       
     </span>
   </a>
@@ -4290,16 +4378,20 @@ iterate:    state, aux = update(state, None)   # no environment step
             apply the extensions&#39; post_update
             evaluate and log every log_frequency updates
 </code></pre></div>
-<p>The result is :func:<code>ajax.perf_utils.build_resumable_train</code>'s jitted
-<code>train(key, index, initial_state, resume_from_state)</code>, which
-:meth:<code>ajax.agents.base.ActorCritic.train</code> vmaps over seeds. It returns
-<code>(state, None)</code> without a logging config, the evaluation not even traced
+<p>The result is <code>train(key, index, initial_state, resume_from_state)</code>,
+which :meth:<code>ajax.agents.base.ActorCritic.train</code> vmaps over seeds. Without a
+logging config it is :func:<code>ajax.perf_utils.build_resumable_train</code>'s one
+jitted scan and returns <code>(state, None)</code>, the evaluation not even traced
 (tracing alone rebuilds the evaluation env). With one it evaluates every
 <code>log_frequency</code> steps, whether or not a backend (W&amp;B, TensorBoard) records
 the logs, and returns <code>(state, evaluations)</code>: every logged key's values at
 the evaluations, in order, padded to the most a call makes with -1 (integer
-leaves, the timestep) and NaN. They are written into rows the scan carries,
-not stacked per iteration, which would cost <code>seeds x iterations</code> memory.</p>
+leaves, the timestep) and NaN. It then trains in chunks, the ticks up to the
+next evaluation, each a jitted scan, and evaluates between them in a program
+of its own (:func:<code>ajax.perf_utils.build_chunked_train</code>), as Brax does: an
+evaluation inside the training program slows every tick of it. The ticks
+that evaluate are known before the run, from the steps each tick takes, so
+the evaluations come on the ticks and states they would in one scan.</p>
 
 
 
@@ -4393,6 +4485,26 @@ when it has one and the extensions' <code>eval_metrics</code>;
     <div class="doc doc-contents ">
 
         <p>Whether tick <code>tick</code> evaluates; <code>None</code> when none does.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.agents.loop.Evaluation.ticks" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">ticks</span>
+
+
+<a href="#ajax.agents.loop.Evaluation.ticks" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">ticks</span><span class="p">(</span><span class="n">ticks</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>:meth:<code>due</code> over a NumPy array of absolute ticks.</p>
 
 
     </div>
@@ -4670,6 +4782,29 @@ comes past the horizon.</p>
 <div class="doc doc-object doc-function">
 
 
+<h4 id="ajax.agents.loop.TrainLoop.logging_ticks" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">logging_ticks</span>
+
+
+<a href="#ajax.agents.loop.TrainLoop.logging_ticks" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">logging_ticks</span><span class="p">(</span><span class="n">steps_per_tick</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Which absolute ticks (a NumPy array) :meth:<code>evaluate_and_log</code>'s
+gate opens after, each tick taking <code>steps_per_tick</code> steps from
+timestep 0: those whose steps reach a multiple of <code>log_frequency</code>.
+The gate itself still decides (the horizon, a sweep's last fifth).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h4 id="ajax.agents.loop.TrainLoop.collect_kwargs" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">collect_kwargs</span>
 
@@ -4857,15 +4992,20 @@ run's horizon (a fresh state is built with it).</p>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">one_update</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">resume</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">returns_iterations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="p">)</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">log</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">due</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p>The resumable train function: init (fresh runs only), then
-num_updates scan iterations iteration(agent_state, index, tick),
-recording the evaluations when logging (see the module docstring):
-n_evaluations rows, or evaluations.</p>
+num_updates ticks iteration(agent_state, index, tick) -&gt; (agent_state,
+aux). Logging, log(agent_state, aux, index, tick) evaluates after
+each tick due(ticks) marks (a NumPy array of absolute ticks to bools),
+between chunks of ticks (build_chunked_train), and the evaluations
+are recorded (see the module docstring): n_evaluations rows, or
+evaluations.</p>
 <p>last_rollout, a (length, collect_kwargs) pair, pre-allocates
 agent_state.last_rollout for an agent exposing its rollouts.
 The extensions' pretraining gets the env, update and the replay
@@ -4874,8 +5014,9 @@ one_update, a state to the state after one update, is given by an
 update keeping its actor's last metrics: a fresh or resumed state gets
 their slot (with_actor_metrics_slot). resume transforms a resumed
 state after continued (APG rebuilds its optimiser). With
-returns_iterations the train function returns every iteration's
-output, stacked, logging or not, instead of the rows.</p>
+returns_iterations, iteration evaluates itself and the train
+function returns every iteration's output, stacked, logging or not,
+instead of the rows.</p>
 
 
     </div>
@@ -5831,6 +5972,35 @@ written once so a fix lands in one place instead of in every agent's
 <div class="doc doc-object doc-function">
 
 
+<h3 id="ajax.perf_utils.start_state" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">start_state</span>
+
+
+<a href="#ajax.perf_utils.start_state" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">start_state</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">init_fn</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">resume_transform</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">key</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">index</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">initial_state</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">resume_from_state</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>A train call's first state: <code>init_fn(key, index)</code> on a fresh run;
+on a resumed one, the state passed in, through <code>resume_transform</code> when
+given.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="ajax.perf_utils.build_resumable_train" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">build_resumable_train</span>
 
@@ -5996,6 +6166,54 @@ and <code>train</code> returns the final <code>(agent_state, out)</code>.</p>
           </tr>
       </tbody>
     </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.perf_utils.build_chunked_train" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">build_chunked_train</span>
+
+
+<a href="#ajax.perf_utils.build_chunked_train" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">build_chunked_train</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">init_fn</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">tick_fn</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">log_fn</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">due</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">num_updates</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">carry_out</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">resume_transform</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>:func:<code>build_resumable_train</code>'s train with the evaluations between
+chunks of ticks, as Brax trains: the ticks up to the next one that
+evaluates are one jitted scan of <code>tick_fn</code>, and <code>log_fn</code> runs on the
+state the chunk ends with, as a program of its own. The training program
+then holds no evaluation, which slowed every tick of it (about 4% for SAC
+on MuJoCo Warp, evaluations aside); the states, and so the evaluations,
+are those of one scan.</p>
+<p><code>tick_fn(agent_state, index, tick) -&gt; (agent_state, aux)</code> is one tick,
+<code>tick</code> its absolute, unbatched index. <code>log_fn(agent_state, aux, out,
+index, tick) -&gt; (agent_state, out)</code> evaluates after tick <code>tick</code>,
+reading the tick's <code>aux</code>, and writes into <code>out</code>, which starts as
+<code>carry_out(agent_state, index)</code>. <code>due(ticks)</code>, of a NumPy array of
+absolute ticks, marks those after which <code>log_fn</code> runs: it must be known
+before the run, so the chunks are. Each chunk length compiles once; they
+are one or two when the evaluations come every so many ticks or steps.</p>
+<p>The train function has build_resumable_train's signature but <code>shared</code>,
+and returns <code>(agent_state, out)</code>. It is a Python loop over jitted
+programs: vmap it over the seeds or call it per seed, as
+<code>ActorCritic.train</code> does. Jitting it whole would put every chunk into
+one program, and it reads <code>iteration_offset</code> as a number.</p>
 
 
     </div>

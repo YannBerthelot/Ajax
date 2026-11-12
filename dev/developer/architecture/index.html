@@ -3056,13 +3056,14 @@ follow <a href="../contributing/">Contributing</a> and
 <a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>├── logging/             LoggingConfig; the W&amp;B and TensorBoard worker
 <a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>├── log.py, evaluate.py  when to evaluate and log; the evaluation episodes
 <a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>├── controller.py      what a step acts on (ActingState) and how the agent acts beyond its actor (Controller)
-<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>├── perf_utils.py        build_resumable_train: init or resume, then one jitted scan
-<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>├── state.py             BaseAgentState, CollectorState and the configuration dataclasses
-<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>├── checkpoint.py        save_checkpoint, restore_into
-<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>├── wrappers.py          env wrappers: normalisation, action clip, auto-reset, observation noise
-<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>├── schedule.py          a warm-up and cosine learning-rate schedule
-<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>├── distributional.py, normalizers.py   symlog, two-hot and return scales (DreamerV3, TD-MPC2)
-<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>└── _compile_cache.py    the persistent JAX compile cache
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>├── perf_utils.py        build_resumable_train: init or resume, then one jitted scan;
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>│                        build_chunked_train: the same in chunks, evaluating between them
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>├── state.py             BaseAgentState, CollectorState and the configuration dataclasses
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>├── checkpoint.py        save_checkpoint, restore_into
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>├── wrappers.py          env wrappers: normalisation, action clip, auto-reset, observation noise
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>├── schedule.py          a warm-up and cosine learning-rate schedule
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>├── distributional.py, normalizers.py   symlog, two-hot and return scales (DreamerV3, TD-MPC2)
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>└── _compile_cache.py    the persistent JAX compile cache
 </code></pre></div>
 <p>A declared agent (every agent but the offline <code>TDMPC2MultiTask</code>) is one file,
 <code>&lt;AGENT&gt;/&lt;AGENT&gt;.py</code>: its hyperparameters as dataclass fields, its <code>init</code>,
@@ -3191,9 +3192,10 @@ once no downstream project used them rather than kept as aliases.</p>
 <a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>  │         ├─ TrainLoop.create(...)              budget, extensions, logging
 <a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>  │         └─ loop.off_policy(init, update, ...) or loop.on_policy(...)
 <a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>  │              └─ build_resumable_train(...)    jitted train(key, index, initial_state, ...)
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>  ├─ jax.vmap over seeds                          one program, every seed
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>  └─ block_until_ready, stop the logging worker
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>returns (state, evaluations)                      every leaf has a leading seed axis
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>  │                 or build_chunked_train(...)   with logging: chunks of ticks, evaluations between
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>  ├─ jax.vmap over seeds                          one program, every seed
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>  └─ block_until_ready, stop the logging worker
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>returns (state, evaluations)                      every leaf has a leading seed axis
 </code></pre></div>
 <p><code>ActorCritic</code> in <a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/agents/base.py"><code>agents/base.py</code></a> does the
 work every agent needs at construction. It builds the environment
@@ -3513,10 +3515,21 @@ own draws.</p>
   APG returns its per-update metrics in place of <code>None</code>.</li>
 <li><strong>A <code>LoggingConfig</code>:</strong> the run evaluates whether or not a backend records
   it, and returns <code>(state, evaluations)</code>: every logged key's values per seed
-  and evaluation. The values are written into rows the scan carries, not
+  and evaluation. The values are written into rows the loop carries, not
   stacked per iteration, which would cost <code>seeds x iterations</code> memory. Rows
   a call does not fill hold -1 (the timestep) or NaN.</li>
 </ul>
+<p>With a <code>LoggingConfig</code> the run trains in chunks
+(<a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/perf_utils.py"><code>perf_utils.build_chunked_train</code></a>), as Brax
+does: the ticks up to the next evaluation are one jitted scan, and the
+evaluation, with its gate and logging, is a program of its own that runs on
+the state the chunk ends with. Inside the training program, the evaluation
+slowed every tick, by about 4% for SAC on MuJoCo Warp. The ticks after which
+the gate can open are known before the run (<code>TrainLoop.logging_ticks</code> from
+the steps a tick takes, or the agent's <code>Evaluation.ticks</code>), so evaluations
+come on the same ticks and states as in one scan. Each chunk length compiles
+once: one or two lengths, two when <code>log_frequency</code> is not a multiple of an
+iteration's steps.</p>
 <p>Two details keep the gates correct under the seed <code>vmap</code>. The counters a gate
 reads (the timestep, <code>n_logs</code>, the scan index) stay unbatched, so
 <code>jax.lax.cond</code> stays a real branch and evaluates only on logging iterations;

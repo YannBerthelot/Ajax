@@ -3088,6 +3088,10 @@ change that breaks one of these patterns usually shows up in the benchmark.</p>
   iteration; <code>final_aux_scan</code> in
   <a href="https://github.com/YannBerthelot/Ajax/blob/main/src/ajax/perf_utils.py"><code>perf_utils.py</code></a> keeps only an inner scan's
   last metrics.</li>
+<li><strong>Evaluation outside the training program.</strong> With logging, training runs
+  in chunks and evaluates between them in a program of its own
+  (<code>build_chunked_train</code>): compiled into every tick, the evaluation slowed
+  each one even when it did not run (about 4% for SAC on MuJoCo Warp).</li>
 <li><strong>Unbatched gates.</strong> Every predicate that decides whether to evaluate is
   built from values shared by all seeds, so <code>jax.lax.cond</code> skips the
   evaluation instead of computing it on every iteration (see

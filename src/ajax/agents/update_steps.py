@@ -168,7 +168,10 @@ def all_of(*conditions: Union[bool, jax.Array]) -> Union[bool, jax.Array]:
 
 
 def run_actor_if(
-    condition: Any, update: Callable[[Any], tuple[Any, Any]], agent_state: Any
+    condition: Any,
+    update: Callable[[Any], tuple[Any, Any]],
+    agent_state: Any,
+    keep: bool = False,
 ) -> tuple[Any, Any]:
     """update(agent_state) -> (agent_state, metrics), an actor's step, where
     condition holds (a policy delay, policy_update_start). Skipped,
@@ -177,9 +180,15 @@ def run_actor_if(
     the training loop gives it): a skipped update logs the last real step,
     not NaN or zeros (owner, 2026-10-24), and NaN, which the logger drops,
     before the first. Without a gate (condition the Python True) update
-    runs as it is and nothing is kept."""
+    runs as it is, its metrics kept only with keep: an agent that keeps
+    them (keeps_actor_metrics) and whose gate is open at every update
+    (ReplayAgent.from_update_start) keeps the state's slot, so its state,
+    and a checkpoint of it, has the gated run's structure."""
     if condition is True:
-        return update(agent_state)
+        stepped, metrics = update(agent_state)
+        if keep:
+            stepped = stepped.replace(last_actor_metrics=metrics)
+        return stepped, metrics
     kept = agent_state.last_actor_metrics
     if kept is None:  # a state the loop gave no slot (a direct call)
         kept = unevaluated(jax.eval_shape(update, agent_state)[1])

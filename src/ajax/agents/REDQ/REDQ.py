@@ -280,6 +280,7 @@ class REDQ(
             self.policy_update_due(timestep),
             lambda _: (stepped, (policy_aux, policy_metrics)),
             agent_state.replace(alpha=learned),
+            keep=self.keeps_actor_metrics(),
         )
         tempered, temperature_aux = update_temperature(
             agent_state,

@@ -3398,7 +3398,9 @@ a thread scores it on that device.</p>
   <code>train</code> waits for the last one and returns every evaluation, as without
   the option.</li>
 <li>Use a second GPU, not the training GPU: one process's programs run there
-  one after the other, so training would still wait.</li>
+  one after the other, so training would still wait. NVIDIA's MPS does not
+  change that: it lets several processes share a GPU, and the evaluator is a
+  thread of the training process.</li>
 <li>The CPU also works, but an evaluation of a GPU run is much slower there,
   and it shares the host's cores with training. On a busy machine, a CPU
   evaluator saved a MuJoCo Warp run no time.</li>

@@ -27,7 +27,7 @@ import jax.numpy as jnp
 from flax import struct
 
 from ajax.agents import update_steps
-from ajax.agents.critics import compute_mean_critic_loss, critic_value_readers
+from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
     ExpertGuided,
     GradientClipping,
@@ -224,9 +224,6 @@ class IQL(
         target, next_values = compute_bellman_target(
             value_state, batch, self.gamma, self.reward_scale
         )
-        predictions, target_value_at = critic_value_readers(
-            critic, batch.obs, batch.action
-        )
         critic_stepped, critic_loss, _, critic_metrics = update_steps.critic_step(
             agent_state,
             batch,
@@ -240,8 +237,6 @@ class IQL(
             gamma=self.gamma,
             reward_scale=self.reward_scale,
             next_values=next_values,
-            predictions=predictions,
-            target_value_at=target_value_at,
         )
         # The critic's step read the state from before the actor's.
         agent_state = stepped.replace(

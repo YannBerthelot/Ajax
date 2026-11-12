@@ -30,7 +30,7 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import compute_mean_critic_loss, critic_value_readers
+from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
     ExpertGuided,
@@ -224,9 +224,6 @@ class TD3(
             self.num_critics,
             clip_fraction,
         )
-        predictions, target_value_at = critic_value_readers(
-            agent_state.critic_state, batch.obs, batch.action
-        )
         agent_state, aux, grad_norm, metrics = update_steps.critic_step(
             agent_state,
             batch,
@@ -241,8 +238,6 @@ class TD3(
             reward_scale=self.reward_scale,
             next_actions=next_actions,
             next_values=next_values,
-            predictions=predictions,
-            target_value_at=target_value_at,
         )
         aux = aux.replace(grad_norm=grad_norm)
         return agent_state, aux, metrics

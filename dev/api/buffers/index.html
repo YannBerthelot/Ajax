@@ -4437,16 +4437,21 @@ last row (a terminal one needs none; a time limit's is unknown).</p>
 
 
 <a href="#ajax.buffers.dataset.fill_replay" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">fill_replay</span><span class="p">(</span><span class="n">buffer</span><span class="p">,</span> <span class="n">buffer_state</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">fill_replay</span><span class="p">(</span><span class="n">buffer_state</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p><code>buffer_state</code> with <code>data</code>'s rows added, one row per env per
-add as collection adds its own: each env's replay row gets a contiguous
-run of <code>data</code>, so a sequence replay reads its episodes whole, and its
-last row is a seam (init_buffer's include_seam). A replay already holding
-rows drops its oldest when full, as collection does.</p>
+        <p><code>buffer_state</code> with <code>data</code>'s rows added where adding them one row
+per env at a time, as collection adds its own, would put them: each
+env's replay row gets a contiguous run of <code>data</code>, so a sequence replay
+reads its episodes whole, and its last row is a seam (init_buffer's
+include_seam). A replay already holding rows drops its oldest when full,
+as collection does.</p>
+<p>The rows go in with one call of flashbax's trajectory add, the add a
+replay's <code>add</code> makes one row at a time, given each env's whole run: a
+loop of one add per row cost about 20 us per row on a GPU (20 s for a
+million rows).</p>
 <p>Raises <code>ValueError</code> when the replay keeps fields <code>data</code> does not
 hold or of another width, when <code>data</code>'s rows do not divide among its
 envs (flashbax advances every env's row together), or when they

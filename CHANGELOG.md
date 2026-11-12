@@ -174,6 +174,10 @@ The next release is 0.6.0: the first item changes results.
 - **`log_frequency=1` evaluates from the first step.** With one env it skipped
   the evaluation at step 1, so the run came out one evaluation short and its
   last row stayed empty. Other settings evaluate as before.
+- **`LoggingConfig` evaluates every 10,000 steps by default**, not every
+  1,000: 100 evaluations over a million steps. At 1,000, evaluation took
+  about half the time of a 10-seed SAC run on MuJoCo Warp. *What to do:* pass
+  `log_frequency=1_000` to keep the old rate.
 
 ## 0.5.0
 

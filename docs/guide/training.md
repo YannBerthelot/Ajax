@@ -97,6 +97,39 @@ The same seed on the same machine and library versions gives the same run.
 Two programs compiled apart, or on different hardware, may round
 differently, so do not expect identical numbers across machines.
 
+### Hyperparameter sweeps
+
+`sweep` trains several configurations of the agent in the same program, each
+with every seed:
+
+```python
+state, _ = agent.train(
+    seed=[1, 2],
+    n_timesteps=2_000,
+    sweep={"actor_learning_rate": [1e-4, 3e-4], "tau": [0.005, 0.02]},
+)
+agent.members[0]  # {'seed': 1, 'actor_learning_rate': 0.0001, 'tau': 0.005}
+```
+
+A dict of value lists trains its grid, here 4 configurations, so 8 members;
+a list of dicts trains those configurations. The returned arrays have one
+leading row per member, configuration by configuration, each over the
+seeds, as `agent.members` lists them. Each member trains as a separate run
+of its configuration with its seed would, up to floating-point rounding, and
+the sweep compiles once.
+
+Only the agent's sweepable fields can vary (`agent.sweepable_fields()`):
+numbers its training reads as numbers, such as SAC's learning rates, `gamma`
+and `tau`, or PPO's `ent_coef` and `clip_range`. So far only SAC and PPO
+declare any. A setting that changes array shapes or the program, such as the
+network sizes, `n_envs`, `batch_size` or `buffer_size`, takes one `train`
+call per value. Each member keeps its own replay buffer, so memory grows with
+the members.
+
+With a `logging_config`, each member is a logged run of its own, with its
+values in its run config. A sweep continues from its state with the same
+`seed` and `sweep`.
+
 ### Parallel environments
 
 `n_envs` copies of the environment step together inside each seed. They

@@ -36,6 +36,16 @@ The next release is 0.6.0: the first item changes results.
   num_minibatches=0, batch_size=64, normalize_advantage=True, nu=0.1`. The
   benchmark's APO entry runs 500 such rollouts, evaluated every 20,000
   steps, as the reference.
+- **Hyperparameter sweeps in one program.** `agent.train(seed=...,
+  sweep={"actor_learning_rate": [1e-4, 3e-4]})` trains several
+  configurations, each with every seed, in one compiled program, as
+  PureJaxRL does by vmapping over hyperparameters. Each member trains as a
+  separate run of its configuration would, up to floating-point rounding,
+  and `agent.members` lists the seed and values of each leading row. SAC
+  and PPO declare which fields can vary (their learning rates, `gamma` and
+  the like); other agents, and settings that change shapes, are refused.
+  To allow it, the evaluation's value estimate and PPO's GAE take `gamma`
+  as data instead of a compile-time constant; results are unchanged.
 - **DreamerV3 can keep its replay latents in host memory.** With
   `replay_on_host=True`, the posterior latents stored with each replay row
   (about 99% of the replay's bytes: 8 GB per seed for 2^20 rows at 12M) stay

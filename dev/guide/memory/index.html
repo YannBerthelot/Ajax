@@ -2997,6 +2997,21 @@ training.</p>
 <td>transformer, mamba: end with a LayerNorm, as GPT-2 and Mamba do; <code>False</code> only restores a checkpoint saved before it, and goes once none remains (an APG controller's parameters also map exactly onto the new network with <code>controller_params_with_final_norm</code>, which maps the parameters only, so a resumed training state must restart its optimizer)</td>
 </tr>
 <tr>
+<td><code>bias</code></td>
+<td><code>True</code></td>
+<td>transformer: biases in the attention and MLP layers and the LayerNorms (nanoGPT's <code>bias</code>); the input embedding keeps one either way. <code>APG.contextual_controller</code> sets <code>False</code>, as its reference does</td>
+</tr>
+<tr>
+<td><code>layer_norm_epsilon</code></td>
+<td><code>1e-6</code></td>
+<td>transformer, mamba: the LayerNorms' epsilon; flax's by default, where GPT-2, nanoGPT and Mamba use 1e-5</td>
+</tr>
+<tr>
+<td><code>mlp_ratio</code></td>
+<td><code>2</code></td>
+<td>transformer: the MLP's width in multiples of <code>hidden_size</code>; GPT-2 and nanoGPT use 4</td>
+</tr>
+<tr>
 <td><code>init</code></td>
 <td><code>None</code></td>
 <td>every kind: the block's initialisation. <code>None</code> and <code>"flax"</code> are flax's defaults; <code>"stacked_orthogonal"</code> (GRU, LSTM) starts each gate as torch's orthogonal init of the stacked gates leaves it, as Ni et al. do; <code>"gpt2"</code> (transformer) draws every kernel from N(0, 0.02²), and <code>"nanogpt"</code> also scales the residual projections by 1/√(2 <code>num_layers</code>); <code>"mamba"</code> draws the step sizes log-uniformly in [0.001, 0.1], as Mamba does</td>

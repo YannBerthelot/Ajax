@@ -1443,6 +1443,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.IQL.IQL.IQL.with_decayed_actor_rate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_decayed_actor_rate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.IQL.IQL.IQL.update" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2904,6 +2915,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.IQL.IQL.IQL.with_decayed_actor_rate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_decayed_actor_rate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.IQL.IQL.IQL.update" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3208,7 +3230,8 @@ the advantage-weighted mean of their actions, with the weights clipped.</p>
 <a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
 <a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">tau</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
 <a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">reward_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="p">)</span>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">actor_lr_decay</span><span class="o">=</span><span class="s2">&quot;cosine&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">
@@ -3266,10 +3289,9 @@ for the actor, the critics and the value; the actor a Gaussian on a
 tanh mean with one learned log-std per action dimension, clipped to
 [-5, 2], whose samples act clipped to [-1, 1] and are stored clipped
 (learner.py sample_actions, train_finetune.py); batch 256, gamma 0.99, tau
-0.005. The reference decays the
-actor's offline learning rate to 0 by a cosine over its updates: pass
-actor_learning_rate=optax.cosine_decay_schedule(3e-4, n_updates)
-for that. Its locomotion rewards are scaled by 1000 over the dataset's
+0.005. The actor's learning rate decays to 0 by a cosine over the run's
+updates, as the reference Learner's does by default (actor_lr_decay).
+Its locomotion rewards are scaled by 1000 over the dataset's
 range of returns: reward_scale. normalize_rewards, off by default, is
 Ajax's, not the reference's: it divides them by a running standard
 deviation that counts a dataset's rows and each step collected, as on the
@@ -3310,6 +3332,31 @@ other agents.</p>
     <div class="doc doc-contents ">
 
         <p>A Gaussian actor, two Q critics with their targets, and V(s).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.IQL.IQL.IQL.with_decayed_actor_rate" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">with_decayed_actor_rate</span>
+
+
+<a href="#ajax.agents.IQL.IQL.IQL.with_decayed_actor_rate" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">with_decayed_actor_rate</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The context whose actor optimiser follows actor_lr_decay: a
+cosine from actor_learning_rate to 0 over the run's updates: those
+its extensions' pretrain runs before any env step, then one per
+timestep offline, one per tick of n_envs online from update_start.
+The schedule counts the optimiser's steps, so a resumed call of the
+same run continues it.</p>
 
 
     </div>

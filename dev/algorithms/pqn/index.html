@@ -1527,6 +1527,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.PQN.PQN.PQN.decayed_optimizer_args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        decayed_optimizer_args
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.PQN.PQN.PQN.init" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2882,6 +2893,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.PQN.PQN.PQN.decayed_optimizer_args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        decayed_optimizer_args
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.PQN.PQN.PQN.init" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2991,7 +3013,11 @@ varied data.</p>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Eval/episodic mean reward&quot;</span><span class="p">])</span>  <span class="c1"># one row per seed</span>
 </code></pre></div>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
-<p>Defaults are read from <code>PQN.__init__</code>.</p>
+<p>Defaults are read from <code>PQN.__init__</code>. They are purejaxql's MinAtar
+config (<code>config/alg/pqn_minatar.yaml</code>); its CartPole config, on vector
+observations, takes 32 envs of 64 steps, 4 epochs of 16 minibatches, lambda
+0.95, epsilon to 0.2 over 20% of the run, a 256-256 network, rate 1e-4 and
+rewards scaled by 0.1.</p>
 <table>
 <thead>
 <tr>
@@ -3003,13 +3029,18 @@ varied data.</p>
 <tbody>
 <tr>
 <td><code>n_envs</code></td>
-<td><code>8</code></td>
+<td><code>128</code></td>
 <td>parallel environments</td>
 </tr>
 <tr>
 <td><code>learning_rate</code></td>
-<td><code>2.5e-4</code></td>
+<td><code>5e-4</code></td>
 <td>RAdam step size (the authors' optimiser, <code>optax.radam</code>)</td>
+</tr>
+<tr>
+<td><code>lr_linear_decay</code></td>
+<td><code>True</code></td>
+<td>decay the rate linearly to ~0 over the run's gradient steps, as every purejaxql config does</td>
 </tr>
 <tr>
 <td><code>architecture</code></td>
@@ -3028,17 +3059,17 @@ varied data.</p>
 </tr>
 <tr>
 <td><code>n_steps</code></td>
-<td><code>128</code></td>
+<td><code>32</code></td>
 <td>rollout length per env</td>
 </tr>
 <tr>
 <td><code>n_epochs</code></td>
-<td><code>4</code></td>
+<td><code>2</code></td>
 <td>passes over each rollout</td>
 </tr>
 <tr>
 <td><code>num_minibatches</code></td>
-<td><code>4</code></td>
+<td><code>32</code></td>
 <td>minibatches per pass</td>
 </tr>
 <tr>
@@ -3048,7 +3079,7 @@ varied data.</p>
 </tr>
 <tr>
 <td><code>epsilon_decay_frac</code></td>
-<td><code>0.5</code></td>
+<td><code>0.1</code></td>
 <td>fraction of the run over which epsilon decays</td>
 </tr>
 <tr>
@@ -3179,15 +3210,15 @@ checkpoint matching the run left whole. On the CPU speed benchmark
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">PQN</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">env_id</span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">env_params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">weight_decay</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">episode_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">action_repeat</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">extensions</span><span class="o">=</span><span class="p">(),</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">n_steps</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">n_epochs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">num_minibatches</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">n_steps</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">n_epochs</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">num_minibatches</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">expose_recent_rollout</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">cnn_image_shape</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">cnn_extra_obs_dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
@@ -3198,16 +3229,17 @@ checkpoint matching the run left whole. On the CPU speed benchmark
 <a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">reward_normalization_gamma</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">max_grad_norm</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span>
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">learning_rate</span><span class="o">=</span><span class="mf">0.00025</span><span class="p">,</span>
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
-<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">q_lambda</span><span class="o">=</span><span class="mf">0.65</span><span class="p">,</span>
-<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">reward_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">epsilon_start</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">epsilon_end</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
-<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">epsilon_decay_frac</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
-<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">td_loss_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a><span class="p">)</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">learning_rate</span><span class="o">=</span><span class="mf">0.0005</span><span class="p">,</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">lr_linear_decay</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">q_lambda</span><span class="o">=</span><span class="mf">0.65</span><span class="p">,</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">reward_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">epsilon_start</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">epsilon_end</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">epsilon_decay_frac</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">td_loss_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">
@@ -3251,6 +3283,12 @@ checkpoint matching the run left whole. On the CPU speed benchmark
 targets, no replay buffer and no target network -- training stability
 instead comes from LayerNorm in the Q-network. The policy is greedy
 over Q, with epsilon-greedy exploration during collection.</p>
+<p>Defaults are its reference's MinAtar config (mttga/purejaxql @47af6d7,
+purejaxql/config/alg/pqn_minatar.yaml): 128 envs of 32 steps, 2 epochs
+of 32 minibatches, RAdam at 5e-4 decayed linearly over the run, lambda
+0.65, gamma 0.99, epsilon from 1 to 0.05 over the first 10% of the run,
+and MinAtar's network on images. On vector observations, which that
+config does not cover, the network is the 128-128 LayerNorm MLP.</p>
 
 
 
@@ -3308,6 +3346,31 @@ epsilon_decay_frac of the horizon, then flat.</p>
     <div class="doc doc-contents ">
 
         <p>Epsilon-greedy collection on the greedy Q-network.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.PQN.PQN.PQN.decayed_optimizer_args" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">decayed_optimizer_args</span>
+
+
+<a href="#ajax.agents.PQN.PQN.PQN.decayed_optimizer_args" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">decayed_optimizer_args</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The Q-network's optimiser, its rate falling linearly from
+learning_rate to 1e-20 over the run's gradient steps when
+lr_linear_decay: its updates (total_timesteps over a rollout's
+n_steps * n_envs), each n_epochs of num_minibatches steps
+(pqn_minatar.py:140-147). The schedule counts the optimiser's steps,
+so a run split into calls passes its whole horizon to each.</p>
 
 
     </div>

@@ -168,6 +168,17 @@ def reached(start: int, timestep: Any) -> Union[bool, jax.Array]:
     return timestep >= start
 
 
+def reaches_multiple(every: int, before: Any, count: int) -> Union[bool, Any]:
+    """Whether a tick taking the env steps collected from before to before +
+    count reaches a multiple of every, the rule of Ajax's other step
+    schedules (log_frequency, JSRLCurriculum's gate): the Python True, with
+    nothing traced, when every tick does (every <= count). before may be an
+    int, a NumPy or a JAX array."""
+    if every <= count:
+        return True
+    return (before + count) // every > before // every
+
+
 def all_of(*conditions: Union[bool, jax.Array]) -> Union[bool, jax.Array]:
     """Whether every condition holds; the Python Trues among them (no gate)
     add nothing to the program, and with nothing else left it is True."""

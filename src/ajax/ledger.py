@@ -19,6 +19,7 @@ from typing import Any
 
 import numpy as np
 
+from ajax.agents.update_steps import reaches_multiple
 from ajax.extensions.expert import JSRLCurriculum, ResidualPolicy
 from ajax.extensions.porl import EpsilonGreedyPresample
 from ajax.extensions.pretrain import (
@@ -130,10 +131,13 @@ def _gates(agent: Any) -> tuple[JSRLCurriculum, ...]:
 
 def _evaluations_by_tick(gate: JSRLCurriculum, agent: Any, ticks: int) -> np.ndarray:
     """The gate's evaluations up to each of ticks ticks: its own due rule at
-    each step collected from the first update on, as maybe_update runs it."""
+    each tick that updates, from the first update on, as maybe_update runs
+    it (every train_frequency steps on the replay family, else every tick)."""
     n_envs = agent.env_args.n_envs
     steps = n_envs * np.arange(1, ticks + 1)
-    updating = steps >= agent.update_start()
+    every = getattr(agent, "train_frequency", 1)
+    trains = reaches_multiple(every, steps - n_envs, n_envs)
+    updating = (steps >= agent.update_start()) & trains
     return np.cumsum(updating & gate.evaluation_due(steps, n_envs))
 
 

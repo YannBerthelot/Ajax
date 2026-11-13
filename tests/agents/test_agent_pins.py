@@ -2205,3 +2205,27 @@ _GOLDEN.update(
         },
     }
 )
+
+# Re-recorded on macOS ARM CPU once DQN's defaults became CleanRL's dqn.py:
+# the cases keep their network, replay and warm-up, and now update every 10
+# env steps (train_frequency): 11 updates of 128 steps from step 20, at 20,
+# 30, ..., 120 (was 109). Relative shifts: DQN actor -5.1%, target -4.9%;
+# DQN-dueling-nudge actor -4.1%, target -3.9%, nudge -7.6%; the critics,
+# never stepped, unchanged.
+_GOLDEN.update(
+    {
+        "DQN": {
+            "actor": 8.64346981048584,
+            "critic": 8.621588706970215,
+            "target": 8.636661529541016,
+            "n_updates": 11.0,
+        },
+        "DQN-dueling-nudge": {
+            "actor": 9.120174407958984,
+            "critic": 9.092710494995117,
+            "target": 9.109661102294922,
+            "n_updates": 11.0,
+            "nudge": 0.8379592299461365,
+        },
+    }
+)

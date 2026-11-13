@@ -2997,9 +2997,9 @@ than the paper.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">APO</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">APO</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">log_frequency</span><span class="o">=</span><span class="mi">10_240</span><span class="p">,</span> <span class="n">backends</span><span class="o">=</span><span class="p">())</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">51_200</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">APO</span><span class="p">(</span><span class="s2">&quot;Pendulum-v1&quot;</span><span class="p">,</span> <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">log_frequency</span><span class="o">=</span><span class="mi">10_000</span><span class="p">,</span> <span class="n">backends</span><span class="o">=</span><span class="p">())</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">50_000</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Eval/episodic mean reward&quot;</span><span class="p">])</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">average_reward</span><span class="p">)</span>  <span class="c1"># the estimated reward per step, one per seed</span>
 </code></pre></div>
@@ -3016,23 +3016,23 @@ than the paper.</p>
 <tbody>
 <tr>
 <td><code>n_envs</code></td>
-<td>4</td>
+<td>10</td>
 <td>environments stepped in parallel</td>
 </tr>
 <tr>
 <td><code>n_steps</code></td>
-<td>2048</td>
+<td>200</td>
 <td>steps per environment in each rollout</td>
+</tr>
+<tr>
+<td><code>num_minibatches</code></td>
+<td>20</td>
+<td>minibatches per epoch; <code>n_steps * n_envs</code> must be a multiple of it</td>
 </tr>
 <tr>
 <td><code>batch_size</code></td>
 <td>64</td>
-<td>sets the number of minibatches, as in <a href="../ppo/">PPO</a></td>
-</tr>
-<tr>
-<td><code>num_minibatches</code></td>
-<td>0</td>
-<td>when positive, the number of minibatches</td>
+<td>with <code>num_minibatches=0</code>, sets the number of minibatches as in <a href="../ppo/">PPO</a></td>
 </tr>
 <tr>
 <td><code>n_epochs</code></td>
@@ -3061,7 +3061,7 @@ than the paper.</p>
 </tr>
 <tr>
 <td><code>nu</code></td>
-<td>0.1</td>
+<td>1</td>
 <td>weight of the value-bias penalty</td>
 </tr>
 <tr>
@@ -3086,8 +3086,8 @@ than the paper.</p>
 </tr>
 <tr>
 <td><code>normalize_advantage</code></td>
-<td>True</td>
-<td>advantages standardised over the whole rollout</td>
+<td>False</td>
+<td>standardise the advantages over the whole rollout</td>
 </tr>
 <tr>
 <td><code>actor_architecture</code>, <code>critic_architecture</code></td>
@@ -3158,10 +3158,11 @@ PPO's clipped surrogate, the value loss and the entropy bonus.</p>
   included (the reference's done flag does not tell them apart), and a
   time-limited step leaves the loss (<code>bootstrap_timelimit</code>): the losses
   average over the other steps.</li>
-<li><strong>Advantage normalisation</strong> runs once over the whole rollout, not per
-  minibatch as in Ajax's PPO, by the trained steps' mean and unbiased
-  standard deviation (floored at <code>1e-6</code>), as the official code would; its
-  config turns it off (the differences below).</li>
+<li><strong>Advantage normalisation</strong> is off, as in the official code's config
+  (<code>mujoco_appo.py:15</code>). With <code>normalize_advantage=True</code> it runs once over
+  the whole rollout, not per minibatch as in Ajax's PPO, by the trained
+  steps' mean and unbiased standard deviation (floored at <code>1e-6</code>), as the
+  official code would (<code>apo/algos/apg/base.py:90-98</code>).</li>
 <li><strong>Shuffling.</strong> Every epoch draws a new split of the rollout into
   minibatches, as APO's official code does.</li>
 <li><strong>Evaluation: the return and the reward rate count episodes
@@ -3264,28 +3265,25 @@ PPO's clipped surrogate, the value loss and the entropy bonus.</p>
 - <strong>Remaining differences from the official code</strong> (<code>xtma/apo</code> at
   <code>bfcd997</code>, its config <code>apo/experiments/configs/mujoco/apg/mujoco_appo.py</code>,
   on <code>xtma/rlpyt</code> at <code>e28bb20</code>), each a default the constructor can set:
-  - Advantage normalisation: off there (<code>normalize_advantage=False</code>,
-    <code>mujoco_appo.py:15</code>; <code>apo/algos/apg/base.py:90-98</code> would standardise
-    them), on here (<code>normalize_advantage=True</code>).
-  - Rollout shape: 10 environments of 200 steps there (<code>batch_B=10</code>,
-    <code>batch_T=200</code>, <code>mujoco_appo.py:27-28</code>), 2,000 samples in 20 minibatches
-    of 100 (<code>minibatches=20</code>, <code>:12</code>); 4 environments of 2,048 steps here,
-    8,192 samples in minibatches of 64. Both take 10 epochs (<code>:13</code>).
-  - Value-bias coefficient: <code>rm_vbias_coeff=1.0</code> in the config <code>exp.py</code>
-    runs (<code>mujoco_appo.py:7</code>), while the repository's sweep, <code>run_exp.py</code>,
-    tries 0, 0.03, 0.1, 0.3 and 1.0 (<code>run_exp.py:55</code>) and <code>APPO</code>'s own
-    default is 0.1 (<code>apo/algos/apg/appo.py:27</code>); <code>nu=0.1</code> here. The sweep
-    also sets the discount to 1.0 (<code>run_exp.py:52</code>, the other values
-    commented out), as Ajax's APO has none, where the config alone has
-    0.99 (<code>mujoco_appo.py:10</code>).
   - Output layers: the mean layer starts <code>lecun_uniform</code> and the value
     layer <code>orthogonal(1.0)</code>, with zero biases, where the official code
     leaves both at torch's <code>nn.Linear</code> default (see Hidden layers).
-  - Episode ends and actions: time-limited steps are trained on, and the
-    sample is clipped to <code>[-1, 1]</code> before the environment (the notes
-    above).
-- <code>n_steps</code> and <code>batch_size</code> must divide one another unless
-  <code>num_minibatches</code> is set; the constructor refuses them otherwise.
+  - Actions: the sample is clipped to <code>[-1, 1]</code> before the environment
+    (the notes above).
+- <strong>Defaults.</strong> The rollout (10 environments of 200 steps), its 20
+  minibatches over 10 epochs, <code>nu=1</code> and advantage normalisation off are
+  the official config's (<code>mujoco_appo.py:7, :12-15, :27-28</code>). The
+  discount is 1, as in the authors' run grid (<code>run_exp.py:52</code>), which
+  replaces the config's 0.99 (<code>mujoco_appo.py:10</code>). That grid also sweeps
+  <code>gae_lambda</code>, <code>alpha</code> and <code>nu</code> per task (<code>run_exp.py:53-55</code>); the paper
+  does not report which values it kept, so Ajax takes the config's. Until
+  November 2026 APO ran 4 environments of 2,048 steps with advantage
+  normalisation on and <code>nu=0.1</code>; <code>n_envs=4, n_steps=2048,
+  num_minibatches=0, batch_size=64, normalize_advantage=True, nu=0.1</code>
+  reproduces runs from then.
+- <code>n_steps * n_envs</code> must be a multiple of <code>num_minibatches</code>; with
+  <code>num_minibatches=0</code>, <code>n_steps</code> and <code>batch_size</code> must divide one another.
+  The constructor refuses them otherwise.
 - <strong>Expert.</strong> Cloning an expert into the actor before training is the
   <code>CloningPretrain</code> extension, and a cloning term during training the
   <code>ImitationLoss</code> extension; APO supports both
@@ -3328,15 +3326,15 @@ environments, 8,000 steps) APO ran at 16,390 steps per second of execution
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">APO</span><span class="p">(</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">env_id</span><span class="p">,</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">env_params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">weight_decay</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">episode_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">action_repeat</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">extensions</span><span class="o">=</span><span class="p">(),</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">n_steps</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">n_steps</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">n_epochs</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">num_minibatches</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">num_minibatches</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">expose_recent_rollout</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">eval_expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
@@ -3355,8 +3353,8 @@ environments, 8,000 steps) APO ran at 16,390 steps per second of execution
 <a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">adam_eps</span><span class="o">=</span><span class="mf">1e-08</span><span class="p">,</span>
 <a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">gae_lambda</span><span class="o">=</span><span class="mf">0.95</span><span class="p">,</span>
 <a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">alpha</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
-<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">nu</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
-<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">normalize_advantage</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">nu</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">normalize_advantage</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="n">actor_bias_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">critic_bias_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="n">encoder_kernel_init</span><span class="o">=</span><span class="n">TORCH_LINEAR</span><span class="p">,</span>
@@ -3461,7 +3459,9 @@ rollout's a_expert reaches the actor-loss extensions.</p>
 <p>The GAE is PPO's with gamma = 1 on r - rho, as in APO's
 official code (xtma/apo, apo/algos/utils.py,
 generalized_advantage_estimation with discount = 1, and
-apo/algos/apg/base.py, process_returns): V(s') is dropped
+apo/algos/apg/base.py, process_returns). Discount 1 is the
+authors' run grid's (run_exp.py:52), which replaces the 0.99 of
+mujoco_appo.py:10. V(s') is dropped
 at every episode end, a time limit included (the reference's
 done, gym's, includes them), and the lambda-carry is cut there; a
 time-limited row then leaves the loss (bootstrap_timelimit,

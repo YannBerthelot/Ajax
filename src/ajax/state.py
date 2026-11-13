@@ -112,6 +112,9 @@ class EnvironmentConfig(Replaceable):
     # (CollectorState.obs_norm_info). A replay agent's networks apply the
     # current ones to raw observations (ajax.environments.obs_norm).
     normalize_obs_in_agent: bool = struct.field(pytree_node=False, default=False)
+    # The bound of the observations the collector stores normalised
+    # (store_normalized_obs); None leaves them unclipped.
+    observation_clip: Optional[float] = struct.field(pytree_node=False, default=None)
     # An on-policy agent's collector stores each observation normalised with
     # the statistics of its collection, updated with it after the env step,
     # and its networks read them as stored (openai/baselines ppo2's

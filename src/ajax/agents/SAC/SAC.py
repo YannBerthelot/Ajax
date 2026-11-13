@@ -156,9 +156,10 @@ class SAC(
 
     def sweepable_fields(self) -> frozenset[str]:
         # An n-step replay sums its rewards with the gamma it was built with.
+        fields = super().sweepable_fields()
         if self.n_step > 1:
-            return self.sweepable.difference({"gamma"})
-        return self.sweepable
+            return fields.difference({"gamma"})
+        return fields
 
     def run_capabilities(self) -> frozenset[str]:
         capabilities = super().run_capabilities()

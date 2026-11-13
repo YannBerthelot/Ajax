@@ -39,6 +39,9 @@ AGENTS: dict[str, tuple[dict[str, Any], int]] = {
         {
             "actor_architecture": NET,
             "critic_architecture": NET,
+            # The stored observations are read back as step counts: raw.
+            "normalize_observations": False,
+            "normalize_rewards": False,
             "n_steps": 8,
             "batch_size": 16,  # one minibatch: the whole rollout
             "n_epochs": 1,

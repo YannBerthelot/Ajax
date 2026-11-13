@@ -549,6 +549,8 @@ def test_an_agent_acts_on_the_whole_box(name: str) -> None:
         kwargs.update(WARM_UP)
     if name == "REDQ":  # 2 critic updates a step would take 130 over the 65
         kwargs["num_critic_updates"] = 1  # after the warm-up: a fast test's 128
+    if name == "PPO":  # the rewards read back as the env paid them: raw
+        kwargs["normalize_rewards"] = False
     agent = case.cls(env_id=env, env_params=params, n_envs=1, **kwargs)
     state, _ = agent.train(seed=0, n_timesteps=128)
     actions, rewards = _paid_rows(name, state)

@@ -58,7 +58,7 @@ rewards scaled by 0.1.
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `10.0` | gradient clipping by global norm (the authors'); `None` turns it off |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
-| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
 | `td_loss_fn` | `None` | the loss; `None` is half the squared error (the authors'), `make_huber_td_loss(delta)` the Huber loss |
 | `cnn_image_shape`, `cnn_extra_obs_dim`, `cnn_spec` | `None`, `0`, `None` | convolutional encoder for flat image observations; `None` builds the reference network (see Notes) |
 | `expose_recent_rollout` | `False` | keep the last rollout on `state.last_rollout` even when no extension reads it |

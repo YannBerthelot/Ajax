@@ -76,7 +76,11 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
     reads the expert's actions that collection stores at each row.
     """
 
-    n_envs: int = 4
+    # The rollout of APO's official code's MuJoCo runs: batch_B = 10 envs
+    # of batch_T = 200 steps, 2,000 samples per update (xtma/apo @bfcd997,
+    # apo/experiments/configs/mujoco/apg/mujoco_appo.py:27-28).
+    n_envs: int = 10
+    n_steps: int = 200
     # APO's official code steps the whole model with one Adam at 3e-4,
     # unscheduled, torch's other defaults (xtma/apo @bfcd997,
     # apo/algos/apg/base.py:28; apo/experiments/configs/mujoco/apg/
@@ -111,21 +115,27 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
     # The value loss's weight in the summed loss, the official code's
     # value_loss_coeff (appo.py:27, which mujoco_appo.py leaves).
     vf_coef: float = 1.0
-    clip_range: Schedule = 0.2  # or a function of the timestep
-    n_steps: int = 2048
-    #: The samples of a minibatch, unless num_minibatches is set.
+    # ratio_clip (mujoco_appo.py:14); or a function of the timestep.
+    clip_range: Schedule = 0.2
+    #: Used only when num_minibatches is 0: Ajax's legacy rule,
+    #: max(batch_size, n_steps) // min(batch_size, n_steps) minibatches.
     batch_size: int = 64
+    # 10 epochs of 20 minibatches of shuffled single steps, 100 of the
+    # 2,000 each (mujoco_appo.py:12-13; apo/algos/apg/appo.py:100-103).
+    # n_steps * n_envs must be a multiple of num_minibatches.
     n_epochs: int = 10
-    #: When > 0, the minibatches of each epoch (brax); at 0, Ajax's legacy
-    #: max(batch_size, n_steps) // min(batch_size, n_steps).
-    num_minibatches: int = 0
+    num_minibatches: int = 20
     adam_eps: float = 1e-8
+    # The lambda, alpha (lr_eta) and nu (rm_vbias_coeff) of
+    # mujoco_appo.py:6-7, :11. The authors' run grid sweeps all three per
+    # task (run_exp.py:53-55); the paper does not say which values won.
     gae_lambda: float = 0.95
     #: The rate of the reward rate's and the value bias's moving averages.
     alpha: float = 0.1
     #: The value-bias penalty's weight (compute_value_loss).
-    nu: float = 0.1
-    normalize_advantage: bool = True
+    nu: float = 1.0
+    # Advantages are used as computed (mujoco_appo.py:15).
+    normalize_advantage: bool = False
     actor_bias_init: Optional[Union[str, InitializationFunction]] = None
     critic_bias_init: Optional[Union[str, InitializationFunction]] = None
     encoder_kernel_init: Optional[Union[str, InitializationFunction]] = TORCH_LINEAR
@@ -135,6 +145,13 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
 
     def check(self) -> None:
         n_steps, batch_size = self.n_steps, self.batch_size
+        samples = n_steps * self.n_envs
+        if self.num_minibatches > 0 and samples % self.num_minibatches:
+            raise ValueError(
+                f"n_steps * n_envs ({n_steps} * {self.n_envs} = {samples}) must be"
+                f" a multiple of num_minibatches ({self.num_minibatches}), or set"
+                " num_minibatches=0 to cut the rollout by batch_size."
+            )
         if self.num_minibatches <= 0 and max(n_steps, batch_size) % min(
             n_steps, batch_size
         ):
@@ -221,7 +238,9 @@ class APO(ObservationNormalization, RewardNormalization, ExpertGuided, OnPolicyA
         The GAE is PPO's with gamma = 1 on r - rho, as in APO's
         official code (xtma/apo, apo/algos/utils.py,
         generalized_advantage_estimation with discount = 1, and
-        apo/algos/apg/base.py, process_returns): V(s') is dropped
+        apo/algos/apg/base.py, process_returns). Discount 1 is the
+        authors' run grid's (run_exp.py:52), which replaces the 0.99 of
+        mujoco_appo.py:10. V(s') is dropped
         at every episode end, a time limit included (the reference's
         done, gym's, includes them), and the lambda-carry is cut there; a
         time-limited row then leaves the loss (bootstrap_timelimit,

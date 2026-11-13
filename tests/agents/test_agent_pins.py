@@ -356,7 +356,7 @@ _CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
             **_PENDULUM,
             "n_envs": 2,
             "n_steps": 32,
-            "batch_size": 16,
+            "num_minibatches": 2,
             "extensions": (Nudge(),),
         },
         256,

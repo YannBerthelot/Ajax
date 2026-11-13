@@ -557,7 +557,7 @@ def _apo() -> APO:
         "Pendulum-v1",
         n_envs=2,
         n_steps=8,
-        batch_size=8,
+        num_minibatches=1,
         n_epochs=1,
         actor_architecture=net,
         critic_architecture=net,

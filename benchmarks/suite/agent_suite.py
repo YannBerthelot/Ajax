@@ -100,11 +100,11 @@ BENCHMARKS = {
     "RVISAC": cheetah("one env, as in its paper's MuJoCo runs"),
     "AVG": cheetah("one env: it learns from each step as it comes, no replay"),
     "APO": cheetah(
-        "10 envs, its reference's MuJoCo samplers (batch_B): 50 rollouts of"
-        " 10 x 2048 steps (2^20 is no whole number of them), evaluated every"
-        " second one",
-        budget=50 * 20480,
-        eval_every=2 * 20480,
+        "10 envs, its reference's MuJoCo sampler (batch_B): 500 rollouts of"
+        " its 10 x 200 steps (2^20 is no whole number of them), evaluated"
+        " every 20,000 steps as its reference (log_interval_steps)",
+        budget=500 * 2000,
+        eval_every=10 * 2000,
         n_envs=10,
     ),
     "PPO": cheetah("one env, as the PPO paper's MuJoCo runs", n_envs=1),

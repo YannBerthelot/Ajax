@@ -240,7 +240,7 @@ DISCRETE = {"env_id": "CartPole-v1", "env_params": None}
     [
         (PPO, WIDE),
         (PPO, {**WIDE, "extensions": (_ZeroActorLoss(),)}),
-        (APO, {"normalize_observations": True}),
+        (APO, {"normalize_observations": True, "num_minibatches": 1}),
         (PPO, DISCRETE),
     ],
     ids=["PPO-squash", "PPO-extension", "APO-normalized", "PPO-discrete"],

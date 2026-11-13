@@ -71,7 +71,7 @@ Defaults are those of the constructor.
 | `normalize_advantage` | True | advantages standardised in each minibatch |
 | `actor_architecture`, `critic_architecture` | `("64", "tanh", "64", "tanh")` | hidden layers, as width and activation strings (ppo2's MLP) |
 | `normalize_observations`, `normalize_rewards` | False | running normalisation, as SB3's `VecNormalize` |
-| `reward_normalization_gamma` | None | with `normalize_rewards`, divide by the spread of the discounted return |
+| `reward_normalization_gamma` | None | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
 | `memory`, `bptt_length` | None | memory block, and the length of the replayed chunks (by default the longest that split into the minibatches; see the notes) |
 | `unroll_length` | None | use Brax's minibatching: fragments of this length, advantages per minibatch (feedforward only) |
 | `log_std_state_independent`, `log_std_init` | True, 0.0 | one learned log standard deviation per action dimension, and its initial value (see the notes) |

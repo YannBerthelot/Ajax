@@ -43,6 +43,17 @@ The next release is 0.6.0: the first item changes results.
     `beta_schedule=ExponentialBetaSchedule(d)`; the old default was
     `ExponentialBetaSchedule(0.0)`.
 
+- **`normalize_rewards` divides by the discounted return's spread and
+  clips, as SB3's `VecNormalize` does.** It divided each reward by the
+  running standard deviation of the single-step reward, which is 0 for a
+  constant reward (CartPole, MountainCar, Acrobot): every reward became
+  ±10,000, and recurrent PPO with normalised rewards failed masked
+  CartPole. `reward_normalization_gamma` now defaults to the agent's
+  `gamma` (0.99 for APO, ASAC and RVI-SAC), and normalised rewards are
+  clipped to ±10, at collection, at replay sampling and in evaluation.
+  This changes results for runs with `normalize_rewards=True`. Upgrade:
+  pass `reward_normalization_gamma=0` to divide by the single-step
+  reward's standard deviation again (now clipped).
 - **PPO's defaults are ppo2's MuJoCo run**: one env (was 4) and 64-64 tanh
   layers (was 128-128), so 2048 steps make ppo2's 32 minibatches of 64.
   This changes results. Upgrade: pass `n_envs=4, actor_architecture=("128",

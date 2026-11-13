@@ -18,7 +18,7 @@ from ajax.environments.utils import (
 )
 from ajax.random_keys import derive_key, fold_index
 from ajax.types import EnvNormalizationInfo, NormalizationInfo
-from ajax.utils import online_normalize
+from ajax.utils import REWARD_CLIP, online_normalize
 
 if TYPE_CHECKING:  # brax comes with the brax extra
     from brax.envs.base import State
@@ -398,11 +398,11 @@ class _OnlineNormalization:
     def _normalize_reward(
         self, reward: jax.Array, done: jax.Array, stats: NormalizationInfo
     ) -> Tuple[jax.Array, NormalizationInfo]:
-        """The reward divided by the running statistics, and those updated:
-        the single-step reward's (gamma None), or SB3 VecNormalize's
-        discounted return of the episode so far, R = r + gamma R, restarted
-        after the episode's end (gymnasium's NormalizeReward restarts it at
-        the end step instead)."""
+        """The reward divided by the running statistics, clipped to
+        +-REWARD_CLIP, and those updated: the single-step reward's (gamma
+        None), or SB3 VecNormalize's discounted return of the episode so
+        far, R = r + gamma R, restarted after the episode's end (gymnasium's
+        NormalizeReward restarts it at the end step instead)."""
         returns = reward.reshape(-1, 1)
         if self.gamma is not None:
             assert stats.returns is not None  # init_norm_info(returns=True)
@@ -416,6 +416,7 @@ class _OnlineNormalization:
             shift=False,  # Important: rewards shouldn't be mean-shifted
             returns=returns,
         )
+        normed = jnp.clip(normed, -REWARD_CLIP, REWARD_CLIP)
         if jnp.ndim(normed) > 1 and normed.shape[-1] == 1:
             normed = normed.squeeze(-1)
         elif np.ndim(normed) > 1 and normed.shape[0] == 1:

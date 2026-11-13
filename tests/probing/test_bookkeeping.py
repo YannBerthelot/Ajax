@@ -251,8 +251,8 @@ def test_p2_avg_with_parallel_envs(part: str) -> None:
 
 @pytest.mark.parametrize("agent", ["SAC", "PPO", "DQN", "PQN"])
 def test_p2_train_return_in_raw_units_with_normalized_rewards(agent: str) -> None:
-    """The Train return sums what the env paid (7), not the normalised reward
-    (a constant reward's std is sqrt(1e-8): 70000)."""
+    """The Train return sums what the env paid (7), not the normalised
+    rewards."""
     r = p2_run(agent, 1, normalize_rewards=True)
     keys = (TRAIN, EVAL, "mean return", "returns")
     wrong = {k: set(r[k].round(4)) for k in keys if not np.allclose(r[k], L, 1e-5, 0)}

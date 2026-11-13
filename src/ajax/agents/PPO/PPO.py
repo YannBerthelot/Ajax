@@ -200,6 +200,19 @@ class PPO(
     #: env's bounds (agent_action_to_env), clipped there first.
     squash: bool = False
 
+    #: The numbers a sweep may vary in one program (ActorCritic.train's sweep).
+    sweepable: ClassVar[frozenset[str]] = frozenset(
+        {
+            "actor_learning_rate",
+            "critic_learning_rate",
+            "gamma",
+            "gae_lambda",
+            "ent_coef",
+            "vf_coef",
+            "clip_range",
+        }
+    )
+
     def actor_critic_args(self) -> dict[str, Any]:
         if self.encoder_kernel_init is None:
             return {"encoder_kernel_init": PPO_HIDDEN_INIT}
@@ -556,7 +569,8 @@ class PPO(
 
 
 # -- PPO's equations, in the order the update calls them ---------------------
-@partial(jax.jit, static_argnames=["gamma", "gae_lambda"])
+# Not jitted on its own: gamma and gae_lambda may be a sweep member's traced
+# values (ActorCritic.train's sweep); the training program compiles it.
 def _compute_gae(
     rewards: jax.Array,
     values: jax.Array,

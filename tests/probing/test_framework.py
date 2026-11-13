@@ -97,7 +97,7 @@ from . import readouts as R
 CAPS = {"verdict.py": 255, "envs.py": 255, "agents.py": 166, "runs.py": 250}
 CAPS.update({"readouts.py": 220, "oracles.py": 198, "faults.py": 152, "faults/": 417})
 CAPS.update({"test_average_reward.py": 186})
-CAPS.update({"test_framework.py": 320, "test_value_chains.py": 1051})
+CAPS.update({"test_framework.py": 321, "test_value_chains.py": 1051})
 CAPS.update({"test_episode_ends.py": 1050, "test_bookkeeping.py": 1013})
 CAPS.update({"test_extensions.py": 855, "test_p4_split_run.py": 360})
 CAPS.update({"test_memory.py": 389, "test_world_models.py": 452})
@@ -286,14 +286,15 @@ def test_the_directory_keeps_to_its_budget() -> None:
     arms' cells and faults, 5 for PORL's, 15 for the harness's gaps, 1 for Warp's,
     2 for the dataset fill's seam, 2 for the update starts' offline fault,
     3 for the asynchronous evaluator's, 3 for APO's presets kept as calibrated,
-    2 for SAC's update starts, 3 for DAgger's beta and 1 for this note."""
+    2 for SAC's update starts, 3 for DAgger's beta, 4 for IQL's calibrated
+    actor rate and split-run horizon, and 2 for these notes."""
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(
         [*cmd, "tests/probing"], cwd=faults.REPO, capture_output=True, text=True
     )
     files = [f for f in out.stdout.split() if f.count("/") == 2 or "/faults/" in f]
     total = sum(_lines(os.path.join(faults.REPO, f)) for f in files)
-    assert total <= 8724, total
+    assert total <= 8729, total
 
 
 def test_every_fault_names_the_fast_tests_that_catch_it() -> None:

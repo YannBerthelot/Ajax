@@ -396,6 +396,7 @@
     "relu"
    ],
    "actor_learning_rate": 0.0003,
+   "actor_lr_decay": "cosine",
    "algo_name": "IQL",
    "batch_size": 256,
    "buffer_size": 1000000,

@@ -149,6 +149,8 @@ class TrainContext:
     #: (actions, a_expert) -> actions the critics score under a residual
     #: policy (controller.executed_fn); None otherwise.
     executed: Optional[Callable] = None
+    #: A train_offline run: every tick updates once and counts one timestep.
+    offline: bool = False
 
     def make_scored_actions(self, batch: Transition) -> ScoredActions:
         """The maps to the actions the critics score at batch's rows, at s
@@ -708,6 +710,7 @@ class DeclaredAgent(ActorCritic):
             buffer=buffer,
             recurrent=recurrent,
             executed=executed_fn(env_args),
+            offline=offline_data is not None,
         )
         return loop, context
 

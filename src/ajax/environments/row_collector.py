@@ -89,6 +89,7 @@ from ajax.controller import (
     ObserveInputs,
     observe_features,
     previous_action_input,
+    previous_reward_input,
     restart_observers,
 )
 from ajax.environments.interaction import (
@@ -378,6 +379,9 @@ def collect_row(
             horizon=cs.max_timesteps,
             previous_action=previous_action_input(
                 env_args.observers, action, n_envs, env, env_params
+            ),
+            previous_reward=previous_reward_input(
+                env_args.observers, nxt.reward, n_envs
             ),
         )
         next_obs, observer_states = observe_features(

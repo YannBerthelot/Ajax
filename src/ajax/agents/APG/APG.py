@@ -66,6 +66,7 @@ from ajax.controller import (
     policy_action_dim,
     previous_action_input,
     reads_agent_expert,
+    reads_previous_reward,
     restart_observers,
 )
 from ajax.environments.differentiable import (
@@ -85,6 +86,7 @@ from ajax.environments.utils import (
     get_state_action_shapes,
 )
 from ajax.extensions.base import Extension
+from ajax.extensions.capabilities import NotWired
 from ajax.modules.pid_actor import PIDPolicy
 from ajax.networks.memory import (
     MemoryConfig,
@@ -230,6 +232,12 @@ class APG(GradientClipping, ExpertGuided, OwnIterationAgent):
             )
         if not check_env_is_gymnax(self.env_args.env):
             raise ValueError("APG needs a gymnax env (differentiable transitions).")
+        if reads_previous_reward(self.env_args.observers):
+            reason = "its closed-loop rollout passes the features no reward"
+            raise NotWired(
+                f"APG cannot run PreviousReward yet: {reason}.",
+                {"PreviousReward": reason},
+            )
         self.env_args = self.env_args.replace(
             env=with_transition_gradients(self.env_args.env)
         )

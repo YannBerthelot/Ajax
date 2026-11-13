@@ -18,6 +18,8 @@ from ajax.controller import (
     init_observers,
     observe_features,
     previous_action_input,
+    previous_reward_input,
+    reads_previous_reward,
     restart_observers,
 )
 from ajax.environments.action_stage import choose_in_evaluation
@@ -219,7 +221,8 @@ class Policy:
     done is True where obs starts a new episode, the last action having
     ended one (None: nowhere); the memory, the expert's state, the
     observation features and the command restart there. reward is what the
-    last action earned, which a command-conditioned agent (UDRL) reads. key
+    last action earned, which a command-conditioned agent (UDRL) and a
+    PreviousReward feature read. key
     is the step's key for the policy's draws (a chooser's, a world model's
     sampling); None draws it from the carry's own stream. act is compiled
     once, its state an argument of the program, not a constant in it.
@@ -264,7 +267,8 @@ class Policy:
         if self.reads_reward and done is not None and reward is None:
             raise ValueError(
                 "This policy reads the reward the last action earned (UDRL's"
-                " command counts it down): pass reward with done."
+                " command counts it down; PreviousReward observes it): pass"
+                " reward with done."
             )
         n_envs = carry.first.shape[0]
         done = jnp.zeros(n_envs, bool) if done is None else jnp.asarray(done, bool)
@@ -325,6 +329,7 @@ def evaluation_policy(
 
     def step(obs, carry, starts, reward, key):
         n_envs, raw_obs = obs.shape[0], obs.astype(jnp.float32)
+        paid_reward = reward  # before a command reads it in its own units
         observer_states, expert_state = carry.observer_states, carry.expert_state
         if observers:
             observer_states, expert_state = restart_observers(
@@ -336,6 +341,7 @@ def evaluation_policy(
                 expert_state=expert_state if stateful else None,
                 progress=progress_now,
                 previous_action=carry.previous_action,
+                previous_reward=previous_reward_input(observers, paid_reward, n_envs),
             )
             obs, observer_states = observe_features(
                 obs, inputs, observers, observer_states
@@ -365,7 +371,8 @@ def evaluation_policy(
         )
         return agent_action_to_env(acted.actions, env, env_params), carry
 
-    return PolicyParts(initial, step, reads_reward=command is not None)
+    reads_reward = command is not None or reads_previous_reward(observers)
+    return PolicyParts(initial, step, reads_reward=reads_reward)
 
 
 def row_collector_policy(
@@ -394,7 +401,6 @@ def row_collector_policy(
         )
 
     def step(obs, carry, starts, reward, key):
-        del reward  # a world model reads its rewards in training only
         observer_states = carry.observer_states
         if observers:
             fresh = init_observers(observers, obs.shape[0])
@@ -403,6 +409,7 @@ def row_collector_policy(
                 obs.astype(jnp.float32),
                 progress=progress_now,
                 previous_action=carry.previous_action,
+                previous_reward=previous_reward_input(observers, reward, obs.shape[0]),
             )
             obs, observer_states = observe_features(
                 obs, inputs, observers, observer_states
@@ -416,4 +423,4 @@ def row_collector_policy(
             memory, observer_states=observer_states, previous_action=previous_action
         )
 
-    return PolicyParts(initial, step)
+    return PolicyParts(initial, step, reads_reward=reads_previous_reward(observers))

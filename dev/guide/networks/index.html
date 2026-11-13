@@ -773,6 +773,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-shared-encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A shared encoder
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-pid-policy" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2810,6 +2821,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-shared-encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A shared encoder
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-pid-policy" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3043,82 +3065,154 @@ read in height, width, channels order. <code>padding</code> takes flax's padding
 (<code>"VALID"</code> for none), <code>layer_norm=True</code> puts a LayerNorm after every layer,
 before its ReLU, and <code>kernel_init</code> names the initialiser of every layer, as
 the network's other <code>*_kernel_init</code> settings do.</p>
+<h2 id="a-shared-encoder">A shared encoder<a class="headerlink" href="#a-shared-encoder" title="Permanent link">&para;</a></h2>
+<p>By default the actor and the critic each have their own encoder: the
+hidden layers, or the CNN, and the memory block if there is one.
+<code>share_encoder=True</code> gives them one. The actor and the critic then differ
+only in their output layers, as in ppo2's shared network:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">PPO</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">PPO</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">share_encoder</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">16</span><span class="p">)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">64</span><span class="p">)</span>
+</code></pre></div>
+<ul>
+<li>The critic owns the encoder, and the critic's optimiser steps it, at
+  <code>critic_learning_rate</code>. The actor keeps a copy, which the training loop
+  refreshes after every update and every critic step.</li>
+<li>PPO and APO train it with both losses: its gradient is the sum of the
+  value loss's and the policy loss's, as in one network trained down the
+  summed loss. One encoder needs one architecture: <code>actor_architecture</code> and
+  <code>critic_architecture</code> must be equal (a CNN replaces both).</li>
+<li>The off-policy agents (SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG, IQL)
+  train it with the critic's loss alone; the actor reads it without a
+  gradient, as SAC-AE, DrQ and SB3's <code>share_features_extractor</code> do. The
+  encoder is <code>actor_architecture</code>: the actor's heads read its features, and
+  the critic's <code>critic_architecture</code> layers read them with the action. A
+  target actor (TD3's) reads the target critic's encoder, and IQL's state
+  value keeps an encoder of its own.</li>
+<li>Cloning pretraining (<code>CloningPretrain</code>) trains the encoder too, and hands
+  it back to the critic.</li>
+<li>Not yet: a memory shared with a Q-critic (it would read the previous
+  action, which actors do not see yet), and CrossQ, whose batch
+  renormalisation would have both networks' training passes move the
+  shared encoder's running statistics.</li>
+</ul>
+<p><code>share_encoder=None</code>, the default, does what the agent's reference code
+does:</p>
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>MLP</th>
+<th>Image (CNN)</th>
+<th>Memory</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PPO</td>
+<td>separate (ppo2 on MuJoCo, CleanRL, PureJaxRL)</td>
+<td>shared (ppo2 on Atari, CleanRL)</td>
+<td>separate (see below)</td>
+</tr>
+<tr>
+<td>APO</td>
+<td>separate (its rlpyt model)</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>SAC, TD3, REDQ, TQC, ASAC, RVI-SAC, AVG, IQL</td>
+<td>separate (each reference)</td>
+<td>-</td>
+<td>separate (Ni et al. 2022)</td>
+</tr>
+</tbody>
+</table>
+<p>ppo2 also shares MLP networks outside MuJoCo; Ajax keeps them apart, as
+its MuJoCo setting does. With memory, ppo2 and PureJaxRL share the
+encoder and the memory block, but PureJaxRL gives each head its own
+hidden layer after the memory, which Ajax's heads do not have. Without
+those layers, large value targets (CartPole's undiscounted returns) take
+over the one memory, so PPO keeps separate memories by default. With
+<code>share_encoder=True</code> and memory, normalise the rewards
+(<code>normalize_rewards=True</code>).</p>
 <h2 id="the-pid-policy">The PID policy<a class="headerlink" href="#the-pid-policy" title="Permanent link">&para;</a></h2>
 <p>Many control tasks are run by PID controllers, which engineers can read,
 tune and certify. The PID policy makes the actor such a controller: its
 action is</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>u = Kp e + Ki I + Kd D
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>u = Kp e + Ki I + Kd D
 </code></pre></div>
 <p>where <code>e</code>, <code>I</code> and <code>D</code> are the tracking error, its integral and its
 difference, which the <a href="../environments/#pid-error-terms"><code>PIDTermsInput</code></a>
 feature appends to the observation. The agent learns the gains. Pass a <code>PIDPolicy</code> as
 the <code>actor_architecture</code> of any continuous-action agent: SAC, TD3, REDQ,
 ASAC, AVG, PPO or APO.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flax</span><span class="w"> </span><span class="kn">import</span> <span class="n">struct</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">gymnax.environments</span><span class="w"> </span><span class="kn">import</span> <span class="n">environment</span><span class="p">,</span> <span class="n">spaces</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.extensions.observe</span><span class="w"> </span><span class="kn">import</span> <span class="n">PIDTermsInput</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.modules.pid_actor</span><span class="w"> </span><span class="kn">import</span> <span class="n">PIDPolicy</span><span class="p">,</span> <span class="n">pid_gains</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>
-<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>
-<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="nd">@struct</span><span class="o">.</span><span class="n">dataclass</span>
-<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="k">class</span><span class="w"> </span><span class="nc">State</span><span class="p">(</span><span class="n">environment</span><span class="o">.</span><span class="n">EnvState</span><span class="p">):</span>
-<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>    <span class="n">x</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span>  <span class="c1"># the controlled value</span>
-<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>    <span class="n">r</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span>  <span class="c1"># its set-point</span>
-<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>
-<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>
-<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="nd">@struct</span><span class="o">.</span><span class="n">dataclass</span>
-<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="k">class</span><span class="w"> </span><span class="nc">Params</span><span class="p">(</span><span class="n">environment</span><span class="o">.</span><span class="n">EnvParams</span><span class="p">):</span>
-<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a>    <span class="n">max_steps_in_episode</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span>
-<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a>
-<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a>
-<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="k">class</span><span class="w"> </span><span class="nc">Setpoint</span><span class="p">(</span><span class="n">environment</span><span class="o">.</span><span class="n">Environment</span><span class="p">):</span>
-<a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;An integrator, x &lt;- x + 4u, that must reach a random set-point r.&quot;&quot;&quot;</span>
-<a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a>
-<a id="__codelineno-4-25" name="__codelineno-4-25" href="#__codelineno-4-25"></a>    <span class="nd">@property</span>
-<a id="__codelineno-4-26" name="__codelineno-4-26" href="#__codelineno-4-26"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">default_params</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<a id="__codelineno-4-27" name="__codelineno-4-27" href="#__codelineno-4-27"></a>        <span class="k">return</span> <span class="n">Params</span><span class="p">()</span>
-<a id="__codelineno-4-28" name="__codelineno-4-28" href="#__codelineno-4-28"></a>
-<a id="__codelineno-4-29" name="__codelineno-4-29" href="#__codelineno-4-29"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">reset_env</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
-<a id="__codelineno-4-30" name="__codelineno-4-30" href="#__codelineno-4-30"></a>        <span class="n">r</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">minval</span><span class="o">=-</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">maxval</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
-<a id="__codelineno-4-31" name="__codelineno-4-31" href="#__codelineno-4-31"></a>        <span class="n">state</span> <span class="o">=</span> <span class="n">State</span><span class="p">(</span><span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">(</span><span class="mf">0.0</span><span class="p">),</span> <span class="n">r</span><span class="o">=</span><span class="n">r</span><span class="p">)</span>
-<a id="__codelineno-4-32" name="__codelineno-4-32" href="#__codelineno-4-32"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_obs</span><span class="p">(</span><span class="n">state</span><span class="p">),</span> <span class="n">state</span>
-<a id="__codelineno-4-33" name="__codelineno-4-33" href="#__codelineno-4-33"></a>
-<a id="__codelineno-4-34" name="__codelineno-4-34" href="#__codelineno-4-34"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">step_env</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">action</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
-<a id="__codelineno-4-35" name="__codelineno-4-35" href="#__codelineno-4-35"></a>        <span class="n">x</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">x</span> <span class="o">+</span> <span class="mf">4.0</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">action</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
-<a id="__codelineno-4-36" name="__codelineno-4-36" href="#__codelineno-4-36"></a>        <span class="n">state</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="n">x</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="n">state</span><span class="o">.</span><span class="n">time</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-4-37" name="__codelineno-4-37" href="#__codelineno-4-37"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_obs</span><span class="p">(</span><span class="n">state</span><span class="p">),</span> <span class="n">state</span><span class="p">,</span> <span class="o">-</span><span class="p">((</span><span class="n">state</span><span class="o">.</span><span class="n">r</span> <span class="o">-</span> <span class="n">x</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">),</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="kc">False</span><span class="p">),</span> <span class="p">{}</span>
-<a id="__codelineno-4-38" name="__codelineno-4-38" href="#__codelineno-4-38"></a>
-<a id="__codelineno-4-39" name="__codelineno-4-39" href="#__codelineno-4-39"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">get_obs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<a id="__codelineno-4-40" name="__codelineno-4-40" href="#__codelineno-4-40"></a>        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">state</span><span class="o">.</span><span class="n">x</span><span class="p">,</span> <span class="n">state</span><span class="o">.</span><span class="n">r</span><span class="p">])</span>
-<a id="__codelineno-4-41" name="__codelineno-4-41" href="#__codelineno-4-41"></a>
-<a id="__codelineno-4-42" name="__codelineno-4-42" href="#__codelineno-4-42"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">observation_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
-<a id="__codelineno-4-43" name="__codelineno-4-43" href="#__codelineno-4-43"></a>        <span class="k">return</span> <span class="n">spaces</span><span class="o">.</span><span class="n">Box</span><span class="p">(</span><span class="o">-</span><span class="n">jnp</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="n">jnp</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="p">(</span><span class="mi">2</span><span class="p">,))</span>
-<a id="__codelineno-4-44" name="__codelineno-4-44" href="#__codelineno-4-44"></a>
-<a id="__codelineno-4-45" name="__codelineno-4-45" href="#__codelineno-4-45"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">action_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
-<a id="__codelineno-4-46" name="__codelineno-4-46" href="#__codelineno-4-46"></a>        <span class="k">return</span> <span class="n">spaces</span><span class="o">.</span><span class="n">Box</span><span class="p">(</span><span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="p">(</span><span class="mi">1</span><span class="p">,))</span>
-<a id="__codelineno-4-47" name="__codelineno-4-47" href="#__codelineno-4-47"></a>
-<a id="__codelineno-4-48" name="__codelineno-4-48" href="#__codelineno-4-48"></a>
-<a id="__codelineno-4-49" name="__codelineno-4-49" href="#__codelineno-4-49"></a><span class="c1"># The observation becomes [x, r, e, I, D], with e = r - x.</span>
-<a id="__codelineno-4-50" name="__codelineno-4-50" href="#__codelineno-4-50"></a><span class="n">terms</span> <span class="o">=</span> <span class="n">PIDTermsInput</span><span class="p">(</span><span class="n">current_idx</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,),</span> <span class="n">target_idx</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,),</span> <span class="n">dt</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
-<a id="__codelineno-4-51" name="__codelineno-4-51" href="#__codelineno-4-51"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span>
-<a id="__codelineno-4-52" name="__codelineno-4-52" href="#__codelineno-4-52"></a>    <span class="n">Setpoint</span><span class="p">(),</span>
-<a id="__codelineno-4-53" name="__codelineno-4-53" href="#__codelineno-4-53"></a>    <span class="n">extensions</span><span class="o">=</span><span class="p">(</span><span class="n">terms</span><span class="p">,),</span>
-<a id="__codelineno-4-54" name="__codelineno-4-54" href="#__codelineno-4-54"></a>    <span class="n">env_params</span><span class="o">=</span><span class="n">Params</span><span class="p">(),</span>
-<a id="__codelineno-4-55" name="__codelineno-4-55" href="#__codelineno-4-55"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-<a id="__codelineno-4-56" name="__codelineno-4-56" href="#__codelineno-4-56"></a>    <span class="n">actor_architecture</span><span class="o">=</span><span class="n">PIDPolicy</span><span class="p">(</span><span class="n">n_errors</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">gains</span><span class="o">=</span><span class="s2">&quot;fixed&quot;</span><span class="p">),</span>
-<a id="__codelineno-4-57" name="__codelineno-4-57" href="#__codelineno-4-57"></a>    <span class="n">critic_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;64&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;64&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
-<a id="__codelineno-4-58" name="__codelineno-4-58" href="#__codelineno-4-58"></a>    <span class="n">actor_learning_rate</span><span class="o">=</span><span class="mf">3e-3</span><span class="p">,</span>
-<a id="__codelineno-4-59" name="__codelineno-4-59" href="#__codelineno-4-59"></a>    <span class="n">critic_learning_rate</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">,</span>
-<a id="__codelineno-4-60" name="__codelineno-4-60" href="#__codelineno-4-60"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span>
-<a id="__codelineno-4-61" name="__codelineno-4-61" href="#__codelineno-4-61"></a>    <span class="n">learning_starts</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
-<a id="__codelineno-4-62" name="__codelineno-4-62" href="#__codelineno-4-62"></a><span class="p">)</span>
-<a id="__codelineno-4-63" name="__codelineno-4-63" href="#__codelineno-4-63"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">4_000</span><span class="p">,</span> <span class="n">num_episode_test</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
-<a id="__codelineno-4-64" name="__codelineno-4-64" href="#__codelineno-4-64"></a><span class="n">gains</span> <span class="o">=</span> <span class="n">pid_gains</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">actor_state</span><span class="o">.</span><span class="n">params</span><span class="p">)</span>  <span class="c1"># {&quot;kp&quot;, &quot;ki&quot;, &quot;kd&quot;}, one value per seed</span>
-<a id="__codelineno-4-65" name="__codelineno-4-65" href="#__codelineno-4-65"></a><span class="nb">print</span><span class="p">({</span><span class="n">name</span><span class="p">:</span> <span class="n">value</span><span class="o">.</span><span class="n">squeeze</span><span class="p">()</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">gains</span><span class="o">.</span><span class="n">items</span><span class="p">()})</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flax</span><span class="w"> </span><span class="kn">import</span> <span class="n">struct</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">gymnax.environments</span><span class="w"> </span><span class="kn">import</span> <span class="n">environment</span><span class="p">,</span> <span class="n">spaces</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">SAC</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.extensions.observe</span><span class="w"> </span><span class="kn">import</span> <span class="n">PIDTermsInput</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.modules.pid_actor</span><span class="w"> </span><span class="kn">import</span> <span class="n">PIDPolicy</span><span class="p">,</span> <span class="n">pid_gains</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="nd">@struct</span><span class="o">.</span><span class="n">dataclass</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="k">class</span><span class="w"> </span><span class="nc">State</span><span class="p">(</span><span class="n">environment</span><span class="o">.</span><span class="n">EnvState</span><span class="p">):</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>    <span class="n">x</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span>  <span class="c1"># the controlled value</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>    <span class="n">r</span><span class="p">:</span> <span class="n">jax</span><span class="o">.</span><span class="n">Array</span>  <span class="c1"># its set-point</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="nd">@struct</span><span class="o">.</span><span class="n">dataclass</span>
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="k">class</span><span class="w"> </span><span class="nc">Params</span><span class="p">(</span><span class="n">environment</span><span class="o">.</span><span class="n">EnvParams</span><span class="p">):</span>
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a>    <span class="n">max_steps_in_episode</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span>
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a>
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a>
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a><span class="k">class</span><span class="w"> </span><span class="nc">Setpoint</span><span class="p">(</span><span class="n">environment</span><span class="o">.</span><span class="n">Environment</span><span class="p">):</span>
+<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;An integrator, x &lt;- x + 4u, that must reach a random set-point r.&quot;&quot;&quot;</span>
+<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a>
+<a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a>    <span class="nd">@property</span>
+<a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">default_params</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a>        <span class="k">return</span> <span class="n">Params</span><span class="p">()</span>
+<a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a>
+<a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">reset_env</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
+<a id="__codelineno-5-30" name="__codelineno-5-30" href="#__codelineno-5-30"></a>        <span class="n">r</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">minval</span><span class="o">=-</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">maxval</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+<a id="__codelineno-5-31" name="__codelineno-5-31" href="#__codelineno-5-31"></a>        <span class="n">state</span> <span class="o">=</span> <span class="n">State</span><span class="p">(</span><span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">(</span><span class="mf">0.0</span><span class="p">),</span> <span class="n">r</span><span class="o">=</span><span class="n">r</span><span class="p">)</span>
+<a id="__codelineno-5-32" name="__codelineno-5-32" href="#__codelineno-5-32"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_obs</span><span class="p">(</span><span class="n">state</span><span class="p">),</span> <span class="n">state</span>
+<a id="__codelineno-5-33" name="__codelineno-5-33" href="#__codelineno-5-33"></a>
+<a id="__codelineno-5-34" name="__codelineno-5-34" href="#__codelineno-5-34"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">step_env</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">action</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
+<a id="__codelineno-5-35" name="__codelineno-5-35" href="#__codelineno-5-35"></a>        <span class="n">x</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">x</span> <span class="o">+</span> <span class="mf">4.0</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">action</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
+<a id="__codelineno-5-36" name="__codelineno-5-36" href="#__codelineno-5-36"></a>        <span class="n">state</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="n">x</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="n">state</span><span class="o">.</span><span class="n">time</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-5-37" name="__codelineno-5-37" href="#__codelineno-5-37"></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_obs</span><span class="p">(</span><span class="n">state</span><span class="p">),</span> <span class="n">state</span><span class="p">,</span> <span class="o">-</span><span class="p">((</span><span class="n">state</span><span class="o">.</span><span class="n">r</span> <span class="o">-</span> <span class="n">x</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">),</span> <span class="n">jnp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="kc">False</span><span class="p">),</span> <span class="p">{}</span>
+<a id="__codelineno-5-38" name="__codelineno-5-38" href="#__codelineno-5-38"></a>
+<a id="__codelineno-5-39" name="__codelineno-5-39" href="#__codelineno-5-39"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">get_obs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-5-40" name="__codelineno-5-40" href="#__codelineno-5-40"></a>        <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">state</span><span class="o">.</span><span class="n">x</span><span class="p">,</span> <span class="n">state</span><span class="o">.</span><span class="n">r</span><span class="p">])</span>
+<a id="__codelineno-5-41" name="__codelineno-5-41" href="#__codelineno-5-41"></a>
+<a id="__codelineno-5-42" name="__codelineno-5-42" href="#__codelineno-5-42"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">observation_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
+<a id="__codelineno-5-43" name="__codelineno-5-43" href="#__codelineno-5-43"></a>        <span class="k">return</span> <span class="n">spaces</span><span class="o">.</span><span class="n">Box</span><span class="p">(</span><span class="o">-</span><span class="n">jnp</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="n">jnp</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="p">(</span><span class="mi">2</span><span class="p">,))</span>
+<a id="__codelineno-5-44" name="__codelineno-5-44" href="#__codelineno-5-44"></a>
+<a id="__codelineno-5-45" name="__codelineno-5-45" href="#__codelineno-5-45"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">action_space</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
+<a id="__codelineno-5-46" name="__codelineno-5-46" href="#__codelineno-5-46"></a>        <span class="k">return</span> <span class="n">spaces</span><span class="o">.</span><span class="n">Box</span><span class="p">(</span><span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="p">(</span><span class="mi">1</span><span class="p">,))</span>
+<a id="__codelineno-5-47" name="__codelineno-5-47" href="#__codelineno-5-47"></a>
+<a id="__codelineno-5-48" name="__codelineno-5-48" href="#__codelineno-5-48"></a>
+<a id="__codelineno-5-49" name="__codelineno-5-49" href="#__codelineno-5-49"></a><span class="c1"># The observation becomes [x, r, e, I, D], with e = r - x.</span>
+<a id="__codelineno-5-50" name="__codelineno-5-50" href="#__codelineno-5-50"></a><span class="n">terms</span> <span class="o">=</span> <span class="n">PIDTermsInput</span><span class="p">(</span><span class="n">current_idx</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,),</span> <span class="n">target_idx</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,),</span> <span class="n">dt</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+<a id="__codelineno-5-51" name="__codelineno-5-51" href="#__codelineno-5-51"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">SAC</span><span class="p">(</span>
+<a id="__codelineno-5-52" name="__codelineno-5-52" href="#__codelineno-5-52"></a>    <span class="n">Setpoint</span><span class="p">(),</span>
+<a id="__codelineno-5-53" name="__codelineno-5-53" href="#__codelineno-5-53"></a>    <span class="n">extensions</span><span class="o">=</span><span class="p">(</span><span class="n">terms</span><span class="p">,),</span>
+<a id="__codelineno-5-54" name="__codelineno-5-54" href="#__codelineno-5-54"></a>    <span class="n">env_params</span><span class="o">=</span><span class="n">Params</span><span class="p">(),</span>
+<a id="__codelineno-5-55" name="__codelineno-5-55" href="#__codelineno-5-55"></a>    <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<a id="__codelineno-5-56" name="__codelineno-5-56" href="#__codelineno-5-56"></a>    <span class="n">actor_architecture</span><span class="o">=</span><span class="n">PIDPolicy</span><span class="p">(</span><span class="n">n_errors</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">gains</span><span class="o">=</span><span class="s2">&quot;fixed&quot;</span><span class="p">),</span>
+<a id="__codelineno-5-57" name="__codelineno-5-57" href="#__codelineno-5-57"></a>    <span class="n">critic_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;64&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;64&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
+<a id="__codelineno-5-58" name="__codelineno-5-58" href="#__codelineno-5-58"></a>    <span class="n">actor_learning_rate</span><span class="o">=</span><span class="mf">3e-3</span><span class="p">,</span>
+<a id="__codelineno-5-59" name="__codelineno-5-59" href="#__codelineno-5-59"></a>    <span class="n">critic_learning_rate</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">,</span>
+<a id="__codelineno-5-60" name="__codelineno-5-60" href="#__codelineno-5-60"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span>
+<a id="__codelineno-5-61" name="__codelineno-5-61" href="#__codelineno-5-61"></a>    <span class="n">learning_starts</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+<a id="__codelineno-5-62" name="__codelineno-5-62" href="#__codelineno-5-62"></a><span class="p">)</span>
+<a id="__codelineno-5-63" name="__codelineno-5-63" href="#__codelineno-5-63"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">4_000</span><span class="p">,</span> <span class="n">num_episode_test</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+<a id="__codelineno-5-64" name="__codelineno-5-64" href="#__codelineno-5-64"></a><span class="n">gains</span> <span class="o">=</span> <span class="n">pid_gains</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">actor_state</span><span class="o">.</span><span class="n">params</span><span class="p">)</span>  <span class="c1"># {&quot;kp&quot;, &quot;ki&quot;, &quot;kd&quot;}, one value per seed</span>
+<a id="__codelineno-5-65" name="__codelineno-5-65" href="#__codelineno-5-65"></a><span class="nb">print</span><span class="p">({</span><span class="n">name</span><span class="p">:</span> <span class="n">value</span><span class="o">.</span><span class="n">squeeze</span><span class="p">()</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">gains</span><span class="o">.</span><span class="n">items</span><span class="p">()})</span>
 </code></pre></div>
 <p>The best controller here is <code>Kp = 1/4, Ki = Kd = 0</code>, which reaches the
 set-point in one step; the repository's tests check that SAC and PPO find it

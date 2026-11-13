@@ -1544,6 +1544,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.PPO.PPO.PPO.reference_share_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reference_share_encoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.PPO.PPO.PPO.init" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2882,6 +2893,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.PPO.PPO.PPO.reference_share_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reference_share_encoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.PPO.PPO.PPO.init" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3231,8 +3253,12 @@ Optimization Algorithms</em>, 2017 (<a href="https://arxiv.org/abs/1707.06347">a
   <code>num_resets_per_eval</code> and <code>num_evals</code> reproduce choices of Brax's PPO.
   They are off by default, as is <code>encoder_layer_norm</code> (a LayerNorm on the
   encoder's output).</li>
-<li><strong>Separate networks.</strong> The actor and the critic are separate networks.
-  As ppo2's one optimizer, their gradients are clipped together to one
+<li><strong>Separate networks, or one encoder.</strong> The actor and the critic are
+  separate MLP networks, as ppo2 copies them on MuJoCo
+  (<code>ppo2/defaults.py:12</code>). With images they share one encoder, as ppo2's
+  Atari policies do (<code>common/policies.py:155-167</code>). With memory they stay
+  separate, unlike ppo2 and PureJaxRL (see the networks guide).
+  <code>share_encoder</code> overrides the default. As ppo2's one optimizer, their gradients are clipped together to one
   global norm, then each takes an Adam step (Adam is per coordinate, so
   the two are one Adam over the whole model); the value loss is not
   clipped. As in Baselines' ppo2,
@@ -3337,42 +3363,43 @@ compilation) at main <code>a8a13c2</code>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">n_epochs</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">num_minibatches</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">expose_recent_rollout</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">cnn_image_shape</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">cnn_extra_obs_dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">cnn_spec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">eval_expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">normalize_rewards</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">reward_normalization_gamma</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">actor_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">critic_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">actor_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">,</span> <span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">critic_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">,</span> <span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
-<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">max_grad_norm</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
-<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">ent_coef</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">clip_range</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span>
-<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
-<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">adam_eps</span><span class="o">=</span><span class="mf">1e-05</span><span class="p">,</span>
-<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">vf_coef</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
-<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="n">unroll_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">num_resets_per_eval</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="n">num_evals</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>    <span class="n">gae_lambda</span><span class="o">=</span><span class="mf">0.95</span><span class="p">,</span>
-<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>    <span class="n">normalize_advantage</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>    <span class="n">memory</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>    <span class="n">bptt_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>    <span class="n">actor_bias_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>    <span class="n">critic_bias_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>    <span class="n">encoder_kernel_init</span><span class="o">=</span><span class="n">PPO_HIDDEN_INIT</span><span class="p">,</span>
-<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>    <span class="n">log_std_state_independent</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>    <span class="n">log_std_init</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
-<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>    <span class="n">log_std_bounds</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>    <span class="n">mean_kernel_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>    <span class="n">encoder_layer_norm</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>    <span class="n">squash</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a><span class="p">)</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">share_encoder</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">cnn_image_shape</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">cnn_extra_obs_dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">cnn_spec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">eval_expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">normalize_rewards</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">reward_normalization_gamma</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">actor_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">critic_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">actor_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">,</span> <span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">critic_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">,</span> <span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;tanh&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">max_grad_norm</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">ent_coef</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">clip_range</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">adam_eps</span><span class="o">=</span><span class="mf">1e-05</span><span class="p">,</span>
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="n">vf_coef</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">unroll_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="n">num_resets_per_eval</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>    <span class="n">num_evals</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>    <span class="n">gae_lambda</span><span class="o">=</span><span class="mf">0.95</span><span class="p">,</span>
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>    <span class="n">normalize_advantage</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>    <span class="n">memory</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>    <span class="n">bptt_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>    <span class="n">actor_bias_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>    <span class="n">critic_bias_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>    <span class="n">encoder_kernel_init</span><span class="o">=</span><span class="n">PPO_HIDDEN_INIT</span><span class="p">,</span>
+<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>    <span class="n">log_std_state_independent</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>    <span class="n">log_std_init</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>    <span class="n">log_std_bounds</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>    <span class="n">mean_kernel_init</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>    <span class="n">encoder_layer_norm</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>    <span class="n">squash</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">
@@ -3397,7 +3424,12 @@ compilation) at main <code>a8a13c2</code>
 
   
       dataclass
-   (ajax.agents.families.ImageObservations)" href="../../api/agents/#ajax.agents.families.ImageObservations">ImageObservations</a></code>, <code><a class="autorefs autorefs-internal" title="OnPolicyAgent
+   (ajax.agents.families.ImageObservations)" href="../../api/agents/#ajax.agents.families.ImageObservations">ImageObservations</a></code>, <code><a class="autorefs autorefs-internal" title="EncoderSharing
+
+
+  
+      dataclass
+   (ajax.agents.families.EncoderSharing)" href="../../api/agents/#ajax.agents.families.EncoderSharing">EncoderSharing</a></code>, <code><a class="autorefs autorefs-internal" title="OnPolicyAgent
 
 
   
@@ -3435,6 +3467,40 @@ networks.py cites it). The 128-128 tanh layers are Ajax's.</p>
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.PPO.PPO.PPO.reference_share_encoder" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">reference_share_encoder</span>
+
+
+<a href="#ajax.agents.PPO.PPO.PPO.reference_share_encoder" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">reference_share_encoder</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>ppo2's choice (@ea25b9e), whose value head reads the policy's
+network unless value_network says otherwise
+(common/policies.py:155-167): shared with images, where its Atari
+defaults leave it so (ppo2/defaults.py:15-21; CleanRL @fe8d8a0
+ppo_atari.py:120-133). MLP networks stay apart, as ppo2's MuJoCo
+defaults copy them (defaults.py:12, value_network='copy'), and as
+CleanRL's ppo.py:103-116 and PureJaxRL @31756b1 ppo.py:24-45 build
+them; ppo2 shares them on other tasks (run.py:170-176), which the
+owner left aside (2026-11-13).</p>
+<p>With memory the references share too (common/policies.py:165;
+PureJaxRL ppo_rnn.py:51-57), but PureJaxRL gives each head a
+128-unit layer after the GRU (ppo_rnn.py:59-75), which Ajax's heads
+lack: on CartPole's raw returns the value then swamps the one memory
+(return 23 against 260 apart, 100k steps). Recurrent PPO keeps its
+networks apart until those layers exist (owner, 2026-11-13).</p>
+
+
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-function">
 
@@ -3528,8 +3594,8 @@ GAE inside its loss and stops the gradient there instead).</p>
         <p>One gradient step of the critic and one of the actor on the
 minibatch. Both gradients are taken at the parameters this step starts
 from, then clipped together and applied. That is ppo2's single step
-down the sum of the two losses: the networks share no parameter, so
-each network's gradient of the sum is the gradient of its own loss.</p>
+down the sum of the two losses (compute_actor_critic_gradients),
+with or without a shared encoder.</p>
 
 
     </div>

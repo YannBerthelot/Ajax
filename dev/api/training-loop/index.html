@@ -2937,6 +2937,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.update_steps.compute_actor_critic_gradients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        compute_actor_critic_gradients
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.update_steps.gradient_step" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3971,6 +3982,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.update_steps.compute_actor_critic_gradients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        compute_actor_critic_gradients
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.update_steps.gradient_step" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4844,7 +4866,9 @@ with an expert of their own (IBRL).</p>
 
     <div class="doc doc-contents ">
 
-        <p>:func:<code>apply_post_update</code> at the collector's timestep.</p>
+        <p>:func:<code>apply_post_update</code> at the collector's timestep, then the
+actor's copy of a shared encoder taken from the critic the update
+stepped (mirror_shared_encoder).</p>
 
 
     </div>
@@ -5640,6 +5664,35 @@ the loss's other inputs first, in a small local function. params is one
 network's parameters, or a tuple of several networks' (APO's summed loss),
 and the gradients have the same structure. A caller that logs the loss's
 value puts it in aux.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.update_steps.compute_actor_critic_gradients" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">compute_actor_critic_gradients</span>
+
+
+<a href="#ajax.agents.update_steps.compute_actor_critic_gradients" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">compute_actor_critic_gradients</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">policy_loss</span><span class="p">,</span> <span class="n">value_loss</span><span class="p">,</span> <span class="n">actor</span><span class="p">,</span> <span class="n">critic</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Each network's gradient of the summed loss policy_loss + value_loss
+at their parameters, then what each loss returns beside its value.</p>
+<p>value_loss takes the critic's parameters; policy_loss the actor's, then
+the critic's, from which an actor sharing the critic's encoder reads it
+(networks.with_critic_encoder). Without a shared encoder the networks
+share no parameter, so each network's gradient is that of its own loss.
+With one, the encoder is the critic's: its gradient is the value loss's
+plus the policy loss's, as in ppo2's one network (ppo2/model.py:75-107).</p>
 
 
     </div>

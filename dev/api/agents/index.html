@@ -2606,6 +2606,34 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.families.EncoderSharing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EncoderSharing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="EncoderSharing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.families.EncoderSharing.reference_share_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reference_share_encoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.families.EntropyTemperature" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4211,6 +4239,34 @@
       
     </span>
   </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.families.EncoderSharing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EncoderSharing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="EncoderSharing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.families.EncoderSharing.reference_share_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reference_share_encoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -6704,6 +6760,120 @@ encoder's output.</p>
 
 
 
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="ajax.agents.families.EncoderSharing" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">EncoderSharing</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#ajax.agents.families.EncoderSharing" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">EncoderSharing</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">share_encoder</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>An actor and a critic that may read their observations through one
+encoder.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>share_encoder</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="bool">bool</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>One encoder (the MLP or CNN, and the memory block) for
+the actor and the critic (NetworkConfig.share_encoder): the
+critic owns it, both losses train it and the critic's optimiser
+steps it, at critic_learning_rate. False: each network has its
+own. None: what the agent's reference code does
+(reference_share_encoder).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="ajax.agents.families.EncoderSharing.reference_share_encoder" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">reference_share_encoder</span>
+
+
+<a href="#ajax.agents.families.EncoderSharing.reference_share_encoder" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">reference_share_encoder</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Whether the agent's reference code gives the actor and the critic
+one encoder, for the networks this agent builds. The model-free
+references keep them apart (sfujim/TD3@34770cc TD3.py:81, :85;
+xtma/rlpyt@e28bb20 models/pg/mujoco_ff_model.py:34-55; Ni et al.
+2022's recurrent ones, twni2016/pomdp-baselines@e7c19c3
+policies/learner.py:213); an agent whose reference shares overrides
+this, citing it.</p>
+
+
+    </div>
+
+</div>
 
 
 

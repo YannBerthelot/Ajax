@@ -3021,6 +3021,10 @@ episode. Gradients flow through a piece but not back past its start:
 time limit cut an episode, the value it bootstraps on is the critic's on the
 episode's final observation, read with the memory that episode built, as
 sb3-contrib's <code>RecurrentPPO</code> does.</p>
+<p>PPO's actor and critic keep separate memories by default.
+<code>share_encoder=True</code> gives them one, as ppo2's recurrent policies and
+PureJaxRL do; normalise the rewards with it (see the networks guide).
+The off-policy agents keep separate memories, as Ni et al. (2022) do.</p>
 <h3 id="the-libraries-disagree-on-the-length">The libraries disagree on the length<a class="headerlink" href="#the-libraries-disagree-on-the-length" title="Permanent link">&para;</a></h3>
 <p>No PPO paper gives one length for every task, and the reference codes fall
 into two camps:</p>

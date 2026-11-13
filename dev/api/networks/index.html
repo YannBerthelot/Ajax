@@ -2685,6 +2685,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.networks.networks.observation_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        observation_encoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.networks.networks.check_log_std_head" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2707,6 +2718,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.networks.networks.check_share_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check_share_encoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.networks.networks.get_initialized_actor_critic" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2722,6 +2744,50 @@
     <span class="md-ellipsis">
       
         get_initialized_critic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.networks.shared_encoder_params" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        shared_encoder_params
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.networks.with_critic_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_critic_encoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.networks.mirror_shared_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mirror_shared_encoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.networks.take_actor_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        take_actor_encoder
       
     </span>
   </a>
@@ -3076,6 +3142,17 @@
     <span class="md-ellipsis">
       
         TorchLinear
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.utils.shared_by_members" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        shared_by_members
       
     </span>
   </a>
@@ -4119,6 +4196,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.networks.networks.observation_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        observation_encoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.networks.networks.check_log_std_head" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4141,6 +4229,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.networks.networks.check_share_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check_share_encoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.networks.networks.get_initialized_actor_critic" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4156,6 +4255,50 @@
     <span class="md-ellipsis">
       
         get_initialized_critic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.networks.shared_encoder_params" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        shared_encoder_params
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.networks.with_critic_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_critic_encoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.networks.mirror_shared_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mirror_shared_encoder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.networks.take_actor_encoder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        take_actor_encoder
       
     </span>
   </a>
@@ -4510,6 +4653,17 @@
     <span class="md-ellipsis">
       
         TorchLinear
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.utils.shared_by_members" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        shared_by_members
       
     </span>
   </a>
@@ -5728,7 +5882,8 @@ share one scope, so the parameters are <code>actor</code>'s alone.</p>
     <div class="doc doc-contents ">
 
         <p>Per-ensemble-member encoder features, shape <code>(num, ..., d)</code>
-(:class:<code>ajax.extensions.instrumentation.ConditioningMetrics</code>).</p>
+(:class:<code>ajax.extensions.instrumentation.ConditioningMetrics</code>); a
+shared encoder's, on an ensemble axis of one.</p>
 
 
     </div>
@@ -5760,6 +5915,29 @@ share one scope, so the parameters are <code>actor</code>'s alone.</p>
         <p>Mnih et al.'s network when the image fits it, 36 pixels a side or
 more (its three VALID convolutions leave nothing of less), else
 MinAtar's, made for MinAtar's 10 x 10 images.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.networks.networks.observation_encoder" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">observation_encoder</span>
+
+
+<a href="#ajax.networks.networks.observation_encoder" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">observation_encoder</span><span class="p">(</span><span class="n">network</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The layers <code>network</code> (an Actor, a Critic or a MultiCritic) reads
+its observations with, before any memory: a :class:<code>CNNEncoder</code> for
+image observations, else the MLP :class:<code>Encoder</code>. Built in the
+network's setup, so it is the network's own submodule.</p>
 
 
     </div>
@@ -5817,6 +5995,27 @@ action joins at its head (<code>Critic.query_dim</code>).</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="ajax.networks.networks.check_share_encoder" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">check_share_encoder</span>
+
+
+<a href="#ajax.networks.networks.check_share_encoder" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">check_share_encoder</span><span class="p">(</span><span class="n">network_config</span><span class="p">,</span> <span class="n">action_value</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Refuse a shared encoder (<code>network_config.share_encoder</code>) the
+networks cannot have.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="ajax.networks.networks.get_initialized_actor_critic" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">get_initialized_actor_critic</span>
 
@@ -5851,6 +6050,9 @@ fed; the observation features (<code>env_config.observers</code>) join them.</p>
 actor a :class:<code>PIDActor</code> (see :mod:<code>ajax.modules.pid_actor</code>). The
 actions are the policy's (:func:<code>ajax.controller.policy_action_dim</code>:
 gain mode's gains).</p>
+<p>With <code>network_config.share_encoder</code> the two read one encoder (and
+memory block): the critic's, which its optimiser steps; the actor's
+state holds its heads and a copy of it (<code>shared_params</code>).</p>
 
 
     </div>
@@ -5890,6 +6092,96 @@ only calls predict_value.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="ajax.networks.networks.shared_encoder_params" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">shared_encoder_params</span>
+
+
+<a href="#ajax.networks.networks.shared_encoder_params" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">shared_encoder_params</span><span class="p">(</span><span class="n">critic_params</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The parameters of the encoder (and memory block) a critic shares with
+its actor, taken from the critic's parameters.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.networks.networks.with_critic_encoder" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">with_critic_encoder</span>
+
+
+<a href="#ajax.networks.networks.with_critic_encoder" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">with_critic_encoder</span><span class="p">(</span><span class="n">actor_state</span><span class="p">,</span> <span class="n">critic_params</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>actor_state</code> reading the encoder in <code>critic_params</code>, for an actor
+sharing the critic's encoder; an actor with its own is returned as is. A
+loss differentiated with respect to <code>critic_params</code> then trains the
+encoder through the actor too.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.networks.networks.mirror_shared_encoder" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">mirror_shared_encoder</span>
+
+
+<a href="#ajax.networks.networks.mirror_shared_encoder" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">mirror_shared_encoder</span><span class="p">(</span><span class="n">agent_state</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>agent_state</code> with its actor's copy of the shared encoder taken from
+the critic as it is now: the training loop calls it after anything that
+steps the critic (each update, the extensions' pretraining), so acting
+and evaluating read the current encoder. Unchanged without one.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.networks.networks.take_actor_encoder" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">take_actor_encoder</span>
+
+
+<a href="#ajax.networks.networks.take_actor_encoder" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">take_actor_encoder</span><span class="p">(</span><span class="n">agent_state</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p><code>agent_state</code> with the critic's shared encoder replaced by the
+actor's copy, after something trained the encoder through the actor
+alone (cloning pretraining); the target critic's too, which starts as
+the critic. Unchanged without a shared encoder.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="ajax.networks.networks.init_network_carry" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">init_network_carry</span>
 
@@ -5901,7 +6193,9 @@ only calls predict_value.</p>
     <div class="doc doc-contents ">
 
         <p>Fresh carry for <code>network</code>. Ensembles (modules exposing <code>num</code>)
-get one carry per member, stacked on a leading (num,) axis.</p>
+get one carry per member, stacked on a leading (num,) axis; members
+sharing one memory block (MultiCritic.share_encoder) have one carry,
+on an axis of one.</p>
 
 
     </div>
@@ -6900,6 +7194,29 @@ the fan-in. Its parameters are a Dense layer's, at the same path.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="ajax.networks.utils.shared_by_members" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">shared_by_members</span>
+
+
+<a href="#ajax.networks.utils.shared_by_members" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">shared_by_members</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Whether the parameter at path is an encoder the members of a
+:class:<code>~ajax.networks.networks.MultiCritic</code> share
+(<code>MultiCritic.share_encoder</code>): outside their vmapped <code>ensemble</code>, in
+its encoder or memory block. Every other parameter is a member's.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="ajax.networks.utils.clip_by_member_norm" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">clip_by_member_norm</span>
 
@@ -6911,10 +7228,11 @@ the fan-in. Its parameters are a Dense layer's, at the same path.</p>
     <div class="doc doc-contents ">
 
         <p><code>optax.clip_by_global_norm</code> applied to each member of an ensemble on
-its own: every leaf's leading axis indexes a member, as a
+its own: every member leaf's leading axis indexes a member, as a
 :class:<code>~ajax.networks.networks.MultiCritic</code>'s vmapped parameters do.
 Each member is its own network in the references, clipped alone (ASAC:
-BobMak/asac @4b68862, darer/Models.py:299-301).</p>
+BobMak/asac @4b68862, darer/Models.py:299-301). An encoder the members
+share is no member's: it is clipped on its own, as one more network.</p>
 
 
     </div>

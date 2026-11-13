@@ -3190,24 +3190,25 @@ the advantage-weighted mean of their actions, with the weights clipped.</p>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">buffer_size</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="mf">1000000.0</span><span class="p">),</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">learning_starts</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">eval_expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">normalize_rewards</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">reward_normalization_gamma</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">max_grad_norm</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">policy_update_start</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">actor_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">critic_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">value_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">actor_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">critic_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">expectile</span><span class="o">=</span><span class="mf">0.7</span><span class="p">,</span>
-<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">temperature</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span>
-<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
-<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">tau</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
-<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">reward_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a><span class="p">)</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">share_encoder</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">eval_expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">normalize_rewards</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">reward_normalization_gamma</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">max_grad_norm</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">policy_update_start</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">actor_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">critic_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">value_learning_rate</span><span class="o">=</span><span class="mf">0.0003</span><span class="p">,</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">actor_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">critic_architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;256&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">expectile</span><span class="o">=</span><span class="mf">0.7</span><span class="p">,</span>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">temperature</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">tau</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">reward_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">
@@ -3237,7 +3238,12 @@ the advantage-weighted mean of their actions, with the weights clipped.</p>
 
   
       dataclass
-   (ajax.agents.families.ExpertGuided)" href="../../api/agents/#ajax.agents.families.ExpertGuided">ExpertGuided</a></code>, <code><a class="autorefs autorefs-internal" title="ReplayAgent
+   (ajax.agents.families.ExpertGuided)" href="../../api/agents/#ajax.agents.families.ExpertGuided">ExpertGuided</a></code>, <code><a class="autorefs autorefs-internal" title="EncoderSharing
+
+
+  
+      dataclass
+   (ajax.agents.families.EncoderSharing)" href="../../api/agents/#ajax.agents.families.EncoderSharing">EncoderSharing</a></code>, <code><a class="autorefs autorefs-internal" title="ReplayAgent
 
 
   

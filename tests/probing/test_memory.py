@@ -152,6 +152,10 @@ def _p0b_agent(agent: str, spec: envs.Spec = CUE, kind: str = "gru", **kw: Any) 
 # head PPO had before (std 0.37 at the start, about 0.02 by 5000 steps) failures
 # returned at longer budgets and its transformer and mamba qualified at no budget of
 # 2000-20,000. The action gap reads exactly 0: it takes the 0.02 floor.
+# With Ni et al.'s networks (2026-11-13), seeds 3000-3031: SAC 32/32, REDQ
+# 30/32; TD3 28/32 at 7500, 29/32 at 10,000 and 26/32 at 15,000, its actor
+# saturated at a bound on two seeds whatever the budget: kept at 10,000 with
+# the shortfall (owner), Ni's learning rate 3e-4 left to a follow-up.
 P0B_CELLS: dict[tuple[str, str], tuple[int, tuple[float, ...]]] = {
     ("PPO", "gru"): (20_000, (0.4, 0.325, 0.317, 0.054, 0.054, 0.02)),
     ("PPO", "lstm"): (20_000, (0.381, 0.296, 0.282, 0.045, 0.045, 0.02)),
@@ -159,7 +163,7 @@ P0B_CELLS: dict[tuple[str, str], tuple[int, tuple[float, ...]]] = {
     ("PPO", "mamba"): (30_000, (0.429, 0.441, 0.428, 0.089, 0.089, 0.02)),
     ("SAC", "gru"): (3750, (0.48, 0.455, 0.456, 0.095, 0.095, 0.02)),
     ("REDQ", "gru"): (2000, (0.463, 0.406, 0.405, 0.1, 0.1, 0.02)),
-    ("TD3", "gru"): (7500, (0.429, 0.467, 0.383, 0.099, 0.099, 0.02)),
+    ("TD3", "gru"): (10_000, (0.429, 0.467, 0.383, 0.099, 0.099, 0.02)),
 }
 for (agent, kind), (budget, tol) in P0B_CELLS.items():
     cid = f"p0b-{agent}-{kind}"
@@ -232,7 +236,9 @@ LONGER_BUDGET = {("REDQ", "gru", 2): 6000, ("TD3", "gru", 2): 9000}
 # and REDQ's cells read 30-32/32 at their budgets; TD3's gru and lstm 30 and
 # 31/32, its windows of two 29/32 at 6000 and 31/32 at 9000. ASAC's GRU and
 # LSTM critics spread past the 0.1 ceiling at any budget (sd about 0.06 of 2,
-# 23-29/32 at 1500 to 6000): calibrated, as the controls, below.
+# 23-29/32 at 1500 to 6000): calibrated, as the controls, below. TD3's
+# transformer and mamba read 28/32 (transformer also at 9000; a few seeds
+# near 0.33): kept with the shortfall (owner), as p0b-TD3 is.
 SPREAD = {  # (agent, kind, L): the target cell's tolerance and its record
     ("ASAC", "gru", L): (0.477, "ladder worst 0.238; cert 32/32, worst 0.180"),
     ("ASAC", "lstm", L): (0.397, "ladder worst 0.198; cert 32/32, worst 0.135"),

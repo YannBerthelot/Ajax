@@ -3024,8 +3024,8 @@
 <h1 id="dqn">DQN<a class="headerlink" href="#dqn" title="Permanent link">&para;</a></h1>
 <p>Deep Q-Network learns one Q-value per discrete action and acts greedily on
 them. It regresses the Q-network on temporal-difference targets computed
-with a separate target network, refreshed every few hundred updates, and
-samples its training data from a replay buffer. It explores with an
+with a separate target network, refreshed every few hundred environment
+steps, and samples its training data from a replay buffer. It explores with an
 epsilon-greedy rule whose epsilon decays linearly during training. Double
 DQN, the dueling network and the squared loss are options of the same agent.</p>
 <p><strong>Papers.</strong> Mnih et al., <em>Human-level control through deep reinforcement
@@ -3076,10 +3076,11 @@ network).</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">DQN</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">DQN</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">log_frequency</span><span class="o">=</span><span class="mi">5_000</span><span class="p">,</span> <span class="n">backends</span><span class="o">=</span><span class="p">())</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">10_000</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Eval/episodic mean reward&quot;</span><span class="p">])</span>  <span class="c1"># one row per seed</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># A short run: the default warm-up, CleanRL&#39;s, is 10,000 steps.</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">DQN</span><span class="p">(</span><span class="s2">&quot;CartPole-v1&quot;</span><span class="p">,</span> <span class="n">n_envs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">learning_starts</span><span class="o">=</span><span class="mi">1_000</span><span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">logging</span> <span class="o">=</span> <span class="n">LoggingConfig</span><span class="p">(</span><span class="n">log_frequency</span><span class="o">=</span><span class="mi">5_000</span><span class="p">,</span> <span class="n">backends</span><span class="o">=</span><span class="p">())</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">state</span><span class="p">,</span> <span class="n">evaluations</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">10_000</span><span class="p">,</span> <span class="n">logging_config</span><span class="o">=</span><span class="n">logging</span><span class="p">)</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">evaluations</span><span class="p">[</span><span class="s2">&quot;Eval/episodic mean reward&quot;</span><span class="p">])</span>  <span class="c1"># one row per seed</span>
 </code></pre></div>
 <p>The variants compose through three arguments:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">ajax</span><span class="w"> </span><span class="kn">import</span> <span class="n">DQN</span>
@@ -3096,7 +3097,9 @@ network).</p>
 <a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="n">state</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_timesteps</span><span class="o">=</span><span class="mi">2_000</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="key-hyperparameters">Key hyperparameters<a class="headerlink" href="#key-hyperparameters" title="Permanent link">&para;</a></h2>
-<p>Defaults are read from DQN's fields.</p>
+<p>Defaults are read from DQN's fields: on vector observations, those of
+CleanRL's <code>dqn.py</code> (vwxyzjn/cleanrl <code>fe8d8a0</code>), with the authors' optimiser
+and loss (see Notes).</p>
 <table>
 <thead>
 <tr>
@@ -3118,7 +3121,7 @@ network).</p>
 </tr>
 <tr>
 <td><code>architecture</code></td>
-<td><code>("128", "relu", "128", "relu")</code></td>
+<td><code>("120", "relu", "84", "relu")</code></td>
 <td>hidden layers of the Q-network</td>
 </tr>
 <tr>
@@ -3128,28 +3131,33 @@ network).</p>
 </tr>
 <tr>
 <td><code>buffer_size</code></td>
-<td><code>100_000</code></td>
+<td><code>10_000</code></td>
 <td>replay capacity</td>
 </tr>
 <tr>
 <td><code>batch_size</code></td>
-<td><code>64</code></td>
+<td><code>128</code></td>
 <td>replay minibatch</td>
 </tr>
 <tr>
 <td><code>learning_starts</code></td>
-<td><code>1_000</code></td>
+<td><code>10_000</code></td>
 <td>steps of uniform random actions before the first update</td>
+</tr>
+<tr>
+<td><code>train_frequency</code></td>
+<td><code>10</code></td>
+<td>environment steps between updates</td>
 </tr>
 <tr>
 <td><code>n_gradient_steps</code></td>
 <td><code>1</code></td>
-<td>gradient steps per iteration</td>
+<td>gradient steps per update</td>
 </tr>
 <tr>
 <td><code>target_update_interval</code></td>
-<td><code>500</code></td>
-<td>gradient steps between target refreshes</td>
+<td><code>50</code></td>
+<td>gradient steps between target refreshes (500 environment steps at the defaults)</td>
 </tr>
 <tr>
 <td><code>tau</code></td>
@@ -3222,12 +3230,27 @@ network).</p>
 <ul>
 <li><strong>Target.</strong> <code>r + gamma (1 - terminated) max_a' Q'(s', a')</code>; Double DQN
   picks <code>a'</code> with the online network and values it with the target network.</li>
-<li><strong>Updates per step.</strong> Each iteration steps every env once, then (from
-  <code>learning_starts</code>) takes <code>n_gradient_steps</code> gradient steps. With <code>n_envs=4</code>
-  that is one gradient step per four environment steps.</li>
+<li><strong>Updates per step.</strong> Each iteration steps every env once. From
+  <code>learning_starts</code>, each time the steps collected reach a multiple of
+  <code>train_frequency</code>, it takes <code>n_gradient_steps</code> gradient steps: one per 10
+  environment steps at the defaults, whatever <code>n_envs</code> (with <code>n_envs</code> at
+  or above <code>train_frequency</code>, one per iteration). <code>train_frequency=1</code>
+  updates every iteration. An evaluation between two updates logs the
+  training metrics of the last one.</li>
 <li><strong>Target refresh.</strong> One mechanism covers both classic schemes: every
   <code>target_update_interval</code> gradient steps the target moves by <code>tau</code>. The
-  hard copy is <code>tau=1.0</code>; a Polyak average is <code>tau &lt; 1</code> with interval <code>1</code>.</li>
+  hard copy is <code>tau=1.0</code>; a Polyak average is <code>tau &lt; 1</code> with interval <code>1</code>.
+  The default, 50 updates of one per 10 steps, is CleanRL's refresh every
+  500 environment steps. The interval counts updates so that it keeps its
+  meaning in <code>train_offline</code> and pretraining, where no environment step is
+  taken.</li>
+<li><strong>Defaults.</strong> CleanRL's <code>dqn.py</code>, the vector-observation reference: the
+  authors' own code (google-deepmind/dqn) runs Atari only. CleanRL numbers
+  its steps from 0: an update or refresh at Ajax's 10,500th step is
+  CleanRL's at <code>global_step</code> 10,500, its 10,501st. Ajax also updates and
+  refreshes at step 10,000, where CleanRL waits for <code>global_step &gt;
+  learning_starts</code>. CleanRL's Adam and squared loss give way to the authors'
+  optimiser and Huber loss (below).</li>
 <li><strong>Exploration.</strong> Epsilon decays linearly with the training fraction (the
   timestep over the run's total), from <code>epsilon_start</code> to <code>epsilon_end</code>
   over the first <code>epsilon_decay_frac</code> of the run. Before <code>learning_starts</code>
@@ -3299,32 +3322,33 @@ updates from step 1,000) DQN ran at 16,662 steps per second of execution
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">episode_length</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">action_repeat</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">extensions</span><span class="o">=</span><span class="p">(),</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">buffer_size</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="mf">100000.0</span><span class="p">),</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">learning_starts</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">cnn_image_shape</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">cnn_extra_obs_dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">cnn_spec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">eval_expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">normalize_rewards</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">reward_normalization_gamma</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">max_grad_norm</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">learning_rate</span><span class="o">=</span><span class="mf">0.00025</span><span class="p">,</span>
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;128&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">tau</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">target_update_interval</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
-<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">reward_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">n_gradient_steps</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">epsilon_start</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">epsilon_end</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
-<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">epsilon_decay_frac</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
-<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">td_target_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="n">td_loss_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">q_network_cls</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a><span class="p">)</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">buffer_size</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">learning_starts</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">train_frequency</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">cnn_image_shape</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">cnn_extra_obs_dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">cnn_spec</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">eval_expert_policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">normalize_rewards</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">reward_normalization_gamma</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">normalize_observations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">max_grad_norm</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">learning_rate</span><span class="o">=</span><span class="mf">0.00025</span><span class="p">,</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">architecture</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;120&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">,</span> <span class="s2">&quot;84&quot;</span><span class="p">,</span> <span class="s2">&quot;relu&quot;</span><span class="p">),</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="n">tau</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">target_update_interval</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">reward_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">n_gradient_steps</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">epsilon_start</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">epsilon_end</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">epsilon_decay_frac</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="n">td_target_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">td_loss_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="n">q_network_cls</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">
@@ -3366,10 +3390,16 @@ updates from step 1,000) DQN ran at 16,662 steps per second of execution
         <p>Deep Q-Network (Mnih et al., 2015) for discrete action spaces: a
 Q-network trained by TD against a periodically refreshed target network
 (the module's equations), acting epsilon-greedy.</p>
-<p>Defaults: the reference's learning rate (2.5e-4, run_gpu:25) and
-optimiser (optimizer_settings); a smaller 128-128 ReLU MLP, a 1e5
-replay, batches of 64, 1000 warm-up steps and a refresh every 500
-updates, sized for gymnax's classic-control tasks rather than Atari.</p>
+<p>Defaults: on vector observations, CleanRL's dqn.py (vwxyzjn/cleanrl
+@fe8d8a0, its Args at lines 47-71 and QNetwork at 95-99), the
+classic-control reference, with Mnih et al.'s optimiser and Huber loss
+(optimizer_settings, td_loss_fn), which google-deepmind/dqn @9d9b1d1
+runs on Atari. Ajax counts the steps collected, CleanRL numbers them
+from 0 (global_step): an update and a refresh of Ajax's at its 10,500th
+step are CleanRL's at global_step 10,500, its 10,501st. Ajax also
+updates and refreshes at step 10,000, where CleanRL waits for
+global_step &gt; learning_starts (dqn.py:194): learning_starts counts the
+steps collected before the first update (ReplayAgent).</p>
 
 
 

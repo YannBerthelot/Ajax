@@ -2777,6 +2777,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.loop.with_update_metrics_slot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_update_metrics_slot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.loop.with_horizon" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2886,6 +2897,17 @@
     <span class="md-ellipsis">
       
         reached
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.update_steps.reaches_multiple" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reaches_multiple
       
     </span>
   </a>
@@ -3822,6 +3844,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.loop.with_update_metrics_slot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        with_update_metrics_slot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.loop.with_horizon" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3931,6 +3964,17 @@
     <span class="md-ellipsis">
       
         reached
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.update_steps.reaches_multiple" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reaches_multiple
       
     </span>
   </a>
@@ -4884,15 +4928,21 @@ stepped (mirror_shared_encoder).</p>
 
 <a href="#ajax.agents.loop.TrainLoop.maybe_update" class="headerlink" title="Permanent link">&para;</a></h4>
 <div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">maybe_update</span><span class="p">(</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">agent_state</span><span class="p">,</span> <span class="n">learning_starts</span><span class="p">,</span> <span class="n">update</span><span class="p">,</span> <span class="n">timestep</span><span class="o">=</span><span class="kc">None</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">agent_state</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">learning_starts</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">update</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">timestep</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">trains</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>update and apply post_update once timestep, by default the steps
-collected, reaches learning_starts; before, the metrics have the
-update's structure, filled with NaN (which the logger drops).</p>
+        <p>update and apply post_update on a tick that trains (trains, by
+default every one) once timestep, by default the steps collected,
+reaches learning_starts; otherwise the metrics have the update's
+structure, filled with NaN (which the logger drops), or, on a state
+keeping them (last_update_metrics), those of the last update.</p>
 
 
     </div>
@@ -5017,11 +5067,12 @@ run's horizon (a fresh state is built with it).</p>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">update</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">buffer</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">one_update</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">resume</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">returns_iterations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">log</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">due</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="p">)</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">update_metrics</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">resume</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="n">returns_iterations</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">log</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">due</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -5039,7 +5090,10 @@ The extensions' pretraining gets the env, update and the replay
 buffer (ajax.extensions.base.ExtensionContext).
 one_update, a state to the state after one update, is given by an
 update keeping its actor's last metrics: a fresh or resumed state gets
-their slot (with_actor_metrics_slot). resume transforms a resumed
+their slot (with_actor_metrics_slot). update_metrics, a state to its
+update's metrics, is given by an update that runs every few steps:
+a fresh or resumed state gets the slot of its last metrics
+(with_update_metrics_slot). resume transforms a resumed
 state after continued (APG rebuilds its optimiser). With
 returns_iterations, iteration evaluates itself and the train
 function returns every iteration's output, stacked, logging or not,
@@ -5075,7 +5129,8 @@ instead of the rows.</p>
 <a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">num_ticks</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">keeps_actor_metrics</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">pretrain_update</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="p">)</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">update_every</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -5086,18 +5141,19 @@ by default <code>learning_starts</code>; 0: the policy's from the first step,
 as TQC's authors act), applies <code>after_collect(agent_state,
 transition)</code> when given, then from <code>learning_starts</code> runs
 <code>update(agent_state, transition)</code> (without a replay, from the step
-collected at learning_starts), then evaluates the actor
-(:meth:<code>evaluate_and_log</code>). <code>expose_rollout</code> keeps the step on
-<code>agent_state.last_rollout</code> as a <code>T = 1</code> rollout. The budget is
-:attr:<code>budget</code> <code>// n_envs</code> ticks.</p>
+collected at learning_starts) on the ticks whose steps collected
+reach a multiple of <code>update_every</code> (:func:<code>reaches_multiple</code>), then
+evaluates the actor (:meth:<code>evaluate_and_log</code>).
+<code>expose_rollout</code> keeps the step on <code>agent_state.last_rollout</code> as
+a <code>T = 1</code> rollout. The budget is :attr:<code>budget</code> <code>// n_envs</code> ticks.</p>
 <p>An agent acting, training and evaluating its own way (the module
 docstring) supplies those steps: <code>collect</code> replaces the collection
 and the arguments configuring it; <code>n_updates(tick, agent_state)</code>
 updates (of the absolute, unbatched tick: a train ratio, a burst;
 or of the collected state: the env steps the tick took) replace the
-<code>learning_starts</code> gate (:meth:<code>repeat_update</code>); <code>evaluation</code>
-replaces the actor's evaluation (:meth:<code>evaluate_every</code>);
-<code>num_ticks</code> the budget.</p>
+<code>learning_starts</code> and <code>update_every</code> gate (:meth:<code>repeat_update</code>);
+<code>evaluation</code> replaces the actor's evaluation
+(:meth:<code>evaluate_every</code>); <code>num_ticks</code> the budget.</p>
 <p><code>keeps_actor_metrics</code>: the update keeps its actor's last metrics on
 the state (update_steps.run_actor_if), which then gets their slot.
 <code>pretrain_update</code>, by default <code>update</code>, is the update the
@@ -5286,6 +5342,30 @@ their structure, read from the trace of one_update (a state to the
 state after one update), NaN until the actor's first step, so the scan
 carry keeps one structure from the first update. A state that has the
 slot keeps it.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.loop.with_update_metrics_slot" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">with_update_metrics_slot</span>
+
+
+<a href="#ajax.agents.loop.with_update_metrics_slot" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">with_update_metrics_slot</span><span class="p">(</span><span class="n">agent_state</span><span class="p">,</span> <span class="n">first_metrics</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>agent_state with the slot a run updating every few steps keeps its
+last update's metrics in (BaseAgentState.last_update_metrics,
+TrainLoop.maybe_update): their structure, read from the trace of
+first_metrics (a state to the metrics of an update), NaN until the first
+update. A state that has the slot keeps it.</p>
 
 
     </div>
@@ -5566,6 +5646,30 @@ holds.</p>
 waits for (policy_update_start): the Python True, with nothing traced,
 when start is 0 or less, so an agent without the wait runs the program
 it ran before it had one.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.update_steps.reaches_multiple" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">reaches_multiple</span>
+
+
+<a href="#ajax.agents.update_steps.reaches_multiple" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">reaches_multiple</span><span class="p">(</span><span class="n">every</span><span class="p">,</span> <span class="n">before</span><span class="p">,</span> <span class="n">count</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Whether a tick taking the env steps collected from before to before +
+count reaches a multiple of every, the rule of Ajax's other step
+schedules (log_frequency, JSRLCurriculum's gate): the Python True, with
+nothing traced, when every tick does (every &lt;= count). before may be an
+int, a NumPy or a JAX array.</p>
 
 
     </div>

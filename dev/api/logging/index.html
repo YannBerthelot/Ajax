@@ -4266,6 +4266,12 @@ using only tensorboardX (no TensorFlow, no tensorboard).</p>
 <code>value(agent_state, obs, action)</code> is its estimate (one per env) of the
 return from <code>obs</code> taking <code>action</code>, of the rewards times
 <code>reward_scale</code> discounted by <code>gamma</code>, as its targets are.</p>
+<p>A static argument of the evaluation, its numbers the program's
+constants, so that the evaluation an asynchronous evaluator compiles
+apart holds them too. A sweep member's <code>gamma</code> is a traced number
+(<code>ActorCritic.train</code>'s <code>sweep</code>), which can be neither hashed nor
+compared: an estimate hashes by its value function, and a traced number
+equals only itself.</p>
 
 
 

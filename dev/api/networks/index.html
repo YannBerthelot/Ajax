@@ -3182,6 +3182,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.networks.utils.learning_rate_scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        learning_rate_scale
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.networks.utils.get_adam_tx" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4697,6 +4708,17 @@
     <span class="md-ellipsis">
       
         clip_by_member_norm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.networks.utils.learning_rate_scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        learning_rate_scale
       
     </span>
   </a>
@@ -7282,6 +7304,32 @@ its own: every member leaf's leading axis indexes a member, as a
 Each member is its own network in the references, clipped alone (ASAC:
 BobMak/asac @4b68862, darer/Models.py:299-301). An encoder the members
 share is no member's: it is clipped on its own, as one more network.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.networks.utils.learning_rate_scale" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">learning_rate_scale</span>
+
+
+<a href="#ajax.networks.utils.learning_rate_scale" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">learning_rate_scale</span><span class="p">(</span><span class="n">learning_rate</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>optax.scale_by_learning_rate, but a rate given as an array is kept in
+the optimiser's state, as data (optax.inject_hyperparams).</p>
+<p>A sweep member's rates are arrays, traced (ActorCritic.member). optax
+closes over a rate, and the train state keeps its optimiser as static
+data, so the state a sweep returns would hold a value of the finished
+trace and could not step again (a resumed sweep). A number or a schedule
+is scaled as before, its state unchanged.</p>
 
 
     </div>

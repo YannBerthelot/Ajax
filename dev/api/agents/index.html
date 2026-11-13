@@ -2462,6 +2462,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.sweepable_fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sweepable_fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.member" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        member
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.agents.base.ActorCritic.get_make_train" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4103,6 +4125,28 @@
     <span class="md-ellipsis">
       
         resumed_state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.sweepable_fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sweepable_fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.agents.base.ActorCritic.member" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        member
       
     </span>
   </a>
@@ -5919,6 +5963,54 @@ replay, which grows to the uninterrupted run's.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="ajax.agents.base.ActorCritic.sweepable_fields" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">sweepable_fields</span>
+
+
+<a href="#ajax.agents.base.ActorCritic.sweepable_fields" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">sweepable_fields</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The fields this agent's sweep may vary: :attr:<code>sweepable</code>, less
+those this configuration captures when built.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.agents.base.ActorCritic.member" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">member</span>
+
+
+<a href="#ajax.agents.base.ActorCritic.member" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">member</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>This agent as one member of a sweep: the fields named in values
+set to them, traced numbers, and the optimiser configs construction
+built from its learning rates rebuilt (ajax.agents.sweep).</p>
+<p>The copy is not constructed again: a sweepable field is one no
+construction check reads, and a traced value could not be checked.
+Its fields are set past the rule that fixes them once built, which
+keeps what trains what the run config logs: a sweep logs each
+member's values in its own run config.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="ajax.agents.base.ActorCritic.get_make_train" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">get_make_train</span>
 
@@ -5954,8 +6046,9 @@ rest.</p>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">on_ids_ready</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">initial_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">total_timesteps</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">)</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">sweep</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -6048,9 +6141,32 @@ where it ends.</p>
                   <code>None</code>
             </td>
           </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>sweep</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="ajax.agents.sweep.Sweep">Sweep</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>hyperparameter configurations trained with every seed,
+all in this one program (<code>ajax.agents.sweep</code>): a dict of
+value lists, whose grid is trained, or a list of
+configurations, over the agent's sweepable fields
+(:meth:<code>sweepable_fields</code>). A sweep resumes with the same
+seed and sweep.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
       </tbody>
     </table>
-        <p>Returns <code>(state, out)</code>, each leaf with a leading seed axis. On the
+        <p>Returns <code>(state, out)</code>, each leaf with a leading axis over the
+members: the seeds, or the sweep's configurations, each over the
+seeds, as :attr:<code>members</code> lists them. On the
 shared loop (<code>ajax.agents.loop</code>) <code>out</code> is <code>None</code> without a
 logging config, else the evaluations.</p>
 
@@ -9698,8 +9814,9 @@ continues instead of restarting.</p>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">on_ids_ready</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">initial_state</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">total_timesteps</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">)</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">sweep</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">

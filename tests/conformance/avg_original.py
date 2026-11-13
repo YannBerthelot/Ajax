@@ -82,12 +82,12 @@ def to_ajax(template: Any, arrays: dict, dtype: Any) -> Any:
         floating = jnp.issubdtype(x.dtype, jnp.floating)
         return jnp.asarray(value.reshape(x.shape), dtype if floating else x.dtype)
 
-    return jax.tree_util.tree_map_with_path(put, template)
+    return kit.map_with_path(put, template)
 
 
 def to_reference(state: Any) -> dict:
     out = {}
-    for path, x in jax.tree_util.tree_leaves_with_path(state):
+    for path, x in kit.leaves_with_path(state):
         found = reference_names(path)
         if found is None:
             continue

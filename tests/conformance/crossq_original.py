@@ -86,13 +86,13 @@ def to_ajax(template: Any, arrays: dict, dtype: Any) -> Any:
         value = np.asarray(arrays[f"in.{name}"]).reshape(x.shape)
         return jnp.asarray(value, dtype if floating else x.dtype)
 
-    return jax.tree_util.tree_map_with_path(put, template)
+    return kit.map_with_path(put, template)
 
 
 def to_reference(state: Any) -> dict:
     """``state`` in the authors' names."""
     out = {}
-    for path, x in jax.tree_util.tree_leaves_with_path(state):
+    for path, x in kit.leaves_with_path(state):
         name = reference_name(path)
         if name is not None:
             floating = jnp.issubdtype(x.dtype, jnp.floating)

@@ -85,13 +85,13 @@ def to_ajax(template: Any, arrays: dict, dtype: Any) -> Any:
         value = (np.stack(parts) if len(parts) > 1 else parts[0]).reshape(x.shape)
         return jnp.asarray(value, dtype)
 
-    return jax.tree_util.tree_map_with_path(put, template)
+    return kit.map_with_path(put, template)
 
 
 def to_reference(state: Any) -> dict:
     """``state`` in the record's names."""
     out = {}
-    for path, x in jax.tree_util.tree_leaves_with_path(state):
+    for path, x in kit.leaves_with_path(state):
         found = reference_names(path)
         if found is None:
             continue

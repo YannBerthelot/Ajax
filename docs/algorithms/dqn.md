@@ -87,6 +87,18 @@ and loss (see Notes).
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |
 | `extensions` | `()` | research features (see [Extensions](../guide/extensions.md)) |
 
+## Presets
+
+`DQN.preset("Atari", env_id)` takes Mnih et al.'s Atari config
+(google-deepmind/dqn@`9d9b1d1`, `run_gpu:12-32`;
+[Presets](../guide/training.md#presets)): a 1,000,000-row replay, batches of
+32, 50,000 warm-up steps, one update every 4 steps (`train_frequency=4`), the
+target refreshed every 10,000 steps (`target_update_interval=2_500`
+updates), epsilon falling to 0.1 by step 1,050,000. That last is a fraction
+of the reference's 50M-step run (`epsilon_decay_frac=0.021`), so it comes
+sooner in a shorter run. Atari's frame skip and stack, no-op starts and
+reward clipping are the environment's.
+
 ## Notes
 
 - **Target.** `r + gamma (1 - terminated) max_a' Q'(s', a')`; Double DQN

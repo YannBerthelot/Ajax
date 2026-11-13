@@ -91,6 +91,7 @@ preprocessing stay yours.
 | [ASAC](../algorithms/asac.md#presets) | the ten Gymnasium MuJoCo tasks | the authors' tuned runs |
 | [CrossQ](../algorithms/crossq.md#presets) | `Swimmer` | the authors' `train.py` |
 | [DreamerV3](../algorithms/dreamerv3.md#presets) | `DMC` | `configs.yaml` |
+| [DQN](../algorithms/dqn.md#presets) | `Atari` | Mnih et al.'s `run_gpu` |
 | [IQL](../algorithms/iql.md#presets) | `AntMaze` | `antmaze_config.py` |
 | [PPO](../algorithms/ppo.md#presets) | `Atari` | ppo2's `defaults.py` |
 | [PQN](../algorithms/pqn.md#presets) | `CartPole`, `Atari` | purejaxql's configs |

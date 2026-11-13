@@ -76,8 +76,8 @@ The next release is 0.6.0: the first item changes results.
   arguments given win, and the run config records the name under
   `"preset"`. Each agent module keeps its presets, with their sources, in a
   `PRESETS` table: ASAC's ten Gymnasium MuJoCo tasks, TQC's and REDQ's five
-  MuJoCo tasks, CrossQ's Swimmer, IQL's AntMaze, TD3's D4RL (TD3+BC), PPO's
-  Atari, PQN's CartPole and Atari, and DreamerV3's DMC, whose values the
+  MuJoCo tasks, CrossQ's Swimmer, IQL's AntMaze, TD3's D4RL (TD3+BC), PPO's,
+  PQN's and DQN's Atari, PQN's CartPole, and DreamerV3's DMC, whose values the
   world-model paper protocol now reads. No default changes.
 - **DreamerV3 can keep its replay latents in host memory.** With
   `replay_on_host=True`, the posterior latents stored with each replay row

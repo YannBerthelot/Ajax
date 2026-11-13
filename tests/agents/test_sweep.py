@@ -23,8 +23,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from ajax import PPO, SAC
+from ajax import PPO, SAC, TDMPC2
 from ajax.logging.wandb_logging import LoggingConfig
+from tests.agents.TDMPC2.common import TINY_AGENT as TDMPC2_TINY
 
 RELU = ("16", "relu", "16", "relu")
 TANH = ("16", "tanh", "16", "tanh")
@@ -210,8 +211,19 @@ def test_every_sweepable_field_reaches_the_training(
         (tiny_sac, {"tau": ["0.01"]}, "numbers"),
         (tiny_sac, [{"tau": 0.01}, {"gamma": 0.9}], "same fields"),
         (tiny_sac, {}, "setting a field"),
+        # An agent with its own replay refuses before preparing it.
+        (lambda: TDMPC2("Pendulum-v1", **TDMPC2_TINY), {"tau": [0.01]}, "none"),
     ],
-    ids=["shape", "unknown", "n-step-gamma", "loop-length", "text", "mixed", "empty"],
+    ids=[
+        "shape",
+        "unknown",
+        "n-step-gamma",
+        "loop-length",
+        "text",
+        "mixed",
+        "empty",
+        "no-sweepable-field",
+    ],
 )
 def test_a_sweep_outside_the_sweepable_numbers_is_refused_before_training(
     make: Callable[[], Any], sweep: Any, refused: str

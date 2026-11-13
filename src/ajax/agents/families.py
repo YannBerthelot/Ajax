@@ -52,6 +52,9 @@ from ajax.agents.recurrent import (
     stored_actor_carry_dim,
     unsupported_recurrent_options,
 )
+from ajax.agents.sweep import Sweep
+from ajax.agents.sweep import check as check_sweep
+from ajax.agents.sweep import configurations as sweep_configurations
 from ajax.agents.update_steps import REPLAY_BATCH_KEYS, reached
 from ajax.buffers.ring import count_ring_rows, size_ring
 from ajax.buffers.utils import (
@@ -1525,6 +1528,7 @@ class OwnReplayAgent(DeclaredAgent):
         on_ids_ready: Optional[Callable] = None,
         initial_state: Any = None,
         total_timesteps: Optional[int] = None,
+        sweep: Optional[Sweep] = None,
         **kwargs: Any,
     ) -> tuple[Any, Any]:
         """ActorCritic.train on the call's replay (prepare_replay), which
@@ -1534,6 +1538,9 @@ class OwnReplayAgent(DeclaredAgent):
             state = state[0]
         # Refused before prepare_replay records the replay's sizes on the
         # agent: a refused call leaves the agent as it was.
+        found = sweep_configurations(sweep)
+        if found:
+            check_sweep(type(self).__name__, self.sweepable_fields(), list(found[0]))
         start = 0
         if state is not None:
             counters = shared_counters(state, self.per_seed_update_counts)
@@ -1550,6 +1557,7 @@ class OwnReplayAgent(DeclaredAgent):
             on_ids_ready=on_ids_ready,
             initial_state=state,
             total_timesteps=total_timesteps,
+            sweep=sweep,
             replay=replay,
             start_tick=start_tick,
             **kwargs,

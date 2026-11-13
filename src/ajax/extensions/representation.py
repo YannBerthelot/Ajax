@@ -41,7 +41,7 @@ from ajax.representation.metrics import (
 )
 from ajax.representation.probe_set import ProbeSet, probe_set_for
 from ajax.representation.run_data import PROBE_FILE
-from ajax.state import with_batch_stats
+from ajax.state import network_variables
 from ajax.types import Replaceable
 
 
@@ -81,7 +81,7 @@ def read_activations(train_state: Any, x: jax.Array) -> tuple[Any, dict]:
     activation layers' outputs by path. A network without such a layer
     (a CNN encoder's activations are plain functions) reports none."""
     output, captured = train_state.apply_fn(
-        with_batch_stats(train_state, train_state.params),
+        network_variables(train_state, train_state.params),
         x,
         capture_intermediates=lambda module, _: isinstance(module, Activation),
         mutable=["intermediates"],

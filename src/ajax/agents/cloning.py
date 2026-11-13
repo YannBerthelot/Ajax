@@ -19,7 +19,7 @@ from ajax.environments.utils import get_state_action_shapes
 from ajax.extensions.observe import TrainingProgressInput
 from ajax.modules.pid_actor import GAIN_NAMES
 from ajax.networks.distributions import Deterministic, Squash, latent
-from ajax.state import Transition, with_batch_stats
+from ajax.state import Transition, network_variables
 
 #: The floor of the cloned Gaussian's log-std: a saturated sample's scale
 #: cannot collapse to 0, where it would dominate the loss.
@@ -168,7 +168,7 @@ def pre_train(
     )
 
     def actor_loss_fn(params, batch_obs, batch_actions):
-        pi = bc_actor_state.apply_fn(with_batch_stats(actor_state, params), batch_obs)
+        pi = bc_actor_state.apply_fn(network_variables(actor_state, params), batch_obs)
         if isinstance(pi, Deterministic):
             # A deterministic actor (TD3's) has no distribution to fit, nor
             # a pre-tanh mean: either loss regresses its action on the

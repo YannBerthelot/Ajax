@@ -40,7 +40,7 @@ from ajax.state import (
     NetworkConfig,
     OptimizerConfig,
     check_log_std_bounds,
-    with_batch_stats,
+    network_variables,
 )
 from ajax.types import ActivationFunction, InitializationFunction
 
@@ -889,7 +889,7 @@ def predict_value_sequence(
     """
     x = _apply_critic_obs_norm(critic_state, x)
     return critic_state.apply_fn(
-        with_batch_stats(critic_state, critic_params),
+        network_variables(critic_state, critic_params),
         x,
         hidden_state=initial_hidden,
         done=resets,
@@ -919,7 +919,7 @@ def predict_value(
     units (TD3's, in the env's). ``quantiles``: a distributional critic's
     quantiles (last axis) in place of their mean, the value."""
     x = critic_input(critic_state, x)
-    variables = with_batch_stats(critic_state, critic_params)
+    variables = network_variables(critic_state, critic_params)
     if quantiles:
         return critic_state.apply_fn(variables, x, method="quantiles")
     return critic_state.apply_fn(variables, x)

@@ -244,7 +244,7 @@ class LoadedTrainState(TrainState):
 
     def apply(self, params, *args, **kwargs):
         """The network at ``params``, reading its running statistics."""
-        return self.apply_fn(with_batch_stats(self, params), *args, **kwargs)
+        return self.apply_fn(network_variables(self, params), *args, **kwargs)
 
     def apply_train(self, params, *args, **kwargs):
         """The network in training at ``params``: ``(out, batch_stats)``,
@@ -252,13 +252,13 @@ class LoadedTrainState(TrainState):
         if self.batch_stats is None:
             return self.apply_fn(params, *args, **kwargs), None
         out, updates = self.apply_fn(
-            with_batch_stats(self, params), *args, mutable=["batch_stats"], **kwargs
+            network_variables(self, params), *args, mutable=["batch_stats"], **kwargs
         )
         # Frozen as init stores them: a state's structure stays one type.
         return out, flax.core.FrozenDict(updates["batch_stats"])
 
 
-def with_batch_stats(train_state: Any, params: Any) -> Any:
+def network_variables(train_state: Any, params: Any) -> Any:
     """The variables a forward pass at ``params`` reads: ``params`` and the
     train state's running statistics, if it has any
     (:attr:`LoadedTrainState.batch_stats`)."""

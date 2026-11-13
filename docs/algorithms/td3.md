@@ -61,7 +61,7 @@ updated in 2019, not the paper's: see [Notes](#notes).
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
-| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
 | `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `8`, `16`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
 | `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
 | `action_pipeline` | `None` | replaces the collection-time action choice (used by a downstream project) |

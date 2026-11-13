@@ -211,12 +211,13 @@ class RewardNormalization:
     """Rewards normalised before the agent learns from them.
 
     Args:
-        normalize_rewards: Divide the rewards learned from by a running
-            standard deviation (the logged returns stay in the env's units):
-            the single step's by default.
-        reward_normalization_gamma: With normalize_rewards, the discount
-            of the return whose running standard deviation divides instead
-            (SB3's VecNormalize).
+        normalize_rewards: Divide the rewards learned from by the running
+            standard deviation of the discounted return and clip them to
+            +-10, as SB3's VecNormalize does (the logged returns stay in the
+            env's units).
+        reward_normalization_gamma: With normalize_rewards, that return's
+            discount: the agent's gamma if None (0.99 for an agent without
+            one), 0 for the single-step reward's standard deviation.
     """
 
     normalize_rewards: bool = False

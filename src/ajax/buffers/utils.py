@@ -16,7 +16,7 @@ from ajax.environments.utils import check_env_is_gymnax, get_state_action_shapes
 from ajax.random_keys import derive_key
 from ajax.state import EnvironmentConfig
 from ajax.types import BufferType, NormalizationInfo
-from ajax.utils import online_normalize
+from ajax.utils import REWARD_CLIP, online_normalize
 
 
 @chex.dataclass(frozen=True)
@@ -430,11 +430,12 @@ def mean_of_written_rows(buffer_state: Any, field: str) -> jax.Array:
 
 def normalized_rewards(reward: jax.Array, stats: NormalizationInfo) -> jax.Array:
     """The env's own ``reward`` divided by a reward normaliser's statistics,
-    which it leaves as they are; while they are empty (no step yet), the
-    reward as it is."""
+    which it leaves as they are, and clipped as collection clips it; while
+    they are empty (no step yet), the reward as it is."""
     normed = online_normalize(
         reward, stats.count, stats.mean, stats.mean_2, train=False, shift=False
     )[0]
+    normed = jnp.clip(normed, -REWARD_CLIP, REWARD_CLIP)
     return jnp.where(jnp.sum(stats.count) > 0, normed, reward)
 
 

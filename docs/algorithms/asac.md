@@ -59,7 +59,7 @@ Defaults are read from `ASAC.__init__`.
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `10.0` | gradient clipping, each critic and the actor on its own (the authors'); `None` turns it off |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
-| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: 0.99 if None, 0 for the single reward's |
 | `expert_policy` | `None` | an expert whose return the evaluation reports next to the agent's (`Eval/expert bias`) |
 | `memory`, `burn_in`, `sequence_length`, `stored_state` | `None`, `8`, `16`, `False` | recurrent memory (see [Memory](../guide/memory.md)) |
 | `episode_length`, `action_repeat` | `None`, `1` | simulator steps per episode (1,000 when `None`) and per agent step, on Brax and Playground |

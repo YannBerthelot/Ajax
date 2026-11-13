@@ -79,7 +79,7 @@ and loss (see Notes).
 | `reward_scale` | `1.0` | multiplies the rewards in the target |
 | `max_grad_norm` | `None` | gradient clipping |
 | `normalize_observations`, `normalize_rewards` | `False` | running normalisation |
-| `reward_normalization_gamma` | `None` | with `normalize_rewards`, divide by the spread of the discounted return |
+| `reward_normalization_gamma` | `None` | with `normalize_rewards`, the discount of the return whose spread divides the rewards: `gamma` if None, 0 for the single reward's |
 | `td_target_fn` | `None` | the target; `None` is vanilla DQN, `compute_double_dqn_td_target` is Double DQN |
 | `td_loss_fn` | `None` | the loss; `None` is the Huber loss with delta 1, `compute_mse_td_loss` the squared error |
 | `q_network_cls` | `None` | the network; `None` is `QNetwork`, `DuelingQNetwork` the dueling one |

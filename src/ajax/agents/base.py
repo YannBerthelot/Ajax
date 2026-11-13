@@ -140,6 +140,12 @@ def with_shared_counters(state: Any, counters: dict[str, jax.Array]) -> Any:
     return state
 
 
+#: The discount of the return whose spread normalises the rewards of an
+#: agent without a discount of its own (the average-reward agents): SB3
+#: VecNormalize's default gamma.
+REWARD_NORMALIZATION_GAMMA = 0.99
+
+
 class ActorCritic:
     #: The agent's name, its run config's ``algo_name``.
     name: str
@@ -272,13 +278,13 @@ class ActorCritic:
             memory: Pluggable memory block (MemoryConfig or its dict form);
                 None keeps the networks feedforward.
             normalize_rewards (bool): divide the rewards the agent learns
-                from by a running standard deviation (logged returns stay
-                in the env's units). By default the single-step reward's.
+                from by the running standard deviation of the discounted
+                return and clip them to +-10, as SB3's ``VecNormalize``
+                does (logged returns stay in the env's units).
             reward_normalization_gamma (Optional[float]): with
-                ``normalize_rewards``, divide by the running standard
-                deviation of the discounted return with this discount
-                instead, as SB3's ``VecNormalize`` (``gamma``) and
-                gymnasium's ``NormalizeReward`` do.
+                ``normalize_rewards``, that return's discount: the agent's
+                ``gamma`` if None (0.99 for an agent without one), 0 for
+                the single-step reward's standard deviation.
             action_repeat (int): simulator steps per agent step on brax /
                 playground envs (``episode_length`` then counts simulator
                 steps); stored on ``env_args``. gymnax envs and prebuilt
@@ -368,6 +374,13 @@ class ActorCritic:
             raise ValueError(
                 "reward_normalization_gamma sets how normalize_rewards normalises"
                 " the rewards: pass normalize_rewards=True with it."
+            )
+        if normalize_rewards and reward_normalization_gamma is None:
+            # SB3's VecNormalize divides by the spread of the discounted
+            # return; RL Zoo, CleanRL and PureJaxRL give it the agent's
+            # discount. A constant reward's own spread is 0.
+            reward_normalization_gamma = getattr(
+                self, "gamma", REWARD_NORMALIZATION_GAMMA
             )
         env, env_params, env_id, continuous = prepare_env(
             env_id,

@@ -409,11 +409,13 @@ pooled over the `n_envs` copies:
 
 - `normalize_observations=True`: each observation dimension to mean 0 and
   variance 1.
-- `normalize_rewards=True`: divides rewards by a running standard
-  deviation, by default of the single-step reward. With
-  `reward_normalization_gamma=0.99` it uses the standard deviation of the
-  discounted return instead, as Stable-Baselines3's `VecNormalize` and
-  Gymnasium's `NormalizeReward` do.
+- `normalize_rewards=True`: divides rewards by the running standard
+  deviation of the discounted return and clips them to ±10, as
+  Stable-Baselines3's `VecNormalize` does. The return is discounted by
+  the agent's `gamma`, or by 0.99 for an agent without one (APO, ASAC,
+  RVI-SAC); `reward_normalization_gamma` sets another discount, and 0
+  divides by the standard deviation of the single-step reward. A constant
+  reward, such as CartPole's, has a single-step standard deviation of 0.
 
 The logged returns stay in the environment's units. Evaluation normalises
 observations with the training statistics, frozen, and never normalises

@@ -247,6 +247,14 @@ theirs, the others take them by analogy):
   every update; SAC sums its critics' squared errors and steps its
   temperature (alpha, not its log) on the actor loss's own log-densities.
   The critics read the agent's [-1, 1] actions.
+- One difference remains: torch's GRU has two biases for each of its r and
+  z gates (`b_ih` and `b_hh`), flax's one. Ajax's starts as their sum, but
+  Adam steps each of torch's pair as far as Ajax's one bias, so Ni et
+  al.'s gate biases move twice as far, and the actor, whose step reads the
+  stepped critic, follows by about 1e-3 of its step (TD3; SAC about 2e-5).
+  With one bias per gate on both sides, one update of recurrent SAC and TD3
+  matches Ni et al.'s leaf by leaf
+  (`tests/conformance/test_ni_recurrent_original.py`).
 
 These are `NetworkConfig`'s `input_embedding`, `shortcut_widths`,
 `embedding_kernel_init` and `critics_share_encoder`. `share_encoder=True`

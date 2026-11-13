@@ -17,28 +17,51 @@ from optax import GradientTransformationExtraArgs
 
 from ajax.types import ActivationFunction, InitializationFunction
 
+#: The modules of an encoder the actor shares with the critic
+#: (NetworkConfig.share_encoder): their parameters are the critic's, outside
+#: the members of its ensemble.
+SHARED_ENCODER_MODULES = ("encoder", "memory_cell")
+
+
+def shared_by_members(path: Any) -> bool:
+    """Whether the parameter at path is an encoder the members of a
+    :class:`~ajax.networks.networks.MultiCritic` share
+    (``MultiCritic.share_encoder``): outside their vmapped ``ensemble``, in
+    its encoder or memory block. Every other parameter is a member's."""
+    names = [getattr(key, "key", None) for key in path]
+    if "ensemble" in names:
+        return False
+    return any(name in SHARED_ENCODER_MODULES for name in names)
+
 
 def clip_by_member_norm(max_norm: float) -> optax.GradientTransformation:
     """``optax.clip_by_global_norm`` applied to each member of an ensemble on
-    its own: every leaf's leading axis indexes a member, as a
+    its own: every member leaf's leading axis indexes a member, as a
     :class:`~ajax.networks.networks.MultiCritic`'s vmapped parameters do.
     Each member is its own network in the references, clipped alone (ASAC:
-    BobMak/asac @4b68862, darer/Models.py:299-301)."""
+    BobMak/asac @4b68862, darer/Models.py:299-301). An encoder the members
+    share is no member's: it is clipped on its own, as one more network."""
 
     def update_fn(updates: optax.Updates, state: optax.EmptyState, params=None):
         del params
-        leaves = jax.tree.leaves(updates)
+        flat = jax.tree_util.tree_flatten_with_path(updates)[0]
+        leaves = [leaf for path, leaf in flat if not shared_by_members(path)]
         if len({leaf.shape[0] for leaf in leaves}) != 1:
             raise ValueError("every leaf's leading axis must index the members")
         norm = jnp.sqrt(
             sum(jnp.sum(jnp.square(g).reshape(g.shape[0], -1), axis=1) for g in leaves)
         )
+        shared = [leaf for path, leaf in flat if shared_by_members(path)]
+        shared_norm = optax.global_norm(shared)
 
-        def clip(g: jax.Array) -> jax.Array:
-            n = norm.reshape((-1,) + (1,) * (g.ndim - 1)).astype(g.dtype)
+        def clip(path: Any, g: jax.Array) -> jax.Array:
+            if shared_by_members(path):
+                n = shared_norm.astype(g.dtype)
+            else:
+                n = norm.reshape((-1,) + (1,) * (g.ndim - 1)).astype(g.dtype)
             return jnp.where(n < max_norm, g, (g / n) * max_norm)
 
-        return jax.tree.map(clip, updates), state
+        return jax.tree_util.tree_map_with_path(clip, updates), state
 
     return optax.GradientTransformation(lambda _: optax.EmptyState(), update_fn)
 

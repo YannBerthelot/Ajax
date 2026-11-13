@@ -40,6 +40,7 @@ from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
 from ajax.agents.families import (
+    EncoderSharing,
     EntropyTemperature,
     ExpertGuided,
     GradientClipping,
@@ -88,6 +89,7 @@ class ASAC(
     ObservationNormalization,
     RewardNormalization,
     ExpertGuided,
+    EncoderSharing,
     RecurrentReplayAgent,
 ):
     """ASAC: SAC on the average reward, its targets differential (the

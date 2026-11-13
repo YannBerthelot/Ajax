@@ -416,6 +416,7 @@ def test_an_on_policy_run_ends_each_chunk_where_it_is_asked(tmp_path, monkeypatc
     rollouts and no more: on a tiny PQN (rollouts of 2 envs x 8 steps,
     evaluated every 2 of them), each chunk ends where run_seeds asks."""
     options = {"n_envs": 2, "n_steps": 8, "architecture": ("8", "relu")}
+    options.update({"num_minibatches": 4})  # 16 rows a rollout
     tiny = agent_suite.Benchmark("CartPole-v1", 64, 32, "tiny", options)
     monkeypatch.setitem(agent_suite.BENCHMARKS, "PQN", tiny)
     path = tmp_path / "seeds-0-1.jsonl"

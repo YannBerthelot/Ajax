@@ -363,6 +363,7 @@ def test_a_gate_on_a_run_with_no_ticks_of_steps_is_refused():
         n_envs=2,
         n_steps=8,
         n_epochs=1,
+        num_minibatches=4,
         expert_policy=lambda obs: jnp.zeros((*obs.shape[:-1], 1), jnp.int32),
         extensions=(JSRLCurriculum(),),
     )

@@ -839,6 +839,8 @@ def _ppo_normalising(env_id: str):
         n_steps=8,
         batch_size=8,
         normalize_observations=True,
+        # The checkpoints these tests fake predate any reward normaliser.
+        normalize_rewards=False,
     )
 
 

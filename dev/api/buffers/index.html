@@ -2756,6 +2756,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.as_replay_batch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        as_replay_batch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#ajax.buffers.utils.get_sequence_batch_from_buffer" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3349,6 +3360,17 @@
     <span class="md-ellipsis">
       
         get_batch_from_buffer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ajax.buffers.utils.as_replay_batch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        as_replay_batch
       
     </span>
   </a>
@@ -4242,6 +4264,28 @@ they are empty (no step yet), the reward as it is.</p>
 <code>reward_stats</code>, a reward normaliser's current statistics
 (:func:<code>ajax.environments.interaction.reward_statistics</code>), they come
 divided by them, as SB3's replay buffer does under VecNormalize.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="ajax.buffers.utils.as_replay_batch" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">as_replay_batch</span>
+
+
+<a href="#ajax.buffers.utils.as_replay_batch" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">as_replay_batch</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">reward_stats</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>rows, a replay's fields as an agent reads them (as_read), as a
+ReplayBatch: a sample's, or the rows an agent picks itself (DAgger's
+passes over the whole replay); their rewards as get_batch_from_buffer's.</p>
 
 
     </div>

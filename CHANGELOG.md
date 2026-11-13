@@ -82,6 +82,14 @@ The next release is 0.6.0: the first item changes results.
   overflowed, and Warp then drops contacts with only a printed warning. They
   now give it 49,152 (1,024 worlds of 48), and a Warp step that runs out of
   contact or constraint room stops the run with an error.
+- **Warp's convex-collision room.** MuJoCo Warp sizes the buffer of its
+  convex (GJK/EPA) collisions like the contact buffer unless told, and each
+  physics call allocates scratch for every slot: 320 MB on
+  `"mujoco:Pusher-v5"`. Warp keeps that scratch with each CUDA graph it
+  captures, and PPO on Pusher ran out of memory on an 11 GB GPU after a few
+  evaluations. The `"mujoco:"` tasks now give the buffer a slot for each of
+  their geom pairs in 1,024 worlds (47 MB of scratch on Pusher), and a step
+  that drops convex collisions stops the run with an error.
 - **Gymnasium's MuJoCo tasks in JAX.** `"mujoco:HalfCheetah-v5"`,
   `"mujoco:Hopper-v5"`, `"mujoco:Walker2d-v5"`, `"mujoco:Swimmer-v5"`,
   `"mujoco:Reacher-v5"`, `"mujoco:Pusher-v5"`,

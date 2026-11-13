@@ -793,11 +793,13 @@ class WarpCapacityWrapper(BraxWrapper):
 
     MuJoCo Warp keeps one contact buffer for every world of a batch (all the
     seeds and envs stepped at once), sized when the task makes its data
-    (``naconmax``), and room for ``njmax`` constraint rows in each world. A
-    step needing more drops the rest, prints a warning and goes on with
-    wrong physics: a body sinks through the floor. This raises instead,
-    after each reset and step, from Warp's own counters, which describe the
-    step's last physics substep. Goes directly over a raw Warp env.
+    (``naconmax``), one buffer for the geom pairs its convex (GJK/EPA)
+    collision code handles (``naccdmax``), and room for ``njmax`` constraint
+    rows in each world. A step needing more drops the rest, prints a warning
+    and goes on with wrong physics: a body sinks through the floor. This
+    raises instead, after each reset and step, from Warp's own counters,
+    which describe the step's last physics substep, and from its convex
+    overflow flag, which no counter shows. Goes directly over a raw Warp env.
     """
 
     def reset(self, rng: jax.Array) -> "State":
@@ -812,13 +814,27 @@ class WarpCapacityWrapper(BraxWrapper):
 
 
 def _check_warp_capacity(data: Any) -> None:
+    from mujoco.mjx.third_party.mujoco_warp import OverflowType
+
     warp = data._impl  # MJX's MuJoCo Warp fields: its counters and capacities
     contacts = jnp.maximum(warp.nacon, warp.ncollision)
-    over = (jnp.max(contacts) > warp.naconmax) | (jnp.max(warp.nefc) > warp.njmax)
+    # Each world's overflow flags last until its next reset.
+    convex_dropped = jnp.any(warp.overflow & int(OverflowType.CCD))
+    over = (
+        (jnp.max(contacts) > warp.naconmax)
+        | (jnp.max(warp.nefc) > warp.njmax)
+        | convex_dropped
+    )
 
     def report(pending: jax.Array) -> jax.Array:
         jax.debug.callback(
-            _raise_on_overflow, contacts, warp.naconmax, warp.nefc, warp.njmax
+            _raise_on_overflow,
+            contacts,
+            warp.naconmax,
+            warp.nefc,
+            warp.njmax,
+            convex_dropped,
+            warp.naccdmax,
         )
         return jnp.zeros_like(pending)
 
@@ -828,7 +844,16 @@ def _check_warp_capacity(data: Any) -> None:
     jax.lax.while_loop(lambda pending: pending, report, over)
 
 
-def _raise_on_overflow(contacts, contact_room, rows, row_room) -> None:
+def _raise_on_overflow(
+    contacts, contact_room, rows, row_room, convex_dropped, convex_room
+) -> None:
+    if np.any(convex_dropped):
+        raise ValueError(
+            "MuJoCo Warp dropped convex collisions: a step had more geom pairs"
+            " for its convex (GJK/EPA) collision code than the"
+            f" {np.min(convex_room)} slots every world of the batch shares."
+            " Step fewer seeds and envs at once, or use physics='jax'."
+        )
     if np.max(contacts) > np.min(contact_room):
         raise ValueError(
             f"MuJoCo Warp dropped contacts: a step needed {np.max(contacts)}"

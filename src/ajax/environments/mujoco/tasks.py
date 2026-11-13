@@ -26,13 +26,15 @@ from mujoco_playground._src import mjx_env
 from ajax.random_keys import derive_key, fold_index
 
 ASSETS = Path(__file__).parent / "assets"
-#: MuJoCo Warp's contact buffer, one for every world of a batch: the seeds and
-#: envs a run steps at once share it (without it, MuJoCo Warp's default for
-#: these models is 48 contacts in all, which 47 Hopper worlds overflowed).
-#: Room for 1,024 worlds of 48 contacts each, MuJoCo Warp's own default for
-#: one world, near the 50,000 Playground gives its hopper and walker.
-#: Pure JAX ignores it.
-WARP_CONTACTS = 48 * 1024
+#: The worlds MuJoCo Warp's collision buffers have room for. Each buffer
+#: serves every world of a batch: the seeds and envs a run steps at once.
+#: Pure JAX ignores them.
+WARP_WORLDS = 1024
+#: MuJoCo Warp's contact buffer: 48 contacts a world, MuJoCo Warp's own
+#: default for one world, near the 50,000 Playground gives its hopper and
+#: walker (without it, MuJoCo Warp's default for these models is 48 contacts
+#: in all, which 47 Hopper worlds overflowed).
+WARP_CONTACTS = 48 * WARP_WORLDS
 
 
 class GymnasiumTask(mjx_env.MjxEnv):
@@ -86,8 +88,25 @@ class GymnasiumTask(mjx_env.MjxEnv):
             qvel=qvel,
             impl=self._mjx_model.impl.value,
             naconmax=WARP_CONTACTS,
+            naccdmax=self.warp_convex_room(),
         )
         return mjx.forward(self._mjx_model, data)
+
+    def warp_convex_room(self) -> Optional[int]:
+        """Slots in MuJoCo Warp's buffer for convex (GJK/EPA) collisions,
+        which every world of a batch shares: one for each geom pair that can
+        collide, in each of WARP_WORLDS worlds, and no more than the contact
+        buffer, as MuJoCo Warp requires. None on pure JAX.
+
+        MuJoCo Warp's default is the whole contact buffer, and each physics
+        call allocates about 6.5 kB of scratch per slot: 320 MB a call on
+        Pusher, which has 7 pairs. Warp keeps a CUDA graph of a call for each
+        new set of XLA buffer addresses, up to 32 per function, each with its
+        scratch, and PPO on Pusher ran out of memory on an 11 GB GPU."""
+        if self._mjx_model.impl != mjx.Impl.WARP:
+            return None
+        pairs = sum(self._mjx_model._impl.geom_pair_type_count)
+        return min(int(pairs) * WARP_WORLDS, WARP_CONTACTS)
 
     def initial_state(self, key: jax.Array) -> tuple[jax.Array, jax.Array]:
         """The task's reset_model draw: (qpos, qvel)."""

@@ -1133,6 +1133,9 @@ class ExpertPrefill(Extension):
     def replay_rows(self, n_envs: int) -> int:
         return self.n_steps * n_envs
 
+    def pretrain_updates(self) -> int:
+        return self.offline_updates
+
     def pretrain(
         self, agent_state: Any, ext_state: Any, context: ExtensionContext
     ) -> tuple[Any, Any]:
@@ -1198,6 +1201,9 @@ class PriorData(Extension):
     def replay_rows(self, n_envs: int) -> int:
         del n_envs
         return len(self.dataset.reward)
+
+    def pretrain_updates(self) -> int:
+        return self.offline_updates
 
     def pretrain(
         self, agent_state: Any, ext_state: Any, context: ExtensionContext

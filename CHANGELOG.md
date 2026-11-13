@@ -43,6 +43,24 @@ The next release is 0.6.0: the first item changes results.
     `beta_schedule=ExponentialBetaSchedule(d)`; the old default was
     `ExponentialBetaSchedule(0.0)`.
 
+- **APG's in-context controller, IQL and PQN follow their reference code.**
+  - `APG.contextual_controller` builds the reference's transformer layers:
+    no bias outside the input embedding, LayerNorm epsilon 1e-5, and an MLP
+    four times as wide (buswayne/in-context-controller, `--bias False`).
+    `MemoryConfig` gains `bias`, `layer_norm_epsilon` and `mlp_ratio`, whose
+    defaults keep every other memory unchanged. Upgrade: a controller saved
+    before restores with `bias=True, layer_norm_epsilon=1e-6, mlp_ratio=2`.
+  - IQL's actor learning rate decays to 0 by a cosine over the run's
+    updates, its reference Learner's default (`actor_lr_decay="cosine"`).
+    A run split into calls passes its whole horizon (`total_timesteps`) to
+    each. Upgrade: `actor_lr_decay=None` keeps the rate constant, as the
+    reference's fine-tuning config does; pass it to fine-tune a state
+    trained offline.
+  - PQN's defaults are purejaxql's MinAtar config: 128 envs of 32 steps, 2
+    epochs of 32 minibatches, RAdam at 5e-4 decayed linearly over the run
+    (`lr_linear_decay`), epsilon decaying over the first 10% of the run.
+    Upgrade: `n_envs=8, n_steps=128, n_epochs=4, num_minibatches=4,
+    learning_rate=2.5e-4, lr_linear_decay=False, epsilon_decay_frac=0.5`.
 - **APO's defaults are its reference code's MuJoCo config** (xtma/apo,
   `mujoco_appo.py`): rollouts of 10 envs x 200 steps (was 4 x 2,048), 20
   minibatches per epoch (`num_minibatches=20`; was cut by `batch_size`),

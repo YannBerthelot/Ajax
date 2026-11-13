@@ -214,7 +214,11 @@
    "actor_learning_rate": 0.001,
    "algo_name": "DAgger",
    "batch_size": 32,
-   "beta_decay": 0.0,
+   "beta_schedule": {
+    "LinearBetaSchedule": {
+     "rampdown_rounds": 15
+    }
+   },
    "buffer_size": 1000000,
    "env_id": "fast",
    "env_params": null,

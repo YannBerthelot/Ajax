@@ -64,6 +64,8 @@
 "ajax.agents.DAgger.DAgger:DAgger",
 "ajax.agents.DAgger.DAgger:DAggerAuxiliaries",
 "ajax.agents.DAgger.DAgger:DAggerState",
+"ajax.agents.DAgger.DAgger:ExponentialBetaSchedule",
+"ajax.agents.DAgger.DAgger:LinearBetaSchedule",
 "ajax.agents.DAgger.DAgger:PolicyAuxiliaries",
 "ajax.agents.DAgger.DAgger:choose_learner_action",
 "ajax.agents.DQN.DQN:AuxiliaryLogs",

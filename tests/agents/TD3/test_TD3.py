@@ -117,3 +117,67 @@ def test_the_target_noise_clip_reaches_the_update():
     noise = jax.random.normal(state.get_keys_and_new_state()[0], batch.action.shape)
     assert float(aux.target_noise_clip_frac) == float((jnp.abs(noise) > 0.2).mean())
     assert float(aux.target_noise_clip_frac) != float((jnp.abs(noise) > 0.5).mean())
+
+
+# -- With memory: Ni et al.'s recurrent TD3 (pomdp-baselines e7c19c3) --------
+
+
+def test_recurrent_td3_steps_its_actor_at_every_update():
+    """policy_rnn.py:180-206 steps the actor and both targets at every
+    update; sfujim/TD3 every second (the delay without memory)."""
+    from ajax.networks.memory import MemoryConfig
+
+    assert TD3("Pendulum-v1").policy_delay == 2
+    assert TD3("Pendulum-v1", memory=MemoryConfig("gru")).policy_delay == 1
+
+
+def _recurrent_loss(state, batch, carries, *, shift: float, minimum: bool):
+    """The actor's loss with critic 0's output moved up by shift."""
+    from ajax.agents.TD3.TD3 import compute_policy_loss
+
+    critic = state.critic_state
+    params = jax.tree_util.tree_map_with_path(
+        lambda path, w: (
+            w.at[0].add(shift)
+            if "['model']['bias']" in jax.tree_util.keystr(path)
+            else w
+        ),
+        critic.params,
+    )
+    loss, _ = compute_policy_loss(
+        state.actor_state.params,
+        state.actor_state,
+        critic.replace(params=params),
+        batch.obs,
+        carries,
+        critics_minimum=minimum,
+    )
+    return float(loss)
+
+
+def test_recurrent_td3s_actor_maximises_the_critics_minimum():
+    """td3.py:155-157: policy_loss = -min(q1, q2). Critic 0 read 100 higher
+    leaves the minimum, critic 1's, as it was; sfujim's -Q1 drops by 100."""
+    from ajax.agents.recurrent import sample_replay
+    from ajax.networks.memory import MemoryConfig
+
+    agent = TD3(
+        "Pendulum-v1",
+        memory=MemoryConfig("gru", 8),
+        learning_starts=96,
+        batch_size=4,
+        sequence_length=8,
+    )
+    state, _ = agent.train(seed=0, n_timesteps=96)
+    state = jax.tree.map(lambda leaf: leaf[0], state)
+    batch, carries = sample_replay(state, agent.buffer, KEY, True, burn_in=0)
+
+    ni = [
+        _recurrent_loss(state, batch, carries, shift=s, minimum=True) for s in (0, 100)
+    ]
+    first = [
+        _recurrent_loss(state, batch, carries, shift=s, minimum=False) for s in (0, 100)
+    ]
+
+    np.testing.assert_allclose(ni[1], ni[0], rtol=1e-6)
+    np.testing.assert_allclose(first[1], first[0] - 100.0, rtol=1e-5)

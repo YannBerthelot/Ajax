@@ -802,6 +802,22 @@ its skipping branch passes the replay through without a copy (checked on
 the optimised HLO), and at `train_frequency=1` the program is unchanged.
 DQN's baseline rows are re-recorded from that run.
 
+## DAgger fits as its reference code does (2026-11-13)
+
+DAgger's default fit became HumanCompatibleAI/imitation's (`IterationFit`):
+at the end of each 500-step iteration, 4 epochs of behaviour cloning over
+every row the replay holds, in minibatches of 32. It made one gradient step
+per tick before (`OnlineFit`). Over the bench's 8,000 steps on 4 envs that
+is 16 fits of 8,472 gradient steps in all, where the online fit made 1,992:
+4.25 times as many, and the count grows with the square of the run's length,
+as the reference's does. Back to back on the same Mac, five trials each,
+main (84144f61) then the change, execution steps per second (medians):
+45,209 to 20,291 (-55%; trials 43,962-46,433 and 19,804-20,402). A gradient
+step costs less than an online tick did, as no collection runs between the
+steps. The fit's loops carry the actor alone, not the replay they read. At
+`fit=OnlineFit()` the program is unchanged (the exact pins reproduce it bit
+for bit). DAgger's baseline rows are re-recorded from that run.
+
 ## JAX 0.11 and flax 0.12 (PR #199, 2026-10-19)
 
 The lock moves from JAX 0.7.2 / flax 0.10.7 to JAX 0.11.2 / flax 0.12.10;

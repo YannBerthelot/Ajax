@@ -86,6 +86,15 @@ The next release is 0.6.0: the first item changes results.
   This changes results for runs with `normalize_rewards=True`. Upgrade:
   pass `reward_normalization_gamma=0` to divide by the single-step
   reward's standard deviation again (now clipped).
+- **PPO normalises observations and returns by default**, as ppo2's MuJoCo
+  run wraps its env in `VecNormalize`: `normalize_observations=True`,
+  `normalize_rewards=True` (the return's spread, with `gamma`, clipped at
+  10) and the new `observation_clip=10.0`, which on-policy agents take
+  (replay agents refuse it). This changes PPO's results. A sweep no longer
+  varies `gamma` while the reward normaliser discounts with it; set
+  `reward_normalization_gamma` to sweep it. Upgrade: pass
+  `normalize_observations=False, normalize_rewards=False` for the old
+  behaviour.
 - **PPO's defaults are ppo2's MuJoCo run**: one env (was 4) and 64-64 tanh
   layers (was 128-128), so 2048 steps make ppo2's 32 minibatches of 64.
   This changes results. Upgrade: pass `n_envs=4, actor_architecture=("128",

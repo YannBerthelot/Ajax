@@ -1668,7 +1668,7 @@ def init_collector_state(
     if env_args.normalize_obs_in_agent:
         # The span the statistics cover: all but the raw features.
         span = last_obs.shape[-1] - feature_width(env_args, normalised=False)
-        obs_norm_info = init_agent_obs_norm(span)
+        obs_norm_info = init_agent_obs_norm(span, env_args.observation_clip)
     if env_args.store_normalized_obs:
         last_obs, obs_norm_info = update_obs_norm(
             last_obs, obs_norm_info, raw_obs_columns(env_args.env)

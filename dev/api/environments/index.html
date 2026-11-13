@@ -7809,7 +7809,7 @@ cloning, whose inputs the actor must read again at run time.</p>
 
 
 <a href="#ajax.environments.obs_norm.init_agent_obs_norm" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">init_agent_obs_norm</span><span class="p">(</span><span class="n">obs_dim</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">init_agent_obs_norm</span><span class="p">(</span><span class="n">obs_dim</span><span class="p">,</span> <span class="n">clip</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -7820,7 +7820,8 @@ reduces the per-env axis on every update so all envs would share the
 same scalar stats anyway, and <code>apply_obs_norm</code> only needs the
 per-feature mean/var. The size-1 leading axis preserves broadcasting
 against batched obs <code>(*, obs_dim)</code> while saving an n_envs× memory
-factor on every checkpoint and vmap broadcast.</p>
+factor on every checkpoint and vmap broadcast. clip bounds the
+observations normalised with them (update_obs_norm, normalized_obs).</p>
 
 
     </div>

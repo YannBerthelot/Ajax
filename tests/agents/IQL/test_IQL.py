@@ -12,6 +12,7 @@ import pytest
 from ajax import IQL
 from ajax.agents.families import TrainContext
 from ajax.agents.IQL.IQL import compute_expectile_loss
+from ajax.extensions.pretrain import ExpertPrefill
 
 
 def test_the_expectile_loss_weighs_each_side_of_zero() -> None:
@@ -115,6 +116,19 @@ def test_the_actor_rate_falls_to_zero_by_a_cosine_over_the_runs_updates(
     constant = IQL("Pendulum-v1", n_envs=2, actor_lr_decay=None)
     kept = constant.with_decayed_actor_rate(constant.make_context(100)[1])
     assert kept.actor_optimizer_args.learning_rate == 3e-4
+
+
+def test_the_cosine_also_spans_the_updates_an_extension_runs_before_env_steps() -> None:
+    """ExpertPrefill's offline_updates step the actor before any env step, so
+    they count among the run's updates: 120 of them and no env step give
+    N = 120, so 1.5e-4 at the 60th and 0 at the 120th, not 0 after the first."""
+    prefill = ExpertPrefill(n_steps=8, offline_updates=120)
+    expert = lambda obs: jnp.full(obs.shape[:-1] + (1,), 0.5)  # noqa: E731
+    agent = IQL("Pendulum-v1", expert_policy=expert, extensions=(prefill,))
+    context = agent.make_context(0, extensions=(prefill,))[1]
+    rate = agent.with_decayed_actor_rate(context).actor_optimizer_args.learning_rate
+    assert callable(rate)
+    np.testing.assert_allclose([float(rate(60)), float(rate(120))], [1.5e-4, 0.0])
 
 
 def test_it_refuses_discrete_actions_and_an_expectile_outside_the_open_unit() -> None:

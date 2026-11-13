@@ -190,7 +190,8 @@ class IQL(
 
     def with_decayed_actor_rate(self, context: TrainContext) -> TrainContext:
         """The context whose actor optimiser follows actor_lr_decay: a
-        cosine from actor_learning_rate to 0 over the run's updates, one per
+        cosine from actor_learning_rate to 0 over the run's updates: those
+        its extensions' pretrain runs before any env step, then one per
         timestep offline, one per tick of n_envs online from update_start.
         The schedule counts the optimiser's steps, so a resumed call of the
         same run continues it."""
@@ -199,8 +200,10 @@ class IQL(
         if context.offline:
             updates = context.total_timesteps
         else:
-            online_steps = context.total_timesteps - self.update_start()
+            online_steps = max(context.total_timesteps - self.update_start(), 0)
             updates = online_steps // context.env_args.n_envs
+        for extension in context.extensions.extensions:
+            updates += extension.pretrain_updates()
         peak = context.actor_optimizer_args.learning_rate
         assert isinstance(peak, (int, float))  # check refuses a schedule
         schedule = optax.cosine_decay_schedule(float(peak), max(updates, 1))

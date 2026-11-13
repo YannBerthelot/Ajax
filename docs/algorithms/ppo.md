@@ -67,6 +67,7 @@ Defaults are those of the constructor.
 | `clip_range` | 0.2 | the ratio clip; a float or a schedule of the timestep |
 | `ent_coef` | 0 | entropy bonus weight |
 | `vf_coef` | 0.5 | critic loss weight, on half the squared error (ppo2's) |
+| `clip_value_loss` | None | ppo2's clipped value loss (see the notes); `None` clips except with `unroll_length` |
 | `max_grad_norm` | 0.5 | one gradient clip by global norm over both networks (`None` turns it off) |
 | `normalize_advantage` | True | advantages standardised in each minibatch |
 | `actor_architecture`, `critic_architecture` | `("128", "tanh", "128", "tanh")` | hidden layers, as width and activation strings |
@@ -139,8 +140,12 @@ Defaults are those of the constructor.
   separate, unlike ppo2 and PureJaxRL (see the networks guide).
   `share_encoder` overrides the default. As ppo2's one optimizer, their gradients are clipped together to one
   global norm, then each takes an Adam step (Adam is per coordinate, so
-  the two are one Adam over the whole model); the value loss is not
-  clipped. As in Baselines' ppo2,
+  the two are one Adam over the whole model). As ppo2's, the value loss
+  is clipped (`ppo2/model.py:66-75`): each squared error is the larger of
+  its own and that of the value clipped to `clip_range` around the value
+  that collected the rollout, so the loss stops pulling a value once it
+  has moved `clip_range` towards its target. With `unroll_length`, Brax's
+  PPO, it is not clipped, as in Brax. As in Baselines' ppo2,
   their hidden layers start orthogonal with gain `sqrt(2)`, the policy's
   output layer with gain 0.01 and the value layer with gain 1. An entropy bonus on a
   squashed policy is a one-sample estimate of the executed action's entropy,

@@ -110,7 +110,8 @@ agent = SAC("Pendulum-v1", memory=MemoryConfig("gru", 32), learning_starts=500)
 agent.network_args = agent.network_args.replace(head_architecture=("64", "relu"))
 ```
 
-A PID policy has no hidden layers, so it gets no head layers either.
+The actor-critic agents read it. DQN's, PQN's and APG's networks do not
+yet, and a PID policy has no hidden layers, so it gets no head layers.
 
 ### The policy head
 

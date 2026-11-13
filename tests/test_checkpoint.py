@@ -476,7 +476,8 @@ def test_an_optimiser_state_saved_behind_its_own_clip_restores(tmp_path, agent_n
     import ajax
 
     agent_cls = getattr(ajax, agent_name)
-    agent = agent_cls(env_id="Pendulum-v1", n_envs=2, n_steps=8, batch_size=8)
+    rollout = {"n_envs": 2, "n_steps": 8, "batch_size": 8, "num_minibatches": 0}
+    agent = agent_cls(env_id="Pendulum-v1", **rollout)
     skeleton = agent.train(seed=0, n_timesteps=0)[0]
     moved = {  # moments and counts the skeleton does not hold
         name: jax.tree.map(lambda x: x + 1, getattr(skeleton, name).opt_state)
@@ -597,7 +598,7 @@ def test_an_apo_checkpoint_restores_only_into_its_own_hidden_widths(tmp_path):
     restores."""
     from ajax.agents.APO.APO import APO
 
-    kw = {"n_envs": 2, "n_steps": 8, "batch_size": 8}
+    kw = {"n_envs": 2, "n_steps": 8, "num_minibatches": 1}
     wide = ("128", "tanh", "128", "tanh")
 
     def skeleton(**net):

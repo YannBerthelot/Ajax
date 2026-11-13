@@ -178,6 +178,7 @@ R = {"buffer_size": 1000, "batch_size": 16, "learning_starts": 20}
 SAC40 = {**S, **R, "policy_update_start": 40, "alpha_update_start": 40}
 ON = {"env_id": "Pendulum-v1", "n_envs": 2, "n_steps": 32, "batch_size": 16}
 ON.update({"actor_architecture": ("16", "tanh"), "critic_architecture": ("16", "tanh")})
+APO_ON = {**ON, "num_minibatches": 2}  # its 64 samples, as batch_size cuts them
 CART = {"env_id": "CartPole-v1", "n_envs": 2, **R, "architecture": ("16", "relu")}
 PQN_KW = {"env_id": "CartPole-v1", "n_envs": 4, "n_steps": 16, "num_minibatches": 2}
 PQN_KW.update({"n_epochs": 2, "architecture": ("16", "relu")})
@@ -784,7 +785,7 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
         {**PID, **NORM, "n_steps": 16, "batch_size": 8, "n_epochs": 1},
         128,
     ),
-    "APO-norm": (APO, {**ON, **NORM}, 128),
+    "APO-norm": (APO, {**APO_ON, **NORM}, 128),
     # The time geometry with brax's forced resets, and recurrent PPO.
     "PPO-time-reset": (PPO, TIME_RESET, 256),
     "PPO-gru": (
@@ -817,9 +818,9 @@ CASES: dict[str, tuple[Any, dict[str, Any], int]] = {
     ),
     "PPO-expose": (PPO, {**ON, "expose_recent_rollout": True}, 128),
     "PPO-gru-whole": (PPO, {**ON, "n_steps": 16, "num_minibatches": 2, **PPO_GRU}, 128),
-    "APO-keyed": (APO, {**ON, **KEYED}, 128),
-    "APO-bc": (APO, {**ON, **NORM, **BC}, 128),
-    "APO-discrete": (APO, {**ON, "env_id": "CartPole-v1"}, 128),
+    "APO-keyed": (APO, {**APO_ON, **KEYED}, 128),
+    "APO-bc": (APO, {**APO_ON, **NORM, **BC}, 128),
+    "APO-discrete": (APO, {**APO_ON, "env_id": "CartPole-v1"}, 128),
     "PQN-huber": (PQN, {**PQN_KW, "td_loss_fn": make_huber_td_loss(1.0)}, 512),
     "PQN-norm-expose": (
         PQN,

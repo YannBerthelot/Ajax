@@ -9,11 +9,28 @@ from ajax.agents.PPO.PPO import PPO, PPO_HIDDEN_INIT
 from ajax.state import LOG_STD_BOUNDS
 
 
-def test_APO_rejects_minibatch_sizes_that_do_not_divide():
-    """Without num_minibatches the rollout splits into max(n_steps,
-    batch_size) // min(...) minibatches: the two must divide one another."""
+def test_APO_defaults_to_its_reference_codes_mujoco_rollout_and_targets():
+    """xtma/apo @bfcd997, apo/experiments/configs/mujoco/apg/mujoco_appo.py:
+    batch_B 10 envs of batch_T 200 steps (:27-28), cut into minibatches=20
+    for epochs=10 (:12-13), lr_eta 0.1, rm_vbias_coeff 1.0 (:6-7),
+    gae_lambda 0.95 (:11), ratio_clip 0.2 (:14), advantages not normalised
+    (:15)."""
+    agent = APO(env_id="Pendulum-v1")
+    assert agent.env_args.n_envs == 10
+    assert (agent.n_steps, agent.num_minibatches, agent.n_epochs) == (200, 20, 10)
+    assert (agent.alpha, agent.nu, agent.gae_lambda) == (0.1, 1.0, 0.95)
+    assert (agent.clip_range, agent.normalize_advantage) == (0.2, False)
+
+
+def test_APO_rejects_a_rollout_its_minibatches_do_not_divide():
+    """The rollout's n_steps * n_envs samples split into num_minibatches
+    equal minibatches; without num_minibatches, into max(n_steps,
+    batch_size) // min(...), so the two must divide one another."""
+    with pytest.raises(ValueError, match="multiple of num_minibatches"):
+        APO(env_id="Pendulum-v1", n_envs=2, n_steps=48)  # 96 samples, 20
+    APO(env_id="Pendulum-v1", n_envs=2, n_steps=50)  # 100 samples, 20
     with pytest.raises(ValueError, match="must divide"):
-        APO(env_id="Pendulum-v1", n_steps=48, batch_size=32)
+        APO(env_id="Pendulum-v1", n_steps=48, batch_size=32, num_minibatches=0)
     APO(env_id="Pendulum-v1", n_steps=48, batch_size=32, num_minibatches=2)
 
 

@@ -9,7 +9,8 @@ below or one of the equations under it::
     num_critic_updates times, each on a fresh replay batch:
         a' ~ pi(. | s'), log pi(a' | s')              sample_next_actions (SAC's)
         y = scale r + gamma (1 - d) (min over subset_size random target
-            critics of Q_i(s', a') - alpha log pi(a' | s'))  compute_redq_td_target
+            critics of Q_i(s', a') - alpha log pi(a' | s'))  compute_redq_td_target,
+                                            compute_soft_bellman_target (SAC's)
         Q_i <- argmin sum_i E[(Q_i(s, a) - y)^2]   update_critic, compute_critic_loss
         Q_target <- tau Q + (1 - tau) Q_target
     actor <- argmin E[alpha log pi(a | s) - mean_i Q_i(s, a)] on the last batch
@@ -36,7 +37,7 @@ from flax.core import FrozenDict
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import critic_value_readers, ensemble_members
+from ajax.agents.critics import ensemble_members
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
     EntropyTemperature,
@@ -50,6 +51,7 @@ from ajax.agents.families import (
 )
 from ajax.agents.recurrent import RecurrentCarries, q_values, sample_replay
 from ajax.agents.SAC.SAC import (
+    compute_soft_bellman_target,
     compute_soft_policy_loss,
     compute_temperature_loss,
     sample_next_actions,
@@ -59,7 +61,8 @@ from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
     get_alpha,
-    update_temperature,
+    keep_actor_then_update_temperature,
+    update_soft_actor,
 )
 from ajax.controller import critic_action_units, leave_unchanged, policy_action_dim
 from ajax.extensions.base import merge_metrics
@@ -265,7 +268,6 @@ class REDQ(
         )
         value_aux, value_metrics, batch, carries, critics_before = last
         critic_state = agent_state.critic_state
-        timestep = agent_state.collector_state.timestep
         stepped, policy_aux, log_probs, policy_metrics = self.update_actor(
             agent_state.replace(
                 critic_state=critic_state.replace(params=critics_before)
@@ -275,24 +277,16 @@ class REDQ(
             context,
         )
         stepped = stepped.replace(critic_state=critic_state, alpha=learned)
-        # The actor step runs from the first update, since its log-probs feed
-        # the temperature's, and is kept from policy_update_start.
-        agent_state, (policy_aux, policy_metrics) = update_steps.run_actor_if(
-            self.policy_update_due(timestep),
-            lambda _: (stepped, (policy_aux, policy_metrics)),
-            agent_state.replace(alpha=learned),
-            keep=self.keeps_actor_metrics(),
-        )
-        tempered, temperature_aux = update_temperature(
-            agent_state,
-            log_probs,
-            self.target_entropy_at(timestep),
-            compute_temperature_loss,
-        )
-        agent_state = update_steps.run_if(
-            self.temperature_update_due(timestep, context.extensions),
-            lambda _: tempered,
-            agent_state,
+        agent_state, (policy_aux, policy_metrics), temperature_aux = (
+            keep_actor_then_update_temperature(
+                self,
+                agent_state.replace(alpha=learned),
+                stepped,
+                (policy_aux, policy_metrics),
+                log_probs,
+                context.extensions,
+                compute_temperature_loss,
+            )
         )
         return agent_state, AuxiliaryLogs(
             temperature=temperature_aux,
@@ -347,9 +341,6 @@ class REDQ(
                 carries,
             )
 
-        predictions, target_value_at = critic_value_readers(
-            agent_state.critic_state, batch.obs, batch.action
-        )
         agent_state, aux, _, metrics = update_steps.critic_step(
             agent_state,
             batch,
@@ -365,8 +356,6 @@ class REDQ(
             next_actions=next_actions,
             critic_subset=critic_subset,
             next_values=next_values,
-            predictions=predictions,
-            target_value_at=target_value_at,
         )
         return agent_state, aux, metrics
 
@@ -380,38 +369,13 @@ class REDQ(
         """The actor step on alpha log pi(a|s) - mean_i Q_i(s, a), the
         critics scoring a residual policy's executed actions; also returns
         its sample's log-probs, which the temperature step reads."""
-        actor_key = update_steps.derive_actor_key(agent_state)
-        alpha = get_alpha(agent_state)
-        critic_state = agent_state.critic_state
-        scored = context.make_scored_actions(batch)
-
-        def policy_loss(params: FrozenDict) -> tuple[jax.Array, Any, jax.Array]:
-            loss, (log_probs, q_values, policy) = compute_soft_policy_loss(
-                params,
-                agent_state.actor_state,
-                critic_state,
-                batch.obs,
-                alpha,
-                actor_key,
-                carries,
-                jnp.mean,
-                scored.map_actions,
-            )
-            return loss, (loss, log_probs, q_values), policy.mean()
-
-        actor_state, (loss, log_probs, q_mean), _, metrics = update_steps.actor_step(
-            agent_state,
-            policy_loss,
-            context.extensions,
-            actor_key,
-            context.total_timesteps,
-            batch,
-            critic_state,
+        agent_state, loss, log_probs, q_mean, metrics = update_soft_actor(
+            agent_state, batch, carries, context, compute_soft_policy_loss, jnp.mean
         )
         aux = PolicyAuxiliaries(
             policy_loss=loss, log_pi=log_probs.mean(), q_mean=q_mean.mean()
         )
-        return agent_state.replace(actor_state=actor_state), aux, log_probs, metrics
+        return agent_state, aux, log_probs, metrics
 
     # -- What extensions may rely on (ajax.extensions.capabilities) ----------
     name = "REDQ"
@@ -476,7 +440,7 @@ def read_temperature(agent_state: REDQState) -> REDQState:
 def compute_redq_td_target(
     actor_state: LoadedTrainState,
     critic_states: LoadedTrainState,
-    rng: jax.Array,
+    key: jax.Array,
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
@@ -493,8 +457,7 @@ def compute_redq_td_target(
     flowing back through it, the next actions' log-probs, the next actions,
     the subset's indices and the value bootstrapped before gamma and the
     cut."""
-    rewards = rewards * reward_scale
-    sample_key, subset_key = jax.random.split(rng)
+    sample_key, subset_key = jax.random.split(key)
     next_actions, log_probs = sample_next_actions(
         actor_state, next_observations, sample_key, carries, map_next_actions
     )
@@ -522,8 +485,9 @@ def compute_redq_td_target(
         bootstrap=True,
     )
     min_q_target = jnp.min(q_targets, axis=0)
-
-    target = rewards + gamma * (1.0 - dones) * (min_q_target - alpha * log_probs)
+    target = compute_soft_bellman_target(
+        min_q_target, log_probs, rewards, dones, gamma, alpha, reward_scale
+    )
     next_values = jax.lax.stop_gradient(min_q_target - alpha * log_probs)
     return (
         jax.lax.stop_gradient(target),
@@ -580,7 +544,7 @@ def q_ensemble_divergence(q_preds: jax.Array) -> tuple[jax.Array, jax.Array]:
     return ensemble_std, mean_pairwise
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class REDQState(SoftActorCriticState):
     """REDQ's state: a soft actor-critic's, nothing more."""

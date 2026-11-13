@@ -55,7 +55,7 @@ def _call_target(
     return compute_td3_td_target(
         actor_state=td3_state.actor_state,
         critic_state=td3_state.critic_state,
-        rng=jax.random.PRNGKey(seed),
+        key=jax.random.PRNGKey(seed),
         next_observations=jnp.zeros((env_config.n_envs, *obs_shape)),
         dones=jnp.full((env_config.n_envs, 1), done),
         rewards=jnp.full((env_config.n_envs, 1), reward),

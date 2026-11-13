@@ -1,7 +1,9 @@
 # Agent benchmark
 
 Every agent at its default settings, with 10 seeds each, apart from `n_envs`,
-which follows each agent's paper. How Ajax's agents
+which follows each agent's paper. DreamerV3 also keeps its replay in host
+memory (`replay_on_host=True`), which gives the same numbers with less GPU
+memory. How Ajax's agents
 compare with other implementations is in the [results](results.md).
 
 ## Setup

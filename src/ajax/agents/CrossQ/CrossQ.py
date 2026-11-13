@@ -36,11 +36,7 @@ from flax import struct
 from flax.serialization import to_state_dict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import (
-    CoreCriticAux,
-    compute_q_regression_loss,
-    critic_value_readers,
-)
+from ajax.agents.critics import CoreCriticAux, compute_q_regression_loss
 from ajax.agents.families import (
     EntropyTemperature,
     ExpertGuided,
@@ -63,7 +59,7 @@ from ajax.agents.temperature import (
     TemperatureAuxiliaries,
     create_alpha_train_state,
     get_alpha,
-    update_temperature,
+    update_temperature_when_due,
 )
 from ajax.extensions.base import merge_metrics
 from ajax.networks.networks import (
@@ -217,7 +213,9 @@ class CrossQ(
         dones = update_steps.bootstrap_cuts(batch.terminated, context.extensions)
         # The critic's value at given rows, at its running statistics (the
         # reference point's); its predictions are the loss's own pass, below.
-        _, target_value_at = critic_value_readers(critic_state, batch.obs, batch.action)
+        _, target_value_at = update_steps.critic_value_readers(
+            critic_state, batch.obs, batch.action
+        )
 
         def critic_loss(params: Any) -> tuple[jax.Array, Any]:
             q_values, batch_stats = predict_value_updating_batch_statistics(
@@ -317,19 +315,14 @@ class CrossQ(
             )
         )
         actor_state = actor_state.replace(batch_stats=batch_stats)
-        # The authors' temperature loss: alpha, not log alpha, times the gap.
         agent_state = agent_state.replace(actor_state=actor_state)
-        timestep = agent_state.collector_state.timestep
-        tempered, temperature = update_temperature(
+        # The authors' temperature loss: alpha, not log alpha, times the gap.
+        agent_state, temperature = update_temperature_when_due(
+            self,
             agent_state,
             jax.lax.stop_gradient(log_probs),
-            self.target_entropy_at(timestep),
+            context.extensions,
             compute_alpha_temperature_loss,
-        )
-        agent_state = update_steps.run_if(
-            self.temperature_update_due(timestep, context.extensions),
-            lambda _: tempered,
-            agent_state,
         )
         return agent_state, (aux, temperature, metrics)
 
@@ -367,7 +360,7 @@ def make_batch_renorm_mlp(width: int) -> tuple[str, ...]:
     return ("batchrenorm", *layer, *layer)
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class CrossQState(SoftActorCriticState):
     """CrossQ's state: a soft actor-critic's, its critics without targets."""

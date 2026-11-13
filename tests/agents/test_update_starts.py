@@ -40,11 +40,11 @@ NO_WAIT = {"policy_update_start": 0, "alpha_update_start": 0}
 STEPS = 24
 
 
-def _train(cls: Any, **kwargs: Any) -> Any:
+def _train(cls: Any, steps: int = STEPS, **kwargs: Any) -> Any:
     waits = {key: 0 for key in NO_WAIT if cls is SAC and key not in kwargs}
     tiny = {key: value for key, value in TINY.items() if key in cls.field_names()}
     agent = cls(**{**tiny, **NETS[cls], **waits, **kwargs})
-    return agent.train(seed=0, n_timesteps=STEPS)[0]
+    return agent.train(seed=0, n_timesteps=steps)[0]
 
 
 def _same(first: object, second: object) -> bool:
@@ -87,6 +87,23 @@ def test_the_temperature_is_kept_from_alpha_update_start(cls: type) -> None:
     assert _same(waiting.alpha.params, untrained.alpha.params)
     assert not _same(waiting.actor_state.params, untrained.actor_state.params)
     assert not _same(_train(cls).alpha.params, untrained.alpha.params)
+
+
+def test_online_the_actor_and_temperature_wait_their_own_start() -> None:
+    """Online, the updates start at learning_starts (8) and the actor's and
+    the temperature's steps at their own start (16 env steps collected):
+    kept from the update at 16 on, none before. The bug: the online folding
+    of the starts (ReplayAgent.from_update_start) reading a start of 16 as
+    already over at the first update, so both step from 8."""
+    starts = {"policy_update_start": 16, "alpha_update_start": 16}
+    untrained = _train(SAC, learning_starts=STEPS + 1)
+    before = _train(SAC, steps=15, **starts)
+    at_start = _train(SAC, steps=16, **starts)
+    assert not _same(before.critic_state.params, untrained.critic_state.params)
+    assert _same(before.actor_state.params, untrained.actor_state.params)
+    assert _same(before.alpha.params, untrained.alpha.params)
+    assert not _same(at_start.actor_state.params, untrained.actor_state.params)
+    assert not _same(at_start.alpha.params, untrained.alpha.params)
 
 
 def test_offline_the_actor_waits_its_start_whatever_learning_starts() -> None:

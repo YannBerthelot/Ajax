@@ -31,6 +31,8 @@ step 0, the earlier attempt's records kept.
 import argparse
 import dataclasses
 import datetime
+import functools
+import inspect
 import json
 import os
 import pathlib
@@ -106,7 +108,12 @@ BENCHMARKS = {
         n_envs=10,
     ),
     "PPO": cheetah("one env, as the PPO paper's MuJoCo runs", n_envs=1),
-    "DreamerV3": cheetah("16 envs, its reference's run.num_envs"),
+    # Replay latents in host memory give the same numbers and cut GPU memory
+    # from about 8.7 to 0.7 GB per seed, so 10 seeds fit one job (PR #426).
+    "DreamerV3": cheetah(
+        "16 envs, its reference's run.num_envs; replay latents in host memory",
+        replay_on_host=True,
+    ),
     "TDMPC2": cheetah("one env, as in its paper"),
     "DQN": minatar("one env, as MinAtar's DQN baseline"),
     "PQN": minatar("128 envs, its reference's MinAtar config", n_envs=128),
@@ -205,12 +212,28 @@ EXCLUDED = {
 }
 
 
-def build(label: str) -> Any:
+#: The physics engines a MuJoCo benchmark can run on: MJX's pure JAX, and
+#: MuJoCo Warp, about five times faster on a GPU but not differentiable.
+PHYSICS = ("jax", "warp")
+
+
+def build(label: str, physics: str = "jax") -> Any:
+    """The benchmark's agent. physics="warp" builds the env with MuJoCo Warp
+    (a GPU only) and hands it to the agent with the agent's own env count."""
     import ajax
 
     benchmark = BENCHMARKS[label]
     agent = getattr(ajax, label.split("-")[0])
-    return agent(env_id=benchmark.env_id, **benchmark.options)
+    if physics == "jax":
+        return agent(env_id=benchmark.env_id, **benchmark.options)
+    from ajax.environments.create import build_env_from_id
+
+    options = dict(benchmark.options)
+    options.setdefault("n_envs", inspect.signature(agent).parameters["n_envs"].default)
+    env, env_params = build_env_from_id(
+        benchmark.env_id, n_envs=options["n_envs"], physics=physics
+    )
+    return agent(env, env_params=env_params, **options)
 
 
 def iteration_steps(agent: Any) -> int:
@@ -274,10 +297,11 @@ def machine() -> dict:
     }
 
 
-def manifest() -> dict:
+def manifest(physics: str = "jax") -> dict:
     """The commit, whether the tree was clean (the records aside), the
-    machine, JAX, the device it ran on and the XLA flags in force, which
-    change what compiles and how fast."""
+    machine, JAX, the device it ran on, the XLA flags in force, which change
+    what compiles and how fast, and the physics engine, which changes the
+    runs themselves."""
     import jax
 
     records = f":!{RESULTS.relative_to(ROOT)}"
@@ -290,6 +314,7 @@ def manifest() -> dict:
         "backend": jax.default_backend(),
         "device": jax.devices()[0].device_kind,
         "xla_flags": os.environ.get("XLA_FLAGS", ""),
+        "physics": physics,
     }
 
 
@@ -305,11 +330,11 @@ def read_records(path: pathlib.Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line]
 
 
-def time_agent(label: str, n_seeds: int, steps: int) -> dict:
+def time_agent(label: str, n_seeds: int, steps: int, physics: str = "jax") -> dict:
     """Train n_seeds one iteration past the agent's warm-up (its compile
     timed), then resume for steps rounded up to whole iterations (timed,
     its compile aside), both over the benchmark's horizon."""
-    benchmark, agent = BENCHMARKS[label], build(label)
+    benchmark, agent = BENCHMARKS[label], build(label, physics)
     unit = iteration_steps(agent)
     warm_up = round_up(warm_up_steps(agent) + unit, unit)
     measured = round_up(steps, unit)
@@ -346,7 +371,7 @@ def time_agent(label: str, n_seeds: int, steps: int) -> dict:
         "env_steps_per_s": round(n_seeds * measured / exec_s, 1),
         "peak_memory_gb": peak_memory_gb(),
         "device_peak_memory_gb": device_peak_memory_gb(),
-        "manifest": manifest(),
+        "manifest": manifest(physics),
     }
 
 
@@ -363,8 +388,9 @@ class AjaxTrainer:
         budget: int,
         eval_every: int,
         folder: pathlib.Path,
+        physics: str = "jax",
     ) -> None:
-        self.agent, self.seeds, self.folder = build(label), seeds, folder
+        self.agent, self.seeds, self.folder = build(label, physics), seeds, folder
         self.budget, self.eval_every = budget, eval_every
 
     def checkpoint(self, step: int) -> pathlib.Path:
@@ -564,10 +590,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     running.add_argument("--no-git", action="store_true", help="commit nothing")
     for command in (timing, running):
         command.add_argument("--results", type=pathlib.Path, default=RESULTS)
+        command.add_argument("--physics", choices=PHYSICS, default="jax")
     args = parser.parse_args(argv)
     if args.command == "time":
         for n_seeds in args.n_seeds:
-            record = time_agent(args.label, n_seeds, args.steps)
+            record = time_agent(args.label, n_seeds, args.steps, args.physics)
             append(args.results / "timing" / f"{args.label}.jsonl", record)
             print(json.dumps(record), flush=True)
         return 0
@@ -580,7 +607,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("commit first: every record names the commit it ran")
     name = range_name(seeds)
     folder = args.results / "checkpoints" / args.label / name
-    trainer = AjaxTrainer(args.label, seeds, budget, eval_every, folder)
+    trainer = AjaxTrainer(args.label, seeds, budget, eval_every, folder, args.physics)
     finished = run_seeds(
         args.label,
         seeds,
@@ -591,6 +618,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         (lambda *_: None) if args.no_git else commit_and_push,
         args.chunk_minutes * 60,
         args.stop_after_minutes * 60,
+        describe=functools.partial(manifest, args.physics),
         warm_up=warm_up_steps(trainer.agent),
     )
     print(

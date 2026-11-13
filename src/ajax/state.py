@@ -291,16 +291,15 @@ class BaseAgentState(Replaceable):
     # ExtensionStack; `()` -> no extensions / all stateless). See
     # `ajax.extensions.base`.
     ext_state: tuple = ()
-    # The on-policy collector's (PPO / PQN / APO / AVG) latest rollout,
-    # for measurement extensions (EVarEst-style probes) that need an
+    # The on-policy collector's (PPO, PQN, APO, AVG) latest rollout, for
+    # measurement extensions (EVarEst-style probes) that need an
     # on-state-visitation batch without a fresh rollout per evaluation;
     # off-policy agents expose their replay buffer instead
-    # (``collector_state.buffer_state``). ``None`` (no extra leaves, no
-    # memory) unless an extension reads it (``Extension.reads_last_rollout``)
-    # or ``BaseAgentConfig.expose_recent_rollout``; then the
-    # iteration's full ``(T, n_envs, ...)`` :class:`Transition` (one
-    # rollout of memory), pre-allocated at ``make_train`` time so the scan
-    # carry's structure is stable from iteration zero.
+    # (collector_state.buffer_state). None (no extra leaves, no memory)
+    # unless an extension reads it (Extension.reads_last_rollout) or the
+    # agent's expose_recent_rollout is set; then the iteration's whole
+    # (T, n_envs, ...) Transition, allocated before the first iteration so
+    # that the scan carry keeps one structure.
     last_rollout: Optional[Any] = None
     # The metrics of the actor's last step that ran, which an update whose
     # actor steps only on some updates (TD3's and CrossQ's policy delay, a
@@ -325,15 +324,6 @@ class BaseAgentState(Replaceable):
         """
         training_key, *keys = split_carry_first(self.rng, n)
         return (*keys, self.replace(rng=training_key))
-
-
-@struct.dataclass
-class BaseAgentConfig(Replaceable):
-    # Opt-in for on-policy agents (PPO, PQN, APO, AVG): keep each
-    # collection's rollout on ``BaseAgentState.last_rollout`` (see there
-    # for the cost) even when no extension reads it
-    # (``Extension.reads_last_rollout``), which keeps it anyway.
-    expose_recent_rollout: bool = False
 
 
 #: SAC's ``(low, high)`` clip of a Gaussian actor's log-std: the default of

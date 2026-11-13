@@ -30,7 +30,7 @@ from flax import struct
 from flax.core import FrozenDict
 
 from ajax.agents import update_steps
-from ajax.agents.critics import compute_mean_critic_loss, critic_value_readers
+from ajax.agents.critics import compute_mean_critic_loss
 from ajax.agents.families import (
     BELLMAN_CONTEXT,
     ExpertGuided,
@@ -224,9 +224,6 @@ class TD3(
             self.num_critics,
             clip_fraction,
         )
-        predictions, target_value_at = critic_value_readers(
-            agent_state.critic_state, batch.obs, batch.action
-        )
         agent_state, aux, grad_norm, metrics = update_steps.critic_step(
             agent_state,
             batch,
@@ -241,8 +238,6 @@ class TD3(
             reward_scale=self.reward_scale,
             next_actions=next_actions,
             next_values=next_values,
-            predictions=predictions,
-            target_value_at=target_value_at,
         )
         aux = aux.replace(grad_norm=grad_norm)
         return agent_state, aux, metrics
@@ -314,7 +309,7 @@ class TD3(
 def compute_td3_td_target(
     actor_state: LoadedTrainState,
     critic_state: LoadedTrainState,
-    rng: jax.Array,
+    key: jax.Array,
     next_observations: jax.Array,
     dones: jax.Array,
     rewards: jax.Array,
@@ -340,7 +335,7 @@ def compute_td3_td_target(
         bootstrap=True,
         target_actor=True,
     ).mean()
-    noise = jax.random.normal(rng, next_action.shape) * target_policy_noise
+    noise = jax.random.normal(key, next_action.shape) * target_policy_noise
     clip_fraction = (jnp.abs(noise) > target_noise_clip).mean()
     noise = jnp.clip(noise, -target_noise_clip, target_noise_clip)
     next_action = jnp.clip(next_action + noise, -1.0, 1.0)
@@ -444,7 +439,7 @@ def make_default_action_pipeline(
     )
 
 
-# -- State, logged metrics and the legacy view --------------------------------
+# -- State and logged metrics -------------------------------------------------
 @struct.dataclass(kw_only=True)
 class TD3State(BaseAgentState):
     """TD3 carries only actor + critic + collector (no temperature, no expert state)."""
